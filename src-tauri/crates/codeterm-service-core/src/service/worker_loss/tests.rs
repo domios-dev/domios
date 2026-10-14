@@ -7,7 +7,6 @@ use super::pending::{
     WITHHELD_NO_AGENT,
 };
 use super::*;
-use crate::api::events::SystemEvent;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
@@ -16,6 +15,7 @@ use crate::service::messenger::Delivery;
 use crate::service::plan::NewTask;
 use crate::service::pty_io::SendBatchItem;
 use crate::service::test_fixture::ServiceFixture;
+use codeterm_events::SystemEvent;
 
 struct BusyWorker {
     fx: ServiceFixture,
@@ -102,7 +102,7 @@ fn seed_busy_worker() -> BusyWorker {
 }
 
 fn worker_lost_events(
-    receiver: &mut tokio::sync::broadcast::Receiver<crate::api::events::SeqEvent>,
+    receiver: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
 ) -> Vec<serde_json::Value> {
     let mut events = Vec::new();
     while let Ok(event) = receiver.try_recv() {

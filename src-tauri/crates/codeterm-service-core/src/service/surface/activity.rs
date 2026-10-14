@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use tauri::Emitter;
 
-use crate::api::events::{EventBroadcaster, SystemEvent};
 use crate::service::ServiceContext;
+use codeterm_events::{EventBroadcaster, SystemEvent};
 
 pub(crate) const SURFACE_ACTIVITY_EVENT: &str = "surface-activity";
 const WINDOW: Duration = Duration::from_millis(250);

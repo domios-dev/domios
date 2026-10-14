@@ -11,7 +11,7 @@ impl Handle {
             .get(pipeline_id)
             .map(|job| (job.workspace_id.clone(), job.team_id.clone()));
         if let (Some(app), Some((workspace_id, team_id))) = (&self.app, scope) {
-            crate::api::events::emit_everywhere(
+            codeterm_events::emit_everywhere(
                 app,
                 "automation-graph-changed",
                 serde_json::json!({

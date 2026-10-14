@@ -89,7 +89,7 @@ impl ServiceContext {
                             "[set_agent_session_id] task ACK supervision failed tab={tab_id}: {error}"
                         );
                     }
-                    crate::api::events::emit_everywhere(
+                    codeterm_events::emit_everywhere(
                         &self.app_handle,
                         "plan-changed",
                         serde_json::json!({ "plan_id": ready.plan_id }),

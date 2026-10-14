@@ -1,5 +1,5 @@
 use super::*;
-use crate::api::events::SystemEvent;
+use codeterm_events::SystemEvent;
 
 #[test]
 fn tab_state_weak_hint_event_marks_it_non_actionable() {

@@ -13,7 +13,7 @@ impl TauriPlanEventSink {
 
 impl PlanEventSink for TauriPlanEventSink {
     fn emit_plan_changed(&self, plan_id: &str) {
-        crate::api::events::emit_everywhere(
+        codeterm_events::emit_everywhere(
             &self.app,
             "plan-changed",
             serde_json::json!({ "plan_id": plan_id }),
