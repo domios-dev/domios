@@ -1,8 +1,8 @@
 name: Release
 run-name: Release ${{ inputs.tag || github.ref_name }}
 
-# Every push to release/X.Y.Z is the release: the full test matrix and every platform build run in
-# parallel, and publication waits for all of them. Only the owner account's pushes start it.
+# Fast checks gate builds; Rust archives queue first and cancel the run on test failure.
+# Publication waits for both test stages and every platform. Only owner pushes start releases.
 on:
   push:
     branches:
@@ -174,20 +174,44 @@ jobs:
             node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
           fi
 
-  tests:
-    name: full release test matrix
+  quick-checks:
+    name: quick release checks
     needs: prepare
     if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
+      phase: fast
+      cancel_release_on_failure: true
+    permissions:
+      contents: read
+      actions: write
+    secrets: inherit
+
+  tests:
+    name: long release Rust tests
+    needs: prepare
+    if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
+    uses: ./.github/workflows/tests.yml
+    with:
+      source_ref: ${{ needs.prepare.outputs.source_sha }}
+      scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
+      phase: long
+      cancel_release_on_failure: true
+    permissions:
+      contents: read
+      actions: write
     secrets: inherit
 
   macos:
     name: macOS
-    needs: prepare
-    if: needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    needs: [prepare, quick-checks]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success'
+      && (needs.quick-checks.result == 'success'
+      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-macos-build.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -198,8 +222,12 @@ jobs:
 
   linux-arm64:
     name: Linux arm64
-    needs: prepare
-    if: needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    needs: [prepare, quick-checks]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success'
+      && (needs.quick-checks.result == 'success'
+      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-linux-arm64.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -210,8 +238,12 @@ jobs:
 
   linux-x86_64:
     name: Linux x86_64
-    needs: prepare
-    if: needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    needs: [prepare, quick-checks]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success'
+      && (needs.quick-checks.result == 'success'
+      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-linux.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -222,8 +254,12 @@ jobs:
 
   windows:
     name: Windows x64 + arm64
-    needs: prepare
-    if: needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    needs: [prepare, quick-checks]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success'
+      && (needs.quick-checks.result == 'success'
+      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-windows.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -234,7 +270,7 @@ jobs:
 
   release-manifest:
     name: release manifest, mirror, and verification
-    needs: [prepare, macos, linux-arm64, linux-x86_64, windows, tests]
+    needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]
     if: needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
@@ -246,7 +282,7 @@ jobs:
 
   frontend:
     name: frontend release
-    needs: [prepare, tests]
+    needs: [prepare, quick-checks, tests]
     if: needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'
     uses: ./.github/workflows/frontend-release.yml
     with:
