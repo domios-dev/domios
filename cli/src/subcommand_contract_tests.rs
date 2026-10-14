@@ -398,7 +398,7 @@ fn notify_send_is_canonical_and_bare_title_is_rejected() {
 // level must fail at parse time rather than reach the daemon as a runtime string.
 #[test]
 fn notify_level_flag_is_closed_and_derived_from_the_shared_set() {
-    use codeterm_types::notification::NotifyLevel;
+    use codeterm_notification_core::contract::NotifyLevel;
 
     // Derivation, not a restated triple: every member of ALL must parse.
     for expected in NotifyLevel::ALL {

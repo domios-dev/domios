@@ -1422,6 +1422,7 @@ dependencies = [
 name = "codeterm-notification-core"
 version = "0.1.0"
 dependencies = [
+ "codeterm-notify-types",
  "codeterm-types",
  "codeterm-util",
  "log",
@@ -1429,6 +1430,13 @@ dependencies = [
  "serde_json",
  "tempfile",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-notify-types"
+version = "1.6.2"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1578,6 +1586,7 @@ dependencies = [
 name = "codeterm-types"
 version = "1.6.2"
 dependencies = [
+ "codeterm-notify-types",
  "serde",
  "serde_json",
  "toml 0.8.2",

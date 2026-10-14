@@ -146,7 +146,7 @@ pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<Sup
             alert.title,
             None,
             Some(
-                if alert.level == codeterm_types::notification::NotifyLevel::Failure {
+                if alert.level == codeterm_notification_core::contract::NotifyLevel::Failure {
                     "error"
                 } else {
                     "warning"

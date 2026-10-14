@@ -19,8 +19,8 @@ use crate::service::notification::{
     create_notification_with_delivery, NotificationAdmission, NotificationOrigin, PushDispatch,
     SurfaceDispatch,
 };
+use codeterm_notification_core::contract::NotifyDestination;
 use codeterm_types::config::schema::{AgentLevelChoice, NotificationConfig};
-use codeterm_types::notification::NotifyDestination;
 
 #[test]
 fn hook_binding_fallback_is_reported_once_until_a_hook_binding_succeeds() {

@@ -7,10 +7,10 @@
 
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_bridge::bridge::traits::OutboundContent;
-use codeterm_types::config::schema::{AgentLevelChoice, AppConfig, PushChannelConfig};
-use codeterm_types::notification::{
+use codeterm_notification_core::contract::{
     adopt_caller_actions, answer_actions, CallerAction, NotifyLevel,
 };
+use codeterm_types::config::schema::{AgentLevelChoice, AppConfig, PushChannelConfig};
 use parking_lot::Mutex;
 
 use super::channel_ask::*;

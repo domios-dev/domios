@@ -797,9 +797,14 @@ fn trust_trusted_dir_by_provenance_auto_answers_no_notification() {
         crate::service::output::prompt_step_dispatch_count_for_test("pty-untrusted-repo"),
         1
     );
-    assert!(fixture.service.notif.lock().list(false).iter().all(
-        |notice| notice.level != Some(codeterm_types::notification::NotifyLevel::ActionNeeded)
-    ));
+    assert!(fixture
+        .service
+        .notif
+        .lock()
+        .list(false)
+        .iter()
+        .all(|notice| notice.level
+            != Some(codeterm_notification_core::contract::NotifyLevel::ActionNeeded)));
 }
 
 #[test]
