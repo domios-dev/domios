@@ -93,7 +93,7 @@ impl Reconciler {
                 log::warn!("[model-defaults] could not save replaced defaults: {error}");
                 return;
             }
-            crate::api::events::emit_everywhere(&service.app_handle, "config-changed", &next);
+            codeterm_events::emit_everywhere(&service.app_handle, "config-changed", &next);
         }
         notify(service, &applied);
     }

@@ -202,7 +202,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                     .claimed_sends
                     .retain(|claim| claim.send_id != send_id);
                 session.maps.lock().take_evidence(&send_id);
-                crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
                 let consumed = {
                     let mut mux = svc.mux.write();
                     let pending = mux

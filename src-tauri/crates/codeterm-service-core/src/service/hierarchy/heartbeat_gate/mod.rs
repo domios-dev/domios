@@ -21,8 +21,9 @@ mod state;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use decision::cadence;
 pub(crate) use decision::criteria_version;
-use decision::{bounded_questions, cadence, classify, error_reason, suppressed};
+use decision::{bounded_questions, classify, error_reason, suppressed};
 #[cfg(test)]
 use decision::{questions, selected_learnings};
 pub(crate) use delivery_log::{delivery_tick, DeliveryTick, TickFact};

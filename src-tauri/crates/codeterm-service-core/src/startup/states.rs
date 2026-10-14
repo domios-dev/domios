@@ -16,7 +16,7 @@ use crate::pty::screen_state::ScreenState;
 use crate::session::store::SessionStore;
 use crate::session::SessionState;
 use crate::{
-    agent, api, keepawake, mesh, service, update, AgentTrackerState, KeepAwakeStateHandle,
+    agent, keepawake, mesh, service, update, AgentTrackerState, KeepAwakeStateHandle,
     MeshStateHandle, OutputBufferState, PtyState, ReportStoreState, ResizeOwnerState,
     ScreenStateHandle, UpdateStateHandle,
 };
@@ -34,7 +34,7 @@ pub(crate) struct AppStates {
     pub(crate) screen_state: ScreenStateHandle,
     pub(crate) agent_tracker: AgentTrackerState,
     pub(crate) report_store: ReportStoreState,
-    pub(crate) event_broadcaster: api::events::EventBroadcasterState,
+    pub(crate) event_broadcaster: codeterm_events::EventBroadcasterState,
     pub(crate) update: UpdateStateHandle,
     pub(crate) mesh: MeshStateHandle,
     pub(crate) keepawake: KeepAwakeStateHandle,
@@ -244,8 +244,8 @@ pub(crate) fn init_states() -> AppStates {
         };
         Arc::new(Mutex::new(store))
     };
-    let event_broadcaster: api::events::EventBroadcasterState =
-        Arc::new(api::events::EventBroadcaster::new());
+    let event_broadcaster: codeterm_events::EventBroadcasterState =
+        Arc::new(codeterm_events::EventBroadcaster::new());
     let resize_owner: ResizeOwnerState = Arc::new(Mutex::new(
         crate::resize_owner::ResizeOwnerRegistry::default(),
     ));

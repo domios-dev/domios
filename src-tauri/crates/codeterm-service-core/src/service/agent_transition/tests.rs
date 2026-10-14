@@ -861,7 +861,7 @@ fn final_orchestrator_unlink_retains_team_and_plan_for_replacement() {
     arm_session(mux.get_tab_mut(&replacement).unwrap(), "replacement");
     crate::service::team::commit_team_member_spawn(
         &mut mux,
-        &crate::api::events::EventBroadcaster::new(),
+        &codeterm_events::EventBroadcaster::new(),
         &team_id,
         None,
         &replacement,
