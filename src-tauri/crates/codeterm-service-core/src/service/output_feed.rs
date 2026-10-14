@@ -20,6 +20,7 @@ impl ServiceContext {
         self.feed_pty_output_inner(pty_id, Some(generation), data)
     }
 
+    #[cfg(any(debug_assertions, test))]
     fn feed_pty_output_inner(
         &self,
         pty_id: &str,
