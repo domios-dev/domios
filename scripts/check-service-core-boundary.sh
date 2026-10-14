@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh verify
 # Keeps ServiceContext's inherent impls inside codeterm-service-core and ports/ free of lock and PTY internals.
 set -euo pipefail
 
