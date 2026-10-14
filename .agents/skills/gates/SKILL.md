@@ -89,9 +89,26 @@ The provider boundary guard compares exact exceptions with `origin/develop`; CI 
 ## Broad, delegate
 
 The broad gate is `.\build.ps1 release-preflight`: fmt, size, bundles,
-versions, cargo check, clippy, every workspace test, the CLI crate, tsc, knip,
+versions, cargo check, clippy, the release Rust set, tsc, knip,
 489 TS test files, biome. It runs **once, on the release SHA, immediately
 before cutting** — never per merge.
+
+The release Rust set is every `release`-tier Rust runner in
+`tests/catalogue.json` (`node scripts/test-catalogue.mjs select --tier release`):
+every src-tauri workspace member, the shell package as its lib plus
+`src-tauri/tests/main.rs`, `crates/mem-store`,
+`crates/codeterm-paths` and the CLI. `pty-fork` stays `manual`. Preflight runs it
+through `./build.sh release-rust [runner-id...]`, which runs each runner's
+`./build.sh nextest <scope>` with its `budget_secs` as the cap, keeps going past
+a red runner, prints `release-rust: RED <ids>` per failure and one closing
+summary, and skips only the `stale` and this platform's `platform_red` markers of
+`tests/catalogue.overlay.json`. A red is fixed or recorded there as
+`platform_red` with platforms, reason and owner; never `#[ignore]` it or narrow
+a filter. A runner whose catalogue inventory holds no test passes nextest's
+no-tests check; every other runner fails it. The CI archive
+(`scripts/ci-rust-archives.mjs`) archives the same runners placed on
+`tests.yml:rust-shards`; the input crates keep their own
+`tests.yml:rust-input-platform` job.
 
 Delegate it:
 
@@ -105,6 +122,7 @@ The brief must say: run `.\build.ps1 release-preflight` with **no**
 report back with `codeterm agent report`:
 
 - the exit code,
+- every `release-rust: RED` line and the closing `release-rust:` summary,
 - the count of `test result: FAILED` lines (not the last result line),
 - every `✗ FAILED:` TS file,
 - the first real error for each distinct failure, with its file and line,

@@ -191,6 +191,15 @@
           "description": "Cargo manifest the runner builds with, for Rust entries.",
           "$ref": "#/$defs/repoPath"
         },
+        "cargo_targets": {
+          "description": "Cargo target selection the CI archive builds for a Rust entry; absent means --lib.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^(--lib|--all-targets|--test|[a-z0-9_-]+)$"
+          }
+        },
         "platforms": {
           "type": "array",
           "uniqueItems": true,
@@ -207,7 +216,7 @@
           ]
         },
         "ci": {
-          "description": "Current CI placement as workflow:job (informative; ci-tiers wires tiers from the catalogue).",
+          "description": "Current CI placement as workflow:job. scripts/ci-rust-archives.mjs archives the release Rust runners placed on tests.yml:rust-shards; the rest is informative.",
           "type": "array",
           "uniqueItems": true,
           "items": {
