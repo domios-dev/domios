@@ -366,6 +366,58 @@ jobs:
           if-no-files-found: error
       - *cancel-release-after-receipts
 
+  rust-input-platform:
+    name: native recording crates (${{ matrix.os }})
+    needs: changed
+    if: ${{ inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' }}
+    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: Linux
+            label: linux-ci
+          - os: macOS
+            label: rust-shard
+          - os: Windows
+            label: windows-ci
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Prepare runner tool paths
+        run: node scripts/ci-runner-paths.mjs
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Compile and run only the recording crates
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build.sh nextest input-platform 2>&1 | tee input-platform.log
+      - *cancel-release-on-failure
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          overwrite: true
+          name: input-platform-${{ matrix.os }}
+          path: input-platform.log
+          if-no-files-found: error
+      - *cancel-release-after-receipts
+
   rust-platform:
     name: rust platform (${{ matrix.os }})
     needs: [changed, rust-archives]
@@ -427,7 +479,7 @@ jobs:
 
   rust-coverage:
     name: rust complete coverage
-    needs: [changed, rust-archives, rust-shards, rust-platform]
+    needs: [changed, rust-archives, rust-shards, rust-platform, rust-input-platform]
     if: ${{ inputs.phase != 'fast' && (always() && needs.changed.outputs.heavy == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -457,7 +509,8 @@ jobs:
           ARCHIVES_RESULT: ${{ needs.rust-archives.result }}
           SHARDS_RESULT: ${{ needs.rust-shards.result }}
           PLATFORM_RESULT: ${{ needs.rust-platform.result }}
-        run: node -e "if (process.env.ARCHIVES_RESULT !== 'success' || process.env.SHARDS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success') process.exit(1)"
+          INPUT_PLATFORM_RESULT: ${{ needs.rust-input-platform.result }}
+        run: node -e "if (process.env.ARCHIVES_RESULT !== 'success' || process.env.SHARDS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success' || process.env.INPUT_PLATFORM_RESULT !== 'success') process.exit(1)"
       - name: Prove exhaustive coverage and report runners
         run: node scripts/ci-rust-shards.mjs verify ci-rust-receipts ci-rust-builds
       - *cancel-release-on-failure
