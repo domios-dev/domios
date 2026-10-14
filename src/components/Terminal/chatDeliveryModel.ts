@@ -1,4 +1,4 @@
-import type { ChatSend, NormalizedChatMessage } from "@codeterm/chat-core";
+import type { ChatSend, SendEcho, NormalizedChatMessage } from "@codeterm/chat-core";
 import { normalizeChatText, timestampMs } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import type { CapsuleRegistry } from "./composerCapsules";
@@ -12,7 +12,7 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
+export type DeliverySend = ChatSend & { dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
 
 export function deliveryState(send: DeliverySend): DeliveryState {
   if (send.status?.state === "failed" || (!send.status && send.requestFailed)) return "failed";
@@ -94,10 +94,23 @@ export function reconcileDeliveryStatusesModel(
 export function deliveryProjectionSends(
   sends: readonly DeliverySend[], resetCutoffMs: number | null = null,
 ): readonly (DeliverySend & { echoEligible: boolean })[] {
-  return sends.filter((send) => resetCutoffMs == null || deliveryState(send) === "failed" || send.sentAtMs >= resetCutoffMs)
+  return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) === "failed" || send.sentAtMs >= resetCutoffMs)
     .map((send) => ({
       ...send,
       echoEligible: deliveryState(send) !== "failed",
       flowAtMs: send.sentAtMs,
     }));
+}
+
+export function canDeleteChatSend(send: DeliverySend): boolean {
+  return !send.dismissed && !!send.correlationId && !send.status?.system_send
+    && deliveryState(send) !== "delivered"
+    && (!!send.status || deliveryState(send) === "failed" || deliveryState(send) === "uncertain");
+}
+
+export function visibleDeliveryRows(
+  rows: readonly NormalizedChatMessage[], sends: readonly DeliverySend[], echoes?: ReadonlyMap<string, SendEcho>,
+): NormalizedChatMessage[] {
+  const reconciled = echoes ? sends.map((send) => ({ ...send, echo: send.echo ?? echoes.get(send.id) })) : sends;
+  return rows.filter((row) => !sendForRow(reconciled, row)?.dismissed);
 }

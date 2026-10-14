@@ -21,6 +21,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(tab_routes::chat_send_text).get(tab_routes::chat_send_status),
         )
         .route(
+            "/api/tabs/{id}/chat-send/dismissals",
+            get(tab_routes::chat_send_dismissals).post(tab_routes::chat_send_delete),
+        )
+        .route(
             "/api/tabs/{id}/chat-send/admissions",
             post(tab_routes::chat_send_admissions),
         )

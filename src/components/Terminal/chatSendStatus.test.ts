@@ -39,7 +39,7 @@ test("restart reconciliation wires durable states onto each persisted held bubbl
     assert.equal(sends[0].id, "bubble");
     assert.equal(sends[0].status?.state, state);
     assert.equal(sends[0].status?.ledger_id, "new-daemon");
-    assert.deepEqual(calls, [{ command: "chat_send_status", args: { tabId } }]);
+    assert.deepEqual(calls, [{ command: "chat_send_status", args: { tabId } }, { command: "chat_send_dismissals", args: { tabId } }]);
     assert.equal(beginChatSendRetry(tabId, "bubble") !== undefined, state === "failed");
   }
 });
@@ -155,4 +155,58 @@ test("model command hold shows queued, then sending and delivered on the same bu
   assert.equal(deliveryState(delivered), "delivered");
   assert.equal(delivered.id, original.id);
   assert.equal(submissions, 1);
+});
+
+test("Delete persists a dismissal with one RPC and never submits or retries its payload", async () => {
+  const { deleteTrackedChatMessage } = await import("./chatSendStatus");
+  const tabId = "delete-rpc";
+  const original = { id: "delete-bubble", correlationId: "delete-token", content: "opaque", sentAtMs: 1700000000000 };
+  addChatSend(tabId, original);
+  observeDeliveryStatus({ ...heldStatus(), tab_id: tabId, correlationId: original.correlationId, state: "failed" });
+  const calls: string[] = [];
+  let release!: (receipt: unknown) => void;
+  __setInvokeForTest(async <T>(command: string) => {
+    calls.push(command);
+    return await new Promise<unknown>((resolve) => { release = resolve; }) as T;
+  });
+  const deleting = deleteTrackedChatMessage(tabId, original.id);
+  assert.equal(beginChatSendRetry(tabId, original.id), undefined);
+  await deleteTrackedChatMessage(tabId, original.id);
+  assert.equal(readChatSends(tabId)[0].dismissed, undefined);
+  release({ send_id: "send-1", send: original });
+  await deleting;
+  forgetChatSendsInMemory();
+  assert.equal(readChatSends(tabId)[0].dismissed, true);
+  assert.deepEqual(calls, ["chat_send_delete"]);
+  assert.equal(beginChatSendRetry(tabId, original.id), undefined);
+  __setInvokeForTest(null);
+});
+
+test("Delete rejects a delivered bubble before making an RPC", async () => {
+  const { deleteTrackedChatMessage } = await import("./chatSendStatus");
+  const tabId = "delete-delivered";
+  addChatSend(tabId, { id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 1 });
+  observeDeliveryStatus({ ...heldStatus(), tab_id: tabId, correlationId: "token", state: "delivered" });
+  let invoked = false;
+  __setInvokeForTest(async <T>() => { invoked = true; return undefined as T; });
+  await deleteTrackedChatMessage(tabId, "bubble");
+  assert.equal(invoked, false);
+  __setInvokeForTest(null);
+});
+
+test("an uncertain admission can be dismissed by its client token without replay", async () => {
+  const { deleteTrackedChatMessage } = await import("./chatSendStatus");
+  const tabId = "delete-no-receipt";
+  const original = { id: "no-receipt", correlationId: "pending-token", content: "opaque", sentAtMs: 1, requestUncertain: true };
+  addChatSend(tabId, original);
+  let request: Record<string, unknown> | undefined;
+  __setInvokeForTest(async <T>(command: string, args?: Record<string, unknown>) => {
+    assert.equal(command, "chat_send_delete");
+    request = args;
+    return { send_id: original.id, send: original } as T;
+  });
+  await deleteTrackedChatMessage(tabId, original.id);
+  assert.equal((request?.dismissal as { send_id: string }).send_id, original.id);
+  assert.equal(readChatSends(tabId)[0].dismissed, true);
+  __setInvokeForTest(null);
 });

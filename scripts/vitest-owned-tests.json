@@ -207,5 +207,6 @@
   "src/components/Terminal/RuntimeQuestionCard.test.tsx",
   "src/lib/modelSwitchFailure.test.ts",
   "src/components/Terminal/RuntimeLoginActions.test.tsx",
-  "src/components/Terminal/chatTime.wiring.test.tsx"
+  "src/components/Terminal/chatTime.wiring.test.tsx",
+  "src/components/Terminal/ChatSendDelete.test.tsx"
 ]
