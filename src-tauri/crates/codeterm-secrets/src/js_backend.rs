@@ -80,7 +80,7 @@ struct GetOut {
 
 /// The `secretUnlock` argument. `persistForAutoUnlock` is always serialized as a
 /// bool so a drop-in never infers consent from an absent field.
-pub(crate) fn unlock_args(creds: &UnlockCredentials) -> serde_json::Value {
+pub fn unlock_args(creds: &UnlockCredentials) -> serde_json::Value {
     json!({
         "masterPassword": creds.master_password.expose_secret(),
         "twoFactorToken": creds.two_factor_token.as_ref().map(|t| t.expose_secret()),
