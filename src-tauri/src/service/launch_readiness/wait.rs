@@ -32,6 +32,20 @@ impl ServiceContext {
                     let _ = settled.send(LaunchSettlement::OwnerPromptDeadline { reason });
                     return;
                 }
+                LaunchObservation::SuspectedExit { exit_code, proof } => {
+                    svc.handle_proven_provider_exit(
+                        &attempt.tab_id,
+                        &attempt.pty_id,
+                        exit_code,
+                        &proof,
+                    );
+                    let settlement = take_published_failure(&attempt)
+                        .map(|reason| LaunchSettlement::Failed { reason, exit_code })
+                        .unwrap_or(LaunchSettlement::Superseded);
+                    retire_attempt(&attempt);
+                    let _ = settled.send(settlement);
+                    return;
+                }
                 LaunchObservation::Deadline
                     if svc.confirm_resumed_launch_session(&attempt.tab_id) =>
                 {

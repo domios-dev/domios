@@ -128,6 +128,7 @@ pub(crate) struct LaunchExitProof {
     source: LaunchExitSource,
     tree_key: Option<crate::service::process_tree::ProviderTreeKey>,
     tree_evidence: String,
+    deferred: bool,
 }
 
 impl LaunchExitProof {
@@ -164,6 +165,8 @@ impl LaunchExitProof {
             source: LaunchExitSource::FinishedMarker,
             tree_key: Some(observation.key().clone()),
             tree_evidence: format!("finished-marker+{tree_evidence}"),
+            deferred: !observation.proves_exit_from_finished_marker()
+                && exit_code.is_none_or(|code| code == 0),
         })
     }
 
@@ -178,6 +181,7 @@ impl LaunchExitProof {
             source: LaunchExitSource::LifecycleClear,
             tree_key: Some(observation.key().clone()),
             tree_evidence: observation.evidence().to_string(),
+            deferred: false,
         })
     }
 
@@ -187,7 +191,15 @@ impl LaunchExitProof {
             source: LaunchExitSource::ConfirmedPtyExit,
             tree_key: None,
             tree_evidence: evidence.to_string(),
+            deferred: false,
         }
+    }
+
+    /// A clean exit seen before the provider ever appeared in the tab's tree
+    /// cannot tell the launch command's end from an earlier shell cycle; only
+    /// the startup deadline may turn it into a failure.
+    pub(crate) fn is_deferred(&self) -> bool {
+        self.deferred
     }
 
     pub(crate) fn attempt(&self) -> &LaunchAttempt {
@@ -224,6 +236,12 @@ pub(crate) enum LaunchObservation {
     Deadline,
     OwnerDeadline {
         question: String,
+    },
+    /// The deadline elapsed with no binding while a clean pre-sighting exit
+    /// was still the only evidence about the launch.
+    SuspectedExit {
+        exit_code: Option<i32>,
+        proof: LaunchExitProof,
     },
     /// Somebody else already consumed this observation.
     Retired,
@@ -308,6 +326,8 @@ struct Armed {
     failure: Option<String>,
     owner_prompt: Option<OwnerPrompt>,
     prompt_revision: u64,
+    /// A deferred exit verdict, cleared by this launch's own acknowledgement.
+    suspected_exit: Option<(Option<i32>, LaunchExitProof)>,
 }
 
 #[derive(Clone)]
@@ -502,6 +522,7 @@ fn arm_inner(
             failure: None,
             owner_prompt,
             prompt_revision: 0,
+            suspected_exit: None,
         },
     );
     // Releases any observer still waiting on the launch this one supersedes.
@@ -528,8 +549,37 @@ fn note(
     {
         return false;
     }
+    if matches!(evidence, LaunchEvidence::Acknowledged) {
+        observed.suspected_exit = None;
+    }
     observed.evidence = Some(evidence);
     OBSERVATIONS.changed.notify_all();
+    true
+}
+
+/// Hold a deferred exit against the armed attempt it names. False when no such
+/// live, unacknowledged attempt exists, so the caller settles the exit at once.
+pub(crate) fn suspect_exit(
+    tab_id: &str,
+    pty_id: Option<&str>,
+    exit_code: Option<i32>,
+    proof: &LaunchExitProof,
+) -> bool {
+    let mut state = OBSERVATIONS.state.lock();
+    let Some(observed) = state.armed.get_mut(tab_id) else {
+        return false;
+    };
+    if proof.attempt != observed.attempt
+        || pty_id.is_some_and(|pty_id| pty_id != observed.attempt.pty_id)
+        || observed.exit_claimed
+        || observed.failure.is_some()
+        || matches!(observed.evidence, Some(LaunchEvidence::Acknowledged))
+    {
+        return false;
+    }
+    observed
+        .suspected_exit
+        .get_or_insert_with(|| (exit_code, proof.clone()));
     true
 }
 
@@ -806,6 +856,14 @@ fn observe_with_owner_prompt(
             if let Some(question) = question {
                 state.armed.remove(&attempt.tab_id);
                 return LaunchObservation::OwnerDeadline { question };
+            }
+            let suspected = state
+                .armed
+                .get(&attempt.tab_id)
+                .filter(|observed| &observed.attempt == attempt)
+                .and_then(|observed| observed.suspected_exit.clone());
+            if let Some((exit_code, proof)) = suspected {
+                return LaunchObservation::SuspectedExit { exit_code, proof };
             }
             state.armed.remove(&attempt.tab_id);
             return LaunchObservation::Deadline;
