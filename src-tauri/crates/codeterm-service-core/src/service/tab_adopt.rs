@@ -285,9 +285,9 @@ fn not_authorized(tab_id: &str) -> TabAdoptError {
 mod tests {
     use super::*;
     use crate::agent::test_provider::MockProvider;
-    use crate::api::tab_routes::{should_prepend_source, TabInputTransport};
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
+    use crate::service::input_transport::{should_prepend_source, TabInputTransport};
 
     fn tui_screen() -> &'static str {
         "╭─ agent ─╮\n│ ready   │\n╰─────────╯"

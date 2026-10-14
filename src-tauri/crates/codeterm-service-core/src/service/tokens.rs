@@ -126,6 +126,15 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
+/// Non-leaking token fingerprint for diagnostics: byte length + a short
+/// non-cryptographic hash. Never logs the token itself.
+pub(crate) fn token_fp(token: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    token.hash(&mut h);
+    format!("len={} fp={:08x}", token.len(), (h.finish() as u32))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
-use crate::commands::html_preview::{
+use crate::service::local_preview::html_preview::{
     check_local_preview_files_guarded, read_local_preview_file_guarded, LocalPreviewFile,
     LocalPreviewFiles,
 };
 
+pub(crate) mod html_preview;
 mod policy;
 mod references;
 use policy::PreviewPolicy;
@@ -48,7 +49,7 @@ fn tab_policy(
         denied.push(home.join(".ssh"));
     }
     let mut policy = PreviewPolicy::new(references, &denied)?
-        .with_uploads(&crate::api::web_routes::uploads_dir(), &configured)?;
+        .with_uploads(&crate::service::web_access::uploads_dir(), &configured)?;
     for bucket in ["chat", "images", "files"] {
         policy = policy.with_uploads(&crate::attachments::bucket_dir(bucket), &configured)?;
     }

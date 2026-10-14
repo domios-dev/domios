@@ -779,7 +779,7 @@ fn run_step(
         StepKind::Convert { from, to } => {
             let conversion = match (input_kind, input_source) {
                 (Some(kind), Some(path)) if kind == *from => super::input::convert(
-                    &svc.converter_registry,
+                    svc.ext::<std::sync::Arc<codeterm_plugin::converter::ConverterRegistry>>(),
                     path,
                     path.parent().unwrap_or_else(|| Path::new(".")),
                     *from,

@@ -256,7 +256,12 @@ fn usage_rows(svc: &ServiceContext, now_ms: i64, freshness_ms: i64) -> Vec<Usage
 }
 
 fn queue_usage_refresh(svc: &ServiceContext, provider_id: &str) {
-    if let Some(poller) = svc.usage_poller.lock().clone() {
+    if let Some(poller) = svc
+        .ext::<crate::usage::poller::UsagePollerSlot>()
+        .0
+        .lock()
+        .clone()
+    {
         poller.refresh_now(provider_id, None);
     }
 }

@@ -31,9 +31,11 @@ pub fn open_folder(path: String) -> Result<(), String> {
 /// What the OS says about desktop toasts right now, without raising a prompt.
 #[tauri::command]
 pub async fn notify_permission_state(app: crate::app_runtime::AppHandle) -> String {
-    tokio::task::spawn_blocking(move || crate::api::os_notify::toast_permission(&app).to_string())
-        .await
-        .unwrap_or_else(|_| "unknown".to_string())
+    tokio::task::spawn_blocking(move || {
+        crate::notification::os_notify::toast_permission(&app).to_string()
+    })
+    .await
+    .unwrap_or_else(|_| "unknown".to_string())
 }
 
 /// The enabling gesture: switching the surface on asks the OS, switching it off
@@ -45,7 +47,7 @@ pub async fn establish_notify_permission(
     enabling: bool,
 ) -> String {
     tokio::task::spawn_blocking(move || {
-        crate::api::os_notify::establish_toast_permission(&app, enabling).to_string()
+        crate::notification::os_notify::establish_toast_permission(&app, enabling).to_string()
     })
     .await
     .unwrap_or_else(|_| "unknown".to_string())
@@ -53,22 +55,7 @@ pub async fn establish_notify_permission(
 
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = std::process::Command::new("cmd");
-        cmd.args(["/C", "start", "", &url]);
-        crate::process_util::no_window_std(&mut cmd);
-        let _ = cmd.spawn();
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open").arg(&url).spawn();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
-    }
-    Ok(())
+    crate::service::open_url::open_url(url)
 }
 
 #[tauri::command]

@@ -5,8 +5,7 @@ use axum::{
 };
 
 use crate::api::routes::{check_auth, AppState};
-
-pub(crate) const REMOTE_TASK_DISPATCH_FEATURE: &str = "remote_task_dispatch";
+use crate::ports::socket::REMOTE_TASK_DISPATCH_FEATURE;
 
 const IDENTIFY_FEATURES: &[&str] = &[
     "multiplexer",

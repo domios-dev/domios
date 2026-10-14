@@ -82,17 +82,23 @@ impl super::super::ServiceContext {
         let root_pid = {
             let pty = self.pty.lock();
             let Some(session) = pty.get_session(&key.pty_id) else {
-                return self.provider_tree_witnesses.unavailable(key);
+                return self
+                    .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+                    .unavailable(key);
             };
             let Ok(child) = session.child.lock() else {
-                return self.provider_tree_witnesses.unavailable(key);
+                return self
+                    .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+                    .unavailable(key);
             };
             child.process_id()
         };
         let Some(root_pid) = root_pid else {
-            return self.provider_tree_witnesses.unavailable(key);
+            return self
+                .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+                .unavailable(key);
         };
-        self.provider_tree_witnesses
+        self.ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
             .observe(key, root_pid, &key.executable_name)
     }
 

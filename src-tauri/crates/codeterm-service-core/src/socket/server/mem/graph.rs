@@ -1,13 +1,13 @@
 //! Socket handlers for graph actions that are not intentionally local-only.
 
-use crate::api::mem_routes::graph::{
+use crate::mem::graph::{Entity, Relation};
+use crate::mem_ops::graph::{
     validate_canonical, GraphAliasBody, GraphCreateEntityBody, GraphInvalidateBody,
     GraphPathParams, GraphRelateBody, GraphRelatedParams, GraphTimelineParams, GraphTraverseParams,
     GraphTunnelsParams, RepairAugmentEntityBody, RepairDeleteEntityBody, RepairDeleteRelationsBody,
     RepairFindEntitiesBody, RepairFindRelationsBody, RepairMergeRelationsBody,
     RepairOrphanBlobsBody, RepairOrphanVectorsBody,
 };
-use crate::mem::graph::{Entity, Relation};
 use crate::service::ServiceState;
 
 use super::super::JsonRpcError;

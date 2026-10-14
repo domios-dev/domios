@@ -3,6 +3,10 @@ use std::path::PathBuf;
 
 use super::ServiceContext;
 
+pub(crate) struct LaunchTaskFiles(
+    pub(crate) std::sync::Arc<parking_lot::Mutex<std::collections::HashMap<String, Vec<PathBuf>>>>,
+);
+
 pub(crate) fn capture<T>(
     service: &ServiceContext,
     tab_id: &str,
@@ -13,7 +17,10 @@ pub(crate) fn capture<T>(
     let (result, mut paths) = codeterm_util::task_files::capture_in(&root, tab_id, operation);
     paths.extend(previous);
     if !paths.is_empty() {
-        let mut registry = service.launch_task_files.lock();
+        let mut registry = service
+            .ext::<crate::service::task_files::LaunchTaskFiles>()
+            .0
+            .lock();
         let owned = registry.entry(tab_id.to_string()).or_default();
         for path in paths {
             if !owned.contains(&path) {
@@ -26,7 +33,8 @@ pub(crate) fn capture<T>(
 
 pub(crate) fn retire_settings_for_launch(service: &ServiceContext, tab_id: &str, command: &str) {
     let paths: Vec<_> = service
-        .launch_task_files
+        .ext::<crate::service::task_files::LaunchTaskFiles>()
+        .0
         .lock()
         .get(tab_id)
         .into_iter()
@@ -36,7 +44,12 @@ pub(crate) fn retire_settings_for_launch(service: &ServiceContext, tab_id: &str,
         .collect();
     let root = service.agent_pad_data_dir.join("runtime/task-files");
     let removed = codeterm_util::task_files::release_paths(&root, tab_id, &paths);
-    if let Some(paths) = service.launch_task_files.lock().get_mut(tab_id) {
+    if let Some(paths) = service
+        .ext::<crate::service::task_files::LaunchTaskFiles>()
+        .0
+        .lock()
+        .get_mut(tab_id)
+    {
         paths.retain(|path| !removed.contains(path));
     }
 }
@@ -53,7 +66,8 @@ pub(crate) fn release_tab(service: &ServiceContext, tab_id: &str) -> Vec<PathBuf
         return Vec::new();
     }
     let paths = service
-        .launch_task_files
+        .ext::<crate::service::task_files::LaunchTaskFiles>()
+        .0
         .lock()
         .remove(tab_id)
         .unwrap_or_default();
@@ -71,7 +85,10 @@ pub(crate) fn sweep_after_restore(service: &ServiceContext) -> Vec<PathBuf> {
         .join("runtime")
         .join("task-files");
     let removed = codeterm_util::task_files::sweep(&root, &live_owners);
-    let mut registry = service.launch_task_files.lock();
+    let mut registry = service
+        .ext::<crate::service::task_files::LaunchTaskFiles>()
+        .0
+        .lock();
     registry.retain(|tab_id, paths| {
         if live_owners.contains(tab_id) {
             paths.retain(|path| path.exists());

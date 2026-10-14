@@ -89,11 +89,32 @@ pub struct AppState {
     pub web_dist: Option<std::path::PathBuf>,
     /// Caps concurrent full-state snapshots so a request storm cannot take the
     /// daemon down. See `api::snapshot_bound`.
-    pub snapshot_bound: crate::api::snapshot_bound::SnapshotBound,
+    pub snapshot_bound: crate::startup::snapshot_bound::SnapshotBound,
 }
 
-#[derive(Clone)]
-pub struct LocalApiRouter(pub Router);
+pub fn register_rest_hooks() {
+    crate::ports::rest::register(crate::ports::rest::RestHooks {
+        build_router: |inputs| {
+            let state = AppState {
+                svc: inputs.svc,
+                cron: inputs.cron,
+                cron_wake: inputs.cron_wake,
+                api_port: inputs.api_port,
+                update_state: inputs.update_state,
+                config: inputs.config,
+                mesh: inputs.mesh,
+                keepawake: inputs.keepawake,
+                resize_owner: inputs.resize_owner,
+                rest_api: inputs.rest_api,
+                test_clock: inputs.test_clock,
+                events: inputs.events,
+                web_dist: inputs.web_dist,
+                snapshot_bound: inputs.snapshot_bound,
+            };
+            create_router_with_frontend(state, inputs.bundles)
+        },
+    });
+}
 
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
@@ -928,7 +949,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
         .route(
-            inbound_webhook::PEBBLE_WEBHOOK_PATH,
+            crate::service::web_access::PEBBLE_WEBHOOK_PATH,
             post(inbound_webhook::receive_pebble_webhook).layer(
                 axum::extract::DefaultBodyLimit::max(inbound_webhook::MAX_WEBHOOK_REQUEST_BYTES),
             ),
@@ -965,38 +986,39 @@ pub(super) fn create_router_with_preview_admission(
             "/api/agents/general/complete-first-run",
             post(agent_routes::complete_general_agent_first_run),
         )
-        .route("/api/secrets/status", get(crate::secrets::api::status))
-        .route("/api/secrets/unlock", post(crate::secrets::api::unlock))
-        .route("/api/secrets/lock", post(crate::secrets::api::lock))
-        .route("/api/secrets/logout", post(crate::secrets::api::logout))
+        .route("/api/secrets/status", get(super::secrets_routes::status))
+        .route("/api/secrets/unlock", post(super::secrets_routes::unlock))
+        .route("/api/secrets/lock", post(super::secrets_routes::lock))
+        .route("/api/secrets/logout", post(super::secrets_routes::logout))
         .route(
             "/api/secrets/items",
-            get(crate::secrets::api::list_items).post(crate::secrets::api::save_item),
+            get(super::secrets_routes::list_items).post(super::secrets_routes::save_item),
         )
         .route(
             "/api/secrets/items/{name}",
-            get(crate::secrets::api::get_item_metadata).delete(crate::secrets::api::delete_item),
+            get(super::secrets_routes::get_item_metadata)
+                .delete(super::secrets_routes::delete_item),
         )
         .route(
             "/api/secrets/items/{name}/value",
-            post(crate::secrets::api::reveal_value),
+            post(super::secrets_routes::reveal_value),
         )
         .route(
             "/api/secrets/organizations",
-            get(crate::secrets::api::organizations),
+            get(super::secrets_routes::organizations),
         )
         .route(
             "/api/secrets/collections",
-            get(crate::secrets::api::collections),
+            get(super::secrets_routes::collections),
         )
         .route(
             "/api/secrets/backend",
-            post(crate::secrets::api::switch_backend),
+            post(super::secrets_routes::switch_backend),
         )
-        .route("/api/secrets/sync", post(crate::secrets::api::sync))
+        .route("/api/secrets/sync", post(super::secrets_routes::sync))
         .route(
             "/api/secrets/auto-unlock",
-            post(crate::secrets::api::auto_unlock),
+            post(super::secrets_routes::auto_unlock),
         )
         .route("/api/usage/latest", get(usage_routes::usage_latest))
         .route("/api/usage/history", get(usage_routes::usage_history))

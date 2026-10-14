@@ -408,8 +408,14 @@ fn task_update_core(
     crate::service::ensure_planner_task_fields_are_structural(&author, &body)
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     if body.get("status").and_then(Value::as_str) == Some("pending") {
-        (crate::rpc_bridge::bridge().recover_remote_attempts)(service, id, tid, epoch_ms(), true)
-            .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error.message))?;
+        (crate::ports::socket::bridge().recover_remote_attempts)(
+            service,
+            id,
+            tid,
+            epoch_ms(),
+            true,
+        )
+        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error.message))?;
     }
     let files = body
         .get("files")
@@ -930,7 +936,7 @@ pub async fn task_respawn(
         params["session_binding_nonce"] = serde_json::json!(caller.binding_nonce);
         let service = state.svc.clone();
         return tokio::task::spawn_blocking(move || {
-            (crate::rpc_bridge::bridge().respawn_remote)(
+            (crate::ports::socket::bridge().respawn_remote)(
                 &Some(params),
                 &service.app_handle,
                 &service,
@@ -1072,7 +1078,7 @@ pub async fn task_respawn(
         .or(created.attempt.parent_tab_id.as_deref())
         .unwrap_or(&parent_tab_id)
         .to_string();
-    let startup = crate::rpc_bridge::DispatchStartup {
+    let startup = crate::ports::socket::DispatchStartup {
         app: state.svc.app_handle.clone(),
         svc: state.svc.clone(),
         plan_id: id.clone(),
@@ -1092,7 +1098,7 @@ pub async fn task_respawn(
         spawn_command: respawn_spawn_command(&id, &tid, &draft.source_attempt.id),
     };
     std::thread::spawn(move || {
-        (crate::rpc_bridge::bridge().run_dispatch_startup)(startup, ready_rx)
+        (crate::ports::socket::bridge().run_dispatch_startup)(startup, ready_rx)
     });
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({
