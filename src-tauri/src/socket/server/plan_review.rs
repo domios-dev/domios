@@ -302,7 +302,7 @@ pub(super) fn dispatch(
                     &plan, &task_id,
                 )?;
             }
-            let worker = store.show_task(&task_id).ok().and_then(|shown| {
+            let worker = store.show_task(&task_id).and_then(|shown| {
                 shown.task.execution_attempts.last().and_then(|attempt| {
                     attempt
                         .mesh_peer

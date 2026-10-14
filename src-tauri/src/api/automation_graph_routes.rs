@@ -637,6 +637,7 @@ mod tests {
 
         #[tokio::test]
         async fn sentinel_graph_delete_removes_the_graph_from_the_list_and_persisted_file() {
+            use tauri::Listener;
             let fixture = Fixture::new(None);
             let job = fixture.create();
             let mut web_events = fixture.state.events.subscribe();
