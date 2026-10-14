@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Check, Copy, KeyRound, LoaderCircle, Monitor, SquareTerminal } from "lucide-react";
+import { Check, Copy, KeyRound, Monitor, SquareTerminal } from "lucide-react";
 import { useRuntimeLogin } from "./useRuntimeLogin";
 import { nativeBridge } from "../../lib/nativeBridge";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import { ProviderGlyph } from "../ProviderGlyph";
+import { BusyState } from "../shared/BusyState";
 
 const primary = "inline-flex items-center gap-2 rounded-md bg-[var(--ct-accent)] px-3 py-1.5 text-sm font-medium text-[var(--ct-bg)] transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-border-focus)] disabled:opacity-50";
 const quiet = "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-[var(--ct-muted-fg)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-border-focus)] disabled:opacity-50";
@@ -61,8 +62,7 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck }: {
           {pending ? <>
             {login.url && <a href={login.url} target="_blank" rel="noopener noreferrer" aria-label="Open sign-in page"
               className={primary} onClick={openLink(login.url)}>Open sign-in page</a>}
-            {!login.url && <span className="inline-flex items-center gap-2 px-1 text-sm text-[var(--ct-muted-fg)]">
-              <LoaderCircle size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Waiting for sign-in</span>}
+            {!login.url && <BusyState inline label="Waiting for sign-in" className="px-1 text-sm text-[var(--ct-muted-fg)]" />}
             <button className={quiet} type="button" disabled={busy || !login.loginId} onClick={() => { void operate({ action: "cancel" }); }}>Cancel</button>
           </> : <>
             {methods.includes("browser") && <button className={primary} type="button" disabled={busy}
