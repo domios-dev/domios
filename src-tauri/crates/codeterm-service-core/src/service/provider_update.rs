@@ -262,7 +262,7 @@ fn install(service: ServiceContext, key: String, provider_id: String, update: Up
             "[provider-update] completion persistence failed; update result unconfirmed: {error}"
         );
     }
-    crate::api::events::emit_everywhere(
+    codeterm_events::emit_everywhere(
         &service.app_handle,
         "provider-cli-completed",
         serde_json::json!({

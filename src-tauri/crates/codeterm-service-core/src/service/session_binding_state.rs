@@ -141,7 +141,7 @@ impl ServiceContext {
     pub(crate) fn emit_session_binding_state(&self, tab_id: &str) {
         self.retire_resolved_session_binding(tab_id);
         if let Some(state) = self.session_binding_state(tab_id) {
-            crate::api::events::emit_everywhere(
+            codeterm_events::emit_everywhere(
                 &self.app_handle,
                 "session-binding-state-changed",
                 state,

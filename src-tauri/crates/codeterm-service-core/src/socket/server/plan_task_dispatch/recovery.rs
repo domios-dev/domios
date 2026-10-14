@@ -95,7 +95,7 @@ pub(crate) fn publish_action_needed_event(
             "report": report.clone(),
         }),
     );
-    crate::api::events::emit_everywhere(
+    codeterm_events::emit_everywhere(
         &svc.app_handle,
         "agent-report",
         json!({

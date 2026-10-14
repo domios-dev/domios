@@ -150,7 +150,7 @@ pub fn publish(app: &crate::app_runtime::AppHandle, snapshot: &AvailabilitySnaps
         }
     };
     if changed {
-        crate::api::events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
     }
 }
 
@@ -175,7 +175,7 @@ pub fn publish_plugins(app: &crate::app_runtime::AppHandle, items: Vec<Availabil
         }
     };
     if let Some(snapshot) = next {
-        crate::api::events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
     }
 }
 
@@ -288,7 +288,7 @@ pub fn frontend_installed(app: &crate::app_runtime::AppHandle, installed: &str) 
         }
     };
     if let Some(snapshot) = next {
-        crate::api::events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
     }
 }
 
@@ -314,6 +314,6 @@ pub fn publish_frontend(app: &crate::app_runtime::AppHandle, item: AvailabilityI
         }
     };
     if let Some(snapshot) = next {
-        crate::api::events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
     }
 }

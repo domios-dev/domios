@@ -35,7 +35,7 @@ fn learning_error(error: OrchestratorLearningError) -> JsonRpcError {
 }
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+    codeterm_events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
 pub(super) fn dispatch(

@@ -19,7 +19,7 @@ impl ServiceContext {
                 .as_ref()
                 .map(|_| codeterm_types::pty::PromptKind::Structured);
         }
-        crate::api::events::emit_everywhere(
+        codeterm_events::emit_everywhere(
             &self.app_handle,
             "prompt-state-changed",
             serde_json::json!({ "tab_id": tab_id, "prompt": prompt }),
