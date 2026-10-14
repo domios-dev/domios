@@ -272,6 +272,10 @@ Canonical shell policy verification: `bash scripts/check-build-gateway-policy.sh
 Use this only when testing a production-mode build on this Windows machine. It
 does not publish a release or alter GitHub assets.
 
+A build handed to the owner to install (an owner hotfix build such as
+`X.Y.Z-bs.N`) first needs a green core-journeys run on its exact SHA; the
+gates skill's Release section owns that step.
+
 1. Start from the intended, clean release branch in the canonical checkout.
 2. After a version bump, run the idempotent preflight. It refreshes both Cargo
    lockfiles and verifies they match `package.json`:
