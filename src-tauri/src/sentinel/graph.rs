@@ -7,9 +7,8 @@ pub use codeterm_sentinel::identity::{identity, scope_revision, Identity};
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 
 use super::{
     handlers::ResultRecord,

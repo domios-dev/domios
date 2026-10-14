@@ -656,7 +656,7 @@ fn storage_sentinel_backends_stay_isolated_and_lock_held_calls_refuse() {
 
     let before = storage.revision();
     let refused = store.lock().stop(&job.id, "lock-held");
-    assert_eq!(refused.unwrap_err(), super::GUARD_FREE_REQUIRED);
+    assert_eq!(refused.unwrap_err(), super::storage::GUARD_FREE_REQUIRED);
     assert_eq!(
         storage.revision(),
         before,
@@ -794,7 +794,7 @@ fn probe_progress_survives_storage_finish_and_reload() {
     let mut job = create(&store, None, false, json!({"done":[]}));
     job.progress.record(1000, Some("waiting"), true);
     job.progress.record(61000, None, false);
-    assert!(super::commit(&store, |store| store.stage_finish(&job)).unwrap());
+    assert!(super::storage::commit(&store, |store| store.stage_finish(&job)).unwrap());
     let record = stored(&storage, &job.id).record;
     assert_eq!(record.runtime.runs_since_transition, 1);
     assert_eq!(record.runtime.last_probe_at, Some(61000));
