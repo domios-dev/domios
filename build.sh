@@ -784,7 +784,7 @@ enter_build_gateway() {
   export CT_BUILD_ARTIFACT_DIR
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
-  [ "$CMD" = check-queue ] || enter_stable_build_path
+  [ "$CMD" = check-queue ] || [ "$CMD" = check-workspace ] || enter_stable_build_path
   if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ] && [ "${CODETERM_BUILD_FINGERPRINTS:-0}" != 1 ]; then
     echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
     return
@@ -1537,6 +1537,61 @@ check_queue_worktree() {
     "$CT_GATEWAY_SCRIPT_ROOT" "$(ct_gateway_dir)" "$1" "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START"
 }
 
+enter_check_worktree() {
+  enter_cargo_gateway "$CMD $1"
+  CT_CHECK_WORKTREE="$(check_queue_worktree "$1")"
+  cd "$CT_CHECK_WORKTREE"
+  enter_stable_build_path "$CT_CHECK_WORKTREE"
+  prepare_dev_frontend_dist "$CT_CHECK_WORKTREE"
+  prepare_bundle_stubs
+  unset CARGO_INCREMENTAL
+  export CODETERM_ALLOW_EXTERNAL_TARGET=1
+}
+
+# Whole-workspace cargo check of one SHA; a Linux peer runs it so cfg(unix) paths compile once per batch.
+check_workspace_run() {
+  [ "$#" -le 1 ] || { echo "Usage: ./build.sh check-workspace [<sha>]" >&2; exit 2; }
+  local sha started status=0 out
+  sha="$(git rev-parse --verify "${1:-HEAD}^{commit}")"
+  CT_BUILD_SOURCE_SHA="$sha"
+  CT_BUILD_CRATES="workspace codeterm-cli"
+  enter_check_worktree "$sha"
+  started="$(date +%s)"
+  out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check-workspace.log"
+  : > "$out"
+  CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
+    --workspace --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+  CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/cli" cargo check --manifest-path cli/Cargo.toml \
+    --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+  check_queue_errors 20 "$status" < "$out"
+  check_queue_warnings 40 "*" < "$out" || [ "$status" != 0 ] || status=1
+  echo "check-workspace: sha=$sha os=$OSTYPE exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
+  return "$status"
+}
+
+peer_toolchain() {
+  local want rustc_v rustup_v native ok=1 tool
+  want="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+  rustup_v="$(rustup --version 2>/dev/null | awk 'NR==1{print $2}')"
+  rustc_v="$(rustc --version 2>/dev/null | awk '{print $2}')"
+  [ -n "$rustup_v" ] && [ "$rustc_v" = "$want" ] || ok=0
+  case "$OSTYPE" in
+    darwin*) native="xcode-clt=$(xcode-select -p >/dev/null 2>&1 && echo ok || echo missing)" ;;
+    linux*) native="cc=$(command -v cc >/dev/null 2>&1 && echo ok || echo missing)" ;;
+    *) native="msvc=$( (setup_env) >/dev/null 2>&1 && echo ok || echo missing)" ;;
+  esac
+  [ "${native#*=}" = ok ] || ok=0
+  for tool in node cargo-nextest sccache; do
+    command -v "$tool" >/dev/null 2>&1 || { native="$native $tool=missing"; ok=0; }
+  done
+  echo "peer-toolchain: ok=$ok rustup=${rustup_v:-missing} rustc=${rustc_v:-missing} want=$want $native"
+  [ "$ok" = 1 ]
+}
+
+peer_dispatch() {
+  exec node scripts/build-peer.mjs "$@"
+}
+
 run_check_queue_cargo() {
   local output="$1" status=0 pipeline
   shift
@@ -1604,14 +1659,8 @@ check_queue_run() {
   CT_BUILD_CRATES="$(printf '%s\n' "${pkg_args[@]}" | sed '/^-p$/d')"
   [ "$cli" != 1 ] || CT_BUILD_CRATES="${CT_BUILD_CRATES}${CT_BUILD_CRATES:+ }codeterm-cli"
   CT_BUILD_TOUCHED_FILES_COUNT="$(printf '%s\n' "$files" | sed '/^$/d' | wc -l | tr -d ' ')"
-  enter_cargo_gateway "$CMD $sha"
-  cw="$(check_queue_worktree "$sha")"
-  cd "$cw"
-  enter_stable_build_path "$cw"
-  prepare_dev_frontend_dist "$cw"
-  prepare_bundle_stubs
-  unset CARGO_INCREMENTAL
-  export CODETERM_ALLOW_EXTERNAL_TARGET=1
+  enter_check_worktree "$sha"
+  cw="$CT_CHECK_WORKTREE"
   started="$(date +%s)"
   out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check.log"
   : > "$out"
@@ -2099,6 +2148,23 @@ enter_cargo_gateway() {
 }
 
 case "$CMD" in
+  check-queue|nextest)
+    for arg in "${@:2}"; do
+      [ "$arg" != --peer ] || peer_dispatch dispatch "$CMD" "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
+    done
+    ;;
+  check-linux)
+    peer_dispatch dispatch check-linux "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
+    ;;
+  peer-setup)
+    peer_dispatch setup "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
+    ;;
+  peer-route)
+    peer_dispatch route "${@:2}"
+    ;;
+esac
+
+case "$CMD" in
   fmt-check|check|check-tests|ci-archives|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
@@ -2115,6 +2181,14 @@ CodeTerm build commands
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
+  check-queue <sha> --peer <name|auto> [--lane] [--os OS]  Same check in a mesh peer's gateway; result returns as one message
+  nextest <scope> [filterset] --peer <name|auto> [--sha SHA]  Same nextest run in a mesh peer's gateway
+  check-linux [sha] [--force]  Once per batch: cargo check --workspace --all-targets on a Linux peer
+  check-workspace [sha]       Whole-workspace cargo check of a SHA in this machine's check worktree
+  peer-setup <peer>           Clone/refresh the peer's fetch-only checkout, check its toolchain, open its status tab
+  peer-route [--os OS]        Show which peer --peer auto would pick
+  peer-status                 One PEER_STATUS line: this machine's gateway load (read by --peer auto)
+  peer-toolchain              Check rustup/rustc pin, native toolchain, node, nextest and sccache
   runner-pause MACHINE        Park MACHINE-* GitHub runners (labels -> paused; unique labels lent to a same-OS runner)
   runner-resume MACHINE       Restore MACHINE-* runner labels and return lent labels
   runner-status               List runners with labels and paused machines
@@ -2283,6 +2357,15 @@ EOF
     ;;
   check-queue)
     check_queue_run "${@:2}"
+    ;;
+  check-workspace)
+    check_workspace_run "${@:2}"
+    ;;
+  peer-status)
+    node scripts/build-peer.mjs status --gateway-dir "$(ct_gateway_dir)"
+    ;;
+  peer-toolchain)
+    peer_toolchain
     ;;
   runner-pause)
     node scripts/runner-toggle.mjs pause "${2:?runner-pause requires a machine, e.g. BLACKSTAR}"
