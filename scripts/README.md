@@ -79,11 +79,14 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-release-source-clean.sh` | CI build-gateway.yml; scripts check-build-gateway-policy.sh |
 | `check-sccache-basedir-isolation.sh` | scripts cache-policy.sh; skill build |
 | `check-script-catalog.sh` | build.sh release-preflight/verify; CI script-catalog.yml |
+| `check-service-core-boundary.sh` | build.sh verify |
 | `check-shared-sccache.sh` | skill build |
 | `check-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-shards.mjs, confirm-slow-unit-tests.mjs; skill build, testing |
 | `check-slow-unit-tests.test.mjs` | skill testing |
 | `check-visual-golden-edits.sh` | build.sh script-guards |
 | `check-windows-dev-cleanup-selection.ps1` | scripts check-build-kill-safety.sh |
+| `check-worktree.mjs` | build.sh check-queue; scripts/check-worktree.test.mjs |
+| `check-worktree.test.mjs` | build.sh script-guards |
 | `ci-runner-paths.mjs` | CI tests.yml; scripts tests/ci-runner-paths.test.mjs; skill build-machine |
 | `ci-rust-archives.mjs` | build.sh ci-archives; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs |
 | `ci-rust-classification.mjs` | scripts ci-rust-archives.mjs, ci-rust-shards.mjs |
@@ -98,6 +101,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `confirm-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs |
 | `convert-legacy-parked-tasks.py` | scripts tests/test_convert_legacy_parked_tasks.py |
 | `convert-plan-storage.rs` | scripts dev-prep.mjs |
+| `dev-build-configuration.mjs` | build.sh dev/check-queue; scripts/dev-build-configuration.test.mjs |
+| `dev-build-configuration.test.mjs` | build.sh script-guards |
 | `dev-frontend-ready.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts tests/dev-frontend-ready.test.mjs |
 | `dev-notify.sh` | build.sh helpers; scripts qa-report.sh, tests/qa-report-early-alerts.sh, tests/utility-shell-reports.test.mjs |
 | `dev-prep.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs |

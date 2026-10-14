@@ -64,6 +64,33 @@ export function formatTickAt(atMs: number): string {
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}Z`;
 }
 
+export const TICK_REASON_LABELS: Record<string, string> = {
+  same_snapshot: "unchanged since last",
+  unchanged_content: "unchanged since last",
+  low_confidence: "supporter not confident",
+  no_adapter: "supporter off",
+  healthy_snapshot: "Team is healthy",
+  not_due: "not due yet",
+  actionable_cadence: "actionable work remains",
+  delivered: "delivered",
+  pending: "delivery pending",
+  delivery_failed: "delivery failed",
+  agent_unavailable: "agent unavailable",
+};
+
+export function presentTick(tick: { atMs: number; outcome: string; spinalReason: string }) {
+  return {
+    time: formatTickAt(tick.atMs),
+    outcome: tick.outcome,
+    reason: TICK_REASON_LABELS[tick.spinalReason] ?? tick.spinalReason.replaceAll("_", " "),
+  };
+}
+
+export function formatTickRow(tick: { atMs: number; outcome: string; spinalReason: string }): string {
+  const row = presentTick(tick);
+  return `${row.time} · ${row.outcome} · ${row.reason}`;
+}
+
 export function isSystemDelayedMessage(message: { id: string; origin?: string } | undefined): boolean {
   return message?.origin === "system" || message?.id.startsWith("system:") === true;
 }
