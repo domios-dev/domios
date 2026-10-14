@@ -2,6 +2,7 @@ pub(crate) mod actions;
 mod agent_stage;
 pub(crate) mod amend;
 mod classification_policy;
+pub(crate) mod cleanup;
 pub(crate) mod classify;
 pub(crate) mod command;
 pub(crate) mod delete;
