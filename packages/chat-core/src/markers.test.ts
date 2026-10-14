@@ -1,4 +1,5 @@
 import {
+  markVoice,
   markMesh,
   markReport,
   markTab,
@@ -116,6 +117,20 @@ eq(parseMarker(contextWire)?.kind, "context_request", "context_request marker ki
 const verdictBody = '{"status":"ok","summary":"All good"}';
 const verdictWire = markWatcherVerdict(verdictBody);
 eq(verdictWire, "-=-codeterm:watcher_verdict-=-\n{\"status\":\"ok\",\"summary\":\"All good\"}", "markWatcherVerdict wire");
+
+for (const [legacy, wire] of [
+  ["-=-codeterm:voice file=/u/v.webm-=-\nпривет", markVoice("/u/v.webm", "привет")],
+  ["-=-codeterm:voice file=/u/v.webm status=untranscribed-=-\nno daemon", markVoice("/u/v.webm", null, "no daemon")],
+]) {
+  eq(parseMarker(wire), parseMarker(legacy), "old and new voice project identically");
+  eq(wire.includes(MARKER_OPEN), false, "voice producer emits no legacy marker");
+}
+eq(parseMarker('<domios type="attachment" kind="voice" path="/u/v.webm">token'), null, "unclosed voice attachment rejected");
+eq(parseMarker('prefix<domios type="attachment" kind="voice" path="/u/v.webm" />token'), null, "embedded voice is content");
+const voicePath = 'C:/voice notes/a&"b.oga';
+const voiceTranscript = 'opaque-token\n<domios from="tab">content</domios>';
+eq(parseMarker(markVoice(voicePath, voiceTranscript))?.attrs.file, voicePath, "voice path round trip");
+eq(parseMarker(markVoice(voicePath, voiceTranscript))?.payload, voiceTranscript, "agent transcript round trip");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -1,3 +1,4 @@
+import { markVoice, parseMarker } from "./markers";
 import { attachmentMarkerSegments, formatAttachmentMarker, type AttachmentMarker } from "./attachmentMarker";
 import { DOMIOS_CLOSE_TAG, parseDomiosMessage } from "./domios";
 import type { ChatSend } from "./sendOrder";
@@ -32,6 +33,12 @@ export function parseMessageParts(content: string): MessagePart[] {
 }
 
 function parseAttachmentParts(content: string): MessagePart[] {
+  const voice = parseMarker(content);
+  if (voice?.kind === "voice") {
+    return [{ kind: "attachment", attachments: [{ kind: "voice", path: voice.attrs.file, label: "voice" }],
+      content: markVoice(voice.attrs.file, voice.attrs.status === "untranscribed" ? null : voice.payload,
+        voice.attrs.status === "untranscribed" ? voice.payload : null) }];
+  }
   if (!content.includes("<domios")) return [{ kind: "text", content }];
   const parts: MessagePart[] = [];
   for (const segment of attachmentMarkerSegments(content)) {

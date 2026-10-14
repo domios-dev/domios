@@ -49,8 +49,11 @@ health_check_ttl_secs = 60
 ```
 
 When enabled, a Telegram voice/video note is transcribed before the GA sees it —
-the tab gets text, not a `file://...oga` path. Nothing to build; just point
-`daemon_url` at a live backend.
+the tab receives `<domios type="attachment" kind="voice" path="<file>" label="voice" />`
+followed by the transcript. The audio path remains available with the text. A
+`status="untranscribed"` attribute means the following text explains the failure.
+Existing transcripts using `-=-codeterm:voice file=<path>-=-` remain readable;
+new notes always use the structured attachment frame. Point `daemon_url` at a live backend.
 
 ## Standing up the STT engine (reference: local whisper)
 
@@ -110,4 +113,4 @@ A working prototype lives in the `transcribe-telegram-voice` skill scripts
 
 Transcription uses an external service; today an external dictation driver can submit through the supported tab-send API. To add a new STT backend, implement `/transcribe` and point a URL at it. Don't put the model in the binary.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

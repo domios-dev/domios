@@ -1,9 +1,10 @@
+import { localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
 import { boundedMessageLayout, expandedMessageHeight } from "./boundedMessageModel";
 import { BoundedMessageContent } from "./BoundedMessageContent";
-import React, { useMemo, useContext, useRef } from "react";
+import React, { useMemo, useContext, useRef, useState } from "react";
 import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
-import { File, Image, Info, Mic, Settings } from "lucide-react";
+import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkBareDomains, remarkCodeMetadata } from "./remarkBareDomains";
@@ -681,6 +682,16 @@ export function parseVoiceMessage(content: string): ParsedVoice | null {
 }
 
 export function VoiceCard({ v }: { v: ParsedVoice }) {
+  const [playError, setPlayError] = useState("");
+  const play = async () => {
+    if (!v.fileUrl) return;
+    try {
+      await openLocalArtifact(v.fileUrl);
+      setPlayError("");
+    } catch (error) {
+      setPlayError(error instanceof Error ? error.message : String(error));
+    }
+  };
   return (
     <div className="flex flex-col gap-1">
       <div
@@ -689,10 +700,16 @@ export function VoiceCard({ v }: { v: ParsedVoice }) {
       >
         <Mic size={13} strokeWidth={2} className="shrink-0" />
         <span className="opacity-80 font-medium shrink-0">Voice</span>
+        {v.fileUrl && localArtifactOpeningAvailable() && (
+          <button type="button" aria-label="Play voice note" title="Open audio in player" onClick={play}>
+            <Play size={13} aria-hidden />
+          </button>
+        )}
         {v.fileName && (
           <span className="opacity-40 font-mono min-w-0 break-all [overflow-wrap:anywhere]">{v.fileName}</span>
         )}
       </div>
+      {playError && <span role="alert">{playError}</span>}
       {v.transcript ? (
         <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{v.transcript}</pre>
       ) : (
