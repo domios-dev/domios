@@ -1320,12 +1320,14 @@ dependencies = [
  "codeterm-paths",
  "codeterm-types",
  "codeterm-util",
+ "hostname",
  "log",
  "parking_lot",
  "serde",
  "serde_json",
  "tempfile",
  "toml 0.8.2",
+ "url",
  "uuid",
 ]
 

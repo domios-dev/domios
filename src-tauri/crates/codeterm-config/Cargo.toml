@@ -4,6 +4,8 @@ version = "1.6.2"
 edition = "2021"
 
 [dependencies]
+hostname = "0.4.2"
+url = "2"
 codeterm-mesh = { path = "../codeterm-mesh" }
 codeterm-paths = { path = "../../../crates/codeterm-paths" }
 codeterm-types = { path = "../codeterm-types" }
