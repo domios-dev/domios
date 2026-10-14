@@ -63,8 +63,7 @@ pub fn observe(
             }
         })?
     };
-    let status =
-        codeterm_pty::multiplexer::state::tab_status_label(&tab, svc.resolved_tab_status(&tab));
+    let status = codeterm_pty::multiplexer::state::tab_status_label(&tab, svc.resolved_tab_status(&tab));
     let screen = if tab.pending_prompt.is_none()
         && status == codeterm_types::pty::TabStatus::Waiting.label()
     {

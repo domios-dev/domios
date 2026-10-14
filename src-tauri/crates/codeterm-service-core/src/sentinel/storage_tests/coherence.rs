@@ -5,9 +5,9 @@ use std::collections::BTreeSet;
 
 use super::*;
 use crate::cron::store::{CronRunInfo, CronRunStatus, CronStore};
+use codeterm_pty::multiplexer::state::MultiplexerState;
 use crate::sentinel::graph;
 use crate::service::sentinel::graph::connected_crons;
-use codeterm_pty::multiplexer::state::MultiplexerState;
 use codeterm_storage::{ScheduleUpdate, SentinelId};
 
 fn read_only(root: &Path) -> rusqlite::Connection {
@@ -87,8 +87,8 @@ fn storage_sentinel_graph_projects_one_committed_scope_with_configured_and_obser
         "the committed association is published with the new root"
     );
 
-    let (jobs, leases) = crate::sentinel::storage::committed_scope(&store, &workspace, None)
-        .expect("committed scope");
+    let (jobs, leases) =
+        crate::sentinel::storage::committed_scope(&store, &workspace, None).expect("committed scope");
     let project = |jobs: &[Sentinel]| {
         let connected = connected_crons(&crons, jobs, &workspace, None);
         graph::project(
