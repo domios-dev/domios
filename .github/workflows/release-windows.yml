@@ -303,16 +303,17 @@ jobs:
       # A dropped upload leaves a starter asset that holds the name and makes every
       # later upload of it fail opaquely, including tauri-action's own.
       - name: Build and sign release assets
-        shell: bash
+        shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           # If the signing key is encrypted, add TAURI_KEY_PASSWORD to
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Windows release runners have no bash on PATH.
         run: |
-          # shellcheck disable=SC2016
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c 'pnpm tauri build --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"'
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -Command 'pnpm tauri build --target $env:TARGET --features $env:CODETERM_RELEASE_FEATURES; exit $LASTEXITCODE'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Smoke built release bundle
         shell: pwsh
