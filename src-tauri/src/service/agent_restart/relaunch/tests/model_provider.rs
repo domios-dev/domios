@@ -19,8 +19,8 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
          INSERT INTO part VALUES ('p1', 'm1', 'ses_resume', 1000, 1000, '{\"type\":\"text\",\"text\":\"opaque-turn\"}');",
     ).unwrap();
     drop(connection);
-    let plugin =
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../plugins/provider-opencode");
+    let plugin = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
+        .join("../plugins/provider-opencode");
     let manifest: PluginManifest =
         serde_json::from_slice(&std::fs::read(plugin.join("plugin.json")).unwrap()).unwrap();
     let mut source = std::fs::read_to_string(plugin.join("plugin.js")).unwrap();

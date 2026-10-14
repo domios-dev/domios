@@ -2,7 +2,7 @@ name: tests
 
 # Full test rig on the self-hosted build farm (free, warm incremental caches).
 # The farm machines sit idle between releases — this puts them to work on every
-# heavy run: shared Rust lib+CLI shards across the farm, native cfg tests per OS.
+# heavy run: shared Rust lib+CLI shards on macOS, native cfg tests per OS.
 
 on:
   workflow_call:
@@ -16,6 +16,16 @@ on:
         required: false
         default: full
         type: string
+      phase:
+        description: all, fast (checks only), or long (Rust archives and tests)
+        required: false
+        default: all
+        type: string
+      cancel_release_on_failure:
+        description: Cancel the caller release run immediately when a Rust job fails
+        required: false
+        default: false
+        type: boolean
   pull_request:
   push:
     branches: [master]
@@ -27,8 +37,6 @@ on:
   workflow_dispatch:
   # Nightly full matrix on develop while the farm is idle, so parallel-test races
   # and flakes surface days before a release instead of on release day.
-  schedule:
-    - cron: '0 1 * * *'
 
 # A branch is tested through its pull request, never through its own pushes:
 # release/feat/lane pushes duplicated the matrix the PR already ran, and the
@@ -40,9 +48,10 @@ on:
 # the shared runners. The nightly schedule shares master's group.
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
-  group: ${{ inputs.source_ref != '' && format('release-tests-{0}-{1}', github.run_id, inputs.source_ref) || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
+  group: ${{ inputs.source_ref != '' && format('release-tests-{0}-{1}-{2}', github.run_id, inputs.source_ref, inputs.phase || 'all') || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
   cancel-in-progress: true
 
 env:
@@ -68,6 +77,9 @@ jobs:
     name: tree is new
     # Every job waits on this gate, so any free light runner takes it.
     runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 5
     outputs:
       frontend: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.frontend == 'true' }}
@@ -112,12 +124,25 @@ jobs:
           CI_FRONTEND_ONLY: ${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
+      - &cancel-release-on-failure
+        name: Cancel release builds on test failure
+        id: cancel-release
+        if: ${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_RUN_ID: ${{ github.run_id }}
+        run: gh api --method POST "repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel"
 
   plugin-metadata:
     name: plugin release contracts
     needs: changed
-    if: ${{ needs.changed.result == 'success' }}
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.result == 'success') }}
     runs-on: [self-hosted, linux-ci]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -129,12 +154,16 @@ jobs:
           node-version: '22.22.0'
       - run: node scripts/release-plugin.mjs check
       - run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+      - *cancel-release-on-failure
 
   plugins:
     name: plugin (${{ matrix.plugin.id }})
     needs: changed
-    if: ${{ needs.changed.outputs.plugins != '[]' }}
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}
     runs-on: [self-hosted, linux-ci]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -159,11 +188,16 @@ jobs:
   # Formatting is platform-independent, so it does not belong inside a platform
   # lane: gating that lane off silences the check with it, which is how 22 files
   # drifted unseen. Its own job on any free light runner, seconds long.
+      - *cancel-release-on-failure
+
   fmt:
     name: fmt
     needs: changed
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -182,12 +216,16 @@ jobs:
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
           cargo fmt --manifest-path cli/Cargo.toml --check
+      - *cancel-release-on-failure
 
   rust-archives:
     name: rust archive (${{ matrix.os }} ${{ matrix.arch }})
     needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
+    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.fmt.result == 'success') }}
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}', '${{ matrix.arch }}']
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 50
     strategy:
       fail-fast: false
@@ -225,15 +263,20 @@ jobs:
           tool: cargo-nextest@0.9.148
       - name: Prepare compile fixtures
         run: node scripts/ci-rust-prepare.mjs
+      - name: Reset compiler capture
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Compile and archive once for platform
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
         shell: bash
         run: |
           source build.sh env
           ct_configure_sccache
           ./build.sh cache-verify
-          node scripts/ci-rust-archives.mjs
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-rust-archives.mjs
+      - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           overwrite: true
@@ -250,15 +293,34 @@ jobs:
           name: rust-build-receipt-${{ matrix.os }}-${{ matrix.arch }}
           path: ci-rust-builds/*.json
           if-no-files-found: error
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: tests-${{ matrix.os }}
+          target: ${{ matrix.os == 'macOS' && 'aarch64-apple-darwin' || matrix.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
       - name: Clean compile fixtures
         if: always()
         run: node scripts/ci-rust-prepare.mjs cleanup
+      - &cancel-release-after-receipts
+        name: Cancel release builds on test failure
+        if: ${{ failure() && steps.cancel-release.outcome != 'success' && inputs.cancel_release_on_failure && inputs.source_ref != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_RUN_ID: ${{ github.run_id }}
+        run: gh api --method POST "repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel"
 
   rust-shards:
     name: rust shard (${{ matrix.shard }}/12)
     needs: [changed, rust-archives]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, rust-shard]
+    if: ${{ !cancelled() && needs.rust-archives.result == 'success' && inputs.phase != 'fast' && (needs.changed.outputs.heavy == 'true') }}
+    runs-on: [self-hosted, rust-shard, macOS]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 50
     strategy:
       fail-fast: false
@@ -284,14 +346,16 @@ jobs:
           tool: cargo-nextest@0.9.148
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: rust-archive-${{ runner.os }}-${{ runner.arch }}
+          name: rust-archive-macOS-ARM64
           path: ci-rust-archives
       - name: Prepare runtime fixtures
         run: node scripts/ci-rust-prepare.mjs runtime
       - name: Shared tests (shard ${{ matrix.shard }}/12 on ${{ runner.name }})
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
         run: node scripts/ci-rust-shards.mjs shared ${{ matrix.shard }} 12
+      - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -301,12 +365,16 @@ jobs:
             ci-rust-receipts/*.json
             ci-rust-receipts/*.log
           if-no-files-found: error
+      - *cancel-release-after-receipts
 
   rust-platform:
     name: rust platform (${{ matrix.os }})
     needs: [changed, rust-archives]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
+    if: ${{ !cancelled() && needs.rust-archives.result == 'success' && inputs.phase != 'fast' && (needs.changed.outputs.heavy == 'true') }}
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 50
     strategy:
       fail-fast: false
@@ -345,7 +413,9 @@ jobs:
       - name: Platform tests (${{ matrix.os }} on ${{ runner.name }})
         env:
           CI_RUNNER_ARCH: ${{ runner.arch }}
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
         run: node scripts/ci-rust-shards.mjs platform
+      - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -355,12 +425,16 @@ jobs:
             ci-rust-receipts/*.json
             ci-rust-receipts/*.log
           if-no-files-found: error
+      - *cancel-release-after-receipts
 
   rust-coverage:
     name: rust complete coverage
     needs: [changed, rust-archives, rust-shards, rust-platform]
-    if: ${{ always() && needs.changed.outputs.heavy == 'true' }}
+    if: ${{ inputs.phase != 'fast' && (always() && needs.changed.outputs.heavy == 'true') }}
     runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -388,12 +462,16 @@ jobs:
         run: node -e "if (process.env.ARCHIVES_RESULT !== 'success' || process.env.SHARDS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success') process.exit(1)"
       - name: Prove exhaustive coverage and report runners
         run: node scripts/ci-rust-shards.mjs verify ci-rust-receipts ci-rust-builds
+      - *cancel-release-on-failure
 
   clippy-linux:
     name: clippy (linux)
-    needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
+    needs: changed
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.heavy == 'true') }}
     runs-on: [self-hosted, linux-ci]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -417,17 +495,31 @@ jobs:
           mkdir -p dist src-tauri/bundled-cli
           [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
           node scripts/prepare-embed-stub.js
+      - name: Reset compiler capture
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: clippy (repo gate)
-        run: bash scripts/clippy-gate.sh
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash scripts/clippy-gate.sh
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: clippy-Linux
+          target: x86_64-unknown-linux-gnu
       - name: Clean 0-byte stubs
         if: always()
         run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
+      - *cancel-release-on-failure
 
   ts-static:
     name: ts static checks
     needs: changed
-    if: ${{ needs.changed.outputs.frontend == 'true' }}
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -465,12 +557,16 @@ jobs:
       - name: Biome (TS lint)
         if: ${{ !cancelled() }}
         run: pnpm lint
+      - *cancel-release-on-failure
 
   ts-types:
     name: ts generated types
     needs: changed
-    if: ${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -500,14 +596,29 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - name: Reset compiler capture
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Check Rust generated TypeScript types
-        run: pnpm types:check
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c 'pnpm types:check'
+
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: types-${{ runner.os }}
+          target: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
+      - *cancel-release-on-failure
 
   ts-unit:
     name: ts unit
     needs: changed
-    if: ${{ needs.changed.outputs.frontend == 'true' }}
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -531,12 +642,16 @@ jobs:
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Run TS unit tests
         run: pnpm test:unit
+      - *cancel-release-on-failure
 
   ts-vitest:
     name: ts vitest
     needs: changed
-    if: ${{ needs.changed.outputs.frontend == 'true' }}
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -563,12 +678,16 @@ jobs:
       # Light runners share a 16 GiB BLACKSTAR WSL VM with a heavy runner; bound the worker fanout.
       - name: Run vitest-owned TS tests
         run: pnpm test:vitest --maxWorkers=4
+      - *cancel-release-on-failure
 
   ts-plugins:
     name: plugin bundles + tests
     needs: changed
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -595,12 +714,16 @@ jobs:
       - name: Run plugin tests
         if: ${{ !cancelled() }}
         run: pnpm test:plugins
+      - *cancel-release-on-failure
 
   release-contracts:
     name: release contract tests
     needs: changed
-    if: ${{ needs.changed.outputs.rust == 'true' }}
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -640,3 +763,18 @@ jobs:
       - name: Release notes synchronization tests
         if: ${{ !cancelled() }}
         run: node --test scripts/tests/release-notes-sync.test.mjs
+      - *cancel-release-on-failure
+
+  rust-warnings:
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: write
+    needs: [changed, rust-archives, clippy-linux, ts-types]
+    if: always()
+    uses: ./.github/workflows/rust-warnings-summary.yml
+    with:
+      source_ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+      report_name: ${{ format('rust-warnings-tests-{0}-report', inputs.phase || 'all') }}
+      cancel_release_on_failure: ${{ inputs.cancel_release_on_failure }}
+      artifacts: ${{ needs.changed.outputs.heavy == 'true' && (inputs.phase == 'fast' && '["rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]' || inputs.phase == 'long' && '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc"]' || '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]') || '[]' }}

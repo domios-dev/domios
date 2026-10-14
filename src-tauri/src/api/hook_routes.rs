@@ -507,6 +507,7 @@ pub async fn hook_session_start(
                     false
                 };
             if can_short_circuit_session_start(&claim, fallback_pending, fallback_retry_available) {
+                bind_planner_session_after_claim(&state.svc, &tab_id).await?;
                 let response = unchanged_acknowledged_hook_report(
                     &state.svc,
                     &tab_id,
@@ -775,6 +776,17 @@ pub(crate) fn deferred_binding_still_applies(
         == Some(binding.previous_session_id.as_str())
 }
 
+async fn bind_planner_session_after_claim(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+) -> Result<(), (StatusCode, String)> {
+    let service = svc.clone();
+    let bound_tab = tab_id.to_string();
+    tokio::task::spawn_blocking(move || service.bind_planner_session(&bound_tab))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
 pub(crate) async fn finish_session_binding(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
@@ -788,6 +800,7 @@ pub(crate) async fn finish_session_binding(
     binding_source: crate::session::lifecycle::BindingSource,
     session_binding_hook_succeeded: bool,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    bind_planner_session_after_claim(svc, tab_id).await?;
     if claim.changed {
         crate::service::provider_signals::refresh_auth(svc, tab_id);
         if let Some(previous_session_id) = claim.prev.as_deref() {
@@ -950,7 +963,6 @@ pub(crate) async fn finish_session_binding(
 
     if !claim.changed {
         if claim.nonce_verified {
-            svc.bind_planner_session(&tab_id);
             svc.schedule_planner_replay(&tab_id);
         }
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
@@ -988,7 +1000,6 @@ pub(crate) async fn finish_session_binding(
         svc.chat_registry
             .shutdown_session(tab_id, previous_session_id);
     }
-    svc.bind_planner_session(&tab_id);
     svc.schedule_planner_replay(&tab_id);
     let persist_svc = svc.clone();
     let bound_tab_id = tab_id.to_string();

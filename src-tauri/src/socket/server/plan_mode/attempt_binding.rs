@@ -62,6 +62,19 @@ pub(super) fn dispatch(
             "same-attempt binding restoration is local-only",
         ));
     }
+    if params
+        .as_ref()
+        .and_then(|value| value.get("session_id"))
+        .is_some_and(|value| {
+            value
+                .as_str()
+                .is_none_or(|session| session.trim().is_empty())
+        })
+    {
+        return Err(super::super::plan::plan_rpc_err(
+            crate::service::plan::AttemptBindingRefusalKind::CallerSessionMismatch.refusal(),
+        ));
+    }
     let caller = super::caller(params);
     let outcome = restore_attempt_binding_for_caller(
         svc,
@@ -74,12 +87,7 @@ pub(super) fn dispatch(
         &caller,
         super::epoch_ms(),
     )
-    .map_err(|_| {
-        refused(
-            "attempt_binding_restore_refused",
-            "same-attempt binding restoration could not prove the exact current owner",
-        )
-    })?;
+    .map_err(super::super::plan::plan_rpc_err)?;
     let status = match outcome {
         AttemptBindingRestoreResult::Restored(_) => {
             super::emit_plan_changed(app, &plan_id);

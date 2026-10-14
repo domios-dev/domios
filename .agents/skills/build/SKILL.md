@@ -730,8 +730,16 @@ Without Firebase values account uses local; without a billing endpoint billing
 returns free locally and reports subscription actions unavailable. Missing
 Amplitude credentials leave queued events undelivered with unavailable status.
 Changing build-time values requires rebuilding; never commit vendor credentials.
-Before Hosting deployment, run node cloud/write-signin-config.mjs with the
-Firebase variables exported; the generated config.json remains ignored.
+Firebase Functions, admin and hosted sign-in source live in the private
+[Firebase repository](https://github.com/rollacode/codeterm-firebase), with the
+former cloud contents at its root. Follow its config generation, package checks
+and deployment procedures there. The private
+[website repository](https://github.com/rollacode/codeterm-web) owns the marketing
+site build and deployment, with the former web app at its root. Repository
+creation does not establish production readiness or authorize publishing.
+Desktop account and billing build variables above remain app dependencies.
+Preserve domios://auth/callback, domios://billing/return and authenticated
+entitlement refresh when integrating either external service.
 
 Fresh lanes may lack node_modules: pnpm exec tsc or vitest reports "Command not
 found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND for

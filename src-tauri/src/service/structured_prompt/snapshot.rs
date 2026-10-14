@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn snapshot_file_diffs_use_the_provider_mapping() {
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let manifest = crate::test_support::fixture_manifest_dir()
             .join("../plugins/provider-opencode/plugin.json");
         let provider = crate::plugin::js_runtime::loader::load_one(&manifest).unwrap();
         let fixtures: Value = serde_json::from_str(include_str!(concat!(

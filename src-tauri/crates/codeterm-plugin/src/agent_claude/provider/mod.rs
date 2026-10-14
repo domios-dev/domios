@@ -713,7 +713,7 @@ mod tests {
     #[test]
     fn current_folder_trust_prompt_parses_and_responds_from_the_refusal_focus() {
         let screen = std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
                 .join("../../../plugins/provider-claude/tests/fixtures/folder-trust")
                 .join("quick-safety-no-first.txt"),
         )

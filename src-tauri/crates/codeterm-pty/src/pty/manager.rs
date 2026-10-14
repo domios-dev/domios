@@ -872,6 +872,7 @@ impl PtyManager {
             Err(error) => Some(format!("child mutex poisoned: {error}")),
         };
         session.write_queue.close();
+        #[cfg(not(windows))]
         if let Ok(mut reader) = session.reader.lock() {
             let _ = reader.take();
         }
