@@ -1,8 +1,8 @@
-#[path = "../src/test_support.rs"]
+#[path = "../crates/codeterm-service-core/src/test_support.rs"]
 mod test_support;
 
 // vt100 ATTRIBUTED grid (bgcolor/fgcolor/inverse), where flattened text shows no marker?
-use codeterm_lib::agent::attributed_screen::{detect_picker, AttributedScreen};
+use codeterm_service_core::agent::attributed_screen::{detect_picker, AttributedScreen};
 use serde_json::Value;
 use std::collections::BTreeMap;
 

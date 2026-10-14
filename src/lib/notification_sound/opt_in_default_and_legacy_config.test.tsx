@@ -26,7 +26,7 @@ async function main() {
     "an absent field falls back to that default rather than failing to parse",
   );
 
-  const template = read("../../../src-tauri/src/config/mod.rs");
+  const template = read("../../../src-tauri/crates/codeterm-config/src/lib.rs");
   check(/^sound = false\b/m.test(template), "the written template ships it off");
 
   // 2. Absent or legacy: neither a missing master nor a stored `false` sounds,

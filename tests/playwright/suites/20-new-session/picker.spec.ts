@@ -241,7 +241,7 @@ function repoFile(rel: string): string {
   throw new Error(`could not locate ${rel} from ${process.cwd()}`);
 }
 function peerOrchGreetingSegments(): string[] {
-  const src = readFileSync(repoFile("src-tauri/src/prompts.rs"), "utf8");
+  const src = readFileSync(repoFile("src-tauri/crates/codeterm-service-core/src/prompts.rs"), "utf8");
   const m = src.match(/PEER_ORCH_GREETING\s*:\s*&str\s*=\s*"([\s\S]*?)"\s*;/);
   if (!m) throw new Error("PEER_ORCH_GREETING not found in prompts.rs");
   const raw = m[1].replace(/\\\s+/g, ""); // undo Rust string line-continuations

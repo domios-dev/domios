@@ -10,8 +10,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use codeterm_lib::mem::search::SearchConfig;
-use codeterm_lib::mem::{MemManager, SearchQuery};
+use codeterm_service_core::mem::search::SearchConfig;
+use codeterm_service_core::mem::{MemManager, SearchQuery};
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
@@ -69,7 +69,7 @@ fn load_cases() -> Vec<TestCase> {
     serde_json::from_str(raw).unwrap()
 }
 
-fn check_hit(item: &codeterm_lib::mem::MemItem, expect: &[String]) -> bool {
+fn check_hit(item: &codeterm_service_core::mem::MemItem, expect: &[String]) -> bool {
     let hay = format!("{} {}", item.title.to_lowercase(), item.body.to_lowercase());
     let matches: usize = expect
         .iter()

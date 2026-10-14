@@ -2,15 +2,15 @@
 # Caller: scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh
 # Flags obvious direct blocking calls inside async daemon command/service code.
 #
-# Scope is intentionally conservative: async fns under src-tauri/src/commands/
-# and src-tauri/src/service/. Blocking work there must move behind
+# Scope is intentionally conservative: async fns under src-tauri/crates/codeterm-service-core/src/commands/
+# and src-tauri/crates/codeterm-service-core/src/service/. Blocking work there must move behind
 # spawn_blocking, tokio::time, tokio::process, or an existing async helper.
 # Existing offenders are locked in scripts/blocking-in-async-allowlist.txt so
 # the hook stays green while still blocking new regressions.
 set -euo pipefail
 
 REPO="$(git rev-parse --show-toplevel)"
-SRC="${REPO}/src-tauri/src"
+SRC="${REPO}/src-tauri/crates/codeterm-service-core/src"
 ALLOWLIST="${REPO}/scripts/blocking-in-async-allowlist.txt"
 
 TMP="$(mktemp)"

@@ -32,6 +32,7 @@ updateJsonVersion(path.join(repoRoot, "src-tauri", "tauri.conf.json"));
 
 updateTomlPackageVersion(path.join(repoRoot, "src-tauri", "Cargo.toml"));
 updateTomlPackageVersion(path.join(repoRoot, "cli", "Cargo.toml"));
+updateTomlPackageVersion(path.join(repoRoot, "src-tauri", "crates", "codeterm-service-core", "Cargo.toml"));
 
 for (const packageDir of workspacePackages) {
   updateJsonVersion(path.join(repoRoot, packageDir, "package.json"));
