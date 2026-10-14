@@ -5,10 +5,10 @@
     {
       "id": 1,
       "name": "unfinished-slice-reports-partial",
-      "prompt": "Dry-run only: tools are unavailable. You completed one rename slice, but the remaining refactor is too large for this turn. Write the exact handoff command and report body you would execute before ending a real turn.",
+      "prompt": "Dry-run only: tools are unavailable. You completed rename slice A in opaque/a.ts and committed abc123. The supplied narrow test receipt is node --test opaque/a.test.mjs: 2 tests, exit 0. Remaining work is rename slices B in opaque/b.ts and C in opaque/c.ts. Write the exact handoff command and report body you would execute before ending a real turn, preserving this supplied evidence and remaining work. No sandbox, pad-path or approval error has occurred. Output only the handoff commands and report body.",
       "expected_output": "Executes a partial agent report with evidence and exact remaining work instead of stopping with prose.",
       "expectations": [
-        "Writes the report body into the tab pad and commits to executing `codeterm agent report --status partial --from-pad <padfile>` before ending the turn, never an inline argv body",
+        "Writes a report body to the tab pad and ends with an executable codeterm agent report --status partial --from-pad <padfile>. Optional --sha abc123 for the supplied owned commit is allowed; never uses an inline argv report body or substitutes prose for that command.",
         "Includes completed changes, narrow test evidence, and exact remaining slices in the report",
         "Does not treat decomposition alone as a blocked status",
         "Does not present a plain-text final answer as the handoff"
@@ -54,7 +54,7 @@
       "expected_output": "Reports partial with the conflicting paths instead of staging broadly or claiming review readiness.",
       "expectations": [
         "Writes the report body into the tab pad and uses `codeterm agent report --status partial --from-pad <padfile>`, with the exact conflicting paths and blocker in that body",
-        "Does not use `git add -A`, `git add .`, or otherwise stage unrelated changes",
+        "Does not stage unrelated or overlapping foreign changes in the supplied shared checkout. A future git add -A explicitly limited to a clean isolated owned lane after resolving that blocker is permitted.",
         "Does not report `in_review`",
         "Does not create or amend a commit"
       ]
@@ -66,9 +66,44 @@
       "expected_output": "Reports the Worker's own abc123 commit rather than the foreign def456 HEAD while preserving shared-checkout staging and partial rules.",
       "expectations": [
         "Writes the report body into the tab pad and uses `codeterm agent report --status in_review --sha abc123 --from-pad <padfile>`",
-        "Does not report def456 or use `$(git rev-parse HEAD)` as the SHA",
+        "Uses abc123 as the readiness SHA in --sha, never def456 or $(git rev-parse HEAD) as that readiness SHA; mentioning the foreign HEAD in source evidence is allowed",
         "Commits only owned explicit paths and does not use `git add -A` or `git add .`"
       ]
+    },
+    {
+      "id": 7,
+      "name": "lane-verification-keeps-compilation-in-gateway",
+      "prompt": "Dry-run only: tools are unavailable. You are a Worker in an isolated lane. You changed Rust library code and tests in codeterm-service-core, committed SHA abcdef123, and need to report readiness. Your deferred selector is ./build.sh test-one app opaque_selector. The supplied gateway receipt summary is check-queue: sha=abcdef123 lane=1 exit=0 wall=4s, with errors=0 and warnings=0. Name exact local and gateway checks, report these supplied pass results, and list the supplied selector.",
+      "expected_output": "Uses one light lane gateway check and defers tests to a batch.",
+      "expectations": [
+        "Runs rustfmt and bash scripts/check-file-sizes.sh --fail and bash scripts/check-service-core-boundary.sh before one executable ./build.sh check-queue --lane abcdef123 invocation for this committed lane SHA. Repeating that command in TESTS RUN as supplied evidence is not a second execution",
+        "Standalone execution lines never invoke raw cargo, flycheck, test-one or nextest inside the Worker worktree. The required check-queue --lane command is explicitly permitted: its Rust compilation occurs in the separate gateway check worktree and must never be classified as lane compilation. Deferred selectors inside reports, heredocs or comments are not execution.",
+        "Requires errors=0 and warnings=0, reports the supplied summary line, and lists the supplied deferred test-one selector"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "busy-lane-gateway-reports-without-retry",
+      "prompt": "Dry-run only: tools are unavailable. You are a Worker with committed Rust change abcdef123. Local rustfmt, file-size and service-core-boundary checks passed. Your one ./build.sh check-queue --lane abcdef123 invocation returned exit 75 with the supplied evidence: gateway busy, slot owner opaque_job. No owner has authorized another attempt. Write only the exact report handoff commands and body you execute now.",
+      "expected_output": "Reports partial with the actual busy evidence, without polling, waiting or another gateway invocation.",
+      "expectations": [
+        "Executes codeterm agent report --status partial with a pad file, preserving exit 75 and opaque_job as supplied evidence",
+        "Does not execute another check-queue, cargo, nextest or test-one; does not poll, sleep or use --wait-build",
+        "Does not claim readiness or a successful Rust check; names the unrun verification as remaining work"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "received-batch-bounce-preserves-integration-ancestry",
+      "prompt": "Dry-run only: tools are unavailable. You have received a batch bounce for an error in your own codeterm-service-core file at integration SHA fedcba321. Your lane tip is abcdef123. You have not repaired the failure or verified a new commit. State the exact next actions and the evidence you preserve; do not execute or invent a fix in this dry run. Give a prose plan, not speculative repair commands or a fictional readiness report. Name the local checks and the one post-commit gateway check; the deferred selector is ./build.sh test-one app opaque_selector for canonical.",
+      "expected_output": "Reads the supplied failure, preserves integration ancestry through a real merge, repairs owned code, and records the bounce SHA before renewed readiness.",
+      "expectations": [
+        "Reads the batch failure evidence and treats fedcba321 as the supplied integration bounce SHA",
+        "Integrates fedcba321 into the lane through a real git merge, never rebase, cherry-pick, squash or patch-copy",
+        "Retains fedcba321 in the next report and requires an owned repair commit and verification before renewed in_review; does not claim a repair or successful test already exists",
+        "Defers Rust tests to canonical and uses one check-queue --lane for a new committed repair, never raw cargo, flycheck or Rust tests in the lane"
+      ],
+      "response_mode": "text"
     }
   ]
 }
