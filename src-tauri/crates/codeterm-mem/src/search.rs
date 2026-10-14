@@ -799,10 +799,11 @@ pub fn run_vector_first(
     cfg: &SearchConfig,
 ) -> Result<Vec<SearchHit>, String> {
     let limit = q.limit.unwrap_or(5).clamp(1, 50);
-    let pool = limit * cfg.vector_rerank_pool_multiplier.max(1);
-
     #[cfg(feature = "embeddings")]
-    let raw = super::embeddings::recall(conn, &q.query, pool).unwrap_or_default();
+    let raw = {
+        let pool = limit * cfg.vector_rerank_pool_multiplier.max(1);
+        super::embeddings::recall(conn, &q.query, pool).unwrap_or_default()
+    };
     #[cfg(not(feature = "embeddings"))]
     let raw: Vec<(String, f64)> = Vec::new();
 

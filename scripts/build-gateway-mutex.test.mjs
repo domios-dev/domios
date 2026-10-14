@@ -244,3 +244,66 @@ test(`transient helper lookup ${mode} through the real mutex filesystem wait`, {
 });
 
 }
+
+test('a blocked owner probe leaves publication free and cannot reclaim a replacement owner', { timeout: 30000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mutex-probe-barrier-'));
+  const mutex = path.join(directory, 'state.lock');
+  const publishOwner = (pid, token) => {
+    fs.mkdirSync(mutex, { recursive: true });
+    fs.writeFileSync(path.join(mutex, 'pid'), pid);
+    fs.writeFileSync(path.join(mutex, 'start_token'), token);
+  };
+  publishOwner('101', 'old-token');
+  const preload = path.join(directory, 'probe-barrier.mjs');
+  fs.writeFileSync(preload, `
+    import fs from 'node:fs';
+    import cp from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    const original = cp.spawnSync;
+    cp.spawnSync = function(command, args, ...rest) {
+      if (command === 'powershell.exe' && args.join(' ').includes('GetProcessById')) return { status: 0, stdout: 'fixture-native-token' };
+      if (args?.[1]?.includes('ct_gateway_identity_alive')) {
+        if (args.at(-2) === '303') { process.stdout.write('SUCCESSOR_ALIVE\\n'); return { status: 0 }; }
+        return { status: 1 };
+      }
+      if (args?.[1]?.includes('ct_gateway_owner_gone') && args.at(-2) === '101') {
+        process.stdout.write('PROBE_BLOCKED\\n');
+        fs.readSync(0, Buffer.alloc(1), 0, 1, null);
+        return { status: 0 };
+      }
+      return original.call(this, command, args, ...rest);
+    };
+    syncBuiltinESMExports();
+  `);
+  const helper = path.join(root, 'scripts/build-gateway-mutex.mjs');
+  const argumentsFor = (operation, pid, token) => ['--import', pathToFileURL(preload).href, helper, operation, directory, pid, token, '20000', 'fixture'];
+  const child = spawn(process.execPath, argumentsFor('acquire', '202', 'new-token'), { stdio: ['pipe', 'pipe', 'pipe'] });
+  const lines = readline.createInterface({ input: child.stdout });
+  const exited = once(child, 'exit');
+  let errors = '';
+  child.stderr.on('data', chunk => { errors += chunk; });
+  const release = async (pid, token) => {
+    const releaser = spawn(process.execPath, argumentsFor('release', pid, token), { stdio: ['ignore', 'ignore', 'pipe'] });
+    let detail = '';
+    releaser.stderr.on('data', chunk => { detail += chunk; });
+    assert.equal((await once(releaser, 'exit'))[0], 0, detail);
+  };
+  try {
+    assert.equal((await once(lines, 'line'))[0], 'PROBE_BLOCKED');
+    assert.equal(fs.existsSync(path.join(directory, 'state.lock.guard')), false);
+    await release('101', 'old-token');
+    publishOwner('303', 'successor-token');
+    const successorObserved = once(lines, 'line');
+    child.stdin.write('continue\n');
+    assert.equal((await successorObserved)[0], 'SUCCESSOR_ALIVE');
+    assert.equal(fs.readFileSync(path.join(mutex, 'pid'), 'utf8'), '303');
+    await release('303', 'successor-token');
+    assert.equal((await exited)[0], 0, errors);
+    assert.equal(fs.readFileSync(path.join(mutex, 'pid'), 'utf8').trim(), '202');
+  } finally {
+    lines.close();
+    if (child.exitCode === null) child.kill('SIGKILL');
+    await exited;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

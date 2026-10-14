@@ -186,9 +186,10 @@ ct_gateway_mutex_timeout() {
 }
 
 ct_gateway_mutex_acquire() {
-  local dir="$1" self_pid="${CT_GATEWAY_MUTEX_PID:-$$}" rc=0 timeout=30000
+  local dir="$1" self_pid="${CT_GATEWAY_MUTEX_PID:-$$}" rc=0 timeout=180000
   CT_GATEWAY_MUTEX_START="$(ct_gateway_process_start_token "$self_pid")"
   [ -n "$CT_GATEWAY_MUTEX_START" ] || return 2
+  # Metadata holders probe owner liveness with subprocesses; under many queued lanes 30 s was too short a failure bound.
   if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ]; then
     timeout="${CT_GATEWAY_MUTEX_TIMEOUT_MS:-30000}"
   fi

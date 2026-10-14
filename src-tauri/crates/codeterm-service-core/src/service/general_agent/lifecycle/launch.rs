@@ -319,7 +319,7 @@ pub(super) fn start(
             provider_name,
             &ga_cwd,
             &mut params,
-            crate::service::codex_rpc::launch::Selection {
+            crate::ports::transport::Selection {
                 model: model_resolution
                     .as_ref()
                     .and_then(|resolution| resolution.model.clone()),

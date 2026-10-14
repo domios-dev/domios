@@ -1,7 +1,7 @@
 use super::SendRejection;
 use crate::service::delivery_error::DeliveryError;
 use crate::service::inject_verify::InjectionError;
-use crate::service::pty_io::{execute_ordered_actions, OrderedPtyAction};
+use crate::service::ordered_actions::{execute_ordered_actions, OrderedPtyAction};
 use axum::http::StatusCode;
 
 #[test]
