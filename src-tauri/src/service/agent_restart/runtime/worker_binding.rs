@@ -30,7 +30,19 @@ impl ServiceContext {
         nonce: &str,
         fresh: bool,
     ) -> Result<Option<RestartBindingAuthority>, String> {
-        let tab = self
+        let mut tab = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .cloned()
+            .ok_or("Runtime tab disappeared")?;
+        if tab.agent_type.as_deref() != Some(provider)
+            || tab.session_binding_nonce.as_deref() != Some(nonce)
+        {
+            return Err("Runtime restart binding changed".into());
+        }
+        self.restore_runtime_attempt_binding(tab_id)?;
+        tab = self
             .mux
             .read()
             .get_tab(tab_id)
