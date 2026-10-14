@@ -1,6 +1,5 @@
 use crate::plan::{Plan, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::DeliveryTick;
-use crate::service::plan::reminders::{orchestrator_nudge_text, worker_nudge_text};
 
 use super::{timed_plan_reminder_targets, PlanReminderTarget};
 
@@ -84,7 +83,7 @@ fn project_target(
                 id: format!("system:heartbeat:{plan_id}:{tab_id}"),
                 tab_id: tab_id.to_string(),
                 plan_id: plan_id.clone(),
-                text: orchestrator_nudge_text(plan),
+                text: String::new(),
                 cadence_ms,
                 next_due_ms,
                 reason: heartbeat_reason(plan_id, &task_ids),
@@ -103,7 +102,7 @@ fn project_target(
                 id: format!("system:heartbeat:worker:{tab_id}"),
                 tab_id: tab_id.to_string(),
                 plan_id: plan.id.clone(),
-                text: worker_nudge_text(),
+                text: String::new(),
                 cadence_ms,
                 next_due_ms,
                 reason: heartbeat_reason(&plan.id, &task_ids),
@@ -122,7 +121,8 @@ fn in_progress_ids(plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
                 .map(|tab_id| task.assigned_tab_id.as_deref() == Some(tab_id))
                 .unwrap_or(true)
         })
-        .map(|task| task.id.clone())
+        .take(5)
+        .map(crate::service::plan::reminders::composition::task_label)
         .collect()
 }
 

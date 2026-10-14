@@ -490,6 +490,15 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   padding: 0 20px;
 }
 
+.ct-system-heartbeat__content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 45vh;
+  overflow-y: auto;
+  font: inherit;
+  margin: 0;
+}
+
 .ct-delayed-modal__body textarea {
   width: 100%;
   min-height: 13rem;
