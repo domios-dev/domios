@@ -116,7 +116,7 @@ fn first_turn_session_capability_allows_readiness_without_a_resume_id() {
     ));
 }
 
-pub(crate) fn failed_launch_fixture() -> (ServiceFixture, String) {
+pub(crate) fn pre_ready_fixture() -> (ServiceFixture, String) {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     tab.agent_type = Some("opaque-provider".into());
@@ -124,8 +124,8 @@ pub(crate) fn failed_launch_fixture() -> (ServiceFixture, String) {
     tab.agent_session_id = Some("opaque-session".into());
     tab.session_binding_nonce = Some("opaque-current-nonce".into());
     tab.reported_session_binding_nonce = Some("opaque-old-nonce".into());
-    tab.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
-    tab.boot_failure_reason = Some(REFUSAL.into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentLaunching);
+    tab.boot_failure_reason = None;
     let fixture = ServiceFixture::new(mux);
     let session: crate::session::SessionState = Arc::new(Mutex::new(
         crate::session::SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
@@ -261,8 +261,8 @@ fn start_current_chat_send(
 }
 
 #[test]
-fn spawn_failed_two_accepted_user_sends_retain_originals_after_reopen() {
-    let (fixture, tab_id) = failed_launch_fixture();
+fn pre_ready_two_accepted_user_sends_retain_originals_after_reopen() {
+    let (fixture, tab_id) = pre_ready_fixture();
     let first = start_current_chat_send(&fixture, &tab_id, FIRST_PAYLOAD, "opaque-client-a");
     assert_eq!(
         fixture
@@ -281,7 +281,7 @@ fn spawn_failed_two_accepted_user_sends_retain_originals_after_reopen() {
 
 #[test]
 fn reverse_transport_completion_retains_both_accepted_originals_after_reopen() {
-    let (fixture, tab_id) = failed_launch_fixture();
+    let (fixture, tab_id) = pre_ready_fixture();
     let first = admit_current_ledger(&fixture.service, &tab_id, FIRST_PAYLOAD, "opaque-client-a");
     let second = admit_current_ledger(&fixture.service, &tab_id, SECOND_PAYLOAD, "opaque-client-b");
     let (waiting_tx, waiting_rx) = mpsc::sync_channel(1);
@@ -570,7 +570,7 @@ fn queue_fixture_with_session_mode(
     paste_limit: Option<usize>,
     lazy_session_start: bool,
 ) -> (ServiceFixture, String) {
-    let (fixture, tab) = failed_launch_fixture();
+    let (fixture, tab) = pre_ready_fixture();
     let root = fixture.temp.path().join("transcripts");
     std::fs::create_dir(&root).unwrap();
     if anchor {
