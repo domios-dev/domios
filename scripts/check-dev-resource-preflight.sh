@@ -48,7 +48,7 @@ node - <<'JS' build.sh
 const fs = require("node:fs");
 const source = fs.readFileSync(process.argv[2], "utf8");
 const dev = source.slice(source.indexOf("  dev)"), source.indexOf("  e2e)"));
-const gateway = dev.indexOf("enter_build_gateway");
+const gateway = dev.indexOf("enter_cargo_gateway");
 const preflight = dev.indexOf("prepare_dev_frontend_dist");
 const cargo = dev.indexOf("cargo build");
 if (gateway < 0 || preflight < 0 || cargo < 0 || !(gateway < preflight && preflight < cargo)) {
