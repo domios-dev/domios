@@ -16,6 +16,12 @@ describe("agent runtime state", () => {
       expect(result).toEqual(to === "loaded" ? { state: "loaded", epoch: 3 } : { state: to, epoch: 3, reason: "fault" });
     });
 
+  it.each(["loading", "unloaded", "degraded"] as const)("shows the shared banner for %s", (state) => {
+    expect(runtimeBannerView({ state, epoch: 3, reason: "opaque-fault" })).toEqual({
+      loading: state === "loading", reason: "opaque-fault", canRetry: state !== "loading",
+    });
+  });
+
   it.each(states)("hydrates %s from a restored snapshot", (state) => {
     expect(runtimeStateFromSnapshot(null, { state, epoch: 1, reason: "saved" })?.state).toBe(state);
   });
