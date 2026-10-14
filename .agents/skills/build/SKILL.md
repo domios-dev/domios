@@ -303,6 +303,32 @@ The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap 
 Troubleshooting:
 - Symptom `sccache: incremental compilation is prohibited` from `rustc -vV`: cause an exported `CARGO_INCREMENTAL`; recovery is to leave it unset (the verb unsets it) and let the profile decide.
 
+## Peer build gateways (mesh build farm)
+
+Mesh peers run the same verbs in their own gateway, with their own warm cache and stable build path, so several machines check lanes in parallel instead of queueing on one gateway. Peers and their fetch-only checkouts are listed in `.codeterm/build-machine/peers.json`; a peer marked `"routable": false` (eight, the release builder) is refused until its owner frees it, and `CODETERM_PEERS_ENABLE=eight` enables it for one call. All remote work goes through `codeterm tab new --mesh <peer> --cmd ...`; never ssh by hand, never put a credential in a command, and never touch a machine's runner pause.
+
+| Verb | What happens |
+|---|---|
+| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `rollacode/codeterm` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop`, runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. |
+| `./build.sh check-queue <sha> --peer <name\|auto> [--lane] [--os OS]` | The peer fetches `develop` and the SHA, detaches its checkout at the SHA and runs `./build.sh check-queue <sha> --wait-build` in its gateway. `--lane` is the default touched-package check; `--all`, `--touched-only`, `--max-errors`, `--max-warnings` pass through. |
+| `./build.sh nextest <scope> [filterset] --peer <name\|auto> [--sha SHA]` | Same, running `./build.sh nextest <scope> [filterset] --wait-build` at the SHA (default HEAD). |
+| `./build.sh check-linux [sha] [--force]` | Once per batch: `./build.sh check-workspace <sha>` (`cargo check --workspace --all-targets` for the app workspace and the CLI, any warning fails) on the idle Linux peer, so `cfg(unix)` paths compile. A second call for the same SHA prints the existing receipt; `--force` dispatches again. |
+| `./build.sh peer-route [--os OS]` | Shows what `--peer auto` would choose. |
+
+Dispatch returns at once with `peer-job: id=... peer=... remote-tab=... deadline=...` and writes a record under `<gateway dir>/peer-jobs/`. The SHA must be on a remote-tracking branch (push first). Completion is one message to the calling agent tab (`CODETERM_TAB_ID`, or `--reply-tab`) through `codeterm send --require-agent --mesh <origin instance id>`; nothing polls. The message starts `[peer-job <id>] peer=<peer> verb=<verb> sha=<sha> outcome=passed|failed|busy|deadline exit=N wall=Ns`, then the same summary lines the local verb prints (`errors=`, `warnings=... failing=`, `check-queue: dev-lib ...` and `app-test ...` receipts, `check-queue: sha=...`, nextest `Summary [...] N tests run: ...`, `check-workspace: ...`), up to 12 error or failing-test lines, and `remote-log=<peer path> gateway-log=<peer gateway log>`. Bootstrap failures report `outcome=not_setup|busy|bootstrap_failed stage=<step>` instead.
+
+`--peer auto` reads each OS-matching routable peer's load over mesh: `codeterm tab list --mesh <peer>` finds its `Buildpeer` tab and `codeterm tab exec --mesh <peer>` runs `./build.sh peer-status`, which prints one lock-free `PEER_STATUS {json}` line (gateway state, active job, queue length, last job end, peer job lock). The least-loaded idle peer wins, ties going to the peer idle longest; a peer that is unreachable, not set up or slower than the 20 s probe deadline is skipped, and when no peer is idle the dispatch exits 75 with each peer's state.
+
+Bounds: each job tab has `--timeout` = verb deadline + 10 min (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`); the peer runner kills the build tree at the deadline and still reports `outcome=deadline`; fetch aborts below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab, never `tab restart`, because a shell's timeout counts from its creation.
+
+Measurements (fill from the first real runs): ROG cold first populate of `check-queue --all` — not yet measured; ROG warm lane `check-queue --lane` — not yet measured.
+
+Troubleshooting:
+- No completion message arrives and the remote tab is gone: the tab timeout fired before the runner started (the shell never ran the command, for example a Windows peer without the `git-bash` profile). Check `codeterm tab list --mesh <peer>` and the peer's `peers.json` `shell`.
+- `outcome=not_setup stage=checkout_dir`: run `./build.sh peer-setup <peer>` first.
+- `outcome=bootstrap_failed stage=checkout`: the peer checkout has local changes; it is fetch-only and must stay clean.
+- `peer routing: busy; X=unknown(not_setup)`: the peer has no `Buildpeer` tab; rerun `peer-setup`.
+
 ## Cache retention and troubleshooting
 
 Gateway acquisition triggers retention at most once per hour; there are no timers or background sweep jobs. `cache-retention.json` in the machine gateway records the last completed run. Exceptional targets carry `.codeterm-cache.json` with their physical checkout path, last-use timestamp, measured byte count, and live build-owner PIDs. Preparation refreshes the marker while its gateway job owns the build slot.
