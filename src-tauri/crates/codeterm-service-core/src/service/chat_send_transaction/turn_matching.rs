@@ -2,7 +2,7 @@ pub(crate) fn normalize_turn_evidence_with(
     text: &str,
     normalization: crate::agent::provider::TurnEvidenceNormalization,
 ) -> String {
-    normalization.normalize(&crate::service::pty_io::sanitize_agent_prompt_input(text))
+    normalization.normalize(&codeterm_pty::pty::ansi::sanitize_agent_prompt_input(text))
 }
 
 pub(crate) fn normalize_written_payload(text: &str) -> String {

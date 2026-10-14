@@ -279,7 +279,9 @@ impl UserSendStore {
             )?,
             None => prepared.to_string(),
         };
-        Ok(super::super::pty_io::sanitize_agent_prompt_input(&prepared))
+        Ok(codeterm_pty::pty::ansi::sanitize_agent_prompt_input(
+            &prepared,
+        ))
     }
 
     pub(crate) fn admit_with_follow_up(
