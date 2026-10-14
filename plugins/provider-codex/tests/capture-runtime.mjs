@@ -8,7 +8,7 @@ const destination = process.argv[2];
 const scenarios = process.argv.slice(3);
 if (!destination) throw new Error("Usage: node capture-runtime.mjs <output-directory>");
 const model = "gpt-6-luna";
-const notifications = new Set(["thread/status/changed","thread/settings/updated","thread/tokenUsage/updated","turn/started","turn/completed","item/started","item/completed","item/agentMessage/delta","item/reasoning/textDelta","item/reasoning/summaryTextDelta","serverRequest/resolved","error"]);
+const notifications = new Set(["thread/status/changed","thread/settings/updated","thread/tokenUsage/updated","turn/started","turn/completed","item/started","item/completed","item/agentMessage/delta","item/reasoning/textDelta","item/reasoning/summaryTextDelta","item/reasoning/summaryPartAdded","item/fileChange/patchUpdated","serverRequest/resolved","error"]);
 const requests = new Set(["item/tool/requestUserInput","item/commandExecution/requestApproval","item/fileChange/requestApproval"]);
 const settings = {model,effort:"low",mode:"approval-required"};
 const environment = Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("CODETERM") && !["CODEX_THREAD_ID","CODEX_INTERNAL_ORIGINATOR_OVERRIDE"].includes(key)));
@@ -46,7 +46,7 @@ async function capture(scenario) {
       for(let i=waiters.length-1;i>=0;i--)if(waiters[i].predicate(frame)){const w=waiters.splice(i,1)[0];w.resolve(frame);}
     }else if(pending.has(frame.id)){
       const p=pending.get(frame.id);pending.delete(frame.id);
-      const result=p.method === "account/read" ? {account:frame.result?.account ? {type:frame.result.account.type,planType:frame.result.account.planType} : null,requiresOpenaiAuth:frame.result?.requiresOpenaiAuth} : frame.result;
+      const result=p.method === "account/rateLimits/read" ? {rateLimits:frame.result?.rateLimits??null} : p.method === "account/read" ? {account:frame.result?.account ? {type:frame.result.account.type,planType:frame.result.account.planType} : null,requiresOpenaiAuth:frame.result?.requiresOpenaiAuth} : frame.result;
       const reply=frame.error ? {kind:"error",error:frame.error} : {kind:"success",value:result??null};
       record({direction:"inbound",operation:p.index,reply});
       frame.error ? p.reject(new Error(frame.error.message)) : p.resolve(frame.result);
@@ -65,13 +65,14 @@ async function capture(scenario) {
     child.stdin.write(JSON.stringify({id,method,params})+"\n");return promise;
   }
   try {
-    await rpc({kind:"initialize"},"initialize",{clientInfo:{name:"domios",version:"1.14.7"},capabilities:{experimentalApi:true,optOutNotificationMethods:["turn/diff/updated"]}});
+    await rpc({kind:"initialize"},"initialize",{clientInfo:{name:"domios",version:"1.14.7"},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}});
     record({direction:"outbound",operation:0,action:{kind:"notification",notification:{method:"initialized",params:{}}}});
     child.stdin.write(JSON.stringify({method:"initialized",params:{}})+"\n");
     record({direction:"inbound",operation:0,reply:{kind:"success",value:null}});
-    await rpc(undefined,"account/read",{refreshToken:false},0);
+    const account=await rpc(undefined,"account/read",{refreshToken:false},0);
+    if(["chatgpt","chatgptAuthTokens"].includes(account?.account?.type)) await rpc(undefined,"account/rateLimits/read",{},0);
     const instructions="Keep responses minimal. Do only the explicitly requested trivial capture exercise.";
-    const opened=await rpc({kind:"openThread",instructions,settings},"thread/start",{cwd,model,threadSource:"user",config:{model_reasoning_effort:"low"},approvalPolicy:"untrusted",approvalsReviewer:"user",sandbox:"read-only",developerInstructions:instructions});
+    const opened=await rpc({kind:"openThread",instructions,settings},"thread/start",{cwd,model,threadSource:"user",config:{check_for_update_on_startup:false,project_doc_max_bytes:65536,model_reasoning_effort:"low"},approvalPolicy:"untrusted",approvalsReviewer:"user",sandbox:"read-only",developerInstructions:instructions});
     ctx.threadId=opened.thread.id;
     await rpc(undefined,"thread/inject_items",{threadId:ctx.threadId,items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]},1);
     const submit=async(text,sendId)=>{
@@ -86,6 +87,11 @@ async function capture(scenario) {
     }else if(scenario==="multi-turn"){
       const first=await submit("Reply with only ONE.","capture-send-1");await wait(f=>f.method==="turn/completed" && f.params?.turn?.id===first);
       const second=await submit("Reply with only TWO.","capture-send-2");await wait(f=>f.method==="turn/completed" && f.params?.turn?.id===second);
+    }else if(scenario==="compaction"){
+      const first=await submit("Reply with only ONE.","capture-compact-1");await wait(f=>f.method==="turn/completed" && f.params?.turn?.id===first);
+      await rpc({kind:"control",threadId:ctx.threadId,action:"compact",value:null},"thread/compact/start",{threadId:ctx.threadId});
+      await wait(f=>f.method==="item/completed" && f.params?.item?.type==="contextCompaction");
+      await wait(f=>f.method==="turn/completed" && f.params?.turn?.id!==first);
     }else if(scenario==="interrupt"){
       const turn=await submit("Count upward from 1 to 500, each number on a new line.","capture-interrupt");
       await wait(f=>f.method==="turn/started" && f.params?.turn?.id===turn);

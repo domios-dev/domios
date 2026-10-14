@@ -61,4 +61,13 @@ assert.equal(tabActivity({ ...agent, boot_stage: "agent_launching", agent_state:
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "thinking" } }).phase, "thinking");
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming", status_line: " Writing " } }).label, "Writing");
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming" } }).phase, "streaming");
+const compacting = tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting" } });
+assert.equal(compacting.kind, "working");
+assert.equal(compacting.phase, "work");
+assert.notEqual(compacting.label, tabActivity({ ...agent, agent_state: { state: "working" } }).label);
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting", status_line: "Reading" } }).label, "Reading");
+const interrupted = tabActivity({ ...agent, agent_state: { state: "idle", phase: "interrupted" } });
+assert.equal(interrupted.kind, "idle");
+assert.notEqual(interrupted.label, tabActivity({ ...agent, agent_state: { state: "idle", phase: "failed" } }).label);
+assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: "error" } }).kind, "waiting-on-user");
 console.log(`tab activity: ${cases.length} table cases, ${startingStages.length} boot stages and working-count checks passed`);

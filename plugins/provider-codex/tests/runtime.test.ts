@@ -603,7 +603,7 @@ check("terminal turn errors retain classified failure metadata without a prior e
   const row=result.events[0];if(row.kind !== "chatItem")throw new Error("Expected error item");
   assert.equal(row.item.content,"Quota exhausted");
   assert.deepEqual(plain(row.item.toolInput),{code:"usageLimitExceeded",class:"usage_limit",retryable:false});
-  assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,turnId:"turn-a",state:"idle"});
+  assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,turnId:"turn-a",state:"idle",detail:"failed"});
 });
 console.log(`runtime comparison regressions: ${count} checks passed`);
 
@@ -616,7 +616,7 @@ check("verified descendant approvals surface on the root without adopting the ch
     assert.equal(result.events.length,2);
     const prompt=result.events[0];if(prompt.kind !== "prompt")throw new Error("Expected root prompt");
     assert.equal(prompt.threadId,ctx.threadId);assert.equal(prompt.requestId,37);
-    assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,state:"needs_input",turnId:"root-turn"});
+    assert.deepEqual(plain(result.events[1]),{kind:"turnState",threadId:ctx.threadId!,state:"needs_input",detail:method.endsWith("/requestApproval") ? "awaitingApproval" : "awaitingInput",turnId:"root-turn"});
     const value=method === "item/permissions/requestApproval" ? "deny" : method === "item/tool/requestUserInput" ? "Yes" : "decline";
     const answer=plain(hooks.runtimePlan({...context,pendingRequest:{requestId:37,method,params}},{kind:"answer",requestId:37,answer:{kind:"choice",values:[value]}}));
     assert.equal(answer.action.kind,"reply");
@@ -818,6 +818,48 @@ check("activity updates a spawn receiver without losing its identity or metadata
   assert.deepEqual(plain(hooks.runtimeReduce(ctx,finished.state,[{...activity,params:{...activity.params as Record<string,JsonValue>,threadId:"foreign"}}]).events),[]);
 });
 console.log(`runtime subagent regressions: ${count} checks passed`);
+check("thread and turn statuses map to shared turn details",()=> {
+  const status=(value:unknown)=>plain(hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/status/changed",params:{threadId:ctx.threadId!,status:value as JsonValue}}]).events);
+  assert.deepEqual(status({type:"idle"}),[{kind:"turnState",threadId:ctx.threadId,state:"idle"}]);
+  assert.deepEqual(status({type:"active",activeFlags:[]}),[{kind:"turnState",threadId:ctx.threadId,state:"working"}]);
+  assert.deepEqual(status({type:"active",activeFlags:["waitingOnApproval"]}),[{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:"awaitingApproval"}]);
+  assert.deepEqual(status({type:"active",activeFlags:["waitingOnUserInput"]}),[{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:"awaitingInput"}]);
+  assert.deepEqual(status({type:"systemError"}),[{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:"systemError"}]);
+  assert.deepEqual(status({type:"notLoaded"}),[]);
+  const ended=(value:string)=>plain(hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"turn/completed",params:{threadId:ctx.threadId!,turn:{id:"t",status:value}}}]).events);
+  assert.deepEqual(ended("interrupted"),[{kind:"turnState",threadId:ctx.threadId,turnId:"t",state:"idle",detail:"interrupted"}]);
+  assert.deepEqual(ended("completed"),[{kind:"turnState",threadId:ctx.threadId,turnId:"t",state:"idle"}]);
+});
+check("compaction stays Compacting across thread status updates and adds no early marker",()=> {
+  const params=(item:unknown)=>({threadId:ctx.threadId!,turnId:"c",item:item as JsonValue});
+  const frames:RuntimeFrame[]=[
+    {kind:"notification",method:"turn/started",params:{threadId:ctx.threadId!,turn:{id:"c"}}},
+    {kind:"notification",method:"item/started",params:params({id:"k",type:"contextCompaction"})},
+    {kind:"notification",method:"item/started",params:params({id:"k",type:"contextCompaction"})},
+    {kind:"notification",method:"thread/status/changed",params:{threadId:ctx.threadId!,status:{type:"active",activeFlags:[]}}},
+    {kind:"notification",method:"item/completed",params:params({id:"k",type:"contextCompaction"})},
+  ];
+  const events=plain(hooks.runtimeReduce(ctx,null,frames).events);
+  assert.deepEqual(events.filter(e=>e.kind === "turnState").map(e=>e.kind === "turnState" ? e.detail ?? e.state : ""),["working","compacting","compacting","working"]);
+  assert.equal(events.filter(e=>e.kind === "chatItem").length,1);
+  assert.equal(events.filter(e=>e.kind === "contextCompacted").length,1);
+});
+check("reasoning summary part boundaries and live patch updates reduce into rows",()=> {
+  const parts=hooks.runtimeReduce(ctx,null,[
+    {kind:"notification",method:"item/reasoning/summaryPartAdded",params:{threadId:ctx.threadId!,turnId:"t",itemId:"r",summaryIndex:0}},
+    {kind:"notification",method:"item/reasoning/summaryTextDelta",params:{threadId:ctx.threadId!,turnId:"t",itemId:"r",summaryIndex:0,delta:"one"}},
+    {kind:"notification",method:"item/reasoning/summaryPartAdded",params:{threadId:ctx.threadId!,turnId:"t",itemId:"r",summaryIndex:1}},
+  ]).events;
+  assert.equal(parts.length,1);const row=parts[0];assert.ok(row.kind === "chatItem");assert.equal(row.item.content,"one");
+  const patch=hooks.runtimeReduce(ctx,null,[
+    {kind:"notification",method:"item/fileChange/outputDelta",params:{threadId:ctx.threadId!,turnId:"t",itemId:"p",delta:"applying"}},
+    {kind:"notification",method:"item/fileChange/patchUpdated",params:{threadId:ctx.threadId!,turnId:"t",itemId:"p",changes:[{path:"notes.txt",kind:{type:"add"},diff:"rain\n"}]}},
+  ]).events;
+  const last=patch.at(-1);assert.ok(last?.kind === "chatItem");
+  assert.equal(last.item.toolKind,"edit");assert.equal(last.item.toolResult,"applying");
+  assert.deepEqual(plain(last.item.fileDiffs)?.map((diff:{path:string;additions:number})=>[diff.path,diff.additions]),[["notes.txt",1]]);
+});
+console.log(`runtime status fidelity regressions: ${count} checks passed`);
 
 check("subscription initialization reads the recorded current limits",()=> {
   const operation:Operation = {kind:"initialize"};

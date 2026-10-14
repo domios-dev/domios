@@ -491,6 +491,8 @@ fn apply(
             thread_id,
             turn_id,
             state,
+            detail,
+            status_line,
             started_at,
             completed_at,
             ..
@@ -515,14 +517,12 @@ fn apply(
                 }
                 RuntimeTurnState::NeedsInput => {}
             }
-            let verdict = match state {
-                RuntimeTurnState::Working => crate::agent::provider::ProviderStateVerdict::Working,
-                RuntimeTurnState::Idle => crate::agent::provider::ProviderStateVerdict::Idle,
-                RuntimeTurnState::NeedsInput => {
-                    crate::agent::provider::ProviderStateVerdict::Waiting
-                }
-            };
-            crate::agent::state_verdict::apply(&svc.mux, &context.tab_id, &thread_id, verdict);
+            let live = crate::agent::state_verdict::live_state_for_runtime(
+                &state,
+                detail,
+                status_line.as_deref(),
+            );
+            crate::agent::state_verdict::apply_live(&svc.mux, &context.tab_id, &thread_id, live);
             session.context.lock().active_turn_id = match state {
                 RuntimeTurnState::Idle => None,
                 _ => turn_id,

@@ -27,6 +27,8 @@ const questionLabels: Record<NonNullable<TabAgentState["subtype"]>, string> = {
   error: "Needs attention", unknown: "Waiting for input",
 };
 
+const idleOutcomeLabels: Record<string, string> = { interrupted: "Interrupted", failed: "Turn failed" };
+
 const startingStages = new Set<Tab["boot_stage"]>([
   "pty_starting", "pty_spawned", "reader_ready", "shell_ready", "agent_launching",
   "launch_written", "provider_ready", "preparing_role_instructions", "delivering_instructions",
@@ -63,7 +65,9 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const label = question || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
     : (matchingLive ? live?.status_line?.trim() : null)
       || (kind === "failed" ? "Launch failed" : kind === "starting" ? "Starting…"
-        : kind === "working" ? "Working" : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
+        : kind === "working" ? matchingLive && live?.phase === "compacting" ? "Compacting" : "Working"
+          : kind === "idle" && matchingLive && live?.phase && idleOutcomeLabels[live.phase] ? idleOutcomeLabels[live.phase]
+          : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
           : quiet ? "Session quiet — rebind to continue" : ""));
   return {
     kind, label, state, subtype, phase, quiet, launching,
