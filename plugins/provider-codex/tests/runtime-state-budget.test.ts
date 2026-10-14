@@ -85,4 +85,18 @@ check("late deltas for a finished item never replace its final row",()=>{
   assert.deepEqual(rows(live.feed(note("item/agentMessage/delta",{turnId:"turn-5",itemId:"done",delta:"stray"})),"done"),[]);
 });
 
+check("parallel running tools with large output stay under the plugin total budget",()=>{
+  const live = session();
+  live.feed(note("turn/started",{turn:{id:"turn-6",status:"inProgress"}}));
+  for (let index = 0; index < 24; index++) {
+    live.feed(note("item/started",{turnId:"turn-6",item:{id:`par-${index}`,type:"commandExecution",command:"rg big",status:"inProgress"}}));
+  }
+  for (let round = 0; round < 3; round++) {
+    for (let index = 0; index < 24; index++) {
+      live.feed(note("item/commandExecution/outputDelta",{turnId:"turn-6",itemId:`par-${index}`,delta:`${round}:`.padEnd(12_000,"y")}));
+    }
+  }
+  assert.ok(live.largest() <= 192 * 1024,`state peaked at ${live.largest()} bytes`);
+});
+
 console.log(`runtime state budget: ${count} checks passed`);

@@ -881,6 +881,7 @@ function withDetail(status, compacting) {
 
 // plugins/provider-codex/src/runtimeStateBudget.ts
 var STATE_TEXT_CAP = 16 * 1024;
+var STATE_TOTAL_BUDGET = 192 * 1024;
 var EVENT_TEXT_CAP = 256 * 1024;
 var RETIRED_ROW_CAP = 256;
 var ID_LIST_CAP = 128;
@@ -957,6 +958,38 @@ function compactState(state) {
   state.questions = tail(state.questions);
   state.abandoned = tail(state.abandoned);
   state.childCompleted = tail(state.childCompleted);
+  fitTotal(state);
+}
+function utf8Bytes2(value) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit < 128) bytes += 1;
+    else if (unit < 2048) bytes += 2;
+    else if (unit >= 55296 && unit < 56320) {
+      bytes += 4;
+      index++;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+var MIN_RUNNING_CAP = 1024;
+function fitTotal(state) {
+  if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+  const retiredOrder = () => (state.retired ?? []).filter((id) => state.items[id]);
+  while (retiredOrder().length > 0 && utf8Bytes2(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
+    const drop = retiredOrder().slice(0, Math.max(1, Math.ceil(retiredOrder().length / 4)));
+    for (const id of drop) delete state.items[id];
+    state.retired = retiredOrder();
+  }
+  for (let cap = STATE_TEXT_CAP / 2; cap >= MIN_RUNNING_CAP; cap = Math.floor(cap / 2)) {
+    if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+    for (const [id, row2] of Object.entries(state.items)) state.items[id] = capRow(row2, cap);
+    for (const parts of Object.values(state.reasoning ?? {})) {
+      parts.summary = parts.summary.map((part) => capText(part, cap));
+      parts.content = parts.content.map((part) => capText(part, cap));
+    }
+  }
 }
 function capEvents(events) {
   return events.map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);

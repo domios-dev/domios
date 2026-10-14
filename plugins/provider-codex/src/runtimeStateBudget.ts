@@ -3,6 +3,7 @@ import type { RuntimeItem } from "./runtimeAbandonedTurns";
 
 // The host closes the app-server, killing the live turn, when reducer state exceeds 256 KiB.
 export const STATE_TEXT_CAP = 16 * 1024;
+export const STATE_TOTAL_BUDGET = 192 * 1024;
 export const EVENT_TEXT_CAP = 256 * 1024;
 export const RETIRED_ROW_CAP = 256;
 export const ID_LIST_CAP = 128;
@@ -103,6 +104,40 @@ export function compactState(state: BudgetState): void {
   state.questions = tail(state.questions);
   state.abandoned = tail(state.abandoned);
   state.childCompleted = tail(state.childCompleted);
+  fitTotal(state);
+}
+
+function utf8Bytes(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    else if (unit >= 0xd800 && unit < 0xdc00) { bytes += 4; index++; }
+    else bytes += 3;
+  }
+  return bytes;
+}
+
+const MIN_RUNNING_CAP = 1024;
+
+/** Brings the serialized state under the plugin budget: oldest retired identities, then running tails, then all identities. */
+function fitTotal(state: BudgetState): void {
+  if (utf8Bytes(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+  const retiredOrder = () => (state.retired ?? []).filter(id => state.items[id]);
+  while (retiredOrder().length > 0 && utf8Bytes(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
+    const drop = retiredOrder().slice(0,Math.max(1,Math.ceil(retiredOrder().length / 4)));
+    for (const id of drop) delete state.items[id];
+    state.retired = retiredOrder();
+  }
+  for (let cap = STATE_TEXT_CAP / 2; cap >= MIN_RUNNING_CAP; cap = Math.floor(cap / 2)) {
+    if (utf8Bytes(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+    for (const [id,row] of Object.entries(state.items)) state.items[id] = capRow(row,cap);
+    for (const parts of Object.values(state.reasoning ?? {})) {
+      parts.summary = parts.summary.map(part => capText(part,cap));
+      parts.content = parts.content.map(part => capText(part,cap));
+    }
+  }
 }
 
 export function capEvents(events: AgentEvent[]): AgentEvent[] {

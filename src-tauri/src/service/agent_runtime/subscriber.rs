@@ -243,5 +243,9 @@ fn unload_retaining_degradation(
 mod tests;
 
 #[cfg(test)]
+#[path = "subscriber/batch_tests.rs"]
+mod batch_tests;
+
+#[cfg(test)]
 #[path = "subscriber/fixtures.rs"]
 mod fixtures;
