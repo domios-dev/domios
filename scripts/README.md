@@ -39,7 +39,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `capture-upgrade-desk.mjs` | skill gates |
 | `certificates` | scripts release-signing-material.py, tests/release_signing_material_test.py |
 | `check-analytics-catalog.mjs` | scripts check-analytics-catalog.test.mjs |
-| `check-analytics-catalog.test.mjs` | build.sh script-guards |
+| `check-analytics-catalog.test.mjs` | build.sh script-guards via tests/catalogue.json node-script-tests-cargo |
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
 | `check-api-effect-dependencies.mjs` | build.sh release-preflight/test:all; package.json script |
 | `check-blocking-in-async.sh` | scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh |
@@ -149,7 +149,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `run-ts-unit-tests.mjs` | build.sh release-preflight; CI frontend-release.yml, tests.yml; package.json script; scripts affected-tests.mjs, aiderrun/RECIPE.md, aiderrun/lane-check.test.ts; skill build |
 | `run-ts-unit-tests.test.mjs` | CI frontend-release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs |
 | `runner-toggle.mjs` | build.sh runner-pause, runner-resume, runner-status |
-| `runner-toggle.test.mjs` | build.sh script-guards (node --test) |
+| `runner-toggle.test.mjs` | CI tests.yml release-contracts via tests/catalogue.json node-script-tests |
 | `rust-test-inventory.mjs` | crate-split QA (static vs nextest test-count oracle); scripts tests/rust-test-inventory.test.mjs |
 | `rust-warnings-baseline.json` | scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs; skill gates, github-release |
 | `rust-warnings-comment.mjs` | CI rust-warnings-summary.yml |
