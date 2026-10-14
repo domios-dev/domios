@@ -1,0 +1,1620 @@
+{
+  "schemaVersion": 1,
+  "captured": {
+    "cliVersion": "0.160.0",
+    "model": "gpt-6-luna",
+    "scenario": "compaction"
+  },
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/capture",
+    "hostVersion": "1.14.7",
+    "tabId": "capture-tab",
+    "bindingNonce": "capture-nonce",
+    "settings": {
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "mode": "approval-required"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise.",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "sendId": "capture-compact-1",
+        "input": {
+          "text": "Reply with only ONE.",
+          "attachments": []
+        },
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-1",
+            "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "input": {
+              "text": "Reply with only ONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "action": "compact",
+        "value": null
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "clientInfo": {
+              "name": "domios",
+              "version": "1.14.7"
+            },
+            "capabilities": {
+              "experimentalApi": true,
+              "optOutNotificationMethods": []
+            }
+          }
+        }
+      },
+      "receiptMs": 7.362
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "userAgent": "domios/0.160.0 (Mac OS 26.7.1; arm64) CodeTerm/1.6.2 (domios; 1.14.7)",
+          "codexHome": "/home/capture/.codex",
+          "platformFamily": "unix",
+          "platformOs": "macos"
+        }
+      },
+      "receiptMs": 153.677
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "notification",
+        "notification": {
+          "method": "initialized",
+          "params": {}
+        }
+      },
+      "receiptMs": 153.881
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "receiptMs": 153.923
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "account/read",
+          "params": {
+            "refreshToken": false
+          }
+        }
+      },
+      "receiptMs": 153.927
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "account": {
+            "type": "chatgpt",
+            "planType": "prolite"
+          },
+          "requiresOpenaiAuth": true
+        }
+      },
+      "receiptMs": 712.142
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "account/rateLimits/read",
+          "params": {}
+        }
+      },
+      "receiptMs": 712.178
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "rateLimits": {
+            "limitId": "codex",
+            "limitName": null,
+            "normalModelSlug": null,
+            "primary": {
+              "usedPercent": 41,
+              "windowDurationMins": 10080,
+              "resetsAt": 1792472484
+            },
+            "secondary": null,
+            "credits": {
+              "hasCredits": true,
+              "unlimited": false,
+              "balance": "59893.6900625000"
+            },
+            "individualLimit": null,
+            "spendControlReached": false,
+            "planType": "prolite",
+            "rateLimitReachedType": null
+          }
+        }
+      },
+      "receiptMs": 1187.398
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/start",
+          "params": {
+            "cwd": "/work/capture",
+            "model": "gpt-6-luna",
+            "threadSource": "user",
+            "config": {
+              "check_for_update_on_startup": false,
+              "project_doc_max_bytes": 65536,
+              "model_reasoning_effort": "low"
+            },
+            "approvalPolicy": "untrusted",
+            "approvalsReviewer": "user",
+            "sandbox": "read-only",
+            "developerInstructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise."
+          }
+        }
+      },
+      "receiptMs": 1187.477
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "environments": [
+              {
+                "environmentId": "local",
+                "cwd": "/work/capture",
+                "runtimeWorkspaceRoots": [
+                  "/work/capture"
+                ]
+              }
+            ],
+            "extra": null,
+            "sessionId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "preview": "",
+            "ephemeral": false,
+            "section": null,
+            "sectionEnteredAt": null,
+            "projectId": null,
+            "historyMode": "paginated",
+            "modelProvider": "openai",
+            "model": "gpt-6-luna",
+            "reasoningEffort": "low",
+            "createdAt": 1791982414,
+            "updatedAt": 1791982414,
+            "recencyAt": 1791982414,
+            "status": {
+              "type": "idle"
+            },
+            "path": "/home/capture/.codex/sessions/2026/10/14/rollout-2026-10-14T15-53-34-01a13a79-ab4c-7f42-8054-52c8547d0f7f.jsonl",
+            "cwd": "/work/capture",
+            "cliVersion": "0.160.0",
+            "originator": "domios",
+            "source": "vscode",
+            "canAcceptDirectInput": true,
+            "threadSource": "user",
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "daybreakEnabled": null,
+            "turns": []
+          },
+          "model": "gpt-6-luna",
+          "modelProvider": "openai",
+          "serviceTier": "default",
+          "disabledPluginIds": [],
+          "cwd": "/work/capture",
+          "runtimeWorkspaceRoots": [
+            "/work/capture"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "untrusted",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": "low",
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      },
+      "receiptMs": 1310.17
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/inject_items",
+          "params": {
+            "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "items": [
+              {
+                "type": "message",
+                "role": "developer",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Domios thread binding marker."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "receiptMs": 1310.256
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      },
+      "receiptMs": 1584.728
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "clientUserMessageId": "capture-compact-1",
+            "input": [
+              {
+                "type": "text",
+                "text": "Reply with only ONE."
+              }
+            ],
+            "cwd": "/work/capture",
+            "approvalPolicy": "untrusted",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "readOnly"
+            },
+            "model": "gpt-6-luna",
+            "effort": "low"
+          }
+        }
+      },
+      "receiptMs": 1584.927
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "01a13a79-acd6-73e1-b73c-525b27bca719",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 1592.169
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      },
+      "receiptMs": 1593.299,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-1",
+            "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "input": {
+              "text": "Reply with only ONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turn": {
+            "id": "01a13a79-acd6-73e1-b73c-525b27bca719",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1791982415,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 1593.369,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-1",
+            "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "input": {
+              "text": "Reply with only ONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a13a79-afdd-7250-9a48-1562701b8c9d",
+            "clientId": "capture-compact-1",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with only ONE.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "startedAtMs": 1791982415837
+        }
+      },
+      "receiptMs": 2360.944,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-1",
+            "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "input": {
+              "text": "Reply with only ONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a13a79-afdd-7250-9a48-1562701b8c9d",
+            "clientId": "capture-compact-1",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with only ONE.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "completedAtMs": 1791982415837
+        }
+      },
+      "receiptMs": 2362.482,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+            "text": "",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          },
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "startedAtMs": 1791982417004
+        }
+      },
+      "receiptMs": 3528.011,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "itemId": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "delta": "Dom"
+        }
+      },
+      "receiptMs": 3528.092,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "itemId": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "delta": "ios"
+        }
+      },
+      "receiptMs": 3535.57,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "itemId": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "delta": " thread"
+        }
+      },
+      "receiptMs": 3535.641,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "itemId": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "delta": " binding"
+        }
+      },
+      "receiptMs": 3535.65,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "itemId": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "delta": " marker"
+        }
+      },
+      "receiptMs": 3535.654,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "itemId": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "delta": "."
+        }
+      },
+      "receiptMs": 3535.658,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+            "text": "Domios thread binding marker.",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          },
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "completedAtMs": 1791982417014
+        }
+      },
+      "receiptMs": 3538.496,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+          "tokenUsage": {
+            "total": {
+              "totalTokens": 16247,
+              "inputTokens": 16237,
+              "cachedInputTokens": 11008,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 10,
+              "reasoningOutputTokens": 0
+            },
+            "last": {
+              "totalTokens": 16247,
+              "inputTokens": 16237,
+              "cachedInputTokens": 11008,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 10,
+              "reasoningOutputTokens": 0
+            },
+            "modelContextWindow": 258400
+          }
+        }
+      },
+      "receiptMs": 3594.592,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "status": {
+            "type": "idle"
+          }
+        }
+      },
+      "receiptMs": 3615.594,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turn": {
+            "id": "01a13a79-acd6-73e1-b73c-525b27bca719",
+            "items": [
+              {
+                "type": "agentMessage",
+                "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+                "text": "Domios thread binding marker.",
+                "phase": "final_answer",
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              }
+            ],
+            "itemsView": "summary",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1791982415,
+            "completedAt": 1791982417,
+            "durationMs": 2023
+          }
+        }
+      },
+      "receiptMs": 3615.665,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/compact/start",
+          "params": {
+            "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+          }
+        }
+      },
+      "receiptMs": 3615.708
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      },
+      "receiptMs": 3616.292
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      },
+      "receiptMs": 3625.94,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turn": {
+            "id": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1791982417,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 3626.004,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "contextCompaction",
+            "id": "01a13a79-b4cf-7c50-b888-f5f0aa645dad"
+          },
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb",
+          "startedAtMs": 1791982417103
+        }
+      },
+      "receiptMs": 3626.376,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb",
+          "tokenUsage": {
+            "total": {
+              "totalTokens": 16247,
+              "inputTokens": 16237,
+              "cachedInputTokens": 11008,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 10,
+              "reasoningOutputTokens": 0
+            },
+            "last": {
+              "totalTokens": 4728,
+              "inputTokens": 0,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 0,
+              "reasoningOutputTokens": 0
+            },
+            "modelContextWindow": 258400
+          }
+        }
+      },
+      "receiptMs": 5007.144,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "contextCompaction",
+            "id": "01a13a79-b4cf-7c50-b888-f5f0aa645dad"
+          },
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turnId": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb",
+          "completedAtMs": 1791982418484
+        }
+      },
+      "receiptMs": 5007.621,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "status": {
+            "type": "idle"
+          }
+        }
+      },
+      "receiptMs": 5009.175,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+          "turn": {
+            "id": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1791982417,
+            "completedAt": 1791982418,
+            "durationMs": 1387
+          }
+        }
+      },
+      "receiptMs": 5009.221,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f"
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized"
+          },
+          "events": [
+            {
+              "kind": "auth",
+              "state": "signedIn",
+              "billingMode": "subscription"
+            },
+            {
+              "kind": "rateLimits",
+              "rateLimits": [
+                {
+                  "window": "primary",
+                  "usedPercent": 41,
+                  "resetsAt": 1792472484000,
+                  "windowMinutes": 10080
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "settings": {
+              "model": "gpt-6-luna",
+              "effort": "low",
+              "mode": "approval-required"
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+            "sendId": "capture-compact-1",
+            "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+          }
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "auth",
+        "state": "signedIn",
+        "billingMode": "subscription"
+      },
+      {
+        "kind": "rateLimits",
+        "rateLimits": [
+          {
+            "window": "primary",
+            "usedPercent": 41,
+            "resetsAt": 1792472484000,
+            "windowMinutes": 10080
+          }
+        ]
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "state": "working"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+        "state": "working",
+        "startedAt": 1791982415000
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "01a13a79-afdd-7250-9a48-1562701b8c9d",
+          "seq": 1,
+          "type": "user",
+          "content": "Reply with only ONE.",
+          "timestamp": "2026-10-14T12:53:35.837Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "sendId": "capture-compact-1",
+        "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "01a13a79-afdd-7250-9a48-1562701b8c9d",
+          "seq": 1,
+          "type": "user",
+          "content": "Reply with only ONE.",
+          "timestamp": "2026-10-14T12:53:35.837Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "",
+          "timestamp": "2026-10-14T12:53:37.004Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "Dom",
+          "timestamp": "2026-10-14T12:53:37.004Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "Domios",
+          "timestamp": "2026-10-14T12:53:37.004Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "Domios thread",
+          "timestamp": "2026-10-14T12:53:37.004Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "Domios thread binding",
+          "timestamp": "2026-10-14T12:53:37.004Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "Domios thread binding marker",
+          "timestamp": "2026-10-14T12:53:37.004Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "Domios thread binding marker.",
+          "timestamp": "2026-10-14T12:53:37.004Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "msg_0e82cc5107638222016acf7b50eae48191bb0581aa03aa8fa2",
+          "seq": 2,
+          "type": "assistant",
+          "content": "Domios thread binding marker.",
+          "timestamp": "2026-10-14T12:53:37.004Z",
+          "toolFlowId": "01a13a79-acd6-73e1-b73c-525b27bca719"
+        }
+      },
+      {
+        "kind": "usage",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "usage": {
+          "input_tokens": 16237,
+          "output_tokens": 10,
+          "cache_write_tokens": 0,
+          "cache_read_tokens": 11008,
+          "used_tokens": 16247,
+          "window_tokens": 258400
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "state": "idle"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "turnId": "01a13a79-acd6-73e1-b73c-525b27bca719",
+        "state": "idle",
+        "startedAt": 1791982415000,
+        "completedAt": 1791982417000
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "state": "working"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "turnId": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb",
+        "state": "working",
+        "startedAt": 1791982417000
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "state": "working",
+        "detail": "compacting",
+        "turnId": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb"
+      },
+      {
+        "kind": "usage",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "usage": {
+          "input_tokens": 16237,
+          "output_tokens": 10,
+          "cache_write_tokens": 0,
+          "cache_read_tokens": 11008,
+          "used_tokens": 4728,
+          "window_tokens": 258400
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "turnId": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "item": {
+          "id": "01a13a79-b4cf-7c50-b888-f5f0aa645dad",
+          "seq": 3,
+          "type": "system",
+          "content": "context compacted",
+          "systemSubtype": "contextCompaction",
+          "timelineMarker": {
+            "kind": "context_compaction"
+          },
+          "timestamp": "2026-10-14T12:53:38.484Z",
+          "toolFlowId": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb"
+        }
+      },
+      {
+        "kind": "contextCompacted",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "itemId": "01a13a79-b4cf-7c50-b888-f5f0aa645dad"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "state": "idle"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a13a79-ab4c-7f42-8054-52c8547d0f7f",
+        "turnId": "01a13a79-b4c5-7fb2-b685-869e7fca3ebb",
+        "state": "idle",
+        "startedAt": 1791982417000,
+        "completedAt": 1791982418000
+      }
+    ]
+  }
+}
