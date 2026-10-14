@@ -42,7 +42,7 @@ impl Drop for WorkspaceCloseGuard {
 struct Resources {
     plans: Vec<crate::plan::Plan>,
     crons: Vec<crate::cron::store::CronJob>,
-    blueprints: Vec<crate::sentinel::store::Sentinel>,
+    blueprints: Vec<crate::ports::sentinel::BlueprintRecord>,
 }
 
 impl ServiceContext {
@@ -112,15 +112,13 @@ impl ServiceContext {
             .unwrap_or_default();
         let blueprints = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
-            .map(|handle| {
-                handle
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
+            .map(|ports| {
+                ports
                     .store
-                    .lock()
-                    .list()
-                    .iter()
+                    .records()
+                    .into_iter()
                     .filter(|job| in_scope(&job.workspace_id, job.team_id.as_deref()))
-                    .cloned()
                     .collect()
             })
             .unwrap_or_default();
@@ -165,12 +163,12 @@ impl ServiceContext {
         }
         if let Some(blueprints) = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
             changed |= resources
                 .blueprints
                 .iter()
-                .any(|saved| blueprints.store.lock().get(&saved.id).is_none());
+                .any(|saved| blueprints.store.scope_of(&saved.id).is_none());
         }
         let mux = self.mux.read();
         if changed {
@@ -315,15 +313,14 @@ impl ServiceContext {
             self.emit_cron_changed();
         }
         if !resources.blueprints.is_empty() {
-            let handle = self
+            let ports = self
                 .app_handle
-                .try_state::<crate::sentinel::scheduler::Handle>()
+                .try_state::<crate::ports::sentinel::SentinelPorts>()
                 .ok_or("Blueprint store unavailable")?;
             for job in &resources.blueprints {
-                let existing = handle.store.lock().get(&job.id).cloned();
-                if let Some(existing) = existing {
-                    if existing.workspace_id != job.workspace_id || existing.team_id != job.team_id
-                    {
+                let existing = ports.store.scope_of(&job.id);
+                if let Some((workspace_id, team_id)) = existing {
+                    if workspace_id != job.workspace_id || team_id != job.team_id {
                         return Err(format!(
                             "Blueprint identity {} belongs to another scope",
                             job.id
@@ -331,11 +328,9 @@ impl ServiceContext {
                     }
                     continue;
                 }
-                crate::sentinel::storage::commit(&handle.store, |store| {
-                    store.stage_insert(job.clone())
-                })?;
+                ports.store.insert_restored(job)?;
             }
-            handle.notify();
+            ports.wake.notify();
         }
         Ok(())
     }

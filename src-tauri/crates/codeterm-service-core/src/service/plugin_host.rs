@@ -375,11 +375,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn event_sources_changed(&self) {
         self.contributions_changed("graph-nodes");
-        if let Some(handle) = self
+        if let Some(ports) = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
-            handle.notify();
+            ports.wake.notify();
         }
     }
 
@@ -435,11 +435,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
                     .graph_event_subscriptions
                     .pipeline_id_for(subscription_id)
                 {
-                    if let Some(handle) = self
+                    if let Some(ports) = self
                         .app_handle
-                        .try_state::<crate::sentinel::scheduler::Handle>()
+                        .try_state::<crate::ports::sentinel::SentinelPorts>()
                     {
-                        handle.notify_event_subscription_changed(&pipeline_id);
+                        ports.wake.notify_event_subscription_changed(&pipeline_id);
                     }
                 }
                 serde_json::json!({ "admitted": true }).to_string()
@@ -449,11 +449,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
                     .graph_event_subscriptions
                     .pipeline_id_for(subscription_id)
                 {
-                    if let Some(handle) = self
+                    if let Some(ports) = self
                         .app_handle
-                        .try_state::<crate::sentinel::scheduler::Handle>()
+                        .try_state::<crate::ports::sentinel::SentinelPorts>()
                     {
-                        handle.notify_event_subscription_changed(&pipeline_id);
+                        ports.wake.notify_event_subscription_changed(&pipeline_id);
                     }
                 }
                 let reason = match reason {

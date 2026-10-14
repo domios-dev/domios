@@ -31,7 +31,8 @@ fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
         Store::with_storage(&instance.storage, crate::cron::clock::system_clock()),
         instance.fixture._app.handle().clone(),
     );
-    assert!(instance.fixture.service.app_handle.manage(handle));
+    assert!(instance.fixture.service.app_handle.manage(handle.clone()));
+    crate::sentinel::manage_fixture_ports(&instance.fixture.service.app_handle, &handle);
     let service = &instance.fixture.service;
     let original_caller = service.sentinel_caller(&original_tab, None).unwrap();
     let scratch_caller = service.sentinel_caller(&scratch_tab, None).unwrap();

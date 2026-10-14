@@ -272,7 +272,7 @@ pub(crate) fn start_servers(
         .map(|clock| clock as cron::clock::SharedClock)
         .unwrap_or_else(cron::clock::system_clock);
     if let Some(storage) = states.storage.storage() {
-        crate::sentinel::scheduler::start(service_state.clone(), sentinel_clock, storage);
+        crate::ports::sentinel::runtime().start(service_state.clone(), sentinel_clock, storage);
     }
 
     tauri::async_runtime::block_on(async {
