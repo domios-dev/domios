@@ -54,3 +54,18 @@ fn streamed_questions_require_exact_later_user_answers() {
         assert_eq!(history.questions()[0].resolved == Some(true), resolved);
     }
 }
+
+#[test]
+fn repeated_history_request_is_admitted_only_after_a_nonempty_chunk() {
+    let mut history = RuntimeHistory::default();
+    let params = r#"{"threadId":"thread","cursor":"c1"}"#;
+    assert!(history.admit_request("thread/items/list", params));
+    assert!(!history.admit_request("thread/items/list", params));
+    history.append(page(
+        json!([{"id":"item","type":"assistant","content":"x"}]),
+        Value::Null,
+    ));
+    assert!(history.admit_request("thread/items/list", params));
+    history.append(page(json!([]), Value::Null));
+    assert!(!history.admit_request("thread/items/list", params));
+}
