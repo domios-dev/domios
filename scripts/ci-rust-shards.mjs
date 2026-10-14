@@ -100,6 +100,18 @@ export async function captureCommand(command, args, logPath, env = process.env, 
   }
 }
 
+export function timingAuditArgs(guard, aloneLog, release) {
+  return [...guard, ...(aloneLog ? ['--alone', aloneLog] : []), '--policy', release ? 'advisory' : 'enforce'];
+}
+
+export function requireTestSuccess(result, report, label) {
+  const output = report.replace(/\x1b\[[0-9;]*m/g, '');
+  const failedTest = /^\s*(?:FAIL|LEAK|TIMEOUT)\s+\[/m.test(output) || /\b[1-9]\d* (?:failed|leaky|timed out)\b/.test(output);
+  if (result.error || result.signal || result.status !== 0 || failedTest) {
+    throw new Error(`${label}: ${result.error || result.signal || (failedTest ? 'failed, leaking or timed-out test' : result.status)}`);
+  }
+}
+
 async function run(mode, shard, total) {
   if (!['shared', 'platform'].includes(mode) || !Number.isInteger(shard) || !Number.isInteger(total) || shard < 1 || shard > total) throw new Error('Invalid mode/partition');
   delete process.env.CODETERM_CONPTY_DIR;
@@ -145,7 +157,7 @@ async function run(mode, shard, total) {
         console.log(`[${mode} ${shard}/${total} runner=${receipt.runner}] ${manifest} listener=${listener}`);
         const log = path.resolve('ci-rust-receipts', `${mode}-${mode === 'shared' ? shard : receipt.os}-${manifest.startsWith('src-tauri') ? 'workspace' : 'cli'}-${listener ? 'listener' : 'normal'}.log`);
         const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', 'nextest', 'run', ...archiveRunArgs(archive, workspace, extract, config, partition)], log, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
-        if (result.error || result.status !== 0) throw new Error(`Tests failed on ${receipt.runner}, ${mode} ${shard}/${total}: ${result.error || result.status}`);
+        requireTestSuccess(result, fs.readFileSync(log, 'utf8'), `Tests failed on ${receipt.runner}, ${mode} ${shard}/${total}`);
         const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
         const candidatePath = log.replace(/\.log$/, '.candidates');
         execFileSync(process.execPath, [...guard, '--candidates', candidatePath], { stdio: 'inherit' });
@@ -156,10 +168,10 @@ async function run(mode, shard, total) {
           aloneLog = log.replace(/\.log$/, '.alone.log');
           fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(`(${groupFilter}) & (${exactFilter})`)}\nretries = 0\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
           const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', 'nextest', 'run', ...archiveRunArgs(archive, workspace, extract, config, [], true)], aloneLog, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
-          if (alone.error || alone.status !== 0) throw new Error(`Candidate rerun failed on ${receipt.runner}: ${alone.error || alone.status}`);
+          requireTestSuccess(alone, fs.readFileSync(aloneLog, 'utf8'), `Candidate rerun failed on ${receipt.runner}`);
         }
         const auditLog = log.replace(/\.log$/, '.audit.log');
-        const audit = await captureCommand(process.execPath, [...guard, ...(aloneLog ? ['--alone', aloneLog] : [])], auditLog);
+        const audit = await captureCommand(process.execPath, timingAuditArgs(guard, aloneLog, process.env.CI_RELEASE_TESTS === 'true'), auditLog);
         receipt.timingAudits.push({ parallelLog: path.basename(log), aloneLog: aloneLog && path.basename(aloneLog), candidates: candidates.entries, report: fs.readFileSync(auditLog, 'utf8') });
         if (audit.error || audit.status !== 0) throw new Error(`Alone-measured timing ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }
