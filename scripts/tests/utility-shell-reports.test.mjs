@@ -637,3 +637,17 @@ test("check_queue_notifies_invalid_revision_without_reaching_cargo", () => {
     rmSync(h.dir, { recursive: true, force: true });
   }
 });
+
+test('powershell launcher forwards checks without writing shared Git configuration', { skip: process.platform !== 'win32' }, () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'powershell-build-forward-'));
+  try {
+    const launcher = path.join(directory, 'build.ps1');
+    writeFileSync(launcher, readFileSync(path.join(root, 'build.ps1'), 'utf8'));
+    writeFileSync(path.join(directory, 'build.sh'), '#!/usr/bin/env bash\nprintf "FORWARDED %s\\n" "$*"\n');
+    const quoted = launcher.replaceAll("'", "''");
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', `function global:git { throw 'unexpected shared config write' }; & '${quoted}' check-queue opaque-sha -NotifyTab opaque-tab`], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /FORWARDED check-queue opaque-sha --notify-tab opaque-tab/);
+    assert.doesNotMatch(result.stdout + result.stderr, /unexpected shared config write/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
