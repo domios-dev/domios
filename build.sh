@@ -1300,6 +1300,90 @@ prepare_dev_frontend_dist() {
   node scripts/dev-resource-preflight.mjs "${1:-$(pwd -P)}"
 }
 
+# Reads changed paths on stdin; prints "app <package>" / "cli" lines, deduplicated.
+check_queue_targets() {
+  awk '
+    /^src-tauri\/crates\/[^\/]+\// { split($0, p, "/"); print "app " p[3]; next }
+    /^src-tauri\/(src|tests|benches|examples|build\.rs|Cargo\.(toml|lock))/ { print "app codeterm"; next }
+    /^cli\// { print "cli"; next }
+  ' | sort -u
+}
+
+# Reads cargo --message-format=short output on stdin; prints at most $1 diagnostics.
+check_queue_errors() {
+  awk -v max="$1" '
+    /^[^ ].*:[0-9]+:[0-9]+: error(\[E[0-9]+\])?:/ || /^error(\[E[0-9]+\])?:/ && !/could not compile/ {
+      total++
+      if (total <= max) print
+    }
+    END { printf "errors=%d shown=%d\n", total, (total < max ? total : max) }
+  '
+}
+
+check_queue_worktree() {
+  local dir
+  dir="$(ct_gateway_dir)/check-worktree"
+  if [ ! -e "$dir/.git" ]; then
+    git worktree add --detach "$dir" "$1" >&2
+  fi
+  printf '%s\n' "$dir"
+}
+
+check_queue_run() {
+  local sha="" max_errors=20 touched_only=0 arg base cw files targets pkg_args=() cli=0 started status=0 out
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --max-errors) max_errors="${2:?--max-errors requires a count}"; shift ;;
+      --touched-only) touched_only=1 ;;
+      -*) echo "Usage: ./build.sh check-queue [<sha>] [--max-errors N] [--touched-only]" >&2; exit 2 ;;
+      *) sha="$arg" ;;
+    esac
+    shift
+  done
+  sha="$(git rev-parse --verify "${sha:-HEAD}^{commit}")"
+  base="$(git merge-base "$sha" develop 2>/dev/null || git merge-base "$sha" origin/develop 2>/dev/null || true)"
+  if [ -n "$base" ]; then
+    files="$(git diff --name-only "$base" "$sha")"
+  else
+    files="src-tauri/src/"
+  fi
+  targets="$(printf '%s\n' "$files" | check_queue_targets)"
+  if [ -z "$targets" ]; then
+    echo "check-queue: no Rust changes between ${base:-?} and $sha; nothing to check"
+    return 0
+  fi
+  while read -r kind pkg; do
+    if [ "$kind" = cli ]; then cli=1; else pkg_args+=(-p "$pkg"); fi
+  done <<< "$targets"
+  if [ "${#pkg_args[@]}" -gt 0 ] && [ "$touched_only" = 0 ] && ! printf '%s\n' "${pkg_args[@]}" | grep -qx codeterm; then
+    pkg_args+=(-p codeterm)
+  fi
+
+  enter_build_gateway "$CMD $sha"
+  cw="$(check_queue_worktree "$sha")"
+  git -C "$cw" checkout --detach --force "$sha" >&2
+  cd "$cw"
+  prepare_dev_frontend_dist "$cw"
+  prepare_bundle_stubs
+  ct_configure_sccache
+  export CARGO_INCREMENTAL=1 CODETERM_ALLOW_EXTERNAL_TARGET=1
+  started="$(date +%s)"
+  out="$(ct_gateway_dir)/check-worktree-last.log"
+  : > "$out"
+  if [ "${#pkg_args[@]}" -gt 0 ]; then
+    CARGO_TARGET_DIR="$cw/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
+      "${pkg_args[@]}" --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+  fi
+  if [ "$cli" = 1 ]; then
+    CARGO_TARGET_DIR="$cw/target/cli" cargo check --manifest-path cli/Cargo.toml \
+      --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+  fi
+  check_queue_errors "$max_errors" < "$out"
+  echo "check-queue: sha=$sha packages=${pkg_args[*]:-} cli=$cli exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
+  return "$status"
+}
+
 # Resolve the tauri dev config. For a named instance, generate a derived config
 # whose devUrl points at this instance's frontend static port.
 dev_conf_path() {
@@ -1724,6 +1808,7 @@ CodeTerm build commands
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
+  check-queue [sha]           Warm incremental cargo check (all targets) of a lane SHA in the per-machine check worktree
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-archives                 Compile and archive test profiles with the shared cache
@@ -1870,6 +1955,16 @@ EOF
     prepare_bundle_stubs
     ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
+    ;;
+  check-queue)
+    check_queue_run "${@:2}"
+    ;;
+  check-queue-probe)
+    case "${2:-}" in
+      targets) check_queue_targets ;;
+      errors) check_queue_errors "${3:?errors requires a max}" ;;
+      *) echo "Unknown check-queue probe: ${2:-}" >&2; exit 2 ;;
+    esac
     ;;
   check-tests)
     ct_configure_sccache
