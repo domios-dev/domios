@@ -77,7 +77,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
                 })
                 .unwrap_or_else(|| prompt.to_string());
             parts.push("--".to_string());
-            parts.push(ShellSyntax::quote(&prompt));
+            parts.push(ShellSyntax::quote_native_arg(&prompt));
         }
     }
 
