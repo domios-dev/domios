@@ -74,3 +74,4 @@ pub async fn mem_area_merge(
     }
     Ok(Json(output))
 }
+const _SPLIT_METRIC_PROBE: u8 = 0;
