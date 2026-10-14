@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::routes::{check_auth, AppState};
 use crate::mesh::types::AccessLevel;
 use crate::service::store::{Service, ServiceKind};
-use codeterm_types::mesh::inventory::{
+use codeterm_mesh::contract::inventory::{
     InventoryCapability, InventoryFreshness, InventoryOperation, InventoryProvenance,
     InventoryUnavailableReason,
 };

@@ -1,4 +1,4 @@
-use codeterm_types::blueprint_pipeline::{
+use codeterm_blueprint_types::blueprint_pipeline::{
     ensure_trigger_available, BlueprintOwner, BlueprintSpec, ConverterEdge, ResultTarget, StepKind,
     Trigger, ValidationError,
 };
@@ -44,7 +44,7 @@ impl super::ServiceContext {
             Trigger::Event { kind, .. } => {
                 self.event_source_registry.select_provider(kind).is_some()
             }
-            trigger => !codeterm_types::blueprint_pipeline::trigger_unavailable(trigger),
+            trigger => !codeterm_blueprint_types::blueprint_pipeline::trigger_unavailable(trigger),
         };
         let mut checks = vec![
             field_check("name", &errors),
@@ -231,7 +231,9 @@ impl super::ServiceContext {
         }
         let mut next = current.clone();
         next.name = Some(spec.name.clone());
-        if let codeterm_types::blueprint_pipeline::Trigger::Schedule { every } = &spec.trigger {
+        if let codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule { every } =
+            &spec.trigger
+        {
             next.interval_ms = crate::sentinel::store::duration_ms(every)?;
         }
         next.set_pipeline(Some(spec));
@@ -243,7 +245,7 @@ impl super::ServiceContext {
         if next.pipeline().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
-                codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
             )
         }) {
             next.next_run = authored_at;
@@ -303,8 +305,8 @@ impl super::ServiceContext {
             .iter()
             .chain(StepKind::DESCRIPTORS)
             .chain(crate::sentinel::machine::Route::DESCRIPTORS)
-            .chain(codeterm_types::blueprint_catalog::SOURCES_AND_MODES)
-            .map(codeterm_types::blueprint_catalog::NodeDescriptor::value)
+            .chain(codeterm_blueprint_types::blueprint_catalog::SOURCES_AND_MODES)
+            .map(codeterm_blueprint_types::blueprint_catalog::NodeDescriptor::value)
             .collect::<Vec<_>>();
         for (_, conversion) in self.converter_registry.available() {
             nodes.push(json!({
@@ -389,7 +391,7 @@ impl super::ServiceContext {
                 to: edge.to,
             })
             .collect::<Vec<_>>();
-        let mut errors = codeterm_types::blueprint_pipeline::validate(spec, &converters)
+        let mut errors = codeterm_blueprint_types::blueprint_pipeline::validate(spec, &converters)
             .err()
             .unwrap_or_default();
         for (index, step) in spec.steps.iter().enumerate() {
@@ -544,7 +546,7 @@ mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
-    use codeterm_types::blueprint_pipeline::{BlueprintResult, IoType, Step, Trigger};
+    use codeterm_blueprint_types::blueprint_pipeline::{BlueprintResult, IoType, Step, Trigger};
 
     #[test]
     fn blueprint_delivery_unresolvable_named_target_is_refused_at_create_with_reason() {

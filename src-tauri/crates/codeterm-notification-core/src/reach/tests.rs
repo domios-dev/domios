@@ -2,8 +2,8 @@
 //! shut, and nothing at all on the ordinary case.
 
 use super::*;
+use crate::contract::NotifyDestination;
 use codeterm_types::config::schema::NotificationConfig;
-use codeterm_types::notification::NotifyDestination;
 
 /// The shipped defaults: the bell shows, the desktop surface is off, no channel
 /// is opted in. This is what an install looks like before anyone touches it.

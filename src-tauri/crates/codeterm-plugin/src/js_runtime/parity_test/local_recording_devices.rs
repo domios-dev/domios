@@ -1,4 +1,4 @@
-use codeterm_types::local_recording::LocalRecordingTrigger;
+use codeterm_local_recording::LocalRecordingTrigger;
 use std::sync::Arc;
 
 use serde_json::{json, Value};

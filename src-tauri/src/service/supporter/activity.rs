@@ -155,7 +155,7 @@ impl SupporterRuntime {
                 activity.token_acl_notices.insert(adapter.to_owned()).then(|| {
                     super::spend::SpendAlert {
                         title: "Supporter token permissions are invalid; save the token again to resume decisions".into(),
-                        level: codeterm_types::notification::NotifyLevel::Failure,
+                        level: codeterm_notification_core::contract::NotifyLevel::Failure,
                         event_key: format!("supporter:{adapter}:token-acl"),
                     }
                 })

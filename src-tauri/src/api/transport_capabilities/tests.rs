@@ -117,7 +117,7 @@ fn transport_capabilities_contract_notification_answer_changes_record_once() {
     use crate::notification::store::{
         Ask, NotificationProvenance, NotificationSeverity, NotificationStore,
     };
-    use codeterm_types::notification::{adopt_caller_actions, answer_actions};
+    use codeterm_notification_core::contract::{adopt_caller_actions, answer_actions};
     let mut store = NotificationStore::new(4);
     let actions = adopt_caller_actions(answer_actions(&["Yes".into(), "No".into()]).unwrap());
     let id = store.add_ext(

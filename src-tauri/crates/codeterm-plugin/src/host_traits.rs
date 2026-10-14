@@ -113,7 +113,7 @@ pub trait PluginHostCtx: Send + Sync {
     fn receiver_status_report_json(
         &self,
         _plugin_id: &str,
-        _query: &codeterm_types::local_recording::ReceiverStatusQuery,
+        _query: &codeterm_local_recording::ReceiverStatusQuery,
     ) -> String {
         r#"{"error":"receiver_status_unavailable"}"#.into()
     }
