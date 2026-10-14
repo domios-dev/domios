@@ -11,8 +11,15 @@ assert.deepEqual(parseMessageParts(`${frame}\nand text here`), [routed(frame), t
 assert.deepEqual(parseMessageParts(`text${frame}`), [text(`text${frame}`)]);
 assert.deepEqual(parseMessageParts(`${frame}\n${frame}tail`), [routed(frame), routed(frame), text("tail")]);
 assert.deepEqual(parseMessageParts(`${frame}text${frame}`), [routed(frame), text(`text${frame}`)]);
-for (const malformed of ['<domios from="report">unclosed', '<domios from=report>x</domios>', '<domios from="report" from="tab">x</domios>']) {
+for (const malformed of ['<domios from="report">unclosed', '<domios from=>x</domios>', '<domios from="report" from="tab">x</domios>']) {
   assert.deepEqual(parseMessageParts(malformed), [text(malformed)]);
+}
+for (const attrs of ['from="system" context="assigned-task"', 'from=system context=assigned-task']) {
+  const content = `<domios ${attrs}>opaque body</domios>`;
+  assert.deepEqual(parseMessageParts(content), [routed(content)]);
+  const projected = projectMessageParts([{ id: "starter", type: "user", content }], [], "starter");
+  assert.deepEqual(projected[0].messageParts, [routed(content)]);
+  assert.deepEqual(parseMessageParts(`prefix${content}`), [text(`prefix${content}`)]);
 }
 assert.deepEqual(parseMessageParts(""), [text("")]);
 for (const remainder of ["", "\n", " \r\n\t"]) {
