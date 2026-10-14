@@ -10,7 +10,7 @@ import re
 import sys
 
 root = Path(sys.argv[1])
-routes_rs = root / "src-tauri/src/api/routes.rs"
+routes_rs = root / "src-tauri/crates/codeterm-service-core/src/api/routes.rs"
 api_md = root / "prod-docs/API.md"
 
 internal_prefixes = (

@@ -7,7 +7,7 @@
 # Two consumer files USED to issue raw SQL — they no longer should:
 #
 #   cli/src/cmd/worker.rs
-#   src-tauri/src/mem/dreaming.rs
+#   src-tauri/crates/codeterm-service-core/src/mem/dreaming.rs
 #
 # This script greps both for raw graph-table SQL patterns and exits
 # non-zero if any leak in. Documentation guard — wire into CI when a
@@ -32,7 +32,7 @@ set -u
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 FILES=(
     "$ROOT/cli/src/cmd/worker.rs"
-    "$ROOT/src-tauri/src/mem/dreaming.rs"
+    "$ROOT/src-tauri/crates/codeterm-service-core/src/mem/dreaming.rs"
 )
 
 # Each pattern is a POSIX-extended regex passed to `grep -E`.
