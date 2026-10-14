@@ -1,5 +1,13 @@
 export const DOMIOS_CLOSE_TAG = "</domios>";
-export const DOMIOS_TYPED_INSTRUCTION = "Handle the message above.";
+export const DOMIOS_LEGACY_TYPED_INSTRUCTION = "Handle the message above.";
+export const DOMIOS_PASTED_MARKER = "pasted by Domios";
+export const PASTED_MARKER_TAIL = `\n${DOMIOS_PASTED_MARKER}`;
+export const LEGACY_CHAT_FOLLOW_UPS = [" Handle the paste as my request.", " Handle the pasted message above as my request."];
+
+export function stripPlainTypedTail(content: string): string {
+  const tail = [...LEGACY_CHAT_FOLLOW_UPS, PASTED_MARKER_TAIL].find((candidate) => content.endsWith(candidate));
+  return tail ? content.slice(0, -tail.length) : content;
+}
 
 export interface ParsedDomiosMessage {
   attrs: Record<string, string>;
@@ -82,13 +90,14 @@ function decodeAttribute(value: string): string | null {
 }
 
 function stripTypedSuffix(content: string): string {
-  let body = content.replace(/ ?<tip>[\s\S]*?<\/tip>/g, "");
-  const instruction = ` ${DOMIOS_TYPED_INSTRUCTION}`;
+  let body = stripPlainTypedTail(content.replace(/ ?<tip>[\s\S]*?<\/tip>/g, ""));
+  const instruction = ` ${DOMIOS_LEGACY_TYPED_INSTRUCTION}`;
   if (body.endsWith(instruction)) body = body.slice(0, -instruction.length);
+  body = stripPlainTypedTail(body);
   const replyStarts = [" [to reply, run: codeterm send ", " [sender is a shell; reply here]"];
   const start = replyStarts
     .map((token) => body.lastIndexOf(token))
     .filter((index) => index >= 0)
     .sort((left, right) => right - left)[0];
-  return start === undefined ? body : body.slice(0, start);
+  return stripPlainTypedTail(start === undefined ? body : body.slice(0, start));
 }

@@ -21,9 +21,12 @@ mod paste_encoding;
 mod payload_write;
 mod readiness;
 pub(crate) use paste_encoding::live_command_input;
-use paste_encoding::{encode_paste_frame, PasteEncodingCapability};
+use paste_encoding::PasteEncodingCapability;
 #[cfg(test)]
-use paste_encoding::{xterm_paste, BRACKETED_PASTE_END, BRACKETED_PASTE_START};
+use paste_encoding::{
+    encode_paste_frame, encode_paste_frame_with_tail, xterm_paste, BRACKETED_PASTE_END,
+    BRACKETED_PASTE_START,
+};
 use readiness::{exact_session_turn_source_available, pty_owner_guard, submit_key_readiness};
 pub(crate) use readiness::{observe_delivery_readiness, DELIVERY_MODAL_OPEN};
 mod recovery_guard;
@@ -179,37 +182,20 @@ trait SubmitTransport {
         true
     }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
-    fn write_typed_follow_up(&self, _text: &str, _deadline: Instant) -> Result<(), InjectionError> {
-        Err(InjectionError::SubmitNeverConfirmed {
-            waited: Duration::ZERO,
-            screen_tail: String::new(),
-        })
-    }
-    fn write_paste_with_follow_up(
-        &self,
-        text: &str,
-        typed_follow_up: Option<&str>,
-        deadline: Instant,
-    ) -> Result<usize, InjectionError> {
-        match typed_follow_up {
-            Some(suffix) => self.write_paste(&format!("{text}{suffix}"), deadline),
-            None => self.write_paste(text, deadline),
-        }
-    }
     fn write_paste_with_frame(
         &self,
         text: &str,
         typed_prefix: Option<&str>,
+        pasted_tail: Option<&str>,
         typed_suffix: Option<&str>,
         deadline: Instant,
     ) -> Result<usize, InjectionError> {
-        if typed_prefix.is_none() {
-            return self.write_paste_with_follow_up(text, typed_suffix, deadline);
-        }
-        let mut framed = String::new();
-        framed.push_str(typed_prefix.unwrap_or_default());
-        framed.push_str(text);
-        framed.push_str(typed_suffix.unwrap_or_default());
+        let framed = format!(
+            "{}{text}{}{}",
+            typed_prefix.unwrap_or_default(),
+            pasted_tail.unwrap_or_default(),
+            typed_suffix.unwrap_or_default()
+        );
         self.write_paste(&framed, deadline)
     }
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
@@ -475,22 +461,14 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
-        self.write_paste_with_follow_up(text, None, deadline)
-    }
-
-    fn write_paste_with_follow_up(
-        &self,
-        text: &str,
-        typed_follow_up: Option<&str>,
-        deadline: Instant,
-    ) -> Result<usize, InjectionError> {
-        self.write_paste_with_frame(text, None, typed_follow_up, deadline)
+        self.write_paste_with_frame(text, None, None, None, deadline)
     }
 
     fn write_paste_with_frame(
         &self,
         text: &str,
         typed_prefix: Option<&str>,
+        pasted_tail: Option<&str>,
         typed_suffix: Option<&str>,
         deadline: Instant,
     ) -> Result<usize, InjectionError> {
@@ -502,9 +480,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .screen_state
             .lock()
             .bracketed_paste_mode(self.pty_id);
-        let input = encode_paste_frame(
+        let input = paste_encoding::encode_paste_frame_with_tail(
             text,
             typed_prefix,
+            pasted_tail,
             typed_suffix,
             live_bracketed_paste_mode,
             self.paste_capability,
@@ -600,36 +579,6 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             );
         }
         Ok(input.len())
-    }
-
-    fn write_typed_follow_up(&self, text: &str, deadline: Instant) -> Result<(), InjectionError> {
-        let session = self
-            .svc
-            .pty
-            .lock()
-            .get_session(self.pty_id)
-            .ok_or_else(|| InjectionError::PtyClosed {
-                pty_id: self.pty_id.to_string(),
-            })?;
-        let timeout = deadline.saturating_duration_since(Instant::now());
-        let bytes = text.as_bytes().to_vec();
-        let result = match self.permit.as_ref() {
-            Some(permit) => session.write_and_flush_guarded(bytes.clone(), permit.clone(), timeout),
-            None => self
-                .svc
-                .pty
-                .lock()
-                .write_and_flush(self.pty_id, &bytes, timeout),
-        };
-        result.map_err(|error| injection_write_error(self.pty_id, error))?;
-        if self.permit.is_some() {
-            crate::pty::capture::CaptureRegistry::global().tap_input(
-                self.pty_id,
-                "pty.write",
-                &bytes,
-            );
-        }
-        Ok(())
     }
 
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError> {
@@ -834,6 +783,7 @@ pub(crate) fn submit_text_with_key_claimed_and_frame(
     pty_id: &str,
     text: &str,
     typed_prefix: Option<&str>,
+    pasted_tail: Option<&str>,
     typed_suffix: Option<&str>,
     enter: bool,
     submit_key: &[u8],
@@ -848,6 +798,7 @@ pub(crate) fn submit_text_with_key_claimed_and_frame(
         pty_id,
         text,
         typed_prefix,
+        pasted_tail,
         typed_suffix,
         enter,
         submit_key,
@@ -884,7 +835,7 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
         text,
         None,
         typed_follow_up,
-        true,
+        None,
         enter,
         submit_key,
         strategy,
@@ -903,6 +854,7 @@ pub(crate) fn submit_text_with_key_claimed_and_frame_revalidated(
     pty_id: &str,
     text: &str,
     typed_prefix: Option<&str>,
+    pasted_tail: Option<&str>,
     typed_suffix: Option<&str>,
     enter: bool,
     submit_key: &[u8],
@@ -920,8 +872,8 @@ pub(crate) fn submit_text_with_key_claimed_and_frame_revalidated(
         pty_id,
         text,
         typed_prefix,
+        pasted_tail,
         typed_suffix,
-        false,
         enter,
         submit_key,
         strategy,
@@ -940,8 +892,8 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
     pty_id: &str,
     text: &str,
     typed_prefix: Option<&str>,
+    pasted_tail: Option<&str>,
     typed_suffix: Option<&str>,
-    type_suffix_after_paste: bool,
     enter: bool,
     submit_key: &[u8],
     strategy: VerifySubmitStrategy,
@@ -1024,30 +976,18 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
     let mut key_guard = |allow_initial_key: bool, _turn_was_started: bool| {
         recovery_guard::submit_key_guard(&transport, allow_initial_key, text)
     };
-    let run = if type_suffix_after_paste {
-        runner::run_with_submit_key_and_follow_up(
-            &transport,
-            text,
-            enter,
-            submit_key,
-            typed_suffix,
-            strategy,
-            opts,
-            &mut key_guard,
-        )
-    } else {
-        run_with_submit_key_and_frame(
-            &transport,
-            text,
-            enter,
-            submit_key,
-            typed_prefix,
-            typed_suffix,
-            strategy,
-            opts,
-            &mut key_guard,
-        )
-    };
+    let run = run_with_submit_key_and_frame(
+        &transport,
+        text,
+        enter,
+        submit_key,
+        typed_prefix,
+        pasted_tail,
+        typed_suffix,
+        strategy,
+        opts,
+        &mut key_guard,
+    );
     let mut result = run.inspect(|result| {
         if recovery_attempted(result) {
             // `recovered=false` is not a lost message: a TUI strategy proves submit
@@ -1070,8 +1010,9 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
     });
     let expected_user_turn = if enter && !text.is_empty() {
         format!(
-            "{}{text}{}",
+            "{}{text}{}{}",
             typed_prefix.unwrap_or_default(),
+            pasted_tail.unwrap_or_default(),
             typed_suffix.unwrap_or_default()
         )
     } else {
