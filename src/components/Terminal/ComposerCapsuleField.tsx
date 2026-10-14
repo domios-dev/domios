@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { X } from "lucide-react";
-import { CapsuleDecor, CapsulePreview, LocalArtifactScope, capsuleLabelParts } from "@codeterm/chat-ui";
+import { AttachmentCapsule, CapsuleDecor, LocalArtifactScope, capsuleLabelParts } from "@codeterm/chat-ui";
 import {
   CAPSULE_LEAD,
   CAPSULE_TRAIL,
@@ -21,17 +21,14 @@ interface Hover {
   bottom: number;
 }
 
-function PaintedCapsule({ span, capsule, hovered }: { span: CapsuleSpan; capsule: ComposerCapsule | null; hovered: boolean }) {
+function PaintedCapsule({ span, capsule, hovered, onRemove }: { span: CapsuleSpan; capsule: ComposerCapsule | null; hovered: boolean; onRemove: () => void }) {
   const { name, detail } = capsuleLabelParts(span.label);
-  return (
-    <span data-capsule-start={span.start} data-unknown={capsule ? undefined : ""} data-hovered={hovered || undefined} className="ct-capsule">
-      {CAPSULE_LEAD}
-      <CapsuleDecor kind={capsule?.kind ?? null} />
-      {labelChars(name)}
-      {detail && <span className="ct-capsule__detail">{labelChars(detail)}</span>}
-      {CAPSULE_TRAIL}
-    </span>
-  );
+  const content = <>{CAPSULE_LEAD}{labelChars(name)}{detail && <span className="ct-capsule__detail">{labelChars(detail)}</span>}{CAPSULE_TRAIL}</>;
+  return <span data-capsule-start={span.start} data-unknown={capsule ? undefined : ""} data-hovered={hovered || undefined}>
+    {capsule && capsule.uploadId === undefined
+      ? <AttachmentCapsule attachment={{ kind: capsule.kind, path: capsule.path, label: span.label }} labelContent={content} actions={<button type="button" aria-label={`Remove ${span.label}`} onClick={onRemove}><X size={12} aria-hidden /></button>} />
+      : <span className="ct-capsule"><CapsuleDecor kind={capsule?.kind ?? null} />{content}</span>}
+  </span>;
 }
 
 /**
@@ -81,7 +78,7 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
     ).find(({ rect }) => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom);
     const start = Number(hit?.element.dataset.capsuleStart);
     const span = hit ? capsuleSegments(value, registry).find((segment) => "span" in segment && segment.span.start === start) : undefined;
-    if (!field || !hit || !span || !("span" in span) || !span.capsule) {
+    if (!field || !hit || !span || !("span" in span) || !span.capsule || span.capsule.uploadId === undefined) {
       if (hover) setHover(null);
       return;
     }
@@ -112,46 +109,17 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
       {active && (
         <div
           ref={mirrorRef}
-          aria-hidden
           data-testid="composer-capsule-mirror"
           className="pointer-events-none absolute left-0 overflow-hidden pr-1 text-[14px]"
           style={{ top: marginPx, bottom: marginPx, lineHeight: "20px", whiteSpace: "pre-wrap", overflowWrap: "break-word", color: "var(--ct-fg, #c9d1d9)" }}
         >
-          {segments.map((segment) => ("text" in segment
-            ? segment.text
-            : <PaintedCapsule key={segment.span.start} span={segment.span} capsule={segment.capsule} hovered={hover?.span.start === segment.span.start} />))}
+          {segments.map((segment, index) => ("text" in segment
+            ? <span key={index} aria-hidden>{segment.text}</span>
+            : <LocalArtifactScope key={segment.span.start} tabId={tabId}><PaintedCapsule span={segment.span} capsule={segment.capsule} hovered={hover?.span.start === segment.span.start} onRemove={() => onRemove(segment.span)} /></LocalArtifactScope>))}
           {value.endsWith("\n") ? " " : null}
         </div>
       )}
-      {active && hover && hoverCapsule && hoverCapsule.uploadId === undefined && (
-        <div
-          ref={cardRef}
-          data-testid="composer-capsule-card"
-          className="absolute z-30 pb-1.5"
-          style={{ left: hover.left, bottom: hover.bottom }}
-        >
-          <LocalArtifactScope tabId={tabId}>
-            <CapsulePreview
-              kind={hoverCapsule.kind}
-              path={hoverCapsule.path}
-              label={hover.span.label}
-              actions={(
-                <button
-                  type="button"
-                  aria-label={`Remove ${hover.span.label}`}
-                  title="Remove"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => { onRemove(hover.span); setHover(null); }}
-                  className="ct-liquid-interactive ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full opacity-70 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
-                  style={{ color: "var(--ct-fg)" }}
-                >
-                  <X size={12} aria-hidden />
-                </button>
-              )}
-            />
-          </LocalArtifactScope>
-        </div>
-      )}
+
     </div>
   );
 }

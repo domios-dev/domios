@@ -1,3 +1,4 @@
+import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Image as ImageIcon, RefreshCw, Maximize2, FolderOpen, X } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -144,7 +145,7 @@ function LoadedLocalArtifact({
           <RefreshCw size={13} aria-hidden />
         </button>
       </div>}
-      {bare ? <div className="text-sm">{content}</div> : <div className="max-h-[720px] overflow-auto px-3 py-2 text-sm">{content}</div>}
+      {bare ? <div className="text-sm">{content}</div> : <BoundedMessageContent collapsedHeight="720px" className="px-3 py-2 text-sm">{content}</BoundedMessageContent>}
       {fullscreen && createPortal(<FullscreenOverlay panelRef={fullscreenRef} label={`Fullscreen ${name}`} onClose={close} style={bounds}>
         <header className="flex items-center gap-2 p-2 text-sm"><span className="min-w-0 flex-1 break-words" title={directive.path}>{directive.path}</span>
           <button type="button" onClick={reveal} aria-label={`Reveal ${name}`}><FolderOpen size={15} /></button>

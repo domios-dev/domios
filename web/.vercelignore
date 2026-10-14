@@ -1,8 +1,0 @@
-**/.local
-**/media-src
-**/node_modules
-**/dist
-**/target
-**/.git
-**/.vercel
-**/.env*

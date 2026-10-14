@@ -33,6 +33,7 @@ pub struct RestartTrackerState {
     last_restart: HashMap<String, Instant>,
     in_progress: HashSet<String>,
     command_ptys: HashMap<String, (String, String)>,
+    switch_confirmations: HashMap<String, Arc<crate::pty::screen_state::ScreenChangeSignal>>,
 }
 
 pub type RestartTracker = Arc<Mutex<RestartTrackerState>>;
@@ -1092,3 +1093,5 @@ pub(crate) use model_switch::{
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) mod switch_confirmation;

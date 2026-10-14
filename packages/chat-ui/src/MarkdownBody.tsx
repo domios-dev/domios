@@ -1,3 +1,5 @@
+import { boundedMessageLayout, expandedMessageHeight } from "./boundedMessageModel";
+import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useMemo, useContext, useRef } from "react";
 import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
@@ -20,7 +22,7 @@ import { SyntaxHighlighter, createElement } from "./syntaxHighlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
-import { inferCodeLanguage } from "./codeLanguage";
+import { inferCodeLanguage, languageFromInfoString } from "./codeLanguage";
 import { pickUiFontScaleValue } from "./uiFontScale";
 export { extractCommand, extractEdits, extractFilePath } from "./toolcard/toolParsing";
 import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
@@ -35,7 +37,7 @@ export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 export const DIFF_HIGHLIGHT_MAX_LINES = 400;
 export const LONG_ARTIFACT_PREVIEW_LINES = 36;
 export const LONG_ARTIFACT_PREVIEW_MAX_HEIGHT = 320;
-export const LONG_ARTIFACT_FULL_MAX_HEIGHT = 700;
+export const LONG_ARTIFACT_FULL_MAX_HEIGHT = expandedMessageHeight(LONG_ARTIFACT_PREVIEW_MAX_HEIGHT);
 
 function extractCodeText(children: unknown): string {
   if (Array.isArray(children)) {
@@ -47,7 +49,7 @@ function extractCodeText(children: unknown): string {
 function resolveCodeLanguage(className: string | undefined, children: unknown): string | null {
   const explicit = /language-([a-z0-9+#-]+)/i.exec(className || "");
   if (explicit) {
-    return explicit[1].toLowerCase();
+    return languageFromInfoString(explicit[1]);
   }
   const source = extractCodeText(children).replace(/\r/g, "").trim();
   return looksLikeMermaidSource(source) ? "mermaid" : null;
@@ -513,17 +515,16 @@ export function shortPath(fullPath: string): string {
 /** Extract shell command text across Claude/Codex provider shapes. */
 export function PlainOutput({ text, maxHeight = "12rem" }: { text: string; maxHeight?: string }) {
   return (
-    <pre
-      className={`${PRE_WRAP_CLASS} m-0 overflow-auto rounded-md border px-2 py-1.5 font-mono text-[11px] leading-relaxed`}
+    <BoundedMessageContent collapsedHeight={maxHeight} as="pre"
+      className={`${PRE_WRAP_CLASS} m-0 rounded-md border px-2 py-1.5 font-mono text-[11px] leading-relaxed`}
       style={{
-        maxHeight,
         color: "var(--ct-fg)",
         background: "color-mix(in srgb, var(--ct-bg, #0d1117) 72%, black 10%)",
         borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
       }}
     >
       {text}
-    </pre>
+    </BoundedMessageContent>
   );
 }
 
@@ -595,8 +596,7 @@ export function LongArtifact({
               className="px-3 py-2 text-xs"
               style={{
                 color: "var(--ct-fg)",
-                maxHeight: `${showAll ? LONG_ARTIFACT_FULL_MAX_HEIGHT : LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`,
-                overflowY: showAll ? "auto" : "hidden",
+                ...boundedMessageLayout(`${LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`, showAll),
                 overflowX: "auto",
               }}
             >

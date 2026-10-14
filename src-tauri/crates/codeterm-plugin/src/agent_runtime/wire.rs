@@ -298,6 +298,8 @@ pub enum RuntimeResult {
 pub enum RuntimeStep {
     Continue {
         plan: RuntimePlan,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        history: Option<RuntimeResult>,
         #[serde(default)]
         before_acceptance: bool,
     },
@@ -317,6 +319,8 @@ pub enum RuntimeStep {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_micros: Option<u64>,
     pub input_tokens: u64,
     pub output_tokens: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -350,6 +354,8 @@ pub enum AgentRuntimeEvent {
     },
     Auth {
         state: RuntimeAuthState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        billing_mode: Option<codeterm_types::usage::BillingMode>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
     },

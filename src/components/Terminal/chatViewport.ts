@@ -1,9 +1,7 @@
-import { chatUserScrollChanged, chatViewportLayoutChanged } from "./chatScrollDecisions";
+import { CHAT_TAIL_TOLERANCE_PX, chatTailGap, chatUserScrollChanged, chatViewportLayoutChanged } from "./chatScrollDecisions";
 import { editFrontendScroll } from "../../lib/frontendUpdate/appState";
 import { ChatScrollMemory, type ChatScrollState } from "./chatScrollMemory";
 export type { ChatScrollState } from "./chatScrollMemory";
-
-const VIEWPORT_TOLERANCE_PX = 0.5;
 
 export interface ChatViewportGeometry {
   scrollHeight: number;
@@ -14,7 +12,7 @@ export interface ChatViewportGeometry {
 export type ChatViewportMode = "pinned" | "detached";
 
 export function isChatViewportAtBottom(viewport: ChatViewportGeometry): boolean {
-  return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= VIEWPORT_TOLERANCE_PX;
+  return chatTailGap(viewport) < CHAT_TAIL_TOLERANCE_PX;
 }
 
 export function snapChatViewportToBottom(viewport: ChatViewportGeometry): void {
@@ -42,7 +40,7 @@ export function chatViewportModeAfterScroll(
   if (layoutChanged && (!userScrolling || !chatUserScrollChanged(previous, viewport))) return currentMode;
   if (currentMode === "pinned" && isChatViewportAtBottom(viewport)) return "pinned";
   if (viewport.scrollTop < previous.scrollTop) return "detached";
-  if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 0) return "pinned";
+  if (isChatViewportAtBottom(viewport)) return "pinned";
   return currentMode;
 }
 

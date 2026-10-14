@@ -186,7 +186,7 @@ async function run() {
   assert(system?.textContent?.includes("Internal lifecycle detail"), "system event should expand on demand");
   const editDetailsId = edit?.querySelector("button")?.getAttribute("aria-controls");
   const editDetails = editDetailsId ? edit?.querySelector<HTMLElement>(`#${editDetailsId}`) : null;
-  assert(editDetails?.style.maxHeight === "600px" && editDetails.style.overflowY === "auto", "expanded code output should use the 600px internal scroll cap");
+  assert(editDetails?.style.maxHeight === "600px" && editDetails.style.overflowY === "hidden", "expanded code output should use the 600px preview cap");
   const rawDisclosures = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="raw-command-disclosure"]'));
   assert(rawDisclosures.length === 2, `raw command disclosures render only inside expanded tool cards: expected 2, got ${rawDisclosures.length}`);
   assert(rawDisclosures.every((view) => view.closest('[data-testid="chat-tool-call"]')), "raw command disclosures live inside tool cards");

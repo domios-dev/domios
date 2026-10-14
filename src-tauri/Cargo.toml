@@ -1,11 +1,11 @@
 [package]
 name = "codeterm"
-version = "1.14.7"
+version = "1.14.9-bs.3"
 edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage"]
+members = [".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
@@ -120,6 +120,7 @@ libc = "0.2"
 
 # macOS uses the system Accelerate framework for the annembed LAPACK path.
 [target.'cfg(target_os = "macos")'.dependencies]
+codeterm-input-macos = { path = "crates/codeterm-input-macos" }
 annembed = { version = "0.1.6", optional = true, default-features = false, features = ["macos-accelerate"] }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
@@ -133,6 +134,7 @@ objc2-foundation = "0.3"
 fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
 
 [target.'cfg(windows)'.dependencies]
+codeterm-input-windows = { path = "crates/codeterm-input-windows" }
 conpty = "0.7"
 clipboard-win = "5"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

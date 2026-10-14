@@ -1,29 +1,58 @@
 # Domios local build machine
 
-Each push to `release/X.Y.Z` starts one `release.yml` run. Preparation fans out to tests and
+Each push to `release/X.Y.Z` starts one `release.yml` run. Preparation queues Rust archives and parallel fast checks together; fast checks gate
 four platform callers: macOS, Linux arm64, Linux x86_64, Windows. macOS and Windows each have
 independent architecture matrix jobs with `fail-fast: false`. The final manifest needs every
-platform caller and tests, verifies downloaded draft artifact signatures, then publishes.
+platform caller and both test stages, verifies downloaded draft artifact signatures, then publishes.
 
 ## Build farm
 
 | Runner | Machine | Workflow | Builds |
 |--------|---------|----------|--------|
-| **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `release-builder.yml` | independent macOS `x64`/`arm64` (Developer ID + notarized) and independent `arm64` Linux `.deb`+`.AppImage` (Docker) |
+| **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `release-macos-build.yml` + `release-linux-arm64.yml` | independent macOS `x64`/`arm64` (Developer ID + notarized) and independent `arm64` Linux `.deb`+`.AppImage` (Docker) |
 | **`ROG-windows-build`** (`windows-build`) | ROG, Windows (x86_64) | `release.yml` → `release-windows.yml` | Windows `x64`+`arm64` NSIS, signed on the runner |
 | **`linux-build`** | ubunta, Ubuntu 24.04 (x86_64) | `release.yml` → `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native; also plugin publication and release preparation |
 | **`linux-ci`** | ubunta and BLACKSTAR-wsl-ci (WSL2 Ubuntu 24.04 on BLACKSTAR) | `tests.yml` Linux jobs and the PR lint workflows | test pool only: either idle runner takes the job; never packaging or signing |
 | **`windows-ci`** | ROG and BLACKSTAR-windows-x64 | `tests.yml` Windows lib and CLI jobs | test pool only; release packaging keeps `windows-build` (arm64 on ROG) and `windows-x64-build` (x64 on BLACKSTAR) |
 
-Strength tiers (runner labels, independent of the release owners above): `heavy` = eight (`codeterm-builder-2`), BLACKSTAR-wsl-ci, BLACKSTAR-windows-x64; `medium` = ROG; `light` = ubunta, plus every heavy runner that can also take quick checks (eight, BLACKSTAR-wsl-ci). Platform-independent quick checks such as `fmt` ask for `light` and run on any free one; the heavy Rust jobs start only after `fmt` passes.
+Strength tiers (runner labels, independent of the release owners above): `heavy` = eight (`codeterm-builder-2`), BLACKSTAR-wsl-ci, BLACKSTAR-windows-x64; `medium` = ROG; `light` = ubunta, plus every heavy runner that can also take quick checks (eight, BLACKSTAR-wsl-ci). Platform-independent quick checks such as `fmt` ask for `light` and run on any free one; release Rust archives queue independently of fast checks; standalone full tests keep the fmt prerequisite.
 
-Rust test distribution uses the generic `rust-shard` label on one qualified runner on
-**each** machine: eight, air, ubunta, ROG, BLACKSTAR and green. New machines join
-this pool after provisioning the native Rust/app dependencies, Git Bash on Windows,
-PowerShell, and Node. Keep the OS labels alongside it. Do not add a machine name or
-OS to the shared shard job: twelve nextest hash partitions are queued together,
-and any idle qualified runner takes the next one. Native `linux-ci`, `macOS`, and
-`windows-ci` jobs execute the cfg-gated tests for their OS.
+### Observed release/test runner overlap
+
+Inventory read with `gh api repos/rollacode/codeterm/actions/runners` on 2026-10-14:
+
+| Runner | Test labels | Default release labels | Queue overlap |
+|---|---|---|---|
+| codeterm-builder-2 (eight, macOS ARM64) | `rust-shard`, `codeterm-builder` (macOS archive) | `codeterm-builder` (both macOS architectures and Linux arm64 Docker) | Mac archives/shards |
+| ubunta-linux-build (Linux X64) | `rust-shard`, `linux-ci`, `linux-build` (Linux archive) | `linux-build` (Linux x86_64) | Linux archives/shards |
+| BLACKSTAR-windows-x64 (Windows X64) | `rust-shard`, `windows-ci` (Windows archive/native tests) | `windows-x64-build` | Windows archives/shards |
+| ROG-windows-build (Windows X64) | `rust-shard`, `windows-ci` (Windows archive/native tests) | `windows-build` (Windows arm64 cross-build) | Windows archives/shards |
+| air-macos (macOS ARM64) | `rust-shard`, `macos-ci` | none | tests only |
+| BLACKSTAR-wsl-ci (Linux X64) | `linux-ci`, `light`, `heavy` | none | fast checks/native tests |
+| BLACKSTAR-wsl-light-1 / -2 (Linux X64) | `light` | none | fast checks only |
+| green-windows-ci (Windows X64) | `windows-light` | none | no current Rust shard assignment |
+
+All nine runners were online. The inventory has five `rust-shard` runners;
+green currently lacks that label. Matching remains capability/label based, so
+any idle qualified runner can take a job; no runner name is pinned in the workflows.
+Every default release builder overlaps tests. At source preparation completion,
+Rust archives and the parallel fast checks queue together; archives have no fast-gate
+prerequisite. When the fast gate is green, all four artifact callers queue immediately,
+with no archive-completion dependency. A free runner matching a build's labels may
+start it while archives/tests still run. Shards and native tests queue as soon as
+archives complete, followed by coverage. Any failed Rust test requests cancellation
+before receipt upload; a failed gate also cancels the caller run.
+
+GitHub has no runner queue priority. Earlier archive submission gives tests a head
+start on shared machines; queue order is best effort, not a guarantee. Builds are
+never serialized behind an OS archive by the graph. Refresh this inventory when
+changing repository routing variables or runner labels; test-free builders need no
+extra dependency and already start as soon as fast checks pass.
+
+Rust test distribution uses generic `rust-shard` on qualified runners. Keep the OS
+labels alongside it. Twelve nextest hash partitions are queued together, and any idle
+qualified runner takes the next one. Native Linux, macOS and Windows jobs execute
+cfg-gated tests for their OS from the same compiled archives.
 
 Registration: include `rust-shard` in `config.sh --labels` / `config.cmd --labels`
 alongside the existing custom labels; the Windows bootstrap defaults include it.
@@ -309,4 +338,4 @@ No SSH between machines; each runner signs and uploads its platform assets, and 
 job publishes the verified release. Keep the repo private / gate fork PRs — self-hosted runners
 execute repo workflow code.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

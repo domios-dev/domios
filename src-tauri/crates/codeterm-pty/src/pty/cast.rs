@@ -27,7 +27,11 @@ struct CastHeader {
 }
 
 pub fn repo_root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."))
+    #[cfg(test)]
+    let root = crate::test_support::fixture_manifest_dir().join("../../..");
+    #[cfg(not(test))]
+    let root = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."));
+    root
 }
 
 /// Resolve a cast path to an absolute file under `testbench/replays/`.

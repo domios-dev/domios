@@ -7,6 +7,9 @@
 //! Fixtures: tests/fixtures/agent-state/<provider>/<state>/{recording.cast,expected.json}
 //! Run: cargo test --test agent_state_replay -- --nocapture  (or evals/agent-state/run.sh)
 
+#[path = "../src/test_support.rs"]
+mod test_support;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -358,11 +361,14 @@ fn run_fixture(name: &str, dir: &Path, provider: &JsProvider) -> FixtureResult {
 // --- discovery + scorecard -------------------------------------------------
 
 fn fixtures_root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("tests/fixtures/agent-state")
+    test_support::fixture_manifest_dir()
+        .join("..")
+        .join("tests/fixtures/agent-state")
 }
 
 fn plugin_manifest(provider: &str) -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+    test_support::fixture_manifest_dir()
+        .join("..")
         .join(format!("plugins/provider-{provider}/plugin.json"))
 }
 

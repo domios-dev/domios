@@ -87,7 +87,7 @@ fn paths() -> Vec<FixturePaths> {
             declaration,
         }];
     }
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let root = PathBuf::from(crate::test_support::fixture_manifest_dir())
         .join("../../..")
         .join("plugins");
     let mut directories: Vec<_> = std::fs::read_dir(root)
@@ -193,6 +193,7 @@ async fn replay(
                 && !capture.scenario.is_empty()
         );
     }
+    let mut histories: HashMap<usize, RuntimeHistory> = HashMap::new();
     let mut plans: HashMap<usize, RuntimePlan> = HashMap::new();
     let mut counts: HashMap<usize, usize> = HashMap::new();
     let mut state = Value::Null;
@@ -241,10 +242,35 @@ async fn replay(
                 let count = counts.entry(*index).or_insert(0);
                 *count += 1;
                 assert!(*count <= MAX_RUNTIME_STEPS);
-                let step = provider
+                let mut step = provider
                     .runtime_response(ctx, &case.operation, &plan.state, reply)
                     .await
                     .unwrap();
+                if let RuntimeStep::Continue {
+                    history: Some(chunk),
+                    ..
+                } = &step
+                {
+                    histories.entry(*index).or_default().append(chunk.clone());
+                }
+                if let RuntimeStep::Complete {
+                    result:
+                        RuntimeResult::HistoryPage {
+                            thread_id,
+                            next_cursor,
+                            ..
+                        },
+                    ..
+                } = &step
+                {
+                    let thread = thread_id.clone();
+                    let cursor = next_cursor.clone();
+                    if let RuntimeStep::Complete { result, .. } = &mut step {
+                        let mut history = histories.remove(index).unwrap_or_default();
+                        history.append(result.clone());
+                        *result = history.finish(thread, cursor);
+                    }
+                }
                 if let RuntimeStep::Continue { plan, .. } = &step {
                     plans.insert(*index, plan.clone());
                 } else {
@@ -464,4 +490,180 @@ fn observed_rates(fixtures: &[(PathBuf, Fixture)]) -> (f64, f64) {
         "a real complete ten-second streaming capture is required"
     );
     (sustained, peak)
+}
+
+#[tokio::test]
+async fn runtime_large_history_streams_bounded_quickjs_state() {
+    let inputs = paths()
+        .into_iter()
+        .find(|input| input.manifest.parent().unwrap().file_name().unwrap() == "provider-codex")
+        .unwrap();
+    let provider = load_provider(&inputs.manifest, &inputs.declaration);
+    let fixture: Fixture =
+        serde_json::from_str(&std::fs::read_to_string(inputs.dir.join("resume.json")).unwrap())
+            .unwrap();
+    let context = fixture.context;
+    let op = RuntimeOperation::ReadHistory {
+        thread_id: context.thread_id.clone().unwrap(),
+        cursor: None,
+    };
+    let plan = provider.runtime_plan(&context, &op).await.unwrap();
+    let mut step = provider.runtime_response(&context, &op, &plan.state, &RpcReply::Success { value: json!({"data":[{"id":"long-turn","status":"completed","ignored":"x".repeat(MAX_RUNTIME_STATE_BYTES)}]}) }).await.unwrap();
+    let mut history = RuntimeHistory::default();
+    for index in 0..80 {
+        let RuntimeStep::Continue { plan, .. } = step else {
+            panic!("history must continue")
+        };
+        validate_runtime_state(&plan.state).unwrap();
+        assert!(serde_json::to_vec(&plan.state).unwrap().len() < 1024);
+        let value = json!({"data":[{"item":{"type":"agentMessage","id":format!("item-{index}"),"text":"x".repeat(8192)}}],"nextCursor":(index < 79).then(|| format!("cursor-{index}"))});
+        step = provider
+            .runtime_response(&context, &op, &plan.state, &RpcReply::Success { value })
+            .await
+            .unwrap();
+        if let RuntimeStep::Continue {
+            history: Some(chunk),
+            ..
+        } = &step
+        {
+            history.append(chunk.clone());
+        }
+    }
+    let RuntimeStep::Continue { plan, .. } = step else {
+        panic!("expected goal")
+    };
+    validate_runtime_state(&plan.state).unwrap();
+    let complete = provider
+        .runtime_response(
+            &context,
+            &op,
+            &plan.state,
+            &RpcReply::Error {
+                error: RpcFailure {
+                    code: -32601,
+                    message: "unsupported".into(),
+                    data: None,
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let RuntimeStep::Complete { result, .. } = complete else {
+        panic!("expected completion")
+    };
+    history.append(result);
+    let result = history.finish(context.thread_id.unwrap(), None);
+    assert!(serde_json::to_vec(&result).unwrap().len() > MAX_RUNTIME_STATE_BYTES);
+    let RuntimeResult::HistoryPage { items, .. } = result else {
+        panic!()
+    };
+    assert_eq!(items.len(), 80);
+    assert_eq!(items.last().unwrap().seq, 80);
+}
+
+#[tokio::test]
+async fn runtime_multi_mib_history_is_bounded_before_and_after_quickjs() {
+    let inputs = paths()
+        .into_iter()
+        .find(|input| input.manifest.parent().unwrap().file_name().unwrap() == "provider-codex")
+        .unwrap();
+    let provider = load_provider(&inputs.manifest, &inputs.declaration);
+    let fixture: Fixture =
+        serde_json::from_str(&std::fs::read_to_string(inputs.dir.join("resume.json")).unwrap())
+            .unwrap();
+    let sizes: Value = serde_json::from_str(include_str!(
+        "../../../../../../plugins/provider-codex/tests/fixtures/history-bounds.json"
+    ))
+    .unwrap();
+    let context = fixture.context;
+    let op = RuntimeOperation::ReadHistory {
+        thread_id: context.thread_id.clone().unwrap(),
+        cursor: None,
+    };
+    let plan = provider.runtime_plan(&context, &op).await.unwrap();
+    let mut step = provider
+        .runtime_response(
+            &context,
+            &op,
+            &plan.state,
+            &RpcReply::Success {
+                value: json!({"data":[{"id":"turn","status":"inProgress","startedAt":1}]}),
+            },
+        )
+        .await
+        .unwrap();
+    let mut data = vec![
+        json!({"item":{"id":"image","type":"userMessage","content":[{"type":"image","url":format!("data:image/png;base64,{}","A".repeat(sizes["imageBytes"].as_u64().unwrap() as usize))}]}}),
+        json!({"item":{"id":"tool","type":"commandExecution","command":"cat","aggregatedOutput":"x".repeat(sizes["toolBytes"].as_u64().unwrap() as usize),"status":"completed"}}),
+    ];
+    data.extend((0..98).map(|index| json!({"item":{"id":format!("item-{index}"),"type":"agentMessage","text":"\u{0001}雪🙂".repeat(2000)}})));
+    let mut history = RuntimeHistory::default();
+    let mut outputs = 0;
+    loop {
+        let RuntimeStep::Continue { plan, .. } = step else {
+            panic!("expected history continuation")
+        };
+        let RuntimeAction::Request { call } = &plan.action else {
+            panic!("expected request")
+        };
+        if call.method != "thread/items/list" {
+            step = provider
+                .runtime_response(
+                    &context,
+                    &op,
+                    &plan.state,
+                    &RpcReply::Error {
+                        error: RpcFailure {
+                            code: -32601,
+                            message: "unsupported".into(),
+                            data: None,
+                        },
+                    },
+                )
+                .await
+                .unwrap();
+            break;
+        }
+        outputs += 1;
+        assert!(outputs <= 100);
+        step = provider
+            .runtime_response(
+                &context,
+                &op,
+                &plan.state,
+                &RpcReply::Success {
+                    value: json!({"data":data}),
+                },
+            )
+            .await
+            .unwrap();
+        let wire = serde_json::to_vec(&step).unwrap();
+        assert!(wire.len() < sizes["chunkBytes"].as_u64().unwrap() as usize);
+        validate_runtime_size(&step, MAX_RUNTIME_VALUE_BYTES).unwrap();
+        assert!(!String::from_utf8(wire).unwrap().contains("data:image/"));
+        if let RuntimeStep::Continue {
+            history: Some(chunk),
+            ..
+        } = &step
+        {
+            history.append(chunk.clone());
+        }
+    }
+    assert!(outputs > 1);
+    let RuntimeStep::Complete { result, .. } = step else {
+        panic!("expected completed history")
+    };
+    history.append(result);
+    let RuntimeResult::HistoryPage {
+        items, open_items, ..
+    } = history.finish(context.thread_id.unwrap(), None)
+    else {
+        panic!("expected page")
+    };
+    assert_eq!(items.len(), 100);
+    assert_eq!(open_items.len(), 99);
+    assert_eq!(items.last().unwrap().seq, 100);
+    let wire = serde_json::to_string(&items).unwrap();
+    assert!(wire.contains("[image omitted: 6291478 bytes]"));
+    assert!(wire.contains("[content truncated: 5242880 bytes total]"));
 }

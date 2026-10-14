@@ -15,6 +15,7 @@ pub mod login;
 pub mod model;
 #[cfg(any(unix, test))]
 mod ownership;
+pub(crate) mod plan_warning;
 pub(crate) mod process;
 pub(crate) mod projections;
 pub(crate) mod prompt_answers;
@@ -22,6 +23,7 @@ mod question_delivery;
 pub mod questions;
 pub(crate) mod restart;
 pub(crate) mod restore;
+mod restore_attempt;
 mod rpc;
 mod subscriber;
 pub mod transport;

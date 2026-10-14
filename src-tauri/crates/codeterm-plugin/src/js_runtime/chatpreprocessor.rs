@@ -138,7 +138,7 @@ mod tests {
     // ── bundled plugin preset tests ─────────────────────────────────────────
 
     fn bundled_plugin_js() -> Option<String> {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        let path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
             .join("../plugins/chat-preprocessor/plugin.js");
         std::fs::read_to_string(&path).ok()
     }

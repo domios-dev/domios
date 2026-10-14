@@ -367,7 +367,7 @@ impl Store {
             return Staged::ready(Err(format!("blueprint not found: {id}")));
         };
         let notice = (!current.machine.stopped).then(|| StopNotice::new(&current, reason));
-        if let Some(cancelled) = self.active.remove(id) {
+        if let Some(cancelled) = self.active.get(id) {
             cancelled.store(true, Ordering::SeqCst);
         }
         if !self.backend.is_json() {

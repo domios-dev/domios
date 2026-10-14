@@ -423,6 +423,14 @@ impl AgentProvider for ClaudeProvider {
         steps
     }
 
+    fn parse_switch_confirmation_prompt(
+        &self,
+        screen: &str,
+        selection: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
+        model_switch::confirmation_prompt(screen, selection)
+    }
+
     fn live_prompt_response(&self, option_index: usize, screen: &str) -> Option<Vec<Vec<u8>>> {
         Some(self.build_prompt_response(option_index, screen))
     }
@@ -713,7 +721,7 @@ mod tests {
     #[test]
     fn current_folder_trust_prompt_parses_and_responds_from_the_refusal_focus() {
         let screen = std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
                 .join("../../../plugins/provider-claude/tests/fixtures/folder-trust")
                 .join("quick-safety-no-first.txt"),
         )

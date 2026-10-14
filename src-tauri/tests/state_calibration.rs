@@ -1,3 +1,6 @@
+#[path = "../src/test_support.rs"]
+mod test_support;
+
 #[path = "../../testbench/rust/state_calibration.rs"]
 mod state_calibration;
 

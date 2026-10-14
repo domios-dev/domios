@@ -408,7 +408,9 @@ fn to_layout(node: &SplitNodeSnapshot) -> Result<DeskLayoutNode, String> {
             Ok(DeskLayoutNode::Leaf {
                 tab_id: tab_id.clone(),
                 cwd: cwd.clone(),
-                fields: DeskLeafFields { values: value },
+                fields: DeskLeafFields {
+                    values: super::leaf_bound::bound_leaf(tab_id, value),
+                },
             })
         }
         SplitNodeSnapshot::Split {

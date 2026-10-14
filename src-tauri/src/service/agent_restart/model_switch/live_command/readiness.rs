@@ -5,12 +5,15 @@ use std::sync::Arc;
 pub(super) struct CommandReadiness {
     input: Regex,
     dialogs: Vec<Regex>,
+    provider: Arc<dyn crate::agent::provider::AgentProvider>,
+    confirmation_selection: Option<String>,
 }
 
 impl CommandReadiness {
     pub(super) fn from_declaration(
         commands: &crate::agent::provider::ModelSwitchCommands,
         target: &CommandTarget,
+        provider: Arc<dyn crate::agent::provider::AgentProvider>,
     ) -> Result<Option<Arc<Self>>, ModelSwitchError> {
         let Some(pattern) = &commands.ready_input_regex else {
             return Ok(None);
@@ -37,7 +40,16 @@ impl CommandReadiness {
                 );
             }
         }
-        Ok(Some(Arc::new(Self { input, dialogs })))
+        let confirmation_selection = std::iter::once(&commands.model)
+            .chain(commands.effort.iter())
+            .any(|command| command.confirmation_prompt_kind.is_some())
+            .then(|| target.model.clone());
+        Ok(Some(Arc::new(Self {
+            input,
+            dialogs,
+            provider,
+            confirmation_selection,
+        })))
     }
 
     pub(super) fn matches(&self, screen: &str, input: &ComposerInputState) -> bool {
@@ -46,6 +58,14 @@ impl CommandReadiness {
             .then_some(input.cursor_row)
             .or(input.inverse_caret_row);
         !self.dialogs.iter().any(|dialog| dialog.is_match(screen))
+            && self
+                .confirmation_selection
+                .as_deref()
+                .is_none_or(|selection| {
+                    self.provider
+                        .parse_switch_confirmation_prompt(screen, selection)
+                        .is_none()
+                })
             && cursor
                 .and_then(|row| screen.lines().nth(row as usize))
                 .is_some_and(|row| self.input.is_match(row))

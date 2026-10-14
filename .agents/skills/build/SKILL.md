@@ -81,6 +81,12 @@ The isolated account crate uses `./build.sh test-one account <selector>`; worker
 
 The repository watcher crate uses `./build.sh test-one repowatch tests::`; its Tauri event adapter remains in the app.
 
+The native recording crates use `./build.sh nextest input-platform` to compile
+both library test targets once and run their focused cases. macOS IOHID model
+cases also run on Linux/Windows; Raw Input cases compile only on Windows.
+`./build.sh test-one input-macos|input-windows <selector>` targets one crate;
+select Windows only on Windows. Workers defer Rust execution to canonical.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.
@@ -118,6 +124,25 @@ do not touch `cli/src/main.rs` to force a rebuild. Repeated builds at the same
 SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
 
 ## Shared compile cache
+
+
+Release-input preparation now calls the same cache policy before invoking Cargo.
+`ci-archives` owns archive compilation through that policy; on Windows use
+`.\build.ps1 ci-archives`, which locates Git Bash explicitly without requiring it
+on PATH. Native release jobs export `RUSTC_WRAPPER=sccache` at job scope so the
+separate Tauri invocation inherits it, verify shared storage before compiling,
+and print `cache-stats` in their final step.
+
+`cache-stats` queries the same `SCCACHE_SERVER_PORT` or Unix
+`SCCACHE_SERVER_UDS` as the compiler wrapper and requires a live listener.
+Sccache 0.16's `--show-stats` can return synthetic zero counters and a configured
+S3 location when no server is reachable. These are not a live-server receipt.
+`cache-status` now labels actual storage unavailable in that case, and
+`cache-verify` fails. No listener is started by these read-only operations.
+A live socket plus stats describes the selected endpoint; it does not prove that
+a completed compiler invocation used it. Capture before/after compile requests
+and hits to prove usage, and distinguish fresh Cargo targets from cache hits.
+
 
 `build.sh` owns cache setup through `scripts/cache-policy.sh`; `build.ps1`
 forwards to it. Release, DEV and capped Rust tests use the same configuration.
@@ -217,6 +242,8 @@ calls; a successful build alone is not cache-hit proof.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Release workflow compiles crates with no sccache requests | Release inputs omitted cache setup, or a separate Tauri process did not inherit the wrapper | Run the owning `release-inputs` policy and export `RUSTC_WRAPPER` at job scope; verify storage before compilation and capture `cache-stats` afterward. |
+| Stats report S3 and zero requests with no server process/listener | Sccache emits configured synthetic stats when its server cannot be reached | Use `cache-verify`/`cache-stats` live-endpoint checks; provision while idle, then measure actual request and hit deltas. Do not classify synthetic stats as reuse. |
 | CI refuses with exit 75 while another build is running | CI invoked cache configuration instead of read-only verification | Use `cache-verify` and set `CODETERM_SCCACHE_VERIFY_ONLY=1` for subsequent CI build processes. Provision storage separately while idle. |
 | A dev build requests S3 but refuses with exit 75 after another caller switched the server back to local | An unresolved-key caller could downgrade a previously shared server | Keep the no-downgrade guard: missing keys reuse running S3; keys may switch local to S3 only while idle. Verify `bash scripts/check-shared-sccache.sh`. |
 | Local fallback line on an intended builder | One or both vault entries could not resolve | Run `codeterm mem secret sync` locally, inspect secret backend status, then rerun with the machine idle. Never print the values. |
@@ -730,12 +757,20 @@ Without Firebase values account uses local; without a billing endpoint billing
 returns free locally and reports subscription actions unavailable. Missing
 Amplitude credentials leave queued events undelivered with unavailable status.
 Changing build-time values requires rebuilding; never commit vendor credentials.
-Before Hosting deployment, run node cloud/write-signin-config.mjs with the
-Firebase variables exported; the generated config.json remains ignored.
+Firebase Functions, admin and hosted sign-in source live in the private
+[Firebase repository](https://github.com/rollacode/codeterm-firebase), with the
+former cloud contents at its root. Follow its config generation, package checks
+and deployment procedures there. The private
+[website repository](https://github.com/rollacode/codeterm-web) owns the marketing
+site build and deployment, with the former web app at its root. Repository
+creation does not establish production readiness or authorize publishing.
+Desktop account and billing build variables above remain app dependencies.
+Preserve domios://auth/callback, domios://billing/return and authenticated
+entitlement refresh when integrating either external service.
 
 Fresh lanes may lack node_modules: pnpm exec tsc or vitest reports "Command not
 found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND for
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 28 -->
+<!-- revision: 29 -->

@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, type MutableRefObject, type RefObject } from "react";
-import { chatUserScrollChanged } from "./chatScrollDecisions";
+import { chatInnerScrollConsumesWheel, chatUserScrollChanged } from "./chatScrollDecisions";
 import { isChatViewportAtBottom, type ChatViewportGeometry } from "./chatViewport";
 import { chatScrollGestureAfterEvent, idleChatScrollGesture, isChatUserScrolling, type ChatScrollGestureEvent } from "./chatScrollGesture";
 
@@ -27,10 +27,10 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
     if (!el || !active) return;
     supportsScrollEnd.current = "onscrollend" in el;
     let touchStartViewport: ChatViewportGeometry | null = null;
-    const transition = (event: ChatScrollGestureEvent, positionChanged = false, towardBottom = false) => {
+    const transition = (event: ChatScrollGestureEvent, positionChanged = false, towardBottom = false, canMove?: boolean) => {
       const wasScrolling = userScrolling.current;
       gesture.current = chatScrollGestureAfterEvent(gesture.current, event, { supportsScrollEnd: supportsScrollEnd.current,
-        atBottom: isChatViewportAtBottom(el), positionChanged, towardBottom });
+        atBottom: isChatViewportAtBottom(el), positionChanged, towardBottom, canMove });
       userScrolling.current = isChatUserScrolling(gesture.current);
       if (!wasScrolling && userScrolling.current) onStart.current();
       if (wasScrolling && !userScrolling.current) onEnd.current();
@@ -43,7 +43,18 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
       transition("touchend", touchStartViewport != null && chatUserScrollChanged(touchStartViewport, el));
       touchStartViewport = null;
     };
-    const wheel = (event: WheelEvent) => { if (event.deltaY !== 0) transition("wheel", false, event.deltaY > 0); };
+    const wheel = (event: WheelEvent) => {
+      if (event.defaultPrevented || event.deltaY === 0 || event.ctrlKey) return;
+      const view = el.ownerDocument.defaultView;
+      if (!view) return;
+      for (const target of event.composedPath()) {
+        if (target === el) break;
+        if (!(target instanceof view.HTMLElement)) continue;
+        const overflow = view.getComputedStyle(target).overflowY;
+        if ((overflow === "auto" || overflow === "scroll") && chatInnerScrollConsumesWheel(target, event.deltaY)) return;
+      }
+      transition("wheel", false, event.deltaY > 0, chatInnerScrollConsumesWheel(el, event.deltaY));
+    };
     const scrollEnd = () => transition("scrollend");
     el.addEventListener("touchstart", start, { passive: true });
     el.ownerDocument.addEventListener("touchend", end, { passive: true });

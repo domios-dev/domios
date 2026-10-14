@@ -267,6 +267,14 @@ impl super::ServiceContext {
         session_id: &str,
         binding_nonce: &str,
     ) -> bool {
+        if super::agent_runtime::requested_for_tab(self, &authority.tab_id) {
+            return super::agent_runtime::user_delivery::is_current_session(
+                self,
+                authority,
+                session_id,
+                binding_nonce,
+            );
+        }
         self.user_authority_pty_generation_is_current(authority)
             && self
                 .mux
@@ -939,5 +947,6 @@ impl super::ServiceContext {
 }
 
 mod bootstrap;
+mod degraded;
 #[cfg(test)]
 pub(crate) mod tests;

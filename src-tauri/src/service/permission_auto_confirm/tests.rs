@@ -68,7 +68,7 @@ fn precheck_accepts_a_fresh_request_on_a_bound_session() {
 
 #[test]
 fn permission_auto_confirm_refuses_the_update_dialog() {
-    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+    let fixture = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
         "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
     );
     let screen = std::fs::read_to_string(fixture).expect("Codex update fixture");

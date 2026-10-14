@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -63,10 +64,14 @@ fn link_removal_kind(
 }
 
 pub(crate) fn remove_lane_links(path: &Path) -> Result<(), String> {
+    remove_lane_links_except(path, HashSet::new())
+}
+
+fn remove_lane_links_except(path: &Path, preserved: HashSet<PathBuf>) -> Result<(), String> {
     let path = path.to_path_buf();
     std::thread::Builder::new()
         .name("lane-link-cleanup".into())
-        .spawn(move || remove_lane_links_blocking(&path))
+        .spawn(move || remove_lane_links_blocking(&path, &preserved))
         .map_err(|error| format!("cannot start lane link scan: {error}"))?
         .join()
         .map_err(|_| "lane link scan thread panicked".to_string())?
@@ -103,7 +108,7 @@ fn refuse_linked_lane_path(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn remove_lane_links_blocking(path: &Path) -> Result<(), String> {
+fn remove_lane_links_blocking(path: &Path, preserved: &HashSet<PathBuf>) -> Result<(), String> {
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -154,7 +159,9 @@ fn remove_lane_links_blocking(path: &Path) -> Result<(), String> {
                 format!("cannot inspect lane entry '{}': {error}", child.display())
             })?;
             if metadata.file_type().is_symlink() {
-                remove_link(&child, &metadata)?;
+                if !preserved.contains(&child) {
+                    remove_link(&child, &metadata)?;
+                }
             } else if metadata.is_dir() {
                 pending.push((child, depth + 1));
             }
@@ -292,7 +299,32 @@ pub(crate) fn remove_lane_worktree(
 ) -> Result<(), String> {
     let path = Path::new(worktree_path);
     refuse_linked_lane_path(path)?;
-    remove_lane_links(path)?;
+    if force {
+        remove_lane_links(path)?;
+    } else {
+        let index = git_output(worktree_path, ["ls-files", "--stage", "-z"])?;
+        if !index.status.success() {
+            return Err(format!(
+                "cannot inspect tracked lane links: {}",
+                String::from_utf8_lossy(&index.stderr).trim()
+            ));
+        }
+        let mut preserved = HashSet::new();
+        for entry in index
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|entry| entry.starts_with(b"120000 "))
+        {
+            let name = entry
+                .splitn(2, |byte| *byte == b'\t')
+                .nth(1)
+                .ok_or_else(|| "cannot parse tracked lane link".to_string())?;
+            let name = std::str::from_utf8(name)
+                .map_err(|_| "tracked lane link has a non-UTF-8 name".to_string())?;
+            preserved.insert(path.join(name));
+        }
+        remove_lane_links_except(path, preserved)?;
+    }
     if force {
         run_git(
             canonical_cwd,
@@ -764,6 +796,16 @@ fn remove_lane_and_clear_task_references(
     if request.canonical_cwd.as_deref().is_none_or(str::is_empty) {
         request.canonical_cwd = project_for_recorded_lane(store, &request.worktree_path);
     }
+    let outcome = remove_lane(&request, live_tabs)?;
+    finalize_lane_removal(store, repo_watch, &outcome)?;
+    Ok(outcome)
+}
+
+pub(crate) fn finalize_lane_removal(
+    store: &PlanStore,
+    repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
+    outcome: &LaneRemovalOutcome,
+) -> Result<(), String> {
     let attempt_ids: Vec<String> = store
         .list_full()
         .into_iter()
@@ -771,27 +813,17 @@ fn remove_lane_and_clear_task_references(
         .flat_map(|task| task.execution_attempts)
         .filter(|attempt| {
             attempt.worktree_path.as_deref().is_some_and(|path| {
-                comparable_path(path) == comparable_path(&request.worktree_path)
+                comparable_path(path) == comparable_path(&outcome.worktree_path)
             })
         })
         .map(|attempt| attempt.id)
         .collect();
-    let outcome = remove_lane(&request, live_tabs)?;
     repo_watch.release_lane_watch(&outcome.worktree_path);
     for attempt_id in attempt_ids {
-        super::lane_stats::delete_attempt_checkpoint_refs(
-            Path::new(&outcome.canonical_cwd),
-            &attempt_id,
-        )
-        .map_err(|error| {
-            format!(
-                "lane worktree '{}' was removed but attempt '{attempt_id}' checkpoint refs remain: {error}",
-                outcome.worktree_path
-            )
-        })?;
+        super::lane_stats::delete_attempt_checkpoint_refs(Path::new(&outcome.canonical_cwd), &attempt_id)
+            .map_err(|error| format!("lane worktree '{}' was removed but attempt '{attempt_id}' checkpoint refs remain: {error}", outcome.worktree_path))?;
     }
-    clear_removed_task_lane_references(store, &outcome)?;
-    Ok(outcome)
+    clear_removed_task_lane_references(store, outcome)
 }
 
 pub(crate) fn clear_vanished_lane_on_cleanup_done(

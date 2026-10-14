@@ -353,3 +353,52 @@ fn fresh_restart_does_not_publish_zero_write_receipts_when_persistence_fails() {
     assert!(reopened.receipts("tab").unwrap().is_empty());
     assert_eq!(reopened.queued("tab").unwrap()[0].send_id, record.send_id);
 }
+
+#[test]
+fn degraded_settlement_survives_restart_and_cannot_flush_on_late_readiness() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let first = admit(&store, 1);
+    let second = admit(&store, 2);
+    let ledger = ChatSendLedger::default();
+    for record in [&first, &second] {
+        ledger.restore_user_record(record);
+        assert!(store.discard_queued_for_degraded_launch(record).unwrap());
+    }
+    drop(store);
+    let reopened = UserSendStore::open(dir.path()).unwrap();
+    assert!(reopened.queued("tab").unwrap().is_empty());
+    assert!(reopened.latch_ready_launch(&authority()));
+    for record in [&first, &second] {
+        assert!(!reopened.claim(record, "session").unwrap());
+        assert!(reopened
+            .carry_held_send(record, next_launch())
+            .unwrap()
+            .is_none());
+    }
+    for receipt in reopened.receipts("tab").unwrap() {
+        ledger.restore_user_receipt(&receipt);
+        let status = ledger.status(&receipt.send_id).unwrap();
+        assert_eq!(status.state, ChatSendState::Failed);
+        assert_eq!(
+            status.error.as_deref(),
+            Some("launch_degraded_before_write")
+        );
+        assert!(status.correlation_id.is_some());
+    }
+}
+
+#[test]
+fn degraded_settlement_cannot_cancel_claimed_input_or_publish_before_durability() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let claimed = admit(&store, 1);
+    assert!(store.claim(&claimed, "session").unwrap());
+    assert!(!store.discard_queued_for_degraded_launch(&claimed).unwrap());
+    let queued = admit(&store, 2);
+    store.set_persistence_boundary(Some(Arc::new(|_| Err("injected failure".into()))));
+    assert!(store.discard_queued_for_degraded_launch(&queued).is_err());
+    let reopened = UserSendStore::open(dir.path()).unwrap();
+    assert!(reopened.receipts("tab").unwrap().is_empty());
+    assert_eq!(reopened.queued("tab").unwrap()[0].send_id, queued.send_id);
+}

@@ -108,7 +108,7 @@ pub struct CaseResult {
 }
 
 pub fn workspace_root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+    crate::test_support::fixture_manifest_dir().join("..")
 }
 
 pub fn snapshots_root() -> PathBuf {

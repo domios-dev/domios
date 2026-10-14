@@ -642,9 +642,12 @@ Example: `tests/playwright/suites/03-agents/agents.spec.ts`.
 ## Focused billing checks
 
 Workers run `pnpm exec tsc --noEmit`, `npm run test:unit -- accountPlanModel`,
-and `cd cloud/functions && npm test -- getEntitlements`. The cloud test owns
-Auth, Firestore and Functions emulators; it verifies the returned owner record,
-foreign-UID refusal, token verification and free fallback. Rust remains canonical:
+in the app lane. Backend checks belong to the private
+[Firebase repository](https://github.com/rollacode/codeterm-firebase): from its
+root run `cd functions && npm test -- getEntitlements`. That test owns Auth,
+Firestore and Functions emulators; it verifies the returned owner record,
+foreign-UID refusal, token verification and free fallback. Backend and admin
+runtime checks are separate from app source removal. Rust remains canonical:
 `./build.sh test-one billing tests::` and `./build.sh test-one app account_plan_routes`.
 
 If the emulator reports `Unable to locate a Java Runtime`, an installed Homebrew

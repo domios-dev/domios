@@ -58,7 +58,6 @@ pub(crate) fn restore_review_attempt_binding_for_mux(
         now_ms,
     )
     .map(|_| ())
-    .map_err(PlanError::Io)
 }
 
 #[cfg(test)]

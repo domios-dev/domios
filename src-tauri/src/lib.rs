@@ -722,6 +722,7 @@ pub fn run() {
             };
             crate::service::supporter::runtime_with_notifications(&svc_ctx);
             let service_state: ServiceState = Arc::new(svc_ctx);
+            service_state.chat_send_ledger.bind_settlement_owner(&service_state);
             {
                 let service = service_state.clone();
                 tauri::async_runtime::spawn(async move {
@@ -1015,3 +1016,6 @@ pub fn run() {
 #[cfg(test)]
 #[path = "../vendor/tauri-runtime-wry/src/owner_thread.rs"]
 mod windows_rc_ownership_regression;
+
+#[cfg(test)]
+mod test_support;
