@@ -125,6 +125,25 @@ SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
 
 ## Shared compile cache
 
+
+Release-input preparation now calls the same cache policy before invoking Cargo.
+`ci-archives` owns archive compilation through that policy; on Windows use
+`.\build.ps1 ci-archives`, which locates Git Bash explicitly without requiring it
+on PATH. Native release jobs export `RUSTC_WRAPPER=sccache` at job scope so the
+separate Tauri invocation inherits it, verify shared storage before compiling,
+and print `cache-stats` in their final step.
+
+`cache-stats` queries the same `SCCACHE_SERVER_PORT` or Unix
+`SCCACHE_SERVER_UDS` as the compiler wrapper and requires a live listener.
+Sccache 0.16's `--show-stats` can return synthetic zero counters and a configured
+S3 location when no server is reachable. These are not a live-server receipt.
+`cache-status` now labels actual storage unavailable in that case, and
+`cache-verify` fails. No listener is started by these read-only operations.
+A live socket plus stats describes the selected endpoint; it does not prove that
+a completed compiler invocation used it. Capture before/after compile requests
+and hits to prove usage, and distinguish fresh Cargo targets from cache hits.
+
+
 `build.sh` owns cache setup through `scripts/cache-policy.sh`; `build.ps1`
 forwards to it. Release, DEV and capped Rust tests use the same configuration.
 On eight, air, ubunta, ROG, BLACKSTAR and green, first run
@@ -223,6 +242,8 @@ calls; a successful build alone is not cache-hit proof.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Release workflow compiles crates with no sccache requests | Release inputs omitted cache setup, or a separate Tauri process did not inherit the wrapper | Run the owning `release-inputs` policy and export `RUSTC_WRAPPER` at job scope; verify storage before compilation and capture `cache-stats` afterward. |
+| Stats report S3 and zero requests with no server process/listener | Sccache emits configured synthetic stats when its server cannot be reached | Use `cache-verify`/`cache-stats` live-endpoint checks; provision while idle, then measure actual request and hit deltas. Do not classify synthetic stats as reuse. |
 | CI refuses with exit 75 while another build is running | CI invoked cache configuration instead of read-only verification | Use `cache-verify` and set `CODETERM_SCCACHE_VERIFY_ONLY=1` for subsequent CI build processes. Provision storage separately while idle. |
 | A dev build requests S3 but refuses with exit 75 after another caller switched the server back to local | An unresolved-key caller could downgrade a previously shared server | Keep the no-downgrade guard: missing keys reuse running S3; keys may switch local to S3 only while idle. Verify `bash scripts/check-shared-sccache.sh`. |
 | Local fallback line on an intended builder | One or both vault entries could not resolve | Run `codeterm mem secret sync` locally, inspect secret backend status, then rerun with the machine idle. Never print the values. |
@@ -752,4 +773,4 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 28 -->
+<!-- revision: 29 -->
