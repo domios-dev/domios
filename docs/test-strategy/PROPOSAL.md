@@ -393,7 +393,9 @@ no file; `git grep test_helpers.sh` outside `tests/manual` is empty), and the No
 script tests grouped under one discovery glob,
 `scripts/tests/*.test.mjs` + `scripts/*.test.mjs`, replacing the hand lists at
 `tests.yml:156`, `tests.yml:818-834` and `build.sh:2388`. The `build.sh` edit
-lands after Bastion's `task_2d0bug` (spec, Phase B). Evidence that hand lists
+lands after crate-split P1 (`task_hthodt`) merges, rebased onto develop after
+P1, because P1 rewrites the `build.sh` scopes (Owner answer 3; Bastion's gateway
+fix `task_2d0bug` is already in develop as `3f5af3ee4`). Evidence that hand lists
 drift: 20 of 37 Node files are named by no gate, and
 `scripts/runner-toggle.test.mjs:1` claims a `script-guards` caller that does not
 exist. Inventory finding to act on before the swap: see Owner decision 7.
@@ -450,14 +452,30 @@ workspace members that CI covers; selecting by tier closes both gaps.
 
 No step may leave a current gate red:
 
+Base: develop, which now includes Bastion's gateway fix `3f5af3ee4`.
+
 1. Catalogue and overlay land first, read-only toward gates (`validate`, `select`).
 2. Before the Node glob replaces any hand list, run it once on the Linux light
-   runner and record the result; files red there are fixed or carried as overlay
-   markers with a task, never silently dropped.
-3. ci-tiers swaps the PR commands only with the before/after line-by-line list
-   (spec, Phase C).
-4. Rust membership changes (Owner decision 5) are proven green in canonical QA
-   before any tier includes them.
+   runner and record the result. The ungated Node and Python script tests that
+   pass there join the PR tier; files red there are fixed or carried as overlay
+   markers with a task, never silently dropped. Any file over 60s there gets its
+   own `release`-tier entry and leaves the PR glob by name (Owner answer 7).
+3. The `build.sh` glob edit (`build.sh:2388`) lands only after crate-split P1
+   (`task_hthodt`) merges: rebase onto develop after P1 first (Owner answer 3).
+4. `scripts/plugin-tests.sh` moves to the discovered set (76 files, not 62), with
+   the same green-first proof.
+5. ci-tiers swaps the PR commands only with the before/after line-by-line list
+   (spec, Phase C), and deletes the 19 dead `event_name == 'schedule'`
+   expressions and the false nightly text (Owner answer 2).
+6. Rust gaps go to the `release` tier, after P1 lands and never inside P1 (P1
+   stays a pure move): ci-tiers brings `crates/mem-store`, `crates/codeterm-paths`,
+   `src-tauri/tests/main.rs` and the 19 workspace members that `test`, `verify`
+   and `release-preflight` skip under gates. Each is proven green in canonical QA
+   before a tier includes it, and Elgar approves the `build.sh` and
+   `scripts/ci-rust-archives.mjs` diff (Owner answer 5).
+7. ci-tiers adds the blocking core-journeys release step to
+   `.agents/skills/github-release/SKILL.md`, with Elgar approving the diff
+   (Owner answer 6).
 
 ## Owner decisions
 
@@ -516,3 +534,36 @@ No step may leave a current gate red:
    **Recommendation:** the catalogue task measures the glob on Linux first; any
    file over 60s gets its own `release`-tier runner entry and is excluded from the
    PR glob by name. Approve that rule?
+
+## Owner answers
+
+Relayed by Elgar (owner review, develop Orchestrator, tab 4c25e56b).
+
+1. Yes.
+2. Yes. ci-tiers also deletes the 19 dead `event_name == 'schedule'` expressions
+   and the false nightly text.
+3. Yes to (a) and (b). The `build.sh` glob edit lands after crate-split P1
+   (`task_hthodt`) merges, because P1 rewrites the `build.sh` scopes; rebase onto
+   develop after P1 first.
+4. Yes.
+5. Yes, but not in P1 (P1 stays a pure move). After P1 lands, the ci-tiers task
+   brings `crates/mem-store`, `crates/codeterm-paths` and `src-tauri/tests/main.rs`
+   under gates, together with the 19 workspace members that `test`, `verify` and
+   `release-preflight` skip. Elgar approves the `build.sh` and
+   `scripts/ci-rust-archives.mjs` diff.
+6. Yes. A red core-journeys run on the release SHA blocks the release. The
+   ci-tiers task adds that step to `.agents/skills/github-release/SKILL.md`, and
+   Elgar approves the diff.
+7. Yes.
+
+The gaps this inventory found are to be fixed, not only recorded:
+
+- the 19 workspace members that `./build.sh test`, `verify` and
+  `release-preflight` skip;
+- the ungated Rust code in `crates/mem-store`, `crates/codeterm-paths` and
+  `src-tauri/tests/main.rs`;
+- 20 of 37 Node and 3 of 5 Python script tests that no gate runs;
+- `scripts/plugin-tests.sh`, which lists 62 of 76 plugin test files.
+
+Ungated Node and Python tests that pass on Linux join the PR tier; the Rust gaps
+go to the release tier. Develop now includes Bastion's gateway fix `3f5af3ee4`.
