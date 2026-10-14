@@ -32,6 +32,10 @@ fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanu
         session_id: "own-thread".into(),
     };
     let fixture = ServiceFixture::new(mux);
+    use tauri::Manager;
+    assert!(fixture
+        ._app
+        .manage(Arc::new(fixture.service.clone()) as crate::service::ServiceState));
     let manifest = PluginManifest::from_json_str(&json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
@@ -241,6 +245,32 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
         .chat_send_ledger
         .confirm_rpc_send(&tab_id, "other-thread", &nonce, &send_id)
         .is_none());
+    let authority = fixture.service.user_send_authority(&tab_id).unwrap();
+    let mut foreign_provider = authority.clone();
+    foreign_provider.provider_id = "foreign-provider".into();
+    assert!(!fixture.service.user_authority_is_current_session(
+        &foreign_provider,
+        "own-thread",
+        &nonce
+    ));
+    let session = for_tab(&tab_id).unwrap();
+    let epoch = session.state.lock().epoch;
+    session.state.lock().epoch = epoch + 1;
+    assert!(!fixture
+        .service
+        .user_authority_is_current_session(&authority, "own-thread", &nonce));
+    session.state.lock().epoch = epoch;
+    assert!(!fixture
+        .service
+        .user_authority_is_current_session(&authority, "other-thread", &nonce));
+    assert!(!fixture.service.user_authority_is_current_session(
+        &authority,
+        "own-thread",
+        "foreign-nonce"
+    ));
+    assert!(fixture
+        .service
+        .user_authority_is_current_session(&authority, "own-thread", &nonce));
     assert!(fixture
         .service
         .chat_send_ledger
