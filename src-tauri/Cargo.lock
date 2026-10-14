@@ -1108,6 +1108,7 @@ dependencies = [
  "codeterm-frontend-bundle",
  "codeterm-input-macos",
  "codeterm-input-windows",
+ "codeterm-keepawake",
  "codeterm-mem",
  "codeterm-mem-store",
  "codeterm-mesh",
@@ -1361,6 +1362,21 @@ dependencies = [
  "codeterm-types",
  "parking_lot",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-keepawake"
+version = "1.6.2"
+dependencies = [
+ "codeterm-events",
+ "codeterm-paths",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
 ]
 
 [[package]]

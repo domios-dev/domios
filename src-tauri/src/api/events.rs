@@ -114,7 +114,8 @@ mod tests {
 
         // Typed bus names = string literals returned by `SystemEvent::type_name`.
         let events_src =
-            std::fs::read_to_string(Path::new(manifest).join("src/api/events.rs")).unwrap();
+            std::fs::read_to_string(Path::new(manifest).join("crates/codeterm-events/src/lib.rs"))
+                .unwrap();
         let tn_start = events_src.find("fn type_name").expect("type_name fn");
         let tn_len = events_src[tn_start..]
             .find("\n    }")
