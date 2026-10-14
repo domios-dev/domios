@@ -1,4 +1,3 @@
-use codeterm_service_core::{commands, commands_mesh};
 //! Web-mirror REST surface: HTTP equivalents for Tauri-only IPC commands
 //! the browser bundle needs (the bridge in src/lib/bridge.ts maps to
 //! these), plus the SSE event stream that replaces Tauri event emits.
@@ -10,6 +9,7 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
+use codeterm_service_core::{commands, commands_mesh};
 use futures_core::Stream;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
@@ -130,10 +130,9 @@ pub async fn peer_services(
     Path(instance_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let view =
-        commands_mesh::fetch_peer_services_view(&state.mesh, &instance_id)
-            .await
-            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    let view = commands_mesh::fetch_peer_services_view(&state.mesh, &instance_id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(view))
 }
 
@@ -143,13 +142,9 @@ pub async fn peer_service_delete(
     Path((instance_id, id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let value = commands_mesh::peer_service_delete_request(
-        &state.mesh,
-        &instance_id,
-        &id,
-    )
-    .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    let value = commands_mesh::peer_service_delete_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
     Ok(Json(value))
 }
 
@@ -159,14 +154,9 @@ pub async fn peer_cron_action(
     Path((instance_id, id, action)): Path<(String, String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let value = commands_mesh::peer_cron_action_request(
-        &state.mesh,
-        &instance_id,
-        &id,
-        &action,
-    )
-    .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    let value = commands_mesh::peer_cron_action_request(&state.mesh, &instance_id, &id, &action)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
     Ok(Json(value))
 }
 
@@ -179,14 +169,9 @@ pub async fn peer_cron_update(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let patch = serde_json::to_value(patch)
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
-    let value = commands_mesh::peer_cron_update_request(
-        &state.mesh,
-        &instance_id,
-        &id,
-        patch,
-    )
-    .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    let value = commands_mesh::peer_cron_update_request(&state.mesh, &instance_id, &id, patch)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
     Ok(Json(value))
 }
 
@@ -196,13 +181,9 @@ pub async fn peer_cron_delete(
     Path((instance_id, id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let value = commands_mesh::peer_cron_delete_request(
-        &state.mesh,
-        &instance_id,
-        &id,
-    )
-    .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    let value = commands_mesh::peer_cron_delete_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
     Ok(Json(value))
 }
 
@@ -212,13 +193,9 @@ pub async fn peer_cron_history(
     Path((instance_id, id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let value = commands_mesh::peer_cron_history_request(
-        &state.mesh,
-        &instance_id,
-        &id,
-    )
-    .await
-    .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    let value = commands_mesh::peer_cron_history_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
     Ok(Json(value))
 }
 
@@ -228,10 +205,9 @@ pub async fn peer_cron_get(
     Path((instance_id, id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let value =
-        commands_mesh::peer_cron_get_request(&state.mesh, &instance_id, &id)
-            .await
-            .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    let value = commands_mesh::peer_cron_get_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
     Ok(Json(value))
 }
 
@@ -826,11 +802,9 @@ pub async fn plugin_snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let snapshot = commands::plugins::plugin_manager_snapshot_for_service(
-        state.svc.clone(),
-    )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let snapshot = commands::plugins::plugin_manager_snapshot_for_service(state.svc.clone())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(snapshot))
 }
 
@@ -843,12 +817,11 @@ pub async fn plugin_action(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     // keep it off the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        commands::plugins::run_action(action, svc.as_ref())
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let result =
+        tokio::task::spawn_blocking(move || commands::plugins::run_action(action, svc.as_ref()))
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     commands::plugins::invalidate_plugin_snapshot();
     Ok(Json(result))
 }
@@ -928,10 +901,7 @@ pub async fn repo_watch_subscribe(
         .ext::<codeterm_service_core::repowatch::RepoWatchRegistryHandle>()
         .clone();
     let value = tokio::task::spawn_blocking(move || {
-        commands::repo_watch::subscribe(
-            &registry,
-            std::path::PathBuf::from(req.cwd),
-        )
+        commands::repo_watch::subscribe(&registry, std::path::PathBuf::from(req.cwd))
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
