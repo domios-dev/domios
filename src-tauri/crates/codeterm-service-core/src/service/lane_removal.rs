@@ -725,7 +725,7 @@ pub(crate) fn lane_release_command(
     }
 }
 
-fn clear_removed_task_lane_references(
+pub fn clear_removed_task_lane_references(
     store: &PlanStore,
     outcome: &LaneRemovalOutcome,
 ) -> Result<(), String> {
@@ -766,7 +766,7 @@ fn clear_removed_task_lane_references(
     Ok(())
 }
 
-fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<String> {
+pub fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<String> {
     store.list_full().into_iter().find_map(|plan| {
         plan.tasks
             .iter()
@@ -786,7 +786,7 @@ fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<S
     })
 }
 
-fn remove_lane_and_clear_task_references(
+pub fn remove_lane_and_clear_task_references(
     store: &PlanStore,
     repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
     request: &LaneRemovalRequest,
@@ -801,7 +801,7 @@ fn remove_lane_and_clear_task_references(
     Ok(outcome)
 }
 
-pub(crate) fn finalize_lane_removal(
+pub fn finalize_lane_removal(
     store: &PlanStore,
     repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
     outcome: &LaneRemovalOutcome,
@@ -876,7 +876,7 @@ pub(crate) fn clear_vanished_lane_on_cleanup_done(
     Ok(Some(update))
 }
 
-fn unix_time_millis() -> u64 {
+pub fn unix_time_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -884,7 +884,7 @@ fn unix_time_millis() -> u64 {
 }
 
 impl ServiceContext {
-    pub(crate) fn live_tab_cwds(&self) -> Vec<LiveTabCwd> {
+    pub fn live_tab_cwds(&self) -> Vec<LiveTabCwd> {
         self.mux
             .read()
             .all_tabs()
@@ -899,7 +899,7 @@ impl ServiceContext {
             .collect()
     }
 
-    pub(crate) fn remove_owned_lane(
+    pub fn remove_owned_lane(
         &self,
         request: &LaneRemovalRequest,
     ) -> Result<LaneRemovalOutcome, String> {

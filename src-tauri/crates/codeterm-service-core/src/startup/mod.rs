@@ -18,7 +18,7 @@ pub(crate) use native_notification::native_notification;
 pub(crate) mod model_catalogue;
 mod plan_restore;
 mod progress;
-mod rest_api;
+pub mod rest_api;
 pub(crate) mod restart_stdio;
 mod restore_complete;
 mod servers;

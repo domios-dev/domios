@@ -341,7 +341,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    fn child_startup_state(&self, tab_id: &str) -> Option<ChildStartupState> {
+    pub fn child_startup_state(&self, tab_id: &str) -> Option<ChildStartupState> {
         self.mux
             .read()
             .get_tab(tab_id)
@@ -484,7 +484,7 @@ impl ServiceContext {
 
     /// Only the recorded creator of this exact child attempt may hold it. The
     /// accepted and refused shapes both carry auditable provenance.
-    pub(crate) fn hold_agent_startup(
+    pub fn hold_agent_startup(
         &self,
         caller_tab_id: &str,
         tab_id: &str,
@@ -690,7 +690,7 @@ impl ServiceContext {
         )
     }
 
-    pub(super) fn extend_worker_ack_deadline_for_tab(&self, tab_id: &str) -> bool {
+    pub fn extend_worker_ack_deadline_for_tab(&self, tab_id: &str) -> bool {
         let armable = self
             .plan_store
             .live_task_attempts_for_tab(tab_id)

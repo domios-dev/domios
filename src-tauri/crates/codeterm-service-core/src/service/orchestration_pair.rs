@@ -539,7 +539,7 @@ impl ServiceContext {
         Ok(true)
     }
 
-    pub(crate) fn tab_has_pending_paired_planner(&self, tab_id: &str) -> bool {
+    pub fn tab_has_pending_paired_planner(&self, tab_id: &str) -> bool {
         self.mux
             .read()
             .get_tab(tab_id)

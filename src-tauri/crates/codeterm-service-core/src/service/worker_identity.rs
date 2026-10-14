@@ -3,8 +3,8 @@ use crate::service::plan::{PlanError, PlanStore};
 
 use super::{ServiceState, SpawnIdentityProvenance};
 
-mod restore_binding;
-mod review_bounce;
+pub mod restore_binding;
+pub mod review_bounce;
 
 pub(crate) use review_bounce::restore_review_attempt_binding_for_mux;
 
@@ -21,7 +21,7 @@ pub(crate) fn respawn_title_provenance(explicit_title: bool) -> SpawnIdentityPro
     }
 }
 
-pub(crate) fn persist_attempt_executor_identity(
+pub fn persist_attempt_executor_identity(
     store: &PlanStore,
     svc: &ServiceState,
     plan_id: &str,

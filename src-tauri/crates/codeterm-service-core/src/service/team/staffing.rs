@@ -56,7 +56,7 @@ pub(crate) struct AddTeamMemberParams {
     pub model: Option<String>,
 }
 
-pub(crate) fn team_member_brief(
+pub fn team_member_brief(
     task: Option<String>,
     brief: Option<String>,
 ) -> Result<Option<String>, String> {

@@ -162,7 +162,7 @@ impl WorkerAckRegistry {
         }
     }
 
-    pub(crate) fn extend_deadline(&self, identity: &WorkerAckIdentity) -> bool {
+    pub fn extend_deadline(&self, identity: &WorkerAckIdentity) -> bool {
         let mut state = self.waiters.lock();
         let current = state.by_tab.get(&identity.tab_id).cloned();
         if let Some(current) = current {

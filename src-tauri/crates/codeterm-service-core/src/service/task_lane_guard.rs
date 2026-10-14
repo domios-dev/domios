@@ -60,7 +60,7 @@ pub(crate) fn classify_mutating_lane(
 }
 
 /// `(task_id, attempt_id)` of the live attempt holding canonical as its exclusive writer.
-pub(crate) fn live_canonical_writer(plan: &Plan) -> Option<(&str, &str)> {
+pub fn live_canonical_writer(plan: &Plan) -> Option<(&str, &str)> {
     plan.tasks.iter().find_map(|task| {
         task.execution_attempts
             .iter()
@@ -184,7 +184,7 @@ impl ServiceContext {
 }
 
 /// Whether a resolved checkout is the one the task already recorded.
-pub(crate) fn recorded_lane_matches(recorded: Option<&str>, resolved: &str) -> bool {
+pub fn recorded_lane_matches(recorded: Option<&str>, resolved: &str) -> bool {
     recorded
         .map(str::trim)
         .filter(|recorded| !recorded.is_empty())

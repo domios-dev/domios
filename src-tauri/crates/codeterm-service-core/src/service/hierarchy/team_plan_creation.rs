@@ -52,7 +52,7 @@ impl TeamPlanCreationOutcome {
 }
 
 impl ServiceContext {
-    pub(crate) fn create_team_plan_for_orchestrator(
+    pub fn create_team_plan_for_orchestrator(
         &self,
         title: String,
         project_path: String,
@@ -299,7 +299,7 @@ fn wait_for_team_planner_binding(
     .unwrap_or(Err(TeamPlanCreationError::SessionBindingPending))
 }
 
-pub(crate) fn create_team_plan_for_orchestrator(
+pub fn create_team_plan_for_orchestrator(
     mux: &MuxState,
     plan_store: &PlanStore,
     title: String,
@@ -376,4 +376,4 @@ pub(crate) fn create_team_plan_for_orchestrator(
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

@@ -285,7 +285,7 @@ fn event_paths_have_no_plan_reminder_injection() {
         ),
         (
             "socket owned-tab send",
-            include_str!("../../../socket/server/tab.rs"),
+            include_str!("../../../../../codeterm-socket/src/server/tab.rs"),
             concat!("maybe_send_owned_", "plan_reminder("),
         ),
         (
@@ -300,7 +300,7 @@ fn event_paths_have_no_plan_reminder_injection() {
         ),
         (
             "socket output polling",
-            include_str!("../../../socket/server/tab.rs"),
+            include_str!("../../../../../codeterm-socket/src/server/tab.rs"),
             concat!("maybe_send_polling_", "nudge("),
         ),
         (

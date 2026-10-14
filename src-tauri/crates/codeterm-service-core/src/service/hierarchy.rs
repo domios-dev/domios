@@ -2,7 +2,7 @@
 
 mod gate_delivery;
 pub(crate) mod heartbeat_gate;
-pub(crate) mod plan_reminder_nudge;
+pub mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
 mod remote_report;
@@ -16,7 +16,7 @@ pub(crate) mod report_plan_ctx;
 mod report_target;
 pub(crate) mod stalled_team;
 mod status;
-mod team_plan_creation;
+pub mod team_plan_creation;
 mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
@@ -313,7 +313,7 @@ impl ServiceContext {
         .map(|_| ())
     }
 
-    pub(crate) fn acknowledge_planner_request(
+    pub fn acknowledge_planner_request(
         &self,
         plan_id: &str,
         request_id: &str,

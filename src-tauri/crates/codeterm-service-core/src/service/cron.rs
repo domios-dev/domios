@@ -60,13 +60,13 @@ pub(crate) struct CronRunEnd<'a> {
     pub(crate) summary: &'a str,
 }
 
-pub(crate) struct CronCompleteAfterResponse {
-    pub(crate) tab_id: String,
-    pub(crate) job_id: String,
-    pub(crate) run_id: String,
-    pub(crate) summary: String,
-    pub(crate) cron: CronState,
-    pub(crate) wake: CronWake,
+pub struct CronCompleteAfterResponse {
+    pub tab_id: String,
+    pub job_id: String,
+    pub run_id: String,
+    pub summary: String,
+    pub cron: CronState,
+    pub wake: CronWake,
 }
 
 /// Newest owner-prompt value per tab while a Storage commit of that tab is settling.
@@ -486,7 +486,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn cron_settle_run_end(
+    pub fn cron_settle_run_end(
         &self,
         cron: &CronState,
         wake: Option<&CronWake>,
@@ -805,7 +805,7 @@ impl ServiceContext {
         Ok(run_info)
     }
 
-    pub(crate) fn cron_complete(
+    pub fn cron_complete(
         &self,
         cron: &CronState,
         wake: &CronWake,

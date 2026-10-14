@@ -146,7 +146,7 @@ pub(super) fn team_close_lanes(
     collect_lanes(plans, Some((team_id, member_tab_ids)))
 }
 
-pub(crate) fn plan_cleanup_lanes(plan: &Plan) -> Vec<TeamCloseLane> {
+pub fn plan_cleanup_lanes(plan: &Plan) -> Vec<TeamCloseLane> {
     collect_lanes(std::slice::from_ref(plan), None)
 }
 

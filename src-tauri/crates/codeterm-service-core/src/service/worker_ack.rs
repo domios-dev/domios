@@ -14,13 +14,13 @@ use crate::service::startup_lease::{
 use super::ServiceContext;
 
 #[path = "worker_ack/launch_binding.rs"]
-mod launch_binding;
+pub mod launch_binding;
 #[path = "worker_ack/plan_deadline.rs"]
-mod plan_deadline;
+pub mod plan_deadline;
 #[path = "worker_ack/registry.rs"]
-mod registry;
+pub mod registry;
 #[path = "worker_ack/remote_deadline.rs"]
-mod remote_deadline;
+pub mod remote_deadline;
 #[cfg(test)]
 use plan_deadline::worker_ack_reminder_message;
 pub(crate) use registry::WorkerAckIdentity;
@@ -34,7 +34,7 @@ const COLD_START_MEASUREMENT_METHOD: &str =
 pub(crate) const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
 pub(crate) const ATTEMPT_STATE_FINALIZED: &str = "finalized";
 pub(crate) const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
-pub(crate) const REMOTE_WORKER_ACK_DEADLINE: Duration =
+pub const REMOTE_WORKER_ACK_DEADLINE: Duration =
     Duration::from_secs(COLD_START_DEADLINE_SECS * 2);
 const WORKER_ACK_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
@@ -66,7 +66,7 @@ pub(crate) enum WorkerAckSignal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AgentStartupSignal {
+pub enum AgentStartupSignal {
     Ready,
     Held,
     LaunchCommandFinished(Option<i32>),
@@ -93,7 +93,7 @@ enum WorkerAckWaitOutcome {
     Overdue,
 }
 
-pub(crate) fn await_remote_worker_ack(
+pub fn await_remote_worker_ack(
     receiver: &Receiver<WorkerAckSignal>,
     timeout: Duration,
 ) -> bool {
@@ -520,7 +520,7 @@ impl WorkerAckRegistry {
 
     /// Authorize and hold under one lock so a replacement attempt armed
     /// concurrently can never be held by the previous attempt's creator.
-    pub(crate) fn hold_startup_authorized(
+    pub fn hold_startup_authorized(
         &self,
         caller_tab_id: &str,
         tab_id: &str,

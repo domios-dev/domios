@@ -7,7 +7,7 @@ use crate::multiplexer::types::AgentRole;
 use crate::service::role_preset::RolePreset;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Occasion {
+pub enum Occasion {
     /// Role guidance decorating a launch assignment.
     LaunchAssignment,
     /// The identity slot leading a Worker's launch system prompt.
@@ -17,7 +17,7 @@ pub(crate) enum Occasion {
 }
 
 impl Occasion {
-    pub(crate) fn id(self) -> &'static str {
+    pub fn id(self) -> &'static str {
         match self {
             Self::LaunchAssignment => "launch_assignment",
             Self::WorkerLaunchIdentity => "worker_launch_identity",
@@ -25,12 +25,12 @@ impl Occasion {
         }
     }
 
-    pub(crate) fn parse(id: &str) -> Option<Self> {
+    pub fn parse(id: &str) -> Option<Self> {
         ALL.iter().copied().find(|occasion| occasion.id() == id)
     }
 }
 
-pub(crate) const ALL: &[Occasion] = &[
+pub const ALL: &[Occasion] = &[
     Occasion::LaunchAssignment,
     Occasion::WorkerLaunchIdentity,
     Occasion::ManagerBootstrap,
@@ -49,7 +49,7 @@ enum Selector {
 }
 
 impl Selector {
-    fn matches(self, preset: &RolePreset) -> bool {
+    pub fn matches(self, preset: &RolePreset) -> bool {
         match self {
             Self::Kind(kind_id) => preset.kind_id == kind_id,
             Self::WorkerLeaf => preset.role == AgentRole::Worker,
@@ -71,7 +71,7 @@ enum Slot {
 
 /// How an occasion places preset text next to its own payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Placement {
+pub struct Placement {
     slot: Slot,
     /// Inserted between the payload and the preset text.
     separator: &'static str,
@@ -90,7 +90,7 @@ impl Placement {
 /// Applied when no row matches, or when a matching row's slot is empty. Not
 /// comparable: equality on the declared `fn` pointer would be unpredictable.
 #[derive(Debug, Clone, Copy)]
-enum Fallback {
+pub enum Fallback {
     /// Emit the payload alone. Non-empty whenever the occasion has a payload,
     /// which is the only case this occasion emits at all.
     PayloadOnly,
@@ -203,7 +203,7 @@ mod selector_tests {
     }
 }
 
-fn placement(occasion: Occasion, preset: Option<&RolePreset>) -> Option<Placement> {
+pub fn placement(occasion: Occasion, preset: Option<&RolePreset>) -> Option<Placement> {
     let preset = preset?;
     rules(occasion)
         .rows
@@ -230,7 +230,7 @@ pub(crate) enum Emission {
 }
 
 impl Emission {
-    pub(crate) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Preset => "preset",
             Self::Fallback => "declared_fallback",
@@ -249,7 +249,7 @@ pub(crate) fn declared_fallback(occasion: Occasion) -> Option<String> {
 }
 
 /// Text this occasion contributes, before it is placed next to a payload.
-pub(crate) fn guidance(occasion: Occasion, preset: Option<&RolePreset>) -> (String, Emission) {
+pub fn guidance(occasion: Occasion, preset: Option<&RolePreset>) -> (String, Emission) {
     let placement = placement(occasion, preset);
     if matches!(
         placement.map(|placement| placement.slot),

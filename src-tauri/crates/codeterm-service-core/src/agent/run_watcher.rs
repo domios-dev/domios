@@ -10,9 +10,9 @@ use crate::multiplexer::types::TabCloseReason;
 use crate::service::ServiceContext;
 
 mod blocking_prompt;
-mod cron_completion;
+pub mod cron_completion;
 mod cron_end;
-mod runtime_runs;
+pub mod runtime_runs;
 use blocking_prompt::{
     claim_run_end, end_on_blocking_prompt, should_end_on_blocking_prompt, tab_pending_prompt_kind,
     tab_trust_has_provenance,

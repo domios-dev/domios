@@ -379,7 +379,7 @@ impl RestApiControl {
         self.recovery_receiver.lock().take()
     }
 
-    pub(crate) async fn restart_and_wait(&self) -> Result<RestApiStatus, String> {
+    pub async fn restart_and_wait(&self) -> Result<RestApiStatus, String> {
         let (completed, response) = oneshot::channel();
         self.signal(RestApiCommand::Restart { completed })?;
         tokio::time::timeout(Duration::from_secs(15), response)

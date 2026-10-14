@@ -323,7 +323,7 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
-    pub(crate) fn persist_dispatched_attempt_reasoning_effort(
+    pub fn persist_dispatched_attempt_reasoning_effort(
         &self,
         plan_id: &str,
         task_id: &str,

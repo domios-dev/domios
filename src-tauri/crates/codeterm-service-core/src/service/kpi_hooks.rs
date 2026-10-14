@@ -127,7 +127,7 @@ impl ServiceContext {
     /// `review_round` is fixed for the duration of a round (bounce is what bumps it), so
     /// `task_id:round:verdict` is already the system's own stable identity for "this
     /// round's verdict" — reusing it as the dedup key makes a retried RPC a no-op.
-    pub(crate) fn record_kpi_review_verdict(
+    pub fn record_kpi_review_verdict(
         &self,
         tab_id: &str,
         plan_id: &str,

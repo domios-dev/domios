@@ -53,7 +53,7 @@ pub(crate) enum BatchWriteError {
 }
 
 /// The `plan.batch` socket verb carries caller identity in the RPC params.
-pub(crate) fn apply_batch_from_socket(
+pub fn apply_batch_from_socket(
     store: &PlanStore,
     plan_id: &str,
     params: Option<&Value>,
