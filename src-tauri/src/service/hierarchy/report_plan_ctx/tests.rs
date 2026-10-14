@@ -838,11 +838,10 @@ fn planner_report_refuses_the_registered_planner_of_a_different_plan() {
 }
 
 #[test]
-fn planner_report_refuses_a_missing_registered_session_id() {
+fn planner_report_completes_spawned_planner_session_and_reaches_owner() {
     let h = planner_report_harness();
     h.set_registered_planner_session(None);
-
-    let error =
+    let result =
         h.fx.service
             .submit_report(
                 &h.planner_tab,
@@ -852,10 +851,56 @@ fn planner_report_refuses_a_missing_registered_session_id() {
                 None,
                 None,
             )
-            .unwrap_err();
+            .expect("the registered Planner's own verified tab must complete its missing session");
+    assert_eq!(result.orchestrator_tab_id, h.root);
+    assert!(h.reports().contains("MISSING_SESSION_ID_PAYLOAD"));
+    assert!(
+        matches!(h.fx.service.plan_store.get(&h.plan_id).unwrap().planner,
+        Some(PlannerRef::Tab { session_id: Some(session), .. }) if session == "planner-session")
+    );
+}
 
-    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
-    assert!(!h.reports().contains("MISSING_SESSION_ID_PAYLOAD"));
+#[test]
+fn planner_report_missing_session_refuses_stale_or_foreign_claims_without_repair() {
+    for cause in ["reported_nonce", "caller_nonce", "caller_session"] {
+        let h = planner_report_harness();
+        h.set_registered_planner_session(None);
+        let before = h.fx.service.plan_store.get(&h.plan_id).unwrap();
+        let mut details = h.details(&h.planner_tab, "planner");
+        match cause {
+            "reported_nonce" => h.stale_planner_session(),
+            "caller_nonce" => details.session_binding_nonce = Some("stale-nonce".into()),
+            "caller_session" => details.caller_session_id = Some("foreign-session".into()),
+            _ => unreachable!(),
+        }
+        let error =
+            h.fx.service
+                .submit_report(
+                    &h.planner_tab,
+                    "REFUSED_MISSING_SESSION",
+                    details,
+                    Some(&h.plan_id),
+                    None,
+                    None,
+                )
+                .unwrap_err();
+        assert!(error.contains(PLANNER_AUTHORITY_REFUSAL));
+        assert_eq!(h.fx.service.plan_store.get(&h.plan_id).unwrap(), before);
+        assert!(!h.reports().contains("REFUSED_MISSING_SESSION"));
+    }
+}
+
+#[test]
+fn planner_runtime_session_finalize_records_the_registered_session() {
+    let h = planner_report_harness();
+    h.set_registered_planner_session(None);
+    h.fx.service
+        .finalize_runtime_worker_session(&h.planner_tab, "planner-session", "planner-nonce")
+        .unwrap();
+    assert!(
+        matches!(h.fx.service.plan_store.get(&h.plan_id).unwrap().planner,
+        Some(PlannerRef::Tab { session_id: Some(session), .. }) if session == "planner-session")
+    );
 }
 
 #[test]

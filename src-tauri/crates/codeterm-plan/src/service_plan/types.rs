@@ -137,6 +137,10 @@ pub enum PlanError {
         claimed: String,
         authorized: Vec<String>,
     },
+    AttemptBindingRestoreRefused {
+        kind: super::AttemptBindingRefusalKind,
+        reason: String,
+    },
     Io(String),
 }
 
@@ -409,6 +413,9 @@ impl fmt::Display for PlanError {
                 "worker report claims undeclared gate '{claimed}'; authorized gates: {}",
                 authorized.join(", ")
             ),
+            PlanError::AttemptBindingRestoreRefused { kind, reason } => {
+                write!(f, "same-attempt binding restoration refused ({kind:?}): {reason}")
+            }
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -425,6 +432,7 @@ impl PlanError {
             | PlanError::GateNotFound
             | PlanError::GroupNotFound
             | PlanError::DependencyTaskNotFound { .. } => RPC_NOT_FOUND,
+            PlanError::AttemptBindingRestoreRefused { .. } => -32003,
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
             PlanError::DispatchInFlight { .. } => RPC_DISPATCH_IN_FLIGHT,
             PlanError::InvalidExecutorName(_) | PlanError::InvalidPlanText(_) => -32602,
@@ -660,6 +668,9 @@ impl PlanError {
             PlanError::WorkFacetViolation(violation) => serde_json::json!({
                 "type": "work_facet_violation",
                 "message": violation.to_string(),
+            }),
+            PlanError::AttemptBindingRestoreRefused { kind, reason } => serde_json::json!({
+                "type": "attempt_binding_restore_refused", "kind": kind, "reason": reason,
             }),
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
