@@ -105,7 +105,8 @@ impl ServiceContext {
         let is_orchestrator = params.role.trim().eq_ignore_ascii_case("orchestrator");
         let _cartographer_guard = if is_cartographer {
             Some(
-                self.cartographer_attach_locks
+                self.ext::<crate::service::CartographerAttachLocks>()
+                    .0
                     .for_team(team_id)
                     .lock_owned()
                     .await,
@@ -115,7 +116,8 @@ impl ServiceContext {
         };
         let _orchestrator_guard = if is_orchestrator {
             Some(
-                self.orchestrator_attach_locks
+                self.ext::<crate::service::OrchestratorAttachLocks>()
+                    .0
                     .for_team(team_id)
                     .lock_owned()
                     .await,
@@ -1145,8 +1147,7 @@ mod staffing;
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
 pub(crate) use staffing::{
     commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, team_member_brief,
-    AddTeamMemberParams, AddTeamMemberResult, TeamCartographerAttachLocks,
-    TeamOrchestratorAttachLocks,
+    AddTeamMemberParams, AddTeamMemberResult, CartographerAttachLocks, OrchestratorAttachLocks,
 };
 
 #[cfg(test)]

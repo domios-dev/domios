@@ -106,6 +106,8 @@ enum ExhaustionSignal {
     Recovered,
 }
 
+pub struct UsagePollerSlot(pub Arc<Mutex<Option<UsagePoller>>>);
+
 #[derive(Clone)]
 pub struct UsagePoller {
     inner: Arc<UsagePollerInner>,

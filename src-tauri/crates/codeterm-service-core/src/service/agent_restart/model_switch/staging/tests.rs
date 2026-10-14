@@ -194,7 +194,7 @@ fn completion_signal_requires_the_current_claimed_session_and_verified_nonce() {
     let (tx, rx) = channel();
     fixture
         .service
-        .restart_tracker
+        .ext::<crate::service::agent_restart::RestartTracker>()
         .lock()
         .staged_models
         .replace(request, tx);

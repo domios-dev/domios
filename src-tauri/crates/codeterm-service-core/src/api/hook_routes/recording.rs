@@ -8,10 +8,8 @@ pub(super) fn record_hook_post(
 ) {
     let enabled = state.config.lock().diagnostics.protocol_recording;
     let empty = serde_json::Value::Null;
-    let _ = state.svc.protocol_recorder.try_record_hook_post(
-        enabled,
-        tab_id,
-        event,
-        body.unwrap_or(&empty),
-    );
+    let _ = state
+        .svc
+        .ext::<std::sync::Arc<crate::service::protocol_recorder::ProtocolRecorder>>()
+        .try_record_hook_post(enabled, tab_id, event, body.unwrap_or(&empty));
 }

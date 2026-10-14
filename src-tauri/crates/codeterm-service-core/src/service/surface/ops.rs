@@ -28,11 +28,16 @@ impl ServiceContext {
     fn plugin_surface_facts(&self, plugin_id: &str) -> PluginSurfaceFacts {
         PluginSurfaceFacts {
             declared: self
-                .surface_registry
+                .ext::<codeterm_plugin::surfaces::SurfaceRegistryHandle>()
                 .get(plugin_id)
                 .map(|declared| declared.to_vec()),
-            view_registered: self.view_registry.get(plugin_id).is_some(),
-            runtimes: self.surface_runtimes.runtime_names(),
+            view_registered: self
+                .ext::<crate::view_host::ViewRegistryHandle>()
+                .get(plugin_id)
+                .is_some(),
+            runtimes: self
+                .ext::<std::sync::Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
+                .runtime_names(),
         }
     }
 
@@ -61,10 +66,21 @@ impl ServiceContext {
 
     pub(crate) fn list_surfaces(&self) -> SurfaceList {
         let mut declared = Vec::new();
-        let runtimes = self.surface_runtimes.runtime_names();
-        for plugin_id in self.surface_registry.ids() {
-            let view_registered = self.view_registry.get(&plugin_id).is_some();
-            let Some(surfaces) = self.surface_registry.get(&plugin_id) else {
+        let runtimes = self
+            .ext::<std::sync::Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
+            .runtime_names();
+        for plugin_id in self
+            .ext::<codeterm_plugin::surfaces::SurfaceRegistryHandle>()
+            .ids()
+        {
+            let view_registered = self
+                .ext::<crate::view_host::ViewRegistryHandle>()
+                .get(&plugin_id)
+                .is_some();
+            let Some(surfaces) = self
+                .ext::<codeterm_plugin::surfaces::SurfaceRegistryHandle>()
+                .get(&plugin_id)
+            else {
                 continue;
             };
             declared.extend(

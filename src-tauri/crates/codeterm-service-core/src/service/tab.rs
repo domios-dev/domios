@@ -152,7 +152,8 @@ impl ServiceContext {
         super::supporter_tab_state::forget_observations(tab_id);
         crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
         self.release_managed_tabs(tab_id);
-        self.reply_relays.close(tab_id);
+        self.ext::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .close(tab_id);
         if let Some(handle) = self
             .app_handle
             .try_state::<crate::sentinel::scheduler::Handle>()
@@ -396,7 +397,8 @@ impl ServiceContext {
     }
 
     pub fn focus_tab(&self, tab_id: &str) -> Result<(), String> {
-        self.user_last_activity.mark();
+        self.ext::<Arc<crate::user_last_activity::UserLastActivity>>()
+            .mark();
         focus_tab_hot_path(
             &self.mux,
             tab_id,

@@ -39,9 +39,13 @@ pub(crate) async fn view_call(
     method: &str,
     args: Value,
 ) -> Result<Value, String> {
-    dispatch_view_call(&svc.view_registry, plugin_id, method, args, |kind| {
-        webhook_settings(svc, kind)
-    })
+    dispatch_view_call(
+        svc.ext::<crate::view_host::ViewRegistryHandle>(),
+        plugin_id,
+        method,
+        args,
+        |kind| webhook_settings(svc, kind),
+    )
     .await
 }
 

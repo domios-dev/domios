@@ -118,7 +118,8 @@ impl ServiceContext {
         };
         let path = std::path::Path::new(cwd);
         if self
-            .loaded_plan_projects
+            .ext::<crate::service::LoadedPlanProjects>()
+            .0
             .lock()
             .iter()
             .any(|root| path.starts_with(root))

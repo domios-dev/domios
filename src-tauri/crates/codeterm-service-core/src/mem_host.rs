@@ -239,7 +239,10 @@ fn spawn_worker(
     let svc_task = svc.clone();
     let worker_id_task = worker_id.clone();
     tauri::async_runtime::spawn(async move {
-        let permit = svc_task.worker_pool.acquire(&agent_provider).await;
+        let permit = svc_task
+            .ext::<Arc<crate::mem::worker_pool::WorkerPool>>()
+            .acquire(&agent_provider)
+            .await;
         if svc_task
             .workers
             .get(&worker_id_task)

@@ -118,7 +118,9 @@ pub async fn ingest(
                     &path,
                     "voice",
                     None,
-                    &state.svc.transcribe_registry,
+                    state
+                        .svc
+                        .ext::<std::sync::Arc<crate::transcribe::TranscribeRegistry>>(),
                     &active,
                 )
                 .await,

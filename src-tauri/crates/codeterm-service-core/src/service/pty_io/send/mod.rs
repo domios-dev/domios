@@ -1085,14 +1085,18 @@ impl ServiceContext {
         };
         let Some(tab_id) = tab_id else { return };
         if locked {
-            self.input_parser.clear(&tab_id);
+            self.ext::<std::sync::Arc<crate::service::input_parser::InputParser>>()
+                .clear(&tab_id);
             return;
         }
         let mut payload = text.as_bytes().to_vec();
         if enter {
             payload.push(b'\r');
         }
-        if let Some(provider_id) = self.input_parser.process(&tab_id, &payload) {
+        if let Some(provider_id) = self
+            .ext::<std::sync::Arc<crate::service::input_parser::InputParser>>()
+            .process(&tab_id, &payload)
+        {
             log::info!(
                 "[input-parser] detected '{}' send in Tab {} — locking agent_type",
                 provider_id,

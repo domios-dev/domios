@@ -882,7 +882,13 @@ pub async fn shell_command_snapshot(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pty_id = resolve_pty_id_with_fallback(&state, &raw_tab_id).ok();
-    let snap = pty_id.and_then(|pty_id| state.svc.shell_caps.lock().snapshot(&pty_id));
+    let snap = pty_id.and_then(|pty_id| {
+        state
+            .svc
+            .ext::<crate::ShellCapabilityState>()
+            .lock()
+            .snapshot(&pty_id)
+    });
     let snap = snap.unwrap_or_default();
     serde_json::to_value(snap)
         .map(Json)
