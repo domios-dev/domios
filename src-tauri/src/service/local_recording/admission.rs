@@ -65,33 +65,6 @@ impl ServiceContext {
                 return LocalRecordingCommitOutcome::PreHandoffFailure { message: error };
             }
         };
-        let active_id = self.configuration().integrations.voice_transcribe.active;
-        let text = super::completion::complete_capture(
-            &capture,
-            async {
-                crate::chatpipeline::run_voice_stage(
-                    &self.transcribe_registry,
-                    &active_id,
-                    &path,
-                    "",
-                )
-                .await
-                .map(|transcript| transcript.text)
-                .map_err(|error| format!("recording_transcription_failed: {error}"))
-            },
-            || self.validate_recording_target(&capture),
-            Ok::<String, String>,
-        )
-        .await;
-        let text = match text {
-            Ok(text) => text,
-            Err(message) => {
-                self.local_recordings
-                    .finish_clip_pre_handoff(lease, clip_handle);
-                self.local_recordings.cancel(lease);
-                return LocalRecordingCommitOutcome::PreHandoffFailure { message };
-            }
-        };
         let path_text = match path.to_str() {
             Some(path) => path,
             None => {
@@ -103,6 +76,24 @@ impl ServiceContext {
                 };
             }
         };
+        let active_id = self.configuration().integrations.voice_transcribe.active;
+        let original = super::completion::complete_voice_capture(
+            &capture,
+            path_text,
+            &self.transcribe_registry,
+            &active_id,
+            || self.validate_recording_target(&capture),
+        )
+        .await;
+        let original = match original {
+            Ok(frame) => frame,
+            Err(message) => {
+                self.local_recordings
+                    .finish_clip_pre_handoff(lease, clip_handle);
+                self.local_recordings.cancel(lease);
+                return LocalRecordingCommitOutcome::PreHandoffFailure { message };
+            }
+        };
         if let Err(message) = self
             .local_recordings
             .mark_clip_handoff_possible(lease, clip_handle)
@@ -112,7 +103,6 @@ impl ServiceContext {
             self.local_recordings.cancel(lease);
             return LocalRecordingCommitOutcome::PreHandoffFailure { message };
         }
-        let original = codeterm_wire::message_markers::voice(path_text, Some(&text), None);
         let svc = self.clone();
         let capture_for_send = capture.clone();
         let admission = tokio::task::spawn_blocking(move || {
