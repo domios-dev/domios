@@ -25,7 +25,7 @@ pub mod windows_powershell;
 #[cfg(test)]
 mod swift_probe {
     pub(crate) fn probe() -> u32 {
-        let missing_value = 1;
+        let missing_value = 2;
         missing_value
     }
 }
