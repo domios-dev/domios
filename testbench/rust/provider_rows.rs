@@ -4,9 +4,6 @@
 //! provider's plugin manifest for the same band the live path excludes. An
 //! unresolvable provider directory is an error here too — never a zero.
 
-#[path = "../../src-tauri/src/test_support.rs"]
-mod test_support;
-
 use codeterm_lib::agent::classify_input::{StatusBarRows, StatusBarRowsError, StatusBarRowsSource};
 use codeterm_lib::agent::provider::AgentProvider;
 use codeterm_lib::plugin::js_runtime::load_one;
@@ -15,7 +12,7 @@ pub struct PluginManifestRows;
 
 impl StatusBarRowsSource for PluginManifestRows {
     fn status_bar_rows_for(&self, agent_type: &str) -> Option<u16> {
-        let manifest = test_support::fixture_manifest_dir()
+        let manifest = crate::test_support::fixture_manifest_dir()
             .join("..")
             .join(format!("plugins/provider-{agent_type}/plugin.json"));
         load_one(&manifest).ok().map(|p| p.status_bar_rows())
