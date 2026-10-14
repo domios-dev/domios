@@ -1,6 +1,3 @@
-#[path = "../../src-tauri/src/test_support.rs"]
-mod test_support;
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -111,7 +108,7 @@ pub struct CaseResult {
 }
 
 pub fn workspace_root() -> PathBuf {
-    test_support::fixture_manifest_dir().join("..")
+    crate::test_support::fixture_manifest_dir().join("..")
 }
 
 pub fn snapshots_root() -> PathBuf {
