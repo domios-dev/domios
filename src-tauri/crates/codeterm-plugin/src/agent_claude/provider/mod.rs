@@ -162,8 +162,8 @@ impl AgentProvider for ClaudeProvider {
         Some(PasteCapability {
             supports_bracketed_paste: true,
             multiline: None,
-            untrusted_above_lines: 4,
-            typed_follow_up: " Handle the paste as my request.".into(),
+            untrusted_above_lines: 0,
+            typed_follow_up: codeterm_wire::domios::pasted_marker_tail(),
             requires_typed_instruction_for_routed_messages: true,
         })
     }

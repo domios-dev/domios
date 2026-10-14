@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts qa-gate.sh, tests/check-provider-boundary.test.mjs
 # Internal QA gate registry + reporting. Sourced by scripts/qa-gate.sh.
 set -u
 

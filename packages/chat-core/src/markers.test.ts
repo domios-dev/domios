@@ -16,7 +16,10 @@ import {
 import {
   buildDomiosMessage,
   buildDomiosOpeningTag,
-  DOMIOS_TYPED_INSTRUCTION,
+  DOMIOS_LEGACY_TYPED_INSTRUCTION,
+  PASTED_MARKER_TAIL,
+  LEGACY_CHAT_FOLLOW_UPS,
+  stripPlainTypedTail,
   parseDomiosMessage,
 } from "./domios";
 
@@ -81,13 +84,29 @@ eq(
 const typedDomios = buildDomiosMessage(
   { from: "tab", tab: "abc12345" },
   "opaque routed body",
-  ` [to reply, run: codeterm send "YOUR REPLY" --tab abc12345] ${DOMIOS_TYPED_INSTRUCTION}`,
+  ` [to reply, run: codeterm send "YOUR REPLY" --tab abc12345] ${DOMIOS_LEGACY_TYPED_INSTRUCTION}`,
 );
 eq(
   parseDomiosMessage(typedDomios)?.body,
   "opaque routed body",
   "typed instruction is stripped from the routed message body",
 );
+eq(
+  parseDomiosMessage(buildDomiosMessage({ from: "tab", tab: "abc12345" }, "opaque routed body", PASTED_MARKER_TAIL))?.body,
+  "opaque routed body",
+  "pasted marker is stripped from the routed message body",
+);
+eq(
+  parseDomiosMessage(
+    buildDomiosMessage({ from: "tab", tab: "abc12345" }, `opaque routed body${PASTED_MARKER_TAIL}`, " [to reply, run: codeterm send \"X\"]"),
+  )?.body,
+  "opaque routed body",
+  "marker before the reply hint is stripped from the routed message body",
+);
+for (const tail of [PASTED_MARKER_TAIL,...LEGACY_CHAT_FOLLOW_UPS]) {
+  eq(stripPlainTypedTail(`plain message${tail}`), "plain message", "typed chat tail is stripped");
+}
+eq(stripPlainTypedTail("plain message"), "plain message", "untailed chat text is unchanged");
 eq(parseMarker("-=-codeterm:tab label=Main tab=abc12345-=-body"), null, "legacy route grammar is rejected");
 
 // `message_markers_tests.rs` PARITY[6] exactly (name space percent-encoded).

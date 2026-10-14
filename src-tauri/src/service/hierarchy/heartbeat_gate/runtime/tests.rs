@@ -1,8 +1,8 @@
 use super::*;
-use codeterm_types::config::SupporterConnection;
-use codeterm_types::decision::{
+use codeterm_decision::{
     deadline, DecisionModelInfo, DecisionPrimitives, DecisionQuestion, DecisionRequest, TokenMode,
 };
+use codeterm_types::config::SupporterConnection;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Model {
@@ -51,7 +51,7 @@ impl DecisionModel for Model {
             .collect()
     }
     fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
-        codeterm_types::decision::physical::before_request()?;
+        codeterm_decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(DecisionAnswer::Choice {
             choice: "accepted".into(),
@@ -242,7 +242,7 @@ fn heartbeat_real_expired_deadline_rejects_before_physical_call() {
     );
     assert_eq!(active.calls.load(Ordering::SeqCst), 0);
     assert_eq!(runtime.status(1)["calls_last_hour"], 0);
-    assert!(codeterm_types::decision::physical::current().is_none());
+    assert!(codeterm_decision::physical::current().is_none());
     assert!(!dir.path().join("journal.jsonl").exists());
 }
 
@@ -284,5 +284,5 @@ fn heartbeat_fixture_clock_expiry_stays_distinct_from_shared_budget() {
     );
     assert_eq!(active.calls.load(Ordering::SeqCst), 1);
     assert_eq!(runtime.status(1)["calls_last_hour"], 1);
-    assert!(codeterm_types::decision::physical::current().is_none());
+    assert!(codeterm_decision::physical::current().is_none());
 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: skill build, testing
 
 set -euo pipefail
 

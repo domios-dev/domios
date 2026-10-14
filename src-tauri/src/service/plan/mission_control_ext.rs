@@ -128,7 +128,7 @@ pub(crate) fn provider_allowances(svc: &ServiceContext) -> BTreeMap<String, Prov
 /// converts a "left" reading to used before storing it), so converting here would
 /// invert a correct number. The window is the finest granularity the source has.
 pub(crate) fn allowance_from_row(
-    row: &codeterm_types::usage::UsageSnapshotRow,
+    row: &codeterm_usage::contract::UsageSnapshotRow,
 ) -> ProviderAllowance {
     ProviderAllowance {
         captured_at: row.captured_at,

@@ -25,7 +25,7 @@ pub struct Handler {
 impl Handler {
     pub fn notify(bucket: &str) -> Self {
         Self {
-            id: codeterm_types::automation_name::generated_handler_id(
+            id: codeterm_blueprint_types::automation_name::generated_handler_id(
                 "notify", None, None, bucket, 1,
             ),
             action: Route::Notify,
@@ -163,7 +163,9 @@ fn generated_id(bucket: &str, action: &Route, ordinal: usize) -> String {
         }
         Route::Command(parameters) => ("command", None, Some(parameters.label.as_str())),
     };
-    codeterm_types::automation_name::generated_handler_id(kind, target, label, bucket, ordinal)
+    codeterm_blueprint_types::automation_name::generated_handler_id(
+        kind, target, label, bucket, ordinal,
+    )
 }
 
 fn unique_generated_id(
@@ -300,7 +302,7 @@ pub struct ResultRecord {
 #[serde(deny_unknown_fields)]
 pub struct Transition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub causal_run: Option<codeterm_types::blueprint_run::Context>,
+    pub causal_run: Option<codeterm_blueprint_types::blueprint_run::Context>,
     #[serde(default)]
     pub decision: Option<super::provenance::Decision>,
     pub id: String,
@@ -462,7 +464,7 @@ impl Store {
         if super::store::transition_budget_spent(current)
             || (current.session
                 && super::session::usage(&self.jobs, current, now).exchanges
-                    >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT)
+                    >= codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT)
         {
             let reason = if current.session {
                 "session_safety_limit"
@@ -473,16 +475,15 @@ impl Store {
         }
         if current.session
             && super::session::usage(&self.jobs, current, now).recent
-                >= codeterm_types::blueprint_terminal::SESSION_RATE_LIMIT
+                >= codeterm_blueprint_types::blueprint_terminal::SESSION_RATE_LIMIT
         {
             return self
                 .stage_stop(&job.id, "session_rate_limit")
                 .map(|_| false);
         }
-        let causal_run = current
-            .causal_run
-            .clone()
-            .unwrap_or_else(|| codeterm_types::blueprint_run::Context::root(&job.id, id, now));
+        let causal_run = current.causal_run.clone().unwrap_or_else(|| {
+            codeterm_blueprint_types::blueprint_run::Context::root(&job.id, id, now)
+        });
         let transition = Transition {
             causal_run: Some(causal_run),
             decision,
@@ -591,7 +592,7 @@ impl Store {
         if actions >= super::store::action_limit(current)
             || (current.session
                 && super::session::usage(&self.jobs, current, now).actions
-                    >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT)
+                    >= codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT)
         {
             return Ok(Gate::Exhausted);
         }

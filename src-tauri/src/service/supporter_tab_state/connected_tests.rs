@@ -69,11 +69,11 @@ fn tab_state_single_request_label_and_prompt_visible() {
     assert_eq!(request.questions.len(), 2);
     assert!(matches!(
         &request.questions["label"].question,
-        codeterm_types::decision::DecisionQuestion::Choice { .. }
+        codeterm_decision::DecisionQuestion::Choice { .. }
     ));
     assert!(matches!(
         &request.questions["prompt_visible"].question,
-        codeterm_types::decision::DecisionQuestion::Noul { .. }
+        codeterm_decision::DecisionQuestion::Noul { .. }
     ));
     assert_eq!(request.state["screen"], "opaque shared screen");
     assert_eq!(verdict.prompt_visible, 0.0);
@@ -98,7 +98,7 @@ fn tab_state_extra_safe_choice_is_carried_once_and_parsed_from_answer_map() {
     let (host, _, _) = StubHost::new("opaque", model);
     let (_, metadata) =
         prepare_observation(&host, &tab(), ObservationTrigger::WorkerIdle, "opaque").unwrap();
-    let extra = codeterm_types::decision::DecisionQuestion::Choice {
+    let extra = codeterm_decision::DecisionQuestion::Choice {
         options: BTreeMap::from([
             ("safe-provider-value".into(), "opaque-safe".into()),
             ("abstain".into(), "opaque-abstain".into()),

@@ -1,6 +1,6 @@
 use super::super::{coordinator, identity, privacy, scheduler};
 use super::*;
-use codeterm_types::decision::DecisionError;
+use codeterm_decision::DecisionError;
 use std::sync::mpsc;
 
 #[test]

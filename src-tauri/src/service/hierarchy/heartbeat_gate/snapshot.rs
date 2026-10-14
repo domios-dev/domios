@@ -151,6 +151,15 @@ pub(crate) fn fresh_owner_messages<'a>(
         .collect()
 }
 
+/// The owner's messages already reach the Orchestrator's own tab, so they never wake it.
+pub(crate) fn actionable_pending(pending: &[HardWake]) -> Vec<HardWake> {
+    pending
+        .iter()
+        .filter(|wake| !matches!(wake, HardWake::OwnerMessage(_)))
+        .cloned()
+        .collect()
+}
+
 pub(crate) fn collect_owner_messages(
     svc: &ServiceContext,
     tab_id: &str,
@@ -208,7 +217,7 @@ pub(crate) fn collect(
         ..Default::default()
     };
     (snapshot.context, snapshot.truncated) = delta_context(plan, &snapshot.delta);
-    snapshot.hard = previous.pending_hard.clone();
+    snapshot.hard = actionable_pending(&previous.pending_hard);
     if snapshot.delta.contains_key("mode") {
         snapshot.hard.push(HardWake::ModeChange);
     }
@@ -356,8 +365,7 @@ pub(crate) fn collect(
                 .push(HardWake::Incident(format!("task_interruption:{}", task.id)));
         }
     }
-    let (owner_messages, owner_observation) = collect_owner_messages(svc, tab_id, previous);
-    snapshot.hard.extend(owner_messages);
+    let (_, owner_observation) = collect_owner_messages(svc, tab_id, previous);
     if let Some(owner_observation) = owner_observation {
         observed.workers.insert(tab_id.into(), owner_observation);
     }
@@ -738,7 +746,7 @@ pub(super) fn is_owner_turn(message: &ChatMsg) -> bool {
     if message.kind != "user" || message.system_subtype.is_some() {
         return false;
     }
-    let marker = codeterm_types::message_markers::parse_host_injected(&message.content);
+    let marker = codeterm_wire::message_markers::parse_host_injected(&message.content);
     let kind = message.inbound_kind.as_deref().or_else(|| {
         marker.as_ref().map(|m| {
             if m.kind == "inbound" {

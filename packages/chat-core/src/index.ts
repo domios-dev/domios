@@ -26,7 +26,11 @@ export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
 export { automationOrigin, type AutomationSource } from "./automationOrigin";
 export {
   DOMIOS_CLOSE_TAG,
-  DOMIOS_TYPED_INSTRUCTION,
+  DOMIOS_LEGACY_TYPED_INSTRUCTION,
+  DOMIOS_PASTED_MARKER,
+  PASTED_MARKER_TAIL,
+  LEGACY_CHAT_FOLLOW_UPS,
+  stripPlainTypedTail,
   buildDomiosOpeningTag,
   buildDomiosMessage,
   parseDomiosMessage,

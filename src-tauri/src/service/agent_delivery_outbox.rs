@@ -409,7 +409,7 @@ impl ServiceContext {
                 opening_tag,
                 body,
                 suffix,
-            } => codeterm_types::domios::DomiosFrame {
+            } => codeterm_wire::domios::DomiosFrame {
                 opening_tag: opening_tag.clone(),
                 body: body.clone(),
                 suffix: suffix.clone(),

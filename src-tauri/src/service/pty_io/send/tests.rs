@@ -124,16 +124,11 @@ fn never_written_agent_report_survives_reopen() {
 }
 
 #[test]
-fn routed_suffix_has_a_closing_tag_for_plain_and_capable_targets() {
-    use codeterm_types::domios::{DOMIOS_CLOSE_TAG, DOMIOS_TYPED_INSTRUCTION};
-
-    let plain = super::compose_routed_suffix(" [reply]", false);
-    assert_eq!(plain, format!(" [reply]{DOMIOS_CLOSE_TAG}"));
-
-    let capable = super::compose_routed_suffix(" [reply]", true);
+fn routed_suffix_is_the_reply_hint_and_closing_tag() {
+    let close = codeterm_wire::domios::DOMIOS_CLOSE_TAG;
     assert_eq!(
-        capable,
-        format!(" [reply] <tip>{DOMIOS_TYPED_INSTRUCTION}</tip>{DOMIOS_CLOSE_TAG}")
+        super::compose_routed_suffix(" [reply]"),
+        format!(" [reply]{close}")
     );
 }
 
@@ -709,8 +704,8 @@ fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
         .unwrap_or(false);
     assert!(!requires_instruction);
 
-    let frame = codeterm_types::domios::DomiosFrame {
-        opening_tag: codeterm_types::domios::build_opening_tag(&[
+    let frame = codeterm_wire::domios::DomiosFrame {
+        opening_tag: codeterm_wire::domios::build_opening_tag(&[
             ("from", "tab"),
             ("label", "sender"),
             ("tab", "abc12345"),
@@ -721,8 +716,9 @@ fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
     let input = super::prepare_routed_input(&frame, requires_instruction);
     assert_eq!(input.body, frame.to_message());
     assert_eq!(input.typed_prefix, None);
+    assert_eq!(input.pasted_tail, None);
     assert_eq!(input.typed_suffix, None);
-    let parsed = codeterm_types::domios::parse_message(&input.body).unwrap();
+    let parsed = codeterm_wire::domios::parse_message(&input.body).unwrap();
     assert_eq!(parsed.attr("tab"), Some("abc12345"));
     assert_eq!(parsed.content, format!("{}{}", frame.body, frame.suffix));
 }
@@ -733,7 +729,7 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
         "../../../../../tests/fixtures/pty-delivery/restored-structured-turn.json"
     ))
     .unwrap();
-    let frame = codeterm_types::domios::DomiosFrame {
+    let frame = codeterm_wire::domios::DomiosFrame {
         opening_tag: fixture["opening_tag"].as_str().unwrap().into(),
         body: fixture["body"].as_str().unwrap().into(),
         suffix: fixture["suffix"].as_str().unwrap().into(),
@@ -747,6 +743,7 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
     let input = super::prepare_routed_input(&frame, false);
     assert_eq!(input.body, expected);
     assert_eq!(input.typed_prefix, None);
+    assert_eq!(input.pasted_tail, None);
     assert_eq!(input.typed_suffix, None);
 
     let typed = super::prepare_routed_input(&frame, true);
@@ -757,12 +754,16 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
     );
     assert_eq!(
         typed.typed_suffix,
-        Some(super::compose_routed_suffix(&frame.suffix, true))
+        Some(super::compose_routed_suffix(&frame.suffix))
+    );
+    assert_eq!(
+        typed.pasted_tail,
+        Some(codeterm_wire::domios::pasted_marker_tail())
     );
 }
 
 #[test]
-fn routed_agent_and_report_instructions_are_tips_in_both_transport_forms() {
+fn routed_agent_and_report_hints_stay_out_of_the_body_in_both_transport_forms() {
     for messenger in [
         crate::service::messenger::Messenger::message("Sender", "abc12345"),
         crate::service::messenger::Messenger::report("Sender", "abc12345"),
@@ -775,18 +776,16 @@ fn routed_agent_and_report_instructions_are_tips_in_both_transport_forms() {
             Some(frame.opening_tag.as_str())
         );
         let suffix = input.typed_suffix.unwrap();
-        let instruction = format!(
-            "<tip>{}</tip>",
-            codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION
-        );
-        assert!(suffix.contains(&instruction));
-        let delivered = format!("{}{}{}", frame.opening_tag, input.body, suffix);
-        let parsed = codeterm_types::domios::parse_message(&delivered).unwrap();
+        assert!(!suffix.contains("<tip>"));
+        let tail = input.pasted_tail.unwrap();
+        let delivered = format!("{}{}{}{}", frame.opening_tag, input.body, tail, suffix);
+        let parsed = codeterm_wire::domios::parse_message(&delivered).unwrap();
         assert_eq!(parsed.body, frame.body);
-        assert!(parsed.content.contains(&instruction));
+        assert!(parsed.content.contains(&frame.suffix));
         let pasted = super::prepare_routed_input(&frame, false);
         assert_eq!(pasted.body, frame.to_message());
         assert_eq!(pasted.typed_prefix, None);
+        assert_eq!(pasted.pasted_tail, None);
         assert_eq!(pasted.typed_suffix, None);
     }
 }

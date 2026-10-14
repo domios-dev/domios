@@ -133,7 +133,7 @@ pub(super) fn deliver_turn(
     tab_id: &str,
     session: &str,
     nonce: &str,
-    turn: &codeterm_types::agent::provider_signals::ProviderTurnIncident,
+    turn: &codeterm_provider_signals::ProviderTurnIncident,
 ) {
     let context = {
         let mux = svc.mux.read();

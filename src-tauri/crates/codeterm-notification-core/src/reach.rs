@@ -14,7 +14,7 @@
 use serde::Serialize;
 
 use super::desktop::{self, DesktopAdmission, DesktopPolicy};
-use codeterm_types::notification::NotifyLevel;
+use crate::contract::NotifyLevel;
 
 /// The bell, the desktop toast, or push. Named on the wire so a caller reads a
 /// reason per surface rather than one flattened sentence.

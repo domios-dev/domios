@@ -250,7 +250,7 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     let clock = MockClock::starting_at(1_000);
     let store = typed(&storage, &clock);
     let mut job = fixture(FRESH);
-    job.set_terminal(Some(codeterm_types::blueprint_terminal::Config {
+    job.set_terminal(Some(codeterm_blueprint_types::blueprint_terminal::Config {
         pattern: Some("ready".into()),
         idle_ms: Some(200),
     }));

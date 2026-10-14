@@ -312,7 +312,7 @@ fn sanitize_event_text(text: &str) -> String {
     while clean.contains("<domios") {
         clean = clean.replace("<domios", "domios:");
     }
-    clean = clean.replace(codeterm_types::domios::DOMIOS_CLOSE_TAG, "");
+    clean = clean.replace(codeterm_wire::domios::DOMIOS_CLOSE_TAG, "");
     clean.trim().to_string()
 }
 

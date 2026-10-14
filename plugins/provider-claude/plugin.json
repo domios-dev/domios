@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.5",
+  "version": "1.14.6",
   "minCodeterm": "1.14.8",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -19,8 +19,8 @@
     },
     "taskDelivery": "inline_flag",
     "paste": {
-      "untrustedAboveLines": 4,
-      "typedFollowUp": " Handle the paste as my request.",
+      "untrustedAboveLines": 0,
+      "typedFollowUp": "\npasted by Domios",
       "requiresTypedInstructionForRoutedMessages": true
     },
     "systemPromptDelivery": {

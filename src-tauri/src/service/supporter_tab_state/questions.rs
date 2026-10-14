@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use codeterm_types::decision::{DecisionQuestion, NamedDecisionQuestion, NoulCriteria};
+use codeterm_decision::{DecisionQuestion, NamedDecisionQuestion, NoulCriteria};
 
 use super::{criteria, TabStateMetadata, INSTRUCTIONS};
 

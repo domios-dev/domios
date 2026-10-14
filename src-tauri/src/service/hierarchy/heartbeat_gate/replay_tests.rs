@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::decision::{DecisionPrimitives, DecisionRequest, TokenMode};
+use codeterm_decision::{DecisionPrimitives, DecisionRequest, TokenMode};
 
 #[derive(Deserialize)]
 struct Replay {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts check-dev-resource-preflight.sh, tests/release-job-graph.test.mjs; skill build-machine, github-release
 # Builds a signed x86_64 macOS DMG; mac-bundle.sh owns notarization.
 # Run from the codeterm repo root on an arm64 Mac.
 set -euo pipefail

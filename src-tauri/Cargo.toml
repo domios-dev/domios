@@ -1,11 +1,11 @@
 [package]
 name = "codeterm"
-version = "1.14.9-dev.5"
+version = "1.14.9-dev.6"
 edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage"]
+members = [".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel-ports", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
@@ -37,6 +37,11 @@ serde_json = { version = "1", features = ["raw_value"] }
 serde_yaml = "0.9"
 uuid = { version = "1", features = ["v4", "serde"] }
 codeterm-types = { path = "crates/codeterm-types" }
+codeterm-blueprint-types = { path = "crates/codeterm-blueprint-types" }
+codeterm-local-recording = { path = "crates/codeterm-local-recording" }
+codeterm-wire = { path = "crates/codeterm-wire" }
+codeterm-decision = { path = "crates/codeterm-decision" }
+codeterm-provider-signals = { path = "crates/codeterm-provider-signals" }
 codeterm-util = { path = "crates/codeterm-util" }
 codeterm-browser = { path = "crates/codeterm-browser" }
 codeterm-mesh = { path = "crates/codeterm-mesh" }
@@ -140,7 +145,7 @@ clipboard-win = "5"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
-codeterm-types = { path = "crates/codeterm-types", features = ["decision-fixture-clock"] }
+codeterm-decision = { path = "crates/codeterm-decision", features = ["decision-fixture-clock"] }
 mockito = "1"
 filetime = "0.2.29"
 vt100 = "0.16"

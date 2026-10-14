@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: CI frontend-release.yml; scripts ci-scope.mjs, run-ts-unit-tests.test.mjs, tests/ci-scope.test.mjs; skill testing
 
 set -uo pipefail
 

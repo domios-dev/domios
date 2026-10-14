@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts qa-gates.lib.sh, test-matrix.sh
 # Linux lane: Rust + TS unit tests inside a Docker container.
 # The repo is bind-mounted; target dirs and node_modules are shadowed by
 # named volumes so Linux artifacts never touch the host checkout.

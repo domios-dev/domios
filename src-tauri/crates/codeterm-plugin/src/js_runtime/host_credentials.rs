@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use super::manifest::{CredentialConfig, PluginManifest};
-use codeterm_types::decision::TokenMode;
+use codeterm_decision::TokenMode;
 
 /// Resolve a dotted path or JSON Pointer inside a JSON document.
 fn value_at<'a>(doc: &'a Value, path: &str) -> Option<&'a Value> {

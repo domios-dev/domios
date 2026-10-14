@@ -139,7 +139,7 @@ async fn mesh_attachment_transfer_voice_and_image_land_in_target_upload_dir() {
             "path": stored[0],
             "kind": "voice",
             "size": 11,
-            "reference": codeterm_types::message_markers::voice(&stored[0], Some("hello"), None),
+            "reference": codeterm_wire::message_markers::voice(&stored[0], Some("hello"), None),
         })),
     )
     .unwrap();
@@ -222,7 +222,7 @@ fn mesh_attachment_path_guard_rejects_unrewritten_source_paths() {
     let texts = [
         format!("see {image}"),
         format!("see '{voice}' please"),
-        codeterm_types::message_markers::voice(&voice, Some("hello"), None),
+        codeterm_wire::message_markers::voice(&voice, Some("hello"), None),
         format!("see {}", image.replace('\\', "/")),
     ];
     for text in &texts {

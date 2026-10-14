@@ -699,7 +699,7 @@ pub(super) fn update_definition(
         .is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
-                codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
             )
         })
         .then_some(update.authored_at);

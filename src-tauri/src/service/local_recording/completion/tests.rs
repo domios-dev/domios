@@ -1,7 +1,7 @@
 use super::*;
 use crate::service::local_recording::chat::ChatIdentity;
 use crate::service::local_recording::leases::{CapturePhase, FrozenTarget};
-use codeterm_types::local_recording::LocalRecordingTrigger;
+use codeterm_local_recording::LocalRecordingTrigger;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -35,7 +35,7 @@ async fn lark_recording_contract_typed_transcript_one_ordinary_voice_admission()
         || Ok(()),
         |text| {
             calls.set(calls.get() + 1);
-            Ok(codeterm_types::message_markers::voice(
+            Ok(codeterm_wire::message_markers::voice(
                 "owned-audio",
                 Some(&text),
                 None,
@@ -47,7 +47,7 @@ async fn lark_recording_contract_typed_transcript_one_ordinary_voice_admission()
     assert_eq!(calls.get(), 1);
     assert_eq!(
         marker,
-        codeterm_types::message_markers::voice("owned-audio", Some("spoken-token"), None)
+        codeterm_wire::message_markers::voice("owned-audio", Some("spoken-token"), None)
     );
 }
 
@@ -147,7 +147,7 @@ async fn lark_recording_contract_fake_trigger_lease_typed_voice_one_tracked_hand
                 .map_err(|error| error.ledger_message())
         },
         |text| {
-            let marker = codeterm_types::message_markers::voice("owned-audio", Some(&text), None);
+            let marker = codeterm_wire::message_markers::voice("owned-audio", Some(&text), None);
             let pending = ledger.try_start_scoped(
                 "A",
                 &marker,
@@ -165,7 +165,7 @@ async fn lark_recording_contract_fake_trigger_lease_typed_voice_one_tracked_hand
                     assert_eq!((plugin, session), ("backend", "S"));
                     assert_eq!(
                         payload,
-                        codeterm_types::message_markers::voice(
+                        codeterm_wire::message_markers::voice(
                             "owned-audio",
                             Some("spoken-token"),
                             None

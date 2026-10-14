@@ -1,3 +1,4 @@
+// Caller: scripts affected-tests.test.mjs; skill testing
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -20,11 +21,15 @@ const scopeAliases = new Map([
   ["codeterm-plugin", "plugin"],
   ["codeterm-plugins", "plugins"],
   ["codeterm-types", "types"],
+  ["codeterm-decision", "decision"],
+  ["codeterm-provider-signals", "provider-signals"],
   ["codeterm-util", "util"],
   ["codeterm-browser", "browser"],
   ["codeterm-usage", "usage"],
   ["codeterm-mem", "mem"],
   ["codeterm-mesh", "mesh"],
+  ["codeterm-blueprint-types", "codeterm-blueprint-types"],
+  ["codeterm-local-recording", "codeterm-local-recording"],
 ]);
 
 function parseArgs(argv) {
@@ -186,7 +191,7 @@ function moduleFilter(modulePath) {
 }
 
 function renderRustCommands(groups) {
-  const order = ["app", "plan", "pty", "plugin", "types", "cli", "mem", "mesh", "plugins", "pty-fork"];
+  const order = ["app", "plan", "pty", "plugin", "types", "wire", "decision", "provider-signals", "cli", "mem", "mesh", "plugins", "pty-fork"];
   return [...groups.values()]
     .sort((left, right) => {
       const leftRank = order.indexOf(left.scope);

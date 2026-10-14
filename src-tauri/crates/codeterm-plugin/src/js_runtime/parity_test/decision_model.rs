@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPricing,
     DecisionPrimitives, DecisionQuestion, DecisionQuestionsRequest, DecisionRequest,
     NamedDecisionQuestion, TokenMode,
@@ -291,7 +291,7 @@ fn parity_decision_model_multi_question_shared_state_and_sequential_local_adapte
 
 #[test]
 fn parity_decision_metadata_and_model_selection_apply_without_cross_adapter_leak() {
-    use codeterm_types::decision::DecisionMetadata;
+    use codeterm_decision::DecisionMetadata;
     struct Native(parking_lot::Mutex<String>);
     impl DecisionModel for Native {
         fn id(&self) -> &str {

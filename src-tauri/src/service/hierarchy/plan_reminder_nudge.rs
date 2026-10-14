@@ -41,7 +41,7 @@ pub(crate) struct BlockedNotice {
     summary: String,
     task_ids: Vec<String>,
     pause_plan: bool,
-    actions: Vec<codeterm_types::notification::CallerAction>,
+    actions: Vec<codeterm_notification_core::contract::CallerAction>,
 }
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
@@ -447,12 +447,14 @@ fn record_blocker(
     blocker.task_ids.insert(task_id.into());
 }
 
-fn blocked_notice_actions() -> Vec<codeterm_types::notification::CallerAction> {
+fn blocked_notice_actions() -> Vec<codeterm_notification_core::contract::CallerAction> {
     ["wait", "pause plan", "decide"]
         .into_iter()
-        .map(|label| codeterm_types::notification::CallerAction::Answer {
-            label: label.into(),
-        })
+        .map(
+            |label| codeterm_notification_core::contract::CallerAction::Answer {
+                label: label.into(),
+            },
+        )
         .collect()
 }
 
@@ -524,14 +526,9 @@ impl ReminderHost for LiveHost<'_> {
     ) -> (Snapshot, Observation) {
         let (mut snapshot, mut observed) =
             heartbeat_gate::collect_worker_scope(plan, scope, previous);
-        snapshot.hard = previous.pending_hard.clone();
-        let (owner_messages, owner_observation) =
+        snapshot.hard = heartbeat_gate::actionable_pending(&previous.pending_hard);
+        let (_, owner_observation) =
             heartbeat_gate::collect_owner_messages(self.svc, &scope.tab_id, previous);
-        for message in owner_messages {
-            if !snapshot.hard.contains(&message) {
-                snapshot.hard.push(message);
-            }
-        }
         if let Some(owner_observation) = owner_observation {
             observed
                 .workers

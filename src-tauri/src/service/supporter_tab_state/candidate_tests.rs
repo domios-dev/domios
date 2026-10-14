@@ -361,7 +361,7 @@ fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch(
             .collect::<Vec<_>>(),
         ["input_area", "label", "prompt_visible", "safe_choice"]
     );
-    let codeterm_types::decision::DecisionQuestion::Choice { options } =
+    let codeterm_decision::DecisionQuestion::Choice { options } =
         &request.questions["safe_choice"].question
     else {
         panic!("choice");
@@ -561,7 +561,7 @@ impl DecisionModel for CandidateModel {
         _: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
-        codeterm_types::decision::physical::before_request()?;
+        codeterm_decision::physical::before_request()?;
         if let Some(hook) = &self.hook {
             hook();
         }

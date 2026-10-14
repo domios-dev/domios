@@ -1,3 +1,4 @@
+# Caller: scripts windows-sccache-session.ps1
 function Test-ArchiveEntryMatchesStream($Entry, [IO.Stream]$File) {
     if ($Entry.Length -ne $File.Length) { return $false }
     $archive = $Entry.Open()
