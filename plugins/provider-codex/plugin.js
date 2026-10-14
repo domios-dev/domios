@@ -764,13 +764,35 @@ function codexEffectiveSettings(requested, reply) {
 }
 
 // plugins/provider-codex/src/runtimeErrors.ts
+function statusCode(value) {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
+function nestedStatus(info) {
+  for (const value of Object.values(info)) {
+    const code = statusCode(object(value).httpStatusCode);
+    if (code != null) return code;
+  }
+  return null;
+}
+function runtimeClass(code, status) {
+  if (code === "token_expired" || code === "refresh_token_expired" || code === "auth_expired" || code === "auth_expiry") return "auth_expiry";
+  if (status === 401 || status === 403 || code === "authError" || code === "unauthorized" || code === "authentication_error") return "authentication";
+  if (code === "usageLimitExceeded" || code === "sessionBudgetExceeded" || code === "usage_limit") return "usage_limit";
+  if (code === "rateLimitExceeded" || code === "rate_limit" || status === 429) return "rate_limit";
+  if (code === "serverOverloaded" || code === "internalServerError" || code === "overloaded" || code === "server_overloaded" || status != null && status >= 500 && status <= 599) return "server_overloaded";
+  if (code?.startsWith("http") || code?.startsWith("responseStream")) return "transport_error";
+  return "provider_error";
+}
 function runtimeError(value, willRetry = false) {
   const error = object(value);
   const info = error.codexErrorInfo;
-  const code = typeof info === "string" ? info : Object.keys(object(info))[0];
+  const infoObject = object(info);
+  const code = typeof info === "string" ? info : Object.keys(infoObject)[0];
   const message = text(error.additionalDetails) ?? text(error.message) ?? "Provider request failed";
-  const category = code === "usageLimitExceeded" || code === "rateLimitExceeded" ? "usage_limit" : code?.startsWith("http") || code?.startsWith("responseStream") ? "transport_error" : "provider_error";
-  return { message, metadata: { ...code ? { code } : {}, class: category, retryable: willRetry } };
+  const status = statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
+  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry } };
 }
 
 // plugins/provider-codex/src/runtimeAbandonedTurns.ts
@@ -1583,9 +1605,39 @@ function codexToolOutputText(output) {
 function object2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
+var authExpiry = ["token_expired", "refresh_token_expired", "auth_expired", "auth_expiry"];
+var authentication = [
+  "401",
+  "403",
+  "authentication_error",
+  "auth",
+  "unauthorized",
+  "permission_error",
+  "permission_denied",
+  "forbidden",
+  "subscription_disabled",
+  "organization_disabled",
+  "oauth_refresh_failed",
+  "token_revoked",
+  "refresh_token_reused",
+  "refresh_token_invalidated",
+  "logged_out",
+  "signed_out",
+  "unauthenticated",
+  "authError"
+];
+var usage2 = ["usageLimitExceeded", "usage_limit", "sessionBudgetExceeded"];
+var rate = ["429", "rate_limit", "rate_limit_error", "rateLimitExceeded"];
+var server = ["overloaded", "overloaded_error", "serverOverloaded", "server_overloaded", "internalServerError", "internal_server_error"];
+function statusCode2(value) {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
 function classifyAccessError(error, record4) {
   const detail = object2(error);
-  const info = object2(detail?.codexErrorInfo);
+  const info = detail?.codexErrorInfo;
+  const infoObject = object2(info);
   const fields = [
     typeof error === "string" ? error : null,
     detail?.type,
@@ -1594,40 +1646,64 @@ function classifyAccessError(error, record4) {
     detail?.statusCode,
     detail?.status_code,
     detail?.httpStatusCode,
-    detail?.codexErrorInfo,
-    ...Object.keys(info ?? {}),
-    ...Object.values(info ?? {}).map((value) => object2(value)?.httpStatusCode),
+    typeof info === "string" ? info : null,
+    ...Object.keys(infoObject ?? {}),
+    ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
     record4.status,
     record4.statusCode,
     record4.status_code,
     record4.apiErrorStatus,
     record4.apiErrorCode
   ];
-  if (fields.some((value) => typeof value === "string" && (value.startsWith("oauth_") || value.startsWith("authentication_")))) return "authentication";
-  if (fields.some((value) => value === 401 || value === 403 || typeof value === "string" && [
-    "401",
-    "403",
-    "authentication_error",
-    "auth",
-    "unauthorized",
-    "permission_error",
-    "permission_denied",
-    "forbidden",
-    "subscription_disabled",
-    "organization_disabled",
-    "oauth_refresh_failed",
-    "token_expired",
-    "token_revoked",
-    "refresh_token_reused",
-    "refresh_token_expired",
-    "refresh_token_invalidated",
-    "logged_out",
-    "signed_out",
-    "unauthenticated",
-    "authError"
-  ].includes(value))) return "authentication";
-  if (fields.some((value) => value === 429 || value === "429" || value === "rate_limit" || value === "rate_limit_error" || value === "usageLimitExceeded")) return "rate_limit";
+  const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
+  const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
+  const status = (match) => fields.some((value) => {
+    const code = statusCode2(value);
+    return code != null && match(code);
+  });
+  if (named(authExpiry)) return "auth_expiry";
+  if (named(["authError"]) || prefixed("oauth_") || prefixed("authentication_") || status((code) => code === 401 || code === 403) || named(authentication)) return "authentication";
+  if (named(usage2)) return "usage_limit";
+  if (status((code) => code === 429) || named(rate)) return "rate_limit";
+  if (status((code) => code >= 500 && code <= 599) || named(server)) return "server_overloaded";
   return "other";
+}
+function readRetry(value) {
+  if (!value) return null;
+  for (const key of ["retryAfter", "retry_after", "retryAfterSeconds", "retry_after_secs", "retryAfterSecs"]) {
+    const field = value[key];
+    if (typeof field === "number" && Number.isInteger(field) && field >= 0) return field;
+    if (typeof field === "string" && /^\d+$/.test(field)) return Number(field);
+  }
+  return null;
+}
+function retryAfterSecs(error, record4) {
+  return readRetry(object2(error)) ?? readRetry(record4);
+}
+function observationTurnId(record4) {
+  for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
+    const value = record4[key];
+    if (typeof value === "string" && value) return value;
+  }
+  const payload = object2(record4.payload);
+  if (!payload) return null;
+  for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return null;
+}
+function observationRetrying(error, record4) {
+  return record4.willRetry === true || object2(error)?.willRetry === true;
+}
+function observationExtras(error, record4) {
+  const extras = {};
+  const retry = retryAfterSecs(error, record4);
+  if (retry != null) extras.retry_after_secs = retry;
+  const turn = observationTurnId(record4);
+  if (turn) extras.turn_id = turn;
+  if (observationRetrying(error, record4)) extras.retrying = true;
+  return extras;
 }
 
 // plugins/provider-codex/src/signals.ts
@@ -1636,11 +1712,15 @@ function parseSessionObservations(value) {
   const record4 = value;
   if (record4.type !== "event_msg" || !record4.payload || typeof record4.payload !== "object" || Array.isArray(record4.payload)) return null;
   const payload = record4.payload;
-  if (payload.type === "error") return {
-    api_error: classifyAccessError(payload.error ?? payload, payload),
-    permission_mode: null,
-    clears_api_error: false
-  };
+  if (payload.type === "error") {
+    const error = payload.error ?? payload;
+    return {
+      api_error: classifyAccessError(error, payload),
+      permission_mode: null,
+      clears_api_error: false,
+      ...observationExtras(error, record4)
+    };
+  }
   if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
   return null;
 }
