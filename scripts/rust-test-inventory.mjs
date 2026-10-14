@@ -648,7 +648,7 @@ export function formatDiff(d) {
   return out.join("\n") + "\n";
 }
 
-function readInventoryFile(file) {
+export function readInventoryFile(file) {
   const text = readFileSync(file, "utf8");
   try {
     return loadInventory(JSON.parse(text));

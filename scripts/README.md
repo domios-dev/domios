@@ -79,6 +79,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-release-source-clean.sh` | CI build-gateway.yml; scripts check-build-gateway-policy.sh |
 | `check-sccache-basedir-isolation.sh` | scripts cache-policy.sh; skill build |
 | `check-script-catalog.sh` | build.sh release-preflight/verify; CI script-catalog.yml |
+| `check-service-core-boundary.sh` |  |
 | `check-shared-sccache.sh` | skill build |
 | `check-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-shards.mjs, confirm-slow-unit-tests.mjs; skill build, testing |
 | `check-slow-unit-tests.test.mjs` | skill testing |
@@ -166,6 +167,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `task.mjs` | package.json script |
 | `test-capped.sh` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check/release-preflight/test-one/verify/test:all; CI qualification.yml; scripts check-build-gateway-policy.sh, check-sccache-basedir-isolation.sh, check-slow-unit-tests.test.mjs; skill build-machine, build-reference, build |
 | `test-capped.test.sh` | skill build, testing |
+| `test-catalogue.mjs` | build.sh script-guards; CI tests.yml; scripts plugin-tests.sh, tests/test-catalogue.test.mjs; skill testing |
 | `test-cli-target-dir-paths.sh` | skill build |
 | `test-clippy-gate.sh` | build.sh script-guards |
 | `test-descendant-cleanup.sh` | build.sh script-guards |

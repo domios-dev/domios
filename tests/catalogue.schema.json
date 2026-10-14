@@ -1,0 +1,601 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rollacode/codeterm/tests/catalogue.schema.json",
+  "title": "Domios test catalogue",
+  "description": "tests/catalogue.json: one entry per runner and the test-looking file patterns every test must be owned through. Membership is discovery output, never hand-listed here. $defs/overlayFile describes tests/catalogue.overlay.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "test_looking",
+    "runners"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "test_looking": {
+      "$ref": "#/$defs/testLooking"
+    },
+    "runners": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/runner"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]*$"
+    },
+    "repoPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![/\\\\])(?!.*\\.\\.)[^\\s]+$"
+    },
+    "glob": {
+      "description": "Repository-relative glob: * within a segment, ** across segments, {a,b} alternatives.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/\\\\\\s]"
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "task": {
+      "type": "string",
+      "pattern": "^task_[a-z0-9]+$"
+    },
+    "platform": {
+      "enum": [
+        "linux",
+        "macos",
+        "windows"
+      ]
+    },
+    "testLooking": {
+      "description": "A file matching patterns and no not_tests pattern must be owned by exactly one runner's discovery.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patterns",
+        "not_tests"
+      ],
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/glob"
+          }
+        },
+        "not_tests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pattern",
+              "reason"
+            ],
+            "properties": {
+              "pattern": {
+                "$ref": "#/$defs/glob"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 10
+              }
+            }
+          }
+        }
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "lang",
+        "runner",
+        "discovery",
+        "tier",
+        "needs_instance",
+        "needs_live_agent",
+        "budget_secs",
+        "owner_doc"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "unit",
+            "integration",
+            "e2e-plain",
+            "e2e-curated",
+            "eval",
+            "contract",
+            "guard"
+          ]
+        },
+        "lang": {
+          "enum": [
+            "rust",
+            "ts",
+            "js",
+            "python",
+            "bash",
+            "mixed"
+          ]
+        },
+        "runner": {
+          "description": "The exact command that runs every member, from the repository root.",
+          "type": "string",
+          "minLength": 1
+        },
+        "exec": {
+          "description": "Argument vector that `node scripts/test-catalogue.mjs run --entry <id>` runs with the discovered files appended.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "exec_each": {
+          "description": "Run exec once per discovered file instead of once with every file.",
+          "type": "boolean"
+        },
+        "discovery": {
+          "$ref": "#/$defs/discovery"
+        },
+        "tier": {
+          "enum": [
+            "pr",
+            "release",
+            "manual"
+          ]
+        },
+        "needs_instance": {
+          "description": "Needs a running Domios instance (DEV 7686 or a named CODETERM_INSTANCE).",
+          "type": "boolean"
+        },
+        "needs_live_agent": {
+          "description": "Spawns a real provider agent and may spend provider tokens.",
+          "type": "boolean"
+        },
+        "budget_secs": {
+          "description": "Wall-clock budget for one full run of this runner on its CI or QA host.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "owner_doc": {
+          "description": "The skill, README or doc that owns how this runner is used.",
+          "$ref": "#/$defs/repoPath"
+        },
+        "package": {
+          "description": "Cargo package name, for Rust entries (D3: one entry per package).",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        },
+        "manifest": {
+          "description": "Cargo manifest the runner builds with, for Rust entries.",
+          "$ref": "#/$defs/repoPath"
+        },
+        "platforms": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/platform"
+          }
+        },
+        "status": {
+          "description": "suspended: kept and runnable on explicit request, selected by no tier gate.",
+          "enum": [
+            "active",
+            "suspended"
+          ]
+        },
+        "ci": {
+          "description": "Current CI placement as workflow:job (informative; ci-tiers wires tiers from the catalogue).",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+(\\.yml)?:[A-Za-z0-9_-]+$"
+          }
+        },
+        "notes": {
+          "type": "string"
+        },
+        "check": {
+          "description": "Command that verifies a finished run's evidence, from the repository root.",
+          "type": "string",
+          "minLength": 1
+        },
+        "depends_on": {
+          "description": "Files outside the runner's discovery that its code imports; validate fails when one is missing.",
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/repoPath"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "lang": {
+                "const": "rust"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "package",
+              "manifest"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "discovery": {
+                "properties": {
+                  "method": {
+                    "enum": [
+                      "nextest-list",
+                      "static-scan"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "package",
+              "manifest"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "needs_live_agent": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "e2e-curated",
+                  "eval"
+                ]
+              },
+              "tier": {
+                "const": "manual"
+              },
+              "needs_instance": {
+                "const": true
+              }
+            }
+          },
+          "description": "Owner rule: real LLM providers only in curated tests and evals, run by hand; everything else is mocked."
+        },
+        {
+          "if": {
+            "properties": {
+              "tier": {
+                "const": "pr"
+              }
+            },
+            "required": [
+              "tier"
+            ]
+          },
+          "then": {
+            "properties": {
+              "needs_instance": {
+                "const": false
+              },
+              "needs_live_agent": {
+                "const": false
+              },
+              "budget_secs": {
+                "type": "integer",
+                "maximum": 480
+              }
+            }
+          }
+        }
+      ]
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method"
+      ],
+      "properties": {
+        "method": {
+          "description": "glob: files matching patterns; list-file: a JSON list owned elsewhere; nextest-list: cargo nextest list --message-format json (CODETERM_CATALOGUE_NEXTEST_JSON); static-scan: scripts/rust-test-inventory.mjs; pytest-collect and playwright-list: the files their collector reads, matched by patterns; script-catalog: scripts/check-script-catalog.sh entries; single: the runner is one check, not a set of tests.",
+          "enum": [
+            "glob",
+            "list-file",
+            "nextest-list",
+            "static-scan",
+            "pytest-collect",
+            "playwright-list",
+            "script-catalog",
+            "single"
+          ]
+        },
+        "patterns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/glob"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/glob"
+          }
+        },
+        "exclude_list_file": {
+          "description": "A JSON list of paths another runner owns; they leave this runner's membership.",
+          "$ref": "#/$defs/repoPath"
+        },
+        "list_file": {
+          "$ref": "#/$defs/repoPath"
+        },
+        "fallback": {
+          "description": "Used where the primary method needs a compile that is not allowed (D3).",
+          "enum": [
+            "static-scan"
+          ]
+        },
+        "contains": {
+          "description": "A regular expression a file's content must match to be a member (for example a test tag).",
+          "type": "string",
+          "minLength": 1
+        },
+        "lacks": {
+          "description": "A regular expression a member file's content must not match.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "enum": [
+                  "glob",
+                  "pytest-collect",
+                  "playwright-list"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "patterns"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "list-file"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "list_file"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "nextest-list"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "fallback"
+            ]
+          }
+        }
+      ]
+    },
+    "overlayTarget": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "binary",
+            "test"
+          ],
+          "properties": {
+            "binary": {
+              "description": "nextest binary-id, e.g. codeterm (the src-tauri lib) or codeterm-plan.",
+              "type": "string",
+              "minLength": 1
+            },
+            "test": {
+              "description": "Fully qualified test name, e.g. sentinel::tests::sentinel_probe_bounded_runtime_and_output.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "spec",
+            "title"
+          ],
+          "properties": {
+            "spec": {
+              "$ref": "#/$defs/repoPath"
+            },
+            "title": {
+              "description": "Exact test title as written in the spec file (a Playwright title, a node:test name or a unittest method).",
+              "type": "string",
+              "minLength": 1
+            },
+            "step": {
+              "description": "Names one silent sub-check inside the test when only that part is stale.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "overlaySource": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "commit": {
+          "$ref": "#/$defs/sha"
+        },
+        "task": {
+          "$ref": "#/$defs/task"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "commit"
+          ]
+        },
+        {
+          "required": [
+            "task"
+          ]
+        }
+      ]
+    },
+    "overlayMarker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runner",
+        "target",
+        "reason",
+        "source"
+      ],
+      "properties": {
+        "runner": {
+          "description": "The catalogue runner id whose discovery owns the target.",
+          "$ref": "#/$defs/id"
+        },
+        "target": {
+          "$ref": "#/$defs/overlayTarget"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 10
+        },
+        "source": {
+          "description": "The commit that made it stale, or the task that recorded it.",
+          "$ref": "#/$defs/overlaySource"
+        },
+        "platforms": {
+          "description": "Where the marker holds; absent means every platform.",
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/platform"
+          }
+        },
+        "fix_task": {
+          "$ref": "#/$defs/task"
+        },
+        "owner": {
+          "description": "Who owns the fix: a task id, a role or a person.",
+          "type": "string",
+          "minLength": 3
+        }
+      }
+    },
+    "overlayFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "stale",
+        "flaky",
+        "platform_red"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "version": {
+          "const": 1
+        },
+        "stale": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/overlayMarker"
+          },
+          "description": "The test no longer matches the product; it is left out and never counts as healthy."
+        },
+        "flaky": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/overlayMarker"
+          },
+          "description": "Runs, but a pass or a failure proves nothing; flagged and never counts as healthy."
+        },
+        "platform_red": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/platformRedMarker"
+          }
+        }
+      }
+    },
+    "platformRedMarker": {
+      "description": "Red on the listed platforms and green elsewhere: skipped there, never healthy, and not safe to delete.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/overlayMarker"
+        }
+      ],
+      "required": [
+        "platforms",
+        "owner"
+      ]
+    }
+  }
+}
