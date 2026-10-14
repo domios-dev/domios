@@ -69,23 +69,6 @@ fn plan_reminder_poll_secs(cfg: &crate::config::schema::OrchestrationConfig) -> 
         .clamp(1, MAX_PLAN_REMINDER_POLL_SECS)
 }
 
-fn send_due_plan_time_reminders_with(
-    plans: &[Plan],
-    counter: &TurnCounter,
-    now: u64,
-    interval_secs: u64,
-    deliver: impl Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
-) {
-    send_due_plan_time_reminders_noting(
-        plans,
-        counter,
-        now,
-        interval_secs,
-        deliver,
-        |_, _, _: TickFact| {},
-    );
-}
-
 fn send_due_plan_time_reminders_noting(
     plans: &[Plan],
     counter: &TurnCounter,
