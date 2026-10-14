@@ -430,10 +430,13 @@ export function TabSessionChat({
     chatRootRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
   }, []);
 
+  const interruptTarget = useMemo(() => ({ id: tabId, pty_id: currentPtyId, managed: tab?.managed, backing: tab?.backing }),
+    [tabId, currentPtyId, tab?.managed, tab?.backing]);
+  const canInterrupt = interruptAgentArgs(interruptTarget) !== null;
   const handleStopAgent = useCallback(() => {
-    const args = interruptAgentArgs({ id: tabId, pty_id: currentPtyId, managed: tab?.managed });
+    const args = interruptAgentArgs(interruptTarget);
     if (!args) {
-      showComposerError("Tab has no PTY");
+      showComposerError("Tab has no interrupt route");
       return;
     }
     const now = Date.now();
@@ -444,7 +447,7 @@ export function TabSessionChat({
     void invoke("interrupt_agent", args).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError, tabId, tab?.managed]);
+  }, [interruptTarget, showComposerError]);
 
   const openJobs = useCallback(() => {
     window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:jobs" } }));
@@ -995,7 +998,7 @@ export function TabSessionChat({
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
           className="ct-composer-lane mx-auto w-full"
-          onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+          onStop={canInterrupt ? handleStopAgent : undefined}
           onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
           onRebind={sessionBindingSurface.showRecoveryAction
