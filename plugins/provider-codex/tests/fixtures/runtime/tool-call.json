@@ -242,8 +242,16 @@
           "toolId": "tool-a",
           "toolArgs": "{\n  \"key\": \"value\"\n}",
           "collapsed": true,
-          "toolFlowId": "turn-a"
+          "toolFlowId": "turn-a",
+          "toolStatus": "running"
         }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working",
+        "statusLine": "Running fixture \u00b7 lookup"
       },
       {
         "kind": "chatItem",
@@ -264,8 +272,16 @@
           "toolArgs": "{\n  \"key\": \"value\"\n}",
           "collapsed": true,
           "toolFlowId": "turn-a",
-          "toolDetail": "Looking up"
+          "toolDetail": "Looking up",
+          "toolStatus": "running"
         }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working",
+        "statusLine": "Running fixture \u00b7 lookup"
       },
       {
         "kind": "chatItem",
@@ -287,8 +303,16 @@
           "collapsed": true,
           "toolFlowId": "turn-a",
           "toolResult": "{\n  \"content\": [\n    {\n      \"text\": \"Found\",\n      \"type\": \"text\"\n    }\n  ],\n  \"isError\": false\n}",
-          "toolError": false
+          "toolError": false,
+          "toolStatus": "completed"
         }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "working",
+        "statusLine": ""
       },
       {
         "kind": "usage",

@@ -756,6 +756,54 @@ function runtimeError(value, willRetry = false) {
   return { message, metadata: { ...code ? { code } : {}, class: category, retryable: willRetry } };
 }
 
+// plugins/provider-codex/src/runtimeAbandonedTurns.ts
+function pendingCall(state) {
+  return Object.values(state.items).find((row2) => row2.toolFlowId === state.activeTurnId && row2.toolStatus === "running");
+}
+function runningCallStatus(state) {
+  const row2 = pendingCall(state);
+  return row2 ? Array.from(`Running ${row2.toolTitle || row2.toolSummary || row2.toolName || "tool call"}`).slice(0, 160).join("") : void 0;
+}
+function abandonOpenTurn(state, threadId, nextTurnId) {
+  const previous = state.activeTurnId;
+  if (!previous || previous === nextTurnId || state.completed.includes(previous)) return [];
+  state.completed.push(previous);
+  (state.abandoned ?? (state.abandoned = [])).push(previous);
+  const events = [];
+  for (const row3 of Object.values(state.items)) {
+    if (row3.toolFlowId !== previous || row3.toolStatus !== "running") continue;
+    const abandoned = { ...row3, toolStatus: "abandoned", toolInterrupted: true };
+    state.items[row3.id] = abandoned;
+    events.push({ kind: "chatItem", threadId, item: abandoned });
+  }
+  const row2 = { id: `${previous}:abandoned`, seq: ++state.seq, type: "system", content: "Turn interrupted by a new turn", systemSubtype: "turn_abandoned", toolFlowId: previous };
+  state.items[row2.id] = row2;
+  events.push({ kind: "chatItem", threadId, item: row2 }, { kind: "turnState", threadId, turnId: previous, state: "idle", ...{ detail: "interrupted" } });
+  return events;
+}
+function stampToolLifecycle(row2, previous, method, params) {
+  if (row2.type !== "tool_call") return row2;
+  if (previous?.toolStatus === "abandoned") return previous;
+  const raw = params.item;
+  const suppliedStart = params.startedAtMs;
+  const suppliedEnd = params.completedAtMs;
+  row2.toolStartedAtMs = previous?.toolStartedAtMs ?? (typeof suppliedStart === "number" ? suppliedStart : void 0);
+  row2.toolStatus = previous?.toolStatus ?? "running";
+  if (method === "item/completed") {
+    row2.toolStatus = raw?.status === "interrupted" ? "interrupted" : row2.toolError ? "failed" : "completed";
+    row2.toolCompletedAtMs = typeof suppliedEnd === "number" ? suppliedEnd : void 0;
+  }
+  return row2;
+}
+function interruptPendingCalls(state, threadId, turnId) {
+  return Object.values(state.items).flatMap((row2) => {
+    if (row2.toolFlowId !== turnId || row2.toolStatus !== "running") return [];
+    const interrupted = { ...row2, toolStatus: "interrupted", toolInterrupted: true };
+    state.items[row2.id] = interrupted;
+    return [{ kind: "chatItem", threadId, item: interrupted }];
+  });
+}
+
 // plugins/provider-codex/src/runtimeAgents.ts
 var TERMINAL_STATES = ["completed", "failed", "interrupted", "closed"];
 function update(previous, activity) {
@@ -856,7 +904,7 @@ function mapItem(state, method, params) {
   const previous = state.items[id];
   if (method === "item/started" || method === "item/completed") {
     const row3 = runtimeItem(raw, state.seq + 1, previous);
-    return row3 ? stamp(state, row3, params) : void 0;
+    return row3 ? stamp(state, stampToolLifecycle(row3, previous, method, params), params) : void 0;
   }
   const delta = text(params.delta) ?? text(params.message);
   if (!delta) return void 0;
@@ -889,7 +937,7 @@ function mapItem(state, method, params) {
     default:
       return void 0;
   }
-  return stamp(state, row2, params);
+  return stamp(state, stampToolLifecycle(row2, previous, method, params), params);
 }
 function runtimeReduce(ctx, raw, frames) {
   const state = initial(ctx, raw);
@@ -961,9 +1009,11 @@ function runtimeReduce(ctx, raw, frames) {
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
     const turnId = text(params.turnId) ?? text(object(params.turn).id);
+    if (turnId && state.abandoned?.includes(turnId)) continue;
     switch (frame.method) {
       case "turn/started": {
         if (!turnId || state.completed.includes(turnId)) break;
+        events.push(...abandonOpenTurn(state, threadId, turnId));
         state.activeTurnId = turnId;
         const settings = codexReportedSettings({ ...params, ...object(params.turn) });
         if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
@@ -974,6 +1024,7 @@ function runtimeReduce(ctx, raw, frames) {
         if (!turnId || state.completed.includes(turnId)) break;
         state.completed.push(turnId);
         if (state.activeTurnId && state.activeTurnId !== turnId) break;
+        events.push(...interruptPendingCalls(state, threadId, turnId));
         delete state.activeTurnId;
         const failure = object(object(params.turn).error);
         if (text(failure.message)) {
@@ -986,8 +1037,11 @@ function runtimeReduce(ctx, raw, frames) {
       case "thread/status/changed": {
         const status = object(params.status);
         const type = typeof params.status === "string" ? params.status : status.type;
-        if (type === "idle") events.push({ kind: "turnState", threadId, state: "idle" });
-        else if (type === "active") events.push({ kind: "turnState", threadId, state: list(status.activeFlags).some((f) => f === "waitingOnApproval" || f === "waitingOnUserInput") ? "needs_input" : "working" });
+        if (type === "idle") events.push(pendingStatus(state, threadId) ?? { kind: "turnState", threadId, state: "idle" });
+        else if (type === "active") {
+          const waiting = list(status.activeFlags).some((f) => f === "waitingOnApproval" || f === "waitingOnUserInput");
+          events.push(!waiting && pendingStatus(state, threadId) || { kind: "turnState", threadId, state: waiting ? "needs_input" : "working" });
+        }
         break;
       }
       case "thread/tokenUsage/updated": {
@@ -1069,7 +1123,10 @@ function runtimeReduce(ctx, raw, frames) {
           }
           row2 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.join("\n") || parts.content.join("\n"), collapsed: true }, params);
         } else row2 = mapItem(state, frame.method, params);
-        if (row2) events.push({ kind: "chatItem", threadId, item: row2 });
+        if (row2) {
+          events.push({ kind: "chatItem", threadId, item: row2 });
+          if (row2.type === "tool_call") events.push({ kind: "turnState", threadId, ...state.activeTurnId ? { turnId: state.activeTurnId } : {}, state: "working", ...{ statusLine: runningCallStatus(state) ?? "" } });
+        }
         if (frame.method === "item/started" || frame.method === "item/completed") {
           const evidence = sendEvidence(ctx, object(params.item), turnId);
           if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
@@ -1087,6 +1144,10 @@ function runtimeReduce(ctx, raw, frames) {
     }
   }
   return { state: json(state), events };
+}
+function pendingStatus(state, threadId) {
+  const statusLine = runningCallStatus(state);
+  return statusLine ? { kind: "turnState", threadId, turnId: state.activeTurnId, state: "working", ...{ statusLine } } : void 0;
 }
 
 // plugins/provider-codex/src/runtime.ts

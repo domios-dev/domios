@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [],
+  "rpc": [
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-stalled",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turnId": "turn-stalled",
+          "startedAtMs": 1000,
+          "item": {
+            "id": "call-stalled",
+            "type": "commandExecution",
+            "command": "inspect state",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/settings/updated",
+        "params": {
+          "threadId": "thread-fixture",
+          "threadSettings": {
+            "model": "fixture-model"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "thread-fixture",
+          "status": {
+            "type": "idle"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-next",
+            "status": "inProgress"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "thread-fixture",
+          "turn": {
+            "id": "turn-stalled",
+            "status": "completed"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [],
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-stalled",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "call-stalled",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "command",
+          "toolSummary": "inspect state",
+          "toolDetail": "inspect state",
+          "toolId": "call-stalled",
+          "toolName": "commandExecution",
+          "toolInput": {
+            "id": "call-stalled",
+            "type": "commandExecution",
+            "command": "inspect state",
+            "status": "inProgress"
+          },
+          "toolArgs": "inspect state",
+          "collapsed": true,
+          "toolStatus": "running",
+          "toolStartedAtMs": 1000,
+          "timestamp": "1970-01-01T00:00:01.000Z",
+          "toolFlowId": "turn-stalled"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-stalled",
+        "state": "working",
+        "statusLine": "Running inspect state"
+      },
+      {
+        "kind": "controlsConfirmed",
+        "threadId": "thread-fixture",
+        "settings": {
+          "model": "fixture-model"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-stalled",
+        "state": "working",
+        "statusLine": "Running inspect state"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "call-stalled",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "command",
+          "toolSummary": "inspect state",
+          "toolDetail": "inspect state",
+          "toolId": "call-stalled",
+          "toolName": "commandExecution",
+          "toolInput": {
+            "id": "call-stalled",
+            "type": "commandExecution",
+            "command": "inspect state",
+            "status": "inProgress"
+          },
+          "toolArgs": "inspect state",
+          "collapsed": true,
+          "toolStatus": "abandoned",
+          "toolStartedAtMs": 1000,
+          "timestamp": "1970-01-01T00:00:01.000Z",
+          "toolFlowId": "turn-stalled",
+          "toolInterrupted": true
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "turn-stalled:abandoned",
+          "seq": 2,
+          "type": "system",
+          "content": "Turn interrupted by a new turn",
+          "systemSubtype": "turn_abandoned",
+          "toolFlowId": "turn-stalled"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-stalled",
+        "state": "idle",
+        "detail": "interrupted"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-next",
+        "state": "working"
+      }
+    ]
+  }
+}

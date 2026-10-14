@@ -92,7 +92,7 @@ function replay(fixture:Fixture) {
   return {events,state};
 }
 const names = fs.readdirSync(fileURLToPath(root)).filter(n => n.endsWith(".json")).sort();
-assert.equal(names.length,8);
+assert.equal(names.length,9);
 for (const name of names) check(`replay ${name}`,()=>replay(JSON.parse(fs.readFileSync(new URL(name,root),"utf8"))));
 for (const name of fs.readdirSync(new URL("captured/",root)).filter(n=>n.endsWith(".json") && n!=="metrics.json").sort())
   check(`captured traffic ${name}`,()=>replay(JSON.parse(fs.readFileSync(new URL(`captured/${name}`,root),"utf8"))));
@@ -178,7 +178,7 @@ check("fixture oracle detects corrupted expected content",()=> {
   const corrupted=structuredClone(sample);corrupted.expected.events[1]={kind:"turnState",threadId:ctx.threadId!,state:"needs_input"};
   assert.throws(()=>replay(corrupted));
 });
-console.log(`runtime hooks: ${count} checks passed (8 shared scenarios)`);
+console.log(`runtime hooks: ${count} checks passed (9 shared scenarios)`);
 check("reasoning summary and content streams stay separate",()=> {
   const frames:RuntimeFrame[]=[
     {kind:"notification",method:"item/reasoning/textDelta",params:{threadId:ctx.threadId!,turnId:"turn-a",itemId:"r",contentIndex:0,delta:"private content"}},
@@ -575,10 +575,10 @@ check("item snapshots retain streamed output only when the final field is absent
     const frame:RuntimeFrame={kind:"notification",method,params:{threadId:ctx.threadId!,turnId:"turn-a",itemId:"streamed",delta:"kept"}};
     const completed:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"streamed",type,status:"completed"}}};
     const result=hooks.runtimeReduce(ctx,null,[frame,completed]);
-    const row=result.events.at(-1);if(row?.kind !== "chatItem")throw new Error("Expected item");
+    const row=result.events.filter(event=>event.kind === "chatItem").at(-1);if(row?.kind !== "chatItem")throw new Error("Expected item");
     assert.equal(type === "agentMessage" ? row.item.content : row.item.toolResult,"kept");
     const final={...completed,params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"streamed",type,status:"completed",[type === "agentMessage" ? "text" : "aggregatedOutput"]:""}}} as RuntimeFrame;
-    const authoritative=hooks.runtimeReduce(ctx,null,[frame,final]).events.at(-1);
+    const authoritative=hooks.runtimeReduce(ctx,null,[frame,final]).events.filter(event=>event.kind === "chatItem").at(-1);
     if(authoritative?.kind !== "chatItem")throw new Error("Expected final item");
     assert.equal(type === "agentMessage" ? authoritative.item.content : authoritative.item.toolResult,"");
   }
@@ -804,3 +804,39 @@ check("activity updates a spawn receiver without losing its identity or metadata
   assert.deepEqual(plain(hooks.runtimeReduce(ctx,finished.state,[{...activity,params:{...activity.params as Record<string,JsonValue>,threadId:"foreign"}}]).events),[]);
 });
 console.log(`runtime subagent regressions: ${count} checks passed`);
+
+check("stalled call remains running until the exact superseding turn event",()=> {
+  const fixture=JSON.parse(fs.readFileSync(new URL("stalled-turn.json",root),"utf8")) as Fixture;
+  const frames=fixture.rpc.flatMap(record=>"frame" in record ? [record.frame] : []);
+  const prefix=hooks.runtimeReduce(fixture.context,null,frames.slice(0,4));
+  const pending=plain(prefix.state) as {items:Record<string,{toolStatus:string}>};
+  assert.equal(pending.items["call-stalled"].toolStatus,"running");
+  const last=prefix.events.at(-1);
+  assert.equal(last?.kind,"turnState");
+  if(last?.kind === "turnState") assert.equal(last.state,"working");
+  const finished=hooks.runtimeReduce(fixture.context,prefix.state,frames.slice(4));
+  const state=plain(finished.state) as {items:Record<string,{toolStatus:string}>};
+  assert.equal(state.items["call-stalled"].toolStatus,"abandoned");
+  assert.equal(finished.events.filter(event=>event.kind === "chatItem" && event.item.systemSubtype === "turn_abandoned").length,1);
+  assert.equal(hooks.runtimeReduce(fixture.context,finished.state,[frames[4]]).events.some(event=>event.kind === "chatItem"),false);
+  const late:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:fixture.context.threadId!,turnId:"turn-stalled",item:{id:"call-stalled",type:"commandExecution",status:"completed"}}};
+  assert.deepEqual(plain(hooks.runtimeReduce(fixture.context,finished.state,[late]).events),[]);
+  const reset=hooks.runtimeReduce({...fixture.context,epoch:fixture.context.epoch+1},finished.state,[frames[4]]);
+  assert.equal(reset.events.some(event=>event.kind === "chatItem" && event.item.systemSubtype === "turn_abandoned"),false);
+});
+check("explicit turn completion interrupts unfinished calls without inventing output",()=> {
+  const frames:RuntimeFrame[]=[
+    {kind:"notification",method:"turn/started",params:{threadId:ctx.threadId!,turn:{id:"open"}}},
+    {kind:"notification",method:"item/started",params:{threadId:ctx.threadId!,turnId:"open",item:{id:"pending",type:"mcpToolCall",tool:"lookup",arguments:{},status:"inProgress"}}},
+    {kind:"notification",method:"turn/completed",params:{threadId:ctx.threadId!,turn:{id:"open",status:"interrupted"}}},
+  ];
+  const result=hooks.runtimeReduce(ctx,null,frames);
+  const row=result.events.filter(event=>event.kind === "chatItem").at(-1);
+  assert.ok(row?.kind === "chatItem");
+  assert.equal((row.item as {toolStatus?:string}).toolStatus,"interrupted");
+  assert.equal(row.item.toolResult,undefined);
+  assert.equal(row.item.toolError,undefined);
+  const last=result.events.at(-1);
+  assert.ok(last?.kind === "turnState");assert.equal(last.state,"idle");
+});
+console.log(`runtime lifecycle regressions: ${count} checks passed`);
