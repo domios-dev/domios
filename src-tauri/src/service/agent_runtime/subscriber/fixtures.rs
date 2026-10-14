@@ -47,6 +47,7 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            usage: false,
             runtime: AgentRuntimeProtocol::StdioJsonrpc,
             command: AgentRuntimeCommand {
                 binary: "unused".into(),
