@@ -5,6 +5,7 @@ mod durable_restore;
 mod live_evidence;
 mod rpc_evidence;
 mod service_context;
+mod settlement;
 mod system_send;
 pub use system_send::SystemSend;
 mod turn_matching;
@@ -111,6 +112,7 @@ pub(crate) struct EvidenceCandidate {
 }
 
 struct ChatSendLedgerState {
+    written_deadlines: HashMap<String, settlement::EvidenceDeadline>,
     ledger_id: String,
     next_sequence: u64,
     by_id: HashMap<String, ChatSendStatus>,
@@ -143,6 +145,7 @@ struct ChatSendLedgerState {
 impl Default for ChatSendLedgerState {
     fn default() -> Self {
         Self {
+            written_deadlines: HashMap::new(),
             ledger_id: uuid::Uuid::new_v4().to_string(),
             next_sequence: 1,
             by_id: HashMap::new(),
@@ -172,7 +175,7 @@ impl Default for ChatSendLedgerState {
 
 #[derive(Default)]
 pub(crate) struct ChatSendLedger {
-    state: Mutex<ChatSendLedgerState>,
+    state: Arc<Mutex<ChatSendLedgerState>>,
     owner: Mutex<Option<Weak<super::ServiceContext>>>,
     admission_restores: Mutex<HashMap<String, Arc<Mutex<bool>>>>,
     submit_claims:
@@ -440,10 +443,7 @@ impl ChatSendLedger {
             return None;
         }
         let status = state.by_id.get_mut(send_id)?;
-        if matches!(
-            status.state,
-            ChatSendState::Written | ChatSendState::Sent | ChatSendState::Failed
-        ) {
+        if status.state != ChatSendState::Pending {
             return None;
         }
         status.state = ChatSendState::Written;
@@ -451,6 +451,7 @@ impl ChatSendLedger {
         status.error = None;
         status.pending_reason = None;
         let status = status.clone();
+        self.arm_written_deadline(&mut state, send_id);
         Some(Self::with_retention_window(&state, status))
     }
 
@@ -703,6 +704,17 @@ impl ChatSendLedger {
                     status.error = None;
                     None
                 }
+                Err(_)
+                    if matches!(
+                        status.state,
+                        ChatSendState::Written | ChatSendState::Unknown
+                    ) =>
+                {
+                    status.pending_reason = None;
+                    status.state = ChatSendState::Unknown;
+                    status.error = None;
+                    None
+                }
                 Err(error) => {
                     status.pending_reason = None;
                     status.state = ChatSendState::Failed;
@@ -715,6 +727,9 @@ impl ChatSendLedger {
             state
                 .latest_failure_by_tab
                 .insert(tab_id, send_id.to_string());
+        }
+        if state.by_id.get(send_id)?.state != ChatSendState::Written {
+            state.written_deadlines.remove(send_id);
         }
         let status = state.by_id.get(send_id).cloned()?;
         Some(Self::with_retention_window(&state, status))
@@ -790,6 +805,7 @@ impl ChatSendLedger {
         state
             .latest_failure_by_tab
             .retain(|_, failed| failed != send_id);
+        state.written_deadlines.remove(send_id);
         state.sessionless_first_turn_by_id.remove(send_id);
         state.deferred_first_turn_by_id.remove(send_id);
         state.owned.remove(send_id);
@@ -1044,6 +1060,7 @@ impl ChatSendLedger {
                 .order
                 .remove(position)
                 .expect("the selected terminal result exists");
+            state.written_deadlines.remove(&expired);
             state.by_id.remove(&expired);
             state.payload_by_id.remove(&expired);
             state.turn_normalization_by_id.remove(&expired);

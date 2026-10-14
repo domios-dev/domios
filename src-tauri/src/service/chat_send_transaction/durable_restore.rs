@@ -126,7 +126,14 @@ impl ChatSendLedger {
                 .owned
                 .get(&receipt.send_id)
                 .is_some_and(|(_, active)| *active);
-            if receipt_ends_held_status(&current.state, active, receipt.state) {
+            if current.state == ChatSendState::Written && receipt.state == ReceiptState::Uncertain {
+                if let Some(status) = state.by_id.get_mut(&receipt.send_id) {
+                    status.state = ChatSendState::Unknown;
+                    status.error = None;
+                    status.pending_reason = None;
+                }
+                state.written_deadlines.remove(&receipt.send_id);
+            } else if receipt_ends_held_status(&current.state, active, receipt.state) {
                 let Some(status) = state.by_id.get_mut(&receipt.send_id) else {
                     return;
                 };
