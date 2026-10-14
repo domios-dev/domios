@@ -23,7 +23,7 @@ pub fn header(kind: &str) -> String {
         s,
         "Version: {} ({})",
         env!("CARGO_PKG_VERSION"),
-        codeterm_build_info::BUILD_HASH
+        codeterm_build_info::hash()
     );
     let _ = writeln!(s, "Image: {}", super::image_identity::image_path());
     let _ = writeln!(s, "Debug id: {}", super::image_identity::image_debug_id());
