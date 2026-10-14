@@ -57,7 +57,7 @@ QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'
 `--notify-tab <tab>` (or `BUILD_NOTIFY_TAB`, or `-NotifyTab` through `build.ps1`): one `OK` receipt on success, or one
 early-failure receipt naming the step, first error line and log path (gateway refusal 75 included), sent
 through the captured parent context. `install-local` runs rustfmt, the file-size gate and the clean-checkout check
-first, so a format failure returns in seconds, before any gateway work.
+before compilation; Cargo formatting uses the same gateway entry as other Cargo verbs.
 
 The Windows utility shell is PowerShell, where `&&` is invalid: set the directory with `--cwd` and never chain.
 `<checkout>` is this checkout's absolute path; `<tab>` is the calling tab (bash `$CODETERM_TAB_ID`,
