@@ -1,0 +1,65 @@
+[package]
+name = "codeterm-api"
+version = "1.14.9-dev.6"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "codeterm_api"
+
+[dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-notification-core = { path = "../codeterm-notification-core" }
+codeterm-account = { path = "../codeterm-account" }
+codeterm-billing = { path = "../codeterm-billing" }
+codeterm-analytics = { path = "../codeterm-analytics" }
+codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
+tempfile = "3"
+tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
+tokio = { version = "1", features = ["full", "test-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
+codeterm-wire = { path = "../codeterm-wire" }
+codeterm-decision = { path = "../codeterm-decision" }
+codeterm-events = { path = "../codeterm-events" }
+codeterm-util = { path = "../codeterm-util" }
+codeterm-mesh = { path = "../codeterm-mesh" }
+codeterm-mem = { path = "../codeterm-mem", default-features = false }
+codeterm-plan = { path = "../codeterm-plan" }
+codeterm-bridge = { path = "../codeterm-bridge" }
+codeterm-pty = { path = "../codeterm-pty" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-storage = { path = "../codeterm-storage" }
+codeterm-usage = { path = "../codeterm-usage" }
+codeterm-build-info = { path = "../codeterm-build-info" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+base64 = "0.22"
+toml = "0.8"
+dirs = "6"
+axum = { version = "0.8", features = ["multipart"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["catch-panic", "compression-gzip", "cors", "fs", "set-header"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
+async-stream = "0.3"
+futures-core = "0.3"
+futures-util = "0.3"
+cron = "0.13"
+chrono = { version = "0.4", features = ["serde"] }
+semver = "1"
+url = "2"
+rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
+regex = "1"
+ulid = "1"
+async-trait = "0.1"
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-plugins = { path = "../codeterm-plugins" }
+
+[dev-dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
+mockito = "1"

@@ -1,0 +1,1120 @@
+use axum::{
+    extract::{Path, Query, State as AxumState},
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    Json,
+};
+use serde::Deserialize;
+
+use crate::routes::{check_auth, resolve_tab, AppState};
+use codeterm_service_core::multiplexer::types::AgentRole;
+use codeterm_types::agent::role_kind::builtins::PLANNER;
+
+pub(crate) use crate::agent_restart_routes::{agent_restart_handler, agent_restart_response};
+
+#[cfg(test)]
+use crate::agent_restart_routes::agent_restart_failure_response;
+
+mod model_error;
+mod pair_headers;
+pub(crate) mod spawn_ownership;
+mod spawn_rejection;
+mod worker_transfer;
+
+pub(super) use pair_headers::create_orchestration_pair;
+use spawn_ownership::ownership_for_spawning_peer;
+pub(crate) use spawn_rejection::SpawnRejection;
+
+const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
+
+use codeterm_service_core::provider::values::list_agent_provider_values;
+
+#[derive(Deserialize)]
+pub(crate) struct SpawnAgentBody {
+    /// Agent provider to run. Omitted resolves the configured General Agent.
+    agent: Option<String>,
+    /// Claude agent name from .claude/agents/ (e.g. "architect" → --agent architect)
+    agent_name: Option<String>,
+    /// Extra args for the agent
+    args: Option<Vec<String>>,
+    cwd: Option<String>,
+    title: Option<String>,
+    description: Option<String>,
+    role: Option<String>,
+    role_profile: Option<String>,
+    parent_tab_id: Option<String>,
+    #[serde(alias = "plan")]
+    plan_id: Option<String>,
+    can_spawn: Option<bool>,
+    task: Option<String>,
+    task_id: Option<String>,
+    #[serde(alias = "plan-task")]
+    plan_task: Option<String>,
+    /// Gate tokens a task-less read-only Worker may claim as executed.
+    #[serde(default)]
+    authorized_gates: Vec<String>,
+    execution_intent: Option<codeterm_service_core::plan::ExecutionIntent>,
+    provider_reserve_pct: Option<f32>,
+    workspace_id: Option<String>,
+    force_tab: Option<bool>,
+    report_target_tab_id: Option<String>,
+    /// User-facing report target (tab id or `main`/`general` alias). Collapses
+    /// into `report_target_tab_id`; with `origin_peer` it's a tab on that peer.
+    report_to: Option<String>,
+    /// Originating peer, injected by the mesh relay from the authenticated signed
+    /// token (never client-supplied). Present ⇒ this spawn was relayed across the
+    /// mesh and the worker should report back to `report_to` on that peer.
+    origin_peer: Option<String>,
+    /// Tab id of the caller that ran `agent spawn` (CODETERM_TAB_ID).
+    /// Recorded on the spawned tab for report routing fallback.
+    spawned_by_tab_id: Option<String>,
+    /// Team a roleless spawn attaches to; requires `creator_tab_id`, which the
+    /// service authorizes as an existing member of that Team.
+    team_id: Option<String>,
+    creator_tab_id: Option<String>,
+    /// Authenticated control ownership injected by the origin relay-out from its
+    /// local caller tab; the target relay boundary re-stamps `peer_id`/`peer_name`.
+    ownership: Option<codeterm_types::pty::RemoteOwnership>,
+    /// Model selector — provider decides flag syntax via
+    /// AgentProvider::model_launch_args.
+    model: Option<String>,
+    /// Reasoning-effort selector — capability-validated against the provider,
+    /// rejected structurally if unsupported (no silent downgrade).
+    #[serde(alias = "reasoning-effort")]
+    reasoning_effort: Option<String>,
+    #[serde(alias = "system")]
+    system_prompt: Option<String>,
+    preset: Option<String>,
+    charter: Option<String>,
+    tick_interval_secs: Option<u64>,
+    nudge_cooldown_secs: Option<u64>,
+    max_actions_per_tick: Option<u32>,
+    activate: Option<bool>,
+    #[serde(default)]
+    require_delivery_ack: bool,
+    /// Audience for input-request notifications. `automation` declares a tab
+    /// (bench/probe) whose prompts have no human owner and must never bell.
+    #[serde(default)]
+    audience: codeterm_service_core::multiplexer::types::TabAudience,
+}
+
+/// Orchestrator-side remote (cross-mesh) workers. `?tab=<id>` filters to one
+/// orchestrator's workers; otherwise returns the full `{ tab_id: [...] }` map.
+pub async fn remote_workers(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let reg = &state.svc.remote_workers;
+    let value = match params.get("tab").filter(|s| !s.is_empty()) {
+        Some(tab) => serde_json::json!(reg.for_orchestrator(tab)),
+        None => serde_json::json!(reg.snapshot()),
+    };
+    Ok(Json(value))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct RecordRemoteWorkerBody {
+    /// Local report-target / orchestrator tab the remote worker reports to
+    /// (tab id or `main`/`general` alias). Resolved the same way as the
+    /// inbound report path so spawn-time and report-time entries share a key.
+    orchestrator_tab: String,
+    /// Paired peer (instance name) the worker runs on.
+    peer: String,
+    /// The worker's tab id on that peer.
+    remote_tab: String,
+    title: Option<String>,
+    model: Option<String>,
+}
+
+/// Register a freshly spawned cross-mesh worker on the origin before its first
+/// report arrives, so the sidebar can ghost it under its orchestrator
+/// immediately. Called by the CLI right after a successful `agent spawn --mesh`.
+pub async fn record_remote_worker(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RecordRemoteWorkerBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if body.peer.trim().is_empty() || body.remote_tab.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "peer and remote_tab required".into(),
+        ));
+    }
+    let orchestrator =
+        resolve_tab(&state, &body.orchestrator_tab).map_err(|(s, m)| (s, m.to_string()))?;
+    let title = body
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&body.remote_tab);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    state.svc.remote_workers.record_spawn(
+        &orchestrator,
+        &body.peer,
+        &body.remote_tab,
+        title,
+        body.model.clone(),
+        now_ms,
+    );
+    state.svc.emit_remote_workers_changed(&orchestrator);
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ForgetRemoteWorkerBody {
+    /// Foreign tab id on the remote peer.
+    remote_tab: String,
+    peer: Option<String>,
+    orchestrator_tab: Option<String>,
+}
+
+/// Dismiss a remote-worker ghost from the origin sidebar (e.g. after the remote
+/// tab was closed). Also reached implicitly via `DELETE /api/tabs/{id}/role`
+/// when `{id}` is not a local tab.
+pub async fn forget_remote_worker(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ForgetRemoteWorkerBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if body.remote_tab.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "remote_tab required".into()));
+    }
+    let orchestrator = body
+        .orchestrator_tab
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|p| resolve_tab(&state, p).map_err(|(s, m)| (s, m.to_string())))
+        .transpose()?;
+    let touched = state.svc.remote_workers.forget_by_remote_tab(
+        body.remote_tab.trim(),
+        body.peer.as_deref().filter(|s| !s.is_empty()),
+        orchestrator.as_deref(),
+    );
+    if touched.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("no remote worker matching {}", body.remote_tab.trim()),
+        ));
+    }
+    for orch in &touched {
+        state.svc.emit_remote_workers_changed(orch);
+    }
+    Ok(Json(
+        serde_json::json!({"ok": true, "orchestrators": touched}),
+    ))
+}
+
+pub async fn spawn_agent(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SpawnAgentBody>,
+) -> Result<Json<serde_json::Value>, SpawnRejection> {
+    check_auth(&state, &headers).map_err(|(s, m)| SpawnRejection {
+        status: s,
+        body: serde_json::json!({"ok": false, "error": {"code": "unauthorized", "message": m.to_string()}}),
+    })?;
+    codeterm_service_core::service::spawn_title::validate_agent_tab_title(
+        body.title.as_deref(),
+        body.agent_name.as_deref(),
+    )
+    .map_err(|message| SpawnRejection::new(StatusCode::BAD_REQUEST, "bad_request", message))?;
+    if let Some(description) = body.description.as_deref() {
+        codeterm_service_core::service::normalize_tab_description(description).map_err(
+            |message| SpawnRejection::new(StatusCode::BAD_REQUEST, "bad_request", message),
+        )?;
+    }
+    let require_delivery_ack = body.require_delivery_ack;
+    let spawning_peer = crate::auth::caller_peer_id(&state, &headers).map(|peer_id| {
+        let peer_name = state
+            .mesh
+            .lock()
+            .paired_peers
+            .get(&peer_id)
+            .map(|peer| peer.instance_name.clone())
+            .unwrap_or_default();
+        (peer_id, peer_name)
+    });
+    let ownership = match spawning_peer {
+        Some((peer_id, peer_name)) => Some(ownership_for_spawning_peer(
+            body.ownership,
+            &peer_id,
+            &peer_name,
+        )),
+        None => body.ownership,
+    };
+    let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone()).map_err(
+        |(s, m)| SpawnRejection {
+            status: s,
+            body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
+        },
+    )?;
+    let starter_prompt =
+        codeterm_service_core::service::starter_prompt_for_role(role_probe.role.as_deref());
+    let params = codeterm_service_core::service::SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
+        agent: body.agent,
+        agent_name: body.agent_name,
+        args: body.args,
+        cwd: body.cwd,
+        provisioned_cwd: None,
+        title: body.title,
+        title_provenance: Some(
+            codeterm_service_core::service::SpawnIdentityProvenance::UserSupplied,
+        ),
+        description: body.description,
+        role: role_probe.role,
+        role_profile: role_probe.role_profile,
+        parent_tab_id: body.parent_tab_id,
+        plan_id: body.plan_id,
+        can_spawn: body.can_spawn,
+        task: body.task,
+        starter_prompt,
+        task_id: body.task_id,
+        task_launch_authority: None,
+        plan_skill_manifest: None,
+        plan_task: body.plan_task,
+        authorized_gates: body.authorized_gates,
+        execution_intent: body.execution_intent,
+        provider_reserve_pct: body.provider_reserve_pct,
+        workspace_id: body.workspace_id,
+        force_tab: body.force_tab,
+        existing_tab_id: None,
+        skip_orchestrator_onboarding: None,
+        report_target_tab_id: body.report_to.or(body.report_target_tab_id),
+        report_target_mesh_peer: body.origin_peer,
+        skip_permissions: None,
+        permission_bypass_authorization: None,
+        spawned_by_tab_id: body.spawned_by_tab_id,
+        team_id: body.team_id,
+        creator_tab_id: body.creator_tab_id,
+        ownership,
+        model: body.model,
+        planned_model: None,
+        planned_reasoning_effort: None,
+        reasoning_effort: body.reasoning_effort,
+        system_prompt: body.system_prompt,
+        preset: body.preset,
+        resume_session_id: None,
+        fork_session: false,
+        charter: body.charter,
+        tick_interval_secs: body.tick_interval_secs,
+        nudge_cooldown_secs: body.nudge_cooldown_secs,
+        max_actions_per_tick: body.max_actions_per_tick,
+        activate: body.activate,
+        audience: body.audience,
+        manager_bootstrap: None,
+        structured_prompt_server: None,
+        remote_task_binding: None,
+    };
+    let cwd_params = params.clone();
+    spawn_rejection::validate_spawn_cwd(
+        &state.svc,
+        cwd_params.workspace_id.as_deref(),
+        cwd_params
+            .parent_tab_id
+            .as_deref()
+            .or(cwd_params.spawned_by_tab_id.as_deref()),
+        cwd_params.cwd.as_deref(),
+    )
+    .await?;
+    let default_provider = state.svc.configuration().general_agent.agent_provider;
+    let provider_id = params.agent.as_deref().unwrap_or(&default_provider);
+    model_error::validate_agent_model(
+        &state.svc.agent_registry,
+        provider_id,
+        params.model.as_deref(),
+    )?;
+    let plan_task = params.plan_task.clone();
+    let (ready_tx, ready_rx) = if require_delivery_ack {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
+    let result = match state.svc.spawn_agent(params, ready_tx).await {
+        Ok(result) => result,
+        Err(error) => {
+            spawn_rejection::validate_spawn_cwd(
+                &state.svc,
+                cwd_params.workspace_id.as_deref(),
+                cwd_params
+                    .parent_tab_id
+                    .as_deref()
+                    .or(cwd_params.spawned_by_tab_id.as_deref()),
+                cwd_params.cwd.as_deref(),
+            )
+            .await?;
+            return Err(SpawnRejection::from(error));
+        }
+    };
+    let launch = match ready_rx {
+        Some(ready_rx) => {
+            verify_spawn_delivery(&state, &result.tab_id, ready_rx).await?;
+            None
+        }
+        None => match spawn_rejection::await_spawn_launch(&state.svc, &result.tab_id).await {
+            Ok(launch) => Some(launch),
+            Err(error) => {
+                spawn_rejection::validate_spawn_cwd(
+                    &state.svc,
+                    cwd_params.workspace_id.as_deref(),
+                    cwd_params
+                        .parent_tab_id
+                        .as_deref()
+                        .or(cwd_params.spawned_by_tab_id.as_deref()),
+                    cwd_params.cwd.as_deref(),
+                )
+                .await?;
+                return Err(error);
+            }
+        },
+    };
+    let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
+        match state.svc.arm_bound_worker_ack_deadline_for_tab(
+            &result.tab_id,
+            format!("codeterm agent spawn --plan-task {task_ref}"),
+        ) {
+            Ok(true) => None,
+            Ok(false) => Some(format!(
+                "worker ACK tracking was not armed for task-bound tab {}",
+                result.tab_id
+            )),
+            Err(error) => Some(format!(
+                "worker ACK tracking failed for tab {}: {error}",
+                result.tab_id
+            )),
+        }
+    } else {
+        None
+    };
+
+    let mut resp = serde_json::json!({
+        "id": result.tab_id,
+        "tab_id": result.tab_id,
+        "pty_id": result.pty_id,
+        "agent": result.agent,
+        "model": result.model,
+        "planned_model": result.planned_model,
+        "requested_model": result.requested_model,
+        "provider_resolved_model": result.provider_resolved_model,
+        "actual_model": result.actual_model,
+        "reasoning_effort": result.reasoning_effort,
+        "reasoning_effort_provenance": result.reasoning_effort_provenance,
+        "title": result.title,
+        "description": result.description,
+        "role": result.role,
+        "role_profile": result.role_profile,
+    });
+    if require_delivery_ack {
+        resp["delivery_state"] = serde_json::json!("confirmed");
+    }
+    let warning = match launch.as_ref() {
+        Some(launch) => {
+            resp["launch_state"] = serde_json::json!(launch.launch_state());
+            launch.merged_warning(&result.tab_id, result.warning.as_deref())
+        }
+        None => result.warning.clone(),
+    };
+    if let Some(warning) = warning {
+        resp["warning"] = serde_json::json!(warning);
+    }
+    if let Some(warning) = ack_warning {
+        resp["orchestration_incident"] = serde_json::json!({
+            "kind": "worker_ack_tracking_failed",
+            "impact": warning,
+            "fallback": "Inspect the existing tab once. Do not blind-resend.",
+        });
+    }
+    if let Some(ref fallback) = result.model_fallback {
+        resp["model_fallback"] = serde_json::json!(fallback);
+    }
+    if let Some(ref notice) = result.budget_notice {
+        resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+    }
+    Ok(Json(resp))
+}
+
+/// A launch that did not acknowledge, or left its first turn pending, is rolled
+/// back so the caller never keeps a tab that silently holds an undelivered task.
+pub(crate) async fn verify_spawn_delivery(
+    state: &AppState,
+    tab_id: &str,
+    ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
+) -> Result<(), SpawnRejection> {
+    let delivery = await_spawn_delivery(ready_rx).await.and_then(|()| {
+        let mux = state.svc.mux.read();
+        let tab = mux
+            .get_tab(tab_id)
+            .ok_or_else(|| "agent launch acknowledged after its Tab disappeared".to_string())?;
+        require_no_pending_delivery(
+            tab.pending_delivery
+                .as_ref()
+                .map(|pending| format!("{:?}", pending.state())),
+        )
+    });
+    if let Err(message) = delivery {
+        let _ = state
+            .svc
+            .close_tab_with_reason_async(
+                tab_id,
+                codeterm_service_core::multiplexer::types::TabCloseReason::SpawnRollback,
+            )
+            .await;
+        return Err(SpawnRejection::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "delivery_failed",
+            message,
+        ));
+    }
+    Ok(())
+}
+
+fn require_no_pending_delivery(state: Option<String>) -> Result<(), String> {
+    match state {
+        None => Ok(()),
+        Some(state) => Err(format!(
+            "agent launch ended without confirmed task delivery; pending state: {state}"
+        )),
+    }
+}
+
+async fn await_spawn_delivery(
+    ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
+) -> Result<(), String> {
+    match tokio::time::timeout(CONFIGURE_DELIVERY_DEADLINE, ready_rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("agent launch ended without a delivery acknowledgement".into()),
+        Err(_) => Err(format!(
+            "agent launch did not acknowledge task delivery within {:?}",
+            CONFIGURE_DELIVERY_DEADLINE
+        )),
+    }
+}
+
+fn validate_spawn_role(
+    role: Option<String>,
+    role_profile: Option<String>,
+) -> Result<codeterm_service_core::service::SpawnAgentParams, (StatusCode, String)> {
+    let mut role_probe = codeterm_service_core::service::SpawnAgentParams {
+        role,
+        role_profile,
+        ..Default::default()
+    };
+    role_probe
+        .normalize_role_profile()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if let Some(ref role) = role_probe.role {
+        codeterm_service_core::service::ServiceContext::parse_role(role)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    }
+    Ok(role_probe)
+}
+
+#[derive(Deserialize)]
+pub(crate) struct BatchBody {
+    commands: Vec<BatchOp>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct BatchOp {
+    method: String,
+    #[serde(default)]
+    params: serde_json::Value,
+    /// Optional ID — other commands can reference this result via "$id"
+    id: Option<String>,
+}
+
+pub async fn batch_commands(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<BatchBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let ops: Vec<codeterm_service_core::service::BatchOp> = body
+        .commands
+        .into_iter()
+        .map(|c| codeterm_service_core::service::BatchOp {
+            method: c.method,
+            params: c.params,
+            id: c.id,
+        })
+        .collect();
+    let results = state.svc.batch(ops).await;
+    Ok(Json(serde_json::json!({"results": results})))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SetRoleBody {
+    role: String,
+    #[serde(default)]
+    role_profile: Option<String>,
+    #[serde(default)]
+    plan_id: Option<String>,
+    parent_tab_id: Option<String>,
+    can_spawn: Option<bool>,
+}
+
+pub async fn set_tab_role(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<SetRoleBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let mut role_probe = codeterm_service_core::service::SpawnAgentParams {
+        role: Some(body.role),
+        role_profile: body.role_profile.clone(),
+        ..Default::default()
+    };
+    role_probe
+        .normalize_role_profile()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let role = role_probe.role.unwrap_or_else(|| "Worker".into());
+    let (parsed_role, parsed_profile) =
+        codeterm_service_core::service::ServiceContext::parse_role_kind(
+            &role,
+            role_probe.role_profile.as_deref(),
+        )
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    // Same contract as `agent spawn --role Planner` — never an anchor, so
+    // promotion onboarding never applies here.
+    if parsed_role == AgentRole::Manager && parsed_profile.as_deref() == Some(PLANNER) {
+        let plan_id = body.plan_id.clone().ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                "Planner requires a plan_id".to_string(),
+            )
+        })?;
+        state
+            .svc
+            .place_planner_on_plan(&id, &plan_id, body.parent_tab_id.as_deref(), true)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        return Ok(Json(serde_json::json!({"ok": true})));
+    }
+    if let Some(outcome) = worker_transfer::try_task_bound_worker_transfer(
+        &state.svc,
+        &headers,
+        &id,
+        parsed_role,
+        body.role_profile.as_deref(),
+        body.plan_id.as_deref(),
+        body.parent_tab_id.as_deref(),
+        body.can_spawn,
+    )
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))?
+    {
+        return Ok(Json(outcome));
+    }
+    let becomes_anchor = codeterm_types::agent::role_kind::anchors_team(
+        Some(parsed_role),
+        parsed_profile.as_deref(),
+    );
+    let was_orchestrator = {
+        let mux = state.svc.mux.read();
+        mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
+    };
+    let plan_binding: Option<String> = None;
+    let destination = match parsed_role {
+        AgentRole::Manager if becomes_anchor => {
+            codeterm_service_core::service::AgentPlacement::Manager {
+                role_profile: parsed_profile.clone().unwrap_or_default(),
+                parent_tab_id: None,
+                can_spawn: body.can_spawn,
+            }
+        }
+        AgentRole::Worker => codeterm_service_core::service::AgentPlacement::Worker {
+            parent_tab_id: body.parent_tab_id.ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Worker requires a parent_tab_id".to_string(),
+                )
+            })?,
+            role_profile: parsed_profile.clone(),
+        },
+        AgentRole::Manager => codeterm_service_core::service::AgentPlacement::Manager {
+            parent_tab_id: Some(body.parent_tab_id.clone().ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Manager requires a parent_tab_id".to_string(),
+                )
+            })?),
+            role_profile: parsed_profile.clone().unwrap_or_default(),
+            can_spawn: body.can_spawn,
+        },
+    };
+    state
+        .svc
+        .transition_agent(codeterm_service_core::service::AgentTransitionRequest {
+            tab_id: id.clone(),
+            destination,
+            plan_binding,
+            require_verified_session: true,
+            planner_replacement: None,
+            plan_rebind: None,
+        })
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if becomes_anchor {
+        state
+            .svc
+            .maybe_deliver_orchestrator_promotion_onboarding(&id, was_orchestrator);
+    }
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn clear_tab_role(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .clear_tab_role(&id)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn make_orchestrator(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .make_orchestrator(&id)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct MakePlannerBody {
+    plan_id: String,
+}
+
+pub async fn make_planner(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<MakePlannerBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .transition_plan_planner(
+            &body.plan_id,
+            Some(codeterm_service_core::plan::PlannerRef::Tab {
+                tab_id: id,
+                session_id: None,
+                title: None,
+            }),
+        )
+        .map_err(|error| (StatusCode::CONFLICT, error))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn get_tab_status(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_tab(&state, &id).map_err(|(s, m)| (s, m.to_string()))?;
+    let info = state
+        .svc
+        .get_tab_status(&tab_id)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    Ok(Json(serde_json::to_value(info).unwrap()))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ReportBody {
+    message: String,
+    plan_id: Option<String>,
+    task_id: Option<String>,
+    kind: Option<String>,
+    report_outcome: Option<codeterm_types::agent::ReportOutcomeClass>,
+    #[serde(flatten)]
+    details: codeterm_service_core::agent::reports::ReportDetails,
+}
+
+pub async fn submit_report(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ReportBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let result = state
+        .svc
+        .submit_report_with_source_outcome(
+            &id,
+            &body.message,
+            body.details,
+            body.plan_id.as_deref(),
+            body.task_id.as_deref(),
+            body.kind.as_deref(),
+            body.report_outcome,
+        )
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let mut response = serde_json::json!({
+        "ok": true,
+        "accepted": true,
+        "state": "recorded",
+        "report_id": result.report_id,
+        "target_tab_id": result.orchestrator_tab_id,
+        "report_outcome": result.report_outcome,
+    });
+    if let Some((plan_id, task_id)) = result.persisted_task {
+        response["task_report"] = serde_json::json!({
+            "persisted": true,
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "report_outcome": result.report_outcome,
+        });
+    }
+    if let Some(rejection) = result.rejected_task_transition {
+        response["task_report"] = serde_json::json!({
+            "persisted": false,
+            "plan_id": rejection.plan_id,
+            "task_id": rejection.task_id,
+            "transition_rejected": true,
+            "cause": rejection.cause,
+            "report_outcome": rejection.report_outcome,
+        });
+    }
+    if let Some((plan_id, stride_id)) = result.persisted_plan_evidence {
+        response["plan_report"] = serde_json::json!({
+            "persisted": true,
+            "plan_id": plan_id,
+            "stride_id": stride_id,
+            "task_id": serde_json::Value::Null,
+            "task_transition": false,
+        });
+    }
+    Ok(Json(response))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ReportsQuery {
+    clear: Option<bool>,
+}
+
+pub async fn get_reports(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<ReportsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let clear = query.clear.unwrap_or(false);
+    let reports = state.svc.report_store.lock().get(&id, clear);
+    Ok(Json(serde_json::to_value(&reports).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct CanSpawnBody {
+    can_spawn: bool,
+}
+
+pub async fn set_can_spawn(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<CanSpawnBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .set_can_spawn(&id, body.can_spawn)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn respond_prompt(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_tab_id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Response, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let value = body
+        .get("value")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
+        .to_string();
+    let identity = body
+        .get("identity")
+        .map(|identity| {
+            serde_json::from_value::<codeterm_types::pty::PromptIdentity>(identity.clone())
+        })
+        .transpose()
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    let svc = state.svc.clone();
+    let pid = tab_id.clone();
+    let outcome = tokio::task::spawn_blocking(move || match identity {
+        Some(identity) => svc.respond_prompt_with_identity(&pid, &value, &identity),
+        None => svc.respond_prompt(&pid, &value),
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "respond_prompt task join failed".to_string(),
+        )
+    })?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(respond_prompt_response(outcome))
+}
+
+pub(crate) fn respond_prompt_response(
+    outcome: codeterm_service_core::service::tab::RespondPromptOutcome,
+) -> Response {
+    let (status, body) = match outcome {
+        codeterm_service_core::service::tab::RespondPromptOutcome::Sent
+        | codeterm_service_core::service::tab::RespondPromptOutcome::Structured => {
+            (StatusCode::OK, serde_json::json!({"ok": true}))
+        }
+        codeterm_service_core::service::tab::RespondPromptOutcome::StalePrompt => (
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok": false, "reason": "stale_prompt"}),
+        ),
+        codeterm_service_core::service::tab::RespondPromptOutcome::PromptNotOnScreen => (
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"}),
+        ),
+        codeterm_service_core::service::tab::RespondPromptOutcome::NoPty => (
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok": false, "reason": "no_pty"}),
+        ),
+        codeterm_service_core::service::tab::RespondPromptOutcome::InvalidOption => (
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"ok": false, "reason": "invalid_option"}),
+        ),
+    };
+    (status, Json(body)).into_response()
+}
+
+/// Clear pending_prompt state without sending to PTY (safe for cleanup/reset).
+pub async fn clear_prompt(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_tab_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .clear_prompt(&tab_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Set agent type on a tab (enables chat view for that agent's provider).
+pub async fn set_agent_type(
+    AxumState(state): AxumState<AppState>,
+    Path(tab_id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let agent_type = body
+        .get("agent_type")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    match agent_type {
+        Some(agent_type) => {
+            state.svc.write_tab_agent_type_with_origin(
+                &tab_id,
+                agent_type,
+                false,
+                codeterm_service_core::session::lifecycle::AgentTypeWriteOrigin::Ui,
+                crate::tab_routes::caller_tab_header(&headers).as_deref(),
+            );
+        }
+        None => {
+            state.svc.set_tab_agent_type(&tab_id, None);
+        }
+    }
+    state.svc.emit_state_changed();
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// List all registered agent providers as `ProviderDescriptor`s.
+pub async fn list_agent_providers(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    list_agent_providers_blocking(state.svc.provider_registry.clone()).await
+}
+
+async fn list_agent_providers_blocking(
+    registry: std::sync::Arc<codeterm_service_core::provider::ProviderRegistry>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || {
+        Json(serde_json::Value::Array(list_agent_provider_values(
+            &registry,
+        )))
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("provider catalog worker failed: {error}"),
+        )
+    })
+}
+
+/// Web-mirror twin of the `restart_general_agent` Tauri command — kills the
+/// protected General Agent tab's PTY and relaunches it. Fire-and-forget,
+/// same as the desktop command.
+pub async fn restart_general_agent(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let svc = state.svc.clone();
+    let mux = svc.mux.clone();
+    let pty = svc.pty.clone();
+    let screen_state = svc.screen_state.clone();
+    let config = state.config.clone();
+    let app = svc.app_handle.clone();
+    std::thread::spawn(move || {
+        codeterm_service_core::service::general_agent::restart_general_agent(
+            &svc,
+            &mux,
+            &pty,
+            &screen_state,
+            &config,
+            &app,
+        );
+    });
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn restart_general_agent_tab(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(tab_id): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let svc = state.svc.clone();
+    let mux = svc.mux.clone();
+    let should_restart =
+        codeterm_service_core::service::general_agent::claim_general_agent_tab_retry(&tab_id, &mux)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if !should_restart {
+        return Ok(Json(serde_json::json!({"ok": true, "restarted": false})));
+    }
+    let pty = svc.pty.clone();
+    let screen_state = svc.screen_state.clone();
+    let config = state.config.clone();
+    let app = svc.app_handle.clone();
+    std::thread::spawn(move || {
+        codeterm_service_core::service::general_agent::restart_general_agent(
+            &svc,
+            &mux,
+            &pty,
+            &screen_state,
+            &config,
+            &app,
+        );
+    });
+    Ok(Json(serde_json::json!({"ok": true, "restarted": true})))
+}
+
+#[derive(serde::Deserialize)]
+pub struct CompleteFirstRunBody {
+    pub provider_id: String,
+    pub full_access: bool,
+}
+
+/// Web-mirror twin of `complete_general_agent_first_run`.
+pub async fn complete_general_agent_first_run(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CompleteFirstRunBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let app = state.svc.app_handle.clone();
+    codeterm_service_core::service::general_agent::complete_first_run_core(
+        &state.svc,
+        &state.config,
+        &app,
+        &body.provider_id,
+        body.full_access,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Web-mirror twin of `install_provider_in_tab`.
+#[derive(Default, serde::Deserialize)]
+pub struct InstallProviderQuery {
+    #[cfg(debug_assertions)]
+    fixture_dispatch_failure: Option<String>,
+}
+
+pub async fn install_provider_in_tab(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(provider_id): Path<String>,
+    Query(query): Query<InstallProviderQuery>,
+) -> Result<Json<codeterm_service_core::commands::InstallTabResult>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let svc = state.svc.clone();
+    tokio::task::spawn_blocking(move || install_provider_request(&svc, provider_id, query))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("installer launch worker failed: {error}"),
+            )
+        })?
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
+#[cfg(debug_assertions)]
+fn install_provider_request(
+    svc: &codeterm_service_core::service::ServiceState,
+    provider_id: String,
+    query: InstallProviderQuery,
+) -> Result<codeterm_service_core::commands::InstallTabResult, String> {
+    match query
+        .fixture_dispatch_failure
+        .filter(|value| !value.is_empty())
+    {
+        Some(failure) => {
+            codeterm_service_core::commands::install_provider_in_tab_with_fixture_failure(
+                svc,
+                provider_id,
+                failure,
+            )
+        }
+        None => codeterm_service_core::commands::install_provider_in_tab_core(svc, provider_id),
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn install_provider_request(
+    svc: &codeterm_service_core::service::ServiceState,
+    provider_id: String,
+    _query: InstallProviderQuery,
+) -> Result<codeterm_service_core::commands::InstallTabResult, String> {
+    codeterm_service_core::commands::install_provider_in_tab_core(svc, provider_id)
+}
+
+#[cfg(test)]
+mod restart_tests;
+
+#[cfg(test)]
+mod tests;
