@@ -1235,13 +1235,6 @@
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/model_switch.rs",
-      "token": "Claude",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/model_switch.rs",
       "token": "provider-claude",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
