@@ -1367,7 +1367,8 @@ check_queue_run() {
   prepare_dev_frontend_dist "$cw"
   prepare_bundle_stubs
   ct_configure_sccache
-  export CARGO_INCREMENTAL=1 CODETERM_ALLOW_EXTERNAL_TARGET=1
+  unset CARGO_INCREMENTAL
+  export CODETERM_ALLOW_EXTERNAL_TARGET=1
   started="$(date +%s)"
   out="$(ct_gateway_dir)/check-worktree-last.log"
   : > "$out"
