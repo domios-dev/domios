@@ -47,6 +47,7 @@ fn restore_payload_candidates(payload: &str, typed_tail: bool) -> Vec<String> {
     [
         codeterm_wire::domios::with_pasted_marker(payload),
         codeterm_wire::domios::with_legacy_typed_instruction(payload),
+        (!payload.contains('\n')).then(|| payload.to_string()),
     ]
     .into_iter()
     .flatten()
@@ -512,8 +513,12 @@ mod tests {
         }
         assert_eq!(restore_payload_candidates(original, false), [original]);
         let typed = restore_payload_candidates(original, true);
-        assert_eq!(typed.len(), 2);
-        assert!(typed.iter().all(|candidate| candidate != original));
+        let plain_allowed = !original.contains('\n');
+        assert_eq!(typed.len(), 2 + usize::from(plain_allowed));
+        assert_eq!(
+            typed.iter().any(|candidate| candidate == original),
+            plain_allowed
+        );
         assert!(restore_frame_and_payload("unframed").is_none());
     }
 }

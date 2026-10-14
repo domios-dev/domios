@@ -8,56 +8,6 @@ use super::{DeferredSubmitWait, SubmitTransport};
 use parking_lot::Mutex;
 
 impl<'a> super::PtySubmitTransport<'a> {
-    pub(super) fn composer_ready_now(&self) -> bool {
-        let (tab_id, agent_id, owns_tab) = {
-            let mux = self.svc.mux.read();
-            let tab_id = mux.tab_id_for_pty(self.pty_id);
-            let agent_id = tab_id
-                .as_deref()
-                .and_then(|tab_id| mux.get_tab(tab_id))
-                .and_then(|tab| tab.agent_type.clone());
-            let owns_tab = tab_id.as_deref().is_some_and(|tab_id| {
-                mux.get_tab(tab_id)
-                    .is_some_and(|tab| tab.pty_id.as_deref() == Some(self.pty_id))
-            });
-            (tab_id, agent_id, owns_tab)
-        };
-        let (Some(_tab_id), Some(agent_id), true) = (tab_id, agent_id, owns_tab) else {
-            return false;
-        };
-        let (screen, input) = {
-            let screen_state = self.svc.screen_state.lock();
-            (
-                screen_state.get_screen_text(self.pty_id),
-                screen_state.composer_input_state(self.pty_id),
-            )
-        };
-        let (Some(screen), Some(input)) = (screen, input) else {
-            return false;
-        };
-        self.svc
-            .agent_registry
-            .with_provider(&agent_id, |provider| {
-                let provider_tui = provider.screen_has_tui(&screen);
-                let cursor_ready = crate::agent::offline_state_classifier::composer_cursor_ready(
-                    input.cursor_visible,
-                    input.cursor_row,
-                    input.rows,
-                ) || input
-                    .inverse_caret_row
-                    .zip(input.last_nonblank_row)
-                    .is_some_and(|(row, bottom)| {
-                        crate::agent::offline_state_classifier::composer_cursor_ready(
-                            true,
-                            row,
-                            bottom.saturating_add(1),
-                        )
-                    });
-                owns_tab && cursor_ready && (provider_tui || input.alternate_screen)
-            })
-            .unwrap_or(false)
-    }
-
     pub(super) fn wait_for_cycle_event(&self, deadline: Instant) -> bool {
         match self
             .submit_cycle
@@ -75,9 +25,7 @@ impl<'a> super::PtySubmitTransport<'a> {
         let idle_transition = self.status_signal.generation()
             != self.turn_status_generation_at_start.get()
             && !self.turn_started();
-        let output_observed =
-            self.submit_cycle.output_generation() != self.output_generation_at_start.get();
-        let ready = idle_transition || (output_observed && self.composer_ready_now());
+        let ready = idle_transition;
         if ready {
             self.deferred_ready_seen.set(true);
         }

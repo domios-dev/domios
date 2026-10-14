@@ -33,6 +33,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import plugin from "../src/plugin";
 
+// rusqlite binds ?N by index; node:sqlite 22.14 rejects ?N, so expand each to a positional "?".
+function queryLikeHost(db: DatabaseSync, sql: string, params: Array<string | number>) {
+  const ordered: Array<string | number> = [];
+  const positional = sql.replace(/\?(\d+)/g, (_match, index: string) => {
+    ordered.push(params[Number(index) - 1]);
+    return "?";
+  });
+  return db.prepare(positional).all(...ordered);
+}
+
 it("reads the 410 from a real SQLite own session, advances on message updates, and filters the failed model", () => {
   const dir = mkdtempSync(join(tmpdir(), "opencode-error-"));
   const db = new DatabaseSync(join(dir, "opencode.db"));
@@ -45,7 +55,7 @@ it("reads the 410 from a real SQLite own session, advances on message updates, a
       envGet: (key: string) => key === "OPENCODE_DB" ? join(dir, "opencode.db") : null,
       expandHome: (value: string) => value,
       exec: () => JSON.stringify({ code: 0, stdout: 'opencode/exo-free\n{"name":"Exo"}\nopencode/good\n{"name":"Good"}' }),
-      fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, params: Array<string | number>) => db.prepare(sql).all(...params) },
+      fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, params: Array<string | number>) => queryLikeHost(db, sql, params) },
     } });
     const delta = plugin.readStructuredChat("/work", "ses_own", '[20,[]]') as {
       messages: Array<{ type: string; content: string }>;
