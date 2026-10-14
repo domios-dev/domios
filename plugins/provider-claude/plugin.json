@@ -20,7 +20,7 @@
     "taskDelivery": "inline_flag",
     "paste": {
       "untrustedAboveLines": 4,
-      "typedFollowUp": " Handle the paste as my request.",
+      "typedFollowUp": " pasted by Domios",
       "requiresTypedInstructionForRoutedMessages": true
     },
     "systemPromptDelivery": {

@@ -27,6 +27,9 @@ export { automationOrigin, type AutomationSource } from "./automationOrigin";
 export {
   DOMIOS_CLOSE_TAG,
   DOMIOS_LEGACY_TYPED_INSTRUCTION,
+  DOMIOS_PASTED_MARKER,
+  LEGACY_CHAT_FOLLOW_UPS,
+  stripPlainTypedTail,
   buildDomiosOpeningTag,
   buildDomiosMessage,
   parseDomiosMessage,
