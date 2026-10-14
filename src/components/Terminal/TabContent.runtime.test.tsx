@@ -13,7 +13,7 @@ import { TabContent } from "./TabContent";
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("replaces only the bottom composer until runtime recovery and restores its draft and attachment", async () => {
+it("shows the runtime notice above a still usable composer and keeps its draft and attachment", async () => {
   const tab: Tab = {
     id: "runtime-layout", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
     backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "thread" },
@@ -74,12 +74,14 @@ it("replaces only the bottom composer until runtime recovery and restores its dr
     expect(header?.contains(banner)).toBe(false);
     expect(host.querySelector('[data-testid="tab-top-bar"]')).toBe(header);
     expect(host.querySelectorAll('[aria-label="Agent runtime unavailable"]')).toHaveLength(1);
-    expect(host.querySelector("textarea")).toBeNull();
+    const usable = host.querySelector<HTMLTextAreaElement>("textarea");
+    expect(usable?.value).toBe(draft);
+    expect(banner!.compareDocumentPosition(usable!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(banner?.textContent).toContain("fixture runtime fault");
     expect(banner?.querySelectorAll('button[aria-label="Retry"]')).toHaveLength(1);
     for (const runtimeState of ["loading", "unloaded"] as const) {
       await emit({ state: runtimeState, epoch: 2, reason: runtimeState === "unloaded" ? "pipe ended" : undefined });
-      expect(host.querySelector("textarea")).toBeNull();
+      expect(host.querySelector("textarea")).not.toBeNull();
       const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]');
       expect(retry).not.toBeNull();
       expect(retry?.disabled).toBe(runtimeState === "loading");

@@ -58,7 +58,7 @@ export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: st
 }
 
 const RUNTIME_FAILURE_REASONS: readonly (readonly [RegExp, string])[] = [
-  [/\bSizeLimit\b|runtime(?: hook state)? size limit/i, "The conversation history is too large to load."],
+  [/\bSizeLimit\b|runtime(?: hook state)? size limit/i, "The agent runtime exceeded its size limit."],
   [/^(?:SpawnFailed\b|Runtime could not start:)/, "The agent runtime could not start."],
   [/^(?:ProcessExited\b|Runtime (?:exited|stopped)\b)/, "The agent runtime stopped."],
   [/^(?:PipeEof\b|Runtime connection closed)/, "The connection to the agent runtime closed."],
