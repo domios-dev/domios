@@ -3,7 +3,7 @@
 
 Usage: python3 scripts/module-graph.py [--json out.json] [--md out.md]
 """
-import json, os, re, sys
+import collections, json, os, re, sys
 from collections import defaultdict
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src-tauri", "src")
@@ -85,6 +85,66 @@ def normalize(edges):
     """Edge to bare `service` (facade items) is kept; resolve edge validity to known units later."""
     return edges
 
+GENERIC = {
+    "new", "get", "set", "len", "is_empty", "from", "default", "clone", "into", "id", "name", "list", "insert",
+    "remove", "push", "take", "run", "start", "stop", "close", "open", "read", "write", "build", "update", "send",
+    "next", "iter", "map", "drop", "fmt", "eq", "cmp", "hash", "parse", "load", "save", "apply", "emit", "state",
+    "value", "kind", "key", "text", "path", "label", "status", "clear", "reset", "check", "init", "call", "done",
+    "contains", "find", "lock", "wait", "notify", "record", "handle", "resolve", "validate", "create", "delete",
+}
+DEF_RE = re.compile(r"^(?P<ind>[ 	]*)(?:pub(?:\([a-z]+\))?\s+)(?:async\s+)?(?:const\s+)?(?:unsafe\s+)?fn\s+(?P<name>[A-Za-z_]\w*)", re.M)
+CALL_RE = re.compile(r"(?:\.|::)([A-Za-z_]\w*)\s*(?:::<[^>]*>)?\(")
+
+def source_files():
+    for dp, _, fs in os.walk(ROOT):
+        for f in fs:
+            if not f.endswith(".rs"): continue
+            p = os.path.join(dp, f); rel = os.path.relpath(p, ROOT).replace("\\", "/")
+            if rel == "lib.rs" or is_test_file(rel): continue
+            src = open(p, encoding="utf-8", errors="ignore").read()
+            m = re.search(r"#\[cfg\(test\)\]\s*(?:pub\s+)?mod\s+\w+\s*\{", src)
+            if m: src = src[:m.start()]
+            yield unit_of(rel), src
+
+def method_layer(loc, adj_in):
+    defs = collections.defaultdict(set)          # name -> {unit}
+    own = collections.defaultdict(set)           # unit -> {name}
+    bodies = []
+    for unit, src in source_files():
+        bodies.append((unit, src))
+        for m in DEF_RE.finditer(src):
+            name = m.group("name")
+            defs[name].add(unit); own[unit].add(name)
+    usable = {n for n, us in defs.items() if len(us) == 1 and n not in GENERIC and len(n) >= 5}
+    calls = collections.defaultdict(lambda: collections.defaultdict(int))   # name -> caller unit -> count
+    for unit, src in bodies:
+        for m in CALL_RE.finditer(src):
+            n = m.group(1)
+            if n in usable and next(iter(defs[n])) != unit and "test" not in unit:
+                calls[n][unit] += 1
+    rows = []
+    for unit in sorted(own):
+        if loc.get(unit, 0) < 400: continue
+        mine = sorted(n for n in own[unit] if n in usable)
+        external = [n for n in mine if n in calls]
+        sites = sum(sum(calls[n].values()) for n in external)
+        callers = collections.Counter()
+        for n in external:
+            for cu, c in calls[n].items(): callers[cu] += c
+        rows.append((len(callers), sites, unit, len(mine), len(external), callers))
+    rows.sort(key=lambda r: (-r[0], -r[1]))
+    out = ["## Method-edge layer", "",
+           "`crate::` paths miss `impl ServiceContext` methods called as `ctx.method()`. This layer scans every non-test file for calls to `pub` fns whose name is defined in exactly one unit, is at least 5 characters and not in a generic-name stoplist (so a method-name collision cannot create a false edge). Counts are call sites outside the defining unit. Ambiguous names are skipped (undercount), but a call to a same-named method of an external crate type is counted (overcount), so read hub rows as indicative, not exact.", "",
+           "| unit | LOC | pub fns defined (usable) | called from outside | external call sites | caller units | path fan-in | top callers |",
+           "|---|---:|---:|---:|---:|---:|---:|---|"]
+    for callers_n, sites, unit, ndef, next_, callers in rows:
+        if next_ == 0: continue
+        top = ", ".join(f"{u} ({c})" for u, c in callers.most_common(3))
+        out.append(f"| {unit} | {loc[unit]} | {ndef} | {next_} | {sites} | {callers_n} | {len(adj_in.get(unit, ()))} | {top} |")
+    skipped = sum(1 for n, us in defs.items() if len(us) > 1 or n in GENERIC or len(n) < 5)
+    out += ["", f"Names skipped as ambiguous or generic: {skipped} of {len(defs)} distinct pub fn names.", ""]
+    return out
+
 def sccs(nodes, adj):
     idx = {}; low = {}; st = []; on = set(); res = []; c = [0]
     sys.setrecursionlimit(10000)
@@ -146,6 +206,7 @@ def main():
     for c in tcomps: md.append("- " + ", ".join(sorted(c)))
     md += ["", f"Units: {len(comps)} component(s), sizes {[len(c) for c in comps]}, LOC {[sum(loc[x] for x in c) for c in comps]}.", ""]
     for c in comps: md.append("- " + ", ".join(sorted(c)))
+    md += method_layer(loc, inb)
     if "--summary" in sys.argv:
         big = max(comps, key=len) if comps else []
         print(json.dumps({"tangle_units": len(big), "tangle_loc": sum(loc[x] for x in big),
