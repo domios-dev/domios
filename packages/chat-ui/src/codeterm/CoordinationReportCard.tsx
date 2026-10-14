@@ -1,3 +1,4 @@
+import { BoundedMessageContent } from "../BoundedMessageContent";
 import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import { Clipboard, RadioTower } from "lucide-react";
 import { useState } from "react";
@@ -58,9 +59,9 @@ export function CoordinationReportCard({ descriptor, message, sender, expanded, 
             {copied ? "Copied" : "Copy"}
           </button>
         </div>
-        <pre className="ct-compact-scroll m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs" style={{ color: "var(--ct-fg)" }}>
+        <BoundedMessageContent collapsedHeight={"16rem"} as="pre" className="ct-compact-scroll m-0 whitespace-pre-wrap break-words font-mono text-xs" style={{ color: "var(--ct-fg)" }}>
           {descriptor.diagnostics}
-        </pre>
+        </BoundedMessageContent>
       </div>
     </InboundActivityCard>
   );
