@@ -243,5 +243,3 @@ pub fn validate(job: &Sentinel) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests;

@@ -1,5 +1,5 @@
 use super::*;
-use crate::provenance::{DecidedBy, Decision};
+use crate::sentinel::provenance::{DecidedBy, Decision};
 
 #[test]
 fn accepted_decision_survives_late_handler_completion_and_store_reload() {
@@ -55,7 +55,7 @@ fn accepted_adapter_identity_is_durable_separately_from_configuration() {
     let store = typed(&storage, &MockClock::starting_at(1000));
     let job = create(&store, Some("team"), false, json!({}));
     let lease = due(&store).remove(0);
-    crate::scheduler::advance(
+    crate::sentinel::scheduler::advance(
         &store,
         &lease,
         &output("ambiguous"),

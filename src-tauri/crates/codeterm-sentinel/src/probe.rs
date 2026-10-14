@@ -76,7 +76,7 @@ pub fn run_with_environment(
     )
 }
 
-#[cfg(all(test, windows))]
+#[cfg(all(any(test, feature = "test-support"), windows))]
 pub fn run_with_receipt(
     command: &str,
     cwd: &Path,
@@ -156,7 +156,7 @@ fn run_transaction(
     if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(process::ProbeFailure::new("probe_cancelled"));
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     let deadlines = cancellation.setup_deadlines(deadlines);
     admit_then(owner, |mut reservation| {
         reservation.register_cancellation(cancellation.clone())?;

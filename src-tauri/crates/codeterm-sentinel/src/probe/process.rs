@@ -181,11 +181,11 @@ impl Deadlines {
         let reserve = Duration::from_millis(500).min(duration / 4);
         let operation = hard.checked_sub(reserve).unwrap_or(admitted);
         Ok(Self {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             admitted,
             operation,
             hard,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             duration,
         })
     }

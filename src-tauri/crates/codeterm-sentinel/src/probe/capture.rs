@@ -238,7 +238,7 @@ pub fn windows_command_line(
     command: &str,
     _events: Option<&super::cancellation::windows::Events>,
 ) -> Vec<u16> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     if let Some(argv) = _events.and_then(super::cancellation::windows::Events::fixture_argv) {
         return windows_argument_line(argv.iter().map(String::as_str));
     }

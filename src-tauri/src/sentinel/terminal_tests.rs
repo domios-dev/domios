@@ -1,5 +1,5 @@
-use super::*;
-use crate::{
+use super::terminal::*;
+use crate::sentinel::{
     machine::Route,
     source::TabBinding,
     store::{Owner, Store},
@@ -109,12 +109,12 @@ fn blueprint_terminal_shell_scope_and_send_scope_are_team_bound() {
     job.set_observe(Some(TabBinding::Tab(shell.clone())));
     assert!(crate::source::validate_tab_scope(&mux, &job, &shell).is_ok());
     assert_eq!(
-        crate::routes::resolve_send(&mux, &job, &shell).unwrap(),
+        crate::sentinel::routes::resolve_send(&mux, &job, &shell).unwrap(),
         Route::Send(shell.clone())
     );
     mux.get_tab_mut(&shell).unwrap().team_id = Some("foreign".into());
     assert!(crate::source::validate_tab_scope(&mux, &job, &shell).is_err());
-    assert!(crate::routes::resolve_send(&mux, &job, &shell).is_err());
+    assert!(crate::sentinel::routes::resolve_send(&mux, &job, &shell).is_err());
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn blueprint_send_body_reaches_shell_and_agent_paths_verbatim_once() {
     let body = "quotes ' \" $() `ticks`\nsecond line \u{03bb}";
     for agent in [false, true] {
         let calls = std::cell::RefCell::new(Vec::new());
-        crate::routes::deliver_body_with(
+        crate::sentinel::routes::deliver_body_with(
             agent,
             body,
             |text| {
@@ -168,13 +168,13 @@ fn blueprint_text_input_admission_wakes_only_live_stage_and_routes_queued_body()
         convert_timeout_ms: None,
     }));
     store.jobs[0] = job.clone();
-    let handle = crate::scheduler::fixture_handle_without_app(store);
+    let handle = crate::sentinel::scheduler::fixture_handle_without_app(store);
     let body = "\u{03bb} 'quotes' $() `ticks`\nnext";
     handle.enqueue_text(&job, body.into()).unwrap();
     let lease = handle.store.lock().due().unwrap().pop().unwrap();
     let received = handle.inbox.lock().take(&lease.job.id).unwrap();
     let calls = std::cell::RefCell::new(Vec::new());
-    crate::scheduler::advance(
+    crate::sentinel::scheduler::advance(
         &handle.store,
         &lease,
         &crate::probe::Output {
@@ -192,7 +192,7 @@ fn blueprint_text_input_admission_wakes_only_live_stage_and_routes_queued_body()
         |job, transition, handler| handle.store.lock().claim_handler(job, transition, handler),
         |_, _, handler, _| {
             assert_eq!(handler.action, Route::Send("receiver".into()));
-            crate::routes::deliver_body_with(
+            crate::sentinel::routes::deliver_body_with(
                 false,
                 &received,
                 |text| {

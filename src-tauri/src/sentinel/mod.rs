@@ -14,6 +14,12 @@ pub(crate) mod scheduler;
 pub(crate) mod source;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod session_tests;
+#[cfg(test)]
+mod storage_tests;
+#[cfg(test)]
+mod terminal_tests;
 pub(crate) mod wake;
 
 #[cfg(test)]

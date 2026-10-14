@@ -502,7 +502,7 @@ fn sentinel_handlers_io_failure_and_corruption_after_load_hold_the_original_path
     assert!(unavailable.due().is_err());
     assert!(path.is_dir());
     std::fs::remove_dir(&path).unwrap();
-    crate::persisted_state::release_hold(&path);
+    codeterm_util::persisted_state::release_hold(&path);
     let mut store = Store::new(
         path.clone(),
         codeterm_cron::clock::MockClock::starting_at(1000),

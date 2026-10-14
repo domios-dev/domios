@@ -189,7 +189,7 @@ pub fn run_with_assignment(
         run.add_error(error);
         return run.finish_failure();
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     match cancellation.child_ready(run.deadlines) {
         Ok(deadlines) => run.deadlines = deadlines,
         Err(error) => {
@@ -230,9 +230,9 @@ pub struct WindowsRun {
     launch_state: WindowsLaunchState,
     pub events: Option<Events>,
     pub events_registered: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     native_trace_remaining: u8,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     native_error_reported: bool,
 }
 
@@ -274,9 +274,9 @@ impl WindowsRun {
             launch_state: WindowsLaunchState::default(),
             events: None,
             events_registered: false,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             native_trace_remaining: 32,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             native_error_reported: false,
         }
     }
@@ -532,7 +532,7 @@ impl WindowsRun {
             }
         };
         let error = (result == 0).then(|| unsafe { GetLastError() });
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.trace_native("ReadFile", Some(stdout), None, error);
         if let Some(error) = error {
             if error == ERROR_IO_PENDING {
@@ -705,7 +705,7 @@ impl WindowsRun {
         error: Option<u32>,
     ) -> Result<(), String> {
         let connect = &mut *self.stream_mut(stdout).connect_overlapped as *mut OVERLAPPED;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.trace_native(
             if overlapped == connect {
                 "ConnectNamedPipe completion"

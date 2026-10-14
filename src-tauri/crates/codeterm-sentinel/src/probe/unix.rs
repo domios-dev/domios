@@ -127,7 +127,7 @@ pub fn run(
         }
     }
     process.set_nonblocking();
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     match cancellation.child_ready(process.deadlines) {
         Ok(deadlines) => process.deadlines = deadlines,
         Err(error) => {
@@ -387,7 +387,7 @@ impl UnixRun {
                 revents: 0,
             },
         ];
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(events) = &self.events {
             events.waiting(super::cancellation::WaitPhase::Capture);
         }
