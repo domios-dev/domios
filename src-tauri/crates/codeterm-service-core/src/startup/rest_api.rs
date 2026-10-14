@@ -24,7 +24,7 @@ pub(crate) enum RestApiPhase {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum RestApiDiagnostic {
+pub enum RestApiDiagnostic {
     ListenerExited,
     BindOwnershipFailed,
     WorkersBlocked,
@@ -53,7 +53,7 @@ pub(crate) struct PendingBind {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-pub(crate) struct RestApiRuntimePolicy {
+pub struct RestApiRuntimePolicy {
     pub(crate) enabled: bool,
     pub(crate) cors: bool,
     pub(crate) cors_allow_origins: Vec<String>,
@@ -70,7 +70,7 @@ struct RestApiLifecycle {
 }
 
 #[derive(Clone)]
-pub(crate) struct RestApiControl {
+pub struct RestApiControl {
     pub(crate) listeners: listeners::ListenerPublication,
     transition: Arc<Mutex<()>>,
     sender: Arc<Mutex<Option<mpsc::UnboundedSender<RestApiCommand>>>>,
@@ -227,7 +227,7 @@ impl RestApiControl {
 
     /// The address the process actually holds a socket on, or None while no
     /// generation owns a listener.
-    pub(crate) fn bound_addr(&self) -> Option<SocketAddr> {
+    pub fn bound_addr(&self) -> Option<SocketAddr> {
         let lifecycle = self.lifecycle.lock();
         lifecycle.bound_addr.filter(|_| lifecycle.listener_owned)
     }
@@ -236,13 +236,13 @@ impl RestApiControl {
         self.lifecycle.lock().runtime_policy = policy;
     }
 
-    pub(crate) fn runtime_policy(&self) -> RestApiRuntimePolicy {
+    pub fn runtime_policy(&self) -> RestApiRuntimePolicy {
         self.lifecycle.lock().runtime_policy.clone()
     }
 
     /// None only when the live socket is provably serving `configured`; anything
     /// unproven is reported pending rather than assumed applied.
-    pub(crate) fn pending_bind(&self, configured: &str) -> Option<PendingBind> {
+    pub fn pending_bind(&self, configured: &str) -> Option<PendingBind> {
         let live = self.bound_addr()?;
         if configured
             .parse::<SocketAddr>()
@@ -346,7 +346,7 @@ impl RestApiControl {
         }
     }
 
-    pub(crate) fn status(&self) -> RestApiStatus {
+    pub fn status(&self) -> RestApiStatus {
         self.lifecycle.lock().status.clone()
     }
 
@@ -390,7 +390,7 @@ impl RestApiControl {
             .map_err(|_| "REST API listener controller stopped".to_string())
     }
 
-    pub(crate) async fn prepare_http_restart(&self) -> Result<RestartAcceptance, String> {
+    pub async fn prepare_http_restart(&self) -> Result<RestartAcceptance, String> {
         let (accepted, response) = oneshot::channel();
         let (response_complete, body_complete) = oneshot::channel();
         self.signal(RestApiCommand::PrepareRestart {
@@ -488,7 +488,7 @@ impl RestApiControl {
     }
 }
 
-pub(crate) type RestApiControlState = Arc<RestApiControl>;
+pub type RestApiControlState = Arc<RestApiControl>;
 
 fn probe_address(address: SocketAddr) -> SocketAddr {
     match address.ip() {
@@ -735,7 +735,7 @@ where
     }
 }
 
-pub(crate) fn spawn(
+pub fn spawn(
     control: RestApiControlState,
     bind_addr: String,
     router: axum::Router,
@@ -751,7 +751,7 @@ pub(crate) fn spawn(
     })
 }
 
-pub(crate) async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
+pub async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
     let (sender, mut commands) = mpsc::unbounded_channel();
     control.install(sender);
     #[cfg(test)]

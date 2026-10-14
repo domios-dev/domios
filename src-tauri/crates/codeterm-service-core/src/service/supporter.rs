@@ -14,18 +14,20 @@ use crate::mem::decision::token_store::TokenStore;
 
 mod activity;
 mod backoff;
-pub(crate) mod connections;
+pub mod connections;
 mod feed;
 mod journal;
 mod narrative;
 mod physical;
-pub(crate) mod registry;
+pub mod registry;
 pub(crate) mod rerank;
 mod spend;
 mod storage;
 
-pub(crate) use activity::SupporterRuntime;
-pub(crate) use journal::{Action, ActionRecord, VerdictKind};
+pub use activity::SupporterRuntime;
+pub use journal::Action;
+pub use journal::ActionRecord;
+pub use journal::VerdictKind;
 pub(crate) use narrative::sentinel as sentinel_questions;
 pub(crate) use narrative::{
     provider_update as update_questions, recovery as recovery_questions, tab_state as tab_questions,
@@ -57,7 +59,7 @@ impl TokenSnapshot {
     }
 }
 
-pub(crate) fn read_token_snapshot(
+pub fn read_token_snapshot(
     runtime: &SupporterRuntime,
     store: &TokenStore,
     adapter: &str,
@@ -75,7 +77,7 @@ pub(crate) fn report_token_acl_state(
     runtime.token_acl_state_changed(adapter, snapshot.acl_invalid);
 }
 
-pub(crate) fn supporter_connected(
+pub fn supporter_connected(
     cfg: &SupporterConfig,
     registry: &SupporterRegistry,
     token_store: &TokenSnapshot,
@@ -127,7 +129,7 @@ pub(crate) fn runtime() -> Arc<SupporterRuntime> {
         .clone()
 }
 
-pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<SupporterRuntime> {
+pub fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<SupporterRuntime> {
     let runtime = runtime();
     let mux = svc.mux.clone();
     let app = svc.app_handle.clone();
@@ -355,7 +357,7 @@ impl DecisionModel for BudgetedModel {
     }
 }
 
-pub(crate) fn activity_status(runtime: &SupporterRuntime, cap: usize) -> Value {
+pub fn activity_status(runtime: &SupporterRuntime, cap: usize) -> Value {
     let mut status = runtime.status(cap);
     status["observation_scheduler"] = super::supporter_tab_state::scheduler::status();
     status

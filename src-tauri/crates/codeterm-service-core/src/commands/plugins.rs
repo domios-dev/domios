@@ -5,15 +5,18 @@ mod permissions;
 mod snapshot;
 mod view;
 
-pub(crate) use action::{run_action, PluginManagerAction};
-pub(crate) use view::{bubble_poll, glance_render, view_call};
+pub use action::run_action;
+pub use action::PluginManagerAction;
+pub use view::bubble_poll;
+pub use view::glance_render;
+pub use view::view_call;
 
-pub(crate) async fn plugin_manager_snapshot_for_service(
+pub async fn plugin_manager_snapshot_for_service(
     svc: crate::service::ServiceState,
 ) -> Result<serde_json::Value, String> {
     action::plugin_manager_snapshot_for_service(svc).await
 }
 
-pub(crate) fn invalidate_plugin_snapshot() {
+pub fn invalidate_plugin_snapshot() {
     action::invalidate_plugin_snapshot();
 }

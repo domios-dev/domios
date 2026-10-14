@@ -218,7 +218,7 @@ pub async fn import(
                 .map_err(|e| format!("plan={}: {e}", plan.id))?;
         }
         *svc.mux.write() = candidate;
-        codeterm_service_core::service::agent_runtime::restore::all(&svc);
+        codeterm_service_core::service::agent_runtime::restore_all(&svc);
         svc.emit_state_changed();
         Ok::<_, String>(
             json!({"imported_tabs":count,"restart_required":true,"boot_id":svc.events.boot_id()}),

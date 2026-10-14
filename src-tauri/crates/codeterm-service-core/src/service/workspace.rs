@@ -80,7 +80,7 @@ impl WorkspaceCloseCaller<'_> {
 }
 
 impl ServiceContext {
-    pub(crate) fn ensure_storage_available(&self) -> Result<(), String> {
+    pub fn ensure_storage_available(&self) -> Result<(), String> {
         let Some(authority) = self
             .app_handle
             .try_state::<crate::startup::StorageAuthority>()
@@ -255,7 +255,7 @@ impl ServiceContext {
         ))
     }
 
-    pub(crate) async fn close_workspace_guarded_async(
+    pub async fn close_workspace_guarded_async(
         &self,
         caller_tab_id: Option<&str>,
         workspace_id: &str,
@@ -278,7 +278,7 @@ impl ServiceContext {
             .await
     }
 
-    pub(crate) async fn close_workspace_as_confirmed_headerless_human(
+    pub async fn close_workspace_as_confirmed_headerless_human(
         &self,
         workspace_id: &str,
         force: bool,
@@ -293,7 +293,7 @@ impl ServiceContext {
 
     /// The relay owns peer authentication and workspace access checks before
     /// this external-caller authority can be used.
-    pub(crate) fn close_workspace_from_authenticated_mesh_peer(
+    pub fn close_workspace_from_authenticated_mesh_peer(
         &self,
         peer_id: &str,
         workspace_id: &str,

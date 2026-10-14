@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::time::Instant;
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct AuthenticatedPlanCaller {
+pub struct AuthenticatedPlanCaller {
     pub tab_id: Option<String>,
     pub session_id: Option<String>,
     pub binding_nonce: Option<String>,
@@ -16,7 +16,7 @@ pub(crate) struct AuthenticatedPlanCaller {
 
 /// Typed planning-authority failures keep binding and role diagnostics distinct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PlanAuthorityError {
+pub enum PlanAuthorityError {
     PlanNotFound,
     /// Live same-tab, same-session caller holding a pre-relaunch lineage nonce.
     /// Recoverable via `codeterm plan rebind` without a full agent restart.
@@ -40,7 +40,7 @@ pub(crate) enum PlanAuthorityError {
 }
 
 impl PlanAuthorityError {
-    pub(crate) fn diagnostic_type(self) -> &'static str {
+    pub fn diagnostic_type(self) -> &'static str {
         match self {
             Self::PlanNotFound => "plan_not_found",
             Self::BindingStaleAfterRelaunch => "plan_binding_stale_after_relaunch",
@@ -53,7 +53,7 @@ impl PlanAuthorityError {
         }
     }
 
-    pub(crate) fn is_retryable(self) -> bool {
+    pub fn is_retryable(self) -> bool {
         matches!(self, Self::SessionBindingPending)
     }
 
@@ -182,7 +182,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) async fn authorize_plan_orchestrator_async(
+    pub async fn authorize_plan_orchestrator_async(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -301,7 +301,7 @@ impl ServiceContext {
             .map_err(String::from)
     }
 
-    pub(crate) fn authorize_draft_structure_mutation_typed(
+    pub fn authorize_draft_structure_mutation_typed(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -309,7 +309,7 @@ impl ServiceContext {
         self.classify_planning_caller(plan_id, caller)
     }
 
-    pub(crate) async fn authorize_draft_structure_mutation_async(
+    pub async fn authorize_draft_structure_mutation_async(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -339,7 +339,7 @@ impl ServiceContext {
         .unwrap_or(Err(PlanAuthorityError::SessionBindingPending))
     }
 
-    pub(crate) async fn classify_planning_caller_async(
+    pub async fn classify_planning_caller_async(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -543,7 +543,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) async fn authorize_execution_action_async(
+    pub async fn authorize_execution_action_async(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -570,7 +570,7 @@ impl ServiceContext {
         Ok((detail.plan_id, detail.task.id))
     }
 
-    pub(crate) async fn authorize_task_execution_action_async(
+    pub async fn authorize_task_execution_action_async(
         &self,
         task_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -644,7 +644,7 @@ pub(crate) fn planner_forbidden_task_field(body: &Value) -> Option<&'static str>
         .find(|field| body.get(field).is_some_and(|value| !value.is_null()))
 }
 
-pub(crate) fn ensure_planner_task_fields_are_structural(
+pub fn ensure_planner_task_fields_are_structural(
     author: &PlanningAuthor,
     body: &Value,
 ) -> Result<(), String> {

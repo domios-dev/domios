@@ -79,7 +79,7 @@ impl super::ServiceContext {
         }
     }
 
-    pub(crate) fn require_managed_send_allowed(
+    pub fn require_managed_send_allowed(
         &self,
         target: &str,
         source: Option<&str>,

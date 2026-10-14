@@ -67,7 +67,7 @@ struct ProviderAck {
 static LAUNCH_REGISTRY: std::sync::LazyLock<parking_lot::Mutex<LaunchRegistry>> =
     std::sync::LazyLock::new(|| parking_lot::Mutex::new(LaunchRegistry::default()));
 #[derive(Debug, Clone)]
-pub(crate) struct LaunchGeneration {
+pub struct LaunchGeneration {
     tab_id: String,
     pty_id: String,
     generation: u64,
@@ -93,11 +93,7 @@ pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBin
     recorded
 }
 #[cfg(test)]
-pub(crate) fn arm_provider_session_for_test(
-    tab_id: &str,
-    pty_id: &str,
-    nonce: &str,
-) -> LaunchGeneration {
+pub fn arm_provider_session_for_test(tab_id: &str, pty_id: &str, nonce: &str) -> LaunchGeneration {
     let launch = LaunchGeneration::begin(tab_id, pty_id.to_string());
     LAUNCH_REGISTRY
         .lock()

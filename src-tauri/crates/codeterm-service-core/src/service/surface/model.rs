@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::multiplexer::types::Tab;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SurfaceError {
+pub enum SurfaceError {
     InvalidTarget(String),
     PluginUnavailable(String),
     SurfaceNotDeclared {
@@ -26,7 +26,7 @@ pub(crate) enum SurfaceError {
 }
 
 impl SurfaceError {
-    pub(crate) fn code(&self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             Self::InvalidTarget(_) => "invalid_surface_target",
             Self::PluginUnavailable(_) => "surface_plugin_unavailable",
@@ -43,7 +43,7 @@ impl SurfaceError {
         }
     }
 
-    pub(crate) fn message(&self) -> String {
+    pub fn message(&self) -> String {
         match self {
             Self::InvalidTarget(raw) => {
                 format!("'{raw}' is not <plugin_id>:<surface_id>")
@@ -84,7 +84,7 @@ impl SurfaceError {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-pub(crate) struct SurfaceOpenRequest {
+pub struct SurfaceOpenRequest {
     pub target: String,
     #[serde(default)]
     pub owner_tab_id: Option<String>,

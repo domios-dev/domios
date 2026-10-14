@@ -138,10 +138,7 @@ fn snapshot_flight_role() -> SnapshotFlightRole {
     )
 }
 
-pub(crate) fn run_action(
-    action: PluginManagerAction,
-    svc: &ServiceContext,
-) -> Result<Value, String> {
+pub fn run_action(action: PluginManagerAction, svc: &ServiceContext) -> Result<Value, String> {
     if action.kind == "permission" {
         let output = super::permissions::permission_action(
             action

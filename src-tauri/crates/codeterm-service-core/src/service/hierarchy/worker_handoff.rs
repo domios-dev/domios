@@ -6,7 +6,7 @@ use crate::service::message_gateway::MessageGateway;
 use crate::service::ServiceContext;
 
 #[derive(Clone, Copy)]
-pub(crate) enum WorkerTurnSignal {
+pub enum WorkerTurnSignal {
     ProviderStop,
     IdleTransition,
 }

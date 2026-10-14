@@ -1,14 +1,14 @@
 use tokio::sync::broadcast;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum OutputStreamActivity {
+pub enum OutputStreamActivity {
     Pty(String),
     Mux,
 }
 
-pub(crate) struct OutputStreamActivityTx(pub(crate) broadcast::Sender<OutputStreamActivity>);
+pub struct OutputStreamActivityTx(pub(crate) broadcast::Sender<OutputStreamActivity>);
 
-pub(crate) fn channel() -> broadcast::Sender<OutputStreamActivity> {
+pub fn channel() -> broadcast::Sender<OutputStreamActivity> {
     broadcast::channel(4096).0
 }
 

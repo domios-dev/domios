@@ -17,7 +17,7 @@ pub(crate) enum SessionBindingStateKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct SessionBindingState {
+pub struct SessionBindingState {
     pub tab_id: String,
     pub kind: SessionBindingStateKind,
     pub current_session_id: Option<String>,

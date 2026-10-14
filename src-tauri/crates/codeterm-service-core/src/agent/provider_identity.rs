@@ -2,7 +2,7 @@ use crate::multiplexer::types::Tab;
 use crate::session::lifecycle::AgentTypeWriteOrigin;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ProviderIdentityEvidence {
+pub struct ProviderIdentityEvidence {
     pub(crate) cwd: Option<String>,
     pub(crate) session_id: Option<String>,
     pub(crate) configured_nonce: Option<String>,
@@ -39,7 +39,7 @@ pub(crate) enum ProviderIdentityWrite {
     },
 }
 
-pub(crate) fn apply_provider_identity(
+pub fn apply_provider_identity(
     tab: &mut Tab,
     provider: String,
     lock: bool,
@@ -80,7 +80,7 @@ pub(crate) fn apply_provider_identity(
     }
 }
 
-pub(crate) fn provider_for_claimed_session(
+pub fn provider_for_claimed_session(
     registry: &crate::agent::registry::AgentRegistry,
     cwd: &str,
     session_id: &str,

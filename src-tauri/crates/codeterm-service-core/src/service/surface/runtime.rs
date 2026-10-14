@@ -224,7 +224,7 @@ pub(crate) async fn shutdown_all(
 }
 
 /// The SSE event name and JSON `data` line for one stream event.
-pub(crate) fn sse_payload(event: &SurfaceEvent) -> (&'static str, String) {
+pub fn sse_payload(event: &SurfaceEvent) -> (&'static str, String) {
     use base64::Engine;
     match event {
         SurfaceEvent::State(state) => ("state", serde_json::to_string(state).unwrap_or_default()),

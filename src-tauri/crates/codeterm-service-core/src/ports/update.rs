@@ -22,7 +22,7 @@ pub(crate) struct UpdateHooks {
 
 static HOOKS: OnceLock<UpdateHooks> = OnceLock::new();
 
-pub(crate) fn register(hooks: UpdateHooks) {
+pub fn register(hooks: UpdateHooks) {
     let _ = HOOKS.set(hooks);
 }
 

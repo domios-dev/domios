@@ -5,7 +5,7 @@ use crate::repowatch::RepoWatchRegistryHandle;
 
 /// Shared by the Tauri command and the web-mirror REST route. A degraded
 /// repository returns a named discriminant, never a bare error.
-pub(crate) fn subscribe(registry: &RepoWatchRegistryHandle, cwd: PathBuf) -> Value {
+pub fn subscribe(registry: &RepoWatchRegistryHandle, cwd: PathBuf) -> Value {
     match registry.subscribe(&cwd) {
         Ok(sub) => json!({
             "status": "watching",
@@ -21,6 +21,6 @@ pub(crate) fn subscribe(registry: &RepoWatchRegistryHandle, cwd: PathBuf) -> Val
     }
 }
 
-pub(crate) fn unsubscribe(registry: &RepoWatchRegistryHandle, token: &str) -> Value {
+pub fn unsubscribe(registry: &RepoWatchRegistryHandle, token: &str) -> Value {
     json!({ "released": registry.release(token) })
 }

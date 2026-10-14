@@ -8,7 +8,7 @@ use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 
 #[derive(Debug)]
-pub(crate) enum TeamPlanCreationError {
+pub enum TeamPlanCreationError {
     Team(String),
     Plan(PlanError),
     SessionBindingPending,
@@ -23,7 +23,7 @@ pub(crate) struct TeamPlanCreationOutcome {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct TeamPlanCaller {
+pub struct TeamPlanCaller {
     pub tab_id: Option<String>,
     pub session_id: Option<String>,
     pub binding_nonce: Option<String>,

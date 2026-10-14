@@ -13,7 +13,7 @@ pub(crate) use restore_binding::{
     AttemptBindingRestoreResult, AttemptBindingRestoreTarget,
 };
 
-pub(crate) fn respawn_title_provenance(explicit_title: bool) -> SpawnIdentityProvenance {
+pub fn respawn_title_provenance(explicit_title: bool) -> SpawnIdentityProvenance {
     if explicit_title {
         SpawnIdentityProvenance::UserSupplied
     } else {
@@ -39,7 +39,7 @@ pub(crate) fn persist_attempt_executor_identity(
     result
 }
 
-pub(crate) fn persist_attempt_executor_identity_for_mux(
+pub fn persist_attempt_executor_identity_for_mux(
     store: &PlanStore,
     mux: &MuxState,
     plan_id: &str,
