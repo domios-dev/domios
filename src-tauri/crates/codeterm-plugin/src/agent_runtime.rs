@@ -1,4 +1,6 @@
 mod authority;
+mod history;
+pub use history::*;
 mod capability;
 pub use authority::*;
 mod validation;

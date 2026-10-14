@@ -1032,8 +1032,8 @@ function runtimePlan(ctx, op) {
     case "readHistory":
       return request(
         "thread/turns/list",
-        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "asc", limit: 100, cursor: op.cursor },
-        { stage: "turns", turns: [], cursors: [], items: [], openItems: [], seq: 0 }
+        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "asc", limit: 8, cursor: op.cursor },
+        { stage: "turns", turns: [], cursor: null, seq: 0 }
       );
     case "submitTurn": {
       const params = turnParams(ctx, op);
@@ -1080,7 +1080,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
     if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
-      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", items: [], openItems: [], questions: [], seq: 0 }));
+      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", seq: 0 }));
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
       return continuation(request("turn/start", turnParams(ctx, op)), true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
@@ -1135,7 +1135,7 @@ function historyResponse(op, state, value) {
     if (!userThread(value, op.threadId)) return refused("History snapshot thread identity unverified");
     const turns2 = object(value.thread).turns;
     if (!Array.isArray(turns2)) return refused("Missing history snapshot turns");
-    let collected2 = state;
+    let collected2 = { ...state, items: [], openItems: [], questions: [] };
     for (const raw of turns2) {
       const turn2 = object(raw);
       if (!text(turn2.id) || !Array.isArray(turn2.items)) return refused("Missing history snapshot turn items");
@@ -1150,9 +1150,15 @@ function historyResponse(op, state, value) {
   }
   if (!Array.isArray(value.data)) return refused("Missing history page data");
   if (state.stage === "turns") {
-    const turns2 = list(value.data).map(object);
+    const source = list(value.data).map(object);
+    if (source.length > 8 || source.some((turn2) => typeof turn2.id !== "string" || !turn2.id || turn2.id.length > 4096)) return refused("Invalid history turn page");
+    const turns2 = source.map((turn2) => ({
+      id: turn2.id,
+      status: turn2.status === "inProgress" ? "inProgress" : "completed",
+      startedAt: typeof turn2.startedAt === "number" && Number.isFinite(turn2.startedAt) ? turn2.startedAt : null
+    }));
     const next2 = text(value.nextCursor);
-    if (next2 && next2 === op.cursor) return refused("Repeated history cursor");
+    if (next2 && (next2.length > 4096 || next2 === op.cursor)) return refused("Repeated history cursor");
     const collected2 = { ...state, turns: turns2, nextCursor: next2, index: 0, stage: "items" };
     if (!turns2.length) return historyGoal(op, collected2);
     return historyItems(op, collected2);
@@ -1161,14 +1167,13 @@ function historyResponse(op, state, value) {
   const turns = list(state.turns).map(object);
   const turn = turns[Number(state.index)];
   if (!turn || !text(turn.id)) return refused("Missing history turn id");
-  const mapped = collectHistoryItems(op, state, turn, value.data);
+  const mapped = collectHistoryItems(op, { ...state, items: [], openItems: [], questions: [] }, turn, value.data);
   const next = text(value.nextCursor);
-  const cursors = list(state.cursors);
-  if (next && cursors.includes(next)) return refused("Repeated history cursor");
+  if (next && (next.length > 4096 || next === state.cursor)) return refused("Repeated history cursor");
   const collected = { ...mapped };
-  if (next) return historyItems(op, { ...collected, cursors: [...cursors, next] }, next);
+  if (next) return streamHistory(op, historyItems(op, { ...collected, cursor: next }, next), collected);
   const index = Number(state.index) + 1;
-  if (index < turns.length) return historyItems(op, { ...collected, index, cursors: [] });
+  if (index < turns.length) return streamHistory(op, historyItems(op, { ...collected, index, cursor: null }), collected);
   return historyGoal(op, collected);
 }
 function collectHistoryItems(op, state, turn, entries) {
@@ -1199,7 +1204,7 @@ function historyItems(op, state, cursor) {
 }
 function historyGoal(op, state) {
   if (text(state.nextCursor)) return historyComplete(op, state);
-  return continuation(request("thread/goal/get", { threadId: op.threadId }, { ...state, stage: "goal" }));
+  return streamHistory(op, continuation(request("thread/goal/get", { threadId: op.threadId }, { ...state, stage: "goal" })), state);
 }
 function historyComplete(op, state) {
   return { kind: "complete", result: {
@@ -1210,6 +1215,13 @@ function historyComplete(op, state) {
     ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
     ...list(state.questions).length ? { questions: list(state.questions) } : {}
   } };
+}
+function streamHistory(op, step, state) {
+  if (step.kind !== "continue") return step;
+  const { items, openItems, questions, ...cursor } = object(step.plan.state);
+  const complete = historyComplete(op, { ...state, nextCursor: void 0 });
+  if (complete.kind !== "complete" || complete.result.kind !== "historyPage") return step;
+  return { ...step, plan: { ...step.plan, state: json(cursor) }, history: complete.result };
 }
 
 // plugins/provider-codex/src/toolOutput.ts
