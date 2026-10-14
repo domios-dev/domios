@@ -26,6 +26,17 @@ const sandbox = vm.createContext({module:{exports:{}},exports:{},host:new Proxy(
 sandbox.exports = sandbox.module.exports;
 vm.runInContext(fs.readFileSync(new URL("../plugin.js",import.meta.url),"utf8"),sandbox);
 const hooks = sandbox.module.exports.default as AgentRuntime;
+const reduce = hooks.runtimeReduce.bind(hooks);
+hooks.runtimeReduce = (...args) => {
+  const result = reduce(...args);
+  const serialized = JSON.stringify(result, (key, value: unknown) => {
+    assert.notEqual(value, undefined, `runtimeReduce returned undefined at ${key}`);
+    assert.ok(!["function", "symbol", "bigint"].includes(typeof value), `runtimeReduce returned non-JSON at ${key}`);
+    if (typeof value === "number") assert.ok(Number.isFinite(value), `runtimeReduce returned non-finite number at ${key}`);
+    return value;
+  });
+  return JSON.parse(serialized);
+};
 const plain = <T>(value:T): T => JSON.parse(JSON.stringify(value));
 let count = 0;
 function check(name:string, run:()=>void) {run();count++;console.log(`  ✓ runtime ${name}`);}
