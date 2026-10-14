@@ -423,6 +423,14 @@ impl AgentProvider for ClaudeProvider {
         steps
     }
 
+    fn parse_switch_confirmation_prompt(
+        &self,
+        screen: &str,
+        selection: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
+        model_switch::confirmation_prompt(screen, selection)
+    }
+
     fn live_prompt_response(&self, option_index: usize, screen: &str) -> Option<Vec<Vec<u8>>> {
         Some(self.build_prompt_response(option_index, screen))
     }

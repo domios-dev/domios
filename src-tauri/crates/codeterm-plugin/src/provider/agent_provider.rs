@@ -510,6 +510,14 @@ pub trait AgentProvider: Send + Sync {
         steps
     }
 
+    fn parse_switch_confirmation_prompt(
+        &self,
+        _screen: &str,
+        _selection: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
+        None
+    }
+
     /// Explicit response steps relative to live focus; unsupported or failed hooks abstain.
     fn live_prompt_response(&self, _option_index: usize, _screen: &str) -> Option<Vec<Vec<u8>>> {
         None
