@@ -3,7 +3,7 @@
 use super::notification::SurfaceDispatch;
 use super::ServiceContext;
 use crate::notification::desktop::DesktopPolicy;
-use codeterm_types::notification::NotifyLevel;
+use codeterm_notification_core::contract::NotifyLevel;
 
 impl ServiceContext {
     /// Read fresh per notification, so closing a cell in settings binds the next

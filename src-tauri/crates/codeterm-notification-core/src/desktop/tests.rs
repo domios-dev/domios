@@ -48,10 +48,7 @@ fn policy_with(agent_levels: Vec<AgentLevelChoice>) -> DesktopPolicy {
 
 fn choice(level: &str, enabled: bool) -> AgentLevelChoice {
     let mut choice = AgentLevelChoice::open(level, &[]);
-    choice.set(
-        codeterm_types::notification::NotifyDestination::Desktop,
-        enabled,
-    );
+    choice.set(crate::contract::NotifyDestination::Desktop, enabled);
     choice
 }
 

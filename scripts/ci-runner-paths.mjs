@@ -1,3 +1,4 @@
+// Caller: CI tests.yml; scripts tests/ci-runner-paths.test.mjs; skill build-machine
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

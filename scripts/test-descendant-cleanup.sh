@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh script-guards
 # Forced fallback test: no sleeps, immediate verification
 # Proves descendants are killed immediately (no settle delay needed)
 # because: waitpid blocks until reaped, TERM is synchronous

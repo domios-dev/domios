@@ -1,5 +1,5 @@
 use super::TabStateMetadata;
-use codeterm_types::decision::DecisionQuestion;
+use codeterm_decision::DecisionQuestion;
 use std::collections::BTreeMap;
 
 pub(crate) fn safe_choice_question(metadata: &TabStateMetadata) -> Option<DecisionQuestion> {

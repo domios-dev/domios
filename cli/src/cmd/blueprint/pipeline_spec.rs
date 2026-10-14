@@ -1,4 +1,4 @@
-use codeterm_types::blueprint_recipe::substitute;
+use codeterm_blueprint_types::blueprint_recipe::substitute;
 use serde_json::Value;
 use std::path::Path;
 

@@ -9,7 +9,7 @@ use super::records::{
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
 use crate::repositories::{from_sql_u64, to_sql_u64, Revision};
-use codeterm_types::sentinel_input::InputSpec;
+use codeterm_blueprint_types::sentinel_input::InputSpec;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::HashMap;
 
@@ -110,8 +110,8 @@ fn source_from(
     spec: Option<String>,
     probe: String,
     observe: Option<ObserveSource>,
-    terminal: Option<codeterm_types::blueprint_terminal::Config>,
-    pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
+    terminal: Option<codeterm_blueprint_types::blueprint_terminal::Config>,
+    pipeline: Option<codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec>,
 ) -> Result<StageSource, StorageError> {
     match SourceKind::parse(kind) {
         Some(SourceKind::Probe) if !probe.is_empty() && observe.is_none() && spec.is_none() => {
@@ -507,7 +507,7 @@ pub(super) fn head_budgets(conn: &Connection, id: &str) -> Result<(u64, u64), St
          WHERE h.blueprint_id = ?1",
     )
     .and_then(|mut statement| {
-        statement.query_row(params![id, codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT as i64], |row| {
+        statement.query_row(params![id, codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT as i64], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
         })
     })

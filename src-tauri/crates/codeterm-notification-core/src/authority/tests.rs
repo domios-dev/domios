@@ -1,11 +1,11 @@
 use super::*;
 use crate::authority;
+use crate::contract::{adopt_caller_actions, answer_actions, CallerAction};
 use crate::push;
 use crate::store::{
     Ask, NotificationProvenance, NotificationSeverity, NotificationStore, PushRequest,
 };
 use codeterm_types::config::schema::AppConfig;
-use codeterm_types::notification::{adopt_caller_actions, answer_actions, CallerAction};
 
 const ASKING_TAB: &str = "tab_the_one_that_asked";
 const CHOSEN: &str = "Rebase";

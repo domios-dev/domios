@@ -1,3 +1,4 @@
+// Caller: package.json script
 import { cp, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

@@ -1,3 +1,4 @@
+// Caller: build.sh ci-archives; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';

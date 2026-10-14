@@ -455,7 +455,7 @@ impl ServiceFixture {
         title: String,
         body: Option<String>,
         _severity: Option<&str>,
-        actions: Option<Vec<codeterm_types::notification::NotificationAction>>,
+        actions: Option<Vec<codeterm_notification_core::contract::NotificationAction>>,
         sticky: Option<bool>,
         origin: super::notification::NotificationOrigin,
         intent: super::notification::PushIntent,

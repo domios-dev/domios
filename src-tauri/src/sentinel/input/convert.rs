@@ -4,10 +4,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
+use codeterm_blueprint_types::sentinel_input::{MediaKind, MAX_CONVERTED_TEXT_BYTES};
 use codeterm_plugin::converter::{
     output_within, ConversionCancellation, ConvertError, ConvertOutput, ConvertRequest, Step,
 };
-use codeterm_types::sentinel_input::{MediaKind, MAX_CONVERTED_TEXT_BYTES};
 
 pub(in crate::sentinel) fn convert(
     registry: &codeterm_plugin::converter::ConverterRegistry,

@@ -1,4 +1,4 @@
-use codeterm_types::notification::{
+use crate::contract::{
     adopt_caller_actions, answer_actions, CallerAction, NotificationAction, OfferedChoice,
 };
 

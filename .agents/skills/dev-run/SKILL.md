@@ -28,6 +28,8 @@ Run it in the **background** so you can keep working:
 # Background (use run_in_background=true via the Bash tool)
 ```
 
+Agent launchers for dev, build, check, QA batch and install-local (PowerShell and bash lines, `--notify-tab` receipts): [utility-shell-reports](../utility-shell-reports/SKILL.md#launcher-recipes-copy-paste). Manual live drills: `scripts/hand-tests/README.md`; PowerShell isolation check against a warm dev: `scripts/check-dev-instance-isolation.ps1`.
+
 ### Other `build.sh` verbs
 
 | verb | what |

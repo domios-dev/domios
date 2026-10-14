@@ -55,7 +55,7 @@ static WINDOW_CLASS: OnceLock<Result<(), u32>> = OnceLock::new();
 static WINDOW_CLASS_NAME: OnceLock<Vec<u16>> = OnceLock::new();
 static CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
-pub fn supports_trigger(trigger: &codeterm_types::local_recording::LocalRecordingTrigger) -> bool {
+pub fn supports_trigger(trigger: &codeterm_local_recording::LocalRecordingTrigger) -> bool {
     trigger.vendor_id != 0
         && trigger.product_id != 0
         && trigger.usage_page != 7
@@ -69,7 +69,7 @@ pub fn supports_trigger(trigger: &codeterm_types::local_recording::LocalRecordin
 pub struct SelectedInputIdentity {
     pub input_id: String,
     pub collection_id: String,
-    pub trigger: codeterm_types::local_recording::LocalRecordingTrigger,
+    pub trigger: codeterm_local_recording::LocalRecordingTrigger,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -159,7 +159,7 @@ impl SelectedInputIdentity {
 }
 
 impl HidDescriptor {
-    fn declared(trigger: &codeterm_types::local_recording::LocalRecordingTrigger) -> Option<Self> {
+    fn declared(trigger: &codeterm_local_recording::LocalRecordingTrigger) -> Option<Self> {
         let button = trigger.button.as_ref().filter(|button| button.valid())?;
         Some(Self {
             usage_page: trigger.usage_page,
@@ -185,7 +185,7 @@ impl HidDescriptor {
 
     fn matches_supported_schema(
         &self,
-        trigger: &codeterm_types::local_recording::LocalRecordingTrigger,
+        trigger: &codeterm_local_recording::LocalRecordingTrigger,
     ) -> bool {
         let Some(expected) = Self::declared(trigger) else {
             return false;
@@ -660,7 +660,7 @@ fn raw_input_devices() -> Result<Vec<RawInputDeviceList>, UnavailableReason> {
 }
 
 pub fn selectable_inputs(
-    trigger: &codeterm_types::local_recording::LocalRecordingTrigger,
+    trigger: &codeterm_local_recording::LocalRecordingTrigger,
 ) -> Result<Vec<SelectedInputIdentity>, String> {
     let devices =
         raw_input_devices().map_err(|_| "local_input_inventory_unavailable".to_string())?;
@@ -787,7 +787,7 @@ fn has_raw_input_registration(usage_page: u16, usage: u16) -> Result<bool, Unava
 
 fn descriptor_from_preparsed(
     data: &AlignedPreparsedData,
-    trigger: &codeterm_types::local_recording::LocalRecordingTrigger,
+    trigger: &codeterm_local_recording::LocalRecordingTrigger,
 ) -> Option<HidDescriptor> {
     if size_of::<HidpCaps>() != 64 || size_of::<HidpButtonCaps>() != 72 {
         return None;
@@ -837,7 +837,7 @@ fn descriptor_from_preparsed(
 
 unsafe fn button_capability_from_raw(
     raw: &HidpButtonCaps,
-    trigger: &codeterm_types::local_recording::LocalRecordingTrigger,
+    trigger: &codeterm_local_recording::LocalRecordingTrigger,
 ) -> Option<ButtonCapability> {
     let button = trigger.button.as_ref()?;
     if raw.is_alias != 0
@@ -863,7 +863,7 @@ unsafe fn button_capability_from_raw(
 unsafe fn parse_active_usages(
     preparsed: *mut c_void,
     report: &[u8],
-    button: &codeterm_types::local_recording::LocalRecordingButton,
+    button: &codeterm_local_recording::LocalRecordingButton,
 ) -> Option<Vec<u16>> {
     if report.len() != button.report_bytes as usize {
         return None;

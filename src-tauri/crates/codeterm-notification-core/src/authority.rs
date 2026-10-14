@@ -7,8 +7,8 @@
 //! applies on the tap — which is why the only constructor of the proof below
 //! takes a first-and-only recorded answer.
 
+use crate::contract::{NotifyDestination, NotifyLevel, OfferedChoice};
 use codeterm_types::config::schema::NotificationConfig;
-use codeterm_types::notification::{NotifyDestination, NotifyLevel, OfferedChoice};
 use serde::Serialize;
 
 use super::answer::AnswerAdmission;

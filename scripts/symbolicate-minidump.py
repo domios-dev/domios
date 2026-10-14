@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Caller: scripts pdb_identity.py; skill build
 """Symbolicate a Windows minidump written by `crash::native`.
 
 No symbolication tooling shipped with this repository — `minidump-writer` is a

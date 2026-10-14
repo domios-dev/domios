@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::decision::{deadline, DecisionPrimitives, DecisionRequest, TokenMode};
+use codeterm_decision::{deadline, DecisionPrimitives, DecisionRequest, TokenMode};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct FixtureModel {
@@ -50,7 +50,7 @@ impl DecisionModel for FixtureModel {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
-        codeterm_types::decision::physical::before_request()?;
+        codeterm_decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         if let Some(error) = &self.error {
             return Err(error.clone());
@@ -238,7 +238,7 @@ fn heartbeat_gate_other_or_low_confidence_suppresses() {
 fn heartbeat_gate_blocked_is_declared_and_never_wakes() {
     let request = questions(&healthy_snapshot());
     let options = match &request.questions["tick"].question {
-        codeterm_types::decision::DecisionQuestion::Choice { options } => options,
+        codeterm_decision::DecisionQuestion::Choice { options } => options,
         _ => panic!("tick must remain a choice"),
     };
     assert!(options.contains_key("blocked"));
@@ -594,7 +594,7 @@ fn heartbeat_fixture_clock_preserves_budget_and_suppress_after_persistence() {
     assert!(!exhausted.wake);
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
     assert_eq!(runtime.status(1)["calls_last_hour"], 1);
-    assert!(codeterm_types::decision::physical::current().is_none());
+    assert!(codeterm_decision::physical::current().is_none());
     let journal = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
     let rows: Vec<Value> = journal
         .lines()
@@ -813,6 +813,15 @@ fn open_liveness_check_drops_evidence_already_held() {
             assert_eq!(text.contains(check), expected.contains(&check));
         }
     }
+}
+
+#[test]
+fn persisted_owner_message_wakes_are_dropped_and_others_kept() {
+    let kept = super::actionable_pending(&every_hard_wake());
+    assert!(!kept
+        .iter()
+        .any(|wake| matches!(wake, HardWake::OwnerMessage(_))));
+    assert_eq!(kept.len(), every_hard_wake().len() - 1);
 }
 
 #[test]

@@ -1,3 +1,4 @@
+// Caller: skill testing
 import assert from 'node:assert/strict';
 import { confirmCandidates } from './confirm-slow-unit-tests.mjs';
 import test, { describe, before, after } from 'node:test';

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-shards.mjs, confirm-slow-unit-tests.mjs; skill build, testing
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';

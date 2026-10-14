@@ -1,4 +1,4 @@
-use codeterm_types::local_recording::LocalRecordingTrigger;
+use codeterm_local_recording::LocalRecordingTrigger;
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SelectedInputEvent {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh script-guards
 # check-no-raw-graph-sql.sh — Track 3 of v1.1.23 guardrail.
 #
 # After v1.1.23, all graph-table mutations (entities, relations,

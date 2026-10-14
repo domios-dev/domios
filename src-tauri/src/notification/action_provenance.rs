@@ -3,7 +3,7 @@
 //! separation structurally - that the caller-facing type has nowhere to put a
 //! command name - rather than that some particular command was refused.
 
-use codeterm_types::notification::{
+use codeterm_notification_core::contract::{
     adopt_caller_actions, answer_actions, CallerAction, NotificationAction,
 };
 

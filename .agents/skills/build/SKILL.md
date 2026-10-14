@@ -53,8 +53,8 @@ command short unless the continuation itself must be customized.
 These flows are deliberately separate. Full rebuilds, dev instances, full
 suites and gates run from the warm canonical checkout under Orchestrator
 authority. A Worker lane may run isolated checks only; in this repository that
-means `tsc --noEmit`, a single node test file, `cargo fmt --check`, and
-`./build.sh test-one plan|pty <NAME>`. `check-tests` compiles app and CLI test
+means `tsc --noEmit`, a single node test file, `cargo fmt --check`,
+`./build.sh test-one plan|pty <NAME>`, and `./build.sh check-queue` (see below). `check-tests` compiles app and CLI test
 targets without running them; its artifacts are reused by matching `test-one`
 app and CLI calls in the same worktree. These app builds are deferred to the
 Orchestrator's canonical wave batch.
@@ -253,6 +253,13 @@ calls; a successful build alone is not cache-hit proof.
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
 
+## Warm check queue for lanes
+
+`./build.sh check-queue [<sha>] [--max-errors N] [--touched-only]` gives a Worker compile feedback on a committed lane SHA without a cold lane build. It takes the machine gateway slot (fail-fast, exit 75 when busy, `--wait-build` only when blocking is intended), checks the SHA out in the single per-machine check worktree `<gateway dir>/check-worktree`, and runs `cargo check --all-targets --message-format=short` with the worktree's own `target/app` and `target/cli`. Packages come from `git diff <merge-base with develop> <sha>`: `src-tauri/crates/<name>` maps to `-p <name>`, `src-tauri/src` to `codeterm`, `cli/` to the CLI manifest; a crate change also checks `codeterm` unless `--touched-only`. Output is the first N `file:line:col: error[...]` lines, an `errors=N shown=M` total, and the full log path (`check-worktree-last.log`). It never builds in canonical or a lane target. The first run on a machine is cold; subsequent runs are incremental.
+
+Troubleshooting:
+- Symptom `sccache: incremental compilation is prohibited` from `rustc -vV`: cause an exported `CARGO_INCREMENTAL`; recovery is to leave it unset (the verb unsets it) and let the profile decide.
+
 ## Cache retention and troubleshooting
 
 Gateway acquisition triggers retention at most once per hour; there are no timers or background sweep jobs. `cache-retention.json` in the machine gateway records the last completed run. Exceptional targets carry `.codeterm-cache.json` with their physical checkout path, last-use timestamp, measured byte count, and live build-owner PIDs. Preparation refreshes the marker even for exceptional commands that run outside the gateway.
@@ -294,6 +301,11 @@ gates skill's Release section owns that step.
    .\build.ps1 install-local
    Invoke-RestMethod http://127.0.0.1:7685/api/health
    ```
+
+   From an agent tab, launch it with a receipt (PowerShell and bash lines:
+   [utility-shell-reports](../utility-shell-reports/SKILL.md#launcher-recipes-copy-paste)):
+   `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".uild.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"`.
+   rustfmt, the file-size gate and the clean-checkout check run first, in seconds.
 
    This route is Windows-only, requires the clean canonical checkout, reuses a
    persistent release target with sccache, rebuilds only changed Cargo units,
@@ -386,6 +398,8 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| `install-local` fails in seconds with rustfmt `Diff in ...` | The cheap gates run before the gateway | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all` (and `cli/`), commit, rerun; with `--notify-tab` the receipt names the step and log. |
+| `install-local` refuses with `release source is not clean (N paths)` | Tracked edits or untracked files in the checkout; the first 20 paths follow the ERROR line | Commit or remove them. `src-tauri/gen/schemas/*.json` are LF-pinned in `.gitattributes`, so `check` and `dev` no longer dirty the tree. |
 | Release preparation and Tauri packaging compile Tauri and the app dependency graph twice | Preparation omitted `tauri/custom-protocol`, which packaging enables | Keep the packaging feature in `prepare_release_bundle_inputs`; inspect its Cargo timings and the gateway log after a serialized canonical build. |
 | `build.ps1 cli` builds and writes the manifest, then fails copying the installed CLI with `Device or resource busy` | Windows has the active dev CLI executable open | Do not kill unrelated callers. For artifact verification, run `cli/target/release/codeterm.exe cli-manifest --write` from that checkout, then run the focused CLI manifest gate. Report the install failure separately; the owner can reinstall when its callers release the executable. |
 | `check-tests` fails to mmap `libcodeterm_lib.rlib` with Windows error 1455, followed by missing-crate or macro-resolution errors | The machine exhausted its paging-file commitment during concurrent Rust compilation | Let the owning compile finish; report the resource failure rather than changing source for secondary diagnostics. Run the next authorized focused selector through the gateway. Retry `check-tests` only after the owner has serialized compilation or restored memory capacity. |

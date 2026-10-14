@@ -1,3 +1,4 @@
+// Caller: scripts check-plugin-bundles.mjs, dev-prep.mjs, tests/build_identity_required.test.mjs
 const { execFileSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const path = require("node:path");

@@ -28,7 +28,7 @@ fn read_text_input_file(path: &std::path::Path) -> Result<String, String> {
     let file = std::fs::File::open(path)
         .map_err(|error| format!("cannot read text input {}: {error}", path.display()))?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
-    let limit = codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES;
+    let limit = codeterm_blueprint_types::blueprint_terminal::MAX_PAYLOAD_BYTES;
     if !metadata.is_file() || metadata.len() > limit as u64 {
         return Err("text input must be a regular file of at most 32768 bytes".into());
     }
@@ -456,7 +456,7 @@ fn request(
             start,
         } => {
             let raw = pipeline_spec::read_spec(&file)?;
-            let recipe = codeterm_types::blueprint_recipe::Recipe::parse(&raw)?;
+            let recipe = codeterm_blueprint_types::blueprint_recipe::Recipe::parse(&raw)?;
             recipe.bind(&set)?;
             params["recipe"] = serde_json::to_value(recipe).map_err(|error| error.to_string())?;
             params["set"] = json!(set);
@@ -533,7 +533,7 @@ fn request(
                         return Err("portable recipes use their declared owner".into());
                     }
                     let raw = pipeline_spec::read_spec(std::path::Path::new(path))?;
-                    let recipe = codeterm_types::blueprint_recipe::Recipe::parse(&raw)?;
+                    let recipe = codeterm_blueprint_types::blueprint_recipe::Recipe::parse(&raw)?;
                     let bound = recipe.bind(&set)?;
                     if dry_run {
                         if let Some(create) = bound.get("create") {
@@ -611,7 +611,7 @@ fn request(
             };
             if text.is_empty()
                 || text.contains('\0')
-                || text.len() > codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES
+                || text.len() > codeterm_blueprint_types::blueprint_terminal::MAX_PAYLOAD_BYTES
             {
                 return Err("blueprint text must contain 1..32768 UTF-8 bytes".into());
             }
@@ -699,7 +699,7 @@ fn observation_binding(source: &str) -> Result<Value, String> {
 
 /// `Input: audio file quick-brown-fox.wav → text`; inline text is never rendered.
 fn input_source_line(value: &Value) -> Option<String> {
-    use codeterm_types::sentinel_input::{display_name, DataRef, InputSpec};
+    use codeterm_blueprint_types::sentinel_input::{display_name, DataRef, InputSpec};
     let spec: InputSpec = serde_json::from_value(value.get("input")?.clone()).ok()?;
     let ref_type = match &spec.data {
         DataRef::Text(_) => "text",
@@ -751,7 +751,7 @@ fn input_payload(
     convert_to: Option<String>,
     convert_timeout: Option<u64>,
 ) -> Result<Value, String> {
-    use codeterm_types::sentinel_input::{DataRef, InputSpec, MediaKind};
+    use codeterm_blueprint_types::sentinel_input::{DataRef, InputSpec, MediaKind};
     let Some(kind) = kind else {
         if file.is_some()
             || url.is_some()
@@ -784,7 +784,8 @@ fn input_payload(
         convert_to,
         convert_timeout_ms: convert_timeout,
     };
-    codeterm_types::sentinel_input::validate(&spec).map_err(|error| format!("--input: {error}"))?;
+    codeterm_blueprint_types::sentinel_input::validate(&spec)
+        .map_err(|error| format!("--input: {error}"))?;
     serde_json::to_value(&spec).map_err(|error| error.to_string())
 }
 

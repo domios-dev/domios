@@ -209,7 +209,7 @@ pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
         return json!({"type":"pipeline"});
     }
     if let Some(input) = &job.input().cloned() {
-        use codeterm_types::sentinel_input::DataRef;
+        use codeterm_blueprint_types::sentinel_input::DataRef;
         let ref_type = match &input.data {
             DataRef::Text(_) => "text",
             DataRef::File(_) => "file",
@@ -219,13 +219,13 @@ pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
             "type": "input",
             "kind": input.kind.as_str(),
             "ref_type": ref_type,
-            "display_name": codeterm_types::sentinel_input::display_name(&input.data),
+            "display_name": codeterm_blueprint_types::sentinel_input::display_name(&input.data),
             "convert_to": input.convert_to.map(|kind| kind.as_str()),
         });
     }
     if let Some(binding) = &job.observe().cloned() {
         if let Some(terminal) = &job.terminal().cloned() {
-            return json!({"type":"terminal","kind":"tab","pattern":terminal.pattern,"idle_ms":terminal.idle_ms,"max_payload_bytes":codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES});
+            return json!({"type":"terminal","kind":"tab","pattern":terminal.pattern,"idle_ms":terminal.idle_ms,"max_payload_bytes":codeterm_blueprint_types::blueprint_terminal::MAX_PAYLOAD_BYTES});
         }
         let kind = match binding {
             TabBinding::Tab(_) => "tab",
@@ -552,7 +552,7 @@ pub fn project(
         let last_result = last.map(|t| { let mut result = json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}); detail::project_decision(&mut result, t.decision.as_ref()); result });
         let history = history::project(job, &mut history_budget);
         let history_truncated = history.len() < job.transitions.len();
-        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"conversation":{"enabled":job.session,"exchanges":super::session::usage(jobs,job,now_ms).exchanges,"actions":super::session::usage(jobs,job,now_ms).actions,"safety_limit":codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT,"rate_limit_per_minute":codeterm_types::blueprint_terminal::SESSION_RATE_LIMIT},"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"history":history,"history_truncated":history_truncated,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"blueprint_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
+        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"conversation":{"enabled":job.session,"exchanges":super::session::usage(jobs,job,now_ms).exchanges,"actions":super::session::usage(jobs,job,now_ms).actions,"safety_limit":codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT,"rate_limit_per_minute":codeterm_blueprint_types::blueprint_terminal::SESSION_RATE_LIMIT},"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"history":history,"history_truncated":history_truncated,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"blueprint_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
     }
     let nodes: Vec<_> = nodes.into_values().collect();
     let runs = runs::project(&nodes, jobs, now_ms, live_leases);

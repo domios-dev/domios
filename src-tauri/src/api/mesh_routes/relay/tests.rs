@@ -912,7 +912,7 @@ fn an_abandoned_forward_is_unknown_and_an_unreachable_one_wrote_nothing() {
     assert!(!abandoned.ok);
     assert_eq!(
         error.get("code").and_then(|v| v.as_str()),
-        Some(codeterm_types::mesh::delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED)
+        Some(codeterm_mesh::contract::delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED)
     );
     assert!(
         error.get("bytes_written").is_none(),
@@ -931,7 +931,7 @@ fn an_abandoned_forward_is_unknown_and_an_unreachable_one_wrote_nothing() {
         .expect("error object");
     assert_eq!(
         error.get("code").and_then(|v| v.as_str()),
-        Some(codeterm_types::mesh::delivery::PEER_LOCAL_API_UNREACHABLE)
+        Some(codeterm_mesh::contract::delivery::PEER_LOCAL_API_UNREACHABLE)
     );
     assert_eq!(
         error.get("bytes_written").and_then(|v| v.as_bool()),
@@ -948,25 +948,25 @@ fn locally_generated_relay_refusals_carry_a_code_not_a_bare_status() {
     let cases = [
         (
             saturated_response(),
-            codeterm_types::mesh::delivery::MESH_DELIVERY_WINDOW_SATURATED,
+            codeterm_mesh::contract::delivery::MESH_DELIVERY_WINDOW_SATURATED,
         ),
         (
             relay_failure(
                 403,
-                codeterm_types::mesh::delivery::PEER_RELAY_NOT_AUTHORIZED,
+                codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
                 Some(false),
                 "not authorized".into(),
             ),
-            codeterm_types::mesh::delivery::PEER_RELAY_NOT_AUTHORIZED,
+            codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
         ),
         (
             relay_failure(
                 426,
-                codeterm_types::mesh::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
+                codeterm_mesh::contract::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
                 Some(false),
                 "protocol mismatch".into(),
             ),
-            codeterm_types::mesh::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
+            codeterm_mesh::contract::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
         ),
     ];
     for (response, code) in cases {
@@ -1072,12 +1072,12 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
     for (response, code, bytes_written) in [
         (
             &nothing_sent,
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_NOTHING_SENT,
+            codeterm_mesh::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
             Some(false),
         ),
         (
             &submit_unconfirmed,
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
+            codeterm_mesh::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
             None,
         ),
     ] {
@@ -1123,7 +1123,7 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
 /// by the sender hop gaining its own classification.
 #[test]
 fn receiving_classification_still_leads_with_the_delivery_code() {
-    use codeterm_types::mesh::delivery;
+    use codeterm_mesh::contract::delivery;
 
     let submit_unconfirmed = crate::service::delivery_error::DeliveryError::SubmitUnconfirmed {
         tab: "53854ac8".into(),
@@ -1153,7 +1153,7 @@ fn receiving_classification_still_leads_with_the_delivery_code() {
 #[test]
 fn shared_delivery_constants_match_the_delivery_error_taxonomy() {
     use crate::service::delivery_error::DeliveryError;
-    use codeterm_types::mesh::delivery;
+    use codeterm_mesh::contract::delivery;
 
     let tab = || "e35319d7".to_string();
     let detail = || String::new();

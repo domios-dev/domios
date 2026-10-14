@@ -84,7 +84,7 @@ pub struct RichMessage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub background_work: Vec<super::background_work::BackgroundWorkObservation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_observations: Option<super::provider_signals::SessionObservations>,
+    pub provider_observations: Option<codeterm_provider_signals::SessionObservations>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_usage: Option<super::context::TurnContext>,
     /// Free-form role string. Common values: "user", "assistant",

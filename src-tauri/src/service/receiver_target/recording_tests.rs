@@ -1,5 +1,5 @@
 use super::tests::scene;
-use codeterm_types::local_recording::LocalRecordingTrigger;
+use codeterm_local_recording::LocalRecordingTrigger;
 
 #[test]
 fn lark_recording_contract_local_recipient_without_webhook_and_closed_choice_tombstone() {

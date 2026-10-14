@@ -1,8 +1,8 @@
 //! Notification creation with OS toast support.
 
 #[cfg(test)]
-use codeterm_types::notification::NotificationAction;
-use codeterm_types::notification::{adopt_caller_actions, CallerAction};
+use codeterm_notification_core::contract::NotificationAction;
+use codeterm_notification_core::contract::{adopt_caller_actions, CallerAction};
 
 use super::ServiceContext;
 use crate::notification::{

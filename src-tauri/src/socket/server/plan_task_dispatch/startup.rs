@@ -1,11 +1,7 @@
-use crate::app_runtime::AppHandle;
 use serde_json::Value;
 use std::time::Instant;
 
-use crate::plan::{Task, TaskLaneMetadata};
-use crate::service::{
-    verify_worker_lane, LaneProtection, ProvisionedWorkerLane, ServiceState, WorkerLaneProvenance,
-};
+use crate::service::{verify_worker_lane, WorkerLaneProvenance};
 
 use super::{
     arm_worker_ack_deadline, atomic_lane_commitment, await_agent_ready, cleanup_succeeded,
@@ -16,25 +12,7 @@ use super::{
     wait_for_tab_session, DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure,
     JsonRpcError, DISPATCH_READY_TIMEOUT,
 };
-pub(crate) struct DispatchStartup {
-    pub(crate) app: AppHandle,
-    pub(crate) svc: ServiceState,
-    pub(crate) plan_id: String,
-    pub(crate) task_id: String,
-    pub(crate) tab_id: String,
-    pub(crate) startup_attempt_id: String,
-    pub(crate) attempt_id: String,
-    pub(crate) parent_tab_id: String,
-    pub(crate) worker_title: String,
-    pub(crate) original_task: Task,
-    pub(crate) original_plan_mode: crate::plan::PlanMode,
-    pub(crate) lane_for_commit: TaskLaneMetadata,
-    pub(crate) canonical_project_path: String,
-    pub(crate) provenance: Option<WorkerLaneProvenance>,
-    pub(crate) provisioned_lane: Option<ProvisionedWorkerLane>,
-    pub(crate) lane_protection: LaneProtection,
-    pub(crate) spawn_command: String,
-}
+pub(crate) use crate::rpc_bridge::DispatchStartup;
 
 impl DispatchStartup {
     pub(crate) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {

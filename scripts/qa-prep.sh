@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh gateway-policy-probe/qa-prep; CI build-gateway.yml; scripts check-build-gateway-policy.sh
 # qa-prep: one command that makes an isolated worktree dev-runnable.
 #
 # Stages:

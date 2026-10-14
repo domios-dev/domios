@@ -1,3 +1,4 @@
+// Caller: package.json script
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertReusableDevConsole, killDevConsole, assertDevConsoleStopped } from "../tests/playwright/helpers/dev-console";

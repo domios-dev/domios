@@ -38,8 +38,8 @@ pub fn account_state(response: &Value) -> AuthState {
 pub(super) fn session_observation(
     method: &str,
     params: &Value,
-) -> Option<codeterm_types::agent::provider_signals::SessionObservations> {
-    use codeterm_types::agent::provider_signals::{ApiErrorKind, SessionObservations};
+) -> Option<codeterm_provider_signals::SessionObservations> {
+    use codeterm_provider_signals::{ApiErrorKind, SessionObservations};
     let error = match method {
         "error" => params.get("error"),
         "turn/completed" if params["turn"]["status"] == "failed" => params["turn"].get("error"),
@@ -82,7 +82,7 @@ mod tests {
     use serde_json::json;
     #[test]
     fn codex_rpc_access_errors_are_structural_and_clear_only_on_success() {
-        use codeterm_types::agent::provider_signals::ApiErrorKind;
+        use codeterm_provider_signals::ApiErrorKind;
         for (error, expected) in [
             (
                 json!({"codexErrorInfo":"authError"}),

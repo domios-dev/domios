@@ -77,7 +77,7 @@ fn manifest_unknown_capability_is_ignored_and_known_ones_load() {
     assert!(manifest.capabilities.decision_model.enabled);
     assert_eq!(
         manifest.capabilities.decision_model.token_mode,
-        codeterm_types::decision::TokenMode::Optional
+        codeterm_decision::TokenMode::Optional
     );
     assert_eq!(
         manifest

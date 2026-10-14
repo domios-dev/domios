@@ -1,3 +1,4 @@
+// Caller: package.json script
 import { execFileSync } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import path from "node:path";

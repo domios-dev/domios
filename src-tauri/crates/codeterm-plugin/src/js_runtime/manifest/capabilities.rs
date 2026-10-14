@@ -4,7 +4,7 @@ use super::graph_nodes::GraphNodesCap;
 use super::surfaces::SurfaceDecl;
 use super::tab_menu::TabMenuItem;
 use crate::provider::ContextOwner;
-use codeterm_types::decision::TokenMode;
+use codeterm_decision::TokenMode;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatPreprocessorCap {
@@ -410,9 +410,9 @@ pub struct Capabilities {
     #[serde(default)]
     pub webhook_receiver: Option<WebhookReceiverCap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub local_recording_trigger: Option<codeterm_types::local_recording::LocalRecordingTrigger>,
+    pub local_recording_trigger: Option<codeterm_local_recording::LocalRecordingTrigger>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub receiver_status_query: Option<codeterm_types::local_recording::ReceiverStatusQuery>,
+    pub receiver_status_query: Option<codeterm_local_recording::ReceiverStatusQuery>,
     /// Items the host renders in every tab's kebab menu; each action is host-owned.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tab_menu: Vec<TabMenuItem>,

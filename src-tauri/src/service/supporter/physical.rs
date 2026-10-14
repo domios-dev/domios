@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use codeterm_types::decision::{deadline, physical, DecisionError};
+use codeterm_decision::{deadline, physical, DecisionError};
 use parking_lot::Mutex;
 
 use super::{SupporterRuntime, VerdictKind};

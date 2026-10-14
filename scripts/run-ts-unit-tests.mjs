@@ -1,3 +1,4 @@
+// Caller: build.sh release-preflight; CI frontend-release.yml, tests.yml; package.json script; scripts affected-tests.mjs, aiderrun/RECIPE.md, aiderrun/lane-check.test.ts; skill build
 import { spawn } from "node:child_process";
 import {
   closeSync,

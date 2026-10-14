@@ -1,3 +1,4 @@
+// Caller: scripts cache-policy.sh, check-build-gateway-policy.sh, tests/sccache-server-probe.test.mjs
 import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 

@@ -23,7 +23,7 @@ pub struct ExportBody {
 #[serde(deny_unknown_fields)]
 pub struct ImportBody {
     caller_tab_id: String,
-    recipe: codeterm_types::blueprint_recipe::Recipe,
+    recipe: codeterm_blueprint_types::blueprint_recipe::Recipe,
     assignments: Vec<String>,
 }
 
@@ -42,7 +42,7 @@ pub async fn export(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<ExportBody>,
-) -> Result<Json<codeterm_types::blueprint_recipe::Recipe>, (StatusCode, String)> {
+) -> Result<Json<codeterm_blueprint_types::blueprint_recipe::Recipe>, (StatusCode, String)> {
     host_access(&state, &headers)?;
     let team = crate::service::sentinel::graph::explicit_team(&body.team_id)
         .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
