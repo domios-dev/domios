@@ -86,6 +86,7 @@ impl ChatSendLedger {
         status.error = None;
         status.pending_reason = None;
         let status = status.clone();
+        self.arm_written_deadline(&mut state, send_id);
         Some(Self::with_retention_window(&state, status))
     }
 
@@ -126,6 +127,7 @@ impl ChatSendLedger {
         status.error = None;
         status.pending_reason = None;
         let status = status.clone();
+        state.written_deadlines.remove(send_id);
         let status = Self::with_retention_window(&state, status);
         drop(state);
         self.wake_owner(&status.tab_id);
