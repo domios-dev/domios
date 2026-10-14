@@ -1010,7 +1010,7 @@ pub async fn task_respawn(
     let verify_canonical_cwd = canonical_cwd.clone();
     let verify_task = original_task.clone();
     let provenance = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::plan::respawn_lane::verify_respawn_lane(
+        codeterm_service_core::service::plan::respawn_lane_verify_respawn_lane(
             &verify_canonical_cwd,
             &verify_task,
             &verify_draft,

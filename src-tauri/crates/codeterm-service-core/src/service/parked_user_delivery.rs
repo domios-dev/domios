@@ -937,4 +937,4 @@ impl super::ServiceContext {
 mod bootstrap;
 mod degraded;
 #[cfg(test)]
-pub(crate) mod tests;
+pub mod tests;

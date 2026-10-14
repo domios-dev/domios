@@ -144,7 +144,7 @@ pub async fn close_team(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(team_id): Path<String>,
-    codeterm_service_core::api_support::optional_json::OptionalJson(body): codeterm_service_core::api_support::optional_json::OptionalJson<
+    codeterm_service_core::api_support::OptionalJson(body): codeterm_service_core::api_support::OptionalJson<
         CloseTeamBody,
     >,
 ) -> Result<Json<codeterm_service_core::service::TeamCloseResult>, (StatusCode, String)> {

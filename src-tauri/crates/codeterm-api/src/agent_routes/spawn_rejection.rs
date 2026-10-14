@@ -83,8 +83,8 @@ pub(crate) async fn await_spawn_launch(
     .map_err(SpawnRejection::from)
 }
 
-impl From<codeterm_service_core::service::spawn_cwd::CwdRefusal> for SpawnRejection {
-    fn from(error: codeterm_service_core::service::spawn_cwd::CwdRefusal) -> Self {
+impl From<codeterm_service_core::service::CwdRefusal> for SpawnRejection {
+    fn from(error: codeterm_service_core::service::CwdRefusal) -> Self {
         Self {
             status: StatusCode::UNPROCESSABLE_ENTITY,
             body: serde_json::json!({"ok": false, "error": error.data()}),

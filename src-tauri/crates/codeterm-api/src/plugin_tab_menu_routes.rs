@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::service::receiver_target::ReceiverTargetError;
+use codeterm_service_core::service::ReceiverTargetError;
 use codeterm_service_core::service::{ServiceContext, ServiceState};
 
 type Refusal = (StatusCode, Json<Value>);

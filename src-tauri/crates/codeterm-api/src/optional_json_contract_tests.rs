@@ -7,7 +7,7 @@ mod tests {
     };
     use tower::ServiceExt;
 
-    use codeterm_service_core::api_support::optional_json::OptionalJson;
+    use codeterm_service_core::api_support::OptionalJson;
 
     async fn optional_body<T>(OptionalJson(body): OptionalJson<T>) -> StatusCode {
         if body.is_some() {

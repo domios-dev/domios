@@ -2,9 +2,7 @@ use super::ServiceContext;
 use crate::service::session_model::clear_runtime_model_evidence;
 
 #[cfg(test)]
-pub(crate) fn clear_agent_identity_for_lifecycle_exit(
-    tab: &mut crate::multiplexer::types::Tab,
-) -> bool {
+pub fn clear_agent_identity_for_lifecycle_exit(tab: &mut crate::multiplexer::types::Tab) -> bool {
     let prompt_identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
     clear_agent_identity_after_prompt_clear(tab, prompt_identity.is_some())
 }

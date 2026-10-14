@@ -11,47 +11,44 @@ use crate::service::{LaneProtection, ProvisionedWorkerLane, ServiceState, Worker
 use crate::{OutputBufferState, PtyState};
 
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct RpcError {
-    pub(crate) code: i32,
-    pub(crate) message: String,
+pub struct RpcError {
+    pub code: i32,
+    pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) data: Option<Value>,
+    pub data: Option<Value>,
 }
 
-pub(crate) struct DispatchStartup {
-    pub(crate) app: AppHandle,
-    pub(crate) svc: ServiceState,
-    pub(crate) plan_id: String,
-    pub(crate) task_id: String,
-    pub(crate) tab_id: String,
-    pub(crate) startup_attempt_id: String,
-    pub(crate) attempt_id: String,
-    pub(crate) parent_tab_id: String,
-    pub(crate) worker_title: String,
+pub struct DispatchStartup {
+    pub app: AppHandle,
+    pub svc: ServiceState,
+    pub plan_id: String,
+    pub task_id: String,
+    pub tab_id: String,
+    pub startup_attempt_id: String,
+    pub attempt_id: String,
+    pub parent_tab_id: String,
+    pub worker_title: String,
     pub(crate) original_task: Task,
     pub(crate) original_plan_mode: PlanMode,
     pub(crate) lane_for_commit: TaskLaneMetadata,
-    pub(crate) canonical_project_path: String,
-    pub(crate) provenance: Option<WorkerLaneProvenance>,
-    pub(crate) provisioned_lane: Option<ProvisionedWorkerLane>,
+    pub canonical_project_path: String,
+    pub provenance: Option<WorkerLaneProvenance>,
+    pub provisioned_lane: Option<ProvisionedWorkerLane>,
     pub(crate) lane_protection: LaneProtection,
-    pub(crate) spawn_command: String,
+    pub spawn_command: String,
 }
 
-pub(crate) type StartupReady = tokio::sync::oneshot::Receiver<Result<(), String>>;
+pub type StartupReady = tokio::sync::oneshot::Receiver<Result<(), String>>;
 
 /// Socket-owned RPC entry points, registered once at startup so HTTP routes never name socket internals.
-pub(crate) struct RpcBridge {
+pub struct RpcBridge {
     #[cfg(test)]
-    pub(crate) protocol_version: fn() -> u64,
-    pub(crate) version_skew_gate: fn(Option<&Value>) -> Option<RpcError>,
-    pub(crate) dispatch_service_rpc:
-        fn(&str, Option<Value>, &ServiceState) -> Result<Value, RpcError>,
-    pub(crate) dispatch_mesh_rpc:
-        fn(&str, Option<Value>, &ServiceState, &str) -> Result<Value, RpcError>,
-    pub(crate) recover_remote_attempts:
-        fn(&ServiceState, &str, &str, u64, bool) -> Result<(), RpcError>,
-    pub(crate) respawn_remote: fn(
+    pub protocol_version: fn() -> u64,
+    pub version_skew_gate: fn(Option<&Value>) -> Option<RpcError>,
+    pub dispatch_service_rpc: fn(&str, Option<Value>, &ServiceState) -> Result<Value, RpcError>,
+    pub dispatch_mesh_rpc: fn(&str, Option<Value>, &ServiceState, &str) -> Result<Value, RpcError>,
+    pub recover_remote_attempts: fn(&ServiceState, &str, &str, u64, bool) -> Result<(), RpcError>,
+    pub respawn_remote: fn(
         &Option<Value>,
         &AppHandle,
         &ServiceState,
@@ -60,7 +57,7 @@ pub(crate) struct RpcBridge {
         &TaskExecutionAttempt,
         u64,
     ) -> Result<Value, RpcError>,
-    pub(crate) run_dispatch_startup: fn(DispatchStartup, StartupReady),
+    pub run_dispatch_startup: fn(DispatchStartup, StartupReady),
     pub(crate) start_server: fn(
         MuxState,
         PtyState,
@@ -73,11 +70,11 @@ pub(crate) struct RpcBridge {
 
 static BRIDGE: OnceLock<RpcBridge> = OnceLock::new();
 
-pub(crate) fn register(bridge: RpcBridge) {
+pub fn register(bridge: RpcBridge) {
     let _ = BRIDGE.set(bridge);
 }
 
-pub(crate) fn bridge() -> &'static RpcBridge {
+pub fn bridge() -> &'static RpcBridge {
     #[cfg(test)]
     crate::socket::register_rpc_bridge();
     BRIDGE
@@ -85,7 +82,7 @@ pub(crate) fn bridge() -> &'static RpcBridge {
         .expect("rpc bridge is registered before any RPC route is served")
 }
 
-pub(crate) const REMOTE_TASK_DISPATCH_FEATURE: &str = "remote_task_dispatch";
+pub const REMOTE_TASK_DISPATCH_FEATURE: &str = "remote_task_dispatch";
 
 #[cfg(test)]
 mod tests {

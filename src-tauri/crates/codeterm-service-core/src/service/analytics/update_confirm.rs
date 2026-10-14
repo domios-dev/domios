@@ -1,6 +1,6 @@
 use codeterm_analytics::{Event, UpdateKind, Worker};
 use std::path::Path;
-pub(crate) fn stage(path: &Path, target: &str) -> Result<(), String> {
+pub fn stage(path: &Path, target: &str) -> Result<(), String> {
     if target == env!("CARGO_PKG_VERSION") {
         return Ok(());
     }

@@ -2,7 +2,7 @@ use super::{AgentRestartError, RestartAttemptError, RestartMode, RestartOutcome}
 use crate::service::ServiceContext;
 
 #[derive(Default)]
-pub(crate) struct RestartOptions {
+pub struct RestartOptions {
     pub force: bool,
     pub grace_secs: u64,
     pub target_provider: Option<String>,

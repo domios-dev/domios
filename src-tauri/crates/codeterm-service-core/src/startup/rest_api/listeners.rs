@@ -25,15 +25,15 @@ impl ListenerPublication {
         state.observer = Some(observer);
     }
 
-    pub(crate) fn remote_bind(&self) -> Option<SocketAddr> {
+    pub fn remote_bind(&self) -> Option<SocketAddr> {
         self.state.lock().remote_bind
     }
 
-    pub(crate) fn ready(&self) -> Vec<SocketAddr> {
+    pub fn ready(&self) -> Vec<SocketAddr> {
         self.state.lock().ready.clone()
     }
 
-    pub(crate) fn publish(&self, ready: Vec<SocketAddr>) {
+    pub fn publish(&self, ready: Vec<SocketAddr>) {
         self.update_ready(move |state| {
             state.ready = ready;
             state.suspended.clear();

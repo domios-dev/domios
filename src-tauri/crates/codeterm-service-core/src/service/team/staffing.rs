@@ -105,7 +105,7 @@ pub(crate) struct PlanTakeover {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub(crate) struct AddTeamMemberResult {
+pub struct AddTeamMemberResult {
     pub tab_id: String,
     pub team: Team,
     pub role_type: String,

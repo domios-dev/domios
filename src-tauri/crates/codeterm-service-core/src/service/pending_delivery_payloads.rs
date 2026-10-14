@@ -7,7 +7,7 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 pub(crate) mod agent_deliveries;
-pub(crate) mod user_sends;
+pub mod user_sends;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PayloadStoreError {

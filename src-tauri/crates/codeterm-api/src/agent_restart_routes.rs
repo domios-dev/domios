@@ -7,7 +7,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, resolve_tab, AppState};
-use codeterm_service_core::api_support::optional_json::OptionalJson;
+use codeterm_service_core::api_support::OptionalJson;
 
 #[derive(Deserialize)]
 pub(crate) struct AgentRestartBody {

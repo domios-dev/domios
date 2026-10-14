@@ -57,7 +57,7 @@ pub(crate) struct SpawnInput<'a> {
     pub task_needs_fallback: bool,
 }
 
-pub(crate) fn prepare_spawn_input<'a>(
+pub fn prepare_spawn_input<'a>(
     provider: Option<&dyn AgentProvider>,
     role: Option<&str>,
     task: Option<&'a str>,

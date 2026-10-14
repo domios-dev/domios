@@ -33,7 +33,7 @@ impl DeadlineModel {
     }
 }
 
-pub(crate) fn parse_timeout(value: &str) -> Result<Option<u64>, String> {
+pub fn parse_timeout(value: &str) -> Result<Option<u64>, String> {
     if value == "none" {
         return Ok(None);
     }

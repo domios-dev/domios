@@ -48,7 +48,7 @@ struct StagedTeamClose {
 }
 
 #[cfg(test)]
-pub(crate) fn close_team_with_state_change(
+pub fn close_team_with_state_change(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
     plan_store: &PlanStore,

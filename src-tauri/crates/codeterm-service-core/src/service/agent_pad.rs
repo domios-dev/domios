@@ -246,7 +246,7 @@ pub(crate) fn restore(
 }
 
 impl super::ServiceContext {
-    pub(crate) fn prepare_chat_send_text(
+    pub fn prepare_chat_send_text(
         &self,
         tab_id: &str,
         text: String,
@@ -270,7 +270,7 @@ impl super::ServiceContext {
         restore(&self.agent_pad_data_dir, tab_id, role)
     }
 
-    pub(crate) fn substitute_paste_limited_body(
+    pub fn substitute_paste_limited_body(
         &self,
         tab_id: &str,
         body: String,

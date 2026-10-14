@@ -132,7 +132,7 @@ async fn inject_paced(
                 .await;
             }
             CastEvent::Resize { cols, rows, .. } if apply_resize => {
-                let _ = codeterm_service_core::service::pty_resize::resize(
+                let _ = codeterm_service_core::service::pty_resize_resize(
                     &state.svc.pty,
                     &state.svc.screen_state,
                     &pty_id,

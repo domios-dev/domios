@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use crate::routes::{check_auth, resolve_tab, AppState};
 use codeterm_service_core::agent::provider::{HookEventBinding, HookIngestionRoute};
 use codeterm_service_core::agent::registry::AgentRegistry;
-use codeterm_service_core::api_support::optional_json::OptionalJson;
+use codeterm_service_core::api_support::OptionalJson;
 
 pub(crate) mod context_feed;
 mod hook_authority;

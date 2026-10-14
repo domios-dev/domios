@@ -536,10 +536,7 @@ impl ServiceContext {
             .collect()
     }
 
-    pub(crate) fn plan_pause_preview(
-        &self,
-        plan_id: &str,
-    ) -> Result<PlanLifecyclePreview, TeamPlanError> {
+    pub fn plan_pause_preview(&self, plan_id: &str) -> Result<PlanLifecyclePreview, TeamPlanError> {
         let plan = self.lifecycle_plan(plan_id)?;
         let agents = {
             let mux = self.mux.read();
@@ -549,7 +546,7 @@ impl ServiceContext {
         Ok(pause_preview(&plan, &agents, &schedules))
     }
 
-    pub(crate) fn plan_resume_preview(
+    pub fn plan_resume_preview(
         &self,
         plan_id: &str,
     ) -> Result<PlanLifecyclePreview, TeamPlanError> {
@@ -558,7 +555,7 @@ impl ServiceContext {
         Ok(resume_preview(&plan, |agent| live.contains(&agent.tab_id)))
     }
 
-    pub(crate) fn pause_plan_operation(
+    pub fn pause_plan_operation(
         &self,
         plan_id: &str,
         reason: &str,
@@ -591,7 +588,7 @@ impl ServiceContext {
         Ok(outcome)
     }
 
-    pub(crate) fn resume_plan_operation(
+    pub fn resume_plan_operation(
         &self,
         plan_id: &str,
         now_ms: u64,

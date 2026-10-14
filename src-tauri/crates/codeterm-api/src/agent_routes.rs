@@ -27,7 +27,7 @@ pub(crate) use spawn_rejection::SpawnRejection;
 
 const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
 
-use codeterm_service_core::provider::values::list_agent_provider_values;
+use codeterm_service_core::provider::values_list_agent_provider_values;
 
 #[derive(Deserialize)]
 pub(crate) struct SpawnAgentBody {
@@ -221,7 +221,7 @@ pub async fn spawn_agent(
         status: s,
         body: serde_json::json!({"ok": false, "error": {"code": "unauthorized", "message": m.to_string()}}),
     })?;
-    codeterm_service_core::service::spawn_title::validate_agent_tab_title(
+    codeterm_service_core::service::spawn_title_validate_agent_tab_title(
         body.title.as_deref(),
         body.agent_name.as_deref(),
     )

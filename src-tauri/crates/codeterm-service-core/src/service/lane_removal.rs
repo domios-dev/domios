@@ -35,7 +35,7 @@ pub(crate) struct LaneRemovalOutcome {
 }
 
 #[derive(Debug)]
-pub(crate) enum CleanupStatusDoneError {
+pub enum CleanupStatusDoneError {
     Refused(String),
     Verification(String),
 }
@@ -826,7 +826,7 @@ pub(crate) fn finalize_lane_removal(
     clear_removed_task_lane_references(store, outcome)
 }
 
-pub(crate) fn clear_vanished_lane_on_cleanup_done(
+pub fn clear_vanished_lane_on_cleanup_done(
     store: &PlanStore,
     plan_id: &str,
     task_id: &str,

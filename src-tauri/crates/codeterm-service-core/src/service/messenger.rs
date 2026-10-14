@@ -71,7 +71,7 @@ pub(crate) enum DeliveryWriteObserver {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "transport", rename_all = "snake_case")]
-pub(crate) enum QueuedAgentPayload {
+pub enum QueuedAgentPayload {
     Text {
         text: String,
     },
@@ -83,7 +83,7 @@ pub(crate) enum QueuedAgentPayload {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct AgentDeliveryPayload {
+pub struct AgentDeliveryPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) trace_id: Option<String>,
     pub(crate) transport: QueuedAgentPayload,

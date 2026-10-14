@@ -2,7 +2,7 @@ use crate::plugin::WebhookReceiverKind;
 use serde_json::Value;
 
 /// Shared by the Tauri command and the web-mirror REST route.
-pub(crate) async fn glance_render(
+pub async fn glance_render(
     registry: &crate::glance::GlanceRegistry,
     plugin_id: &str,
     action: Option<&str>,
@@ -20,7 +20,7 @@ pub(crate) async fn glance_render(
 }
 
 /// Shared by the Tauri command and the web-mirror REST route.
-pub(crate) async fn bubble_poll(
+pub async fn bubble_poll(
     registry: &crate::bubble::BubbleRegistry,
     plugin_id: &str,
     ctx: Value,
@@ -33,7 +33,7 @@ pub(crate) async fn bubble_poll(
 }
 
 /// Shared by the Tauri command and the web-mirror REST route.
-pub(crate) async fn view_call(
+pub async fn view_call(
     svc: &crate::service::ServiceState,
     plugin_id: &str,
     method: &str,

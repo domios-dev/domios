@@ -1,6 +1,6 @@
 // App restart hands its successor these stdio handles; a launcher pipe that closes with the
 // predecessor makes any later stderr print panic inside the successor.
-pub(crate) fn detach_for_restart() {
+pub fn detach_for_restart() {
     #[cfg(unix)]
     {
         // SAFETY: plain fd syscalls on a freshly opened descriptor; failures leave stdio as is.

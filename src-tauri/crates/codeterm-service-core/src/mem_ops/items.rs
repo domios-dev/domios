@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 use crate::mem::layers::WakeUpOptions;
 
-pub(crate) mod archive;
+pub mod archive;
 
 #[derive(Deserialize)]
 pub struct ActivityRecentParams {
@@ -18,7 +18,7 @@ pub struct PinnedListParams {
 }
 
 /// Bumps `evidence_count` for L1-selectable kinds (skill|lesson|rule|fact|preference); no-op otherwise. Caller decides whether to invoke.
-pub(crate) fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
+pub fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
     if !matches!(kind, "skill" | "lesson" | "rule" | "fact" | "preference") {
         return;
     }
@@ -27,7 +27,7 @@ pub(crate) fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
     }
 }
 
-pub(crate) fn save_schedules_extraction(
+pub fn save_schedules_extraction(
     outcome: &str,
     skip: bool,
     auto_extracted: bool,
@@ -85,7 +85,7 @@ pub struct UpdateBody {
 
 /// Shared field-level validation for a partial-update patch, used by both
 /// the HTTP and socket transports so the two can never drift.
-pub(crate) fn validate_update_body(body: &UpdateBody) -> Result<(), String> {
+pub fn validate_update_body(body: &UpdateBody) -> Result<(), String> {
     if let Some(ref t) = body.title {
         let tt = t.trim();
         if tt.is_empty() || tt.len() < 3 || tt.len() > 200 {
@@ -126,7 +126,7 @@ pub(crate) fn validate_update_body(body: &UpdateBody) -> Result<(), String> {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct WakeUpParams {
+pub struct WakeUpParams {
     #[serde(default)]
     pub budget: Option<usize>,
     #[serde(default)]
@@ -139,7 +139,7 @@ pub(crate) struct WakeUpParams {
     pub workspace: Option<String>,
 }
 
-pub(crate) fn wake_up_options_from_params(
+pub fn wake_up_options_from_params(
     default_l1_budget_tokens: usize,
     p: &WakeUpParams,
     caller_workspace: Option<String>,
@@ -207,7 +207,7 @@ pub struct CheckDuplicateBody {
 
 /// Join an existing body and appended text with a blank-line separator.
 /// Empty/whitespace-only bodies are replaced outright (no leading blank lines).
-pub(crate) fn compose_appended_body(old: &str, text: &str) -> String {
+pub fn compose_appended_body(old: &str, text: &str) -> String {
     if old.trim().is_empty() {
         text.to_string()
     } else {

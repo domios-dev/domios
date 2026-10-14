@@ -180,7 +180,7 @@ impl CaptureClips {
         paths
     }
 
-    pub(super) fn cleanup(paths: Vec<PathBuf>) {
+    pub fn cleanup(paths: Vec<PathBuf>) {
         for path in paths {
             if let Err(error) = std::fs::remove_file(&path) {
                 if error.kind() != std::io::ErrorKind::NotFound {

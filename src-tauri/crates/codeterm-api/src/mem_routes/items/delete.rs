@@ -73,7 +73,7 @@ async fn delete_item(
     id: String,
     changed_by: String,
 ) -> Result<bool, String> {
-    codeterm_service_core::service::blocking::run(move || {
+    codeterm_service_core::service::blocking_run(move || {
         codeterm_service_core::mem::store::with_changed_by(&changed_by, || mem.delete(&id))
     })
     .await
@@ -83,7 +83,7 @@ async fn delete_area(
     mem: std::sync::Arc<codeterm_service_core::mem::MemManager>,
     area: String,
 ) -> Result<codeterm_mem::AreaForgetOutcome, String> {
-    codeterm_service_core::service::blocking::run(move || mem.delete_by_area(&area)).await
+    codeterm_service_core::service::blocking_run(move || mem.delete_by_area(&area)).await
 }
 
 #[cfg(test)]

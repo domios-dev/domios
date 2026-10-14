@@ -58,7 +58,7 @@ fn preview_text(bytes: Vec<u8>) -> Result<String, String> {
         .map_err(|_| "Binary or non-UTF-8 file: text preview is unavailable".to_string())
 }
 
-pub(crate) fn read_local_preview_file_guarded(
+pub fn read_local_preview_file_guarded(
     path: &str,
     kind: &str,
     guard: impl Fn(&std::path::Path, Option<&std::path::Path>) -> Result<(), String>,
@@ -116,7 +116,7 @@ pub(crate) fn check_local_preview_files_guarded(
 mod tests;
 
 #[cfg(test)]
-pub(crate) fn preview_test_root(path: &std::path::Path) -> std::path::PathBuf {
+pub fn preview_test_root(path: &std::path::Path) -> std::path::PathBuf {
     let canonical = path.canonicalize().unwrap();
     let text = canonical.to_string_lossy();
     std::path::PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text))

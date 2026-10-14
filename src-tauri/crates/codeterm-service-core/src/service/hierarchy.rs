@@ -18,7 +18,7 @@ pub(crate) mod stalled_team;
 mod status;
 mod team_plan_creation;
 mod worker_handoff;
-pub(crate) use worker_handoff::WorkerTurnSignal;
+pub use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub(crate) use report_delivery::HierarchyReportDelivery;
@@ -26,7 +26,8 @@ pub(crate) use report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
 };
 pub use status::TabStatusInfo;
-pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
+pub use team_plan_creation::TeamPlanCaller;
+pub use team_plan_creation::TeamPlanCreationError;
 
 use planner_delivery::{epoch_ms, planner_rehydrate_payload, planner_request_payload};
 use report_persistence::{

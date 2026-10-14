@@ -1,5 +1,5 @@
 mod spawn_input;
-pub(crate) use spawn_input::prepare_spawn_input;
+pub use spawn_input::prepare_spawn_input;
 #[cfg(test)]
 pub(crate) use spawn_input::select_visible_spawn_task;
 

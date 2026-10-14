@@ -37,7 +37,7 @@ pub(crate) struct BatchRefusal {
 }
 
 impl BatchRefusal {
-    pub(crate) fn to_json(&self) -> Value {
+    pub fn to_json(&self) -> Value {
         json!({
             "type": STALE_TASK_BINDING_TYPE,
             "attempted_by_tab": self.attempting_tab,
@@ -47,7 +47,7 @@ impl BatchRefusal {
     }
 }
 
-pub(crate) enum BatchWriteError {
+pub enum BatchWriteError {
     Refused(BatchRefusal),
     Plan(PlanError),
 }
@@ -74,7 +74,7 @@ pub(crate) fn apply_batch_from_socket(
 
 /// `POST /api/plans/{id}/batch` carries it in the JSON body instead. `check_auth`
 /// upstream proves the client is permitted, which is a different question.
-pub(crate) fn apply_batch_from_http(
+pub fn apply_batch_from_http(
     store: &PlanStore,
     plan_id: &str,
     body: &Value,

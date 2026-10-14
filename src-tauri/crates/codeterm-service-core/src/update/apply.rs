@@ -58,7 +58,7 @@ pub struct ApplyOptions {
     pub initiating_tab_id: Option<String>,
 }
 
-pub(crate) fn begin_apply(update_state: &std::sync::Arc<parking_lot::Mutex<UpdateState>>) {
+pub fn begin_apply(update_state: &std::sync::Arc<parking_lot::Mutex<UpdateState>>) {
     let mut us = update_state.lock();
     us.set_phase(UpdatePhase::Checking);
     us.clear_error();

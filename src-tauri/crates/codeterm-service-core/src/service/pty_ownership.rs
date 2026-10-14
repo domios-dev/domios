@@ -113,7 +113,7 @@ impl PtyOwnership {
     }
 
     #[cfg(test)]
-    pub(crate) fn observe(&self, tab_id: &str, event: OwnershipEvent) {
+    pub fn observe(&self, tab_id: &str, event: OwnershipEvent) {
         let observer = self.observer.lock().clone();
         if let Some(observer) = observer {
             observer(tab_id, event);

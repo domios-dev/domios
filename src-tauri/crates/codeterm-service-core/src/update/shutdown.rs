@@ -151,7 +151,7 @@ fn pty_shutdown_disposition(count: usize, failures: Vec<String>) -> Result<usize
     }
 }
 
-pub(crate) fn persist_session(
+pub fn persist_session(
     app: &crate::app_runtime::AppHandle,
     svc: &ServiceState,
 ) -> Result<(), String> {

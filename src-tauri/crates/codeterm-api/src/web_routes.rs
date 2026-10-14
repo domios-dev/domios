@@ -1048,7 +1048,7 @@ pub async fn open_chat_backend_tab(
     codeterm_service_core::service::spawn::reject_direct_watcher_chatbackend_config(&config)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let svc = state.svc.clone();
-    let handle = codeterm_service_core::service::blocking::run(move || {
+    let handle = codeterm_service_core::service::blocking_run(move || {
         svc.spawn_tab(SpawnTabSpec {
             shell: None,
             workspace_id: req.workspace_id,

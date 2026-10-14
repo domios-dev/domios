@@ -10,11 +10,12 @@ pub mod tab_relink_signal;
 mod types;
 
 #[cfg(test)]
-pub(crate) use launch::launch_waits_for_first_turn_binding;
+pub use launch::arm_provider_session_for_test;
 #[cfg(test)]
-pub(crate) use launch::{
-    arm_provider_session_for_test, skip_local_worker_role, AgentRegistry, LaunchGeneration,
-};
+pub(crate) use launch::launch_waits_for_first_turn_binding;
+pub(crate) use launch::skip_local_worker_role;
+pub(crate) use launch::AgentRegistry;
+pub use launch::LaunchGeneration;
 pub(crate) use launch::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service, launch_agent_in_background,
@@ -23,16 +24,18 @@ pub(crate) use launch::{
 };
 #[cfg(test)]
 pub(crate) use prompt_compose::role_launch_task;
-pub(crate) use prompt_compose::{provider_launch_task, restorable_identity_task};
 #[cfg(test)]
-pub(crate) use prompt_compose::{role_onboarding_task, spawn_onboarding_task};
+pub(crate) use prompt_compose::role_onboarding_task;
+pub use prompt_compose::spawn_onboarding_task;
+pub(crate) use prompt_compose::{provider_launch_task, restorable_identity_task};
 pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};
 pub(crate) use spawn::{
     compose_runtime_system_prompt, ensure_tab_runtime_prompt,
     move_chatbackend_task_to_system_prompt, remote_task_binding_matches_authority, ROLE_AUTHORITY,
 };
+pub use types::RemoteTaskBinding;
+pub use types::TaskLaunchAuthority;
 pub use types::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult};
-pub(crate) use types::{RemoteTaskBinding, TaskLaunchAuthority};
 
 #[cfg(test)]
 mod tests;

@@ -79,7 +79,7 @@ pub(crate) fn arm_frontend_readiness() -> u64 {
     frontend_ready_signal().arm()
 }
 
-pub(crate) fn frontend_readiness_generation() -> u64 {
+pub fn frontend_readiness_generation() -> u64 {
     frontend_ready_signal().generation()
 }
 
@@ -87,7 +87,7 @@ pub(crate) fn observe_frontend_boot() -> u64 {
     frontend_ready_signal().observe_boot()
 }
 
-pub(crate) fn mark_frontend_ready(generation: u64) -> bool {
+pub fn mark_frontend_ready(generation: u64) -> bool {
     frontend_ready_signal().mark_ready(generation)
 }
 
