@@ -26,14 +26,14 @@ impl FragmentSource {
         !matches!(self, Self::Task)
     }
 
-    pub(crate) fn disk_path(&self) -> Option<&str> {
+    pub fn disk_path(&self) -> Option<&str> {
         match self {
             Self::Disk(path) => Some(path),
             _ => None,
         }
     }
 
-    pub(crate) fn label(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self {
             Self::Builtin => "builtin",
             Self::InheritedBase => "inherited_base",
@@ -62,7 +62,7 @@ pub(crate) struct RolePreset {
 impl RolePreset {
     /// The kind's full guidance: bundled or inherited base, then any disk
     /// overlay, then the task persona. Empty fragments never add a separator.
-    pub(crate) fn guidance(&self) -> String {
+    pub fn guidance(&self) -> String {
         self.join(|_| true)
     }
 

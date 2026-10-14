@@ -985,4 +985,4 @@ fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

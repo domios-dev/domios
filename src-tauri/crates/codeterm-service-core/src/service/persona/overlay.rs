@@ -126,7 +126,7 @@ impl OverlayCatalog {
         Self::default()
     }
 
-    pub(crate) fn kinds(&self) -> impl Iterator<Item = &OverlayKind> {
+    pub fn kinds(&self) -> impl Iterator<Item = &OverlayKind> {
         self.kinds.values()
     }
 

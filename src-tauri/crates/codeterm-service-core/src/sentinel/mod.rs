@@ -14,7 +14,7 @@ mod pipeline;
 mod probe_env;
 pub(crate) mod routes;
 pub(crate) mod run_binding;
-pub(crate) mod scheduler;
+pub mod scheduler;
 #[cfg(test)]
 mod session_tests;
 pub(crate) mod source;

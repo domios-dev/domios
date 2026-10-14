@@ -109,7 +109,7 @@ impl RunWatcherRegistry {
         }
     }
 
-    pub(super) fn request_runtime_cron_completion(
+    pub fn request_runtime_cron_completion(
         &self,
         svc: &ServiceContext,
         tab: &str,

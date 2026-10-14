@@ -25,7 +25,7 @@ pub use record::record;
 pub(super) use record::record_unconfirmed_failure_with;
 pub(super) use record::resolve_probe_result;
 use record::{record_failure, record_input_unavailable, record_unconfirmed_failure};
-mod text;
+pub mod text;
 
 use crate::cron::clock::SharedClock;
 use crate::service::{supporter, ServiceState};

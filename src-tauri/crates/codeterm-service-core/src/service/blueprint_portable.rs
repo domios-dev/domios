@@ -23,7 +23,7 @@ impl ServiceContext {
         self.blueprint_import(&caller, recipe, assignments, true)
     }
 
-    pub(crate) fn blueprint_export(
+    pub fn blueprint_export(
         &self,
         caller: &SentinelCaller,
         id: &str,

@@ -5,7 +5,7 @@ use crate::service::plan::task_attempts::{
 };
 
 impl WorkerAckRegistry {
-    fn with_current_task_launch_authority<T>(
+    pub fn with_current_task_launch_authority<T>(
         &self,
         tab_id: &str,
         use_authority: impl FnOnce(&StartupAuthority) -> Result<T, String>,
@@ -32,7 +32,7 @@ impl WorkerAckRegistry {
 }
 
 impl ServiceContext {
-    pub(crate) fn complete_acknowledged_dispatch_binding(
+    pub fn complete_acknowledged_dispatch_binding(
         &self,
         acknowledgement: &TaskAttemptAcknowledgement,
         nonce: &str,

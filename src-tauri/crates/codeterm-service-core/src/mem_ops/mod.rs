@@ -1,7 +1,7 @@
 //! Memory operations shared by the HTTP routes and the socket RPC surface.
 
 pub(crate) mod area_merge;
-pub(crate) mod calibration;
+pub mod calibration;
 pub(crate) mod dream;
 pub(crate) mod graph;
 pub(crate) mod items;

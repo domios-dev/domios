@@ -464,7 +464,7 @@ fn has_non_cone_sparse_checkout(cwd: &Path, deadline: Instant) -> Result<bool, C
             .eq_ignore_ascii_case("true"))
 }
 
-pub(crate) fn delete_attempt_checkpoint_refs(cwd: &Path, attempt_id: &str) -> Result<(), String> {
+pub fn delete_attempt_checkpoint_refs(cwd: &Path, attempt_id: &str) -> Result<(), String> {
     if !safe_ref_component(attempt_id) {
         return Ok(());
     }
@@ -626,7 +626,7 @@ fn read_bounded(mut reader: impl std::io::Read) -> std::io::Result<(Vec<u8>, boo
     Ok((output, exceeded_limit))
 }
 
-fn capture_failure_text(error: CaptureFailure) -> String {
+pub fn capture_failure_text(error: CaptureFailure) -> String {
     match error {
         CaptureFailure::Deadline => "git checkpoint operation exceeded its deadline".into(),
         CaptureFailure::Git(error) => error,

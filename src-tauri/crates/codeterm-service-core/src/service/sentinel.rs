@@ -1,5 +1,5 @@
-mod delete;
-pub(crate) mod graph;
+pub mod delete;
+pub mod graph;
 use tauri::Manager;
 
 use super::ServiceContext;
@@ -21,7 +21,7 @@ pub(crate) struct SentinelCaller {
 }
 
 impl SentinelCaller {
-    pub(super) fn owns(&self, job: &Sentinel) -> bool {
+    pub fn owns(&self, job: &Sentinel) -> bool {
         if let Some(pipeline) = &job.pipeline().cloned() {
             return match pipeline.owner {
                 codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab => {
@@ -42,7 +42,7 @@ impl SentinelCaller {
             && job.workspace_id == self.workspace
     }
 
-    pub(super) fn may_list(&self, job: &Sentinel, team_owner: bool) -> bool {
+    pub fn may_list(&self, job: &Sentinel, team_owner: bool) -> bool {
         self.owns(job)
             || (team_owner
                 && self.team.is_some()
@@ -50,7 +50,7 @@ impl SentinelCaller {
                 && job.workspace_id == self.workspace)
     }
 
-    pub(super) fn can_amend(&self, job: &Sentinel) -> bool {
+    pub fn can_amend(&self, job: &Sentinel) -> bool {
         if job.pipeline().is_some() {
             return self.owns(job);
         }
@@ -97,7 +97,7 @@ fn caller_from_mux(
 }
 
 impl ServiceContext {
-    pub(crate) fn blueprint_input(
+    pub fn blueprint_input(
         &self,
         caller: &SentinelCaller,
         id: &str,
@@ -127,7 +127,7 @@ impl ServiceContext {
         Ok(serde_json::json!({"id": id, "accepted": true}))
     }
 
-    pub(crate) fn sentinel_update_from_history(
+    pub fn sentinel_update_from_history(
         &self,
         caller: &SentinelCaller,
         id: &str,
@@ -169,7 +169,7 @@ impl ServiceContext {
         Ok(updated)
     }
 
-    pub(crate) fn sentinel_validate_history_update(
+    pub fn sentinel_validate_history_update(
         &self,
         caller: &SentinelCaller,
         id: &str,
@@ -285,7 +285,7 @@ impl ServiceContext {
         Ok(prepared)
     }
 
-    pub(crate) fn sentinel_caller(
+    pub fn sentinel_caller(
         &self,
         tab_id: &str,
         nonce: Option<&str>,
@@ -293,7 +293,7 @@ impl ServiceContext {
         caller_from_mux(&self.mux.read(), tab_id, nonce)
     }
 
-    pub(crate) fn sentinel_create(
+    pub fn sentinel_create(
         &self,
         caller: &SentinelCaller,
         create: Create,
@@ -343,7 +343,7 @@ impl ServiceContext {
         Ok(job)
     }
 
-    pub(crate) fn sentinel_validate_create(
+    pub fn sentinel_validate_create(
         &self,
         caller: &SentinelCaller,
         create: Create,
@@ -415,7 +415,7 @@ impl ServiceContext {
         Ok(job)
     }
 
-    pub(crate) fn sentinel_update(
+    pub fn sentinel_update(
         &self,
         caller: &SentinelCaller,
         id: &str,
@@ -470,7 +470,7 @@ impl ServiceContext {
         Ok(updated)
     }
 
-    pub(crate) fn sentinel_validate_update(
+    pub fn sentinel_validate_update(
         &self,
         caller: &SentinelCaller,
         id: &str,
@@ -543,7 +543,7 @@ impl ServiceContext {
         Ok((current, update))
     }
 
-    pub(crate) fn sentinel_history(
+    pub fn sentinel_history(
         &self,
         caller: &SentinelCaller,
         id: &str,
@@ -582,7 +582,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn sentinel_resolve_escalation(
+    pub fn sentinel_resolve_escalation(
         &self,
         caller: &SentinelCaller,
         id: &str,
@@ -637,7 +637,7 @@ impl ServiceContext {
         Ok(resolved)
     }
 
-    pub(crate) fn sentinel_list(&self, caller: &SentinelCaller) -> Result<Vec<Sentinel>, String> {
+    pub fn sentinel_list(&self, caller: &SentinelCaller) -> Result<Vec<Sentinel>, String> {
         let team_owner = {
             let mux = self.mux.read();
             if !caller_is_live(&mux, caller) {
@@ -661,7 +661,7 @@ impl ServiceContext {
         Ok(jobs)
     }
 
-    pub(crate) fn sentinel_show(
+    pub fn sentinel_show(
         &self,
         caller: &SentinelCaller,
         id: &str,
@@ -680,7 +680,7 @@ impl ServiceContext {
         Ok(job)
     }
 
-    pub(crate) fn sentinel_stop(
+    pub fn sentinel_stop(
         &self,
         caller: &SentinelCaller,
         id: &str,
@@ -729,7 +729,7 @@ pub(super) fn caller_is_live(
             .is_none_or(|team| mux.get_team(team).is_some())
 }
 
-fn history_definition(
+pub fn history_definition(
     history: &serde_json::Value,
     id: &str,
     expect_version: u64,
@@ -781,7 +781,7 @@ fn validate_send_scope(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     #[test]

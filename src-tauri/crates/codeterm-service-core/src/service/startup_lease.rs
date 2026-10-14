@@ -72,7 +72,7 @@ impl StartupAuthority {
         self
     }
 
-    pub(crate) fn provenance(&self) -> Value {
+    pub fn provenance(&self) -> Value {
         json!({
             "creator_tab_id": self.creator_tab_id,
             "child_tab_id": self.child_tab_id,
@@ -89,7 +89,7 @@ impl StartupAuthority {
 
 /// The child tab identity a hold is checked against, read from the mux in one pass.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct ChildStartupState {
+pub struct ChildStartupState {
     pub attempt_id: Option<String>,
     pub team_id: Option<String>,
     pub session_id: Option<String>,
@@ -97,7 +97,7 @@ pub(crate) struct ChildStartupState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum StartupHoldRefusal {
+pub enum StartupHoldRefusal {
     UnknownChild,
     NoSupervisedAttempt,
     CreatorMismatch {
@@ -113,7 +113,7 @@ pub(crate) enum StartupHoldRefusal {
 }
 
 impl StartupHoldRefusal {
-    pub(crate) fn reason(&self) -> &'static str {
+    pub fn reason(&self) -> &'static str {
         match self {
             Self::UnknownChild => "unknown_child_tab",
             Self::NoSupervisedAttempt => "no_supervised_attempt",
@@ -123,7 +123,7 @@ impl StartupHoldRefusal {
         }
     }
 
-    pub(crate) fn message(
+    pub fn message(
         &self,
         caller_tab_id: &str,
         child_tab_id: &str,
@@ -154,7 +154,7 @@ impl StartupHoldRefusal {
         )
     }
 
-    pub(crate) fn provenance(
+    pub fn provenance(
         &self,
         caller_tab_id: &str,
         child_tab_id: &str,
@@ -174,14 +174,14 @@ impl StartupHoldRefusal {
 
 /// A refused hold, carried to the transport with its provenance intact.
 #[derive(Debug, Clone)]
-pub(crate) struct StartupHoldRejection {
+pub struct StartupHoldRejection {
     pub message: String,
     pub provenance: Value,
 }
 
 /// The single authorization rule: caller, child tab, minted Team and current
 /// attempt must match the recorded ownership. No role bypasses it.
-pub(crate) fn authorize_startup_hold(
+pub fn authorize_startup_hold(
     caller_tab_id: &str,
     child_tab_id: &str,
     attempt_id: &str,

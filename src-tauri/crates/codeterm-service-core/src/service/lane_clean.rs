@@ -10,7 +10,7 @@ use super::ServiceContext;
 use crate::plan::{Plan, Task, TaskStatus};
 
 #[derive(Debug, Serialize)]
-pub(crate) struct LaneCleanRow {
+pub struct LaneCleanRow {
     task_id: String,
     worktree: Option<String>,
     branch: Option<String>,
@@ -18,7 +18,7 @@ pub(crate) struct LaneCleanRow {
     reason: String,
 }
 
-fn task_refusal(task: &Task, lane: &TeamCloseLane, live: &HashSet<String>) -> Option<String> {
+pub fn task_refusal(task: &Task, lane: &TeamCloseLane, live: &HashSet<String>) -> Option<String> {
     let remote = task
         .execution_attempts
         .iter()
@@ -43,7 +43,7 @@ fn task_refusal(task: &Task, lane: &TeamCloseLane, live: &HashSet<String>) -> Op
     task_eligibility(&task.status, remote, assigned || lane_tab || attempt_tab).map(str::to_string)
 }
 
-fn task_eligibility(status: &TaskStatus, remote: bool, occupied: bool) -> Option<&'static str> {
+pub fn task_eligibility(status: &TaskStatus, remote: bool, occupied: bool) -> Option<&'static str> {
     if remote {
         return Some("remote lane requires cleanup on its owning peer");
     }
@@ -53,7 +53,7 @@ fn task_eligibility(status: &TaskStatus, remote: bool, occupied: bool) -> Option
     occupied.then_some("lane Worker tab is live")
 }
 
-fn preflight(lane: &TeamCloseLane, tabs: &[LiveTabCwd]) -> Option<String> {
+pub fn preflight(lane: &TeamCloseLane, tabs: &[LiveTabCwd]) -> Option<String> {
     if let Some(holder) = lane
         .worktree_path
         .as_deref()
@@ -64,7 +64,7 @@ fn preflight(lane: &TeamCloseLane, tabs: &[LiveTabCwd]) -> Option<String> {
     close::lane_hold_reason(lane)
 }
 
-fn git(cwd: &str, args: &[&str]) -> Result<String, String> {
+pub fn git(cwd: &str, args: &[&str]) -> Result<String, String> {
     let mut command = Command::new("git");
     crate::process_util::no_window_std(&mut command);
     let output = command
@@ -83,7 +83,7 @@ fn git(cwd: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn remote_tips(lane: &TeamCloseLane, online: bool) -> Result<Vec<(String, String)>, String> {
+pub fn remote_tips(lane: &TeamCloseLane, online: bool) -> Result<Vec<(String, String)>, String> {
     let Some(branch) = lane.branch.as_deref() else {
         return Ok(Vec::new());
     };
@@ -130,7 +130,7 @@ fn remote_tips(lane: &TeamCloseLane, online: bool) -> Result<Vec<(String, String
     Ok(tips)
 }
 
-fn delete_remote_tips(lane: &TeamCloseLane, tips: &[(String, String)]) -> Result<(), String> {
+pub fn delete_remote_tips(lane: &TeamCloseLane, tips: &[(String, String)]) -> Result<(), String> {
     let Some(branch) = lane.branch.as_deref() else {
         return Ok(());
     };
@@ -152,7 +152,7 @@ fn run_lane(
     run_lane_with(lane, confirm, || (tabs.to_vec(), refusal.clone()))
 }
 
-fn run_lane_with(
+pub fn run_lane_with(
     lane: &TeamCloseLane,
     confirm: bool,
     snapshot: impl Fn() -> (Vec<LiveTabCwd>, Option<String>),
@@ -200,7 +200,7 @@ fn run_lane_with(
     row
 }
 
-fn cleanup_inventory(plan: &Plan) -> Vec<TeamCloseLane> {
+pub fn cleanup_inventory(plan: &Plan) -> Vec<TeamCloseLane> {
     let mut lanes: Vec<TeamCloseLane> = Vec::new();
     for mut lane in close::plan_cleanup_lanes(plan) {
         if lane.destination.is_none() {
@@ -222,7 +222,7 @@ fn cleanup_inventory(plan: &Plan) -> Vec<TeamCloseLane> {
 }
 
 impl ServiceContext {
-    pub(crate) fn clean_plan_lanes(
+    pub fn clean_plan_lanes(
         &self,
         plan: &Plan,
         confirm: bool,
@@ -327,7 +327,7 @@ impl ServiceContext {
     }
 }
 
-fn now_ms() -> u64 {
+pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
