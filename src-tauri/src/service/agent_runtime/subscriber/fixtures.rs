@@ -47,6 +47,7 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            usage: false,
             runtime: AgentRuntimeProtocol::StdioJsonrpc,
             command: AgentRuntimeCommand {
                 binary: "unused".into(),
@@ -132,7 +133,12 @@ pub(super) fn scene() -> Scene {
         target.agent_session_id = Some("thread".into());
         target.session_binding_nonce = Some("nonce".into());
         target.agent_runtime_config = Some(json!({"systemPrompt":"opaque instructions"}));
-        target.cwd = Some(env!("CARGO_MANIFEST_DIR").into());
+        target.cwd = Some(
+            crate::test_support::fixture_manifest_dir()
+                .to_string_lossy()
+                .into_owned()
+                .into(),
+        );
     }
     let fixture = ServiceFixture::new(mux);
     fixture
@@ -159,7 +165,10 @@ pub(super) fn scene() -> Scene {
             tab_id: tab,
             binding_nonce: "nonce".into(),
             thread_id: Some("thread".into()),
-            cwd: env!("CARGO_MANIFEST_DIR").into(),
+            cwd: crate::test_support::fixture_manifest_dir()
+                .to_string_lossy()
+                .into_owned()
+                .into(),
             host_version: env!("CARGO_PKG_VERSION").into(),
             ..Default::default()
         }),

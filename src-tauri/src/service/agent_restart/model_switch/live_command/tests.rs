@@ -303,12 +303,14 @@ fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
         ready_input_regex: None,
         confirmation_source: Default::default(),
         model: ModelSwitchCommand {
+            confirmation_prompt_kind: None,
             command: "/choose {model}".into(),
             confirmation: "model".into(),
             prompt: None,
             picker: None,
         },
         effort: Some(ModelSwitchCommand {
+            confirmation_prompt_kind: None,
             command: "/reason {effort}".into(),
             confirmation: "^accepted {effort}$".into(),
             prompt: None,

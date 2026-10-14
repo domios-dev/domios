@@ -146,7 +146,7 @@ fn directory_trust_accepts_verbatim_prefixed_cwd_matching_provenance() {
 
 #[test]
 fn trust_responder_never_writes_on_a_non_trust_dialog() {
-    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+    let fixture_path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
         "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
     );
     let screen = std::fs::read_to_string(fixture_path).unwrap();
@@ -176,7 +176,7 @@ fn trust_responder_never_writes_on_a_non_trust_dialog() {
 
 #[test]
 fn core_trust_decision_answers_claude_folder_trust_fixtures() {
-    let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let fixture_dir = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
         .join("../plugins/provider-claude/tests/fixtures/folder-trust");
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
     for (file, step) in [

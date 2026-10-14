@@ -37,6 +37,8 @@ export interface AgentActivity {
   callId?: string;
   description?: string;
   model?: string;
+  reasoningEffort?: string;
+  ordinal?: number;
   durationMs?: number;
   toolUses?: number;
   tokens?: number;

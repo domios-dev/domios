@@ -13,7 +13,7 @@ import { TabContent } from "./TabContent";
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("replaces only the bottom composer during degradation and restores its draft and attachment", async () => {
+it("replaces only the bottom composer until runtime recovery and restores its draft and attachment", async () => {
   const tab: Tab = {
     id: "runtime-layout", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
     backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "thread" },
@@ -77,12 +77,17 @@ it("replaces only the bottom composer during degradation and restores its draft 
     expect(host.querySelector("textarea")).toBeNull();
     expect(banner?.textContent).toContain("fixture runtime fault");
     expect(banner?.querySelectorAll('button[aria-label="Retry"]')).toHaveLength(1);
-    for (const runtimeState of ["loading", "unloaded", "loaded"] as const) {
+    for (const runtimeState of ["loading", "unloaded"] as const) {
       await emit({ state: runtimeState, epoch: 2, reason: runtimeState === "unloaded" ? "pipe ended" : undefined });
-      expect(host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(draft);
-      expect(host.querySelector('[data-testid="composer-capsule-mirror"]')?.textContent).toBe(attachment);
-      expect(host.querySelector('[aria-label="Agent runtime unavailable"]')).toBeNull();
+      expect(host.querySelector("textarea")).toBeNull();
+      const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]');
+      expect(retry).not.toBeNull();
+      expect(retry?.disabled).toBe(runtimeState === "loading");
     }
+    await emit({ state: "loaded", epoch: 2 });
+    expect(host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(draft);
+    expect(host.querySelector('[data-testid="composer-capsule-mirror"]')?.textContent).toBe(attachment);
+    expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     host.remove();

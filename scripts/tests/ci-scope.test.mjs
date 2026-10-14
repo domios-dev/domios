@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { condition } from "./workflow-condition.mjs";
 import { classifyPaths, releaseKind, scopeForRun } from "../ci-scope.mjs";
 
 const plugins = [{ id: "codex", path: "provider-codex" }, { id: "claude", path: "provider-claude" }];
@@ -85,13 +86,14 @@ test("a pull request keeps fast checks but leaves the heavy Rust and CLI matrix 
 const workflow = readFileSync(new URL("../../.github/workflows/tests.yml", import.meta.url), "utf8");
 const jobConditions = new Map([...workflow.matchAll(/^  ([\w-]+):\n(?:(?!^  [\w-]+:)[\s\S])*?^    if: \$\{\{ (.+) \}\}/gm)].map((match) => [match[1], match[2]]));
 
-function jobRuns(job, scope) {
-  const condition = jobConditions.get(job);
-  assert.ok(condition, `Missing condition for ${job}`);
-  return condition.split(" || ").some((term) => {
-    const match = /^needs.changed.outputs.(frontend|rust|heavy) == 'true'$/.exec(term);
-    assert.ok(match, `Unexpected condition: ${term}`);
-    return match[1] === "heavy" ? (scope.heavy ?? scope.rust) : scope[match[1]];
+function jobRuns(job, scope, { phase = "", cancelled = false, archives = "success", fmt = "success" } = {}) {
+  const expression = jobConditions.get(job);
+  assert.ok(expression, `Missing condition for ${job}`);
+  const outputs = Object.fromEntries(["frontend", "rust", "heavy"].map(key => [key, String(key === "heavy" ? scope.heavy ?? scope.rust : scope[key])]));
+  return condition(expression, {
+    inputs: { phase },
+    needs: { changed: { outputs }, fmt: { result: fmt }, "rust-archives": { result: archives } },
+    cancelled,
   });
 }
 
@@ -131,4 +133,23 @@ test("a frontend release call runs the frontend checks and no Rust gate", () => 
   const scope = scopeForRun([], plugins, false, false, true);
   for (const job of ["ts-static", "ts-unit", "ts-vitest", "ts-types"]) assert.equal(jobRuns(job, scope), true, job);
   for (const job of ["fmt", "rust-archives", "rust-shards", "rust-platform", "clippy-linux", "release-contracts"]) assert.equal(jobRuns(job, scope), false, job);
+});
+
+
+test("workflow scope conditions retain phase, cancellation and archive dependencies", () => {
+  for (const phase of ["", "all", "fast", "long"]) {
+    assert.equal(jobRuns("fmt", rustOnly, { phase }), phase !== "long", `fmt/${phase}`);
+    for (const job of ["rust-archives", "rust-shards", "rust-platform"]) {
+      assert.equal(jobRuns(job, rustOnly, { phase }), phase !== "fast", `${job}/${phase}`);
+      assert.equal(jobRuns(job, rustOnly, { phase, cancelled: true }), false, `${job} cancelled`);
+      assert.equal(jobRuns(job, frontendOnly, { phase }), false, `${job} frontend`);
+    }
+  }
+  for (const result of ["failure", "skipped", "cancelled"]) {
+    for (const job of ["rust-shards", "rust-platform"]) {
+      assert.equal(jobRuns(job, rustOnly, { archives: result }), false, `${job}/${result}`);
+    }
+    assert.equal(jobRuns("rust-archives", rustOnly, { fmt: result }), false, `fmt/${result}`);
+    assert.equal(jobRuns("rust-archives", rustOnly, { phase: "long", fmt: result }), true, `long skips fmt/${result}`);
+  }
 });

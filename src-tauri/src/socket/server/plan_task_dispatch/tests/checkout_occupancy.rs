@@ -432,3 +432,53 @@ fn distinct_explicit_checkout_does_not_conflict() {
     )
     .unwrap();
 }
+
+#[test]
+fn cross_repository_occupancy_protects_exact_lane_without_aliasing_other_repositories() {
+    let (root, mut plan, occupying_task_id, dispatched_task_id) = plan_with_attempt(None, None);
+    let extracted_lane = root
+        .path()
+        .join("repo-b-worktrees/lane")
+        .display()
+        .to_string();
+    let plan_repo_lane = root
+        .path()
+        .join("repo-a-worktrees/lane")
+        .display()
+        .to_string();
+    let occupant = &mut plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == occupying_task_id)
+        .unwrap()
+        .execution_attempts[0];
+    occupant.worktree_path = Some(extracted_lane.clone());
+    occupant.reported_at = Some(1);
+    let live = reported_executor_tab_statuses(&plan, &occupying_task_id, |_| true);
+    let error = preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &extracted_lane,
+        LaneProtection::Enforced,
+        &live,
+    )
+    .unwrap_err();
+    assert_eq!(error.data.unwrap()["type"], "checkout_occupied");
+    preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &plan_repo_lane,
+        LaneProtection::Enforced,
+        &live,
+    )
+    .unwrap();
+    let gone = reported_executor_tab_statuses(&plan, &occupying_task_id, |_| false);
+    preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &extracted_lane,
+        LaneProtection::Enforced,
+        &gone,
+    )
+    .unwrap();
+}

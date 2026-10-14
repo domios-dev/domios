@@ -138,12 +138,27 @@ ct_sccache_print_location() {
   fi
 }
 
+ct_sccache_stats() {
+  if ! ct_sccache_server_live; then
+    echo "[cache-policy] ERROR: sccache server is unavailable; offline synthetic counters are not build evidence" >&2
+    return 2
+  fi
+  printf 'sccache endpoint: '
+  node "$(ct_repo_root)/scripts/sccache-server-probe.mjs" --address
+  sccache --show-stats
+}
+
+ct_sccache_server_live() {
+  node "$(ct_repo_root)/scripts/sccache-server-probe.mjs"
+}
+
 ct_sccache_status() {
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
   ct_sccache_storage
   ct_sccache_print_location
   local stats location http_status
-  stats="$(sccache --show-stats 2>/dev/null)" || stats=""
+  stats=""
+  if ct_sccache_server_live; then stats="$(sccache --show-stats 2>/dev/null)" || stats=""; fi
   location="$(printf '%s\n' "$stats" | sed -n '/^Cache location/p')"
   if [ -n "$location" ]; then
     printf 'running server: %s\n' "$location"
@@ -222,7 +237,8 @@ ct_configure_sccache() {
     return $?
   fi
   local stats location
-  stats="$(sccache --show-stats 2>/dev/null)" || stats=""
+  stats=""
+  if ct_sccache_server_live; then stats="$(sccache --show-stats 2>/dev/null)" || stats=""; fi
   location="$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"
   ct_sccache_storage
   if [ "$CT_SCCACHE_STORAGE" = local ] && [[ "$location" == 's3, name: '* ]]; then
@@ -236,7 +252,11 @@ ct_configure_sccache() {
     echo "[cache-policy] reusing running sccache server"
   else
     ct_sccache_restart || return $?
-    stats="$(sccache --show-stats 2>/dev/null)" || stats=""
+    if ! ct_sccache_server_live; then
+      echo "[cache-policy] ERROR: sccache startup did not leave a live server" >&2
+      return 2
+    fi
+    stats="$(sccache --show-stats 2>/dev/null)" || return 2
   fi
   printf '%s\n' "$stats" | sed -n '/Cache location/,$p'
 }
@@ -248,7 +268,7 @@ ct_require_prestarted_sccache() {
     return 2
   }
   ct_forbid_mutable_cache_dir "${SCCACHE_DIR:-}"
-  if ! sccache --show-stats >/dev/null 2>&1; then
+  if ! ct_sccache_server_live || ! sccache --show-stats >/dev/null 2>&1; then
     echo "[cache-policy] ERROR: shared sccache server is not prestarted" >&2
     echo "[cache-policy] Start it once from the machine integration environment." >&2
     return 2

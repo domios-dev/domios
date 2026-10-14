@@ -473,3 +473,14 @@ fn send_failure_renderer_keeps_reason_on_stderr_in_both_modes_and_receipt_in_jso
         }
     }
 }
+
+#[test]
+fn runtime_accepted_and_delivered_receipts_are_successful_writes() {
+    for state in ["written", "delivered"] {
+        let receipt = serde_json::json!({"ok":true,"delivery":"sent","bytes_written":true,"send_id":"own-send","status":state});
+        assert_eq!(
+            analyze_send_text_response(&receipt),
+            SendTextOutcome::Success("OK (sent)".into())
+        );
+    }
+}

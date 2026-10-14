@@ -1,3 +1,6 @@
+#[path = "../src/test_support.rs"]
+mod test_support;
+
 use std::collections::BTreeMap;
 
 #[path = "../../testbench/rust/harness.rs"]

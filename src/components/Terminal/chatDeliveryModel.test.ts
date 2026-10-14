@@ -161,7 +161,6 @@ test("written sends flow above later rows while held and failed sends retain the
   }
 });
 
-
 test("written input with later source output has settled presentation without ledger confirmation", () => {
   const at = 1_800_000_000_000;
   for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
@@ -230,4 +229,21 @@ test("unclassified and request-failed sends flow before newer output without cha
     assert.equal(deliveryPresentation(current, projection.rows), requestFailed ? "failed" : "sending");
     assert.equal(current.status, undefined);
   }
+});
+
+test("a written bubble missing from the restarted ledger settles as uncertain without Retry", () => {
+  const beforeRestart = applyDeliveryStatus(send(), status("written", 1));
+  const persisted = JSON.parse(JSON.stringify(beforeRestart)) as DeliverySend;
+  const reconciled = reconcileDeliveryStatusesModel([persisted], [])[0];
+  assert.equal(deliveryState(reconciled), "uncertain");
+  assert.equal(reconciled.id, persisted.id);
+  assert.equal(reconciled.status?.state, "submit_unconfirmed");
+  assert.equal(reconciled.requestFailed, false);
+});
+
+test("settlement wins over delayed written callbacks and still accepts exact delivery", () => {
+  const written = applyDeliveryStatus(send(), status("written", 1));
+  const settled = applyDeliveryStatus(written, status("submit_unconfirmed", 1));
+  assert.equal(applyDeliveryStatus(settled, status("written", 1)), settled);
+  assert.equal(deliveryState(applyDeliveryStatus(settled, status("delivered", 1))), "delivered");
 });

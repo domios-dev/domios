@@ -61,6 +61,72 @@ var serverRequestMethods = [
   "mcpServer/elicitation/request"
 ];
 
+// plugins/provider-codex/src/runtimeHistoryBounds.ts
+var HISTORY_CHUNK_BYTES = 512 * 1024;
+var ITEM_BYTES = 64 * 1024;
+var STRING_BYTES = 16 * 1024;
+function utf8Bytes(value) {
+  let bytes = 0;
+  for (const char of value) {
+    const point = char.codePointAt(0);
+    bytes += point <= 127 ? 1 : point <= 2047 ? 2 : point <= 65535 ? 3 : 4;
+  }
+  return bytes;
+}
+function serializedBytes(value) {
+  return utf8Bytes(JSON.stringify(value));
+}
+function boundedString(value) {
+  const scrubbed = value.replace(
+    /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
+    (image) => `[image omitted: ${utf8Bytes(image)} bytes]`
+  );
+  const bytes = utf8Bytes(scrubbed);
+  if (bytes <= STRING_BYTES) return scrubbed;
+  return `${scrubbed.slice(0, 2048)}
+[content truncated: ${bytes} bytes total]`;
+}
+function sanitizeHistory(value) {
+  return JSON.parse(JSON.stringify(value, (_key, entry) => {
+    if (typeof entry === "string") return boundedString(entry);
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const item = entry;
+      if (item.type === "image" && typeof item.data === "string" && !item.data.startsWith("[image omitted:")) {
+        const { data, ...rest } = item;
+        return { ...rest, data: `[image omitted: ${utf8Bytes(data)} bytes]` };
+      }
+      if (item.type === "imageGeneration" && typeof item.result === "string" && !item.result.startsWith("[image omitted:")) {
+        return { ...item, result: `[image omitted: ${utf8Bytes(item.result)} bytes]` };
+      }
+    }
+    return entry;
+  }));
+}
+function historyItem(value) {
+  const sanitized = sanitizeHistory(value);
+  const bytes = serializedBytes(sanitized);
+  return bytes <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes} serialized bytes]` };
+}
+function boundHistoryRows(rows) {
+  const bounded = rows.map((row2) => {
+    const sanitized = sanitizeHistory(row2);
+    const bytes2 = serializedBytes(sanitized);
+    if (sanitized.attachments) {
+      sanitized.attachments = sanitized.attachments.map((attachment) => {
+        if (!attachment.url?.startsWith("[image omitted:")) return attachment;
+        sanitized.content += `
+${attachment.url}`;
+        const { url, ...chip } = attachment;
+        return chip;
+      });
+    }
+    if (bytes2 <= ITEM_BYTES) return sanitized;
+    return { id: row2.id, seq: row2.seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` };
+  });
+  const bytes = serializedBytes(bounded);
+  return bytes <= ITEM_BYTES || !rows.length ? bounded : [{ id: rows[0].id, seq: rows[0].seq, type: "system", content: `[history item omitted: ${bytes} serialized bytes]` }];
+}
+
 // plugins/provider-codex/src/canonicalJson.ts
 function canonicalJson(value, indentation = 0) {
   const normalized = JSON.parse(JSON.stringify(value ?? null));
@@ -290,7 +356,7 @@ function toolOutput(value) {
   const parts = Array.isArray(result) ? result : list(object(result).content);
   const mapped = parts.map((part) => {
     const item = object(part);
-    if (item.type === "image") return { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
+    if (item.type === "image") return typeof item.data === "string" && item.data.startsWith("[image omitted:") ? { type: "text", text: item.data } : { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
     if (item.type === "inputImage") return { type: "image_url", image_url: { url: item.imageUrl } };
     return part;
   });
@@ -404,10 +470,16 @@ function runtimeItem(raw, seq, previous) {
       row2.toolKind = "image";
       row2.toolSummary = String(item.savedPath ?? item.path ?? item.revisedPrompt ?? "");
       row2.toolRichResult = json({ kind: "image", origin: item.type === "imageGeneration" ? "generated" : "viewed", path: item.savedPath ?? item.path, prompt: item.revisedPrompt, status: item.status });
-      if (text(item.result)) row2.toolResult = String(item.result).startsWith("data:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
+      if (text(item.result)) row2.toolResult = String(item.result).startsWith("data:") || String(item.result).startsWith("[image omitted:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
       break;
     case "collabAgentToolCall":
     case "subAgentActivity": {
+      if (item.type === "collabAgentToolCall" && !list(item.receiverThreadIds).length) {
+        if (item.tool === "spawnAgent") return void 0;
+        row2.toolKind = "generic";
+        row2.toolName = text(item.tool) ?? "collabAgentToolCall";
+        break;
+      }
       const agent = String(item.agentThreadId ?? list(item.receiverThreadIds)[0] ?? id);
       const status = String(item.kind ?? object(object(item.agentsStates)[agent]).status ?? "");
       row2.toolKind = "agent";
@@ -418,9 +490,11 @@ function runtimeItem(raw, seq, previous) {
         agent_path: item.agentPath,
         agent_state: { pendingInit: "started", errored: "failed", shutdown: "closed" }[status] ?? status,
         agent_call_id: id,
-        description: item.prompt,
-        model: item.model,
-        result: object(object(item.agentsStates)[agent]).message
+        agent_description: item.prompt,
+        agent_model: item.model,
+        agent_reasoning_effort: item.reasoningEffort,
+        agent_ordinal: item.ordinal,
+        agent_result: object(object(item.agentsStates)[agent]).message
       });
       break;
     }
@@ -435,7 +509,7 @@ function runtimeItem(raw, seq, previous) {
   row2.toolId = id;
   row2.toolName ?? (row2.toolName = String(item.type));
   row2.toolInput ?? (row2.toolInput = item);
-  row2.toolArgs = row2.toolSummary;
+  if (row2.toolSummary !== void 0) row2.toolArgs = row2.toolSummary;
   row2.collapsed = true;
   if (typeof item.durationMs === "number") row2.toolDurationMs = item.durationMs;
   if (row2.toolError == null) {
@@ -449,7 +523,7 @@ function runtimeItems(raw, seq) {
   const item = object(raw);
   const receivers = list(item.receiverThreadIds);
   if (item.type === "collabAgentToolCall" && receivers.length) return receivers.flatMap((receiver, index) => {
-    const row3 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver] }, seq + index);
+    const row3 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver], ...item.tool === "spawnAgent" ? { ordinal: index + 1 } : {} }, seq + index);
     return row3 ? [row3] : [];
   });
   const row2 = runtimeItem(raw, seq);
@@ -487,18 +561,35 @@ function loginCompleted(value) {
   return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
 }
 
+// plugins/provider-codex/src/runtimeUsage.ts
+function rateLimitEvents(raw) {
+  const limits = object(raw);
+  if (limits.limitId && limits.limitId !== "codex") return [];
+  const windows = ["primary", "secondary"].flatMap((window) => {
+    const value = object(limits[window]);
+    if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
+    return [{
+      window,
+      usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
+      ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
+      ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
+    }];
+  });
+  return windows.length ? [{ kind: "rateLimits", rateLimits: windows }] : [];
+}
+
 // plugins/provider-codex/src/runtimeAuth.ts
 function accountAuth(value) {
   const response = object(value);
   if (response.account === null && response.requiresOpenaiAuth === true) return { kind: "auth", state: "signedOut" };
   const account = object(response.account);
-  if (text(account.type)) return { kind: "auth", state: "signedIn" };
+  if (text(account.type)) return { kind: "auth", state: "signedIn", billingMode: account.type === "apiKey" ? "api" : account.type === "chatgpt" || account.type === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 function notificationAuth(value) {
   const params = object(value);
   if (params.authMode === null) return { kind: "auth", state: "signedOut" };
-  if (text(params.authMode)) return { kind: "auth", state: "signedIn" };
+  if (text(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 
@@ -682,6 +773,38 @@ function runtimeError(value, willRetry = false) {
   return { message, metadata: { ...code ? { code } : {}, class: category, retryable: willRetry } };
 }
 
+// plugins/provider-codex/src/runtimeAgents.ts
+var TERMINAL_STATES = ["completed", "failed", "interrupted", "closed"];
+function update(previous, activity) {
+  const input = object(previous.toolInput);
+  const patch = Object.fromEntries(Object.entries(object(activity.toolInput)).filter(([, value]) => value != null));
+  delete patch.agent_call_id;
+  if (!text(patch.agent_state)) delete patch.agent_state;
+  if (TERMINAL_STATES.includes(String(input.agent_state)) && !TERMINAL_STATES.includes(String(patch.agent_state))) delete patch.agent_state;
+  return { ...previous, toolInput: { ...input, ...patch } };
+}
+function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
+  const item = object(raw);
+  if (item.type !== "collabAgentToolCall" && item.type !== "subAgentActivity") return void 0;
+  const spawn = item.type === "collabAgentToolCall" && item.tool === "spawnAgent";
+  if (spawn && !list(item.receiverThreadIds).length) return [];
+  const rows = runtimeItems(item, seq);
+  return rows.flatMap((row2) => {
+    const agent = text(object(row2.toolInput).agent_id);
+    if (!agent) return [row2];
+    const existing = state.rows[agent];
+    const previous = existing ? items[existing] : void 0;
+    if (previous) return [update(previous, row2)];
+    const started = item.type === "subAgentActivity" && item.kind === "started";
+    if (!spawn && !started) return [row2];
+    state.rows[agent] = row2.id;
+    parents[agent] = parent;
+    state.ordinal += 1;
+    row2.toolInput = { ...object(row2.toolInput), agent_ordinal: spawn ? object(row2.toolInput).agent_ordinal : state.ordinal };
+    return [row2];
+  });
+}
+
 // plugins/provider-codex/src/runtimeReduce.ts
 function initial(ctx, raw) {
   const state = object(raw);
@@ -689,6 +812,7 @@ function initial(ctx, raw) {
     const restored = JSON.parse(JSON.stringify(state));
     restored.items = Object.assign(/* @__PURE__ */ Object.create(null), restored.items);
     if (restored.parents) restored.parents = Object.assign(/* @__PURE__ */ Object.create(null), restored.parents);
+    if (restored.agents) restored.agents.rows = Object.assign(/* @__PURE__ */ Object.create(null), restored.agents.rows);
     return restored;
   }
   return { epoch: ctx.epoch, bindingNonce: ctx.bindingNonce, threadId: ctx.threadId, seq: 0, items: /* @__PURE__ */ Object.create(null), completed: [], compacted: [], evidenced: [], activeTurnId: ctx.activeTurnId };
@@ -705,6 +829,7 @@ function usage(params) {
   const total = object(token.total);
   if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return void 0;
   return {
+    ...typeof total.costUsd === "number" && Number.isFinite(total.costUsd) && total.costUsd >= 0 ? { cost_micros: Math.round(total.costUsd * 1e6) } : {},
     input_tokens: total.inputTokens,
     output_tokens: total.outputTokens,
     ...typeof total.cacheWriteInputTokens === "number" ? { cache_write_tokens: total.cacheWriteInputTokens } : {},
@@ -738,7 +863,7 @@ function stamp(state, row2, params) {
   if (previous?.timestamp) row2.timestamp = previous.timestamp;
   else if (typeof ms === "number" && Number.isFinite(ms)) row2.timestamp = new Date(ms).toISOString();
   const turnId = text(params.turnId) ?? text(object(params.turn).id);
-  if (turnId) row2.toolFlowId = turnId;
+  if (turnId && !row2.toolFlowId) row2.toolFlowId = turnId;
   state.items[row2.id] = row2;
   return row2;
 }
@@ -826,17 +951,7 @@ function runtimeReduce(ctx, raw, frames) {
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
-      const windows = ["primary", "secondary"].flatMap((window) => {
-        const value = object(state.rateLimitSnapshot?.[window]);
-        if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
-        return [{
-          window,
-          usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
-          ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
-          ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
-        }];
-      });
-      if (windows.length) events.push({ kind: "rateLimits", rateLimits: windows });
+      events.push(...rateLimitEvents(state.rateLimitSnapshot));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
@@ -930,6 +1045,14 @@ function runtimeReduce(ctx, raw, frames) {
       default: {
         let row2;
         const rawItem = object(params.item);
+        if (frame.method === "item/started" || frame.method === "item/completed") {
+          state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
+          const agents = reduceRuntimeAgents(state.agents, state.items, state.parents, threadId, rawItem, state.seq + 1);
+          if (agents) {
+            for (const activity of agents) events.push({ kind: "chatItem", threadId, item: stamp(state, activity, params) });
+            continue;
+          }
+        }
         if (frame.method === "item/completed" && rawItem.type === "agentMessage" && rawItem.delivery === "async" && list(rawItem.questions).length) {
           const itemId = text(rawItem.id);
           state.questions ?? (state.questions = []);
@@ -953,8 +1076,6 @@ function runtimeReduce(ctx, raw, frames) {
             if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
           }
           row2 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.join("\n") || parts.content.join("\n"), collapsed: true }, params);
-        } else if ((frame.method === "item/started" || frame.method === "item/completed") && rawItem.type === "collabAgentToolCall" && list(rawItem.receiverThreadIds).length) {
-          for (const activity of runtimeItems(rawItem, state.seq + 1)) events.push({ kind: "chatItem", threadId, item: stamp(state, activity, params) });
         } else row2 = mapItem(state, frame.method, params);
         if (row2) events.push({ kind: "chatItem", threadId, item: row2 });
         if (frame.method === "item/started" || frame.method === "item/completed") {
@@ -1032,8 +1153,8 @@ function runtimePlan(ctx, op) {
     case "readHistory":
       return request(
         "thread/turns/list",
-        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "asc", limit: 100, cursor: op.cursor },
-        { stage: "turns", turns: [], cursors: [], items: [], openItems: [], seq: 0 }
+        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "asc", limit: 8, cursor: op.cursor },
+        { stage: "turns", turns: [], cursor: null, seq: 0 }
       );
     case "submitTurn": {
       const params = turnParams(ctx, op);
@@ -1077,10 +1198,11 @@ function runtimeResponse(ctx, op, raw, reply) {
   validateBinding(ctx, op);
   const state = object(raw);
   if (reply.kind === "error") {
+    if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: { kind: "initialized" }, events: [state.auth] };
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
     if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
-      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", items: [], openItems: [], questions: [], seq: 0 }));
+      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", seq: 0 }));
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
       return continuation(request("turn/start", turnParams(ctx, op)), true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
@@ -1092,7 +1214,12 @@ function runtimeResponse(ctx, op, raw, reply) {
     case "initialize":
       if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: { stage: "initializedNotification" } });
       if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
-      return { kind: "complete", result: { kind: "initialized" }, events: [accountAuth(value)] };
+      if (state.stage === "initializeAccount") {
+        const auth = accountAuth(value);
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", {}, { stage: "initializeLimits", auth }));
+        return { kind: "complete", result: { kind: "initialized" }, events: [auth] };
+      }
+      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits)] };
     case "openThread": {
       if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: state.settings } };
       const threadId = userThread(value);
@@ -1135,24 +1262,35 @@ function historyResponse(op, state, value) {
     if (!userThread(value, op.threadId)) return refused("History snapshot thread identity unverified");
     const turns2 = object(value.thread).turns;
     if (!Array.isArray(turns2)) return refused("Missing history snapshot turns");
-    let collected2 = state;
-    for (const raw of turns2) {
+    let collected2 = { ...state, items: [], openItems: [], questions: [] };
+    for (const raw of turns2.slice(Number(state.snapshotTurn ?? 0))) {
       const turn2 = object(raw);
       if (!text(turn2.id) || !Array.isArray(turn2.items)) return refused("Missing history snapshot turn items");
       collected2 = collectHistoryItems(op, collected2, turn2, turn2.items);
+      if (collected2.offset != null) return streamHistory(op, continuation(request(
+        "thread/read",
+        { threadId: op.threadId, includeTurns: true },
+        { ...collected2, stage: "snapshot", snapshotTurn: turns2.indexOf(raw) }
+      )), collected2);
     }
     return historyGoal(op, collected2);
   }
   if (state.stage === "goal") {
-    const objective = text(object(value.goal).objective);
+    const objective = text(object(sanitizeHistory(object(value.goal))).objective);
     if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: { goal: objective } }];
     return historyComplete(op, state);
   }
   if (!Array.isArray(value.data)) return refused("Missing history page data");
   if (state.stage === "turns") {
-    const turns2 = list(value.data).map(object);
+    const source = list(value.data).map(object);
+    if (source.length > 8 || source.some((turn2) => typeof turn2.id !== "string" || !turn2.id || turn2.id.length > 4096)) return refused("Invalid history turn page");
+    const turns2 = source.map((turn2) => ({
+      id: turn2.id,
+      status: turn2.status === "inProgress" ? "inProgress" : "completed",
+      startedAt: typeof turn2.startedAt === "number" && Number.isFinite(turn2.startedAt) ? turn2.startedAt : null
+    }));
     const next2 = text(value.nextCursor);
-    if (next2 && next2 === op.cursor) return refused("Repeated history cursor");
+    if (next2 && (next2.length > 4096 || next2 === op.cursor)) return refused("Repeated history cursor");
     const collected2 = { ...state, turns: turns2, nextCursor: next2, index: 0, stage: "items" };
     if (!turns2.length) return historyGoal(op, collected2);
     return historyItems(op, collected2);
@@ -1161,14 +1299,14 @@ function historyResponse(op, state, value) {
   const turns = list(state.turns).map(object);
   const turn = turns[Number(state.index)];
   if (!turn || !text(turn.id)) return refused("Missing history turn id");
-  const mapped = collectHistoryItems(op, state, turn, value.data);
+  const mapped = collectHistoryItems(op, { ...state, items: [], openItems: [], questions: [] }, turn, value.data);
+  if (mapped.offset != null) return streamHistory(op, historyItems(op, mapped, text(state.cursor)), mapped);
   const next = text(value.nextCursor);
-  const cursors = list(state.cursors);
-  if (next && cursors.includes(next)) return refused("Repeated history cursor");
+  if (next && (next.length > 4096 || next === state.cursor)) return refused("Repeated history cursor");
   const collected = { ...mapped };
-  if (next) return historyItems(op, { ...collected, cursors: [...cursors, next] }, next);
+  if (next) return streamHistory(op, historyItems(op, { ...collected, cursor: next }, next), collected);
   const index = Number(state.index) + 1;
-  if (index < turns.length) return historyItems(op, { ...collected, index, cursors: [] });
+  if (index < turns.length) return streamHistory(op, historyItems(op, { ...collected, index, cursor: null }), collected);
   return historyGoal(op, collected);
 }
 function collectHistoryItems(op, state, turn, entries) {
@@ -1176,30 +1314,37 @@ function collectHistoryItems(op, state, turn, entries) {
   const openItems = list(state.openItems);
   let seq = Number(state.seq);
   let questions = list(state.questions);
-  for (const entry of entries) {
-    const record4 = object(entry);
-    const rawItem = record4.item ?? record4;
-    questions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const rows = runtimeItems(rawItem, seq + 1);
-    seq += rows.length;
+  let bytes = serializedBytes({ items, openItems, questions });
+  for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
+    const record4 = object(entries[index]);
+    const rawItem = historyItem(record4.item ?? record4);
+    const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
+    const rows = boundHistoryRows(runtimeItems(rawItem, seq + 1));
+    const timestamp = record4.startedAtMs ?? record4.completedAtMs;
     for (const row2 of rows) {
       row2.toolFlowId = String(turn.id);
-      const timestamp = record4.startedAtMs ?? record4.completedAtMs;
       if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
-      items.push(row2);
-      if (turn.status === "inProgress" && turn.startedAt != null && record4.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status))) openItems.push({ turnId: String(turn.id), item: row2 });
     }
+    const active = turn.status === "inProgress" && turn.startedAt != null && record4.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
+    const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
+    if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
+    bytes += rowBytes;
+    questions = nextQuestions;
+    seq += rows.length;
+    items.push(...rows);
+    openItems.push(...opened);
   }
-  return { ...state, items, openItems, seq, questions };
+  return { ...state, items, openItems, seq, questions, offset: null };
 }
 function historyItems(op, state, cursor) {
   const turn = object(list(state.turns)[Number(state.index)]);
   if (!text(turn.id)) return refused("Missing history turn id");
-  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: 100, cursor }, state));
+  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: 100, cursor }, { ...state, cursor: cursor ?? null }));
 }
 function historyGoal(op, state) {
   if (text(state.nextCursor)) return historyComplete(op, state);
-  return continuation(request("thread/goal/get", { threadId: op.threadId }, { ...state, stage: "goal" }));
+  return streamHistory(op, continuation(request("thread/goal/get", { threadId: op.threadId }, { ...state, stage: "goal" })), state);
 }
 function historyComplete(op, state) {
   return { kind: "complete", result: {
@@ -1210,6 +1355,13 @@ function historyComplete(op, state) {
     ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
     ...list(state.questions).length ? { questions: list(state.questions) } : {}
   } };
+}
+function streamHistory(op, step, state) {
+  if (step.kind !== "continue") return step;
+  const { items, openItems, questions, ...cursor } = object(step.plan.state);
+  const complete = historyComplete(op, { ...state, nextCursor: void 0 });
+  if (complete.kind !== "complete" || complete.result.kind !== "historyPage") return step;
+  return { ...step, plan: { ...step.plan, state: json(cursor) }, history: complete.result };
 }
 
 // plugins/provider-codex/src/toolOutput.ts
@@ -3471,11 +3623,11 @@ function classifyCodexTabState(snapshot, nowMs) {
       action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
     };
   }
-  const update = scoreUpdatePrompt(screen);
-  if (update.confidence >= CLASSIFY_THRESHOLD) {
+  const update2 = scoreUpdatePrompt(screen);
+  if (update2.confidence >= CLASSIFY_THRESHOLD) {
     return {
       state: "update_prompt",
-      confidence: update.confidence
+      confidence: update2.confidence
     };
   }
   const rateLimit = scoreRateLimit(screen, nowMs);
@@ -3512,7 +3664,7 @@ function classifyCodexTabState(snapshot, nowMs) {
       }
     };
   }
-  const partial = rateLimit.confidence > update.confidence ? rateLimit.confidence : update.confidence;
+  const partial = rateLimit.confidence > update2.confidence ? rateLimit.confidence : update2.confidence;
   if (partial > 0) return { state: "unknown", confidence: partial };
   return { state: "working", confidence: 0 };
 }

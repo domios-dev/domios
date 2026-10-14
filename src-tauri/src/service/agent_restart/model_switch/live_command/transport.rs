@@ -10,8 +10,20 @@ pub(super) fn enqueue_command(
     timeout: Duration,
     injected: &Cell<bool>,
 ) -> Result<(), String> {
+    enqueue_command_observed(queue, permit, input, timeout, injected, || {})
+}
+
+pub(super) fn enqueue_command_observed(
+    queue: &WriteQueue,
+    permit: GuardedInputPermit,
+    input: Vec<u8>,
+    timeout: Duration,
+    injected: &Cell<bool>,
+    on_enqueued: impl FnOnce(),
+) -> Result<(), String> {
     let written = queue.send_and_wait_guarded_with_enqueued(input, permit, timeout, || {
         injected.set(true);
+        on_enqueued();
     });
     if let Err(error) = written {
         if crate::pty::write_queue::is_stale_agent_input(&error) || !injected.get() {

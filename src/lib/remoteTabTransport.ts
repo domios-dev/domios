@@ -120,6 +120,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       text: args.text,
       client_token: args.clientToken,
     });
+    case "chat_send_dismissals": return call("GET", "/chat-send/dismissals");
+    case "chat_send_delete": return call("POST", "/chat-send/dismissals", args.dismissal);
     case "chat_send_status": return call("GET", "/chat-send");
     case "shell_command_snapshot": return call("GET", "/shell-commands");
     case "delayed_send_list": return call("GET", "/delayed-messages");

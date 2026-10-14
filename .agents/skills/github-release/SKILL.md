@@ -20,7 +20,7 @@ description: >-
 
 1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). The nightly schedule runs the full matrix on `develop`.
 2. **Cut the release.** Create `release/X.Y.Z` from `develop`, run `npm run sync:versions` for X.Y.Z plus the offline lockfile refresh (step 1 below), push, and open the release PR `release/X.Y.Z` → `master`. Its description is the release notes.
-3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. The full test matrix (`tests.yml` via `workflow_call`, every platform) and every bundle build run in parallel from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
+3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. Parallel fast checks (`tests.yml`, `phase: fast`) gate every bundle build; Rust archives queue independently at preparation completion, then builds queue after the fast gate and overlap Rust tests from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
 4. **Red** publishes nothing: fix on the release branch and push again. **Green**: `release-manifest` stamps `vX.Y.Z`, publishes both releases and the signed `latest.json`; `promote` then merges the release PR into `master`, merges `master` back into `develop`, and deletes the branch.
 5. **One branch, one version.** After publication a further change needs `release/X.Y.(Z+1)`.
 
@@ -81,8 +81,8 @@ If a plugin check reports "Vitest failed to access its internal state", its Vite
 ## ⚡ Default release path: a push to release/X.Y.Z (automated, self-hosted CI)
 
 Each push of `release/X.Y.Z` by `rollacode` starts one `.github/workflows/release.yml` run. It prepares draft
-releases, then runs the full test matrix and four reusable platform callers in parallel: macOS builds on configurable per-architecture labels (default `codeterm-builder`), Linux arm64 builds in a separate Docker job (default `codeterm-builder`), Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
-builds x86_64 Linux. A final `release-manifest` job needs all four callers and tests, merges their updater
+releases, then queues Rust archives and parallel quick checks together; after the fast gate it queues four reusable platform callers: macOS builds on configurable per-architecture labels (default `codeterm-builder`), Linux arm64 builds in a separate Docker job (default `codeterm-builder`), Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
+builds x86_64 Linux. Builds depend only on fast checks and take any matching free runner while Rust tests continue. A final `release-manifest` job needs all four callers and both test stages, merges their updater
 fragments, publishes the signed public manifests, marks the releases, verifies served bytes, and
 closes eligible public issues. The platform workflows are reusable pieces and do not start their
 own tag runs. Each platform job clears incomplete upload slots before building, so a failed platform
@@ -174,8 +174,7 @@ git push origin --delete "release/$VER"
 
 A fix found after publication is a new patch release through the normal flow.
 
-A push to `release/X.Y.Z` creates one Actions run. After release preparation, its macOS, arm64 Linux,
-x86_64 Linux, and Windows build jobs run in parallel. The Mac job signs and notarizes macOS
+A push to `release/X.Y.Z` creates one Actions run. After source preparation, Rust archives queue alongside parallel fast checks. Platform builds queue after the fast gate and overlap ongoing Rust archives, shards and native tests. The Mac job signs and notarizes macOS
 artifacts; Linux jobs package AppImage and Debian assets; Windows builds the NSIS installers. The
 final `release-manifest` job runs only after all platform jobs succeed. It merges every updater
 fragment, uploads `latest.json` and the Debian manifest to both repositories, publishes the
@@ -197,7 +196,7 @@ End-to-end ≈ 25–30 min, hands-off. Watch the single run: `gh run watch --rep
 - Mac runner toolchain: Xcode command line tools, Rust, Node and pnpm; Docker and the baked
   arm64 image for Linux arm64. Repository secrets supply all signing and notary credentials.
 
-`release-builder.yml` and macOS credential preflight call `scripts/release-signing-material.py`
+`release-macos-build.yml`, `release-linux-arm64.yml` and macOS credential preflight call `scripts/release-signing-material.py`
 before building. Each job imports `APPLE_CERTIFICATE` (base64 .p12) with
 `APPLE_CERTIFICATE_PASSWORD` into a random temporary keychain under `RUNNER_TEMP`, enables
 codesign access and adds that keychain to the search list. The checked-in, SHA-256-pinned
@@ -224,10 +223,36 @@ intentionally, cut the correction as a new patch version through the normal flow
 
 ### Artifact graph and granular reruns
 
-`prepare` fans out to `tests`, `macos`, `linux-arm64`, `linux-x86_64`, and `windows`.
-`release-manifest` needs every caller **and** `tests`; frontend publication needs its tests too.
+`prepare` starts `quick-checks` (`tests.yml`, `phase: fast`): tree freshness, fmt, clippy,
+TS unit/Vitest/static/generated-type checks, release/plugin contracts and plugin bundles/tests.
+Every check depends only on tree/scope discovery; clippy does not wait for fmt.
+No Rust archive, shard, native test or coverage job belongs to this gate.
+
+`tests` (`tests.yml`, `phase: long`) needs only `prepare` and queues Rust archives
+at preparation completion, independently of `quick-checks`. Shards and native tests
+queue when the archives finish; the coverage summary requires their receipts.
+Every platform build needs only `prepare` and `quick-checks`: it queues after the fast
+gate and takes any matching idle runner, without waiting for an archive to finish.
+The test jobs get an earlier queue position on shared runners. GitHub queue order is
+best effort, not strict priority; the live overlap map lives in the build-machine README.
+Workflow concurrency includes phase so the fast and long calls cannot supersede each other.
+
+A failing test/gate job requests cancellation of this caller run through the Actions API
+using `GITHUB_TOKEN` with `actions: write`. Rust cancellation runs before receipt uploads,
+so a failed archive or test stops queued and running builds without waiting for sibling
+jobs or the coverage summary. Cancellation also stops remaining tests. The switch is
+explicitly enabled only by release callers; standalone PR/nightly tests retain their
+existing execution. Setup and receipt failures also trigger cancellation.
+`release-manifest` needs every build, `quick-checks` and `tests`; frontend publication
+needs both test stages. Failure, cancellation or a skipped required gate cannot publish.
+Dry runs with tests use the same graph; `dry_run_tests: false` explicitly skips both
+stages for bundle diagnostics.
 macOS arm64 and x64 are independent matrix jobs, as are Windows x64 and arm64: both matrices
 use `fail-fast: false`, so one architecture failure preserves the other's successful uploads.
+`macos` calls `release-macos-build.yml` once; `linux-arm64` calls `release-linux-arm64.yml`
+once. Each reusable workflow contains only its own `build` job, with no platform selector or
+skipped placeholder. The graph reads `macOS / build (arm64)`, `macOS / build (x86_64)` and
+`Linux arm64 / build`. The hosted manual fallback remains `release-macos.yml`.
 Runner variables and their existing-label defaults live in the build-machine README.
 
 For an environmental failure in the same immutable source run, list failed job IDs and rerun
@@ -1064,7 +1089,7 @@ prints the normalized set in the check summary. This metadata is deliberately no
 closing keyword, so merging private source cannot close a public issue prematurely.
 
 The single `release.yml` run has four parallel reusable platform callers and a final
-`release-manifest` job whose `needs` includes all four and tests. That final job rebuilds `latest.json` and
+`release-manifest` job whose `needs` includes all four, fast checks and Rust tests. That final job rebuilds `latest.json` and
 the Debian manifest from every uploaded updater fragment, uploads both manifests to the source
 release and public mirror, publishes the releases, and verifies the public served bytes. Only a
 successful verification proceeds to resolve commits and associated private PRs in the release
@@ -1153,3 +1178,56 @@ meaningful. It then writes the exact same Markdown to both repositories.
 Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/updater-internals.md](references/updater-internals.md) — the auto-install flow
+
+<!-- revision: 2 -->
+
+## Rust warning inventory and cleanup
+
+Every release target and test archive/clippy build uploads a `rust-warnings-<lane>-<target>.json`
+artifact. The always-running warning summary publishes per-target, per-lint and per-file tables
+in its job summary. Download `rust-warnings-release-report` (or `rust-warnings-tests-report`)
+for `rust-warnings-report.md` and `rust-warnings-report.json`; the release summary also comments
+on associated release PRs. JSON diagnostics include crate, location, lint, message and snippet.
+Capture/upload/comment failures do not change platform build results; new warning identities fail
+the summary ratchet. Incomplete runs are labelled and never propose a baseline update.
+
+`scripts/rust-warnings-baseline.json` starts explicitly uninitialized: do not invent counts or
+seed it from local macOS output. After the first complete real release run, copy the generated
+`rust-warnings-baseline.json` from `rust-warnings-release-report` into the repository and commit
+it on develop, citing the run URL. No workflow dispatch is needed to initialize the mechanism.
+Until that seed is committed, reports explicitly say the ratchet is awaiting initialization.
+
+The post-release cleanup task consumes the full JSON report, groups by target/file/lint, and
+fixes cfg-specific warnings on their owning platform (including Windows arm64). After a complete
+run verifies the fixes, commit its proposed baseline alongside the cleanup. Subsequent baseline
+entries/counts may only shrink relative to origin/develop; adding a replacement warning at the
+same count still fails. A test-only run preserves baseline targets it did not build. Never copy
+an incomplete run's inventory over the baseline or hand-increase an allowance.
+
+Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
+Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
+of collector verification; the next real release proves the six-platform delivery and PR comment.
+
+## Shared compiler cache in release jobs
+
+Every native platform job sets `RUSTC_WRAPPER=sccache`, verifies the prestarted
+shared server before compilation, and ends with `build.sh cache-stats`
+(`build.ps1 cache-stats` from pwsh on Windows). `release-inputs` itself configures
+or verifies through the common cache policy; a separate Tauri step inherits the
+job wrapper. Windows release and archive steps invoke `build.ps1` from pwsh and
+locate the existing Git Bash executable through that forwarder; bash need not be
+on the runner PATH.
+
+The Linux arm64 Docker image includes sccache. The host resolves the vault keys
+only into environment and forwards their names with Docker `-e`; no credential
+values enter arguments or files. The disposable container owns a separate cache
+server, starts it through `cache-policy.sh` with runner credentials, verifies S3,
+and prints its own counters on exit. Host macOS stats cannot establish container
+reuse. Rebuild the existing image after its Dockerfile changes; a stale image
+without sccache refuses before Rust compilation.
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| Release compiles hundreds of crates with no sccache output | Wrapper setup was omitted from release inputs or the later Tauri environment | Use the shared release-input policy, job-scoped wrapper, preflight verification and final stats. Repeat one SHA with a clean owned target and require nonzero hits. |
+| S3 stats show zero requests although no cache server is running | `sccache --show-stats` manufactures configured zero counters on connection failure | Require the configured endpoint to be live through `cache-verify` and `cache-stats`; preserve before/after counters and logs rather than treating a configured S3 label as proof. |
+| Windows archive refuses before compiling because bash is absent from PATH | The Actions step requested `shell: bash` instead of the Windows forwarder | Use the pwsh `build.ps1 ci-archives` step; its owning build implementation still lives in `build.sh`. |

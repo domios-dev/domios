@@ -104,7 +104,10 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
     expect(parseAttachmentMarkers(sent[0]).attachments.map((item) => item.path)).toEqual([path]);
     expect(sent[0].indexOf(path)).toBeGreaterThan(sent[0].indexOf("inspect"));
     expect(sent[0].indexOf(path)).toBeLessThan(sent[0].indexOf("here"));
-    expect(host.querySelector<HTMLImageElement>('[aria-label="Sent message"] img')?.src).toBe(pixels);
+    const chip = host.querySelector<HTMLButtonElement>('[aria-label="Sent message"] button[aria-label="Open image image1"]')!;
+    expect(chip.querySelector("img")).toBeNull();
+    await act(async () => chip.focus());
+    expect(document.querySelector<HTMLImageElement>('[role="region"] img')?.src).toBe(pixels);
     expect(previews).toContain(path);
   } finally {
     await act(async () => root.unmount()); host.remove();

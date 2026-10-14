@@ -59,6 +59,7 @@ jobs:
     timeout-minutes: 120
     env:
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      RUSTC_WRAPPER: sccache
       TARGET: x86_64-unknown-linux-gnu
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       # Absolute: the prebuild step runs from the repo root and tauri-action runs
@@ -119,6 +120,10 @@ jobs:
           package-manager-cache: false
           node-version: '22.22.0'
 
+      - name: Reset compiler capture
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
@@ -143,23 +148,24 @@ jobs:
             GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG" linux-x86_64
           fi
 
+      - name: Verify shared compile cache
+        run: bash build.sh cache-verify
+
       - name: Build release bundle inputs
         shell: bash
-        run: ./build.sh release-inputs
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh release-inputs
 
       # Build and sign only. tauri-action's uploader reports a bare "Error saving
       # asset" with no status, body or asset name, which cost 1.11.3 four runs.
       - name: Build and sign release bundles
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           # If the signing key is encrypted, add TAURI_KEY_PASSWORD to
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          includeUpdaterJson: false
-          args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }} --bundles deb,appimage
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pnpm tauri build --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES" --bundles deb,appimage
 
       - name: Smoke built release bundle
         run: node scripts/release-bundle-smoke.mjs linux "src-tauri/target/${TARGET}/release/bundle" "${{ inputs.source_ref }}" x64
@@ -292,3 +298,15 @@ jobs:
           ASSETS=("$DEB" "$APPIMAGE")
           [ -n "$UPDATER_BUNDLE" ] && ASSETS+=("$UPDATER_BUNDLE")
           gh release upload "$TAG" "${ASSETS[@]}" --clobber --repo "$MIRROR_REPO"
+
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: release-Linux
+          target: x86_64-unknown-linux-gnu
+
+      - name: Shared compile cache statistics
+        if: always()
+        run: bash build.sh cache-stats

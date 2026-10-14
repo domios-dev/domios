@@ -46,10 +46,12 @@ fn durable_failure_can_end_only_an_inactive_held_status() {
         ChatSendState::Failed,
     ] {
         for active in [false, true] {
-            assert_eq!(
-                receipt_ends_held_status(&current, active, ReceiptState::Failed),
-                current == ChatSendState::Pending && !active
-            );
+            for receipt in [ReceiptState::Failed, ReceiptState::Degraded] {
+                assert_eq!(
+                    receipt_ends_held_status(&current, active, receipt),
+                    current == ChatSendState::Pending && !active
+                );
+            }
             assert!(!receipt_ends_held_status(
                 &current,
                 active,

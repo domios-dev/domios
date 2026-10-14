@@ -21,7 +21,7 @@ const longHost = await render(<CommandCard event={event({ kind: "command", detai
 const longRawButton = Array.from(longHost.querySelectorAll("button")).find((button) => button.textContent === "Raw command");
 await act(async () => longRawButton?.click());
 const longRaw = longHost.querySelector<HTMLElement>('[data-testid="message-raw-content"]');
-if (!longRaw?.classList.contains("overflow-auto") || longRaw.textContent !== longCommand) throw new Error("command_card_reveal raw command must stay bounded and complete");
+if (longRaw?.style.overflowY !== "hidden" || longRaw.textContent !== longCommand) throw new Error("command_card_reveal raw command must stay bounded and complete");
 
 for (const [name, host] of [
   ["command", await render(<CommandCard event={event({ kind: "command", detail: fullCommand })} expanded={false} onToggle={() => {}} />)],

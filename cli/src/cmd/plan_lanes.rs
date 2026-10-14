@@ -168,6 +168,27 @@ pub fn render_lane_removed(val: &Value) -> String {
     }
 }
 
+pub fn render_lane_cleanup(val: &Value) -> String {
+    let Some(rows) = val.get("lanes").and_then(Value::as_array) else {
+        return String::new();
+    };
+    let mut output = String::new();
+    for row in rows {
+        let cells = ["action", "task_id", "branch", "worktree", "reason"].map(|key| {
+            opt(row, key)
+                .unwrap_or("-")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
+        output.push_str(&format!(
+            "{} {} {} {}: {}\n",
+            cells[0], cells[1], cells[2], cells[3], cells[4]
+        ));
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

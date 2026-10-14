@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, mkdtempSync, rmSync, appendFileSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, rmSync, appendFileSync, existsSync } from 'node:fs';
 import { tmpdir, platform, arch } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,7 +42,9 @@ function run(command, args, cwd) {
 }
 export function checkContents(appBytes, sha) {
   if (!/^[a-f0-9]{40}$/.test(sha) || !appBytes.includes(Buffer.from(sha))) throw new Error('App does not contain exact source SHA');
-  const plugins = readdirSync(path.join(root, 'plugins')).filter(name => name.startsWith('provider-') || ['analytics', 'browser'].includes(name));
+  const plugins = readdirSync(path.join(root, 'plugins'))
+    .filter(name => name.startsWith('provider-') || ['analytics', 'browser'].includes(name))
+    .filter(name => existsSync(path.join(root, 'plugins', name, 'plugin.json')));
   for (const name of plugins) {
     for (const filename of ['plugin.json', 'plugin.js']) {
       const content = readFileSync(path.join(root, 'plugins', name, filename));
@@ -74,7 +76,8 @@ export function smoke(kind, directory, sha, expectedArch) {
       expectedArch ||= arch();
     } else if (kind === 'windows') {
       const installer = one(artifacts, file => file.endsWith('-setup.exe'), 'NSIS installer');
-      run(process.env.RELEASE_7ZIP || '7z', ['x', '-y', `-o${scratch}`, installer]);
+      const standard7z = 'C:\\Program Files\\7-Zip\\7z.exe';
+      run(process.env.RELEASE_7ZIP || (existsSync(standard7z) ? standard7z : '7z'), ['x', '-y', `-o${scratch}`, installer]);
       format = 'PE';
       if (!['x64', 'arm64'].includes(expectedArch)) throw new Error('Windows target architecture required');
     } else throw new Error(`Unknown platform ${kind}`);
@@ -94,7 +97,8 @@ export function smoke(kind, directory, sha, expectedArch) {
       const debFiles = files(debRoot);
       for (const executable of [app, cli, embed]) {
         const basename = path.basename(executable);
-        const packaged = one(debFiles, file => path.basename(file) === basename, `Debian ${basename}`);
+        const inCli = /[/\\]cli[/\\]/.test(executable);
+        const packaged = one(debFiles, file => path.basename(file) === basename && /[/\\]cli[/\\]/.test(file) === inCli, `Debian ${basename}`);
         const content = readFileSync(packaged);
         assertMachine(content, expectedArch, format);
         if (executable === app) checkContents(content, sha);
@@ -102,7 +106,7 @@ export function smoke(kind, directory, sha, expectedArch) {
       one(debFiles, file => file.endsWith(`${path.sep}dist${path.sep}index.html`), 'Debian frontend entry point');
     }
     if (kind === 'windows') {
-      const statuses = run('pwsh', ['-NoProfile', '-File', path.join(root, 'scripts/release-windows-artifact.ps1'), '-App', app, '-Cli', cli, '-Embed', embed, '-Version', version]);
+      const statuses = run(process.env.RELEASE_PWSH || 'pwsh', ['-NoProfile', '-File', path.join(root, 'scripts/release-windows-artifact.ps1'), '-App', app, '-Cli', cli, '-Embed', embed, '-Version', version]);
       console.log(`Authenticode (not required): ${statuses}`);
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Authenticode (not required): ${statuses}\n`);
     }

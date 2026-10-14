@@ -47,44 +47,27 @@ const EFFORT_SCREEN: &str = include_str!(concat!(
 ));
 
 #[test]
-fn captured_cached_sonnet_confirmation_answers_target_yes_once_and_requires_closure() {
-    let commands = commands();
-    let mut selection = target();
-    selection.model = "sonnet".into();
-    selection.display_name = "Sonnet 5.5".into();
+fn captured_cached_sonnet_confirmation_uses_the_structural_provider_capability() {
+    use crate::agent::provider::AgentProvider;
+    let provider = crate::plugin::agent_claude::ClaudeProvider::new();
     let screen = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../plugins/provider-claude/tests/fixtures/model-switch/cached-sonnet-confirmation.txt"
     ));
-    let mut prompt =
-        CommandPrompt::new(commands.model.prompt.as_ref().unwrap(), &selection, None).unwrap();
-    prompt
-        .respond(screen, |_| panic!("unowned confirmation response"))
+    let prompt = provider
+        .parse_switch_confirmation_prompt(screen, "sonnet")
         .unwrap();
-    prompt.injected();
-    assert!(prompt.present(screen));
-    prompt
-        .respond(screen, |keys| {
-            assert_eq!(keys, b"\r");
-            Ok(())
-        })
-        .unwrap();
-    assert!(prompt.answered());
-    assert!(prompt.present(screen));
-    prompt
-        .respond(screen, |_| panic!("duplicate confirmation response"))
-        .unwrap();
-    assert!(!prompt.present("composer"));
-    let mut foreign = selection;
-    foreign.model = "opus".into();
-    foreign.display_name = "Opus 5.5".into();
-    let mut prompt =
-        CommandPrompt::new(commands.model.prompt.as_ref().unwrap(), &foreign, None).unwrap();
-    prompt.injected();
-    prompt
-        .respond(screen, |_| panic!("different target confirmation"))
-        .unwrap();
-    assert!(!prompt.answered());
+    assert_eq!(prompt.options.len(), 2);
+    assert_eq!(
+        provider.live_prompt_response(0, screen),
+        Some(vec![b"\r".to_vec()])
+    );
+    assert!(provider
+        .parse_switch_confirmation_prompt(screen, "opus")
+        .is_none());
+    assert!(provider
+        .parse_switch_confirmation_prompt("composer", "sonnet")
+        .is_none());
 }
 
 #[test]

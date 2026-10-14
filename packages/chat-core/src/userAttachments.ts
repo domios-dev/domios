@@ -62,3 +62,22 @@ export function inlineAttachmentSrc(attachment: ChatAttachment): string | null {
   if (attachment.url?.startsWith("data:image/")) return attachment.url;
   return null;
 }
+
+export type PlacedAttachmentSegment = { text: string } | { attachment: AttachmentMarker; image?: ChatAttachment };
+
+export function placedAttachmentSegments(source: string, attachments: ChatAttachment[] = []): PlacedAttachmentSegment[] {
+  const content = userVisibleText(splitReplyAttachment(source).text, attachments);
+  const segments = attachmentMarkerSegments(content);
+  const paths = new Set(segments.flatMap((segment) => "attachment" in segment ? [pathKey(segment.attachment.path)] : []));
+  const placed: PlacedAttachmentSegment[] = segments.map((segment) => "text" in segment ? segment : {
+    attachment: segment.attachment,
+    image: attachments.find((image) => image.path && pathKey(image.path) === pathKey(segment.attachment.path)),
+  });
+  for (const image of attachments) {
+    if (image.path && paths.has(pathKey(image.path))) continue;
+    if (placed.length) placed.push({ text: " " });
+    placed.push({ attachment: { kind: "image", path: image.path ?? "", label: attachmentFileName(image) }, image });
+    if (image.path) paths.add(pathKey(image.path));
+  }
+  return placed;
+}

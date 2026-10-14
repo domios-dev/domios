@@ -116,6 +116,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             text: a.text,
             client_token: a.clientToken,
         }),
+        chat_send_dismissals: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/dismissals`),
+        chat_send_delete: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/dismissals`, a.dismissal),
         chat_send_status: (a: Args) => clientFor(a).json<ChatSendStatus[]>("GET", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`),
         chat_send_admissions: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send/admissions`, { clientTokens: a.clientTokens }),
         ordinary_tabs_list: (a: Args = {}) => clientFor(a).json("GET", "/api/tabs"),

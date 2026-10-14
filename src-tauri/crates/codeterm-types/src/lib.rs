@@ -7,6 +7,7 @@ pub mod blueprint_terminal;
 pub mod config;
 pub mod decision;
 pub mod domios;
+pub mod local_recording;
 pub mod mesh;
 pub mod message_markers;
 pub mod notification;
@@ -21,3 +22,6 @@ pub mod usage;
 
 pub mod blueprint_catalog;
 pub mod blueprint_journal;
+
+#[cfg(test)]
+mod test_support;

@@ -314,6 +314,7 @@ run_nextest_scope() {
 
   case "$scope" in
     app|codeterm) package="codeterm"; targets+=(--lib --no-default-features) ;;
+    input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
     analytics|codeterm-analytics) package="codeterm-analytics"; targets+=(--lib) ;;
@@ -420,7 +421,7 @@ run_nextest_scope() {
 }
 
 case "$CMD" in
-  gateway-*|help|gc|cache-status|cache-verify) ;;
+  gateway-*|help|gc|cache-status|cache-verify|cache-stats) ;;
   *) setup_env ;;
 esac
 
@@ -537,7 +538,7 @@ fi
 
 # A cold prebuilt refusal must be read-only; every other command keeps the
 # existing hook setup behavior.
-if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ] && [ "$CMD" != "cache-verify" ]; then
+if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ] && [ "$CMD" != "cache-verify" ] && [ "$CMD" != "cache-stats" ]; then
   git config core.hooksPath .githooks 2>/dev/null || true
 fi
 
@@ -1725,8 +1726,9 @@ CodeTerm build commands
   check-tests                 Compile app and CLI test profiles
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
+  ci-archives                 Compile and archive test profiles with the shared cache
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
+  test-one <input-macos|input-windows|billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   test                        Run the application Rust unit suite
@@ -1736,6 +1738,7 @@ CodeTerm build commands
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
   cache-verify                Verify shared S3 configuration and running server without changes
+  cache-stats                 Show counters only from a live sccache server
   gateway-status              Show the machine build owner
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
@@ -1764,6 +1767,9 @@ EOF
 
   cache-verify)
     ct_sccache_verify
+    ;;
+  cache-stats)
+    ct_sccache_stats
     ;;
   gateway-status)
     ct_gateway_status
@@ -1878,7 +1884,12 @@ EOF
     ensure_deps
     pnpm build
     ;;
+  ci-archives)
+    ct_configure_sccache
+    node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-archives.mjs
+    ;;
   release-inputs)
+    ct_configure_sccache
     ensure_deps
     prepare_release_bundle_inputs
     ;;
@@ -1937,6 +1948,10 @@ EOF
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        ;;
+      input-macos|input-windows)
+        enter_build_gateway "$CMD ${*:2}"
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
       frontend-bundle|codeterm-frontend-bundle)
         enter_build_gateway "$CMD ${*:2}"

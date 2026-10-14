@@ -1,3 +1,4 @@
+import { BoundedMessageContent } from "../BoundedMessageContent";
 import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import { MessageSquareText } from "lucide-react";
 import { InboundActivityCard } from "./InboundActivityCard";
@@ -139,7 +140,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       onFocusTab={onFocusTab}
       disclosureLabel="report Details"
     >
-      <div className={`ct-compact-scroll grid max-h-64 gap-2.5 overflow-y-auto leading-relaxed ${textSize}`}>
+      <BoundedMessageContent collapsedHeight="16rem" className={`ct-compact-scroll grid gap-2.5 leading-relaxed ${textSize}`}>
         {outcomeLine && (
           <div
             data-testid={tone === "error" ? "chat-inbound-report-incident" : "chat-inbound-report-outcome"}
@@ -175,7 +176,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
             {diagnostics}
           </pre>
         )}
-      </div>
+      </BoundedMessageContent>
     </InboundActivityCard>
   );
 }

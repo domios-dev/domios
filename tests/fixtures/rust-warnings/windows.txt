@@ -1,0 +1,38 @@
+   Compiling codeterm v1.14.7
+warning: unused import: `Arc`
+ --> src/service/local_recording/platform/windows/lifecycle.rs:3:5
+  |
+3 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `Path` and `Duration`
+ --> src/service/local_recording/platform/windows.rs:5:11
+  |
+5 | use std::path::{Path, PathBuf};
+  |                ^^^^
+
+warning: variable does not need to be mutable
+ --> src/service/local_recording/platform/windows.rs:740:9
+  |
+740 | let mut child = command.spawn()?;
+    |     ----^^^^^
+    |     |
+    |     help: remove this `mut`
+  = note: `#[warn(unused_mut)]` on by default
+
+warning: method `feed_pty_output_inner` is never used
+ --> src/service/local_recording/output_feed.rs:23:8
+  |
+23 | fn feed_pty_output_inner(&self) {}
+   |    ^^^^^^^^^^^^^^^^^^^^^
+  = note: `#[warn(dead_code)]` on by default
+
+warning: method `request_stop` is never used
+ --> src/service/local_recording/platform/windows/lifecycle.rs:151:8
+  |
+151 | fn request_stop(&self) {}
+    |    ^^^^^^^^^^^^
+
+warning: `codeterm` (lib) generated 5 warnings (run `cargo fix` to apply 3 suggestions)
+    Finished release [optimized] target(s)

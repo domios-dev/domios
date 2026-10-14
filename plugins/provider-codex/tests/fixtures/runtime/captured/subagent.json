@@ -1,0 +1,465 @@
+{
+  "schemaVersion": 1,
+  "captured": {
+    "cliVersion": "0.156.1",
+    "model": "gpt-5.6-luna",
+    "scenario": "subagent"
+  },
+  "context": {
+    "epoch": 1,
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "cwd": "/work/project",
+    "hostVersion": "1.14.8",
+    "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [],
+  "rpc": [
+    {
+      "direction": "inbound",
+      "receiptMs": 0,
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "exec-27515368-be3b-4e14-bf8d-65276ab48c93",
+            "tool": "spawnAgent",
+            "status": "inProgress",
+            "senderThreadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "receiverThreadIds": [],
+            "prompt": "Read package.json in the current workspace. Report its relevant contents and key scripts/dependencies. Do not modify files.",
+            "model": "",
+            "reasoningEffort": "medium",
+            "agentsStates": {}
+          },
+          "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+          "turnId": "01a0d617-29e0-73d3-a4fd-856238566501",
+          "startedAtMs": 1790298246845
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 128,
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "exec-27515368-be3b-4e14-bf8d-65276ab48c93",
+            "tool": "spawnAgent",
+            "status": "completed",
+            "senderThreadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "receiverThreadIds": [
+              "01a0d617-4ebf-7b11-aa51-01f6319c42aa"
+            ],
+            "prompt": "Read package.json in the current workspace. Report its relevant contents and key scripts/dependencies. Do not modify files.",
+            "model": "gpt-5.6-luna",
+            "reasoningEffort": "medium",
+            "agentsStates": {
+              "01a0d617-4ebf-7b11-aa51-01f6319c42aa": {
+                "status": "pendingInit",
+                "message": null
+              }
+            }
+          },
+          "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+          "turnId": "01a0d617-29e0-73d3-a4fd-856238566501",
+          "completedAtMs": 1790298246962
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 157,
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91",
+            "tool": "spawnAgent",
+            "status": "inProgress",
+            "senderThreadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "receiverThreadIds": [],
+            "prompt": "Read tsconfig.json in the current workspace. Report its relevant compiler configuration. Do not modify files.",
+            "model": "",
+            "reasoningEffort": "medium",
+            "agentsStates": {}
+          },
+          "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+          "turnId": "01a0d617-29e0-73d3-a4fd-856238566501",
+          "startedAtMs": 1790298247003
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 214,
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91",
+            "tool": "spawnAgent",
+            "status": "completed",
+            "senderThreadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "receiverThreadIds": [
+              "01a0d617-4f5c-7f91-ae63-640360c8f198"
+            ],
+            "prompt": "Read tsconfig.json in the current workspace. Report its relevant compiler configuration. Do not modify files.",
+            "model": "gpt-5.6-luna",
+            "reasoningEffort": "medium",
+            "agentsStates": {
+              "01a0d617-4f5c-7f91-ae63-640360c8f198": {
+                "status": "pendingInit",
+                "message": null
+              }
+            }
+          },
+          "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+          "turnId": "01a0d617-29e0-73d3-a4fd-856238566501",
+          "completedAtMs": 1790298247058
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 3395,
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "exec-f27d123a-808c-4171-b68e-2f1db0654187",
+            "tool": "wait",
+            "status": "inProgress",
+            "senderThreadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "receiverThreadIds": [
+              "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+              "01a0d617-4f5c-7f91-ae63-640360c8f198"
+            ],
+            "prompt": null,
+            "model": null,
+            "reasoningEffort": null,
+            "agentsStates": {}
+          },
+          "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+          "turnId": "01a0d617-29e0-73d3-a4fd-856238566501",
+          "startedAtMs": 1790298250242
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 12314,
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "exec-f27d123a-808c-4171-b68e-2f1db0654187",
+            "tool": "wait",
+            "status": "completed",
+            "senderThreadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "receiverThreadIds": [
+              "01a0d617-4ebf-7b11-aa51-01f6319c42aa"
+            ],
+            "prompt": null,
+            "model": null,
+            "reasoningEffort": null,
+            "agentsStates": {
+              "01a0d617-4ebf-7b11-aa51-01f6319c42aa": {
+                "status": "completed",
+                "message": "`package.json` summary:\n\n- **Name:** `effect-codex-app-server`\n- **Private package:** yes\n- **Module type:** ESM (`\"type\": \"module\"`)\n- **Exports:** TypeScript source entry points for:\n  - `client`\n  - `schema`\n  - `rpc`\n  - `protocol`\n  - `replay`\n  - `errors`\n\nScripts:\n\n- `typecheck`: `tsc --noEmit`\n- `test`: `vp test run`\n- `generate`: `node scripts/generate.ts`\n- `probe`: `node test/examples/codex-app-server-probe.ts`\n\nDependencies:\n\n- **Runtime:** `effect`\n- **Development:**\n  - `@effect/openapi-generator`\n  - `@effect/platform-node`\n  - `@effect/vitest`\n  - `@types/node`\n  - `vite-plus`\n\nAll dependencies use the workspace catalog (`\"catalog:\"`). No files were modified."
+              }
+            }
+          },
+          "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+          "turnId": "01a0d617-29e0-73d3-a4fd-856238566501",
+          "completedAtMs": 1790298259147
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 15455,
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "exec-fa861815-1d48-4f1f-a941-9f4fde5c4aaa",
+            "tool": "wait",
+            "status": "inProgress",
+            "senderThreadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "receiverThreadIds": [
+              "01a0d617-4f5c-7f91-ae63-640360c8f198"
+            ],
+            "prompt": null,
+            "model": null,
+            "reasoningEffort": null,
+            "agentsStates": {}
+          },
+          "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+          "turnId": "01a0d617-29e0-73d3-a4fd-856238566501",
+          "startedAtMs": 1790298262302
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "receiptMs": 22035,
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "exec-fa861815-1d48-4f1f-a941-9f4fde5c4aaa",
+            "tool": "wait",
+            "status": "completed",
+            "senderThreadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "receiverThreadIds": [
+              "01a0d617-4f5c-7f91-ae63-640360c8f198"
+            ],
+            "prompt": null,
+            "model": null,
+            "reasoningEffort": null,
+            "agentsStates": {
+              "01a0d617-4f5c-7f91-ae63-640360c8f198": {
+                "status": "completed",
+                "message": "`tsconfig.json` contains:\n\n- Extends [../../tsconfig.base.json](/home/replay-user/t3code/tsconfig.base.json)\n- Adds Node typings: `\"types\": [\"node\"]`\n- Includes TypeScript files under:\n  - `src`\n  - `scripts`\n  - `test`\n\nInherited compiler settings include:\n\n- `target: \"ESNext\"`\n- `module` and `moduleResolution`: `\"NodeNext\"`\n- `noEmit: true`\n- `strict: true`\n- `noUncheckedIndexedAccess: true`\n- `exactOptionalPropertyTypes: true`\n- `verbatimModuleSyntax: true`\n- `erasableSyntaxOnly: true`\n- `resolveJsonModule: true`\n- `skipLibCheck: true`\n- Effect language-service plugin enabled with several diagnostics configured as errors."
+              }
+            }
+          },
+          "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+          "turnId": "01a0d617-29e0-73d3-a4fd-856238566501",
+          "completedAtMs": 1790298268870
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [],
+    "events": [
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+        "item": {
+          "id": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "toolInput": {
+            "agent_id": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+            "agent_state": "started",
+            "agent_call_id": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+            "agent_description": "Read package.json in the current workspace. Report its relevant contents and key scripts/dependencies. Do not modify files.",
+            "agent_model": "gpt-5.6-luna",
+            "agent_reasoning_effort": "medium",
+            "agent_ordinal": 1,
+            "agent_result": null
+          },
+          "toolId": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "toolArgs": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "collapsed": true,
+          "toolError": false,
+          "timestamp": "2026-09-25T01:04:06.962Z",
+          "toolFlowId": "01a0d617-29e0-73d3-a4fd-856238566501"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+        "item": {
+          "id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "toolInput": {
+            "agent_id": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+            "agent_state": "started",
+            "agent_call_id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+            "agent_description": "Read tsconfig.json in the current workspace. Report its relevant compiler configuration. Do not modify files.",
+            "agent_model": "gpt-5.6-luna",
+            "agent_reasoning_effort": "medium",
+            "agent_ordinal": 1,
+            "agent_result": null
+          },
+          "toolId": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "toolArgs": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "collapsed": true,
+          "toolError": false,
+          "timestamp": "2026-09-25T01:04:07.058Z",
+          "toolFlowId": "01a0d617-29e0-73d3-a4fd-856238566501"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+        "item": {
+          "id": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "toolInput": {
+            "agent_id": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+            "agent_state": "started",
+            "agent_call_id": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+            "agent_description": "Read package.json in the current workspace. Report its relevant contents and key scripts/dependencies. Do not modify files.",
+            "agent_model": "gpt-5.6-luna",
+            "agent_reasoning_effort": "medium",
+            "agent_ordinal": 1,
+            "agent_result": null
+          },
+          "toolId": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "toolArgs": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "collapsed": true,
+          "toolError": false,
+          "timestamp": "2026-09-25T01:04:06.962Z",
+          "toolFlowId": "01a0d617-29e0-73d3-a4fd-856238566501"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+        "item": {
+          "id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "toolInput": {
+            "agent_id": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+            "agent_state": "started",
+            "agent_call_id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+            "agent_description": "Read tsconfig.json in the current workspace. Report its relevant compiler configuration. Do not modify files.",
+            "agent_model": "gpt-5.6-luna",
+            "agent_reasoning_effort": "medium",
+            "agent_ordinal": 1,
+            "agent_result": null
+          },
+          "toolId": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "toolArgs": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "collapsed": true,
+          "toolError": false,
+          "timestamp": "2026-09-25T01:04:07.058Z",
+          "toolFlowId": "01a0d617-29e0-73d3-a4fd-856238566501"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+        "item": {
+          "id": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "seq": 1,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "toolInput": {
+            "agent_id": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+            "agent_state": "completed",
+            "agent_call_id": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+            "agent_description": "Read package.json in the current workspace. Report its relevant contents and key scripts/dependencies. Do not modify files.",
+            "agent_model": "gpt-5.6-luna",
+            "agent_reasoning_effort": "medium",
+            "agent_ordinal": 1,
+            "agent_result": "`package.json` summary:\n\n- **Name:** `effect-codex-app-server`\n- **Private package:** yes\n- **Module type:** ESM (`\"type\": \"module\"`)\n- **Exports:** TypeScript source entry points for:\n  - `client`\n  - `schema`\n  - `rpc`\n  - `protocol`\n  - `replay`\n  - `errors`\n\nScripts:\n\n- `typecheck`: `tsc --noEmit`\n- `test`: `vp test run`\n- `generate`: `node scripts/generate.ts`\n- `probe`: `node test/examples/codex-app-server-probe.ts`\n\nDependencies:\n\n- **Runtime:** `effect`\n- **Development:**\n  - `@effect/openapi-generator`\n  - `@effect/platform-node`\n  - `@effect/vitest`\n  - `@types/node`\n  - `vite-plus`\n\nAll dependencies use the workspace catalog (`\"catalog:\"`). No files were modified."
+          },
+          "toolId": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "toolArgs": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
+          "collapsed": true,
+          "toolError": false,
+          "timestamp": "2026-09-25T01:04:06.962Z",
+          "toolFlowId": "01a0d617-29e0-73d3-a4fd-856238566501"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+        "item": {
+          "id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "toolInput": {
+            "agent_id": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+            "agent_state": "started",
+            "agent_call_id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+            "agent_description": "Read tsconfig.json in the current workspace. Report its relevant compiler configuration. Do not modify files.",
+            "agent_model": "gpt-5.6-luna",
+            "agent_reasoning_effort": "medium",
+            "agent_ordinal": 1,
+            "agent_result": null
+          },
+          "toolId": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "toolArgs": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "collapsed": true,
+          "toolError": false,
+          "timestamp": "2026-09-25T01:04:07.058Z",
+          "toolFlowId": "01a0d617-29e0-73d3-a4fd-856238566501"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+        "item": {
+          "id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "seq": 2,
+          "type": "tool_call",
+          "content": "",
+          "toolKind": "agent",
+          "toolName": "agent_activity",
+          "toolSummary": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "toolInput": {
+            "agent_id": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+            "agent_state": "completed",
+            "agent_call_id": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+            "agent_description": "Read tsconfig.json in the current workspace. Report its relevant compiler configuration. Do not modify files.",
+            "agent_model": "gpt-5.6-luna",
+            "agent_reasoning_effort": "medium",
+            "agent_ordinal": 1,
+            "agent_result": "`tsconfig.json` contains:\n\n- Extends [../../tsconfig.base.json](/home/replay-user/t3code/tsconfig.base.json)\n- Adds Node typings: `\"types\": [\"node\"]`\n- Includes TypeScript files under:\n  - `src`\n  - `scripts`\n  - `test`\n\nInherited compiler settings include:\n\n- `target: \"ESNext\"`\n- `module` and `moduleResolution`: `\"NodeNext\"`\n- `noEmit: true`\n- `strict: true`\n- `noUncheckedIndexedAccess: true`\n- `exactOptionalPropertyTypes: true`\n- `verbatimModuleSyntax: true`\n- `erasableSyntaxOnly: true`\n- `resolveJsonModule: true`\n- `skipLibCheck: true`\n- Effect language-service plugin enabled with several diagnostics configured as errors."
+          },
+          "toolId": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "toolArgs": "01a0d617-4f5c-7f91-ae63-640360c8f198",
+          "collapsed": true,
+          "toolError": false,
+          "timestamp": "2026-09-25T01:04:07.058Z",
+          "toolFlowId": "01a0d617-29e0-73d3-a4fd-856238566501"
+        }
+      }
+    ]
+  }
+}

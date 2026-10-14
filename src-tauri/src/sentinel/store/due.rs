@@ -45,7 +45,7 @@ pub(super) fn plan_due(
             job.machine.stopped = true;
             job.revision += 1;
             job.last_reason = Some("timeout".into());
-            if let Some(cancelled) = active.remove(&job.id) {
+            if let Some(cancelled) = active.get(&job.id) {
                 cancelled.store(true, Ordering::SeqCst);
             }
             changes.push(ScheduleChange::Stop {

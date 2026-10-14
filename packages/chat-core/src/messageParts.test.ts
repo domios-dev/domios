@@ -11,8 +11,15 @@ assert.deepEqual(parseMessageParts(`${frame}\nand text here`), [routed(frame), t
 assert.deepEqual(parseMessageParts(`text${frame}`), [text(`text${frame}`)]);
 assert.deepEqual(parseMessageParts(`${frame}\n${frame}tail`), [routed(frame), routed(frame), text("tail")]);
 assert.deepEqual(parseMessageParts(`${frame}text${frame}`), [routed(frame), text(`text${frame}`)]);
-for (const malformed of ['<domios from="report">unclosed', '<domios from=report>x</domios>', '<domios from="report" from="tab">x</domios>']) {
+for (const malformed of ['<domios from="report">unclosed', '<domios from=>x</domios>', '<domios from="report" from="tab">x</domios>']) {
   assert.deepEqual(parseMessageParts(malformed), [text(malformed)]);
+}
+for (const attrs of ['from="system" context="assigned-task"', 'from=system context=assigned-task']) {
+  const content = `<domios ${attrs}>opaque body</domios>`;
+  assert.deepEqual(parseMessageParts(content), [routed(content)]);
+  const projected = projectMessageParts([{ id: "starter", type: "user", content }], [], "starter");
+  assert.deepEqual(projected[0].messageParts, [routed(content)]);
+  assert.deepEqual(parseMessageParts(`prefix${content}`), [text(`prefix${content}`)]);
 }
 assert.deepEqual(parseMessageParts(""), [text("")]);
 for (const remainder of ["", "\n", " \r\n\t"]) {
@@ -27,6 +34,12 @@ assert.deepEqual(splitExactSendTexts("firstsecond trailing", payloads), [
   { ...text("first"), correlationId: "one" }, { ...text("second"), correlationId: "two" }, text(" trailing"),
 ]);
 assert.deepEqual(splitExactSendTexts("FIRST second", [{ content: "first" }]), [text("FIRST second")]);
+{
+  const voice = "-=-codeterm:voice file=/u/v.ogg-=-\nspoken words";
+  const pasted = `\n\n<pasted_content id="e731">\n\n\n${voice}\n</pasted_content id="e731">\n`;
+  assert.deepEqual(messageRowParts(splitExactSendTexts(pasted, [{ content: voice, correlationId: "send" }])),
+    [{ ...text(voice), correlationId: "send" }]);
+}
 assert.deepEqual(splitExactSendTexts("secondfirst", payloads), [text("second"), { ...text("first"), correlationId: "one" }]);
 assert.deepEqual(splitExactSendTexts(`${frame}firstsecond`, payloads), [
   routed(frame), { ...text("first"), correlationId: "one" }, { ...text("second"), correlationId: "two" },
@@ -71,3 +84,26 @@ assert.deepEqual(parseMessageParts(formatAttachmentMarker("/tmp/file.pdf")), [{ 
 assert.deepEqual(messageRowParts(parseMessageParts(`${image} ${secondImage}caption`)).map((part) => part.content), [`${image} ${secondImage}caption`]);
 assert.deepEqual(messageRowParts(splitExactSendTexts(`${image}captionnext`, [{ content: `${image}caption`, correlationId: "one" }, { content: "next", correlationId: "two" }])).map((part) => [part.content, part.correlationId]), [[`${image}caption`, "one"], ["next", "two"]]);
 assert.deepEqual(messageRowParts([text("first"), text("second")]), [text("first"), text("second")]);
+
+{
+  const route = '<domios from="tab" label="Sender" tab="abc"> <tip>opaque hint</tip></domios>';
+  const own = "opaque owner input";
+  const ledger = [{ content: route, correlationId: "route" }, { content: own, correlationId: "owner" }];
+  const combined = { id: "combined", type: "user" as const, content: `${route}${own}`, correlationId: "route" };
+  assert.deepEqual(projectMessageParts([combined], ledger, "distinct-sends")[0].messageParts, [
+    { kind: "frame", content: route, correlationId: "route" },
+    { kind: "text", content: own, correlationId: "owner" },
+  ]);
+}
+
+{
+  const owner = "opaque owner payload";
+  const report = '<domios from="report" label="Worker" tab="abc">opaque report <tip>opaque instruction</tip></domios>';
+  const combined = { id: "owner-then-report", type: "user" as const, content: `${owner}${report}`, correlationId: "owner-send" };
+  const parts = projectMessageParts([combined], [{ content: owner, correlationId: "owner-send" }], "owner-report")[0].messageParts;
+  assert.deepEqual(parts, [
+    { kind: "text", content: owner, correlationId: "owner-send" },
+    { kind: "frame", content: report },
+  ]);
+  assert.deepEqual(parseMessageParts(`${owner}${report}`), [{ kind: "text", content: `${owner}${report}` }]);
+}

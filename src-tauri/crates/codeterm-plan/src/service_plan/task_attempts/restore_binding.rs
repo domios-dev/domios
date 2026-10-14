@@ -1,4 +1,4 @@
-use super::super::{PlanError, PlanStore};
+use super::super::{AttemptBindingRefusalKind as Refusal, PlanError, PlanStore};
 use crate::plan::{AttemptBindingRestorationReceipt, PlanStatus, TaskStatus, WorkerPlacement};
 
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ impl PlanStore {
                 || request.team_id.trim().is_empty()
                 || plan.team_id.as_deref() != Some(request.team_id.as_str())
             {
-                return Err(refused());
+                return Err(Refusal::PlanOrRequestInvalid.refusal());
             }
             let mut matches = plan
                 .tasks
@@ -58,13 +58,15 @@ impl PlanStore {
                 || (task.status != TaskStatus::InProgress && task.status != TaskStatus::InReview)
                 || task.interruption.handoff_required
                 || task.interruption.checkpoint.is_some()
-                || task.interruption.owner_epoch != request.owner_epoch
                 || task.interruption.owner_tab_id.as_deref()
                     != Some(request.executor_tab_id.as_str())
                 || task.interruption.owner_session_id.as_deref()
                     != Some(request.session_id.as_str())
             {
-                return Err(refused());
+                return Err(Refusal::TaskOwnershipMismatch.refusal());
+            }
+            if task.interruption.owner_epoch != request.owner_epoch {
+                return Err(Refusal::StaleTaskEpoch.refusal());
             }
             let open_attempts = task
                 .execution_attempts
@@ -80,9 +82,12 @@ impl PlanStore {
                     .count()
                     != 1
             {
-                return Err(refused());
+                return Err(Refusal::AttemptNotUnique.refusal());
             }
             let attempt = &open_attempts[0];
+            if attempt.interruption.owner_epoch != request.owner_epoch {
+                return Err(Refusal::StaleAttemptEpoch.refusal());
+            }
             if attempt.executor_tab_id != request.executor_tab_id
                 || attempt.provider.as_deref() != Some(request.provider.as_str())
                 || attempt.agent_type.as_deref() != Some(request.provider.as_str())
@@ -92,7 +97,6 @@ impl PlanStore {
                     .as_deref()
                     .is_some_and(|role| role.eq_ignore_ascii_case("worker"))
                 || attempt.acknowledged_at.is_none()
-                || attempt.interruption.owner_epoch != request.owner_epoch
                 || attempt.interruption.interrupted_at.is_some()
                 || attempt.interruption.reason.is_some()
                 || attempt.interruption.checkpoint_digest.is_some()
@@ -103,7 +107,7 @@ impl PlanStore {
                 || attempt.remote_dispatch_state.is_some()
                 || attempt.placement != WorkerPlacement::IsolatedLane
             {
-                return Err(refused());
+                return Err(Refusal::AttemptAuthorityInvalid.refusal());
             }
             if attempt.session_binding_nonce.as_deref() == Some(request.current_nonce.as_str()) {
                 return Ok(None);
@@ -116,7 +120,7 @@ impl PlanStore {
                     .iter()
                     .any(|receipt| receipt.operation_id == request.receipt.operation_id)
             {
-                return Err(refused());
+                return Err(Refusal::ReceiptInvalid.refusal());
             }
             let attempt = task
                 .execution_attempts
@@ -180,10 +184,6 @@ fn is_sha256_digest(value: &str) -> bool {
 fn nonce_digest(nonce: &str) -> String {
     use sha2::Digest;
     format!("sha256:{:x}", sha2::Sha256::digest(nonce.as_bytes()))
-}
-
-fn refused() -> PlanError {
-    PlanError::Io("same-attempt binding restoration refused".into())
 }
 
 #[cfg(test)]

@@ -356,7 +356,7 @@ impl Messenger {
             body: body.to_string(),
             suffix: self
                 .reply_hint()
-                .map(|hint| format!(" {hint}"))
+                .map(|hint| format!(" <tip>{hint}</tip>"))
                 .unwrap_or_default(),
         }
     }

@@ -333,7 +333,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn fixtures() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        PathBuf::from(crate::test_support::fixture_manifest_dir())
             .join("../../../plugins/provider-claude/tests/fixtures/folder-trust")
     }
 

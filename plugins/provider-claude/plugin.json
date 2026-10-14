@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.4",
-  "minCodeterm": "1.14.7",
+  "version": "1.14.5",
+  "minCodeterm": "1.14.8",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -203,15 +203,6 @@
       "model": {
         "command": "/model",
         "confirmation": "(?i)^Set model to `?(?:{model}|{display_name})(?: [^`\\r\\n]+)?`? for this session only(?:$|[^a-z0-9_-])",
-        "prompt": {
-          "screenRegex": "(?im)^\\s*Switch model\\?\\s*$[\\s\\S]*^\\s*❯\\s*1\\. Yes, switch to (?:{model}|{display_name})(?: [^\\r\\n]+)?\\s*$[\\s\\S]*^\\s*2\\. No, go back\\s*(?:\\r?\\n\\s*(?:Enter to confirm|Esc to cancel)[^\\r\\n]*)?\\s*\\z",
-          "responseKeys": [
-            "\r"
-          ],
-          "cancelKeys": [
-            "\u001b"
-          ]
-        },
         "picker": {
           "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*Enter to set as default · s to use this session only · Esc to cancel\\s*\\z",
           "selectedRegex": "(?m)^\\s*❯\\s*(?P<position>\\d+)\\.\\s+[^\\r\\n]+\\r?$",
@@ -221,11 +212,13 @@
           "nextKey": "\u001b[B",
           "responseKey": "s",
           "cancelKey": "\u001b"
-        }
+        },
+        "confirmationPromptKind": "switch_confirmation"
       },
       "effort": {
         "command": "/effort {effort}",
-        "confirmation": "(?i)^Set effort level to {effort} \\("
+        "confirmation": "(?i)^Set effort level to {effort} \\(",
+        "confirmationPromptKind": "switch_confirmation"
       }
     },
     "autoApproveFlags": [

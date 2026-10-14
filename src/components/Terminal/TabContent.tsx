@@ -15,7 +15,7 @@ import type {
   FontConfig,
   TerminalConfigSettings,
 } from "../../lib/types";
-import { usageTrackingEnabled } from "./usageTracking";
+import { usageTrackingEnabled, tabUsageProvider } from "./usageTracking";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { useHeaderTabMenu } from "./useHeaderTabMenu";
 import { SurfaceTabHost } from "./SurfaceTabHost";
@@ -88,7 +88,7 @@ export function TabContent({
   const chatBacking = tab.backing?.kind === "chat_backend" ? tab.backing : null;
   const isChatBackend = chatBacking !== null;
   const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
-  const usageProvider = !isChatBackend ? (tab.agent_type ?? null) : null;
+  const usageProvider = tabUsageProvider(tab.agent_type,isChatBackend,descriptor?.agent_runtime?.usage);
   const usageVisible = usageTrackingEnabled(
     descriptor?.settings_schema ?? [],
     usageProvider ? usageEnabledByProvider?.[usageProvider] : false,

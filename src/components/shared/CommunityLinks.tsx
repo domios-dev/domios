@@ -4,8 +4,8 @@ import { AboutLink, SettingsCard } from "../Settings/shared";
 import type { DropdownMenuGroup } from "./DropdownMenu";
 
 const community = [
-  {name:"Telegram",url:siteLinks.telegram,icon:new URL("../../../web/public/community/telegram.svg",import.meta.url).href},
-  {name:"Discord",url:siteLinks.discord,icon:new URL("../../../web/public/community/discord-black.svg",import.meta.url).href},
+  {name:"Telegram",url:siteLinks.telegram,icon:new URL("../../assets/community/telegram.svg",import.meta.url).href},
+  {name:"Discord",url:siteLinks.discord,icon:new URL("../../assets/community/discord-black.svg",import.meta.url).href},
 ];
 function CommunityIcon({source}:{source:string}) {
   if (source === community[0].icon) return <img src={source} alt="" width={16} height={16} className="shrink-0" />;
