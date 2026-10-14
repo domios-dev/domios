@@ -72,9 +72,6 @@ pub enum InjectionError {
         waited: Duration,
         screen_tail: String,
     },
-    SubmitWithheldForPrompt {
-        waited: Duration,
-    },
     PtyClosed {
         pty_id: String,
     },
@@ -112,11 +109,6 @@ impl std::fmt::Display for InjectionError {
                     waited, screen_tail
                 )
             }
-            Self::SubmitWithheldForPrompt { waited } => write!(
-                f,
-                "waiting_on_prompt: Enter withheld after {:?}; the payload stays in the composer until the open prompt is answered",
-                waited
-            ),
             Self::PtyClosed { pty_id } => write!(f, "pty {} is closed", pty_id),
             Self::AgentInputUnavailable { pty_id } => {
                 write!(

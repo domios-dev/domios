@@ -149,15 +149,19 @@ Claimed or uncertain records remain held and are never replayed.
   hide the bubble across restart and later evidence without replay. Delivered
   bubbles have no Delete. Provider echoes reconcile into that bubble.
 
-## The only screen-derived guard
+## Written to the PTY means Enter, always
 
-After a launch's first readiness the payload is always written: no guard reads the screen
-before the paste. The first submit key and every recovery key are withheld in exactly one
-case: the provider's declared classifier (`classify_tab_state`, confidence at or above 0.8, a
-prompt state) identifies a real choice prompt. Then the payload stays in the composer, the
-send settles `submit_unconfirmed` (`InjectionError::SubmitWithheldForPrompt`) and the ledger
-carries `pending_reason = waiting_on_prompt`. `parse_prompt`, cursor glyphs and composer
-heuristics never gate a send; a provider without a classifier never withholds Enter.
+After a launch's first readiness (event-based: `AgentReady`, nonce-verified binding)
+the payload is written once and Enter is pressed. No screen text, classifier, prompt,
+dialog or composer check may gate the payload write or Enter, busy or not, even with a
+numbered permission prompt on screen. Guards that remain are ownership and
+authority only (PTY owner, launch latch, model-command ownership, session authority).
+Delivery evidence stays exact own-session turn evidence.
+
+The `pasted by Domios` marker paste follows the provider capability
+`paste.pasteMarkerWhen`: `multiline` adds it only when the body contains a line
+break (single-line bodies arrive plain); the default `always` keeps old behaviour.
+Expected turn evidence and the Chat reader follow the same rule.
 
 ## Hard don'ts
 
@@ -183,4 +187,4 @@ heuristics never gate a send; a provider without a classifier never withholds En
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

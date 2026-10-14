@@ -680,11 +680,7 @@ impl ChatSendLedger {
                 {
                     status.state = ChatSendState::Unknown;
                     status.error = None;
-                    if status.pending_reason.as_deref()
-                        != Some(crate::service::pty_io::submit_transaction::WAITING_ON_PROMPT)
-                    {
-                        status.pending_reason = None;
-                    }
+                    status.pending_reason = None;
                     None
                 }
                 _ if user_owned && status.pending_reason.is_some() => {
@@ -767,16 +763,6 @@ impl ChatSendLedger {
             .insert(tab_id, send_id.to_string());
         let status = state.by_id.get(send_id).cloned()?;
         Some(Self::with_retention_window(&state, status))
-    }
-
-    pub(crate) fn note_waiting_on_prompt(&self, send_id: &str) {
-        let mut state = self.state.lock();
-        if let Some(status) = state.by_id.get_mut(send_id) {
-            if matches!(status.state, ChatSendState::Written | ChatSendState::Unknown) {
-                status.pending_reason =
-                    Some(crate::service::pty_io::submit_transaction::WAITING_ON_PROMPT.into());
-            }
-        }
     }
 
     pub(crate) fn set_user_pending_reason(

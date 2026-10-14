@@ -27,8 +27,8 @@ use paste_encoding::{
     encode_paste_frame, encode_paste_frame_with_tail, xterm_paste, BRACKETED_PASTE_END,
     BRACKETED_PASTE_START,
 };
-use readiness::{enter_prompt_guard, exact_session_turn_source_available, pty_owner_guard};
-pub(crate) use readiness::{observe_delivery_readiness, WAITING_ON_PROMPT};
+use readiness::{exact_session_turn_source_available, pty_owner_guard};
+pub(crate) use readiness::observe_delivery_readiness;
 mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{
@@ -40,7 +40,7 @@ use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;
 pub(crate) use recovery_guard::nudge_unbound_launch_draft;
 #[cfg(test)]
-use recovery_guard::{recovery_dialog_guard, recovery_session_authorized};
+use recovery_guard::recovery_session_authorized;
 #[cfg(test)]
 use runner::run;
 #[cfg(test)]
@@ -161,9 +161,6 @@ trait SubmitTransport {
     fn wait_for_submit_event(&self, _deadline: Instant) -> bool {
         false
     }
-    fn dialog_guard(&self) -> Result<(), InjectionError> {
-        Ok(())
-    }
     fn prewrite_guard(&self) -> Result<(), InjectionError> {
         Ok(())
     }
@@ -251,10 +248,6 @@ fn initial_submit_frames(
 impl SubmitTransport for PtySubmitTransport<'_> {
     fn max_submit_keys(&self) -> usize {
         self.max_submit_keys
-    }
-
-    fn dialog_guard(&self) -> Result<(), InjectionError> {
-        enter_prompt_guard(self.svc, self.pty_id)
     }
 
     fn prewrite_guard(&self) -> Result<(), InjectionError> {
@@ -978,7 +971,7 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         recovery_refusal: Cell::new(None),
     };
     let mut key_guard = |allow_initial_key: bool, _turn_was_started: bool| {
-        recovery_guard::submit_key_guard(&transport, allow_initial_key, text)
+        recovery_guard::submit_key_guard(&transport, allow_initial_key)
     };
     let run = run_with_submit_key_and_frame(
         &transport,
