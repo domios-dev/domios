@@ -94,3 +94,29 @@ fn normalized_containment_requires_distinct_occurrences_in_one_normalization_sco
     );
     assert!(matching_turn_send_ids("opaque", &candidates).is_empty());
 }
+
+#[test]
+fn glued_voice_frames_confirm_both_sends_from_one_turn() {
+    let normalization = crate::agent::provider::TurnEvidenceNormalization {
+        unwrap_pasted_content_wrapper: true,
+        collapse_horizontal_whitespace: true,
+        drop_supplementary_characters: false,
+        drop_line_breaks: false,
+    };
+    let first = "<domios type=\"attachment\" kind=\"voice\" path=\"voice-note-a\" label=\"voice\" />\nfirst transcript";
+    let second = "<domios type=\"attachment\" kind=\"voice\" path=\"voice-note-b\" label=\"voice\" />\nsecond transcript";
+    let glued = format!(
+        "{first}\n\n<pasted_content id=\"49dd\">\n\n\n{second}\n</pasted_content id=\"49dd\">"
+    );
+    let candidates = [
+        ("first".into(), first.into(), normalization),
+        ("second".into(), second.into(), normalization),
+        ("third".into(), "unrelated transcript".into(), normalization),
+    ];
+    assert_eq!(
+        matching_turn_send_ids(&glued, &candidates),
+        ["first", "second"]
+    );
+    assert_eq!(matching_turn_send_ids(second, &candidates), ["second"]);
+    assert_eq!(matching_turn_send_ids(first, &candidates), ["first"]);
+}

@@ -46,6 +46,29 @@ fn busy_claude_screen_is_not_a_delivery_modal_in_native_or_js() {
 }
 
 #[test]
+fn filled_composer_after_angle_bracket_history_is_not_a_delivery_modal() {
+    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let js = load_js("claude");
+    let parked = snapshot(fixture("filled-composer-numbered-history.txt"));
+    assert!(native.parse_prompt(&parked.screen_text).is_none());
+    assert!(js.parse_prompt(&parked.screen_text).is_none());
+    assert!(!native.delivery_modal_visible(&parked));
+    assert!(!js.delivery_modal_visible(&parked));
+
+    let live = "Do you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel · Tab to amend\n";
+    assert!(native.parse_prompt(live).is_some());
+    assert!(js.parse_prompt(live).is_some());
+    let filled = format!(
+        "{live}❯ <domios type=\"attachment\" kind=\"voice\" path=\"voice-note-a\" label=\"voice\" />\n"
+    );
+    assert!(native.parse_prompt(&filled).is_none());
+    assert!(js.parse_prompt(&filled).is_none());
+    let filled_snapshot = snapshot(filled);
+    assert!(!native.delivery_modal_visible(&filled_snapshot));
+    assert!(!js.delivery_modal_visible(&filled_snapshot));
+}
+
+#[test]
 fn idle_claude_composer_after_numbered_chat_history_is_not_a_delivery_modal() {
     let native = crate::agent_claude::provider::ClaudeProvider::new();
     let js = load_js("claude");
