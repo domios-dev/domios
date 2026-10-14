@@ -262,6 +262,7 @@ fn sanitize_remote_context(params: &mut Option<serde_json::Value>) {
 #[cfg(test)]
 mod tests {
     use super::{method_allowed, sanitize_remote_context, ResponseCache, CACHE_CAPACITY};
+    use crate::socket::server::protocol;
 
     fn app_state(
         fixture: &crate::service::test_fixture::ServiceFixture,
