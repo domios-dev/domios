@@ -53,3 +53,18 @@ test("writes clamp both ends and retain fractional positions", () => {
 test("native out-of-range overscroll is not captured as a new reader anchor", () => {
   assert.equal(shouldCaptureChatAnchor(before, { ...before, scrollTop: -15, scrollHeight: 1200 }, true), false);
 });
+
+test("inner wheel consumption transfers to the transcript at either directional boundary", async () => {
+  const { chatInnerScrollConsumesWheel: consumes } = await import("./chatScrollDecisions");
+  const inner = { scrollTop: 0, scrollHeight: 800, clientHeight: 200 };
+  assert.equal(consumes(inner, -40), false);
+  assert.equal(consumes(inner, 40), true);
+  assert.equal(consumes({ ...inner, scrollTop: 600 }, 40), false);
+  assert.equal(consumes({ ...inner, scrollTop: 600 }, -40), true);
+  assert.equal(consumes({ ...inner, scrollTop: 250.5 }, 0.25), true);
+  assert.equal(consumes({ ...inner, scrollHeight: 200 }, 40), false);
+  assert.equal(consumes({ ...inner, scrollTop: -10 }, -40), false);
+  assert.equal(consumes({ ...inner, scrollTop: 620 }, 40), false);
+  assert.equal(consumes(inner, 0), false);
+  assert.equal(consumes(inner, NaN), false);
+});

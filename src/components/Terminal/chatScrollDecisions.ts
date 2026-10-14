@@ -25,3 +25,10 @@ export function chatUserScrollChanged(before: ChatViewportGeometry, after: ChatV
   const clampedTop = Math.max(0, Math.min(before.scrollTop, max));
   return after.scrollTop >= 0 && after.scrollTop <= max && Math.abs(after.scrollTop - clampedTop) > 0.5;
 }
+
+export function chatInnerScrollConsumesWheel(viewport: ChatViewportGeometry, deltaY: number): boolean {
+  if (!Number.isFinite(deltaY) || deltaY === 0) return false;
+  const max = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+  const top = Math.max(0, Math.min(viewport.scrollTop, max));
+  return deltaY < 0 ? top > 0 : top < max;
+}
