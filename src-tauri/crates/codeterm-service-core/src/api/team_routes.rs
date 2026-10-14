@@ -140,7 +140,7 @@ pub async fn close_team(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(team_id): Path<String>,
-    crate::api::optional_json::OptionalJson(body): crate::api::optional_json::OptionalJson<
+    crate::api_support::optional_json::OptionalJson(body): crate::api_support::optional_json::OptionalJson<
         CloseTeamBody,
     >,
 ) -> Result<Json<crate::service::TeamCloseResult>, (StatusCode, String)> {

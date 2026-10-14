@@ -1,5 +1,5 @@
 use super::InstallMethod;
-use serde::{Deserialize, Serialize};
+use crate::update_state::UpdateInfo;
 
 // Anonymous users check a public releases endpoint.
 // Do not bake updater tokens into shipped binaries; that breaks public download flows.
@@ -41,24 +41,6 @@ pub async fn latest_release_tag() -> Result<String, String> {
         .as_str()
         .map(ToOwned::to_owned)
         .ok_or_else(|| "No tag_name in GitHub response".to_string())
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateInfo {
-    pub availability: codeterm_plugins::AvailabilityItem,
-    pub current_version: String,
-    pub latest_version: String,
-    pub update_available: bool,
-    pub install_method: InstallMethod,
-    /// Command to run for package manager installs
-    pub update_command: Option<String>,
-    /// Direct download URL for the platform-specific asset
-    pub download_url: Option<String>,
-    /// GitHub release page URL
-    pub release_url: String,
-    /// Release notes (markdown body)
-    pub release_notes: Option<String>,
-    pub published_at: Option<String>,
 }
 
 pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateInfo, String> {

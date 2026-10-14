@@ -2,7 +2,7 @@
 
 use tauri::Manager;
 
-use crate::{keepawake, mesh, update};
+use crate::{keepawake, mesh};
 
 use super::states::AppStates;
 
@@ -237,7 +237,9 @@ pub(crate) fn start_background_tasks(
             .try_state::<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>()
             .map(|bundles| bundles.inner().clone());
         tauri::async_runtime::spawn(async move {
-            if let Err(error) = update::discovery::check(&app_h, &update_st, bundles, true).await {
+            if let Err(error) =
+                (crate::ports::update::hooks().check)(&app_h, &update_st, bundles, true).await
+            {
                 log::warn!("[update-discovery] startup check failed: {error}");
             }
         });

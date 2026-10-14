@@ -28,7 +28,7 @@ fn top_level_fn(src: &str, signature: &str) -> String {
 #[test]
 fn no_status_path_module_reads_the_retired_credential_drop() {
     for src in [
-        include_str!("api.rs"),
+        include_str!("../api/secrets_routes.rs"),
         decision_half(),
         LIB_SRC,
         JS_BACKEND_SRC,
@@ -46,7 +46,7 @@ fn no_status_path_module_reads_the_retired_credential_drop() {
 
 #[test]
 fn status_handler_names_no_provider() {
-    let status_handler = top_level_fn(include_str!("api.rs"), STATUS_SIGNATURE);
+    let status_handler = top_level_fn(include_str!("../api/secrets_routes.rs"), STATUS_SIGNATURE);
     assert!(
         status_handler.contains("master_password_saved"),
         "extraction missed the real status handler"

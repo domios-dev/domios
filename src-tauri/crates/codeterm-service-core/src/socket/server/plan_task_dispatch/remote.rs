@@ -677,7 +677,7 @@ fn require_remote_dispatch_capability(
     };
     if identify_advertises(
         &identify,
-        crate::api::health_routes::REMOTE_TASK_DISPATCH_FEATURE,
+        crate::ports::socket::REMOTE_TASK_DISPATCH_FEATURE,
     ) {
         return Ok(());
     }
@@ -811,7 +811,7 @@ mod tests {
 
     #[test]
     fn mesh_remote_dispatch_capability_is_read_from_identify_features() {
-        let feature = crate::api::health_routes::REMOTE_TASK_DISPATCH_FEATURE;
+        let feature = crate::ports::socket::REMOTE_TASK_DISPATCH_FEATURE;
         let with = json!({"features": ["rest-api", feature]});
         let without = json!({"features": ["rest-api"], "version": "1.11.9"});
         assert!(identify_advertises(&with, feature));

@@ -113,7 +113,7 @@ struct JsonRpcResponse {
     after_response: Option<PostResponseAction>,
 }
 
-pub(crate) use crate::rpc_bridge::RpcError as JsonRpcError;
+pub(crate) use crate::ports::socket::RpcError as JsonRpcError;
 
 impl JsonRpcResponse {
     fn success(id: Option<serde_json::Value>, result: serde_json::Value) -> Self {

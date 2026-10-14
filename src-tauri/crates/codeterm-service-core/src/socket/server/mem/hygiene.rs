@@ -1,13 +1,12 @@
 //! Socket handlers for reversible hygiene: merge, restore and the stale archive.
-//! The logic lives in `api::mem_routes` so HTTP and socket cannot drift.
+//! The logic lives in `mem_ops` so HTTP and socket cannot drift.
 
 use axum::http::StatusCode;
 
-use crate::api::mem_routes::calibration::stale::{stale_from_params, StaleParams};
-use crate::api::mem_routes::items::{
-    archive_mem_item, validate_archive_reason, ArchiveBody, RestoreBody,
-};
-use crate::api::mem_routes::mem_merge::{merge_items, restore_item, MergeBody, MergeError};
+use crate::mem_ops::calibration::stale::{stale_from_params, StaleParams};
+use crate::mem_ops::items::archive::{archive_mem_item, validate_archive_reason, ArchiveBody};
+use crate::mem_ops::items::RestoreBody;
+use crate::mem_ops::mem_merge::{merge_items, restore_item, MergeBody, MergeError};
 use crate::service::ServiceState;
 
 use super::super::{get_string_param, JsonRpcError};
@@ -55,7 +54,7 @@ pub(super) fn mem_archive(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(crate::api::mem_routes::sanitize_actor)
+        .map(crate::mem_ops::sanitize_actor)
         .unwrap_or_else(|| "user".to_string());
     let output =
         archive_mem_item(svc, &id, &reason, &actor).map_err(|(status, message)| match status {
@@ -82,8 +81,8 @@ pub(super) fn mem_area_merge(
     params: Option<serde_json::Value>,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
-    let body: crate::api::mem_routes::area_merge::AreaMergeBody = parse_params(params)?;
-    let out = crate::api::mem_routes::area_merge::merge_area(svc, &body, body.worker_id.as_deref())
+    let body: crate::mem_ops::area_merge::AreaMergeBody = parse_params(params)?;
+    let out = crate::mem_ops::area_merge::merge_area(svc, &body, body.worker_id.as_deref())
         .map_err(invalid_params)?;
     if !body.dry_run {
         let ids = serde_json::from_value(out["item_ids"].clone()).unwrap_or_default();

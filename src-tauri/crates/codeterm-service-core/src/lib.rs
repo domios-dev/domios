@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod agent_commands;
 mod api;
+mod api_support;
 pub mod app_runtime;
 pub use codeterm_util::attachments;
 mod autostart;
@@ -29,7 +30,9 @@ pub mod lock_hold;
 pub mod logs;
 pub mod mem;
 pub mod mem_host;
+mod mem_ops;
 pub mod mesh;
+mod mesh_host;
 pub mod message_markers;
 pub mod multiplexer;
 #[cfg(windows)]
@@ -48,7 +51,6 @@ pub mod provider;
 pub mod pty;
 pub mod repowatch;
 pub mod resize_owner;
-mod rpc_bridge;
 pub mod runaway_sweeper;
 pub mod secrets;
 pub mod service;
@@ -62,6 +64,7 @@ mod telegram269_wire_contract;
 pub mod transcribe;
 pub mod transcribe_adapter;
 pub mod update;
+pub mod update_state;
 pub mod usage;
 pub mod user_last_activity;
 pub mod view;
@@ -88,10 +91,12 @@ pub type ShellCapabilityState = Arc<Mutex<agent::command_detection::ShellCapabil
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
 pub use cron::scheduler::{CronState, CronWake};
-pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
+pub type UpdateStateHandle = Arc<Mutex<update_state::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
+
+pub use api::routes::register_rest_hooks;
 
 pub fn register_socket() {
     socket::register_rpc_bridge();
@@ -150,8 +155,8 @@ pub fn run(
     let states = startup::init_states();
 
     // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
-    commands::seed_bundled_skills();
-    commands::mirror_skills_to_providers();
+    crate::service::skill_mirror::seed_bundled_skills();
+    crate::service::skill_mirror::mirror_skills_to_providers();
 
     let mut builder = crate::app_runtime::builder()
         .plugin(tauri_plugin_shell::init())
@@ -252,7 +257,7 @@ pub fn run(
             let graph_node_registry = Arc::new(codeterm_plugin::graph_nodes::GraphNodeRegistry::default());
             let event_source_registry = Arc::new(codeterm_plugin::event_source::EventSourceRegistry::default());
             let graph_event_subscriptions = codeterm_plugin::graph_events::SubscriptionTable::new();
-            let decision_model_registry = crate::api::mem_routes::decision::default_registry();
+            let decision_model_registry = crate::service::supporter::registry::default_registry();
             let glance_registry: crate::glance::GlanceRegistryHandle =
                 Arc::new(crate::glance::GlanceRegistry::new());
             let bubble_registry: crate::bubble::BubbleRegistryHandle =
@@ -324,7 +329,7 @@ pub fn run(
                                 crate::service::sync_watcher::install_bridge_rules_for_all(
                                     &bridge_registry,
                                 );
-                                crate::commands::mirror_skills_to_providers();
+                                crate::service::skill_mirror::mirror_skills_to_providers();
                                 for provider in bridge_registry.all_provider_arcs() {
                                     crate::agent::model_binary_watch::install(provider);
                                 }
@@ -892,7 +897,7 @@ pub fn run(
             startup::start_servers(app, &states, &service_state);
             startup::frontend_shell::start(app_handle.clone(), states.rest_api.clone());
             service_state.schedule_restored_agent_delivery_reconciliation();
-            commands::ensure_integrations_for_all(
+            crate::service::provider_hooks::ensure_integrations_for_all(
                 &service_state.agent_registry,
                 &states.config,
                 service_state.clone(),

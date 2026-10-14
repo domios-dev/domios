@@ -87,10 +87,7 @@ async fn fetch_peer_services(
             if !resp.status().is_success() {
                 return TryNext::Stop(format!("HTTP {}", resp.status()));
             }
-            match resp
-                .json::<crate::api::mesh_inventory::MeshInventoryView>()
-                .await
-            {
+            match resp.json::<crate::mesh_host::MeshInventoryView>().await {
                 Ok(view) => TryNext::Success(
                     view.resources
                         .into_iter()
