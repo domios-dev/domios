@@ -4,7 +4,7 @@ use super::graph_nodes::GraphNodesCap;
 use super::surfaces::SurfaceDecl;
 use super::tab_menu::TabMenuItem;
 use crate::provider::ContextOwner;
-use codeterm_types::decision::TokenMode;
+use codeterm_decision::TokenMode;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatPreprocessorCap {

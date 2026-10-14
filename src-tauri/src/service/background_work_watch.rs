@@ -290,14 +290,10 @@ mod tests {
     use std::io::Write;
     fn decode(value: &serde_json::Value) -> Option<RichMessage> {
         Some(RichMessage {
-            provider_observations: Some(
-                codeterm_types::agent::provider_signals::SessionObservations {
-                    permission_mode: Some(
-                        codeterm_types::agent::provider_signals::PermissionMode::Plan,
-                    ),
-                    ..Default::default()
-                },
-            ),
+            provider_observations: Some(codeterm_provider_signals::SessionObservations {
+                permission_mode: Some(codeterm_provider_signals::PermissionMode::Plan),
+                ..Default::default()
+            }),
             provider_session_id: value["sessionId"].as_str().map(str::to_string),
             ..Default::default()
         })

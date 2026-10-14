@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::service::pty_io::SendBatchItem;
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionError, DecisionPrimitives, DecisionRequest, DecisionResponse, TokenMode,
 };
 use parking_lot::Mutex;
@@ -332,7 +332,7 @@ impl DecisionModel for StubModel {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
-        codeterm_types::decision::physical::before_request()?;
+        codeterm_decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         *self.seen.lock() = Some(request.clone());
         if let Some(on_decide) = &self.on_decide {
@@ -347,7 +347,7 @@ impl DecisionModel for StubModel {
                         "label" => self.answer.clone()?,
                         "prompt_visible" => DecisionAnswer::Noul { p: 0.0 },
                         _ => {
-                            let codeterm_types::decision::DecisionQuestion::Choice { options } =
+                            let codeterm_decision::DecisionQuestion::Choice { options } =
                                 &spec.question
                             else {
                                 return Err(DecisionError::Unsupported);

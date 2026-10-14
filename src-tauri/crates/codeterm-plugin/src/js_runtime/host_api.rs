@@ -29,7 +29,7 @@ mod sqlite;
 use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
 use crate::host_traits::PluginHostCtx;
-use codeterm_types::decision::TokenMode;
+use codeterm_decision::TokenMode;
 
 const PLUGIN_READ_FILE_LIMIT: u64 = 1024 * 1024;
 

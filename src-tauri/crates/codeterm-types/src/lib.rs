@@ -5,7 +5,6 @@ pub mod blueprint_recipe;
 pub mod blueprint_run;
 pub mod blueprint_terminal;
 pub mod config;
-pub mod decision;
 pub mod local_recording;
 pub mod mesh;
 pub mod notification;
