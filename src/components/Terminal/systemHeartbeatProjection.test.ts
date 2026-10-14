@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyTick, formatCadence, formatTickAt, type TickFact } from "./systemHeartbeatProjection";
+import { classifyTick, formatCadence, formatTickAt, presentTick, formatTickRow, TICK_REASON_LABELS, type TickFact } from "./systemHeartbeatProjection";
+
+test("log presentation has one outcome and substitutes readable reasons", () => {
+  for (const spinalReason of ["same_snapshot", "low_confidence", "no_adapter"]) {
+    const tick = { atMs: 0, outcome: "suppressed", spinalVerdict: "suppressed", spinalReason };
+    assert.deepEqual(presentTick(tick), { time: formatTickAt(0), outcome: "suppressed", reason: TICK_REASON_LABELS[spinalReason] });
+    assert.equal(formatTickRow(tick), `${formatTickAt(0)} · suppressed · ${TICK_REASON_LABELS[spinalReason]}`);
+    assert.equal(formatTickRow(tick).split("suppressed").length - 1, 1);
+  }
+  assert.equal(presentTick({ atMs: 0, outcome: "skipped", spinalReason: "future_reason" }).reason, "future reason");
+});
 
 test("tick classification names outcome and spinal handling", () => {
   const cases: Array<[TickFact, string, string, string]> = [
