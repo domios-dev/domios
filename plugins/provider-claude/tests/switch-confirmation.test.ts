@@ -15,7 +15,7 @@ for (const [name, selection] of [
   ["cached-sonnet-confirmation.txt", "sonnet"],
   ["opus-confirmation.txt", "opus"],
 ]) {
-  const screen = fs.readFileSync(path.join(root, "tests/fixtures/model-switch", name), "utf8");
+  const screen = fs.readFileSync(path.join(root, "tests/fixtures/model-switch", name), "utf8").replaceAll("\r\n", "\n");
   for (const frame of [screen, screen.replaceAll("\n", "\r\n")]) {
     const prompt = parse(frame, selection);
     assert.ok(prompt);
