@@ -19,3 +19,6 @@ pub use events::{RepoEventSink, RepoWatchError, RepoWatchUnavailable};
 pub use handles::open_handle_count;
 pub use identity::RepoIdentity;
 pub use registry::{RepoWatchRegistry, RepoWatchRegistryHandle, RepoWatchSubscription};
+
+#[cfg(test)]
+mod test_support;

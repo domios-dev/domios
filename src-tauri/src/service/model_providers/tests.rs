@@ -175,8 +175,8 @@ fn model_provider_preset_invalid_params_do_not_write_config() {
 }
 
 fn adapter(path: PathBuf) -> Adapter {
-    let manifest =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../plugins/provider-opencode/plugin.json");
+    let manifest = PathBuf::from(crate::test_support::fixture_manifest_dir())
+        .join("../plugins/provider-opencode/plugin.json");
     let provider = codeterm_plugin::js_runtime::load_one(&manifest).unwrap();
     Adapter {
         path,

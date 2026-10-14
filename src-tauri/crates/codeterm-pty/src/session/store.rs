@@ -924,6 +924,7 @@ fn parse_tab_record(
 }
 
 pub mod legacy_decode;
+mod leaf_bound;
 #[cfg(test)]
 mod retention;
 mod storage_adapter;

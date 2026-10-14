@@ -481,7 +481,7 @@ fn selected_instruction_references_name_whole_documents() {
                 .and_then(|rest| rest.split_whitespace().next())
                 .unwrap_or_default();
             assert!(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                crate::test_support::fixture_manifest_dir()
                     .join("../prod-docs")
                     .join(format!("{document}.md"))
                     .is_file(),
@@ -789,7 +789,8 @@ fn every_prompt_md_has_a_loader() {
     .into_iter()
     .collect();
 
-    let prompts_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("prompts");
+    let prompts_dir =
+        std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join("prompts");
     let orphans: Vec<String> = std::fs::read_dir(&prompts_dir)
         .expect("prompts/ must be readable")
         .filter_map(|e| e.ok())

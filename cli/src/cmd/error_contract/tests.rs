@@ -177,7 +177,7 @@ fn json_error_envelope_shape_is_shared_by_every_error_path() {
 fn no_command_prints_an_error_and_exits_by_hand() {
     const BY_HAND: &str = concat!("eprintln!(\"", "Error:");
     const OWN_REPORT: &[&str] = &["bridge/migrate.rs"];
-    let mut pending = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
+    let mut pending = vec![crate::test_support::fixture_manifest_dir().join("src")];
     let mut offenders = Vec::new();
     while let Some(dir) = pending.pop() {
         for entry in std::fs::read_dir(&dir).expect("read source dir").flatten() {

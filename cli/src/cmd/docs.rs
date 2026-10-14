@@ -541,7 +541,7 @@ mod tests {
             })
             .collect();
 
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../prod-docs");
+        let dir = crate::test_support::fixture_manifest_dir().join("../prod-docs");
         let mut unregistered = Vec::new();
         for entry in std::fs::read_dir(dir).expect("read prod-docs/") {
             let path = entry.expect("prod-docs entry").path();

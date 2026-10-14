@@ -80,7 +80,11 @@ impl RpcClient for AttemptRebindRecorder {
                 Err(SocketCallError::Rpc(crate::client::RpcError {
                     code: -32003,
                     message: "restoration refused".into(),
-                    data: Some(json!({ "type": "attempt_binding_restore_refused" })),
+                    data: Some(json!({
+                        "type": "attempt_binding_restore_refused",
+                        "kind": "stale_task_epoch",
+                        "reason": "request owner epoch must equal the current task owner epoch",
+                    })),
                 }))
             }
             "plan.session.rebind" => Ok(self.response.clone()),
@@ -407,4 +411,44 @@ fn plan_rebind_attempt_refuses_a_task_from_another_plan_before_targeted_rpc() {
         .unwrap_err();
     assert!(error.contains("does not belong to the requested plan"));
     assert_eq!(client.calls.len(), 1);
+}
+
+#[test]
+fn plan_rebind_attempt_preserves_typed_refusal_without_session_env() {
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let _env = CallerEnv::set(Some("worker-tab"), None, Some("current-nonce"));
+    let mut client = AttemptRebindRecorder {
+        calls: Vec::new(),
+        response: Value::Null,
+        fail_rebind: true,
+    };
+    let error = super::super::attempt_rebind::run(
+        &mut client,
+        Some("pl_exact".into()),
+        Some("COD-1".into()),
+        Some("attempt_exact".into()),
+    )
+    .unwrap_err();
+    assert_eq!(client.calls.len(), 2);
+    assert_eq!(client.calls[1].1["owner_epoch"], 17);
+    assert!(client.calls[1].1.get("session_id").is_none());
+    assert_eq!(error.code, Some(-32003));
+    let envelope = crate::cmd::plan_output::error_envelope_with_data(
+        &error.message,
+        error.code,
+        error.data.as_ref(),
+    );
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["data"]["kind"], "stale_task_epoch");
+    assert_eq!(envelope["error"]["rpc_code"], -32003);
+    assert_eq!(
+        error.data.unwrap(),
+        json!({
+            "type": "attempt_binding_restore_refused",
+            "kind": "stale_task_epoch",
+            "reason": "request owner epoch must equal the current task owner epoch",
+        })
+    );
 }

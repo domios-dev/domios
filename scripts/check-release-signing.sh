@@ -25,4 +25,9 @@ value="$(TAURI_SIGNING_PRIVATE_KEY=from-env CODETERM_TAURI_SIGNING_KEY_FILE="$TE
   "source '$ROOT/scripts/release-signing.sh'; ct_load_release_signing_key; printf '%s' \"\$TAURI_SIGNING_PRIVATE_KEY\"")"
 [ "$value" = "from-env" ]
 
+value="$(env -u TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PATH="$TEST_ROOT/key" \
+  CODETERM_TAURI_SIGNING_KEY_FILE="$TEST_ROOT/missing.key" bash -c \
+  "source '$ROOT/scripts/release-signing.sh'; ct_load_release_signing_key; printf '%s' \"\$TAURI_SIGNING_PRIVATE_KEY_PATH\"")"
+[ "$value" = "$TEST_ROOT/key" ]
+
 echo "PASS release signing loads local key, preserves env override, and fails early when missing"

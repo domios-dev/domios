@@ -26,7 +26,7 @@ module.exports = {
     return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
-    if (op.kind === 'resumeThread' && op.instructions === 'opaque refused identity')
+    if (op.kind === 'resumeThread' && op.instructions.includes('opaque refused identity'))
       return {kind:'refused',reason:{code:'provider_refused',message:'fixture load refused'}};
     let result = {kind:'done'};
     if (op.kind === 'initialize') result = {kind:'initialized'};
@@ -71,7 +71,12 @@ impl RuntimeFixture {
             plugin_id: PROVIDER.into(),
             session_id: "own-thread".into(),
         };
-        target.cwd = Some(env!("CARGO_MANIFEST_DIR").into());
+        target.cwd = Some(
+            crate::test_support::fixture_manifest_dir()
+                .to_string_lossy()
+                .into_owned()
+                .into(),
+        );
         target.role = Some(crate::multiplexer::types::AgentRole::Worker);
         let fixture = ServiceFixture::new(mux);
         fixture.set_agent_full_access(false);
@@ -135,11 +140,32 @@ createInterface({input:process.stdin}).on('line', line => {
             .map(|line| serde_json::from_str(line).unwrap())
             .collect()
     }
+    fn prompt(&self) -> String {
+        let mux = self.service.mux.read();
+        let prompt = mux
+            .get_tab(&self.tab)
+            .unwrap()
+            .agent_runtime_config
+            .as_ref()
+            .unwrap()["systemPrompt"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(prompt.matches(PROMPT).count(), 1);
+        assert_eq!(
+            prompt
+                .matches(crate::service::orchestrator::ROLE_AUTHORITY)
+                .count(),
+            1
+        );
+        prompt
+    }
 }
 
 #[test]
 fn runtime_resume_keeps_thread_rotates_nonce_and_never_replays_uncertain_input() {
     let fixture = RuntimeFixture::new();
+    let prompt = fixture.prompt();
     let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
     let prior = session.context.lock().clone();
     let pending = fixture
@@ -200,7 +226,7 @@ fn runtime_resume_keeps_thread_rotates_nonce_and_never_replays_uncertain_input()
             .collect::<Vec<_>>(),
         vec!["initialize", "resumeThread", "readHistory"]
     );
-    assert_eq!(requests[count + 1]["params"]["instructions"], PROMPT);
+    assert_eq!(requests[count + 1]["params"]["instructions"], prompt);
     let mux = fixture.service.mux.read();
     let tab = mux.get_tab(&fixture.tab).unwrap();
     assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
@@ -221,6 +247,7 @@ fn runtime_resume_keeps_thread_rotates_nonce_and_never_replays_uncertain_input()
 #[test]
 fn runtime_fresh_opens_new_thread_with_same_identity_and_requires_authorization() {
     let fixture = RuntimeFixture::new();
+    let prompt = fixture.prompt();
     let tab = fixture
         .service
         .mux
@@ -250,7 +277,7 @@ fn runtime_fresh_opens_new_thread_with_same_identity_and_requires_authorization(
     assert_ne!(current.binding_nonce, prior.binding_nonce);
     let requests = fixture.requests();
     assert_eq!(requests[count + 1]["method"], "openThread");
-    assert_eq!(requests[count + 1]["params"]["instructions"], PROMPT);
+    assert_eq!(requests[count + 1]["params"]["instructions"], prompt);
     assert_eq!(
         requests[count + 1]["params"]["settings"]["model"],
         "supplied-model"

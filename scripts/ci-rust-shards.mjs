@@ -44,6 +44,7 @@ export function verifyCoverage(receipts, shards = 12) {
   }
   const workers = receipts.filter((r) => r.mode === 'shared');
   if (workers.length !== shards || new Set(workers.map((r) => r.shard)).size !== shards || workers.some((r) => r.shard < 1 || r.shard > shards)) throw new Error('Duplicate or invalid shard');
+  if (workers.some((r) => r.os !== 'macOS' || r.arch !== 'ARM64')) throw new Error('Shared shards require macOS ARM64');
   const actual = workers.flatMap((r) => r.selected).sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Shared tests omitted, duplicated, or misclassified');
   const ignored = platforms.flatMap((r) => r.all.filter((t) => t.ignored).map((t) => `- ${r.os}: ${t.id}: ${t.reason}`));
@@ -99,6 +100,24 @@ export async function captureCommand(command, args, logPath, env = process.env, 
   }
 }
 
+export function timingAuditArgs(guard, aloneLog, release) {
+  return [...guard, ...(aloneLog ? ['--alone', aloneLog] : []), '--policy', release ? 'advisory' : 'enforce'];
+}
+
+export function requireTestSuccess(result, report, label, { warn = console.log, summary = process.env.GITHUB_STEP_SUMMARY } = {}) {
+  const output = report.replace(/\x1b\[[0-9;]*m/g, '');
+  const failedTest = /^\s*(?:FAIL|TIMEOUT)\s+\[/m.test(output) || /\b[1-9]\d* (?:failed|timed out)\b/.test(output);
+  if (result.error || result.signal || result.status !== 0 || failedTest) {
+    throw new Error(`${label}: ${result.error || result.signal || (failedTest ? 'failed or timed-out test' : result.status)}`);
+  }
+  const leaks = output.split('\n').filter(line => /^\s*LEAK\s+\[/.test(line) || /\b[1-9]\d* leaky\b/.test(line));
+  if (leaks.length) {
+    const warning = `::warning::Nextest leaky pass (${label}): ${leaks.map(line => line.trim()).join('; ')}`;
+    warn(warning);
+    if (summary) fs.appendFileSync(summary, `\n${warning}\n`);
+  }
+}
+
 async function run(mode, shard, total) {
   if (!['shared', 'platform'].includes(mode) || !Number.isInteger(shard) || !Number.isInteger(total) || shard < 1 || shard > total) throw new Error('Invalid mode/partition');
   delete process.env.CODETERM_CONPTY_DIR;
@@ -144,7 +163,7 @@ async function run(mode, shard, total) {
         console.log(`[${mode} ${shard}/${total} runner=${receipt.runner}] ${manifest} listener=${listener}`);
         const log = path.resolve('ci-rust-receipts', `${mode}-${mode === 'shared' ? shard : receipt.os}-${manifest.startsWith('src-tauri') ? 'workspace' : 'cli'}-${listener ? 'listener' : 'normal'}.log`);
         const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', 'nextest', 'run', ...archiveRunArgs(archive, workspace, extract, config, partition)], log, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
-        if (result.error || result.status !== 0) throw new Error(`Tests failed on ${receipt.runner}, ${mode} ${shard}/${total}: ${result.error || result.status}`);
+        requireTestSuccess(result, fs.readFileSync(log, 'utf8'), `Tests failed on ${receipt.runner}, ${mode} ${shard}/${total}`);
         const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
         const candidatePath = log.replace(/\.log$/, '.candidates');
         execFileSync(process.execPath, [...guard, '--candidates', candidatePath], { stdio: 'inherit' });
@@ -155,10 +174,10 @@ async function run(mode, shard, total) {
           aloneLog = log.replace(/\.log$/, '.alone.log');
           fs.writeFileSync(config, `[profile.default]\ndefault-filter = ${JSON.stringify(`(${groupFilter}) & (${exactFilter})`)}\nretries = 0\nslow-timeout = { period = "60s", terminate-after = 5 }\n`);
           const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', 'nextest', 'run', ...archiveRunArgs(archive, workspace, extract, config, [], true)], aloneLog, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
-          if (alone.error || alone.status !== 0) throw new Error(`Candidate rerun failed on ${receipt.runner}: ${alone.error || alone.status}`);
+          requireTestSuccess(alone, fs.readFileSync(aloneLog, 'utf8'), `Candidate rerun failed on ${receipt.runner}`);
         }
         const auditLog = log.replace(/\.log$/, '.audit.log');
-        const audit = await captureCommand(process.execPath, [...guard, ...(aloneLog ? ['--alone', aloneLog] : [])], auditLog);
+        const audit = await captureCommand(process.execPath, timingAuditArgs(guard, aloneLog, process.env.CI_RELEASE_TESTS === 'true'), auditLog);
         receipt.timingAudits.push({ parallelLog: path.basename(log), aloneLog: aloneLog && path.basename(aloneLog), candidates: candidates.entries, report: fs.readFileSync(auditLog, 'utf8') });
         if (audit.error || audit.status !== 0) throw new Error(`Alone-measured timing ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }

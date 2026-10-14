@@ -8,3 +8,6 @@ pub mod prompt;
 pub mod semantic_marker;
 pub mod shell_command_state;
 pub mod signal_extractor;
+
+#[cfg(test)]
+mod test_support;

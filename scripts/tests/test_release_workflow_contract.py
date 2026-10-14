@@ -108,7 +108,8 @@ class SingleRunGraphTest(unittest.TestCase):
         }
         self.assertEqual(triggered, {"release.yml"})
         for name in (
-            "release-builder.yml",
+            "release-macos-build.yml",
+            "release-linux-arm64.yml",
             "release-linux.yml",
             "release-windows.yml",
             "release-manifest-validate.yml",
@@ -118,18 +119,19 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_platform_jobs_run_in_parallel_before_the_final_manifest_job(self):
         caller = read("release.yml")
         for job, workflow in (
-            ("macos", "release-builder.yml"),
-            ("linux-arm64", "release-builder.yml"),
+            ("macos", "release-macos-build.yml"),
+            ("linux-arm64", "release-linux-arm64.yml"),
             ("linux-x86_64", "release-linux.yml"),
             ("windows", "release-windows.yml"),
         ):
             self.assertIn(f"  {job}:\n    name:", caller)
-            self.assertIn("    needs: prepare", caller[caller.index(f"  {job}:") :])
+            block = caller[caller.index(f"  {job}:") :].split("\n\n", 1)[0]
+            self.assertIn("    needs: [prepare, quick-checks]", block)
             self.assertIn(f"uses: ./.github/workflows/{workflow}", caller)
 
-        final = caller[caller.index("  release-manifest:") :]
+        final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
         self.assertIn(
-            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, tests]", final
+            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]", final
         )
         self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", final)
         self.assertNotIn("if: always()", final)
@@ -144,7 +146,8 @@ class SingleRunGraphTest(unittest.TestCase):
 
     def test_reusable_platform_jobs_can_clear_incomplete_uploads_when_retried_alone(self):
         for name, build_marker in (
-            ("release-builder.yml", "Build signed and notarized macOS bundle"),
+            ("release-macos-build.yml", "Build signed and notarized macOS bundle"),
+            ("release-linux-arm64.yml", "Build and smoke Linux arm64 in native container"),
             ("release-linux.yml", "Build release bundle inputs"),
             ("release-windows.yml", "Build release bundle inputs"),
         ):
@@ -158,11 +161,11 @@ class SingleRunGraphTest(unittest.TestCase):
                 self.assertIn("rollacode/codeterm-releases", text[clear:build])
 
     def test_reusable_platform_jobs_keep_named_builds_and_artifact_fragments(self):
-        mac = read("release-builder.yml")
+        mac = read("release-macos-build.yml")
         linux = read("release-linux.yml")
         windows = read("release-windows.yml")
-        self.assertIn("  macos:", mac)
-        self.assertIn("  linux-arm64:", mac)
+        self.assertIn("  build:", mac)
+        self.assertIn("  build:", read("release-linux-arm64.yml"))
         self.assertIn("release-publish-platform.mjs", mac)
         self.assertIn("name: build (x86_64-unknown-linux-gnu)", linux)
         self.assertIn("Publish AppImage updater fragment", linux)
@@ -174,10 +177,10 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertIn("PLATFORM_KEY: ${{ matrix.platform_key }}", windows)
 
     def test_platform_packaging_and_signing_stay_on_the_owning_platform(self):
-        mac = read("release-builder.yml")
+        mac = read("release-macos-build.yml")
         linux = read("release-linux.yml")
         windows = read("release-windows.yml")
-        self.assertIn("APPLE_APP_SPECIFIC_PASSWORD", mac)
+        self.assertIn("APPLE_PASSWORD", mac)
         self.assertIn("apple-actions/import-codesign-certs", read("release-macos.yml"))
         self.assertIn("bundles deb,appimage", linux)
         self.assertIn("bundleRoot/nsis", windows)
@@ -220,16 +223,16 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_release_names_notes_sync_is_final_and_build_cache_stays_unshared(self):
         caller = read("release.yml")
         self.assertIn("release-manifest:", caller)
-        lanes = ("release-builder.yml", "release-linux.yml", "release-windows.yml")
+        lanes = ("release-macos-build.yml", "release-linux-arm64.yml", "release-linux.yml", "release-windows.yml")
         for name in lanes:
             text = read(name)
             self.assertNotRegex(text, r"(?i)rust-cache|swatinem")
-            if name != "release-builder.yml":
+            if name not in ("release-macos-build.yml", "release-linux-arm64.yml"):
                 values = re.findall(r"CARGO_TARGET_DIR:\s*(\S.*)$", text, re.MULTILINE)
                 self.assertTrue(values)
                 self.assertTrue(all(value.startswith("${{ github.workspace }}/") for value in values))
 
-        self.assertNotIn(RELEASE_NOTES_SYNC, read("release-builder.yml"))
+        self.assertNotIn(RELEASE_NOTES_SYNC, read("release-macos-build.yml"))
         self.assertIn(RELEASE_NOTES_SYNC, read("release-manifest-validate.yml"))
 
     def test_release_input_prebuilds_app_and_embed_bins_together(self):
@@ -245,15 +248,21 @@ class SingleRunGraphTest(unittest.TestCase):
                 self.assertIn("CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target", text)
                 self.assertIn("CARGO_INCREMENTAL: '0'", text)
                 self.assertIn("CODETERM_RELEASE_FEATURES: embeddings", text)
-                self.assertIn(
-                    "args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }}",
-                    text,
+                build = next(
+                    step for step in steps(text)
+                    if "pnpm tauri build" in step.get("run", "")
                 )
+                if name == "release-windows.yml":
+                    self.assertEqual(build.get("shell"), "pwsh")
+                    arguments = "--target $env:TARGET --features $env:CODETERM_RELEASE_FEATURES"
+                else:
+                    arguments = '--target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"'
+                self.assertIn(arguments, build["run"])
 
     def test_platform_specific_packaging_and_macos_notarization_stay_with_the_owner(self):
         linux = read("release-linux.yml")
         windows = read("release-windows.yml")
-        mac = read("release-builder.yml")
+        mac = read("release-macos-build.yml")
         self.assertIn("--bundles deb,appimage", linux)
         self.assertIn("bundleRoot/nsis", windows)
         self.assertNotIn("bundleRoot/nsis", linux)
@@ -275,7 +284,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertEqual(platform_jobs, sorted(platform_jobs))
         self.assertGreater(manifest_job, max(platform_jobs))
         self.assertIn(
-            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, tests]",
+            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]",
             caller[manifest_job:],
         )
 
@@ -290,7 +299,7 @@ class SingleRunGraphTest(unittest.TestCase):
 
 
 PUBLISHING = ("gh release", "release-upload-assets", "publish-release.sh", "release-clear-wedged-assets")
-PLATFORM_WORKFLOWS = ("release-builder.yml", "release-linux.yml", "release-windows.yml")
+PLATFORM_WORKFLOWS = ("release-macos-build.yml", "release-linux-arm64.yml", "release-linux.yml", "release-windows.yml")
 
 
 class DryRunContractTest(unittest.TestCase):
@@ -299,7 +308,7 @@ class DryRunContractTest(unittest.TestCase):
         self.assertIn("      dry_run:\n", caller)
         drafts = next(s for s in steps(caller) if s.get("name") == "Create draft releases before parallel uploads")
         self.assertIn("dry_run != 'true'", drafts.get("if", ""))
-        final = caller[caller.index("  release-manifest:") :]
+        final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
         self.assertIn("if: needs.prepare.outputs.dry_run != 'true'", final)
         for job in ("macos:", "linux-arm64:", "linux-x86_64:", "windows:"):
             block = caller[caller.index(f"  {job}") :]

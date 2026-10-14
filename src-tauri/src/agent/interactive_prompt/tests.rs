@@ -195,7 +195,7 @@ fn captured_followup_menu_reaches_pending_prompt_but_numbered_echo_does_not() {
 
 #[test]
 fn retained_model_pickers_reach_live_pending_prompt_with_structural_evidence() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let root = crate::test_support::fixture_manifest_dir().join("..");
     for (provider_id, fixture, count) in [
         ("claude", "model-picker-r3", 5),
         ("codex", "model-picker-r3", 7),
