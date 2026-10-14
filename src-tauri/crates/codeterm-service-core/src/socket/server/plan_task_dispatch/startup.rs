@@ -12,7 +12,7 @@ use super::{
     wait_for_tab_session, DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure,
     JsonRpcError, DISPATCH_READY_TIMEOUT,
 };
-pub(crate) use crate::rpc_bridge::DispatchStartup;
+pub(crate) use crate::ports::socket::DispatchStartup;
 
 impl DispatchStartup {
     pub(crate) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {

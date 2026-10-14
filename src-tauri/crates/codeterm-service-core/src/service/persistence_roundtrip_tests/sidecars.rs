@@ -28,7 +28,7 @@ impl crate::plugin::WebhookReceiver for SilentReceiver {
 
 fn register_receiver(service: &ServiceContext) {
     service
-        .webhook_registry
+        .ext::<codeterm_plugin::WebhookRegistryHandle>()
         .register(RECEIVER_ID, Arc::new(SilentReceiver));
 }
 
@@ -68,7 +68,7 @@ fn delayed_send_create_update_delete_round_trip_expected_pass() {
     let restored = restarted
         .fixture
         .service
-        .delayed_send
+        .ext::<crate::delayed_send::DelayedSendQueue>()
         .list(None)
         .into_iter()
         .find(|message| message.id == created.message.id)
@@ -77,7 +77,12 @@ fn delayed_send_create_update_delete_round_trip_expected_pass() {
     crate::delayed_send::delete_message(&restarted.fixture.service, created.message.id)
         .expect("delete delayed send through ServiceContext");
     let restarted = restarted.restart(root.path());
-    assert!(restarted.fixture.service.delayed_send.list(None).is_empty());
+    assert!(restarted
+        .fixture
+        .service
+        .ext::<crate::delayed_send::DelayedSendQueue>()
+        .list(None)
+        .is_empty());
     close(restarted);
 }
 

@@ -324,8 +324,8 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             if let Some(worker) = worker {
                 use tauri::Manager;
-                if let Some(handle) = app.try_state::<crate::sentinel::scheduler::Handle>() {
-                    if let Err(error) = handle.remove_worker_watchers(&worker) {
+                if let Some(ports) = app.try_state::<crate::ports::sentinel::SentinelPorts>() {
+                    if let Err(error) = ports.cleanup.remove_worker_watchers(&worker) {
                         log::error!("[blueprint] accepted task watcher cleanup failed: {error}");
                     }
                 }

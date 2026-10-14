@@ -434,7 +434,9 @@ fn handle_pty_death_with_cause(
         prev
     };
     publish_shell_exit(svc, pty_id);
-    svc.shell_caps.lock().remove(pty_id);
+    svc.ext::<crate::ShellCapabilityState>()
+        .lock()
+        .remove(pty_id);
 
     if preserve_tab_authority(shutdown) {
         log::info!(

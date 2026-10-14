@@ -152,13 +152,14 @@ impl ServiceContext {
             actor: actor.and_then(sanitize_actor),
         };
         match self
-            .surface_activity
+            .ext::<Arc<crate::service::surface::SurfaceActivityGate>>()
             .offer(tab_id, &activity, Instant::now())
         {
             Gate::EmitNow => emit(&self.events, &self.app_handle, tab_id, &activity),
             Gate::Coalesced => {}
             Gate::FlushAfter(delay) => {
-                let gate = Arc::clone(&self.surface_activity);
+                let gate =
+                    Arc::clone(self.ext::<Arc<crate::service::surface::SurfaceActivityGate>>());
                 let events = Arc::clone(&self.events);
                 let app = self.app_handle.clone();
                 let tab_id = tab_id.to_string();

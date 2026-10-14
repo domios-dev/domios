@@ -77,6 +77,8 @@ most `--max-warnings` (default 40) warning lines, one `warnings crate=<name>
 count=N` line per warned crate and `warnings=N shown=M failing=<crates>`.
 Warnings count as errors: any rustc or clippy warning in a touched crate fails
 the run, and a Worker reports only with `errors=0` and `failing=none`.
+check-queue, check-tests and clippy --all-targets type-check the bin against MockRuntime.
+The Wry world is checked by clippy --workspace in the full gate, by check-queue's dev-lib check (Tone, task_10jzuo) and by every dev and production build.
 `--all` lints the whole app workspace and the CLI and fails on any warning.
 `./build.sh check` ends with one `warnings crate=` line per warned crate and a
 `check: warnings=N` total; canonical expects `warnings=0`. Every workspace crate

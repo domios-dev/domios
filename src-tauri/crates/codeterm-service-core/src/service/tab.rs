@@ -152,12 +152,13 @@ impl ServiceContext {
         super::supporter_tab_state::forget_observations(tab_id);
         crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
         self.release_managed_tabs(tab_id);
-        self.reply_relays.close(tab_id);
-        if let Some(handle) = self
+        self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .close(tab_id);
+        if let Some(ports) = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
-            handle.cancel_tab_owned_runs(tab_id);
+            ports.cleanup.cancel_tab_owned_runs(tab_id);
         }
         super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
@@ -396,7 +397,8 @@ impl ServiceContext {
     }
 
     pub fn focus_tab(&self, tab_id: &str) -> Result<(), String> {
-        self.user_last_activity.mark();
+        self.ext::<std::sync::Arc<crate::user_last_activity::UserLastActivity>>()
+            .mark();
         focus_tab_hot_path(
             &self.mux,
             tab_id,
@@ -733,7 +735,7 @@ impl ServiceContext {
         {
             return result;
         }
-        if let Some(result) = crate::api::hook_routes::permission_decision::respond_with_identity(
+        if let Some(result) = crate::service::permission_decision::respond_with_identity(
             self,
             tab_id,
             value,
@@ -866,7 +868,7 @@ impl ServiceContext {
         let resolved_pty = tab.pending_prompt.as_ref().and(tab.pty_id.clone());
         let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
         drop(mux);
-        crate::api::hook_routes::permission_decision::clear_tab(tab_id);
+        crate::service::permission_decision::clear_tab(tab_id);
         if let Some(pty_id) = resolved_pty {
             self.release_prompt_waiting(tab_id, &pty_id);
         }
