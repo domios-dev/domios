@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# Build + sign a notarization-ready macOS .app for one architecture.
-# Wraps the easy-to-forget bits:
-#   - sources ~/.claude/.secrets/apple-notary.env so Tauri picks up
-#     APPLE_SIGNING_IDENTITY instead of ad-hoc-signing the inner binaries
-#   - kills any running dev (which would fight for the cargo target dir)
-#   - verifies the resulting .app's Authority + hardened-runtime flag before
-#     handing off to notarize
-#
-# Usage: build-mac.sh arm64        (= pnpm tauri build)
-#        build-mac.sh x86_64       (= scripts/release-macos-x86_64.sh)
+# Build and verify one architecture using the job signing environment.
 
 set -euo pipefail
 
@@ -23,10 +14,8 @@ esac
 REPO_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 cd "$REPO_ROOT"
 
-SECRETS="$HOME/.claude/.secrets/apple-notary.env"
-[ -f "$SECRETS" ] || { echo "ERROR: $SECRETS not found — restore from BW secret codeterm-apple-notary-env" >&2; exit 1; }
-set -a; source "$SECRETS"; set +a
-[ -n "${APPLE_SIGNING_IDENTITY:-}" ] || { echo "ERROR: APPLE_SIGNING_IDENTITY not in $SECRETS" >&2; exit 1; }
+: "${APPLE_SIGNING_IDENTITY:?Provide APPLE_SIGNING_IDENTITY from repository secrets}"
+: "${RELEASE_KEYCHAIN:?Import the job signing keychain first}"
 
 # Killing the running dev avoids it fighting for the cargo target dir — but ONLY matters for a
 # manual build from the working checkout. Under CI the build runs in the runner's own isolated
