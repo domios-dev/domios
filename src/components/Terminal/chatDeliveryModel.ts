@@ -45,6 +45,7 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
   if (send.status?.send_id === status.send_id && send.status.ledger_id === status.ledger_id) {
     if (send.status.state === "failed" && status.state !== "failed" && status.state !== "delivered") return send;
     if ((send.status.state === "written" || send.status.state === "submit_unconfirmed") && status.state === "held") return send;
+    if (send.status.state === "submit_unconfirmed" && status.state === "written") return send;
   }
   if (send.status?.ledger_id === status.ledger_id && send.status.sequence === status.sequence
     && send.status.send_id === status.send_id && send.status.state === status.state
@@ -63,7 +64,7 @@ export function reconcileAdmissionEvidence(send: DeliverySend, evidence: Admissi
 export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {
   if (!send.status || deliveryState(send) === "delivered"
     || statuses.some((status) => status.send_id === send.status?.send_id)) return send;
-  if (send.status.state === "held") {
+  if (send.status.state === "held" || send.status.state === "written") {
     return { ...send, status: { ...send.status, state: "submit_unconfirmed", pending_reason: undefined } };
   }
   return send.status.state === "failed" ? { ...send, status: undefined } : send;
