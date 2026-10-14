@@ -1142,7 +1142,3 @@ mod tests_chatbackend;
 #[cfg(test)]
 #[path = "spawn_launch_marker_tests.rs"]
 mod launch_marker_tests;
-
-#[cfg(test)]
-#[path = "spawn_tests/pty_ownership.rs"]
-mod pty_ownership_tests;

@@ -9,9 +9,9 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
-use crate::agent::chat_types::{ChatMsg, MessageBlock, RichMessage};
-use crate::agent::registry::AgentRegistry;
-use crate::service::tab_chat::{
+use codeterm_service_core::agent::chat_types::{ChatMsg, MessageBlock, RichMessage};
+use codeterm_service_core::agent::registry::AgentRegistry;
+use codeterm_service_core::service::tab_chat::{
     rich_rows_to_chat_msgs, rich_to_chat_msgs, rich_to_chat_msgs_at, rich_to_chat_msgs_live,
     session_window, spawn_tailer, DeltaSink, RowOrigin, TailConfig,
 };
@@ -34,7 +34,7 @@ const TARGETS: [&str; 5] = [
 ];
 
 fn plugins_root() -> PathBuf {
-    crate::test_support::fixture_manifest_dir()
+    codeterm_service_core::test_support::fixture_manifest_dir()
         .join("../../..")
         .join("plugins")
 }
@@ -60,16 +60,18 @@ fn js_registry(plugin_dir: &str, id: &str, sessions_root: &Path) -> Arc<AgentReg
             }}
         }}"#
     );
-    let manifest: crate::plugin::js_runtime::PluginManifest =
+    let manifest: codeterm_service_core::plugin::js_runtime::PluginManifest =
         serde_json::from_str(&manifest_json).expect("parse synthetic manifest");
-    let vm =
-        crate::plugin::js_runtime::PluginVm::from_source_with(id, plugin_js, Some(manifest_json))
-            .expect("init provider VM");
+    let vm = codeterm_service_core::plugin::js_runtime::PluginVm::from_source_with(
+        id,
+        plugin_js,
+        Some(manifest_json),
+    )
+    .expect("init provider VM");
     let registry = AgentRegistry::new();
-    registry.register_provider(Box::new(crate::plugin::js_runtime::JsProvider::new(
-        manifest,
-        Arc::new(vm),
-    )));
+    registry.register_provider(Box::new(
+        codeterm_service_core::plugin::js_runtime::JsProvider::new(manifest, Arc::new(vm)),
+    ));
     Arc::new(registry)
 }
 

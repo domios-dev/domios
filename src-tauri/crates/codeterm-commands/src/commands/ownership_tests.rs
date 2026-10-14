@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::multiplexer::state::MultiplexerState;
-use crate::service::pty_ownership::OwnershipEvent;
-use crate::service::test_fixture::ServiceFixture;
+use codeterm_service_core::multiplexer::state::MultiplexerState;
+use codeterm_service_core::service::pty_ownership::OwnershipEvent;
+use codeterm_service_core::service::test_fixture::ServiceFixture;
 
 // Failure bound only: the full Windows suite (~300 s of parallel PowerShell launches) has
 // delayed one frontend attach past 30 s while every step still completes (#620).
@@ -64,7 +64,7 @@ fn isolated_tab_state() -> (MultiplexerState, String) {
     workspace.active_tab_id = Some(tab_id.clone());
     let tab = workspace.tabs.first_mut().expect("default tab");
     tab.id = tab_id.clone();
-    let crate::session::store::SplitNodeSnapshot::Leaf {
+    let codeterm_service_core::session::store::SplitNodeSnapshot::Leaf {
         tab_id: leaf_tab_id,
         ..
     } = &mut tab.split_tree

@@ -37,8 +37,6 @@ pub use tailer::{
 #[cfg(test)]
 mod command_tests;
 #[cfg(test)]
-mod identity_tests;
-#[cfg(test)]
 mod tailer_tests;
 
 use crate::agent::chat_types::{
