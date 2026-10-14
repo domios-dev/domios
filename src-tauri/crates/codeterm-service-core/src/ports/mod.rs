@@ -11,6 +11,7 @@
 
 pub mod rest;
 pub mod socket;
+pub mod sentinel;
 pub mod transport;
 pub mod update;
 
