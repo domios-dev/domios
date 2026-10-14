@@ -1,11 +1,8 @@
-name: Release builder platforms
+name: Release macOS
 
 on:
   workflow_call:
     inputs:
-      platform:
-        required: true
-        type: string
       tag:
         required: true
         type: string
@@ -33,9 +30,8 @@ env:
   DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
 
 jobs:
-  macos:
-    if: inputs.platform == 'macos'
-    name: macOS (${{ matrix.arch }})
+  build:
+    name: build (${{ matrix.arch }})
     runs-on: [self-hosted, "${{ matrix.runner_label }}"]
     timeout-minutes: 120
     strategy:
@@ -50,7 +46,9 @@ jobs:
             runner_label: ${{ vars.RELEASE_MACOS_X64_LABEL || 'codeterm-builder' }}
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
       CARGO_INCREMENTAL: '0'
@@ -101,11 +99,17 @@ jobs:
             GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG" "$ASSET_SCOPE"
           fi
 
-      - name: Preflight macOS signing and notarization
+      - name: Import temporary release signing material
         env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: python3 scripts/release-signing-material.py macos
+
+      - name: Preflight macOS signing and notarization
         run: bash scripts/check-release-credentials-mac.sh
 
       - name: Frozen dependencies
@@ -134,101 +138,7 @@ jobs:
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART"
 
-  linux-arm64:
-    if: inputs.platform == 'linux-arm64'
-    name: Linux arm64
-    runs-on: [self-hosted, "${{ vars.RELEASE_LINUX_ARM64_LABEL || 'codeterm-builder' }}"]
-    timeout-minutes: 120
-    env:
-      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
-      CODETERM_SCCACHE_VERIFY_ONLY: '1'
-      ASSET_SCOPE: linux-aarch64
-      ART: ${{ github.workspace }}/release-artifacts/linux-arm64
-    steps:
-      - name: Parse + validate version
-        id: ver
-        run: |
-          TAG="${{ inputs.tag }}"
-          RAW="${TAG#v}"
-          echo "raw=$RAW"
-          if ! echo "$RAW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::tag must be vX.Y.Z (got '$TAG')"; exit 1
-          fi
-          echo "ver=$RAW"   >> "$GITHUB_OUTPUT"
-          echo "tag=v$RAW"  >> "$GITHUB_OUTPUT"
+      - name: Clean up temporary release signing material
+        if: always()
+        run: python3 scripts/release-signing-material.py cleanup
 
-      - name: Checkout repo (full history + tags)
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref }}
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10.32.1
-          run_install: false
-
-      - name: Clear incomplete release uploads for retry
-        if: ${{ !inputs.dry_run }}
-        env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
-          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
-          PUBLISH_MIRROR: ${{ inputs.mirror }}
-          TAG: ${{ inputs.tag }}
-          SOURCE_REPO: ${{ github.repository }}
-        run: |
-          node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG" "$ASSET_SCOPE"
-          if [ "$PUBLISH_MIRROR" = true ]; then
-            GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG" "$ASSET_SCOPE"
-          fi
-
-      - name: Verify native Docker builder
-        run: |
-          docker info >/dev/null
-          docker image inspect codeterm-build-linux-arm64 >/dev/null
-          test "$(docker image inspect --format '{{.Architecture}}' codeterm-build-linux-arm64)" = arm64
-
-      - name: Build and smoke Linux arm64 in native container
-        run: |
-          rm -rf "$ART"
-          mkdir -p "$ART"
-          git bundle create "$ART/source.bundle" HEAD
-          docker run --rm --pull=never --platform linux/arm64 \
-            -v "$ART:/work" -v "$PWD/.codeterm/build-machine/scripts/build-linux.sh:/build-linux.sh:ro" \
-            -e DOMIOS_FIREBASE_API_KEY -e DOMIOS_FIREBASE_PROJECT_ID -e DOMIOS_FIREBASE_APP_ID \
-            -e DOMIOS_ACCOUNT_REDEEM_URL -e DOMIOS_BILLING_FUNCTIONS_URL \
-            -e DOMIOS_AMPLITUDE_API_KEY_TEST -e DOMIOS_AMPLITUDE_API_KEY_PROD \
-            -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 \
-            -e CARGO_TARGET_DIR=/src/src-tauri/target -e CODETERM_RELEASE_FEATURES=embeddings \
-            codeterm-build-linux-arm64 bash /build-linux.sh source deb,appimage
-
-      - name: Frozen signer dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Sign Linux updater bundles
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        run: |
-          for bundle in "$ART"/out/*.AppImage "$ART"/out/*.deb; do
-            pnpm tauri signer sign "$bundle"
-          done
-
-      - name: Verify updater signatures (including dry run)
-        env:
-          RELEASE_VERIFY_ONLY: 'true'
-        run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART/out"
-
-      - name: Verify and publish platform assets and updater fragment
-        if: ${{ !inputs.dry_run }}
-        env:
-          PUBLISH_PUBLIC_MIRROR: ${{ inputs.mirror }}
-          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
-        run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART/out"
