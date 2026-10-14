@@ -31,3 +31,9 @@ node plugins/provider-codex/tests/capture-runtime.mjs /path/to/temporary-output 
 ```
 
 The recorder has a single bounded per-session failure deadline. It waits on stdout frames and correlated replies, with no sleeps or readiness polling. Inspect/redact the resulting account response projection and author expected results/events before installing a capture fixture. All approvals in the capture exercise are declined.
+
+## Recorded T3 subagent traffic
+
+`subagent.json` and `subagent_v2.json` project only collaboration/activity item notifications from the reference client's recorded Codex 0.156.1 app-server traffic (`apps/server/src/orchestration-v2/testkit/fixtures/subagent/codex_transcript.ndjson` and `subagent_v2/codex_transcript.ndjson`). Their source is the local `refs/reference` reference checkout at `8ac4b97dae6bff7258fa5091a908116902fbd635`; no reference implementation code was copied. Wire parameters, IDs, prompts, models, efforts and timestamps are retained verbatim. `receiptMs` is the recorded `emittedAtMs` relative to the first selected notification, rather than a new capture timestamp. Host context is a synthetic binding to the recorded root thread with no send claims.
+
+Expected Chat rows were specified independently from the envelopes. The first fixture proves two receiver identities retain prompt/model/effort/ordinal while wait results update those identities. The second proves v2 activity uses one stable child row across separate lifecycle item IDs; a receiver-less wait stays a generic tool card. Both replay through the existing built-plugin Node and host QuickJS fixture harnesses. These recordings do not prove background-terminal cleanup or child transcript navigation.

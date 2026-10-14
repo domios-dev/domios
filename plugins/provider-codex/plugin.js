@@ -408,6 +408,12 @@ function runtimeItem(raw, seq, previous) {
       break;
     case "collabAgentToolCall":
     case "subAgentActivity": {
+      if (item.type === "collabAgentToolCall" && !list(item.receiverThreadIds).length) {
+        if (item.tool === "spawnAgent") return void 0;
+        row2.toolKind = "generic";
+        row2.toolName = text(item.tool) ?? "collabAgentToolCall";
+        break;
+      }
       const agent = String(item.agentThreadId ?? list(item.receiverThreadIds)[0] ?? id);
       const status = String(item.kind ?? object(object(item.agentsStates)[agent]).status ?? "");
       row2.toolKind = "agent";
@@ -418,9 +424,11 @@ function runtimeItem(raw, seq, previous) {
         agent_path: item.agentPath,
         agent_state: { pendingInit: "started", errored: "failed", shutdown: "closed" }[status] ?? status,
         agent_call_id: id,
-        description: item.prompt,
-        model: item.model,
-        result: object(object(item.agentsStates)[agent]).message
+        agent_description: item.prompt,
+        agent_model: item.model,
+        agent_reasoning_effort: item.reasoningEffort,
+        agent_ordinal: item.ordinal,
+        agent_result: object(object(item.agentsStates)[agent]).message
       });
       break;
     }
@@ -449,7 +457,7 @@ function runtimeItems(raw, seq) {
   const item = object(raw);
   const receivers = list(item.receiverThreadIds);
   if (item.type === "collabAgentToolCall" && receivers.length) return receivers.flatMap((receiver, index) => {
-    const row3 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver] }, seq + index);
+    const row3 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver], ...item.tool === "spawnAgent" ? { ordinal: index + 1 } : {} }, seq + index);
     return row3 ? [row3] : [];
   });
   const row2 = runtimeItem(raw, seq);
@@ -682,6 +690,38 @@ function runtimeError(value, willRetry = false) {
   return { message, metadata: { ...code ? { code } : {}, class: category, retryable: willRetry } };
 }
 
+// plugins/provider-codex/src/runtimeAgents.ts
+var TERMINAL_STATES = ["completed", "failed", "interrupted", "closed"];
+function update(previous, activity) {
+  const input = object(previous.toolInput);
+  const patch = Object.fromEntries(Object.entries(object(activity.toolInput)).filter(([, value]) => value != null));
+  delete patch.agent_call_id;
+  if (!text(patch.agent_state)) delete patch.agent_state;
+  if (TERMINAL_STATES.includes(String(input.agent_state)) && !TERMINAL_STATES.includes(String(patch.agent_state))) delete patch.agent_state;
+  return { ...previous, toolInput: { ...input, ...patch } };
+}
+function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
+  const item = object(raw);
+  if (item.type !== "collabAgentToolCall" && item.type !== "subAgentActivity") return void 0;
+  const spawn = item.type === "collabAgentToolCall" && item.tool === "spawnAgent";
+  if (spawn && !list(item.receiverThreadIds).length) return [];
+  const rows = runtimeItems(item, seq);
+  return rows.flatMap((row2) => {
+    const agent = text(object(row2.toolInput).agent_id);
+    if (!agent) return [row2];
+    const existing = state.rows[agent];
+    const previous = existing ? items[existing] : void 0;
+    if (previous) return [update(previous, row2)];
+    const started = item.type === "subAgentActivity" && item.kind === "started";
+    if (!spawn && !started) return [row2];
+    state.rows[agent] = row2.id;
+    parents[agent] = parent;
+    state.ordinal += 1;
+    row2.toolInput = { ...object(row2.toolInput), agent_ordinal: spawn ? object(row2.toolInput).agent_ordinal : state.ordinal };
+    return [row2];
+  });
+}
+
 // plugins/provider-codex/src/runtimeReduce.ts
 function initial(ctx, raw) {
   const state = object(raw);
@@ -689,6 +729,7 @@ function initial(ctx, raw) {
     const restored = JSON.parse(JSON.stringify(state));
     restored.items = Object.assign(/* @__PURE__ */ Object.create(null), restored.items);
     if (restored.parents) restored.parents = Object.assign(/* @__PURE__ */ Object.create(null), restored.parents);
+    if (restored.agents) restored.agents.rows = Object.assign(/* @__PURE__ */ Object.create(null), restored.agents.rows);
     return restored;
   }
   return { epoch: ctx.epoch, bindingNonce: ctx.bindingNonce, threadId: ctx.threadId, seq: 0, items: /* @__PURE__ */ Object.create(null), completed: [], compacted: [], evidenced: [], activeTurnId: ctx.activeTurnId };
@@ -738,7 +779,7 @@ function stamp(state, row2, params) {
   if (previous?.timestamp) row2.timestamp = previous.timestamp;
   else if (typeof ms === "number" && Number.isFinite(ms)) row2.timestamp = new Date(ms).toISOString();
   const turnId = text(params.turnId) ?? text(object(params.turn).id);
-  if (turnId) row2.toolFlowId = turnId;
+  if (turnId && !row2.toolFlowId) row2.toolFlowId = turnId;
   state.items[row2.id] = row2;
   return row2;
 }
@@ -930,6 +971,14 @@ function runtimeReduce(ctx, raw, frames) {
       default: {
         let row2;
         const rawItem = object(params.item);
+        if (frame.method === "item/started" || frame.method === "item/completed") {
+          state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
+          const agents = reduceRuntimeAgents(state.agents, state.items, state.parents, threadId, rawItem, state.seq + 1);
+          if (agents) {
+            for (const activity of agents) events.push({ kind: "chatItem", threadId, item: stamp(state, activity, params) });
+            continue;
+          }
+        }
         if (frame.method === "item/completed" && rawItem.type === "agentMessage" && rawItem.delivery === "async" && list(rawItem.questions).length) {
           const itemId = text(rawItem.id);
           state.questions ?? (state.questions = []);
@@ -953,8 +1002,6 @@ function runtimeReduce(ctx, raw, frames) {
             if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
           }
           row2 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.join("\n") || parts.content.join("\n"), collapsed: true }, params);
-        } else if ((frame.method === "item/started" || frame.method === "item/completed") && rawItem.type === "collabAgentToolCall" && list(rawItem.receiverThreadIds).length) {
-          for (const activity of runtimeItems(rawItem, state.seq + 1)) events.push({ kind: "chatItem", threadId, item: stamp(state, activity, params) });
         } else row2 = mapItem(state, frame.method, params);
         if (row2) events.push({ kind: "chatItem", threadId, item: row2 });
         if (frame.method === "item/started" || frame.method === "item/completed") {
@@ -3483,11 +3530,11 @@ function classifyCodexTabState(snapshot, nowMs) {
       action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
     };
   }
-  const update = scoreUpdatePrompt(screen);
-  if (update.confidence >= CLASSIFY_THRESHOLD) {
+  const update2 = scoreUpdatePrompt(screen);
+  if (update2.confidence >= CLASSIFY_THRESHOLD) {
     return {
       state: "update_prompt",
-      confidence: update.confidence
+      confidence: update2.confidence
     };
   }
   const rateLimit = scoreRateLimit(screen, nowMs);
@@ -3524,7 +3571,7 @@ function classifyCodexTabState(snapshot, nowMs) {
       }
     };
   }
-  const partial = rateLimit.confidence > update.confidence ? rateLimit.confidence : update.confidence;
+  const partial = rateLimit.confidence > update2.confidence ? rateLimit.confidence : update2.confidence;
   if (partial > 0) return { state: "unknown", confidence: partial };
   return { state: "working", confidence: 0 };
 }
