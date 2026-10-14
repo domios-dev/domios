@@ -1,4 +1,4 @@
-use codeterm_types::{
+use codeterm_blueprint_types::{
     blueprint_pipeline::BlueprintSpec, blueprint_terminal::Config, sentinel_input::InputSpec,
 };
 use serde::{Deserialize, Serialize};
@@ -127,8 +127,8 @@ impl<'de> Deserialize<'de> for StageSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codeterm_types::blueprint_pipeline::{BlueprintOwner, BlueprintResult, Trigger};
-    use codeterm_types::sentinel_input::{DataRef, MediaKind};
+    use codeterm_blueprint_types::blueprint_pipeline::{BlueprintOwner, BlueprintResult, Trigger};
+    use codeterm_blueprint_types::sentinel_input::{DataRef, MediaKind};
 
     #[test]
     fn stage_source_codec_round_trips_each_variant_and_reads_legacy_pipeline() {

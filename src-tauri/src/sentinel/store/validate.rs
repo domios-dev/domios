@@ -215,14 +215,16 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
 impl Store {
     pub fn prepare_pipeline(
         &self,
-        spec: codeterm_types::blueprint_pipeline::BlueprintSpec,
+        spec: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec,
         owner: Owner,
         connected: bool,
     ) -> Result<Sentinel, String> {
         let every = match &spec.trigger {
-            codeterm_types::blueprint_pipeline::Trigger::Schedule { every } => every.clone(),
-            codeterm_types::blueprint_pipeline::Trigger::Event { .. }
-            | codeterm_types::blueprint_pipeline::Trigger::Input { .. } => "20s".into(),
+            codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule { every } => {
+                every.clone()
+            }
+            codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
+            | codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. } => "20s".into(),
         };
         let create = Create {
             terminal: None,
@@ -263,7 +265,7 @@ impl Store {
         params: Create,
         owner: Owner,
         connected: bool,
-        pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
+        pipeline: Option<codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec>,
     ) -> Result<Sentinel, String> {
         if self.admission_closed {
             return Err("blueprint_shutdown_admission_closed".into());
@@ -278,7 +280,7 @@ impl Store {
         let name = params.name.as_deref().ok_or_else(|| {
             "Blueprint graph name is required; use --name ci-green-watch or --name build-done-notify".to_string()
         })?;
-        codeterm_types::automation_name::validate_sentinel_name(name)?;
+        codeterm_blueprint_types::automation_name::validate_sentinel_name(name)?;
         let (probe, observe, input) = if pipeline.is_some() {
             (String::new(), None, None)
         } else {
@@ -296,7 +298,7 @@ impl Store {
                     return Err("--observe: use tab:<id> or cron-run:<id>".into());
                 }
                 (None, None, Some(input)) => {
-                    codeterm_types::sentinel_input::validate(&input)
+                    codeterm_blueprint_types::sentinel_input::validate(&input)
                         .map_err(|error| format!("--input: {error}"))?;
                     if !params.rearm_on_change.is_empty() {
                         return Err("--rearm-on-change requires a probe source".into());

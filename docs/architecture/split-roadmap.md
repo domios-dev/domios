@@ -128,3 +128,5 @@ R1 is chosen because it is the only candidate with zero cycles to break and zero
 ## R1 status
 
 Executed on this branch: `src-tauri/crates/codeterm-wire` holds `domios` and `message_markers` (git renames, content unchanged). Dependents changed: `codeterm-plugin`, `codeterm-bridge`, the app crate (`src-tauri/Cargo.toml`), and the CLI. Both lockfiles were edited by hand to add the package and its edges; `./build.sh release-preflight` should confirm them. Selectors: `./build.sh test-one wire NAME`, and the existing app selectors that exercise markers (`message_markers`, `paste_encoding`, `inbound_webhook`). Timings: canonical measures touch-`domios.rs` + `./build.sh check` before (types) and after (wire).
+
+R2b done (blueprint_*/sentinel_input/automation_name -> `codeterm-blueprint-types`, `mesh/*` -> `codeterm_mesh::contract`, `usage` -> `codeterm_usage::contract`, `local_recording` -> `codeterm-local-recording`); `notification` stays in `codeterm-types` because `config/schema.rs` (stays) uses `NotifyLevel`/`NotifyDestination`, so moving it into `codeterm-notification-core` would create a types <-> notification-core cycle.

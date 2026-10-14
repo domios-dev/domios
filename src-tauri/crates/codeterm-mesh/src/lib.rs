@@ -1,6 +1,7 @@
 //! CodeTerm Mesh — peer-to-peer networking between CodeTerm instances.
 
 pub mod broadcast;
+pub mod contract;
 pub mod crown;
 pub mod discovered;
 pub mod discovery;

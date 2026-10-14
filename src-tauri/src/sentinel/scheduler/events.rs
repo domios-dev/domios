@@ -34,7 +34,7 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
             job.pipeline().is_some_and(|pipeline| {
                 matches!(
                     &pipeline.trigger,
-                    codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                    codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
                 )
             }) && !job.machine.stopped
                 && !job.machine.paused
@@ -49,7 +49,7 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
     for binding in subscriptions.bindings() {
         let job = jobs.iter().find(|job| job.id == binding.pipeline_id);
         let selected = job.and_then(|job| match &job.pipeline()?.trigger {
-            codeterm_types::blueprint_pipeline::Trigger::Event { kind, params }
+            codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { kind, params }
                 if active.contains(job.id.as_str()) =>
             {
                 registry
@@ -65,29 +65,31 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
                 && job.is_some_and(|job| job.definition_version == binding.definition_version)
         });
         let owner_state = match job {
-            None => codeterm_types::blueprint_pipeline::SubscriptionOwnerState::Stopped,
+            None => codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::Stopped,
             Some(job) if job.expires_at.is_some_and(|at| now >= at) => {
-                codeterm_types::blueprint_pipeline::SubscriptionOwnerState::Expired
+                codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::Expired
             }
             Some(job) if job.machine.stopped || job.machine.paused => {
-                codeterm_types::blueprint_pipeline::SubscriptionOwnerState::Stopped
+                codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::Stopped
             }
             Some(job) if !super::super::routes::owner_live(svc, job) => {
-                codeterm_types::blueprint_pipeline::SubscriptionOwnerState::OwnerClosed
+                codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::OwnerClosed
             }
-            Some(_) if !same => codeterm_types::blueprint_pipeline::SubscriptionOwnerState::Amended,
-            Some(_) => codeterm_types::blueprint_pipeline::SubscriptionOwnerState::Active,
+            Some(_) if !same => {
+                codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::Amended
+            }
+            Some(_) => codeterm_blueprint_types::blueprint_pipeline::SubscriptionOwnerState::Active,
         };
         let provider_state = if selected.is_some() {
-            codeterm_types::blueprint_pipeline::SubscriptionProviderState::Available
+            codeterm_blueprint_types::blueprint_pipeline::SubscriptionProviderState::Available
         } else {
-            codeterm_types::blueprint_pipeline::SubscriptionProviderState::Missing
+            codeterm_blueprint_types::blueprint_pipeline::SubscriptionProviderState::Missing
         };
-        if codeterm_types::blueprint_pipeline::next_subscription_action(
+        if codeterm_blueprint_types::blueprint_pipeline::next_subscription_action(
             true,
             owner_state,
             provider_state,
-        ) == codeterm_types::blueprint_pipeline::SubscriptionAction::Unsubscribe
+        ) == codeterm_blueprint_types::blueprint_pipeline::SubscriptionAction::Unsubscribe
             && subscriptions.unsubscribe(&binding.subscription_id)
         {
             changed.insert(binding.pipeline_id.clone());
@@ -107,7 +109,7 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
         }
     }
     for job in jobs.iter().filter(|job| active.contains(job.id.as_str())) {
-        let Some(codeterm_types::blueprint_pipeline::Trigger::Event { kind, params }) =
+        let Some(codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { kind, params }) =
             job.pipeline().map(|pipeline| &pipeline.trigger)
         else {
             continue;
@@ -187,7 +189,7 @@ pub(super) fn dispatch_runs(svc: &crate::service::ServiceState, handle: &Handle)
         job.pipeline().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
-                codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
             )
         })
     }) {
@@ -241,17 +243,17 @@ mod tests {
             directory.path().join("events.json"),
             clock,
         )));
-        let spec = codeterm_types::blueprint_pipeline::BlueprintSpec {
+        let spec = codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec {
             name: "event-lease-test".into(),
-            owner: codeterm_types::blueprint_pipeline::BlueprintOwner::Tab,
-            trigger: codeterm_types::blueprint_pipeline::Trigger::Event {
+            owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab,
+            trigger: codeterm_blueprint_types::blueprint_pipeline::Trigger::Event {
                 kind: "fixture.message".into(),
                 params: serde_json::json!({}),
             },
-            steps: vec![codeterm_types::blueprint_pipeline::Step {
+            steps: vec![codeterm_blueprint_types::blueprint_pipeline::Step {
                 name: "match".into(),
-                input: codeterm_types::blueprint_pipeline::IoType::Text,
-                kind: codeterm_types::blueprint_pipeline::StepKind::Filter {
+                input: codeterm_blueprint_types::blueprint_pipeline::IoType::Text,
+                kind: codeterm_blueprint_types::blueprint_pipeline::StepKind::Filter {
                     pattern: "fixture".into(),
                     bucket: None,
                 },

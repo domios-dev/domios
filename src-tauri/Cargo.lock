@@ -1101,11 +1101,13 @@ dependencies = [
  "codeterm-agent-detect",
  "codeterm-analytics",
  "codeterm-billing",
+ "codeterm-blueprint-types",
  "codeterm-bridge",
  "codeterm-browser",
  "codeterm-frontend-bundle",
  "codeterm-input-macos",
  "codeterm-input-windows",
+ "codeterm-local-recording",
  "codeterm-mem",
  "codeterm-mem-store",
  "codeterm-mesh",
@@ -1253,6 +1255,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-blueprint-types"
+version = "1.6.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "codeterm-bridge"
 version = "1.6.2"
 dependencies = [
@@ -1324,9 +1335,17 @@ version = "0.1.0"
 name = "codeterm-input-windows"
 version = "0.1.0"
 dependencies = [
+ "codeterm-local-recording",
  "codeterm-types",
  "parking_lot",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-local-recording"
+version = "1.6.2"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1427,6 +1446,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-plan",
  "codeterm-types",
+ "codeterm-usage",
  "codeterm-util",
  "filetime",
  "log",
@@ -1450,8 +1470,11 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "codeterm-blueprint-types",
+ "codeterm-local-recording",
  "codeterm-paths",
  "codeterm-types",
+ "codeterm-usage",
  "codeterm-util",
  "codeterm-wire",
  "dirs 6.0.0",
@@ -1542,6 +1565,7 @@ dependencies = [
 name = "codeterm-storage"
 version = "0.1.0"
 dependencies = [
+ "codeterm-blueprint-types",
  "codeterm-paths",
  "codeterm-types",
  "rusqlite",

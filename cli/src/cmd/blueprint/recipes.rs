@@ -207,8 +207,10 @@ mod tests {
                 panic!("recipe command did not parse as blueprint create")
             };
             assert!(*dry_run, "recipe {} omitted --dry-run", recipe.name);
-            codeterm_types::automation_name::validate_sentinel_name(name.as_deref().unwrap_or(""))
-                .unwrap_or_else(|error| panic!("recipe {}: {error}", recipe.name));
+            codeterm_blueprint_types::automation_name::validate_sentinel_name(
+                name.as_deref().unwrap_or(""),
+            )
+            .unwrap_or_else(|error| panic!("recipe {}: {error}", recipe.name));
             let (method, params) =
                 super::super::request(action, Some("creator".into()), Some("nonce".into()))
                     .unwrap();

@@ -513,7 +513,7 @@ fn mission_control_spend_groups_machine_token_usage_by_provider_and_model() {
 /// projection copies them without inverting or re-scaling.
 #[test]
 fn mission_control_spend_reports_provider_windows_as_allowance_used() {
-    let row = codeterm_types::usage::UsageSnapshotRow {
+    let row = codeterm_usage::contract::UsageSnapshotRow {
         billing_mode: Default::default(),
         limits_reported: false,
         id: 1,

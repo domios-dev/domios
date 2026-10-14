@@ -23,7 +23,7 @@ struct UsageProjection {
     nonce: String,
     #[serde(skip)]
     epoch: u64,
-    billing_mode: codeterm_types::usage::BillingMode,
+    billing_mode: codeterm_usage::contract::BillingMode,
     captured_at: u64,
     token_usage: Option<Reading<TokenUsage>>,
     rate_limits: Option<Reading<Vec<RuntimeRateLimit>>>,
@@ -96,7 +96,7 @@ fn publishes_usage(svc: &ServiceContext, session: &Session) -> bool {
 pub fn billing(
     svc: &ServiceContext,
     session: &Session,
-    mode: codeterm_types::usage::BillingMode,
+    mode: codeterm_usage::contract::BillingMode,
     at: u64,
 ) {
     if !publishes_usage(svc, session) {
@@ -107,10 +107,10 @@ pub fn billing(
     let reading = projection(&mut readings, &session.provider, &context);
     reading.billing_mode = mode;
     reading.captured_at = at;
-    if mode != codeterm_types::usage::BillingMode::Subscription {
+    if mode != codeterm_usage::contract::BillingMode::Subscription {
         reading.rate_limits = None;
     }
-    if mode == codeterm_types::usage::BillingMode::Unknown {
+    if mode == codeterm_usage::contract::BillingMode::Unknown {
         reading.token_usage = None;
     }
     drop(readings);
@@ -184,7 +184,7 @@ fn rate_sample(
     };
     codeterm_usage::UsageSample {
         provider: provider.into(),
-        billing_mode: codeterm_types::usage::BillingMode::Subscription,
+        billing_mode: codeterm_usage::contract::BillingMode::Subscription,
         limits_reported: !limits.is_empty(),
         account_id: None,
         captured_at_ms: at as i64,
@@ -320,7 +320,7 @@ mod tests {
             provider: "fixture".into(),
             nonce: "nonce".into(),
             epoch: 1,
-            billing_mode: codeterm_types::usage::BillingMode::Api,
+            billing_mode: codeterm_usage::contract::BillingMode::Api,
             captured_at: 10,
             token_usage: Some(Reading {
                 captured_at: 10,
@@ -359,7 +359,7 @@ mod tests {
         }))
         .unwrap();
         let first = projection(&mut readings, "fixture", &context);
-        first.billing_mode = codeterm_types::usage::BillingMode::Subscription;
+        first.billing_mode = codeterm_usage::contract::BillingMode::Subscription;
         first.rate_limits = Some(Reading {
             captured_at: 10,
             value: vec![window("primary", 20.0, 300)],
@@ -368,7 +368,7 @@ mod tests {
         let loaded = projection(&mut readings, "fixture", &context);
         assert_eq!(
             loaded.billing_mode,
-            codeterm_types::usage::BillingMode::Subscription
+            codeterm_usage::contract::BillingMode::Subscription
         );
         assert_eq!(
             loaded.rate_limits.as_ref().unwrap().value[0].used_percent,
@@ -378,7 +378,7 @@ mod tests {
         let rebound = projection(&mut readings, "fixture", &context);
         assert_eq!(
             rebound.billing_mode,
-            codeterm_types::usage::BillingMode::Unknown
+            codeterm_usage::contract::BillingMode::Unknown
         );
         assert!(rebound.rate_limits.is_none());
         assert!(rebound.token_usage.is_none());

@@ -85,7 +85,7 @@ pub(crate) fn validate(job: &Sentinel) -> Result<(), String> {
         }
     }
     if let Some(input) = &job.input().cloned() {
-        codeterm_types::sentinel_input::validate(input)
+        codeterm_blueprint_types::sentinel_input::validate(input)
             .map_err(|error| format!("invalid blueprint input: {error}"))?;
         if !job.rearm_on_change.is_empty() {
             return Err("input stages cannot rearm_on_change".into());

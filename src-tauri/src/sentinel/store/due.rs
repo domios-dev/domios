@@ -31,8 +31,9 @@ pub(super) fn plan_due(
         .filter(|job| job.session)
         .filter(|job| {
             let usage = super::super::session::usage(jobs, job, now);
-            usage.exchanges >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT
-                || usage.actions >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT
+            usage.exchanges >= codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT
+                || usage.actions
+                    >= codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT
         })
         .map(|job| job.id.clone())
         .collect();
@@ -94,7 +95,7 @@ pub(super) fn plan_due(
         if job.pipeline().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
-                codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
             )
         }) {
             continue;
@@ -102,23 +103,24 @@ pub(super) fn plan_due(
         let input_trigger = job.pipeline().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
-                codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
             )
         });
         let text_event = job.terminal().is_some() || job.input().is_some();
         let due_now = if text_event {
             wake_pending.contains(&job.id)
                 || (job.input().is_some()
-                    && job.next_run != codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
+                    && job.next_run
+                        != codeterm_blueprint_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
                     && job.next_run <= now)
         } else if input_trigger {
-            codeterm_types::sentinel_input::input_due(job.next_run, now)
+            codeterm_blueprint_types::sentinel_input::input_due(job.next_run, now)
         } else {
             job.next_run <= now || wake_pending.contains(&job.id)
         };
         if due_now && !active.contains_key(&job.id) {
             if text_event || input_trigger {
-                job.next_run = codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS;
+                job.next_run = codeterm_blueprint_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS;
             } else if job.next_run <= now {
                 let missed = (now - job.next_run) / job.interval_ms;
                 job.next_run = job
@@ -148,7 +150,8 @@ pub(super) fn plan_due(
 
 pub(in crate::sentinel) fn transition_budget_spent(job: &Sentinel) -> bool {
     if job.session {
-        return job.transitions.len() >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT;
+        return job.transitions.len()
+            >= codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT;
     }
     if job.transitions.len() >= MAX_LIFETIME_TRANSITIONS {
         return true;
@@ -163,10 +166,10 @@ pub(in crate::sentinel) fn transition_budget_spent(job: &Sentinel) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codeterm_types::blueprint_pipeline::{
+    use codeterm_blueprint_types::blueprint_pipeline::{
         BlueprintResult, BlueprintSpec, IoType, Step, StepKind, Trigger,
     };
-    use codeterm_types::sentinel_input::{DataRef, MediaKind};
+    use codeterm_blueprint_types::sentinel_input::{DataRef, MediaKind};
 
     #[test]
     fn probe_cadence_never_backs_off_on_unchanged_results() {
@@ -201,7 +204,7 @@ mod tests {
             .prepare_pipeline(
                 BlueprintSpec {
                     name: "one-shot-input".into(),
-                    owner: codeterm_types::blueprint_pipeline::BlueprintOwner::Tab,
+                    owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab,
                     trigger: Trigger::Input {
                         kind: MediaKind::Text,
                         source: DataRef::Text("hello".into()),
@@ -259,7 +262,7 @@ mod tests {
 
 pub(in crate::sentinel) fn action_limit(job: &Sentinel) -> usize {
     if job.session {
-        codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT
+        codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT
     } else {
         usize::from(job.max_actions)
     }

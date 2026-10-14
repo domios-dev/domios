@@ -16,7 +16,7 @@ pub enum RuntimeEvent {
     SessionUpdated {
         login: Option<RuntimeLoginState>,
         auth: Option<RuntimeAuthState>,
-        billing_mode: Option<codeterm_types::usage::BillingMode>,
+        billing_mode: Option<codeterm_usage::contract::BillingMode>,
         detail: Option<String>,
     },
     ThreadUpdated {

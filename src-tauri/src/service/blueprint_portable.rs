@@ -1,4 +1,4 @@
-use codeterm_types::blueprint_recipe::Recipe;
+use codeterm_blueprint_types::blueprint_recipe::Recipe;
 use serde_json::Value;
 use tauri::Manager;
 

@@ -1998,6 +1998,8 @@ EOF
       storage) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-storage/Cargo.toml -p codeterm-storage --lib "$test_filter" ;;
       mem) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
       mesh) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mesh/Cargo.toml -p codeterm-mesh --lib "$test_filter" ;;
+      blueprint-types|codeterm-blueprint-types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-blueprint-types/Cargo.toml -p codeterm-blueprint-types --lib "$test_filter" ;;
+      local-recording|codeterm-local-recording) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-local-recording/Cargo.toml -p codeterm-local-recording --lib "$test_filter" ;;
       plugin) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
