@@ -40,7 +40,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `script-catalog` | guard | bash | pr | no | no | 60 | script-catalog | `bash scripts/check-script-catalog.sh` | `scripts/README.md` |
 | `test-catalogue` | guard | js | pr | no | no | 60 | single | `node scripts/test-catalogue.mjs validate` | `tests/README.md` |
 | `rust-service-core` | unit | rust | release | no | no | 3600 | nextest-list (fallback static-scan) | `./build.sh nextest app` | `.agents/skills/gates/SKILL.md` |
-| `rust-app` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `cargo nextest run --manifest-path src-tauri/Cargo.toml -p codeterm --lib` | `.agents/skills/gates/SKILL.md` |
+| `rust-app` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest shell` | `.agents/skills/gates/SKILL.md` |
 | `rust-build-info` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-build-info` | `.agents/skills/gates/SKILL.md` |
 | `rust-account` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest account` | `.agents/skills/gates/SKILL.md` |
 | `rust-billing` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest billing` | `.agents/skills/gates/SKILL.md` |
@@ -80,8 +80,8 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-cli` | unit | rust | release | no | no | 3600 | nextest-list (fallback static-scan) | `./build.sh nextest cli` | `.agents/skills/gates/SKILL.md` |
 | `rust-cli-manifest-contract` | contract | rust | pr | no | no | 480 | single | `cargo test -p codeterm-cli cmd::manifest && cargo test -p codeterm-cli plugin_subcommands_parse` | `generated/cli/cli.md` |
 | `rust-pty-fork` | unit | rust | manual | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest pty-fork` | `.agents/skills/gates/SKILL.md` |
-| `rust-mem-store` | unit | rust | manual | no | no | 600 | nextest-list (fallback static-scan) | `cargo nextest run --manifest-path crates/mem-store/Cargo.toml` | `.agents/skills/gates/SKILL.md` |
-| `rust-paths` | unit | rust | manual | no | no | 600 | nextest-list (fallback static-scan) | `cargo nextest run --manifest-path crates/codeterm-paths/Cargo.toml` | `.agents/skills/gates/SKILL.md` |
+| `rust-mem-store` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest mem-store` | `.agents/skills/gates/SKILL.md` |
+| `rust-paths` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest paths` | `.agents/skills/gates/SKILL.md` |
 | `rust-ci-test-classifier` | unit | rust | manual | no | no | 600 | static-scan | `cargo test --manifest-path scripts/ci-test-classifier/Cargo.toml` | `.agents/skills/github-release/SKILL.md` |
 | `rust-qualification` | contract | mixed | manual | no | no | 3600 | single | `gh workflow run qualification.yml -f evaluator_scope=<scope> -f expected_source_sha=<sha>` | `.github/workflows/qualification.yml` |
 | `e2e-api` | e2e-plain | python | manual | yes | no | 900 | pytest-collect `tests/e2e/test_*.py` lacking `pytest\.mark\.llm` | `./build.sh e2e` | `.agents/skills/testing/SKILL.md` |

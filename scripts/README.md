@@ -88,7 +88,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-worktree.mjs` | build.sh check-queue; scripts/check-worktree.test.mjs |
 | `check-worktree.test.mjs` | build.sh script-guards |
 | `ci-runner-paths.mjs` | CI tests.yml; scripts tests/ci-runner-paths.test.mjs; skill build-machine |
-| `ci-rust-archives.mjs` | build.sh ci-archives; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs |
+| `ci-rust-archives.mjs` | build.sh ci-archives, release-rust; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs |
 | `ci-rust-classification.mjs` | scripts ci-rust-archives.mjs, ci-rust-shards.mjs |
 | `ci-rust-prepare.mjs` | CI tests.yml |
 | `ci-rust-shards.mjs` | CI tests.yml; scripts tests/ci-rust-shards.test.mjs |
@@ -171,7 +171,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `task.mjs` | package.json script |
 | `test-capped.sh` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check/release-preflight/test-one/verify/test:all; CI qualification.yml; scripts check-build-gateway-policy.sh, check-sccache-basedir-isolation.sh, check-slow-unit-tests.test.mjs; skill build-machine, build-reference, build |
 | `test-capped.test.sh` | skill build, testing |
-| `test-catalogue.mjs` | build.sh script-guards; CI tests.yml; scripts plugin-tests.sh, tests/test-catalogue.test.mjs; skill testing |
+| `test-catalogue.mjs` | build.sh script-guards; CI tests.yml; scripts ci-rust-archives.mjs, plugin-tests.sh, tests/test-catalogue.test.mjs; skill testing |
 | `test-cli-target-dir-paths.sh` | skill build |
 | `test-clippy-gate.sh` | build.sh script-guards |
 | `test-descendant-cleanup.sh` | build.sh script-guards |
