@@ -1,6 +1,6 @@
 import { markVoice, parseMarker } from "./markers";
 import { attachmentMarkerSegments, formatAttachmentMarker, type AttachmentMarker } from "./attachmentMarker";
-import { DOMIOS_CLOSE_TAG, parseDomiosMessage } from "./domios";
+import { DOMIOS_CLOSE_TAG, parseDomiosMessage, stripPlainTypedTail } from "./domios";
 import type { ChatSend } from "./sendOrder";
 import type { NormalizedChatMessage } from "./types";
 
@@ -25,7 +25,7 @@ export function parseMessageParts(content: string): MessagePart[] {
     parts.push({ kind: "frame", content: frame });
     offset = end;
   }
-  const remainder = content.slice(offset);
+  const remainder = stripPlainTypedTail(content.slice(offset));
   if (remainder.trim() || parts.length === 0) {
     parts.push(...parseAttachmentParts(remainder));
   }

@@ -6,8 +6,16 @@ use crate::service::ServiceContext;
 mod agent_binding;
 pub(super) mod readiness;
 
-fn compose_routed_suffix(suffix: &str) -> String {
-    format!("{suffix}{}", codeterm_types::domios::DOMIOS_CLOSE_TAG)
+fn compose_routed_suffix(suffix: &str, pasted_body: bool) -> String {
+    let marker = if pasted_body {
+        codeterm_types::domios::typed_pasted_marker()
+    } else {
+        String::new()
+    };
+    format!(
+        "{suffix}{marker}{}",
+        codeterm_types::domios::DOMIOS_CLOSE_TAG
+    )
 }
 
 struct RoutedInput {
@@ -21,7 +29,7 @@ fn prepare_routed_input(
     requires_typed_instruction: bool,
 ) -> RoutedInput {
     let body = sanitize_agent_prompt_input(&frame.body);
-    let suffix = compose_routed_suffix(&frame.suffix);
+    let suffix = compose_routed_suffix(&frame.suffix, requires_typed_instruction);
     if requires_typed_instruction {
         RoutedInput {
             body,

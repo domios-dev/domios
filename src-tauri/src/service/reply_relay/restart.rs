@@ -27,8 +27,8 @@ fn restore_frame_and_payload(
     let body = original.strip_suffix(DOMIOS_CLOSE_TAG)?;
     let body = body
         .strip_suffix(&format!(" <tip>{DOMIOS_LEGACY_TYPED_INSTRUCTION}</tip>"))
-        .unwrap_or(body)
-        .to_string();
+        .unwrap_or(body);
+    let body = codeterm_types::domios::strip_plain_typed_tail(body).to_string();
     let payload = format!("{body}{DOMIOS_CLOSE_TAG}");
     Some((
         DomiosFrame {
@@ -38,6 +38,19 @@ fn restore_frame_and_payload(
         },
         payload,
     ))
+}
+
+fn restore_payload_candidates(payload: &str, typed_tail: bool) -> Vec<String> {
+    if !typed_tail {
+        return vec![payload.to_string()];
+    }
+    [
+        codeterm_types::domios::with_pasted_marker(payload),
+        codeterm_types::domios::with_legacy_typed_instruction(payload),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn persist_restart_state(service: &ServiceContext) -> Result<(), String> {
@@ -285,7 +298,7 @@ impl ServiceContext {
         if state.attempt_id != task.attempt_id {
             return Err("restored Worker attempt changed".into());
         }
-        let (restores, normalization, legacy_typed_instruction) = self
+        let (restores, normalization, typed_tail) = self
             .agent_registry
             .with_provider(&binding.provider, |provider| {
                 (
@@ -326,8 +339,9 @@ impl ServiceContext {
         } else {
             0
         };
-        let (frame, mut restored_payload) = restore_frame_and_payload(&state.original_brief)
+        let (frame, plain_payload) = restore_frame_and_payload(&state.original_brief)
             .ok_or("original Worker brief has no routed closing frame")?;
+        let candidates = restore_payload_candidates(&plain_payload, typed_tail);
         let anchor = crate::service::chat_send_transaction::SendEvidenceAnchor {
             provider_id: binding.provider.clone(),
             cwd: binding.cwd.clone(),
@@ -345,17 +359,12 @@ impl ServiceContext {
                 &mut crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(&anchor)),
             )
         };
-        let mut exact = exact_turn(&restored_payload);
-        if !exact && legacy_typed_instruction {
-            if let Some(legacy) =
-                codeterm_types::domios::with_legacy_typed_instruction(&restored_payload)
-            {
-                if exact_turn(&legacy) {
-                    restored_payload = legacy;
-                    exact = true;
-                }
-            }
-        }
+        let matched = candidates.iter().find(|payload| exact_turn(payload));
+        let exact = matched.is_some();
+        let restored_payload = matched
+            .or(candidates.first())
+            .cloned()
+            .unwrap_or(plain_payload);
         let decision = brief_restore_decision(
             false,
             exact,
@@ -488,15 +497,23 @@ mod tests {
         assert!(consume_pending_turn(&mut state, "first").is_empty());
     }
     #[test]
-    fn restored_routed_frame_preserves_brief_and_strips_the_legacy_tip() {
+    fn restored_routed_frame_preserves_brief_and_strips_both_typed_tails() {
         let original = "<domios from=\"fixture\">opaque\nwhole brief</domios>";
         let (frame, payload) = restore_frame_and_payload(original).unwrap();
         assert_eq!(frame.to_message(), original);
         assert_eq!(payload, original);
-        let legacy = codeterm_types::domios::with_legacy_typed_instruction(original).unwrap();
-        let (legacy_frame, legacy_payload) = restore_frame_and_payload(&legacy).unwrap();
-        assert_eq!(legacy_frame, frame);
-        assert_eq!(legacy_payload, payload);
+        for tail in [
+            codeterm_types::domios::with_legacy_typed_instruction(original).unwrap(),
+            codeterm_types::domios::with_pasted_marker(original).unwrap(),
+        ] {
+            let (tail_frame, tail_payload) = restore_frame_and_payload(&tail).unwrap();
+            assert_eq!(tail_frame, frame);
+            assert_eq!(tail_payload, payload);
+        }
+        assert_eq!(restore_payload_candidates(original, false), [original]);
+        let typed = restore_payload_candidates(original, true);
+        assert_eq!(typed.len(), 2);
+        assert!(typed.iter().all(|candidate| candidate != original));
         assert!(restore_frame_and_payload("unframed").is_none());
     }
 }

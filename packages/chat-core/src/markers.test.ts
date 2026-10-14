@@ -17,6 +17,9 @@ import {
   buildDomiosMessage,
   buildDomiosOpeningTag,
   DOMIOS_LEGACY_TYPED_INSTRUCTION,
+  DOMIOS_PASTED_MARKER,
+  LEGACY_CHAT_FOLLOW_UPS,
+  stripPlainTypedTail,
   parseDomiosMessage,
 } from "./domios";
 
@@ -88,6 +91,15 @@ eq(
   "opaque routed body",
   "typed instruction is stripped from the routed message body",
 );
+eq(
+  parseDomiosMessage(buildDomiosMessage({ from: "tab", tab: "abc12345" }, "opaque routed body", ` ${DOMIOS_PASTED_MARKER}`))?.body,
+  "opaque routed body",
+  "pasted marker is stripped from the routed message body",
+);
+for (const tail of [` ${DOMIOS_PASTED_MARKER}`, ...LEGACY_CHAT_FOLLOW_UPS]) {
+  eq(stripPlainTypedTail(`plain message${tail}`), "plain message", "typed chat tail is stripped");
+}
+eq(stripPlainTypedTail("plain message"), "plain message", "untailed chat text is unchanged");
 eq(parseMarker("-=-codeterm:tab label=Main tab=abc12345-=-body"), null, "legacy route grammar is rejected");
 
 // `message_markers_tests.rs` PARITY[6] exactly (name space percent-encoded).
