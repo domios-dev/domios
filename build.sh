@@ -473,7 +473,7 @@ run_nextest_scope() {
 }
 
 case "$CMD" in
-  gateway-*|help|gc|cache-status|cache-verify|cache-stats) ;;
+  gateway-*|help|gc|cache-status|cache-verify|cache-stats|build-history) ;;
   *) setup_env ;;
 esac
 
@@ -590,7 +590,7 @@ fi
 
 # A cold prebuilt refusal must be read-only; every other command keeps the
 # existing hook setup behavior.
-if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ] && [ "$CMD" != "cache-verify" ] && [ "$CMD" != "cache-stats" ]; then
+if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ] && [ "$CMD" != "cache-verify" ] && [ "$CMD" != "cache-stats" ] && [ "$CMD" != build-history ]; then
   git config core.hooksPath .githooks 2>/dev/null || true
 fi
 
@@ -1414,6 +1414,10 @@ check_queue_run() {
     pkg_args+=(-p codeterm)
   fi
 
+  CT_BUILD_SOURCE_SHA="$sha"
+  CT_BUILD_CRATES="$(printf '%s\n' "${pkg_args[@]}" | sed '/^-p$/d')"
+  [ "$cli" != 1 ] || CT_BUILD_CRATES="${CT_BUILD_CRATES}${CT_BUILD_CRATES:+ }codeterm-cli"
+  CT_BUILD_TOUCHED_FILES_COUNT="$(printf '%s\n' "$files" | sed '/^$/d' | wc -l | tr -d ' ')"
   enter_build_gateway "$CMD $sha"
   cw="$(check_queue_worktree "$sha")"
   git -C "$cw" checkout -q --detach --force "$sha" >&2
@@ -1424,7 +1428,7 @@ check_queue_run() {
   unset CARGO_INCREMENTAL
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   started="$(date +%s)"
-  out="$(ct_gateway_dir)/check-worktree-last.log"
+  out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check.log"
   : > "$out"
   if [ "${#pkg_args[@]}" -gt 0 ]; then
     CARGO_TARGET_DIR="$cw/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
@@ -1434,6 +1438,7 @@ check_queue_run() {
     CARGO_TARGET_DIR="$cw/target/cli" cargo check --manifest-path cli/Cargo.toml \
       --all-targets --message-format=short >> "$out" 2>&1 || status=$?
   fi
+  grep 'cargo::core::compiler::fingerprint' "$out" || true
   check_queue_errors "$max_errors" < "$out"
   echo "check-queue: sha=$sha packages=${pkg_args[*]:-} cli=$cli exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
   return "$status"
@@ -1889,6 +1894,7 @@ accept --notify-tab <tab> or BUILD_NOTIFY_TAB: one OK or early-failure receipt.
   cache-verify                Verify shared S3 configuration and running server without changes
   cache-stats                 Show counters only from a live sccache server
   gateway-status              Show the machine build owner
+  build-history [--last N] [--verb V] [--json]  Build durations, cache hits and rebuild reasons
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
 Gateway-backed commands fail fast when the slot is busy. Add --wait-build only
@@ -1922,6 +1928,10 @@ EOF
     ;;
   gateway-status)
     ct_gateway_status
+    ;;
+  build-history)
+    node scripts/build-history.mjs "${@:2}" --dir "$(ct_gateway_dir)" \
+      --canonical "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
     ;;
   gateway-cancel)
     ct_gateway_cancel "${2:?gateway-cancel requires a job id}"
