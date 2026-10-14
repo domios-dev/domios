@@ -203,7 +203,7 @@ for (const touch of [false, true]) {
       try {
         const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]');
         assert(retry, "runtime recovery action is mounted");
-        assert(!host.querySelector('textarea'), "runtime recovery replaces the composer");
+        assert(host.querySelector('textarea'), "runtime recovery docks above a usable composer");
         assert(retry.disabled === (state === "loading"), "only pending recovery disables Retry");
         if (state !== "loading") {
           await act(async () => { retry.click(); });
@@ -265,7 +265,7 @@ test("mobile runtime sign-in uses the shared account card", async () => {
   try {
     const card = host.querySelector('[role="group"][aria-label="Sign in to Fixture"]');
     assert(card, "provider account card is mounted");
-    assert(!host.querySelector('textarea'), "signed-out runtime replaces composer");
+    assert(host.querySelector('textarea'), "signed-out runtime docks above a usable composer");
     const keyButton = Array.from(card.querySelectorAll("button")).find(button => button.textContent?.includes("API key"));
     assert(keyButton, "provider method is available");
     await act(async () => keyButton.click());
