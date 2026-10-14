@@ -879,6 +879,89 @@ function withDetail(status, compacting) {
   return status.state === "working" && compacting ? { state: "working", detail: "compacting" } : status;
 }
 
+// plugins/provider-codex/src/runtimeStateBudget.ts
+var STATE_TEXT_CAP = 16 * 1024;
+var EVENT_TEXT_CAP = 256 * 1024;
+var RETIRED_ROW_CAP = 256;
+var ID_LIST_CAP = 128;
+var TRUNCATED = "[earlier output truncated]\n";
+var HEAVY = ["content", "toolResult", "toolDetail"];
+function capText(value, cap) {
+  if (value.length <= cap) return value;
+  const body = value.startsWith(TRUNCATED) ? value.slice(TRUNCATED.length) : value;
+  return TRUNCATED + body.slice(body.length - (cap - TRUNCATED.length));
+}
+function capRow(row2, cap) {
+  let capped;
+  for (const key of HEAVY) {
+    const value = row2[key];
+    if (typeof value !== "string" || value.length <= cap) continue;
+    capped ?? (capped = { ...row2 });
+    capped[key] = capText(value, cap);
+  }
+  if (row2.toolInput !== void 0 && JSON.stringify(row2.toolInput).length > cap) {
+    capped ?? (capped = { ...row2 });
+    delete capped.toolInput;
+  }
+  return capped ?? row2;
+}
+function isRetired(state, id) {
+  return !!state.retired?.includes(id);
+}
+function markOpen(state, id) {
+  if (!(state.open ?? (state.open = [])).includes(id)) state.open.push(id);
+}
+function markClosed(state, id) {
+  if (state.open) state.open = state.open.filter((open) => open !== id);
+  if (state.reasoning) delete state.reasoning[id];
+}
+function retire(row2) {
+  const slim = { id: row2.id, seq: row2.seq, type: row2.type, content: "" };
+  if (row2.timestamp) slim.timestamp = row2.timestamp;
+  if (row2.toolFlowId) slim.toolFlowId = row2.toolFlowId;
+  if (row2.toolStatus) slim.toolStatus = row2.toolStatus;
+  return slim;
+}
+function tail(values) {
+  return values && values.length > ID_LIST_CAP ? values.slice(values.length - ID_LIST_CAP) : values;
+}
+function compactState(state) {
+  const agents = new Set(Object.values(state.agents?.rows ?? {}));
+  const done = new Set(state.completed);
+  const open = new Set((state.open ?? []).filter((id) => {
+    const row2 = state.items[id];
+    return row2 && (!row2.toolStatus || row2.toolStatus === "running") && !(row2.toolFlowId && done.has(row2.toolFlowId));
+  }));
+  state.open = [...open];
+  const retired = new Set(state.retired ?? []);
+  for (const [id, row2] of Object.entries(state.items)) {
+    if (agents.has(id)) continue;
+    if (row2.toolStatus === "running" || open.has(id)) {
+      state.items[id] = capRow(row2, STATE_TEXT_CAP);
+      retired.delete(id);
+    } else {
+      state.items[id] = retire(row2);
+      retired.add(id);
+    }
+  }
+  const order = [...retired].filter((id) => state.items[id]).sort((a, b) => state.items[a].seq - state.items[b].seq);
+  for (const id of order.slice(0, Math.max(0, order.length - RETIRED_ROW_CAP))) delete state.items[id];
+  state.retired = order.slice(Math.max(0, order.length - RETIRED_ROW_CAP));
+  for (const parts of Object.values(state.reasoning ?? {})) {
+    parts.summary = parts.summary.map((part) => capText(part, STATE_TEXT_CAP));
+    parts.content = parts.content.map((part) => capText(part, STATE_TEXT_CAP));
+  }
+  state.completed = tail(state.completed);
+  state.compacted = tail(state.compacted);
+  state.evidenced = tail(state.evidenced);
+  state.questions = tail(state.questions);
+  state.abandoned = tail(state.abandoned);
+  state.childCompleted = tail(state.childCompleted);
+}
+function capEvents(events) {
+  return events.map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
+}
+
 // plugins/provider-codex/src/runtimeReduce.ts
 function initial(ctx, raw) {
   const state = object(raw);
@@ -945,13 +1028,17 @@ function mapItem(state, method, params) {
   const raw = object(params.item);
   const id = text(raw.id) ?? text(params.itemId);
   if (!id) return void 0;
-  const previous = state.items[id];
+  const retired = isRetired(state, id);
+  const previous = retired ? void 0 : state.items[id];
   if (method === "item/started" || method === "item/completed") {
+    if (method === "item/started") markOpen(state, id);
+    else markClosed(state, id);
     const row3 = runtimeItem(raw, state.seq + 1, previous);
     return row3 ? stamp(state, stampToolLifecycle(row3, previous, method, params), params) : void 0;
   }
   const delta = text(params.delta) ?? text(params.message);
-  if (!delta) return void 0;
+  if (!delta || retired) return void 0;
+  markOpen(state, id);
   const row2 = previous ? { ...previous } : { id, seq: state.seq + 1, type: "assistant", content: "" };
   switch (method) {
     case "item/agentMessage/delta":
@@ -1081,10 +1168,11 @@ function runtimeReduce(ctx, raw, frames) {
       }
       case "item/fileChange/patchUpdated": {
         const id = text(params.itemId);
-        if (!id || !Array.isArray(params.changes)) break;
+        if (!id || !Array.isArray(params.changes) || isRetired(state, id)) break;
         const previous = state.items[id];
         const row2 = runtimeItem({ id, type: "fileChange", changes: params.changes, status: "inProgress" }, state.seq + 1, previous);
         if (!row2) break;
+        markOpen(state, id);
         if (previous?.toolResult !== void 0) row2.toolResult = previous.toolResult;
         events.push({ kind: "chatItem", threadId, item: stamp(state, row2, params) });
         break;
@@ -1166,6 +1254,7 @@ function runtimeReduce(ctx, raw, frames) {
         }
         const reasoningId = text(rawItem.id) ?? text(params.itemId);
         if (reasoningId && (rawItem.type === "reasoning" || frame.method.startsWith("item/reasoning/"))) {
+          if (frame.method !== "item/completed" && isRetired(state, reasoningId)) continue;
           state.reasoning ?? (state.reasoning = {});
           const parts = state.reasoning[reasoningId] ?? { summary: [], content: [] };
           state.reasoning[reasoningId] = parts;
@@ -1182,6 +1271,8 @@ function runtimeReduce(ctx, raw, frames) {
             if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
           }
           row2 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"), collapsed: true }, params);
+          if (frame.method === "item/completed") markClosed(state, reasoningId);
+          else markOpen(state, reasoningId);
         } else row2 = mapItem(state, frame.method, params);
         if (row2) {
           events.push({ kind: "chatItem", threadId, item: row2 });
@@ -1203,7 +1294,8 @@ function runtimeReduce(ctx, raw, frames) {
       }
     }
   }
-  return { state: json(state), events };
+  compactState(state);
+  return { state: json(state), events: capEvents(events) };
 }
 function pendingStatus(state, threadId) {
   const statusLine = runningCallStatus(state);
@@ -3564,9 +3656,9 @@ function normalizeAbsolutePath(path, windows) {
   const value = windows ? path.replace(/\//g, "\\") : path;
   const prefix = windows ? /^([A-Za-z]:\\|\\\\[^\\]+\\[^\\]+\\)/.exec(value)?.[0] : "/";
   if (!prefix) return null;
-  const tail = value.slice(prefix.length);
+  const tail2 = value.slice(prefix.length);
   const parts = [];
-  for (const part of tail.split(/[\\/]+/)) {
+  for (const part of tail2.split(/[\\/]+/)) {
     if (!part || part === ".") continue;
     if (part === "..") {
       if (parts.length === 0) return null;
