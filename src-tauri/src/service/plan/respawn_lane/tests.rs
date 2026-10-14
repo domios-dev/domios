@@ -245,3 +245,5 @@ fn repository_respawn_and_recorded_read_only_lane_still_inspect_git() {
         .unwrap_err()
         .contains("failed to inspect worker lane"));
 }
+
+mod cross_repository;
