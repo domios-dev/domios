@@ -1105,6 +1105,7 @@ dependencies = [
  "codeterm-bridge",
  "codeterm-browser",
  "codeterm-config",
+ "codeterm-cron",
  "codeterm-decision",
  "codeterm-events",
  "codeterm-frontend-bundle",
@@ -1124,6 +1125,7 @@ dependencies = [
  "codeterm-pty",
  "codeterm-repowatch",
  "codeterm-secrets",
+ "codeterm-shutdown",
  "codeterm-storage",
  "codeterm-types",
  "codeterm-usage",
@@ -1329,6 +1331,16 @@ dependencies = [
  "toml 0.8.2",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-cron"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "cron",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -1668,6 +1680,14 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "codeterm-shutdown"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "serde",
 ]
 
 [[package]]
