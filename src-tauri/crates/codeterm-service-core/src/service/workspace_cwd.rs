@@ -1,6 +1,8 @@
 use super::{session_persist, spawn_cwd::validate_spawn_cwd, ServiceContext};
 use serde::Serialize;
 
+pub struct WorkspaceRelocationLock(pub std::sync::Arc<parking_lot::Mutex<()>>);
+
 #[derive(Debug, Default, Serialize)]
 pub struct WorkspaceRelocation {
     pub workspace_id: String,
@@ -147,7 +149,10 @@ impl ServiceContext {
         workspace_id: &str,
         cwd: &str,
     ) -> Result<WorkspaceRelocation, String> {
-        let _relocation = self.workspace_relocation_lock.lock();
+        let _relocation = self
+            .ext::<crate::service::workspace_cwd::WorkspaceRelocationLock>()
+            .0
+            .lock();
         if cwd.trim().is_empty() {
             return Err("Choose an existing absolute folder".into());
         }

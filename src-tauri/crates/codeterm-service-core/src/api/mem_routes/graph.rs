@@ -3,27 +3,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::mem::graph::{Entity, Relation};
-
-#[derive(Deserialize)]
-pub struct GraphRelateBody {
-    pub from: String,
-    pub rel: String,
-    pub to: String,
-    #[serde(default)]
-    pub valid_from: Option<String>,
-    #[serde(default)]
-    pub valid_to: Option<String>,
-    #[serde(default)]
-    pub scope: Option<String>,
-    #[serde(default)]
-    pub confidence: Option<f64>,
-    #[serde(default)]
-    pub reason: Option<String>,
-}
+use crate::mem_ops::graph::*;
 
 pub async fn mem_graph_relate(
     AxumState(state): AxumState<AppState>,
@@ -51,17 +34,6 @@ pub async fn mem_graph_relate(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-#[derive(Deserialize)]
-pub struct GraphRelatedParams {
-    pub id: String,
-    #[serde(default)]
-    pub rel: Option<String>,
-    #[serde(default)]
-    pub as_of: Option<String>,
-    #[serde(default)]
-    pub include_invalidated: bool,
-}
-
 pub async fn mem_graph_related(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -79,17 +51,6 @@ pub async fn mem_graph_related(
         )
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "relations": rels })))
-}
-
-#[derive(Deserialize)]
-pub struct GraphCreateEntityBody {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub entity_type: String,
-    #[serde(default)]
-    pub scope: Option<String>,
-    #[serde(default)]
-    pub properties: serde_json::Value,
 }
 
 pub async fn mem_graph_create(
@@ -122,15 +83,6 @@ pub async fn mem_graph_create(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-#[derive(Deserialize)]
-pub struct GraphInvalidateBody {
-    pub from: String,
-    pub rel: String,
-    pub to: String,
-    #[serde(default)]
-    pub ended: Option<String>,
-}
-
 pub async fn mem_graph_invalidate(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -143,13 +95,6 @@ pub async fn mem_graph_invalidate(
         .graph_invalidate(&b.from, &b.rel, &b.to, b.ended.as_deref())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "invalidated": found })))
-}
-
-#[derive(Deserialize)]
-pub struct GraphTimelineParams {
-    pub entity: String,
-    #[serde(default)]
-    pub include_invalidated: bool,
 }
 
 pub async fn mem_graph_timeline(
@@ -166,19 +111,6 @@ pub async fn mem_graph_timeline(
     Ok(Json(
         serde_json::json!({ "entity": p.entity, "relations": relations }),
     ))
-}
-
-#[derive(Deserialize)]
-pub struct GraphTraverseParams {
-    pub from: String,
-    #[serde(default)]
-    pub hops: Option<usize>,
-    #[serde(default)]
-    pub max_nodes: Option<usize>,
-    #[serde(default)]
-    pub as_of: Option<String>,
-    #[serde(default)]
-    pub include_invalidated: bool,
 }
 
 pub async fn mem_graph_traverse(
@@ -203,16 +135,6 @@ pub async fn mem_graph_traverse(
     Ok(Json(serde_json::json!(result)))
 }
 
-#[derive(Deserialize)]
-pub struct GraphPathParams {
-    pub from: String,
-    pub to: String,
-    #[serde(default)]
-    pub max_hops: Option<usize>,
-    #[serde(default)]
-    pub include_invalidated: bool,
-}
-
 pub async fn mem_graph_path(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -230,25 +152,6 @@ pub async fn mem_graph_path(
     ))
 }
 
-#[derive(Deserialize)]
-pub struct GraphAliasBody {
-    pub alias: String,
-    pub canonical: String,
-}
-
-pub(crate) fn validate_canonical(id: &str) -> Result<(), String> {
-    if id.trim().is_empty() {
-        return Err("canonical must not be empty".into());
-    }
-    if id.chars().any(|c| c.is_whitespace()) {
-        return Err("canonical must not contain whitespace".into());
-    }
-    if !id.contains('_') {
-        return Err("canonical must contain '_' (entity ids look like type_slug)".into());
-    }
-    Ok(())
-}
-
 pub async fn mem_graph_alias(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -264,12 +167,6 @@ pub async fn mem_graph_alias(
     Ok(Json(
         serde_json::json!({ "ok": true, "alias": b.alias, "canonical": b.canonical }),
     ))
-}
-
-#[derive(Deserialize)]
-pub struct GraphTunnelsParams {
-    #[serde(default)]
-    pub include_invalidated: bool,
 }
 
 pub async fn mem_graph_tunnels(
@@ -339,22 +236,6 @@ pub async fn mem_graph_full(
 
 // ─── Repair endpoints ────────────────────────────────────────────────
 
-use crate::mem::graph_repair::{EntitySimilarityStrategy, RelationColumn};
-
-fn default_repair_limit() -> usize {
-    50
-}
-fn default_actor() -> String {
-    "user".to_string()
-}
-
-#[derive(Deserialize)]
-pub struct RepairFindRelationsBody {
-    pub group_by: Vec<RelationColumn>,
-    #[serde(default = "default_repair_limit")]
-    pub limit: usize,
-}
-
 pub async fn mem_graph_repair_find_relations(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -367,13 +248,6 @@ pub async fn mem_graph_repair_find_relations(
         .graph_find_duplicate_relations(&b.group_by, b.limit)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "groups": groups })))
-}
-
-#[derive(Deserialize)]
-pub struct RepairDeleteRelationsBody {
-    pub rowids: Vec<i64>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 pub async fn mem_graph_repair_delete_relations(
@@ -390,14 +264,6 @@ pub async fn mem_graph_repair_delete_relations(
     Ok(Json(serde_json::json!({ "deleted": deleted })))
 }
 
-#[derive(Deserialize)]
-pub struct RepairMergeRelationsBody {
-    pub keep: i64,
-    pub merge: Vec<i64>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-}
-
 pub async fn mem_graph_repair_merge_relations(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -410,13 +276,6 @@ pub async fn mem_graph_repair_merge_relations(
         .graph_merge_relations(b.keep, &b.merge, &b.actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "report": report })))
-}
-
-#[derive(Deserialize)]
-pub struct RepairFindEntitiesBody {
-    pub strategy: EntitySimilarityStrategy,
-    #[serde(default = "default_repair_limit")]
-    pub limit: usize,
 }
 
 pub async fn mem_graph_repair_find_entities(
@@ -433,14 +292,6 @@ pub async fn mem_graph_repair_find_entities(
     Ok(Json(serde_json::json!({ "groups": groups })))
 }
 
-#[derive(Deserialize)]
-pub struct RepairAugmentEntityBody {
-    pub id: String,
-    pub patch: serde_json::Map<String, serde_json::Value>,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-}
-
 pub async fn mem_graph_repair_augment_entity(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -455,17 +306,6 @@ pub async fn mem_graph_repair_augment_entity(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-#[derive(Deserialize)]
-pub struct RepairDeleteEntityBody {
-    pub id: String,
-    #[serde(default)]
-    pub force: bool,
-    #[serde(default)]
-    pub purge_history: bool,
-    #[serde(default = "default_actor")]
-    pub actor: String,
-}
-
 pub async fn mem_graph_repair_delete_entity(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -478,14 +318,6 @@ pub async fn mem_graph_repair_delete_entity(
         .graph_delete_entity(&b.id, b.force, b.purge_history, &b.actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "report": report })))
-}
-
-#[derive(Deserialize)]
-pub struct RepairOrphanVectorsBody {
-    #[serde(default)]
-    pub dry_run: bool,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 pub async fn mem_graph_repair_orphan_vectors(
@@ -542,14 +374,6 @@ pub async fn mem_graph_prune_dream_hub_edges(
         .graph_prune_dream_hub_edges(b.dry_run, &b.actor)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "report": report })))
-}
-
-#[derive(Deserialize)]
-pub struct RepairOrphanBlobsBody {
-    #[serde(default)]
-    pub dry_run: bool,
-    #[serde(default = "default_actor")]
-    pub actor: String,
 }
 
 pub async fn mem_graph_repair_orphan_blobs(

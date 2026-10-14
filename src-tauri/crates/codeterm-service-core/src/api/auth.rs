@@ -6,9 +6,10 @@ use axum::{
 };
 use std::net::SocketAddr;
 
-use super::access_policy::peer_access_allowed;
 use super::routes::AppState;
+use crate::api_support::access_policy::peer_access_allowed;
 use crate::mesh::types::AccessLevel;
+use crate::service::tokens::token_fp;
 
 #[derive(Clone, Debug)]
 pub enum CallerIdentity {
@@ -105,16 +106,7 @@ fn is_graph_event_path(method: &Method, path: &str) -> bool {
 }
 
 pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
-    method == Method::POST && path == super::inbound_webhook::PEBBLE_WEBHOOK_PATH
-}
-
-/// Non-leaking token fingerprint for diagnostics: byte length + a short
-/// non-cryptographic hash. Never logs the token itself.
-pub(crate) fn token_fp(token: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    token.hash(&mut h);
-    format!("len={} fp={:08x}", token.len(), (h.finish() as u32))
+    method == Method::POST && path == crate::service::web_access::PEBBLE_WEBHOOK_PATH
 }
 
 fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity, ()> {
@@ -427,7 +419,7 @@ pub async fn auth_middleware(
 
 #[cfg(test)]
 mod tests {
-    use super::super::access_policy::check_access;
+    use crate::api_support::access_policy::check_access;
     use super::*;
 
     #[test]

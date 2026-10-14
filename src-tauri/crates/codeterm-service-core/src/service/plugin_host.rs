@@ -337,15 +337,18 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         let activity = {
             let mut ids = PROGRESS_ACTIVITY_IDS.lock();
             let mut current = ids.get(plugin_id).cloned();
-            let activity =
-                match apply_progress_raw(&self.plugin_activity, &mut current, plugin_id, opts_json)
-                {
-                    Ok(a) => a,
-                    Err(e) => {
-                        log::warn!("[plugin-progress] {plugin_id}: {e}");
-                        return "{}".to_string();
-                    }
-                };
+            let activity = match apply_progress_raw(
+                self.ext::<std::sync::Arc<crate::plugin::activity::PluginActivityRegistry>>(),
+                &mut current,
+                plugin_id,
+                opts_json,
+            ) {
+                Ok(a) => a,
+                Err(e) => {
+                    log::warn!("[plugin-progress] {plugin_id}: {e}");
+                    return "{}".to_string();
+                }
+            };
             match current {
                 Some(id) => {
                     ids.insert(plugin_id.to_string(), id);
@@ -364,8 +367,14 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn contributions_changed(&self, kind: &str) {
         if kind == codeterm_plugin::agent_verbs::AGENT_COMMANDS_CONTRIBUTION_KIND {
-            super::plugin_prompt::refresh(&self.agent_command_registry);
-            super::plugin_skills::spawn_sync(self.mem.clone(), self.agent_command_registry.clone());
+            super::plugin_prompt::refresh(
+                self.ext::<crate::agent_commands::AgentCommandRegistryHandle>(),
+            );
+            super::plugin_skills::spawn_sync(
+                self.mem.clone(),
+                self.ext::<crate::agent_commands::AgentCommandRegistryHandle>()
+                    .clone(),
+            );
         }
         self.events
             .publish(codeterm_events::SystemEvent::ContributionsChanged {
@@ -375,11 +384,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn event_sources_changed(&self) {
         self.contributions_changed("graph-nodes");
-        if let Some(handle) = self
+        if let Some(ports) = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
-            handle.notify();
+            ports.wake.notify();
         }
     }
 
@@ -418,42 +427,42 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
             .unwrap_or_default();
-        let decision =
-            self.graph_event_subscriptions
-                .admit(codeterm_plugin::graph_events::AdmissionRequest {
-                    subscription_id,
-                    token,
-                    plugin_id,
-                    event_id,
-                    payload,
-                    payload_bytes,
-                    now_ms,
-                });
+        let decision = self
+            .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
+            .admit(codeterm_plugin::graph_events::AdmissionRequest {
+                subscription_id,
+                token,
+                plugin_id,
+                event_id,
+                payload,
+                payload_bytes,
+                now_ms,
+            });
         match decision {
             codeterm_plugin::graph_events::AdmissionDecision::Admit => {
                 if let Some(pipeline_id) = self
-                    .graph_event_subscriptions
+                    .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
                     .pipeline_id_for(subscription_id)
                 {
-                    if let Some(handle) = self
+                    if let Some(ports) = self
                         .app_handle
-                        .try_state::<crate::sentinel::scheduler::Handle>()
+                        .try_state::<crate::ports::sentinel::SentinelPorts>()
                     {
-                        handle.notify_event_subscription_changed(&pipeline_id);
+                        ports.wake.notify_event_subscription_changed(&pipeline_id);
                     }
                 }
                 serde_json::json!({ "admitted": true }).to_string()
             }
             codeterm_plugin::graph_events::AdmissionDecision::Refuse(reason) => {
                 if let Some(pipeline_id) = self
-                    .graph_event_subscriptions
+                    .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
                     .pipeline_id_for(subscription_id)
                 {
-                    if let Some(handle) = self
+                    if let Some(ports) = self
                         .app_handle
-                        .try_state::<crate::sentinel::scheduler::Handle>()
+                        .try_state::<crate::ports::sentinel::SentinelPorts>()
                     {
-                        handle.notify_event_subscription_changed(&pipeline_id);
+                        ports.wake.notify_event_subscription_changed(&pipeline_id);
                     }
                 }
                 let reason = match reason {
@@ -503,7 +512,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     fn supporter_token(&self, plugin_id: &str) -> Option<String> {
         stored_supporter_token(
             plugin_id,
-            &crate::api::mem_routes::decision::supporter_token_dir(),
+            &crate::service::supporter::registry::supporter_token_dir(),
         )
     }
 
@@ -572,7 +581,8 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             if !self.local_recording_status(plugin_id)?.granted {
                 return Err("local_recording_grant_required".into());
             }
-            self.local_recording_selections.get(plugin_id)
+            self.ext::<std::sync::Arc<crate::service::local_recording::RecordingSelectionStore>>()
+                .get(plugin_id)
         })())
     }
 
@@ -683,7 +693,10 @@ fn enqueue_agent_turn(
     let worker_id_task = worker_id.clone();
     let provider_acquire = provider.clone();
     tauri::async_runtime::spawn(async move {
-        let permit = svc_task.worker_pool.acquire(&provider_acquire).await;
+        let permit = svc_task
+            .ext::<std::sync::Arc<crate::mem::worker_pool::WorkerPool>>()
+            .acquire(&provider_acquire)
+            .await;
         if svc_task
             .workers
             .get(&worker_id_task)

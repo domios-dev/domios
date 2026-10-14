@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::agent::chat_types::ChatMsg;
-use crate::commands::html_preview::checked_path;
+use crate::service::local_preview::html_preview::checked_path;
 
 pub(super) fn path_key(path: &Path) -> String {
     let value = path.to_string_lossy().replace('\\', "/");

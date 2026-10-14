@@ -459,7 +459,8 @@ impl<'a> LiveHost<'a> {
 
 impl ReminderHost for LiveHost<'_> {
     fn gate(&self) -> &Gate {
-        &self.svc.heartbeat_gate
+        self.svc
+            .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
     }
 
     fn supporter(&self) -> Supporter<'_> {
@@ -541,7 +542,7 @@ impl ReminderHost for LiveHost<'_> {
     ) -> Result<bool, String> {
         let tab_id = scope.tab_id.as_str();
         self.svc
-            .heartbeat_gate
+            .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
             .remember_body(tab_id, plan_id, &emission.text);
         match &emission.transport {
             Transport::Heartbeat {
@@ -587,7 +588,10 @@ impl ServiceContext {
         tab_id: &str,
         worker: bool,
     ) -> String {
-        if let Some(text) = self.heartbeat_gate.last_body(tab_id, &plan.id) {
+        if let Some(text) = self
+            .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
+            .last_body(tab_id, &plan.id)
+        {
             return text;
         }
         let scope = Scope {

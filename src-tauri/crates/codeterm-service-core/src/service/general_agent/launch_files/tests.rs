@@ -236,7 +236,7 @@ fn restored_main_plain_launch_registers_exact_resume_authority_before_binding() 
         .get_tab(&main)
         .unwrap()
         .launch_session_authenticated());
-    let claim = crate::api::hook_routes::bind_detected_session(
+    let claim = crate::service::hook_session_binding::bind_detected_session(
         &svc.mux,
         &svc.agent_registry,
         &main,

@@ -1,3 +1,4 @@
+use crate::service::web_access::local_ip_address;
 use axum::{
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
@@ -5,10 +6,8 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::{
-    optional_json::OptionalJson,
-    routes::{check_auth, AppState},
-};
+use crate::api::routes::{check_auth, AppState};
+use crate::api_support::optional_json::OptionalJson;
 
 pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
@@ -163,11 +162,4 @@ pub async fn restart_app(
         app.restart();
     });
     Ok(Json(serde_json::json!({ "ok": true })))
-}
-
-pub fn local_ip_address() -> Option<String> {
-    use std::net::UdpSocket;
-    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("8.8.8.8:80").ok()?;
-    socket.local_addr().ok().map(|a| a.ip().to_string())
 }

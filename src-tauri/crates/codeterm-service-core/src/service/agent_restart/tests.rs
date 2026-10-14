@@ -34,7 +34,10 @@ fn command_prompt_ownership_suppresses_picker_until_operation_exits() {
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.reported_session_binding_nonce = Some("own-nonce".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let tracker = fixture.service.restart_tracker.clone();
+    let tracker = fixture
+        .service
+        .ext::<crate::service::agent_restart::RestartTracker>()
+        .clone();
     tracker.lock().in_progress.insert(tab_id.clone());
     tracker
         .lock()
@@ -220,23 +223,29 @@ fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
         .service
         .provider_tree_key_for_tab(&tab_id, pty_id)
         .expect("Claude supplies the tab process-tree key");
-    fixture.service.provider_tree_witnesses.script_snapshot(
-        &tree_key,
-        crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
-            std::collections::HashSet::from([crate::service::process_tree::ProcessIdentity {
-                pid: 52_520,
-                start_token: "stale-claude-child".into(),
-            }]),
-        ),
-    );
+    fixture
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .script_snapshot(
+            &tree_key,
+            crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
+                std::collections::HashSet::from([crate::service::process_tree::ProcessIdentity {
+                    pid: 52_520,
+                    start_token: "stale-claude-child".into(),
+                }]),
+            ),
+        );
     fixture
         .service
         .observe_provider_process_tree(&tab_id, pty_id)
         .expect("observe the provider before it exits");
-    fixture.service.provider_tree_witnesses.script_snapshot(
-        &tree_key,
-        crate::service::process_tree::ProviderProcessTreeSnapshot::Absent,
-    );
+    fixture
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .script_snapshot(
+            &tree_key,
+            crate::service::process_tree::ProviderProcessTreeSnapshot::Absent,
+        );
 
     let result = fixture.service.snapshot_tab_for_restart(&tab_id);
 

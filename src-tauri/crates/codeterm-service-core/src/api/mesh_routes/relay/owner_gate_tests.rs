@@ -92,7 +92,7 @@ fn app_state(fixture: &crate::service::test_fixture::ServiceFixture) -> AppState
         test_clock: None,
         events: fixture.service.events.clone(),
         web_dist: None,
-        snapshot_bound: crate::api::snapshot_bound::SnapshotBound::default(),
+        snapshot_bound: crate::startup::snapshot_bound::SnapshotBound::default(),
     }
 }
 
