@@ -924,9 +924,7 @@ impl super::ServiceContext {
                 .require_submission(track_turn, elapsed, String::new())
                 .map(|_| ())
         })
-        .map_err(|error| match error {
-            error => DeliveryError::from_injection(tab_id, error),
-        })
+        .map_err(|error| DeliveryError::from_injection(tab_id, error))
     }
 
     fn mark_user_send_written(&self, record: &UserSendRecord) {
