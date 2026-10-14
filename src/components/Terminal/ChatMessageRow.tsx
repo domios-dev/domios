@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { MessagePartsContext, type MessagePart } from "@codeterm/chat-ui";
+import { MessagePartsContext, type MessagePart, messageTimeLabels } from "@codeterm/chat-ui";
 import type { ClipMessage } from "@codeterm/chat-core";
 import { MessageActionsDot, type DotSide, type MessageMenuActions } from "./MessageActionsMenu";
 import { useMessageActionScope } from "./useMessageActionScope";
@@ -23,14 +23,17 @@ export interface MessageRowHandlers {
 
 /** The dot's hit box height; the pointer is kept at its centre. */
 const DOT_BOX_PX = 18;
+const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 function Gutter({ side, children }: { side: DotSide; children?: ReactNode }) {
   return <div className="ct-msg-gutter" data-side={side} data-message-gutter="">{children}</div>;
 }
 
 /** One chat row: the bubble, a quiet actions dot in its gutter that follows the pointer, and its place in a block selection. */
-export const ChatMessageRow = memo(function ChatMessageRow({ msg, sourceOrdinal, ariaLabel, selected, joinNext, selecting, cursor, handlers, children }: {
+export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, deliveryState, sourceOrdinal, ariaLabel, selected, joinNext, selecting, cursor, handlers, children }: {
   msg: { id: string; type: string; sourceMessageId?: string };
+  timestamp?: number;
+  deliveryState?: string;
   sourceOrdinal?: number;
   ariaLabel: string;
   selected: boolean;
@@ -80,8 +83,9 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, sourceOrdinal,
     if (!open) setHot(rowRef.current?.matches(":hover, :focus-within") ?? false);
   };
 
+  const time = timestamp == null || (!hot && !menuOpen) ? null : messageTimeLabels(timestamp, { timeZone: TIME_ZONE });
   const dot = clip && !selecting ? (
-    <MessageActionsDot touch={touchMenu} whole={whole} hasParts={parts.length > 1} onScopeChange={setWhole} clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} hint={hint.hint} onHintEnd={hint.finish} />
+    <MessageActionsDot metadata={time ? { ...time, sender: fullClip?.author, deliveryState } : undefined} touch={touchMenu} whole={whole} hasParts={parts.length > 1} onScopeChange={setWhole} clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} hint={hint.hint} onHintEnd={hint.finish} />
   ) : null;
 
   return (
