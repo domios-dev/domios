@@ -12,6 +12,10 @@ import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
+  ChatDaySeparator,
+  chatDaySeparators,
+  chatLocalDay,
+  messageRowTime,
   ChatSessionIntentLine,
   isSessionIntentOnlyMessage,
   MessageBubble,
@@ -110,6 +114,8 @@ interface Props {
 }
 
 const DISABLED_PLAN_API: ApiConfig = { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false };
+
+const CHAT_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 function isMicrophonePermissionError(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -584,6 +590,11 @@ export function TabSessionChat({
     );
   };
 
+  const localToday = chatLocalDay(Date.now(), CHAT_TIME_ZONE);
+  const daySeparators = useMemo(() => chatDaySeparators(renderedEnrichedMessages.map(({ msg, item, origin }) => messageRowTime(msg, item, origin)?.timestamp ?? null), {
+    now: Date.now(), timeZone: CHAT_TIME_ZONE,
+    labels: { today: "Today", yesterday: "Yesterday" },
+  }), [renderedEnrichedMessages, localToday]);
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
   const jumpToQuoted = useCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
@@ -861,9 +872,12 @@ export function TabSessionChat({
           return (
             <Fragment key={msg.id}>
             <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
+            <ChatDaySeparator label={daySeparators.get(messageIndex)} />
             <ChatHighlightRow id={msg.id}>
             <ChatMessageRow
               msg={msg}
+              timestamp={messageRowTime(msg, item, origin)?.timestamp}
+              deliveryState={deliveryView}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
               selected={messageSelection.selected.has(msg.id)}

@@ -48,7 +48,8 @@ function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
 }
 
 /** The quiet gutter dot of one message and the small menu it opens on hover, focus, click or Enter. */
-export function MessageActionsDot({ clip, touch = false, whole = false, hasParts = false, onScopeChange, side, open, onOpenChange, actions, hint, onHintEnd }: {
+export function MessageActionsDot({ metadata, clip, touch = false, whole = false, hasParts = false, onScopeChange, side, open, onOpenChange, actions, hint, onHintEnd }: {
+  metadata?: { time: string; date: string; dateTime: string; sender?: string; deliveryState?: string };
   touch?: boolean;
   whole?: boolean;
   hasParts?: boolean;
@@ -153,6 +154,10 @@ export function MessageActionsDot({ clip, touch = false, whole = false, hasParts
   const menu = open && (
         <div className={touch ? "ct-msg-sheet-wrap" : "ct-msg-menu-wrap"} data-side={side} data-placement={placement}>
           <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-menu ct-msg-menu" onKeyDown={onMenuKey}>
+            {metadata && <div role="note" aria-label={[metadata.time, metadata.date].join(" · ")} className="border-b px-3 py-2 text-xs" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>
+              <time dateTime={metadata.dateTime}>{metadata.time} · {metadata.date}</time>
+              {(metadata.sender || metadata.deliveryState) && <div>{[metadata.sender, metadata.deliveryState].filter(Boolean).join(" · ")}</div>}
+            </div>}
             {touch && <div className="ct-msg-menu__preview" role="note" aria-label="Action preview">{messageClipboard(clip).plain}</div>}
             {hasParts && <div className="ct-msg-scope" role="group" aria-label="Action target">
               <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={!whole} onClick={() => { setCopied(null); onScopeChange?.(false); }}>This part</button>
