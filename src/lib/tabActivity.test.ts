@@ -63,7 +63,7 @@ assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "st
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming" } }).phase, "streaming");
 const compacting = tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting" } });
 assert.equal(compacting.kind, "working");
-assert.equal(compacting.phase, "compacting");
+assert.equal(compacting.phase, "work");
 assert.notEqual(compacting.label, tabActivity({ ...agent, agent_state: { state: "working" } }).label);
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting", status_line: "Reading" } }).label, "Reading");
 const interrupted = tabActivity({ ...agent, agent_state: { state: "idle", phase: "interrupted" } });

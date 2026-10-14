@@ -13,7 +13,7 @@ export interface TabActivity {
   status: TabStatus;
   state: AgentState["state"];
   subtype?: TabAgentState["subtype"];
-  phase: "thinking" | "streaming" | "compacting" | "work";
+  phase: "thinking" | "streaming" | "work";
   active: boolean;
   canStop: boolean;
   quiet: boolean;
@@ -60,12 +60,12 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";
   const matchingLive = kind !== "starting" && kind !== "failed" && live?.state === state;
   const subtype = state === "question" && matchingLive ? live?.subtype : undefined;
-  const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming" || live?.phase === "compacting") ? live.phase : "work";
+  const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming") ? live.phase : "work";
   const question = kind === "waiting-on-user" ? tab?.pending_prompt?.question?.trim() : null;
   const label = question || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
     : (matchingLive ? live?.status_line?.trim() : null)
       || (kind === "failed" ? "Launch failed" : kind === "starting" ? "Starting…"
-        : kind === "working" ? phase === "compacting" ? "Compacting" : "Working"
+        : kind === "working" ? matchingLive && live?.phase === "compacting" ? "Compacting" : "Working"
           : kind === "idle" && matchingLive && live?.phase && idleOutcomeLabels[live.phase] ? idleOutcomeLabels[live.phase]
           : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
           : quiet ? "Session quiet — rebind to continue" : ""));
