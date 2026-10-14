@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { messageRowParts, parseMessageParts, projectMessageParts, projectTranscriptParts, splitExactSendTexts } from "./messageParts";
+import { markVoice } from "./markers";
 import { formatAttachmentMarker } from "./attachmentMarker";
 import type { NormalizedChatMessage } from "./types";
 
@@ -35,7 +36,7 @@ assert.deepEqual(splitExactSendTexts("firstsecond trailing", payloads), [
 ]);
 assert.deepEqual(splitExactSendTexts("FIRST second", [{ content: "first" }]), [text("FIRST second")]);
 {
-  const voice = "-=-codeterm:voice file=/u/v.ogg-=-\nspoken words";
+  const voice = markVoice("/u/v.ogg", "spoken words");
   const pasted = `\n\n<pasted_content id="e731">\n\n\n${voice}\n</pasted_content id="e731">\n`;
   assert.deepEqual(messageRowParts(splitExactSendTexts(pasted, [{ content: voice, correlationId: "send" }])),
     [{ ...text(voice), correlationId: "send" }]);
@@ -106,4 +107,13 @@ assert.deepEqual(messageRowParts([text("first"), text("second")]), [text("first"
     { kind: "frame", content: report },
   ]);
   assert.deepEqual(parseMessageParts(`${owner}${report}`), [{ kind: "text", content: `${owner}${report}` }]);
+}
+
+for (const [legacy, wire] of [
+  ["-=-codeterm:voice file=/u/v.webm-=-\nпривет", markVoice("/u/v.webm", "привет")],
+  ["-=-codeterm:voice file=/u/v.webm status=untranscribed-=-\nno daemon", markVoice("/u/v.webm", null, "no daemon")],
+]) {
+  assert.deepEqual(parseMessageParts(legacy), parseMessageParts(wire));
+  assert.deepEqual(parseMessageParts(wire)[0].kind, "attachment");
+  assert.equal(messageRowParts(parseMessageParts(wire))[0].content, wire);
 }

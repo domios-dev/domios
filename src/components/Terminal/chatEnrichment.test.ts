@@ -1,3 +1,5 @@
+import strictAssert from "node:assert/strict";
+import { markVoice, parseMessageParts, userMessageAttachments } from "@codeterm/chat-core";
 import type { NormalizedChatMessage, TimelineItem } from "@codeterm/chat-core";
 import { projectTranscript, reduceTranscript, createTranscriptState, projectMessageParts } from "@codeterm/chat-core";
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
@@ -201,4 +203,18 @@ console.log(`routed empty-bubble model: ${routedCases} cases passed`);
   assert(entries.length === 2, "exact ledger boundary separates owner input before a routed report");
   assert(entries[0].origin === undefined && entries[0].msg.content === owner, "owner send keeps its body");
   assert(entries[1].origin?.kind === "tab" && entries[1].origin.report && entries[1].msg.content === "opaque report", "report keeps its sender without tips");
+}
+
+{
+  const legacy = "-=-codeterm:voice file=/u/v.webm-=-\nspoken token";
+  const wire = markVoice("/u/v.webm", "spoken token");
+  const enriched = [legacy, wire].map((content) => {
+    const raw = { ...user("voice", content), messageParts: parseMessageParts(content) };
+    const entries = enrichTimelineItems([messageItem(raw)], new WeakMap());
+    assert(raw.content.endsWith("spoken token"), "agent transcript retained");
+    assert(entries.length === 1 && entries[0].origin === undefined, "one voice bubble without route provenance");
+    return entries[0].msg;
+  });
+  strictAssert.deepEqual(enriched[0], enriched[1]);
+  strictAssert.equal(userMessageAttachments(enriched[0].content).text, wire);
 }

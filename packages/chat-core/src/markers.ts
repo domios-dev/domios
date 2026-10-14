@@ -1,3 +1,4 @@
+import { attachmentMarkerSegments, formatAttachmentMarker } from "./attachmentMarker";
 import { buildDomiosMessage, parseDomiosMessage } from "./domios";
 
 /**
@@ -67,6 +68,19 @@ export function parseMarker(text: string): ParsedMarker | null {
       normalized = normalized.slice(0, -BRACKETED_PASTE_END.length);
     }
   }
+  if (normalized.startsWith("<domios ")) {
+    const end = normalized.indexOf("/>");
+    if (end < 0) return null;
+    const segments = attachmentMarkerSegments(normalized);
+    const first = segments[0];
+    if (!first || !("attachment" in first) || first.attachment.kind !== "voice") return null;
+    const head = normalized.slice(0, end + 2);
+    if (/\sfrom=/.test(head)) return null;
+    const attrs: Record<string, string> = { file: first.attachment.path };
+    if (/\sstatus="untranscribed"/.test(head)) attrs.status = "untranscribed";
+    const body = normalized.slice(head.length);
+    return { kind: "voice", attrs, payload: body.replace(/^(?:\r\n|[\r\n])/, "") };
+  }
   if (!normalized.startsWith(MARKER_OPEN)) return null;
   const rest = normalized.slice(MARKER_OPEN.length);
   const close = rest.indexOf(MARKER_CLOSE);
@@ -98,12 +112,12 @@ function isLegacyRouteKind(kind: string): boolean {
 const opt = (k: string, v: string | null | undefined): Array<[string, string]> =>
   v ? [[k, v]] : [];
 
-export const markVoice = (file: string, transcript?: string | null, note?: string | null) =>
-  transcript
-    ? buildMarker("voice", [["file", file]], transcript)
-    : note
-      ? buildMarker("voice", [["file", file], ["status", "untranscribed"]], note)
-      : buildMarker("voice", [["file", file]]);
+export function markVoice(file: string, transcript?: string | null, note?: string | null): string {
+  const marker = formatAttachmentMarker(file, "voice", "voice");
+  const head = transcript == null && note != null ? marker.replace(" />", ' status="untranscribed" />') : marker;
+  const payload = transcript ?? note;
+  return head + (payload ? `\n${payload}` : "");
+}
 export const markPhoto = (file: string, name?: string | null) =>
   buildMarker("photo", [["file", file], ...opt("name", name)]);
 export const markAttachment = (file: string, name?: string | null) =>
