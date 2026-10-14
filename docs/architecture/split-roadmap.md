@@ -135,3 +135,7 @@ Done: `codeterm-decision` holds `decision` (git renames; app dev-dependency now 
 R2b done (blueprint_*/sentinel_input/automation_name -> `codeterm-blueprint-types`, `mesh/*` -> `codeterm_mesh::contract`, `usage` -> `codeterm_usage::contract`, `local_recording` -> `codeterm-local-recording`); `notification` -> `codeterm_notification_core::contract`. Correction to the R2 table: this row was not cycle-free, because `config/schema.rs` (stays in `codeterm-types`) uses `NotifyLevel`/`NotifyDestination`; those two enums moved to the leaf crate `codeterm-notify-types`, which both `codeterm-types` and `codeterm-notification-core` depend on (the latter re-exports them from `contract`).
 ## R3 status
 Executed: `codeterm-events` (`EventBroadcaster`, `SystemEvent`, generic `emit_everywhere`), `codeterm-config`, `codeterm-secrets` (REST handlers stay in the app as `secrets/api.rs`) and `codeterm-keepawake` (generic over the tauri runtime). `lock_hold` and `process_util` were already thin shims over `codeterm-util`. The app modules are `pub use` facades, so inbound paths are unchanged.
+
+## R4 status
+
+R4(a) done: `socket_path()`/`socket_display_path()` moved from `socket/server` into `codeterm-paths`; all 5 callers plus the server use `crate::paths::`. Remaining (b) invert `cli_rpc_routes`, `mesh_routes/rpc`, `plan_routes/tasks` and (c) physical `codeterm-socket` crate move are not done. Selectors: `./build.sh test-one app socket::server`.

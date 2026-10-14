@@ -12,7 +12,7 @@ impl InstanceEnv {
     pub(crate) fn from_api_config(api: crate::config::schema::ApiConfig) -> Self {
         let (api_url, api_port) = crate::config::api_callback_url(&api);
         Self {
-            socket_path: crate::socket::server::socket_display_path(),
+            socket_path: crate::paths::socket_display_path(),
             api_url,
             api_port,
             api_token: api.token,
