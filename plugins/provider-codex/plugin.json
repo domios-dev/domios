@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.7",
-  "minCodeterm": "1.14.8",
+  "version": "1.14.8",
+  "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
@@ -83,8 +83,10 @@
         "item/plan/delta",
         "item/reasoning/textDelta",
         "item/reasoning/summaryTextDelta",
+        "item/reasoning/summaryPartAdded",
         "item/commandExecution/outputDelta",
         "item/fileChange/outputDelta",
+        "item/fileChange/patchUpdated",
         "item/mcpToolCall/progress",
         "serverRequest/resolved",
         "error"

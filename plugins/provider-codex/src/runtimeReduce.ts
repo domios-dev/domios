@@ -8,6 +8,7 @@ import { runtimeQuestions } from "./runtimeQuestions";
 import { runtimePrompt } from "./runtimePrompts";
 import { codexReportedSettings } from "./runtimeSettings";
 import { reduceRuntimeAgents, type RuntimeAgents } from "./runtimeAgents";
+import { threadStatus, turnOutcome, requestDetail, withDetail } from "./runtimeTurnStatus";
 
 interface ReduceState {
   epoch: number;
@@ -26,6 +27,7 @@ interface ReduceState {
   rateLimitSnapshot?:Record<string,unknown>;
   reasoning?:Record<string,{summary:string[]; content:string[]}>;
   agents?:RuntimeAgents;
+  compacting?:string;
 }
 function initial(ctx: RuntimeContext, raw: JsonValue): ReduceState {
   const state = object(raw);
@@ -160,7 +162,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       if (!(serverRequestMethods as readonly string[]).includes(frame.method)) continue;
       const prompt = runtimePrompt(frame.method,params,frame.requestId);
       const turnId = descendant ? ctx.activeTurnId : text(params.turnId);
-      if (prompt) events.push({kind:"prompt",threadId:ctx.threadId,requestId:frame.requestId,prompt},{kind:"turnState",threadId:ctx.threadId,state:"needs_input",...(turnId ? {turnId} : {})});
+      if (prompt) events.push({kind:"prompt",threadId:ctx.threadId,requestId:frame.requestId,prompt},{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:requestDetail(frame.method),...(turnId ? {turnId} : {})});
       continue;
     }
     if (ctx.threadId && descendant && frame.kind === "notification" && frame.method === "serverRequest/resolved") {
@@ -174,6 +176,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       case "turn/started": {
         if (!turnId || state.completed.includes(turnId)) break;
         state.activeTurnId = turnId;
+        delete state.compacting;
         const settings = codexReportedSettings({...params,...object(params.turn)});
         if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
         events.push({kind:"turnState",threadId,turnId,state:"working",...timing(params)}); break;
@@ -183,19 +186,30 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         state.completed.push(turnId);
         if (state.activeTurnId && state.activeTurnId !== turnId) break;
         delete state.activeTurnId;
+        delete state.compacting;
         const failure = object(object(params.turn).error);
         if (text(failure.message)) {
           const error = runtimeError(failure);
           events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:error`,seq:state.seq+1,type:"system",content:error.message,systemSubtype:"api_error",toolInput:error.metadata},params)});
         }
-        events.push({kind:"turnState",threadId,turnId,state:"idle",...timing(params)}); break;
+        const outcome = turnOutcome(params.turn);
+        events.push({kind:"turnState",threadId,turnId,state:"idle",...(outcome ? {detail:outcome} : {}),...timing(params)}); break;
       }
       case "thread/status/changed": {
-        const status = object(params.status);
-        const type = typeof params.status === "string" ? params.status : status.type;
-        if (type === "idle") events.push({kind:"turnState",threadId,state:"idle"});
-        else if (type === "active") events.push({kind:"turnState",threadId,state:list(status.activeFlags).some(f => f === "waitingOnApproval" || f === "waitingOnUserInput") ? "needs_input" : "working"});
+        const status = threadStatus(params.status);
+        if (!status) break;
+        if (status.state === "idle") delete state.compacting;
+        events.push({kind:"turnState",threadId,...withDetail(status,!!state.compacting),...(state.activeTurnId && status.state !== "idle" ? {turnId:state.activeTurnId} : {})});
         break;
+      }
+      case "item/fileChange/patchUpdated": {
+        const id = text(params.itemId);
+        if (!id || !Array.isArray(params.changes)) break;
+        const previous = state.items[id];
+        const row = runtimeItem({id,type:"fileChange",changes:params.changes,status:"inProgress"},state.seq+1,previous);
+        if (!row) break;
+        if (previous?.toolResult !== undefined) row.toolResult = previous.toolResult;
+        events.push({kind:"chatItem",threadId,item:stamp(state,row,params)}); break;
       }
       case "thread/tokenUsage/updated": {
         const mapped = usage(params); if (mapped) events.push({kind:"usage",threadId,usage:mapped}); break;
@@ -256,6 +270,17 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
           }
           continue;
         }
+        const compactionId = rawItem.type === "contextCompaction" ? text(rawItem.id) : undefined;
+        if (compactionId && frame.method === "item/started") {
+          if (state.compacting === compactionId || state.compacted.includes(compactionId)) continue;
+          state.compacting = compactionId;
+          events.push({kind:"turnState",threadId,state:"working",detail:"compacting",...(turnId ? {turnId} : {})});
+          continue;
+        }
+        if (compactionId && frame.method === "item/completed" && state.compacting === compactionId) {
+          delete state.compacting;
+          if (turnId && state.activeTurnId === turnId) events.push({kind:"turnState",threadId,turnId,state:"working"});
+        }
         const reasoningId = text(rawItem.id) ?? text(params.itemId);
         if (reasoningId && (rawItem.type === "reasoning" || frame.method.startsWith("item/reasoning/"))) {
           state.reasoning ??= {};
@@ -264,12 +289,16 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
           if (rawItem.type === "reasoning") {
             if (list(rawItem.summary).length) parts.summary = list(rawItem.summary).map(String);
             if (list(rawItem.content).length) parts.content = list(rawItem.content).map(String);
+          } else if (frame.method === "item/reasoning/summaryPartAdded") {
+            const index = Number(params.summaryIndex);
+            if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts.summary[index] ??= "";
+            continue;
           } else {
             const stream = frame.method === "item/reasoning/summaryTextDelta" ? "summary" : "content";
             const index = Number(params.summaryIndex ?? params.contentIndex ?? 0);
             if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
           }
-          row = stamp(state,{id:reasoningId,seq:state.seq+1,type:"thinking",content:parts.summary.join("\n") || parts.content.join("\n"),collapsed:true},params);
+          row = stamp(state,{id:reasoningId,seq:state.seq+1,type:"thinking",content:parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"),collapsed:true},params);
         } else row = mapItem(state,frame.method,params);
         if (row) events.push({kind:"chatItem",threadId,item:row});
         if (frame.method === "item/started" || frame.method === "item/completed") {

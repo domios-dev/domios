@@ -838,6 +838,7 @@
         "threadId": "01a135b7-32d1-78f1-96b8-4eec33d81c21",
         "turnId": "01a135b7-3444-7e91-876e-ec3d97427217",
         "state": "idle",
+        "detail": "interrupted",
         "startedAt": 1791902561000,
         "completedAt": 1791902561000
       }
