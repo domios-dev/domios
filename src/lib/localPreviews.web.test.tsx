@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { configureHtmlFileLoader, configureLocalArtifactLoader, configureLocalArtifactOpener, LocalArtifactBlock, LocalArtifactScope, RichMarkdown } from "@codeterm/chat-ui";
+import { AttachmentCapsule, configureHtmlFileLoader, configureLocalArtifactLoader, configureLocalArtifactOpener, LocalArtifactBlock, LocalArtifactScope, RichMarkdown } from "@codeterm/chat-ui";
 import { ChangeFileView } from "../components/Terminal/tabPanel/ChangeFileView";
 import { DocumentDetail } from "../components/Terminal/tabPanel/DocumentDetail";
 import { configureLocalPreviews } from "./configureLocalPreviews";
@@ -91,4 +91,15 @@ it("reads a changed source file through the authenticated tab-scoped web bridge"
   expect(host.querySelector("code")?.textContent).toContain("const current = 42;");
   expect(requests).toEqual([{ path: "/api/tabs/change-owner/preview/read", body: { path: "/work/current.ts", kind: "document" } }]);
   expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("/api/tabs/change-owner/preview/read"), expect.objectContaining({ method: "POST", body: JSON.stringify({ path: "/work/current.ts", kind: "document" }) }));
+});
+
+it("loads a focused chip preview and opens its image via the authenticated attachment reader", async () => {
+  await act(async () => root?.render(<LocalArtifactScope tabId="chip-owner"><AttachmentCapsule attachment={{ kind: "image", path: "/work/pixel.png", label: "image1" }} /></LocalArtifactScope>));
+  const chip = host.querySelector<HTMLButtonElement>('button[aria-label="Open image image1"]')!;
+  expect(chip.querySelector("img")).toBeNull();
+  await act(async () => chip.focus());
+  expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
+  await act(async () => chip.click());
+  expect(document.querySelector('[role="dialog"] img')?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
+  expect(requests).toEqual([{ path: "/api/tabs/chip-owner/preview/read", body: { path: "/work/pixel.png", kind: "image" } }]);
 });
