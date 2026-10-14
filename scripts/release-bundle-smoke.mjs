@@ -97,7 +97,8 @@ export function smoke(kind, directory, sha, expectedArch) {
       const debFiles = files(debRoot);
       for (const executable of [app, cli, embed]) {
         const basename = path.basename(executable);
-        const packaged = one(debFiles, file => path.basename(file) === basename, `Debian ${basename}`);
+        const inCli = /[/\\]cli[/\\]/.test(executable);
+        const packaged = one(debFiles, file => path.basename(file) === basename && /[/\\]cli[/\\]/.test(file) === inCli, `Debian ${basename}`);
         const content = readFileSync(packaged);
         assertMachine(content, expectedArch, format);
         if (executable === app) checkContents(content, sha);
