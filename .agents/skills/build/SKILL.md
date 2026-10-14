@@ -245,6 +245,10 @@ Canonical shell policy verification: `bash scripts/check-build-gateway-policy.sh
 Use this only when testing a production-mode build on this Windows machine. It
 does not publish a release or alter GitHub assets.
 
+A build handed to the owner to install (an owner hotfix build such as
+`X.Y.Z-bs.N`) first needs a green core-journeys run on its exact SHA; the
+gates skill's Release section owns that step.
+
 1. Start from the intended, clean release branch in the canonical checkout.
 2. After a version bump, run the idempotent preflight. It refreshes both Cargo
    lockfiles and verifies they match `package.json`:
@@ -746,4 +750,4 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 28 -->
+<!-- revision: 29 -->
