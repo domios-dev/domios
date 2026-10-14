@@ -80,7 +80,7 @@ test('every active release compiler and test archive/clippy uploads through the 
   for (const id of ['rust-archives', 'clippy-linux']) {
     assert.ok(workflow('tests').jobs[id].steps.some(s => s.uses === './.github/actions/rust-warnings'));
   }
-  assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'tests', 'macos', 'linux-arm64', 'linux-x86_64', 'windows']);
+  assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'quick-checks', 'tests', 'macos', 'linux-arm64', 'linux-x86_64', 'windows']);
   assert.equal(workflow('release').jobs['rust-warnings'].if, 'always()');
   assert.equal(workflow('tests').jobs['rust-warnings'].if, 'always()');
 });
