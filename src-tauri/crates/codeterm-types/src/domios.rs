@@ -1,7 +1,16 @@
 use std::collections::BTreeMap;
 
 pub const DOMIOS_CLOSE_TAG: &str = "</domios>";
-pub const DOMIOS_TYPED_INSTRUCTION: &str = "Handle the message above.";
+pub const DOMIOS_LEGACY_TYPED_INSTRUCTION: &str = "Handle the message above.";
+pub const DOMIOS_PASTED_MARKER: &str = "pasted by Domios";
+pub const LEGACY_CHAT_FOLLOW_UPS: [&str; 2] = [
+    " Handle the paste as my request.",
+    " Handle the pasted message above as my request.",
+];
+
+pub fn pasted_marker_tail() -> String {
+    format!("\n{DOMIOS_PASTED_MARKER}")
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomiosFrame {
@@ -64,8 +73,30 @@ pub fn parse_message(text: &str) -> Option<ParsedDomiosMessage> {
     })
 }
 
+pub fn with_legacy_typed_instruction(message: &str) -> Option<String> {
+    let body = message.strip_suffix(DOMIOS_CLOSE_TAG)?;
+    Some(format!(
+        "{body} <tip>{DOMIOS_LEGACY_TYPED_INSTRUCTION}</tip>{DOMIOS_CLOSE_TAG}"
+    ))
+}
+
+pub fn with_pasted_marker(message: &str) -> Option<String> {
+    let body = message.strip_suffix(DOMIOS_CLOSE_TAG)?;
+    Some(format!("{body}{}{DOMIOS_CLOSE_TAG}", pasted_marker_tail()))
+}
+
+pub fn strip_plain_typed_tail(content: &str) -> &str {
+    let marker = pasted_marker_tail();
+    LEGACY_CHAT_FOLLOW_UPS
+        .iter()
+        .copied()
+        .chain([marker.as_str()])
+        .find_map(|tail| content.strip_suffix(tail))
+        .unwrap_or(content)
+}
+
 pub fn strip_typed_suffix(content: &str) -> &str {
-    let mut body = content;
+    let mut body = strip_plain_typed_tail(content);
     while let Some(prefix) = body.strip_suffix("</tip>") {
         let Some(start) = prefix.rfind("<tip>") else {
             break;
@@ -74,10 +105,11 @@ pub fn strip_typed_suffix(content: &str) -> &str {
             .strip_suffix(' ')
             .unwrap_or(&prefix[..start]);
     }
-    let instruction = format!(" {DOMIOS_TYPED_INSTRUCTION}");
+    let instruction = format!(" {DOMIOS_LEGACY_TYPED_INSTRUCTION}");
     if let Some(stripped) = body.strip_suffix(&instruction) {
         body = stripped;
     }
+    body = strip_plain_typed_tail(body);
     let reply_start = [
         " [to reply, run: codeterm send ",
         " [sender is a shell; reply here]",
@@ -85,7 +117,7 @@ pub fn strip_typed_suffix(content: &str) -> &str {
     .into_iter()
     .filter_map(|suffix| body.rfind(suffix))
     .max();
-    reply_start.map_or(body, |index| &body[..index])
+    strip_plain_typed_tail(reply_start.map_or(body, |index| &body[..index]))
 }
 
 fn escape_attribute(value: &str) -> String {
@@ -261,7 +293,7 @@ mod tests {
     fn strip_typed_reply_and_instruction_without_changing_the_body() {
         let body = "opaque routed body";
         let suffix = format!(
-            " [to reply, run: codeterm send \"YOUR REPLY\" --tab abc12345] {DOMIOS_TYPED_INSTRUCTION}"
+            " [to reply, run: codeterm send \"YOUR REPLY\" --tab abc12345] {DOMIOS_LEGACY_TYPED_INSTRUCTION}"
         );
         let frame = DomiosFrame {
             opening_tag: build_opening_tag(&[("from", "tab"), ("tab", "abc12345")]),
@@ -270,5 +302,34 @@ mod tests {
         };
         let parsed = parse_message(&frame.to_message()).expect("routed frame parses");
         assert_eq!(parsed.body, body);
+    }
+
+    #[test]
+    fn legacy_typed_form_round_trips_to_the_same_body() {
+        let message = "<domios from=\"tab\" tab=\"abc12345\">opaque body [hint]</domios>";
+        let legacy = with_legacy_typed_instruction(message).unwrap();
+        assert_ne!(legacy, message);
+        assert_eq!(
+            parse_message(&legacy).unwrap().body,
+            parse_message(message).unwrap().body
+        );
+        assert!(with_legacy_typed_instruction("unframed").is_none());
+    }
+
+    #[test]
+    fn pasted_marker_and_legacy_tails_are_stripped_from_the_body() {
+        let message = "<domios from=\"tab\" tab=\"abc12345\">opaque body</domios>";
+        let marked = with_pasted_marker(message).unwrap();
+        assert_eq!(parse_message(&marked).unwrap().body, "opaque body");
+        assert_eq!(strip_plain_typed_tail("plain\npasted by Domios"), "plain");
+        let hinted = format!(
+            "<domios from=\"tab\" tab=\"abc12345\">opaque body{} [to reply, run: codeterm send \"X\"]</domios>",
+            pasted_marker_tail()
+        );
+        assert_eq!(parse_message(&hinted).unwrap().body, "opaque body");
+        for tail in LEGACY_CHAT_FOLLOW_UPS {
+            assert_eq!(strip_plain_typed_tail(&format!("plain{tail}")), "plain");
+        }
+        assert_eq!(strip_plain_typed_tail("plain"), "plain");
     }
 }

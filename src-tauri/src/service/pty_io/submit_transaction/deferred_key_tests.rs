@@ -259,15 +259,6 @@ impl SubmitTransport for EventTransport {
         Ok(text.len())
     }
 
-    fn write_typed_follow_up(&self, text: &str, _deadline: Instant) -> Result<(), InjectionError> {
-        self.state
-            .lock()
-            .unwrap()
-            .writes
-            .push(format!("follow_up:{text}"));
-        Ok(())
-    }
-
     fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
         let mut state = self.state.lock().unwrap();
         state.writes.push("enter".into());
@@ -377,11 +368,7 @@ fn busy_after_first_readiness_submits_long_payload_and_follow_up_without_an_idle
     assert!(!state.composer_ready);
     assert_eq!(
         state.writes,
-        [
-            format!("paste:{text}"),
-            "follow_up: follow-up".into(),
-            "enter".into()
-        ]
+        [format!("paste:{text} follow-up"), "enter".into()]
     );
     assert!(event_wait_rx.try_recv().is_err());
 }
@@ -579,26 +566,9 @@ fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
             .count(),
         1
     );
-    let follow_up = state
+    assert!(state
         .writes
-        .iter()
-        .position(|write| write == "follow_up: follow-up")
-        .expect("typed follow-up precedes the first submit key");
-    let first_key = state
-        .writes
-        .iter()
-        .position(|write| write == "enter")
-        .expect("the submit schedule writes a key");
-    assert_eq!(
-        state
-            .writes
-            .iter()
-            .filter(|write| write.starts_with("follow_up:"))
-            .count(),
-        1,
-        "the typed line is not replayed during recovery"
-    );
-    assert!(follow_up < first_key);
+        .contains(&"paste:slow-paste follow-up".to_string()));
 }
 
 #[test]

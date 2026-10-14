@@ -22,24 +22,14 @@ fn brief_restore_decision(
 
 fn restore_frame_and_payload(
     original: &str,
-    typed_instruction: bool,
 ) -> Option<(codeterm_types::domios::DomiosFrame, String)> {
-    use codeterm_types::domios::{DomiosFrame, DOMIOS_CLOSE_TAG, DOMIOS_TYPED_INSTRUCTION};
-    let mut body = original.strip_suffix(DOMIOS_CLOSE_TAG)?.to_string();
-    if typed_instruction {
-        body = body
-            .strip_suffix(&format!(" <tip>{DOMIOS_TYPED_INSTRUCTION}</tip>"))
-            .unwrap_or(&body)
-            .to_string();
-    }
-    let payload = format!(
-        "{body}{}{DOMIOS_CLOSE_TAG}",
-        if typed_instruction {
-            format!(" <tip>{DOMIOS_TYPED_INSTRUCTION}</tip>")
-        } else {
-            String::new()
-        }
-    );
+    use codeterm_types::domios::{DomiosFrame, DOMIOS_CLOSE_TAG, DOMIOS_LEGACY_TYPED_INSTRUCTION};
+    let body = original.strip_suffix(DOMIOS_CLOSE_TAG)?;
+    let body = body
+        .strip_suffix(&format!(" <tip>{DOMIOS_LEGACY_TYPED_INSTRUCTION}</tip>"))
+        .unwrap_or(body);
+    let body = codeterm_types::domios::strip_plain_typed_tail(body).to_string();
+    let payload = format!("{body}{DOMIOS_CLOSE_TAG}");
     Some((
         DomiosFrame {
             opening_tag: String::new(),
@@ -48,6 +38,19 @@ fn restore_frame_and_payload(
         },
         payload,
     ))
+}
+
+fn restore_payload_candidates(payload: &str, typed_tail: bool) -> Vec<String> {
+    if !typed_tail {
+        return vec![payload.to_string()];
+    }
+    [
+        codeterm_types::domios::with_pasted_marker(payload),
+        codeterm_types::domios::with_legacy_typed_instruction(payload),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn persist_restart_state(service: &ServiceContext) -> Result<(), String> {
@@ -295,7 +298,7 @@ impl ServiceContext {
         if state.attempt_id != task.attempt_id {
             return Err("restored Worker attempt changed".into());
         }
-        let (restores, normalization, typed_instruction) = self
+        let (restores, normalization, typed_tail) = self
             .agent_registry
             .with_provider(&binding.provider, |provider| {
                 (
@@ -336,9 +339,9 @@ impl ServiceContext {
         } else {
             0
         };
-        let (frame, restored_payload) =
-            restore_frame_and_payload(&state.original_brief, typed_instruction)
-                .ok_or("original Worker brief has no routed closing frame")?;
+        let (frame, plain_payload) = restore_frame_and_payload(&state.original_brief)
+            .ok_or("original Worker brief has no routed closing frame")?;
+        let candidates = restore_payload_candidates(&plain_payload, typed_tail);
         let anchor = crate::service::chat_send_transaction::SendEvidenceAnchor {
             provider_id: binding.provider.clone(),
             cwd: binding.cwd.clone(),
@@ -348,12 +351,20 @@ impl ServiceContext {
             },
             turn_normalization: normalization,
         };
-        let exact = crate::service::chat_send_evidence::contains_exact_user_turn_since(
-            &self.agent_registry,
-            &anchor,
-            &restored_payload,
-            &mut crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(&anchor)),
-        );
+        let exact_turn = |payload: &str| {
+            crate::service::chat_send_evidence::contains_exact_user_turn_since(
+                &self.agent_registry,
+                &anchor,
+                payload,
+                &mut crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(&anchor)),
+            )
+        };
+        let matched = candidates.iter().find(|payload| exact_turn(payload));
+        let exact = matched.is_some();
+        let restored_payload = matched
+            .or(candidates.first())
+            .cloned()
+            .unwrap_or(plain_payload);
         let decision = brief_restore_decision(
             false,
             exact,
@@ -486,17 +497,23 @@ mod tests {
         assert!(consume_pending_turn(&mut state, "first").is_empty());
     }
     #[test]
-    fn restored_routed_frame_preserves_brief_and_declared_typed_suffix() {
+    fn restored_routed_frame_preserves_brief_and_strips_both_typed_tails() {
         let original = "<domios from=\"fixture\">opaque\nwhole brief</domios>";
-        let (frame, payload) = restore_frame_and_payload(original, false).unwrap();
+        let (frame, payload) = restore_frame_and_payload(original).unwrap();
         assert_eq!(frame.to_message(), original);
         assert_eq!(payload, original);
-        let (typed_frame, typed_payload) = restore_frame_and_payload(original, true).unwrap();
-        assert_eq!(typed_frame.body, frame.body);
-        assert!(typed_payload.starts_with(&frame.body));
-        let (same_frame, same_payload) = restore_frame_and_payload(&typed_payload, true).unwrap();
-        assert_eq!(same_frame, typed_frame);
-        assert_eq!(same_payload, typed_payload);
-        assert!(restore_frame_and_payload("unframed", false).is_none());
+        for tail in [
+            codeterm_types::domios::with_legacy_typed_instruction(original).unwrap(),
+            codeterm_types::domios::with_pasted_marker(original).unwrap(),
+        ] {
+            let (tail_frame, tail_payload) = restore_frame_and_payload(&tail).unwrap();
+            assert_eq!(tail_frame, frame);
+            assert_eq!(tail_payload, payload);
+        }
+        assert_eq!(restore_payload_candidates(original, false), [original]);
+        let typed = restore_payload_candidates(original, true);
+        assert_eq!(typed.len(), 2);
+        assert!(typed.iter().all(|candidate| candidate != original));
+        assert!(restore_frame_and_payload("unframed").is_none());
     }
 }
