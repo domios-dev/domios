@@ -778,7 +778,8 @@ fn routed_agent_and_report_hints_stay_out_of_the_body_in_both_transport_forms() 
             Some(frame.opening_tag.as_str())
         );
         let suffix = input.typed_suffix.unwrap();
-        assert!(!suffix.contains("<tip>"));
+        assert!(!input.body.contains("<tip>"));
+        assert_eq!(suffix, super::compose_routed_suffix(&frame.suffix));
         let tail = input.pasted_tail.unwrap();
         let delivered = format!("{}{}{}{}", frame.opening_tag, input.body, tail, suffix);
         let parsed = codeterm_wire::domios::parse_message(&delivered).unwrap();

@@ -54,7 +54,8 @@ test('state lifecycle persists scope and compact evidence beside the original jo
       assert.equal(result.status, 0, result.stderr);
     };
     run('create', ['--job', 'check-queue', '--crates', 'codeterm-plan codeterm', '--touched-files-count', '3', '--log-path', log]);
-    fs.writeFileSync(log, fixture.fingerprint.join('\n'));
+    fs.writeFileSync(log, 'bounded gateway summary\n');
+    fs.writeFileSync(path.join(directory, 'jobs', 'fixture.fingerprint.log'), fixture.fingerprint.join('\n'));
     fs.writeFileSync(path.join(directory, 'sccache-server.log'), 'previous job\n');
     run('evidence-start', ['--scope', 'fixture']);
     fs.appendFileSync(path.join(directory, 'sccache-server.log'), `${fixture.sccache.join('\n')}\n`);

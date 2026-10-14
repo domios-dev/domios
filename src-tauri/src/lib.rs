@@ -2,6 +2,7 @@ mod command_registration;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_service_core::register_socket();
     codeterm_api::register_rest_hooks();
     codeterm_commands::update::register_update_hooks();

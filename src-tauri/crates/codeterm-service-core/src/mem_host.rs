@@ -474,7 +474,7 @@ pub fn spawn_extraction_worker(
         &agent_provider,
         &model,
         &availability,
-        codeterm_build_info::BUILD_SHA,
+        codeterm_build_info::sha(),
     ]);
     match spawn_worker(
         svc.clone(),
