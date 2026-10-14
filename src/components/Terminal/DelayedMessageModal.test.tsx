@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { act } from "react";
 import { Window } from "happy-dom";
 import type { DelayedMessage } from "./delayedSend";
+import { formatTickRow } from "./systemHeartbeatProjection";
 import type { DelayedMessagePatch, DelayedModalTarget } from "./DelayedMessageModal";
 
 async function main() {
@@ -104,7 +105,7 @@ async function main() {
   assert.equal(calls.closed, 1, "Escape closes the editor");
 
   const system: DelayedMessage = {
-    id: "system:heartbeat:pl:tab", tabId: "tab", text: "Plan reminder body", scheduledAtMs: 120_000,
+    id: "system:heartbeat:pl:tab", tabId: "tab", text: "opaque-body\nsecond-line", scheduledAtMs: 120_000,
     createdAtMs: 0, state: "queued", sessionChanged: false, origin: "system",
     reason: "sent because tasks task_a are still in progress in plan pl",
     recurrence: { everyMs: 60_000 },
@@ -114,18 +115,18 @@ async function main() {
   assert.equal(dialog()?.querySelector('[data-testid="heartbeat-origin"]')?.textContent, "system");
   assert.equal(dialog()?.querySelector('[data-testid="heartbeat-cadence"]')?.textContent, "every 1m");
   assert.match(dialog()?.querySelector('[data-testid="heartbeat-reason"]')?.textContent ?? "", /task_a/);
-  assert.equal(dialog()?.querySelector('[data-testid="heartbeat-content"]')?.textContent, "Plan reminder body");
+  assert.equal(dialog()?.querySelector('[data-testid="heartbeat-content"]')?.textContent, system.text);
   const tick = dialog()?.querySelector('[data-testid="heartbeat-tick"]')?.textContent ?? "";
-  assert.match(tick, /1970-01-01 00:00:00Z/);
-  assert.match(tick, /sent/);
-  assert.match(tick, /processed/);
-  assert.match(tick, /delivered/);
+  assert.equal(tick, formatTickRow(system.ticks![0]));
   const labels = Array.from(dialog()!.querySelectorAll("button")).map((button) => button.textContent?.trim() || button.getAttribute("aria-label"));
   for (const forbidden of ["Delete", "Save", "Send now", "Cancel", "Schedule"]) {
     assert.equal(labels.includes(forbidden), false, `${forbidden} is absent`);
   }
   assert.ok(labels.includes("Close"));
   assert.equal(dialog()?.querySelector("textarea"), null, "a system heartbeat is not editable");
+  const closedBefore = calls.closed;
+  await act(async () => { button("Close")!.click(); });
+  assert.equal(calls.closed, closedBefore + 1);
 
   await act(async () => { root.unmount(); });
   console.log("Delayed message modal passed");
