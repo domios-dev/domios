@@ -99,6 +99,14 @@ fn load_js(id: &str) -> JsProvider {
     load_one(&manifest).unwrap_or_else(|e| panic!("load {id} plugin: {e}"))
 }
 
+fn provider_fixture(id: &str, relative: &str) -> String {
+    let path = workspace_plugins_root()
+        .join(format!("provider-{id}"))
+        .join("tests/fixtures")
+        .join(relative);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
 fn load_inline_js(id: &str, plugin_js: &str) -> JsProvider {
     use std::sync::Arc;
 
