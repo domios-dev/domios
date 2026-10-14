@@ -24,6 +24,8 @@ import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
+import { AccountTab } from "./AccountTab";
+import { PrivacyTab } from "./PrivacyTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { JobsView } from "../Jobs/JobsView";
@@ -218,6 +220,8 @@ export function SettingsPanel({
                 })}
               </div>
             )}
+
+            {top.kind === "section" && top.id === "account" && <AccountTab />}
 
             {top.kind === "section" && top.id === "general" && (
               <SettingsPage title="General">
@@ -427,6 +431,10 @@ export function SettingsPanel({
                   onProviderGone={pop}
                 />
               </div>
+            )}
+
+            {top.kind === "section" && top.id === "privacy" && (
+              <SettingsPage title="Privacy"><PrivacyTab /></SettingsPage>
             )}
 
             {top.kind === "section" && top.id === "secrets" && (

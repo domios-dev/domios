@@ -194,6 +194,7 @@ fn supporter_first_opinion_scrape_batch_journal_and_disconnect() {
 
 fn prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "Fixture selection".into(),
         options: vec![
             PromptOption {
@@ -274,7 +275,6 @@ fn supporter_first_opinion_scrape_a004b77d4_transcript_and_composer_copy_negativ
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_scrape_service_persists_only_evidenced_prompt() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "fixture-pty".into());
@@ -321,7 +321,6 @@ fn supporter_first_opinion_scrape_service_persists_only_evidenced_prompt() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "safe-choice-batch-pty".into());
@@ -449,7 +448,6 @@ struct CandidateModel {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_safe_response_bound_receipt_cancels_user_nonce_and_disconnect() {
     for arm in 0..3 {
         let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
@@ -719,7 +717,6 @@ fn supporter_first_opinion_unknown_launch_block_uses_input_area_evidence() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_scrape_explicit_handle_wins_and_failed_revalidation_abstains() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "fixture-explicit-pty".into());
@@ -790,7 +787,6 @@ fn supporter_first_opinion_scrape_explicit_handle_wins_and_failed_revalidation_a
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_scrape_service_user_answer_and_reused_pty_new_nonce_cancel() {
     for user_response in [true, false] {
         let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
@@ -907,4 +903,44 @@ fn supporter_first_opinion_scrape_unapplied_active_model_is_not_connected() {
     assert_eq!(host.reads.load(Ordering::SeqCst), 0);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert!(host.records.lock().is_empty());
+}
+
+#[test]
+fn captured_picker_supporter_admission_uses_modal_shape_without_permission_category() {
+    use crate::agent::provider::AgentProvider;
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    let manifest: PluginManifest = serde_json::from_str(include_str!(
+        "../../../../plugins/provider-codex/plugin.json"
+    ))
+    .unwrap();
+    let vm = PluginVm::from_source(
+        "capture",
+        include_str!("../../../../plugins/provider-codex/plugin.js").into(),
+    )
+    .unwrap();
+    let provider = JsProvider::new(manifest, Arc::new(vm));
+    let screen = include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt");
+    let prompt = provider
+        .parse_prompt(screen)
+        .expect("captured seven-choice picker");
+    for label in [READY_IDLE, WORKING_NORMALLY, TRUST_OR_PERMISSION_PROMPT] {
+        let (verdict, source) = candidates::select(Ok(answer(label, 0.99, 0.99, "active_modal")));
+        assert_eq!(source, identity::DecisionSource::Adapter);
+        assert!(candidates::allows_prompt(
+            verdict.as_ref().unwrap(),
+            screen,
+            &prompt
+        ));
+        assert!(!candidates::allows_prompt(
+            verdict.as_ref().unwrap(),
+            &format!("{screen}\n› composer"),
+            &prompt
+        ));
+        let (verdict, _) = candidates::select(Ok(answer(label, 0.99, 0.99, "composer")));
+        assert!(!candidates::allows_prompt(
+            verdict.as_ref().unwrap(),
+            screen,
+            &prompt
+        ));
+    }
 }

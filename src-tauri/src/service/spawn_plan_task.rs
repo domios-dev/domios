@@ -5,6 +5,7 @@
 use crate::plan::Task;
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
+mod runtime_binding;
 
 fn resolved_worker_launch_effort(
     identity: &crate::multiplexer::types::ReasoningEffortIdentity,
@@ -81,7 +82,7 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
 /// so they ride into its brief through the writer the dispatch path already
 /// uses rather than a second renderer that could drift from it.
 fn append_authorized_gates(params: &mut SpawnAgentParams) {
-    if params.authorized_gates.is_empty() {
+    if params.authorized_gates.is_empty() || params.task_launch_authority.is_some() {
         return;
     }
     let gates = crate::service::plan::task_brief::render_authorized_gates(&params.authorized_gates);
@@ -209,6 +210,54 @@ fn bind_worker_task_to_tab(
         .ok_or_else(|| "task not found".to_string())?
         .task
         .lane;
+    let task = store.show_task(&task_id).ok_or("task not found")?.task;
+    if let Some(existing) = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+    {
+        if existing.executor_tab_id != tab_id
+            || existing.closed_at.is_some()
+            || existing.retired_at.is_some()
+        {
+            return Err("Prepared runtime task attempt does not own this tab".into());
+        }
+        if let Some(session) = session_id {
+            let nonce = session_binding_nonce
+                .filter(|nonce| !nonce.trim().is_empty())
+                .ok_or("Task session nonce missing")?;
+            if existing
+                .session_id
+                .as_deref()
+                .is_some_and(|bound| bound != session)
+                || existing
+                    .session_binding_nonce
+                    .as_deref()
+                    .is_some_and(|bound| bound != nonce)
+            {
+                return Err("Prepared runtime task attempt rebound".into());
+            }
+            if existing.session_id.is_none() {
+                store
+                    .finish_task_dispatch(
+                        &plan_id,
+                        &task_id,
+                        tab_id,
+                        attempt_id,
+                        session,
+                        nonce,
+                        lane.clone(),
+                        now_ms,
+                    )
+                    .map_err(|reason| reason.to_string())?;
+            }
+        }
+        return Ok(WorkerTaskBinding {
+            plan_id,
+            task_id,
+            attempt_id: attempt_id.into(),
+        });
+    }
     let attempt_id = store
         .begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
             &plan_id,
@@ -456,6 +505,19 @@ impl ServiceContext {
                 ))
             }
         };
+        {
+            let mut mux = self.mux.write();
+            let target = mux
+                .get_tab_mut(tab_id)
+                .ok_or("Runtime task tab unavailable")?;
+            target.task_binding = Some(crate::multiplexer::types::TaskBinding {
+                plan_id: Some(binding.plan_id.clone()),
+                task_id: Some(binding.task_id.clone()),
+                attempt_id: Some(binding.attempt_id.clone()),
+                spawn_handle: None,
+                bound_at: now_ms,
+            });
+        }
         self.persist_current_attempt_session_model(tab_id);
         crate::api::events::emit_everywhere(
             &self.app_handle,
@@ -533,7 +595,7 @@ mod tests {
     use crate::plan::{OrchestratorRef, PlanMode, TaskStatus};
     use crate::service::plan::{NewTask, PlanStore};
 
-    fn store_with_task(dir: &std::path::Path) -> (PlanStore, String, String) {
+    pub(super) fn store_with_task(dir: &std::path::Path) -> (PlanStore, String, String) {
         let store = PlanStore::new_for_test(dir);
         let plan = store
             .create_plan_for_team(

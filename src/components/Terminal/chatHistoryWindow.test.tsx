@@ -230,7 +230,7 @@ function geometry(scroll: HTMLDivElement): void {
   Object.defineProperty(scroll, "scrollTop", {
     configurable: true,
     get: () => scrollTop,
-    set: (value: number) => { scrollTop = value; },
+    set: (value: number) => { scrollTop = Math.max(0, Math.min(value, scroll.scrollHeight - scroll.clientHeight)); },
   });
 }
 
@@ -274,8 +274,8 @@ async function main(): Promise<void> {
     "pinned arrival evicts the oldest top row",
   );
   assert(
-    view().scroll.scrollTop === view().scroll.scrollHeight,
-    "pinned top eviction stays at the bottom in the same commit",
+    readTranscriptWindow(cacheKey).anchorKey === null,
+    "pinned top eviction preserves live-tail authority in the same commit",
   );
   assert(
     rows()[0]?.content === `message ${INITIAL_FROM}`

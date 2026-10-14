@@ -1,0 +1,10 @@
+{
+  "mode": "test",
+  "sandboxProductId": "pro_01m4t8yye0v0dcag7qgbksy3tt",
+  "plans": {
+    "pro": "pri_01m4t8yykc2t54qr3nxar4fxra"
+  },
+  "hostedOrigin": "https://domios.dev",
+  "checkoutUrl": "https://domios.dev/checkout",
+  "paddleClientToken": "test_REPLACE_WITH_PUBLIC_CLIENT_TOKEN"
+}

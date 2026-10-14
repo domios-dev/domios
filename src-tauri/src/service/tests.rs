@@ -369,7 +369,6 @@ fn focus_tab_hot_path_does_not_refresh_agent_model_inline() {
     assert_eq!(scheduled.load(Ordering::SeqCst), 1);
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn confirmed_delivery_cleanup_is_scoped_to_its_exact_attempt() {
     use crate::multiplexer::types::{DeliveryAttemptProvenance, PendingDeliveryChannel};
@@ -431,7 +430,6 @@ fn confirmed_delivery_cleanup_is_scoped_to_its_exact_attempt() {
         .is_none());
 }
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
 fn unproven_delivery_attempt_is_never_cleanup_wildcard() {
     use crate::multiplexer::types::PendingDeliveryChannel;

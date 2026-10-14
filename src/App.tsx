@@ -1,3 +1,6 @@
+import { WorkspaceFolderError } from "./components/Sidebar/WorkspaceFolderError";
+import { emitFeatureUsed } from "./lib/productAnalytics";
+import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { useFrontendApp } from "./lib/frontendUpdate/useFrontendApp";
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -23,6 +26,7 @@ import { GUIDE_SECTIONS, guideRequest, type GuideRequest } from "./help/guideNav
 import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
+import { PluginConsentDialog } from "./components/Extensions/PluginConsentDialog";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
 import { AnalyticsSupporterSection } from "./components/Supporter/AnalyticsSupporterSection";
 import { PluginView } from "./components/Extensions/PluginView";
@@ -33,17 +37,13 @@ import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
-import { RecoveryStatusBanner } from "./components/CrashReportToast";
-import { FrontendUpdateNotice } from "./components/FrontendUpdateNotice";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
-import { usePlanPeerContext } from "./components/Canvas/usePlanPeerContext";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
-import { useBlueprintRunPopups } from "./components/Automation/useBlueprintRunPopups";
 import { JobsView, type JobsTarget } from "./components/Jobs/JobsView";
 import { useReturnToChat } from "./hooks/useReturnToChat";
 import type { ReturnTo } from "./lib/returnTo";
@@ -52,7 +52,6 @@ import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
-import { useHelperMomentsHost } from "./lib/helperMoments/helperMomentsWiring";
 import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
@@ -60,6 +59,7 @@ import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
+import { UpdatePanelProvider } from "./hooks/useUpdatePanel";
 import { UpdateProvider } from "./hooks/useUpdate";
 import { usePluginActivity } from "./lib/usePluginActivity";
 import {
@@ -230,10 +230,12 @@ function AppInner() {
     clearNotifications,
     answerNotification,
     dismissToast,
-    upsertToast,
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  useEffect(() => {
+    if (IS_WEB && !configLoading) void emitFeatureUsed(localJson, "web_ui_opened");
+  }, [configLoading]);
   const larkCapture = useLocalRecordingCapture({ tabs: state.tabs });
   // The capture listener's readiness promise lives for the hook's lifetime; readiness is reported once.
   const larkReadyRef = useRef(larkCapture.ready);
@@ -263,9 +265,6 @@ function AppInner() {
     selectTab: setActiveTab,
   });
 
-  useHelperMomentsHost(state.tabs, configLoading ? null : config.integrations?.telegram_enabled ?? false);
-  const peerContext = usePlanPeerContext();
-  useBlueprintRunPopups(state.workspaces, peerContext.generation, state.toasts, upsertToast);
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
       if (workspaceId) {
@@ -631,6 +630,7 @@ function AppInner() {
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
     <ChatBlockHostProvider value={appChatBlockHost}>
+    <PluginConsentDialog />
     <div
       className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
@@ -872,7 +872,7 @@ function AppInner() {
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
                   ws.protected === true && tab.protected === true;
-                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId);
+                const shouldMountTab = !ws.cwd_missing && (isActiveTab || isMainTab || prewarmTabIds.has(tabId));
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;
                 return (
@@ -909,6 +909,9 @@ function AppInner() {
           ) : mainView === "workspace" ? (
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
+          {mainView === "workspace" && !pluginViewId && activeWs?.cwd_missing && (
+            <div className="absolute inset-0 z-30"><WorkspaceFolderError workspace={activeWs} /></div>
+          )}
           <PlanSidePanelHost api={stableApiConfig} />
         </main>
         </div>
@@ -917,10 +920,6 @@ function AppInner() {
       </PlansProvider>
 
       <CommandPalette commands={paletteCommands} />
-
-      <RecoveryStatusBanner />
-
-      <FrontendUpdateNotice />
 
       <StaleBuildBanner />
 
@@ -937,7 +936,7 @@ export function App() {
   return (
     <MultiplexerProvider>
       <UpdateProvider>
-        <AppInner />
+        <UpdatePanelProvider><AppInner /></UpdatePanelProvider>
       </UpdateProvider>
     </MultiplexerProvider>
   );

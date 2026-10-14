@@ -242,6 +242,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::WorkspaceAction::Focus { id } => {
                 ("POST".into(), format!("/api/workspaces/{}/focus", id), None)
             }
+            crate::WorkspaceAction::SetCwd { id, path } => (
+                "POST".into(), format!("/api/workspaces/{id}/cwd"),
+                Some(serde_json::json!({"cwd": path}).to_string()),
+            ),
             crate::WorkspaceAction::Rename { id, name } => (
                 "POST".into(),
                 format!("/api/workspaces/{}/rename", id),
@@ -288,8 +292,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 ),
                 None,
             ),
+            crate::TabAction::Timeout { .. } => unsupported("utility shell timeouts require a local owning agent"),
             crate::TabAction::Current { .. } => ("GET".into(), "/api/tabs".into(), None),
             crate::TabAction::New {
+                timeout,
                 shell,
                 list_shells,
                 purpose,
@@ -305,6 +311,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 chat_backend,
                 config,
             } => {
+                if timeout.is_some() { return unsupported("utility shell timeouts require a local owning agent"); }
                 if *list_shells { return ("GET".into(), "/api/shells".into(), None); }
                 let mut body = serde_json::json!({ "purpose": purpose, "description": description, "icon": icon, "shell": shell });
                 if let Some(w) = workspace {
@@ -929,6 +936,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         // Declared non-REST by the transport table, which answered before this
         // match was reached. Listed explicitly so a new variant must choose.
         Commands::Web { .. }
+        | Commands::Account { .. }
+        | Commands::Analytics { .. }
         | Commands::Plugin { .. }
         | Commands::ModelProvider { .. }
         | Commands::Supporter { .. }

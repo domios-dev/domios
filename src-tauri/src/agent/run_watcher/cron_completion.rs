@@ -6,13 +6,13 @@ use crate::service::ServiceContext;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 #[derive(Default)]
-struct CompletionBarrier {
-    stopped: bool,
-    assistant_ids: HashSet<String>,
+pub(super) struct CompletionBarrier {
+    pub(super) stopped: bool,
+    pub(super) assistant_ids: HashSet<String>,
 }
 
 impl CompletionBarrier {
-    fn ready(&self, messages: &[ChatMsg]) -> bool {
+    pub(super) fn ready(&self, messages: &[ChatMsg]) -> bool {
         self.stopped
             && messages
                 .iter()
@@ -39,6 +39,10 @@ pub(super) struct PendingCompletion {
     session: String,
     nonce: String,
     _watcher: Option<RecommendedWatcher>,
+    #[cfg(test)]
+    events: std::sync::Arc<parking_lot::Mutex<Vec<String>>>,
+    #[cfg(test)]
+    source_path: Option<std::path::PathBuf>,
 }
 
 impl RunWatcherRegistry {
@@ -49,6 +53,9 @@ impl RunWatcherRegistry {
         run_id: &str,
         summary: &str,
     ) -> Result<(), String> {
+        if let Some(result) = self.request_runtime_cron_completion(svc, tab_id, run_id, summary) {
+            return result;
+        }
         let state = self.runs.lock().values().find(|state| state.tab_id == tab_id
             && matches!(&state.kind, AgentRunKind::Cron { run_id: own, .. } if own == run_id))
             .cloned().ok_or("cron run has no active watcher")?;
@@ -76,13 +83,29 @@ impl RunWatcherRegistry {
             .agent_registry
             .with_provider(&provider, |p| p.session_file_path(&cwd, &session))
             .flatten();
+        #[cfg(test)]
+        let source_path = path.clone();
         let mut watcher = None;
+        #[cfg(test)]
+        let events = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
         if let Some(path) = path {
             let observed = path.clone();
             let service = svc.clone();
             let tab = tab_id.to_string();
+            #[cfg(test)]
+            let recorded_events = events.clone();
             let mut source_watcher =
                 notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                    log::debug!(
+                        "[cron] transcript event tab={tab} path={observed:?} event={event:?}"
+                    );
+                    #[cfg(test)]
+                    {
+                        let mut events = recorded_events.lock();
+                        if events.len() < 16 {
+                            events.push(format!("{event:?}"));
+                        }
+                    }
                     if event.is_ok_and(|event| {
                         matches!(
                             event.kind,
@@ -112,6 +135,10 @@ impl RunWatcherRegistry {
             session,
             nonce,
             _watcher: watcher,
+            #[cfg(test)]
+            events,
+            #[cfg(test)]
+            source_path,
         });
         log::info!("[cron] completion requested; awaiting completed turn and durable answer: tab={tab_id} run={run_id}");
         Ok(())
@@ -193,7 +220,13 @@ impl RunWatcherRegistry {
                 .await
                 {
                     Ok(Ok((messages, _))) => messages,
-                    _ => return,
+                    error => {
+                        log::debug!(
+                            "[cron] pending transcript read failed tab={} result={error:?}",
+                            state.tab_id
+                        );
+                        return;
+                    }
                 }
             };
             let current = service
@@ -205,6 +238,10 @@ impl RunWatcherRegistry {
                         && tab.session_binding_nonce.as_deref() == Some(&scope.3)
                 });
             if !current {
+                log::debug!(
+                    "[cron] pending completion binding changed tab={}",
+                    state.tab_id
+                );
                 return;
             }
             let summary = {
@@ -213,6 +250,11 @@ impl RunWatcherRegistry {
                     .as_ref()
                     .filter(|pending| pending.barrier.ready(&messages))
                 else {
+                    log::debug!(
+                        "[cron] final-answer barrier held tab={} messages={}",
+                        state.tab_id,
+                        messages.len()
+                    );
                     return;
                 };
                 pending.summary.clone()

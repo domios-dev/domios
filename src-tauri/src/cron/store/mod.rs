@@ -168,6 +168,7 @@ pub struct CronStore {
     logs_root: PathBuf,
     tab_owners: HashMap<String, (String, String)>,
     clock: SharedClock,
+    default_agent_provider: String,
 }
 
 impl CronStore {
@@ -181,24 +182,42 @@ impl CronStore {
     #[cfg(test)]
     pub fn new_with_clock(clock: SharedClock) -> Self {
         let dir = crate::paths::data_dir();
-        Self::load(dir.join("crons.json"), clock)
+        Self::load(
+            dir.join("crons.json"),
+            clock,
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
+        )
     }
 
     #[cfg(test)]
     pub fn new_with_path(path: PathBuf) -> Self {
-        Self::load(path, system_clock())
+        Self::load(
+            path,
+            system_clock(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
+        )
     }
 
     #[cfg(test)]
     pub fn new_with_path_and_clock(path: PathBuf, clock: SharedClock) -> Self {
-        Self::load(path, clock)
+        Self::load(
+            path,
+            clock,
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
+        )
     }
 
     /// A crons.json that fails to load is preserved and recovered from backup;
     /// without one the store runs on an empty in-memory file and every save is
     /// refused, so built-in jobs are merged in memory only.
     #[cfg(test)]
-    fn load(file_path: PathBuf, clock: SharedClock) -> Self {
+    fn load(file_path: PathBuf, clock: SharedClock, default_agent_provider: String) -> Self {
         let file = match state_file(&file_path).load(parse_cron_file) {
             Loaded::Parsed(file) | Loaded::Recovered { value: file, .. } => file,
             Loaded::Missing | Loaded::Unrecoverable { .. } => CronFile::default(),
@@ -213,6 +232,7 @@ impl CronStore {
             logs_root,
             tab_owners: HashMap::new(),
             clock,
+            default_agent_provider,
         }
     }
 

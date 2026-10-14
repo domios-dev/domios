@@ -20,6 +20,13 @@ impl std::error::Error for ModelProviderEnvUnavailable {}
 /// Implemented by `ServiceContext` (and test stubs). The VM holds a
 /// `Weak<dyn PluginHostCtx>` so teardown doesn't pin the context alive.
 pub trait PluginHostCtx: Send + Sync {
+    fn runtime_launch_authorized(
+        &self,
+        _binding: &crate::agent_runtime::RuntimeLaunchBinding,
+    ) -> bool {
+        false
+    }
+
     // ── Memory ──────────────────────────────────────────────────────────
     fn mem_search_json(&self, opts_json: &str) -> String;
 
@@ -109,6 +116,22 @@ pub trait PluginHostCtx: Send + Sync {
         _query: &crate::local_recording::ReceiverStatusQuery,
     ) -> String {
         r#"{"error":"receiver_status_unavailable"}"#.into()
+    }
+
+    fn local_recording_inputs_json(&self, _plugin_id: &str) -> String {
+        r#"{"error":"local_recording_unavailable"}"#.into()
+    }
+
+    fn local_recording_select_json(
+        &self,
+        _plugin_id: &str,
+        _devices: crate::local_recording::SelectedDevices,
+    ) -> String {
+        r#"{"error":"local_recording_unavailable"}"#.into()
+    }
+
+    fn local_recording_saved_selection_json(&self, _plugin_id: &str) -> String {
+        r#"{"error":"local_recording_unavailable"}"#.into()
     }
 
     fn local_recording_status_json(&self, _plugin_id: &str) -> String {

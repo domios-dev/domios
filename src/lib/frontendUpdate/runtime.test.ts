@@ -11,7 +11,7 @@ const checkpoint: ClientCheckpoint = { activeWorkspaceId: "w", activeTabId: "t",
 const safety = { focused: false, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
 const release = { releaseId: "frontend-v1.0.0", version: "1.0.0", minApiVersion: 2, maxApiVersion: 2 };
 
-function fixture(patch = {}) {
+function fixture(patch = {}, payload = checkpoint, pending: typeof release | null = null) {
   let receive!: (name: string, data: unknown) => void;
   const calls: { method: string; path: string; body?: unknown }[] = [];
   const events: Event[] = [];
@@ -23,13 +23,13 @@ function fixture(patch = {}) {
   const stored = new Map<string, string>();
   const navigated: string[] = [];
   const restored: ClientCheckpoint[] = [];
-  const signals = createFrontendSignals({ ...checkpoint, drafts: {} }, { ...safety, ...patch }, value => restored.push(value));
+  const signals = createFrontendSignals({ ...checkpoint, drafts: {} }, { ...safety, ...patch }, value => { restored.push(value); });
   const client = {
     localJson: async <T>(method: string, path: string, body?: unknown): Promise<T> => {
       calls.push({ method, path, body });
-      if (path.endsWith("checkpoint")) return (method === "GET" ? { revision: 9, payload: checkpoint } : body) as T;
+      if (path.endsWith("checkpoint")) return (method === "GET" ? { revision: 9, payload } : body) as T;
       if (path.endsWith("activate")) return { ...release, generation: 7, claims: { clientA: "health-secret" } } as T;
-      return { apiVersion: 2, pending: null, quarantined: [] } as T;
+      return { apiVersion: 2, pending, quarantined: [] } as T;
     },
     origin: () => "https://daemon.example", currentToken: () => "api-secret",
     subscribe: (path: string, listener: typeof receive, options: { onEnd: typeof end }) => { expect(path).toBe("/api/events/stream"); receive = listener; end = options.onEnd; subscriptions++; return () => { disposals++; }; },
@@ -112,9 +112,10 @@ it("aggregates concurrent uploads and captures draft metadata and scroll without
   expect(frontendSignals.safety().pendingUploads).toBe(3);
   signalFrontendUploads(first, 0);
   expect(frontendSignals.safety().pendingUploads).toBe(2);
-  editFrontendDraft("tab-session-chat-capsules:t", '{"attachment":"/uploads/file.png"}');
+  editFrontendDraft("tab-session-chat-capsules:t", '[{"label":"image1","path":"/uploads/file.png","kind":"image"}]');
   editFrontendScroll("t", "chat", '{"anchor":"row"}');
-  expect(frontendSignals.checkpoint().drafts["tab-session-chat-capsules:t"].text).toBe('{"attachment":"/uploads/file.png"}');
+  expect(frontendSignals.checkpoint().drafts["tab-session-chat:t"].attachmentIds).toEqual(["image1"]);
+  expect(frontendSignals.checkpoint().drafts["tab-session-chat:t"].capsules?.image1.path).toBe("/uploads/file.png");
   expect(frontendSignals.checkpoint().scroll.t.chat).toBe('{"anchor":"row"}');
   signalFrontendUploads(second, 0);
 });
@@ -133,4 +134,42 @@ it("reports checkpoint and status failure reasons before subscribing to swaps", 
     expect(frontendUpdateDiagnostic(failure)).toMatchObject({ reason: `${failedPath}-unavailable`, httpStatus: 404 });
     expect(f.subscriptions()).toBe(0);
   }
+});
+
+it("registers the browser draft restorer before daemon hydration and collects local fallback scopes", async () => {
+  const { initializeBrowserFrontendUpdates } = await import("./browser");
+  const { frontendSignals } = await import("./appState");
+  const { COMPOSER_DRAFT_PREFIX } = await import("../composerDraftGc");
+  const f = fixture({}, { ...checkpoint, scroll: {} });
+  localStorage.clear();
+  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "t", "stale browser draft");
+  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "tab-session-chat:other", "fallback draft");
+  const browser = await initializeBrowserFrontendUpdates(f.client, f.options);
+  try {
+    expect(frontendSignals.checkpoint().drafts.t).toEqual(checkpoint.drafts.t);
+    expect(localStorage.getItem(COMPOSER_DRAFT_PREFIX + "t")).toBe("last edit");
+    expect(frontendSignals.checkpoint().drafts["tab-session-chat:other"].text).toBe("fallback draft");
+  } finally {
+    browser.dispose();
+    localStorage.clear();
+  }
+});
+
+it("applies staged consent once through checkpoint and activation while respecting Update-all hold", async () => {
+  const f = fixture({ focused: true }, checkpoint, release);
+  const options = { ...f.options, held: () => true };
+  const runtime = await initializeFrontendUpdateRuntime(f.client, options);
+  f.receive("frontend-update-ready", release);
+  runtime.consent();
+  expect(f.calls.filter(call => call.method === "PUT" || call.path.endsWith("activate"))).toEqual([]);
+  const navigated = new Promise<void>(resolve => {
+    const navigate = options.navigate;
+    options.navigate = path => { navigate(path); resolve(); };
+  });
+  runtime.hold(false);
+  runtime.consent();
+  await navigated;
+  expect(f.calls.filter(call => call.path.endsWith("activate"))).toHaveLength(1);
+  expect((f.calls.find(call => call.method === "PUT")?.body as CheckpointWrite).payload.drafts.t).toEqual(checkpoint.drafts.t);
+  runtime.dispose();
 });

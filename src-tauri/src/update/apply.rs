@@ -96,7 +96,7 @@ mod update_apply_phase_tests {
 }
 
 pub(super) async fn check_and_apply(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
@@ -110,7 +110,9 @@ pub(super) async fn check_and_apply(
 
 /// Filesystem copies and, on Windows, a `reg` subprocess: never on the Tauri
 /// async runtime, where it would stall every other tab's IPC.
-async fn refresh_bundled_cli_off_runtime(app: &tauri::AppHandle) -> Result<(), String> {
+async fn refresh_bundled_cli_off_runtime(
+    app: &crate::app_runtime::AppHandle,
+) -> Result<(), String> {
     let handle = app.clone();
     tokio::task::spawn_blocking(move || crate::startup::refresh_bundled_cli(&handle))
         .await
@@ -133,7 +135,7 @@ async fn resolve_manifest_endpoint(opts: &ApplyOptions) -> Result<String, String
 }
 
 async fn check_and_apply_plugin(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
@@ -259,6 +261,7 @@ async fn check_and_apply_plugin(
         move |verified_bytes| async move {
             log::info!("[updater] starting verified installer after PTY shutdown");
             tokio::task::spawn_blocking(move || {
+                super::analytics::stage_app(&update.version);
                 update
                     .install(verified_bytes)
                     .map_err(|e| format!("installer launch failed: {}", e))
@@ -274,19 +277,21 @@ async fn check_and_apply_plugin(
 }
 
 #[cfg(windows)]
-fn restart_after_plugin_install(_: &tauri::AppHandle) -> Result<ApplyResult, String> {
+fn restart_after_plugin_install(_: &crate::app_runtime::AppHandle) -> Result<ApplyResult, String> {
     // tauri-plugin-updater exits this process after launching the NSIS installer.
     Ok(ApplyResult::Restarting)
 }
 
 #[cfg(not(windows))]
-fn restart_after_plugin_install(app: &tauri::AppHandle) -> Result<ApplyResult, String> {
+fn restart_after_plugin_install(
+    app: &crate::app_runtime::AppHandle,
+) -> Result<ApplyResult, String> {
     crate::startup::restart_stdio::detach_for_restart();
     app.restart()
 }
 
 async fn check_and_apply_deb(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
@@ -311,7 +316,7 @@ async fn check_and_apply_deb(
 }
 
 pub async fn check_stage_deb_update(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     opts: &ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<DebianUpdatePlan, String> {
@@ -396,11 +401,15 @@ where
 }
 
 pub(super) async fn install_staged_deb_and_restart(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     version: String,
     path: std::path::PathBuf,
     initiating_tab_id: Option<&str>,
 ) -> Result<(), String> {
+    let target = version.clone();
+    tokio::task::spawn_blocking(move || super::analytics::stage_app(&target))
+        .await
+        .map_err(|e| e.to_string())?;
     install_verified_deb_async(path, version).await?;
 
     refresh_bundled_cli_off_runtime(app).await?;

@@ -3,19 +3,13 @@ import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
-import { useMultiplexer, useMuxState } from "../../store/multiplexer";
+import { useMuxState } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard, SettingsPill } from "./shared";
 import { UI_BUTTON, UI_INPUT, UI_TEXT } from "../shared/design";
 
 type SecretsBackend = "local" | "bitwarden" | "mock";
-
-const BACKEND_LABELS: Record<SecretsBackend, string> = {
-  local: "Local secret storage",
-  bitwarden: "Bitwarden",
-  mock: "Mock (testing only)",
-};
 
 interface SecretsStatus {
   backend: string;
@@ -102,8 +96,6 @@ export function SecretsTab({
   const [colls, setColls] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"password" | "apikey">("password");
-  const { addNotification } = useMultiplexer();
-  const showNotice = useCallback((title: string) => addNotification({ title, body: null, tab_id: null, workspace_id: null, severity: "Info", lifetime_ms: 2500 }), [addNotification]);
   const [serverUrlInput, setServerUrlInput] = useState(bitwardenServerUrl);
 
   // Login form state — never persisted in component state past submission.
@@ -238,12 +230,11 @@ export function SecretsTab({
         }
         const d = await r.json();
         setStatus({ backend: d.backend, status: d.status });
-        showNotice(`Switched to ${BACKEND_LABELS[next]}`);
       } catch (e) {
         setError(String(e));
       }
     },
-    [apiBase, jsonHeaders, patchSecrets, bitwardenServerUrl, showNotice],
+    [apiBase, jsonHeaders, patchSecrets, bitwardenServerUrl],
   );
 
   const saveServerUrl = useCallback(async () => {
@@ -269,11 +260,10 @@ export function SecretsTab({
       }
       const d = await r.json();
       setStatus({ backend: d.backend, status: d.status });
-      showNotice(`Server URL applied — sign in again`);
     } catch (e) {
       setError(String(e));
     }
-  }, [apiBase, jsonHeaders, patchSecrets, cfg.bitwarden, serverUrlInput, bitwardenServerUrl, showNotice]);
+  }, [apiBase, jsonHeaders, patchSecrets, cfg.bitwarden, serverUrlInput, bitwardenServerUrl]);
 
   const setDefaultOrg = useCallback(
     (orgId: string) => {

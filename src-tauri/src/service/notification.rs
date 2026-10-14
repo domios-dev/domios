@@ -193,10 +193,12 @@ pub(crate) fn create_notification_with_delivery(
         NotificationAdmission::Explicit => NoticeSource::AgentNotifySend,
     };
     if destination(source, true) == NoticeDestination::Log {
-        log::debug!(
-            "[system-notice] severity={severity:?} {title}: {}",
-            body.as_deref().unwrap_or_default()
-        );
+        let detail = body.as_deref().unwrap_or_default();
+        match notification_severity(severity) {
+            NotificationSeverity::Error => log::error!("[system-notice] {title}: {detail}"),
+            NotificationSeverity::Warning => log::warn!("[system-notice] {title}: {detail}"),
+            NotificationSeverity::Info => log::info!("[system-notice] {title}: {detail}"),
+        }
         return uuid::Uuid::new_v4().to_string();
     }
     let actions = ask.actions.clone();
@@ -574,7 +576,16 @@ impl ServiceContext {
             AnswerAdmission::Recorded(chosen) => Ok(self.settle_recorded_answer(id, chosen)),
             // A second tap is not an error to the user: the standing answer is what the question holds, and it is unchanged.
             AnswerAdmission::AlreadyAnswered(standing) => {
-                Ok(self.settle_recorded_answer(id, standing))
+                let delivered = self
+                    .notif
+                    .lock()
+                    .answer_slot(id)
+                    .is_some_and(|slot| slot.delivered);
+                if delivered {
+                    Ok(serde_json::json!({ "answered": standing, "delivered": true }))
+                } else {
+                    Ok(self.settle_recorded_answer(id, standing))
+                }
             }
             AnswerAdmission::Undeliverable => {
                 Err("The tab that asked this question is gone".to_string())
@@ -632,12 +643,14 @@ impl ServiceContext {
         if !offer.accepted_by(label) {
             return;
         }
-        let mut cfg = crate::config::load_config();
+        let mut cfg = self.configuration();
         authority::apply(proof, &mut cfg.notifications, &offer.target, level);
         if let Err(reason) = crate::config::save_config_pub(&cfg) {
             log::error!("[notify-offer] accepted offer on {id} could not be saved: {reason}");
             return;
         }
+        use tauri::Manager;
+        *self.app_handle.state::<crate::config::ConfigState>().lock() = cfg.clone();
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "config-changed",
@@ -682,13 +695,16 @@ impl ServiceContext {
             },
             |spent| self.spend_on_channels(id, spent),
         );
+        if outcome == AnswerDeliveryOutcome::Pending {
+            return serde_json::json!({ "answered": standing, "pending": true });
+        }
         if let Some(detail) = outcome.failure() {
             log::warn!("[notify-answer] {id} recorded but not delivered: {detail}");
         }
         let delivered = outcome.reached_tab();
         self.notify_event(
             "notification-answered",
-            serde_json::json!({ "id": id, "answered": standing, "delivered": delivered }),
+            serde_json::json!({ "id": id, "answered": standing, "delivered": delivered, "deliveryError": outcome.failure() }),
         );
         match outcome {
             AnswerDeliveryOutcome::Failed(detail) => serde_json::json!({
@@ -802,6 +818,22 @@ impl ServiceContext {
         standing: String,
         answer: crate::notification::store::PromptOptionAnswer,
     ) -> serde_json::Value {
+        if !answer.delivered {
+            let claim = self.notif.lock().claim_answer_delivery(id);
+            match claim {
+                Some(crate::notification::answer_delivery::AnswerDeliveryPlan::Owed(_)) => {}
+                Some(
+                    crate::notification::answer_delivery::AnswerDeliveryPlan::AlreadyDelivered,
+                ) => {
+                    return serde_json::json!({ "answered": standing, "delivered": true });
+                }
+                None => return serde_json::json!({ "answered": standing, "pending": true }),
+                Some(crate::notification::answer_delivery::AnswerDeliveryPlan::Nothing) => {
+                    return serde_json::json!({ "answered": standing, "delivered": false,
+                        "deliveryError": "The notification is no longer available" });
+                }
+            }
+        }
         let response = if answer.delivered {
             Ok(crate::service::tab::RespondPromptOutcome::Structured)
         } else {
@@ -825,6 +857,9 @@ impl ServiceContext {
             }
             Err(detail) => Some(("response_failed", Some(detail))),
         };
+        if refusal.is_some() {
+            self.notif.lock().release_answer_delivery(id);
+        }
         let delivered = refusal.is_none();
         let refusal_payload = refusal.as_ref().map(|(reason, detail)| {
             serde_json::json!({

@@ -27,6 +27,7 @@ fn usage_tracking_section_defaults_on() {
 #[test]
 fn provider_descriptor_round_trip() {
     let original = ProviderDescriptor {
+        agent_runtime: None,
         supports_session_fork: false,
             structured_control: None,
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
@@ -127,6 +128,7 @@ fn provider_descriptor_round_trip() {
             supports_stop: true,
             supports_chat_ui: true,
             supports_structured_prompts: true,
+            supports_prompt_answers: true,
             supports_permission_auto_confirm: true,
             supports_watcher: false,
             paste_limit_bytes: Some(4096),

@@ -89,7 +89,6 @@ fn result_job(spec: BlueprintSpec, owner: Owner) -> crate::sentinel::store::Sent
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn blueprint_delivery_result_targets_persist_before_delivery_without_resend() {
     let (mut mux, creator) = MultiplexerState::new();
     let team_id = mux
@@ -224,7 +223,6 @@ fn blueprint_delivery_result_targets_persist_before_delivery_without_resend() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn blueprint_delivery_unresolvable_named_target_fails_at_fire_with_reason() {
     let (mut mux, creator) = MultiplexerState::new();
     let team_id = mux

@@ -409,7 +409,7 @@ fn route_classified_prompt(
     if !has_structural_prompt_evidence(screen, &prompt) {
         return true;
     }
-    if auto_approve || permission_auto_confirm {
+    if (auto_approve || permission_auto_confirm) && !has_numbered_terminal_choice(screen, &prompt) {
         let directory_trust_prompt = prompt_kind == codeterm_types::pty::PromptKind::DirectoryTrust
             || svc
                 .agent_registry
@@ -490,7 +490,7 @@ pub(crate) fn has_structural_prompt_evidence(
         else {
             return false;
         };
-        if !matches!(marker, '❯' | '›' | '▶' | '➤' | '>') {
+        if !matches!(marker, '❯' | '›' | '▶' | '➤' | '>' | '→') {
             return false;
         }
         let rest = rest.trim_start();
@@ -501,17 +501,96 @@ pub(crate) fn has_structural_prompt_evidence(
     })
 }
 
+pub(crate) fn has_numbered_terminal_choice(
+    screen: &str,
+    prompt: &crate::multiplexer::types::PendingPrompt,
+) -> bool {
+    prompt.options.len() >= 2
+        && prompt.options.iter().enumerate().all(|(index, option)| {
+            option.value == (index + 1).to_string()
+                && screen.lines().any(|line| {
+                    line_has_option_number(
+                        line.trim()
+                            .trim_start_matches(['│', '┃'])
+                            .trim()
+                            .trim_start_matches(['❯', '›', '▶', '➤', '>', '→'])
+                            .trim(),
+                        &option.value,
+                    )
+                })
+        })
+        && screen
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .is_some_and(is_key_binding_footer)
+        && has_structural_prompt_evidence(screen, prompt)
+        && !prompt_is_composer_text(screen, prompt)
+}
+
+fn is_key_binding_footer(line: &str) -> bool {
+    let bindings = line.trim().split(['·', '•']).collect::<Vec<_>>();
+    if bindings.len() < 2 {
+        return false;
+    }
+    let mut enter = false;
+    let mut escape = false;
+    for binding in bindings {
+        let mut parts = binding.split_whitespace();
+        let Some(key) = parts.next() else {
+            return false;
+        };
+        if parts.next().is_none() {
+            return false;
+        }
+        match key.to_ascii_lowercase().as_str() {
+            "enter" => enter = true,
+            "esc" => escape = true,
+            key if key.len() == 1 && key.as_bytes()[0].is_ascii_alphabetic() => {}
+            _ => return false,
+        }
+    }
+    enter && escape
+}
+
+fn is_enter_binding_footer(line: &str) -> bool {
+    let parts = line.split_whitespace().collect::<Vec<_>>();
+    parts
+        .iter()
+        .take(2)
+        .enumerate()
+        .any(|(index, key)| key.eq_ignore_ascii_case("enter") && parts.len() > index + 1)
+}
+
+// A separator-delimited hint row such as `Type to filter • Enter to select • Tab to edit`;
+// unlike `is_key_binding_footer` it needs no Esc, so it only admits, never auto-confirms.
+fn is_enter_choice_footer(line: &str) -> bool {
+    let segments = line.trim().split(['·', '•']).collect::<Vec<_>>();
+    segments.len() >= 2
+        && segments.iter().all(|segment| {
+            let mut words = segment.split_whitespace();
+            words
+                .next()
+                .is_some_and(|key| key.chars().all(|ch| ch.is_alphabetic()))
+                && words.next().is_some()
+        })
+        && segments.iter().any(|segment| {
+            segment
+                .split_whitespace()
+                .next()
+                .is_some_and(|key| key.eq_ignore_ascii_case("enter"))
+        })
+}
+
 fn has_terminal_prompt_footer(lines: &[&str], last_option_row: usize) -> bool {
     let footer_row = lines
         .iter()
         .enumerate()
         .skip(last_option_row + 1)
         .filter(|(_, line)| {
-            let line = line.to_ascii_lowercase();
-            line.contains("enter")
-                && ["confirm", "continue", "select", "cancel", "go back"]
-                    .iter()
-                    .any(|action| line.contains(action))
+            is_key_binding_footer(line)
+                || is_enter_binding_footer(line)
+                || is_enter_choice_footer(line)
         })
         .map(|(index, _)| index)
         .next_back();
@@ -581,15 +660,16 @@ fn composer_follows_options(
             .any(|line| is_composer_line(line))
 }
 
+fn line_has_option_number(line: &str, value: &str) -> bool {
+    line.trim_start().strip_prefix(value).is_some_and(|tail| {
+        let tail = tail.trim_start();
+        tail.starts_with('.') || tail.starts_with(')')
+    })
+}
+
 fn line_has_option(line: &str, option: &crate::multiplexer::types::PromptOption) -> bool {
-    let indexed = line
-        .trim_start()
-        .strip_prefix(option.value.as_str())
-        .is_some_and(|tail| {
-            let tail = tail.trim_start();
-            tail.starts_with('.') || tail.starts_with(')')
-        });
-    indexed || line.trim_start().starts_with(option.label.trim())
+    line_has_option_number(line, &option.value)
+        || line.trim_start().starts_with(option.label.trim())
 }
 
 fn execute_action(svc: &ServiceState, tab_id: &str, action: TabStateAction) {

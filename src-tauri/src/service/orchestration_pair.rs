@@ -195,9 +195,12 @@ fn validate_pair_provider(
         model,
         reasoning_effort,
     )?;
-    let full_access =
-        super::permission_policy::configured_permission_bypass(&service.agent_registry, provider)?
-            .is_some();
+    let full_access = super::permission_policy::configured_permission_bypass_for(
+        &service.app_handle,
+        &service.agent_registry,
+        provider,
+    )?
+    .is_some();
     super::unattended_launch::preflight(
         &service.agent_registry,
         &super::unattended_launch::UnattendedLaunch {
@@ -585,6 +588,14 @@ impl ServiceContext {
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
                 .ok_or_else(|| "No workspace found".to_string())?
         };
+        let svc = self.clone();
+        let cwd_workspace = workspace_id.clone();
+        let cwd_caller = params.spawned_by_tab_id.clone();
+        super::blocking::run(move || {
+            svc.validate_request_cwd(Some(&cwd_workspace), cwd_caller.as_deref(), None)
+                .map_err(String::from)
+        })
+        .await?;
         let project = self
             .mux
             .read()
@@ -795,6 +806,9 @@ impl ServiceContext {
                 self.emit_state_changed();
                 // final count is the authoritative one for the nudge.
                 let budget_notice = self.workspace_tab_budget_notice(&workspace_id);
+                if reserved.team_minted {
+                    self.record_product_feature(codeterm_analytics::Feature::TeamCreated);
+                }
                 Ok(OrchestrationPairResult {
                     plan_id: None,
                     orchestrator_tab_id: orch_tab_id,

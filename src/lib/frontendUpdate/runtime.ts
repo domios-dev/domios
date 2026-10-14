@@ -33,6 +33,7 @@ export interface FrontendRuntimeOptions {
   boot: BootContext | null;
   bundled: BootContext["bundled"];
   onError(error: unknown): void;
+  held?: () => boolean;
   onOffer?(offer: FrontendUpdateOffer | null): void;
 }
 
@@ -49,7 +50,7 @@ export function updateOffer(state: SwapState): FrontendUpdateOffer | null {
 export async function initializeFrontendUpdateRuntime(client: TransportClient, options: FrontendRuntimeOptions) {
   const api = createFrontendUpdateClient({ json: (method, path, body) => client.localJson(method, path, body, { signal: AbortSignal.timeout(5000) }) }, options.clientId);
   const restored = await api.checkpoint().catch(error => { throw new FrontendUpdateError("checkpoint-unavailable", error); });
-  if (restored) options.signals.hydrate(restored.payload);
+  options.signals.hydrate(restored?.payload ?? options.signals.checkpoint());
   const status = await client.localJson<FrontendStatus>("GET", "/api/frontend/status", undefined, { signal: AbortSignal.timeout(5000) })
     .catch(error => { throw new FrontendUpdateError("status-unavailable", error); });
   if (!frontendApiCompatible(status.apiVersion)) throw new FrontendUpdateError("api-incompatible");
@@ -59,6 +60,7 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
     preparePageReload({ apiOrigin: client.origin(), token, clientId: options.clientId, ticket,
       attempted: options.boot?.attempted ?? [], bundled: options.bundled }, options.storage, options.navigate);
   }, state => options.onOffer?.(updateOffer(state)));
+  controller.dispatch({ type: "hold", held: options.held?.() === true });
   const stopSignals = options.signals.subscribe(change => {
     if (change === "checkpoint") controller.dispatch({ type: "edited", checkpoint: options.signals.checkpoint() });
     else controller.dispatch({ type: "safety", safety: options.signals.safety() });
@@ -98,6 +100,7 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
   let rendered = false;
   return {
     snapshot: controller.snapshot,
+    hold(held: boolean) { controller.dispatch({ type: "hold", held }); },
     consent() { controller.dispatch({ type: "consent" }); },
     rootRendered() {
       if (rendered) return;

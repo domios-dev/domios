@@ -130,8 +130,12 @@ impl AgentProvider for ClaudeProvider {
         Some(permission_hook::capability())
     }
 
+    fn supports_prompt_answers(&self) -> bool {
+        false
+    }
+
     fn supports_structured_prompts(&self) -> bool {
-        true
+        false
     }
 
     fn supports_permission_auto_confirm(&self) -> bool {

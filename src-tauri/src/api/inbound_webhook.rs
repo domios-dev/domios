@@ -447,14 +447,12 @@ pub(crate) async fn receive_pebble_webhook(
 
     let host_audio = match audio {
         Some(audio) => {
-            let active = tokio::task::spawn_blocking(|| {
-                crate::config::load_config()
-                    .integrations
-                    .voice_transcribe
-                    .active
-            })
-            .await
-            .map_err(task_failed)?;
+            let active = state
+                .svc
+                .configuration()
+                .integrations
+                .voice_transcribe
+                .active;
             Some(
                 audio::transcribe(
                     &state.svc.transcribe_registry,

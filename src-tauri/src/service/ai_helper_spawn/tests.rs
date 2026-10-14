@@ -1,7 +1,6 @@
 use super::{
     ai_helper_params, ai_helper_placement, ai_helper_provider, AiHelperPlacement, AiHelperRequest,
 };
-use crate::config::default_agent_provider;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::general_agent::{ensure_general_workspace, general_dir, general_workspace_id};
 use crate::service::launch_delivery::select_visible_spawn_task;
@@ -56,10 +55,12 @@ fn ai_helper_spawn_spec_is_a_roleless_visible_launch_in_general() {
         cwd: "general-cwd-fixture".into(),
     };
 
+    let mut config = crate::config::schema::AppConfig::default();
+    config.general_agent.agent_provider = "helper-provider-fixture".into();
     let spec = SpawnTabSpec::from_agent_params(ai_helper_params(
         &request,
         &placement,
-        &ai_helper_provider(),
+        &ai_helper_provider(&config),
     ));
 
     assert_eq!(spec.workspace_id.as_deref(), Some("ws-general-fixture"));
@@ -74,7 +75,7 @@ fn ai_helper_spawn_spec_is_a_roleless_visible_launch_in_general() {
     let TabCommand::Agent(agent) = spec.command else {
         panic!("helper spawn must launch an agent command");
     };
-    assert_eq!(agent.provider, default_agent_provider());
+    assert_eq!(agent.provider, "helper-provider-fixture");
     assert_eq!(
         agent.model, None,
         "spawn resolves the configured provider default model"

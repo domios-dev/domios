@@ -12,7 +12,10 @@ mod turn_reconciliation;
 use live_evidence::{ConsumedTurnWatermark, LiveEvidenceProgress};
 pub(crate) use live_evidence::{LiveProvenance, TurnPosition};
 use turn_matching::matching_turn_send_ids;
-pub(crate) use turn_matching::normalize_turn_evidence_with;
+pub(crate) use turn_matching::{
+    contains_written_payload, normalize_turn_evidence_with, normalize_written_payload,
+    written_payload_match_end,
+};
 
 use super::pending_delivery_payloads::user_sends::{
     PreparedUserBody, UserReservation, UserSendAuthority, UserSendRecord, MAX_PREPARED_BYTES,
@@ -24,7 +27,7 @@ use serde::{Deserialize, Serialize};
 const MAX_RESULTS: usize = 256;
 const MAX_IN_FLIGHT: usize = 32;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSendState {
     #[serde(rename = "held")]
@@ -37,7 +40,7 @@ pub enum ChatSendState {
     Failed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatSendStatus {
     pub send_id: String,
     pub tab_id: String,
@@ -226,7 +229,7 @@ impl ChatSendLedger {
             pending_reason: None,
             system_send: None,
         };
-        let payload = normalize_turn_evidence_with(payload, anchor.turn_normalization);
+        let payload = normalize_written_payload(payload);
         let position = state.order.iter().position(|id| {
             state
                 .by_id
@@ -357,7 +360,7 @@ impl ChatSendLedger {
         }) {
             return false;
         }
-        let payload = normalize_turn_evidence_with(text, evidence.turn_normalization);
+        let payload = normalize_written_payload(text);
         let mut state = self.state.lock();
         let Some((authority, active)) = state.owned.get_mut(&record.send_id) else {
             return false;
@@ -530,9 +533,40 @@ impl ChatSendLedger {
         live_binding: Option<SendLiveBinding>,
         turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
     ) -> Result<ChatSendStatus, String> {
-        let normalized_payload =
-            normalize_turn_evidence_with(turn_evidence_text, turn_normalization);
+        self.try_start_scoped_identity(
+            tab_id,
+            turn_evidence_text,
+            anchor,
+            live_binding,
+            turn_normalization,
+            None,
+        )
+    }
+
+    pub(crate) fn start_runtime_claim(
+        &self,
+        tab_id: &str,
+        text: &str,
+        send_id: &str,
+    ) -> Result<ChatSendStatus, String> {
+        uuid::Uuid::parse_str(send_id).map_err(|_| "Runtime claim ID invalid")?;
+        self.try_start_scoped_identity(tab_id, text, None, None, Default::default(), Some(send_id))
+    }
+
+    fn try_start_scoped_identity(
+        &self,
+        tab_id: &str,
+        turn_evidence_text: &str,
+        anchor: Option<SendEvidenceAnchor>,
+        live_binding: Option<SendLiveBinding>,
+        turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
+        send_id: Option<&str>,
+    ) -> Result<ChatSendStatus, String> {
+        let normalized_payload = normalize_written_payload(turn_evidence_text);
         let mut state = self.state.lock();
+        if send_id.is_some_and(|id| state.by_id.contains_key(id)) {
+            return Err("Runtime claim already admitted; replay refused".into());
+        }
         let in_flight = state
             .by_id
             .values()
@@ -548,7 +582,9 @@ impl ChatSendLedger {
         let sequence = state.next_sequence;
         state.next_sequence += 1;
         let status = ChatSendStatus {
-            send_id: uuid::Uuid::new_v4().to_string(),
+            send_id: send_id
+                .map(str::to_string)
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             tab_id: tab_id.to_string(),
             state: ChatSendState::Pending,
             error: None,
@@ -1082,11 +1118,10 @@ pub(crate) fn delivered_turn_confirmations(
         ledger.advance_live_evidence(tab_id, source_session_id, source_binding_nonce, provenance);
     }
     let mut confirmed = Vec::new();
-    for (index, msg) in messages
-        .iter()
-        .enumerate()
-        .filter(|(_, msg)| msg.kind == "user")
-    {
+    for (index, msg) in messages.iter().enumerate() {
+        if msg.kind != "user" {
+            continue;
+        }
         let positioned = provenance.and_then(|provenance| {
             provenance.positions.get(index).copied().map(|position| {
                 ledger.confirm_owned_live_turns(

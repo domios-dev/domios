@@ -301,7 +301,6 @@ fn pending_interruption_fences_duplicate_process_exit_event() {
     assert!(pending_interruptions().lock().unwrap().remove(tab_id));
 }
 
-#[cfg_attr(not(windows), ignore = "mock desktop runtime is Windows-owned")]
 #[test]
 fn production_adoption_binds_exact_authenticated_session_and_epoch() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();

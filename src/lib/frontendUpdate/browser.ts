@@ -1,10 +1,12 @@
+import { readUpdateIntent, UPDATE_INTENT_KEY } from "../updatePanelModel";
 import type { TransportClient } from "../transportClient";
-import { COMPOSER_DRAFT_PREFIX } from "../composerDraftGc";
+import { restoreComposerDrafts } from "./drafts";
 import { setPersistedChatScrollState, type ChatScrollState } from "../../components/Terminal/chatViewport";
 import { frontendSignals, setCheckpointRestorer } from "./appState";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, type FrontendRuntimeOptions, type FrontendUpdateOffer } from "./runtime";
 
 let runtime: Awaited<ReturnType<typeof initializeFrontendUpdateRuntime>> | null = null;
+let held = typeof localStorage !== "undefined" && typeof localStorage.getItem === "function" && readUpdateIntent(localStorage.getItem(UPDATE_INTENT_KEY)) !== null;
 let offer: FrontendUpdateOffer | null = null;
 const offerListeners = new Set<() => void>();
 
@@ -14,7 +16,8 @@ export function subscribeFrontendUpdateOffer(listener: () => void): () => void {
   offerListeners.add(listener);
   return () => { offerListeners.delete(listener); };
 }
-export function acceptFrontendUpdate(): void { runtime?.consent(); }
+export function setFrontendUpdateHeld(next: boolean): void { held = next; runtime?.hold(next); }
+export function acceptFrontendUpdate(): void { runtime?.consent(); setFrontendUpdateHeld(false); }
 
 function publishOffer(next: FrontendUpdateOffer | null): void {
   if (next?.releaseId === offer?.releaseId) return;
@@ -23,19 +26,12 @@ function publishOffer(next: FrontendUpdateOffer | null): void {
 }
 
 export async function initializeBrowserFrontendUpdates(client: TransportClient, context: Pick<FrontendRuntimeOptions, "clientId" | "boot" | "bundled" | "onError">) {
-  const checkpoint = frontendSignals.checkpoint();
-  for (let index = 0; index < localStorage.length; index++) {
-    const key = localStorage.key(index);
-    if (key?.startsWith(COMPOSER_DRAFT_PREFIX)) checkpoint.drafts[key.slice(COMPOSER_DRAFT_PREFIX.length)] = {
-      text: localStorage.getItem(key) ?? "", attachmentIds: [], replyTo: null,
-    };
-  }
-  frontendSignals.edit(checkpoint);
   setCheckpointRestorer(value => {
-    for (const [scope, draft] of Object.entries(value.drafts)) localStorage.setItem(COMPOSER_DRAFT_PREFIX + scope, draft.text);
-    for (const [key, scroll] of Object.entries(value.scroll)) {
+    const restored = restoreComposerDrafts(value, localStorage);
+    for (const [key, scroll] of Object.entries(restored.scroll)) {
       if (scroll.chat) setPersistedChatScrollState(key, JSON.parse(scroll.chat) as ChatScrollState);
     }
+    return restored;
   });
   const syncFocus = () => frontendSignals.signal({ focused: document.hasFocus(),
     typing: document.activeElement instanceof HTMLTextAreaElement || (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable) });
@@ -49,7 +45,7 @@ export async function initializeBrowserFrontendUpdates(client: TransportClient, 
   const modals = new MutationObserver(syncModals);
   modals.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "open"] });
   try {
-    runtime = await initializeFrontendUpdateRuntime(client, { ...context, signals: frontendSignals, storage: sessionStorage,
+    runtime = await initializeFrontendUpdateRuntime(client, { ...context, held: () => held, signals: frontendSignals, storage: sessionStorage,
       navigate: path => location.assign(path), events: window, onOffer: publishOffer,
       event: detail => new CustomEvent(ROOT_RENDERED_EVENT, { detail }),
     });

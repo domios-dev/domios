@@ -143,10 +143,6 @@ mod install_provider_tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn production_core_returns_only_after_real_pty_dispatch_ack() {
         let (_fixture, service) =
             fixture_with_provider("install-success", "echo provider-install-fixture");
@@ -160,10 +156,6 @@ mod install_provider_tests {
     }
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn production_transaction_rolls_back_real_provisional_tab_on_dispatch_failure() {
         let (_fixture, service) = fixture_with_provider("install-failure", "echo never-dispatched");
         let failure = "opaque installer dispatch failure b921";

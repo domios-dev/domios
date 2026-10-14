@@ -3,6 +3,8 @@
 
 export {};
 
+import { readFileSync } from "node:fs";
+
 class FakeStorage {
   private map = new Map<string, string>();
   getItem(key: string): string | null {
@@ -82,6 +84,7 @@ function makeSnapshot(workspaces: BackendWs[], gen: number) {
 interface MuxLike {
   workspaces: Array<{ id: string; tabs: string[] }>;
   toasts: Array<{ title: string; body?: string }>;
+  notifications: Array<{ id: string }>;
 }
 function hasTab(state: MuxLike, tabId: string): boolean {
   return state.workspaces.some((w) => w.tabs.includes(tabId));
@@ -128,6 +131,7 @@ interface Harness {
   actions: () => import("./context").MultiplexerActionsContextType;
   state: () => MuxLike;
   emitMux: (snapshot: unknown) => void;
+  emit: (name: string, payload: unknown) => void;
   clear: () => void;
 }
 
@@ -183,12 +187,41 @@ async function renderHarness(
       assert(listeners["mux-state-changed"], "mux-state-changed listener not bound");
       listeners["mux-state-changed"]({ payload: snapshot });
     },
+    emit: (name, payload) => listeners[name]?.({ payload }),
     clear: () => {
       __setInvokeForTest(null);
       __setListenForTest(null);
     },
   };
 }
+
+test("restore incidents and Blueprint outcomes cannot create toasts", async () => {
+  const app = readFileSync("src/App.tsx", "utf8");
+  assert(!app.includes("RecoveryStatusBanner"), "the app has no recovery toast producer");
+  assert(!app.includes("useBlueprintRunPopups"), "the app has no Blueprint toast producer");
+  const h = await renderHarness(async <T,>(cmd: string) => {
+    if (cmd === "mux_get_state") return makeSnapshot([], 1) as T;
+    if (cmd === "list_notifications") return [] as T;
+    return {} as T;
+  });
+  try {
+    await h.act(async () => {
+      h.emit("crash_report_available", { dir: "opaque", files: [], recovery: { crash_presentation: "active" } });
+      h.emit("recovery-state-changed", { crash_presentation: "active", last_crash: { classification: "abnormal_exit" } });
+      h.emit("automation-graph-changed", { workspace_id: "workspace", run: { state: "completed" } });
+    });
+    assert(h.state().toasts.length === 0, "system events create no toasts");
+    assert(h.state().notifications.length === 0, "system events create no bell entries");
+    await h.act(async () => h.emit("notification-created", {
+      id: "agent", title: "opaque", body: null, tab_id: null, workspace_id: null, severity: "Info",
+    }));
+    assert(h.state().notifications.length === 1, "agent notification remains in the bell");
+    assert(h.state().toasts.length === 0, "agent notification does not synthesize a local toast");
+  } finally {
+    await h.act(async () => h.root.unmount());
+    h.clear();
+  }
+});
 
 test("failed closeTab restores the tab from authoritative state", async () => {
   const backend: BackendWs[] = [

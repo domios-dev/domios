@@ -1,7 +1,11 @@
 #[path = "spawn/cwd.rs"]
 mod cwd;
 mod dispatch_rollback;
+pub(crate) mod runtime_prompt;
 use dispatch_rollback::create_pending_delivery_or_rollback_dispatch;
+pub(crate) use runtime_prompt::{
+    compose_runtime_system_prompt, ensure_tab_runtime_prompt, ROLE_AUTHORITY,
+};
 
 use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
@@ -207,7 +211,7 @@ impl ServiceContext {
         let agent = params
             .agent
             .clone()
-            .unwrap_or_else(crate::config::default_agent_provider);
+            .unwrap_or_else(|| self.configuration().general_agent.agent_provider);
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
         self.apply_model_preset(&agent, &mut params)?;
         let reasoning_effort = params.reasoning_effort.clone();
@@ -322,7 +326,7 @@ impl ServiceContext {
             }
         }
         apply_worker_hierarchy_defaults(&mut params);
-        let default_provider = crate::config::default_agent_provider();
+        let default_provider = self.configuration().general_agent.agent_provider;
         let agent_cmd = params
             .agent
             .clone()
@@ -338,7 +342,14 @@ impl ServiceContext {
             .await
             .map_err(|_| "preset resolution worker failed")??;
         }
-        let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
+        let svc = self.clone();
+        let probe = params.clone();
+        let probe_agent = agent_cmd.clone();
+        let is_shell = tokio::task::spawn_blocking(move || {
+            svc.classify_spawn_target_for_params(&probe_agent, &probe)
+        })
+        .await
+        .map_err(|error| error.to_string())??;
         let tab_created_by_spawn = params.existing_tab_id.is_none();
         if is_shell {
             let role = params.role.clone();
@@ -363,6 +374,11 @@ impl ServiceContext {
                 .map(str::to_string);
             self.bind_worker_plan_task_or_rollback_tab_async(&bind_params, &handle.tab_id)
                 .await?;
+            self.bind_planner_spawn(
+                bind_params.plan_id.as_deref(),
+                role_profile.as_deref(),
+                &handle.tab_id,
+            );
             if let Some(reservation) = worker_persona_reservation {
                 reservation.commit_to_tab(&handle.tab_id);
             }
@@ -381,8 +397,11 @@ impl ServiceContext {
                 requested_model,
                 provider_resolved_model: None,
                 actual_model: None,
-                reasoning_effort: None,
-                reasoning_effort_provenance: ReasoningEffortProvenance::default(),
+                reasoning_effort: bind_params.reasoning_effort.clone(),
+                reasoning_effort_provenance: resolved_effort_provenance(
+                    bind_params.planned_reasoning_effort.clone(),
+                    bind_params.reasoning_effort.clone(),
+                ),
                 title,
                 description: handle.description,
                 role,
@@ -410,6 +429,7 @@ impl ServiceContext {
         )
         .map_err(|error| error.to_string())?;
         let mut model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+            &self.configuration(),
             &self.agent_registry,
             &agent_cmd,
             params.model.take(),
@@ -599,7 +619,8 @@ impl ServiceContext {
         }
 
         let permission_bypass_authorization =
-            crate::service::permission_policy::configured_permission_bypass(
+            crate::service::permission_policy::configured_permission_bypass_for(
+                &self.app_handle,
                 &self.agent_registry,
                 &agent_cmd,
             )?;
@@ -1073,6 +1094,13 @@ pub(crate) fn move_chatbackend_task_to_system_prompt(
     agent: &str,
     params: &mut SpawnAgentParams,
 ) {
+    if chatbackends
+        .descriptor(agent)
+        .is_some_and(|descriptor| descriptor.agent_runtime.is_some())
+    {
+        params.system_prompt = compose_runtime_system_prompt(params);
+        return;
+    }
     let spawnable = chatbackends
         .get(agent)
         .map(|backend| backend.spawnable())
@@ -1089,6 +1117,11 @@ impl ServiceContext {
         agent: &str,
         params: &mut SpawnAgentParams,
     ) -> Result<(), String> {
+        if crate::service::agent_runtime::engine::requested(self, agent) {
+            runtime_prompt::prepare_runtime_identity(self, params);
+            params.system_prompt = compose_runtime_system_prompt(params);
+            return Ok(());
+        }
         move_chatbackend_task_to_system_prompt(self.chatbackend_registry.as_ref(), agent, params);
         Ok(())
     }

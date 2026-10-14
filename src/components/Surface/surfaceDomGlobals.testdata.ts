@@ -5,10 +5,18 @@ type ResizeCallback = (entries: Array<{ contentRect: { width: number; height: nu
 export class FakeResizeObserver {
   static instances = new Set<FakeResizeObserver>();
   constructor(private readonly callback: ResizeCallback) {}
-  observe() { FakeResizeObserver.instances.add(this); }
+  private target: Element | null = null;
+  observe(target: Element) { this.target = target; FakeResizeObserver.instances.add(this); }
   unobserve() { FakeResizeObserver.instances.delete(this); }
   disconnect() { FakeResizeObserver.instances.delete(this); }
-  emit(width: number, height: number) { this.callback([{ contentRect: { width, height } }]); }
+  emit(width: number, height: number) {
+    const rect = new DOMRect(0, 0, width, height);
+    if (this.target) {
+      this.target.getBoundingClientRect = () => rect;
+      for (const canvas of this.target.querySelectorAll("canvas")) canvas.getBoundingClientRect = () => rect;
+    }
+    this.callback([{ contentRect: { width, height } }]);
+  }
 }
 
 export const frameQueue = new Map<number, FrameRequestCallback>();
@@ -21,7 +29,7 @@ export function setupSurfaceDom() {
   define("window", window);
   define("document", window.document);
   define("navigator", window.navigator);
-  for (const name of ["HTMLElement", "HTMLInputElement", "HTMLTextAreaElement", "HTMLSelectElement", "HTMLCanvasElement", "SVGElement", "Element", "Node", "Event", "KeyboardEvent", "MouseEvent", "WheelEvent", "PointerEvent", "FocusEvent", "InputEvent"]) {
+  for (const name of ["DOMRect", "HTMLElement", "HTMLInputElement", "HTMLTextAreaElement", "HTMLSelectElement", "HTMLCanvasElement", "SVGElement", "Element", "Node", "Event", "KeyboardEvent", "MouseEvent", "WheelEvent", "PointerEvent", "FocusEvent", "InputEvent"]) {
     define(name, (window as unknown as Record<string, unknown>)[name]);
   }
   define("ResizeObserver", FakeResizeObserver);

@@ -61,3 +61,23 @@ fn switch_wrappers_preserve_real_text_attachments_and_tool_results() {
         assert_eq!(message.blocks.len(), count);
     }
 }
+
+#[test]
+fn unsupported_prompt_answers_remove_question_widgets() {
+    let provider = ClaudeProvider::new();
+    let mut message: RichMessage = serde_json::from_value(serde_json::json!({
+        "role":"assistant",
+        "blocks":[{"kind":"tool_use","data":{
+            "name":"AskUserQuestion","id":"question-tool",
+            "input":{"questions":[{"question":"opaque?","header":"opaque",
+                "options":[{"label":"a"},{"label":"b"}]}]}
+        }}]
+    }))
+    .unwrap();
+    let questions = provider.parse_interactive_events(&message);
+    assert!(!questions.is_empty());
+    message.interactive = questions;
+    enrich_interactive(&mut message, &provider);
+    assert!(message.interactive.is_empty());
+    assert_eq!(message.blocks.len(), 1);
+}

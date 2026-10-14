@@ -5,7 +5,7 @@ use crate::multiplexer::types::{Tab, TabBacking};
 use crate::service::hierarchy::report_plan_ctx::tab_holds;
 use crate::session::lifecycle::{
     checkpoint_history, AgentTypeWriteOrigin, JournalLoad, JournalRecord, LifecycleCheckpoint,
-    LifecycleTransition, TabLifecycleJournal, TailStatus,
+    LifecycleTransition, TailStatus,
 };
 
 use super::provider_identity::{AgentTypeWriteOutcome, TabAgentTypeState};
@@ -362,8 +362,9 @@ impl ServiceContext {
         let inspected_tab = target.tab_id.clone();
         let inspected_session = session_id.clone();
         let inspected_provider = provider.clone();
+        let journal = self.lifecycle_journal.clone();
         let plan = tokio::task::spawn_blocking(move || {
-            let load = TabLifecycleJournal::shared().load();
+            let load = journal.load();
             select_journal_restore(
                 &load,
                 &inspected_tab,
@@ -739,7 +740,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn foreign_tab_without_plan_ownership_is_refused_by_constant() {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -776,7 +776,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn live_plan_owner_may_repair_its_assigned_worker() {
         let (mut mux, owner_id) = MultiplexerState::new();
         mux.set_orchestrator_role(&owner_id).unwrap();
@@ -869,7 +868,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn repair_from_live_evidence_corrects_locked_label_without_restart() {
         let (fixture, tab_id, caller) = repair_fixture("claude");
         let target = fixture
@@ -894,7 +892,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     async fn asserted_provider_mismatch_is_refused_by_the_stable_constant() {
         let (fixture, tab_id, caller) = repair_fixture("claude");
         let target = fixture

@@ -26,7 +26,6 @@ fn assert_headers(response: &Response) {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn authentication_is_required_on_read_and_batch_routes() {
     let fixture = Fixture::new();
     for suffix in ["read", "check"] {
@@ -41,7 +40,6 @@ async fn authentication_is_required_on_read_and_batch_routes() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn referenced_images_documents_and_pages_match_desktop_shape_and_headers() {
     let fixture = Fixture::new();
     for (name, bytes, kind) in [
@@ -66,7 +64,6 @@ async fn referenced_images_documents_and_pages_match_desktop_shape_and_headers()
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn unreferenced_and_other_tabs_paths_return_identical_not_found() {
     let fixture = Fixture::new();
     let path = fixture.write("owned.md", "opaque");
@@ -87,7 +84,6 @@ async fn unreferenced_and_other_tabs_paths_return_identical_not_found() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn relative_traversal_network_device_and_ads_paths_are_refused() {
     let fixture = Fixture::new();
     let traversal = fixture.root.join("sub/../read.md");
@@ -115,7 +111,6 @@ async fn relative_traversal_network_device_and_ads_paths_are_refused() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn symlink_or_junction_escape_is_refused_even_when_referenced() {
     let fixture = Fixture::new();
     let target = fixture.write("target/read.md", "opaque");
@@ -133,7 +128,6 @@ async fn symlink_or_junction_escape_is_refused_even_when_referenced() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn secret_directories_credentials_and_configured_paths_are_refused() {
     let fixture = Fixture::new();
     for name in [
@@ -156,7 +150,6 @@ async fn secret_directories_credentials_and_configured_paths_are_refused() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn missing_directory_wrong_kind_and_oversized_files_match_desktop_refusals() {
     let fixture = Fixture::new();
     let missing = fixture.root.join("missing.md");
@@ -200,7 +193,6 @@ async fn missing_directory_wrong_kind_and_oversized_files_match_desktop_refusals
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn batch_check_filters_unreferenced_secret_missing_and_unsupported_paths() {
     let fixture = Fixture::new();
     let allowed = fixture.write("allowed.md", "opaque");
@@ -277,7 +269,6 @@ async fn admission_queues_a_burst_and_still_bounds_requests() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn signed_isolated_peer_cannot_read_or_check_another_tabs_files() {
     let fixture = Fixture::new();
     let private = fixture.isolated_peer();
@@ -310,9 +301,10 @@ async fn signed_isolated_peer_cannot_read_or_check_another_tabs_files() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn rate_and_batch_limits_are_enforced_by_the_routes() {
-    let fixture = Fixture::new();
+    let now = Arc::new(parking_lot::Mutex::new(Instant::now()));
+    let clock = now.clone();
+    let fixture = Fixture::with_clock(Arc::new(move || *clock.lock()));
     let oversized = fixture
         .post(
             &fixture.owner,
@@ -343,10 +335,19 @@ async fn rate_and_batch_limits_are_enforced_by_the_routes() {
         .await;
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_headers(&response);
+    *now.lock() += WINDOW;
+    let renewed = fixture
+        .post(
+            &fixture.owner,
+            "check",
+            serde_json::json!({"paths": []}),
+            Some("Bearer preview-test-token"),
+        )
+        .await;
+    assert_eq!(renewed.status(), StatusCode::OK);
 }
 
 #[tokio::test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 async fn hardlink_alias_is_refused_even_when_referenced() {
     let fixture = Fixture::new();
     let target = fixture.write("target.md", "opaque");

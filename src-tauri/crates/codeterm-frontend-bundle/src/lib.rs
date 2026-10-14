@@ -6,7 +6,7 @@ pub mod update;
 pub const OBSERVER_SCRIPT: &str = include_str!("observer.js");
 
 use activation::Activation;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -16,6 +16,8 @@ use std::{
 use store::Store;
 
 pub type StatusEmitter = Arc<dyn Fn(&str, Value) + Send + Sync>;
+
+pub type InstallationObserver = Arc<dyn Fn() + Send + Sync>;
 
 pub struct FrontendBundles {
     root: PathBuf,
@@ -27,6 +29,8 @@ pub struct FrontendBundles {
     discovery_url: String,
     allow_loopback: bool,
     emit: StatusEmitter,
+    installation_observer: RwLock<Option<InstallationObserver>>,
+    availability_observer: RwLock<Option<InstallationObserver>>,
 }
 
 impl FrontendBundles {
@@ -81,7 +85,39 @@ impl FrontendBundles {
             discovery_url,
             allow_loopback,
             emit,
+            installation_observer: RwLock::new(None),
+            availability_observer: RwLock::new(None),
         })
+    }
+
+    pub fn bind_installation_observer(&self, observer: InstallationObserver) {
+        *self.installation_observer.write() = Some(observer);
+    }
+    pub fn bind_availability_observer(&self, observer: InstallationObserver) {
+        *self.availability_observer.write() = Some(observer);
+    }
+
+    pub fn local_availability(&self) -> codeterm_plugins::AvailabilityItem {
+        let inner = self.inner.lock();
+        let installed = inner.1.active.as_ref().map(|m| m.version.as_str());
+        let bundled = self.bundled_version.to_string();
+        let installed = installed.unwrap_or(&bundled);
+        let pending =
+            inner.1.pending.as_ref().filter(|m| {
+                inner.1.loading.is_none() && !inner.1.quarantined.contains(&m.release_id)
+            });
+        let mut item = codeterm_plugins::AvailabilityItem::release(
+            "frontend",
+            codeterm_plugins::UpdateKind::Frontend,
+            installed,
+            pending.map(|m| m.version.as_str()).unwrap_or(installed),
+            pending.is_none_or(|m| m.compatible(self.api_version)),
+        );
+        if pending.is_some() && item.compatible {
+            item.state = codeterm_plugins::AvailabilityState::ReadyToApply;
+            item.reason = "staged_bundle".into();
+        }
+        item
     }
 
     pub fn status(&self) -> Value {
@@ -90,6 +126,25 @@ impl FrontendBundles {
         status["apiVersion"] = self.api_version.into();
         status["updatesEnabled"] = self.public_key.is_some().into();
         status
+    }
+
+    pub fn availability(&self) -> Result<codeterm_plugins::AvailabilityItem, String> {
+        let local = self.local_availability();
+        if local.state == codeterm_plugins::AvailabilityState::ReadyToApply {
+            return Ok(local);
+        }
+        let key = self
+            .public_key
+            .as_deref()
+            .ok_or("Frontend signing identity not provisioned")?;
+        let manifest = update::discover(&self.discovery_url, key, self.allow_loopback)?;
+        Ok(codeterm_plugins::AvailabilityItem::release(
+            "frontend",
+            codeterm_plugins::UpdateKind::Frontend,
+            &self.version_floor().to_string(),
+            &manifest.version,
+            manifest.compatible(self.api_version),
+        ))
     }
 
     pub fn check(&self) -> Result<Value, String> {
@@ -108,9 +163,13 @@ impl FrontendBundles {
             self.api_version,
             self.allow_loopback,
         )?;
+        self.stage_verified(&verified)
+    }
+
+    fn stage_verified(&self, verified: &manifest::VerifiedManifest) -> Result<Value, String> {
         let mut newly_pending = false;
         self.change(|state| {
-            newly_pending = state.stage(&verified)?;
+            newly_pending = state.stage(verified)?;
             Ok(())
         })?;
         let manifest = verified.manifest();
@@ -172,10 +231,19 @@ impl FrontendBundles {
             .map_err(|e| e.to_string())?
             .as_millis() as u64;
         self.failure_deadline(now_ms)?;
+        let mut installed = false;
         self.change(|state| {
+            let installing = state.loading.is_some();
             state.healthy(release, generation, client, token)?;
+            installed = installing && state.loading.is_none();
             Ok(())
         })?;
+        let observer = self.installation_observer.read().clone();
+        if installed {
+            if let Some(observer) = observer {
+                observer();
+            }
+        }
         Ok(self.status())
     }
 
@@ -255,8 +323,16 @@ impl FrontendBundles {
         let mut inner = self.inner.lock();
         let mut candidate = inner.1.clone();
         action(&mut candidate)?;
+        let changed = inner.1 != candidate;
         inner.0.save(&candidate)?;
         inner.1 = candidate;
+        drop(inner);
+        let observer = self.availability_observer.read().clone();
+        if changed {
+            if let Some(observer) = observer {
+                observer();
+            }
+        }
         Ok(())
     }
 }

@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use crate::app_runtime::AppHandle;
 
 use crate::UpdateStateHandle;
 

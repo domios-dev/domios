@@ -103,7 +103,8 @@ fn record_free_browser_update_compares_plugin_versions() {
     assert_eq!(current["reason"], "same_version");
     let old = installed_update_status("browser", Some("0.0.1"), None);
     assert_eq!(old["reason"], "newer_version");
-    assert_eq!(old["available"], true);
+    // Core plugins update silently, so a newer channel version is never offered.
+    assert_eq!(old["available"], false);
     let newer = installed_update_status("browser", Some("9999.0.0"), None);
     assert_eq!(newer["reason"], "local_ahead");
     assert_eq!(newer["available"], false);

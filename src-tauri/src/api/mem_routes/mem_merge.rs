@@ -264,7 +264,7 @@ pub(crate) fn merge_items(
 ) -> Result<serde_json::Value, MergeError> {
     let intent = worker_id.and_then(|wid| svc.workers.get(wid).map(|w| w.intent));
     let actor = merge_actor(intent.as_deref(), body.changed_by.as_deref());
-    let merge_cap = crate::config::memory_config().dream_hygiene.merge_cap;
+    let merge_cap = svc.configuration().memory.dream_hygiene.merge_cap;
     let req = MergeRequest {
         keeper: body.keeper.trim(),
         lesser: body.lesser.trim(),

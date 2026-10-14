@@ -48,6 +48,8 @@ pub enum WorkspaceAction {
         /// Workspace ID
         id: String,
     },
+    /// Relocate a workspace to an existing absolute folder, preserving its identity
+    SetCwd { id: String, path: String },
     /// Rename a workspace
     Rename {
         /// Workspace ID
@@ -109,6 +111,9 @@ pub enum TabAction {
     /// Plain shell tab, inheriting the calling tab's workspace and Team. For an
     /// AI tab use `codeterm agent spawn`.
     New {
+        /// Shell lifetime: positive duration (30s, 10m, 2h), or none.
+        #[arg(long, conflicts_with_all = ["chat_backend", "list_shells"])]
+        timeout: Option<String>,
         /// Shell profile id (discover with --list-shells).
         #[arg(long, conflicts_with_all = ["chat_backend", "list_shells"])]
         shell: Option<String>,
@@ -158,6 +163,13 @@ pub enum TabAction {
         /// (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`.
         #[arg(long, value_name = "JSON")]
         config: Option<String>,
+    },
+    /// Reset an owned utility shell's lifetime from now, or disable it with none.
+    Timeout {
+        #[arg(long = "tab", value_name = "ID")]
+        tab: Option<String>,
+        #[arg(long, value_name = "DURATION")]
+        timeout: String,
     },
     /// Print the current focused tab ID — no JSON parsing needed
     Current {

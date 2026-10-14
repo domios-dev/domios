@@ -89,3 +89,16 @@ async fn codex_rpc_startup_retry_superseded_launch_never_starts_another_server()
     assert!(!transient(SUPERSEDED));
     assert!(verify_launch("original", None).is_err());
 }
+
+#[test]
+fn codex_rpc_startup_retry_diagnostics_preserve_transport_classification() {
+    assert!(transient(
+        "Sidecar listening deadline: pid=42 exit=not observed stderr=\"\""
+    ));
+    assert!(!transient(
+        "Sidecar exited before listening: pid=42 exit=23 stderr=\"refused\""
+    ));
+    assert!(!transient(
+        "Sidecar process identity unavailable: pid=42 exit=not observed stderr=\"\""
+    ));
+}

@@ -2,8 +2,8 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::app_runtime::AppHandle;
 use serde_json::{json, Value};
-use tauri::AppHandle;
 
 use crate::service::plan::handoff::{HandoffCreateRequest, HandoffReseedRequest};
 use crate::service::plan::PlanError;

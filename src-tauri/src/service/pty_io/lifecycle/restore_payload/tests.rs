@@ -1,4 +1,4 @@
-use super::{requires_pending_input, resolve_restored_payload};
+use super::resolve_restored_payload;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{
@@ -99,7 +99,7 @@ impl Fixture {
 
 #[test]
 fn restored_payload_eligibility_respects_state_channel_and_attempt() {
-    assert!(!requires_pending_input(None));
+    assert_eq!(resolve_restored_payload(None).unwrap(), None);
     for channel in [
         PendingDeliveryChannel::InteractiveInput,
         PendingDeliveryChannel::SystemPrompt,
@@ -114,15 +114,7 @@ fn restored_payload_eligibility_respects_state_channel_and_attempt() {
         ] {
             for attempted in [false, true] {
                 let pending = record(channel.clone(), state, attempted);
-                let expected = channel == PendingDeliveryChannel::InteractiveInput
-                    && state == PendingDeliveryState::Pending
-                    && !attempted;
-                assert_eq!(requires_pending_input(Some(&pending)), expected);
-                let result = resolve_restored_payload(Some(&pending));
-                assert_eq!(result.is_err(), expected);
-                if !expected {
-                    assert_eq!(result.unwrap(), None);
-                }
+                assert_eq!(resolve_restored_payload(Some(&pending)).unwrap(), None);
             }
         }
     }
@@ -135,13 +127,14 @@ fn restored_uncertain_payload_does_not_block_lazy_provider_launch() {
         PendingDeliveryState::Unconfirmed,
         PendingDeliveryState::Ingested,
     ] {
-        let pending = record(PendingDeliveryChannel::InteractiveInput, state, true);
+        let mut pending = record(PendingDeliveryChannel::InteractiveInput, state, true);
         let fixture = Fixture::new(pending.clone(), true);
         assert!(fixture.restore().unwrap());
         assert!(!fixture.restore().unwrap());
         assert_eq!(fixture.launches.load(Ordering::SeqCst), 1);
         assert_eq!(fixture.historical_handoffs.load(Ordering::SeqCst), 0);
         assert!(fixture.events.lock().is_empty());
+        super::retain_without_replay(Some(&mut pending));
         let mux = fixture.mux.read();
         let tab = mux.get_tab(&fixture.tab_id).unwrap();
         assert_eq!(tab.pending_delivery.as_ref(), Some(&pending));
@@ -198,7 +191,7 @@ fn restored_lazy_activation_has_one_launch_claim() {
 }
 
 #[test]
-fn restored_pending_input_failure_reaches_boot_event_seam() {
+fn restored_pending_input_launches_once_and_retains_uncertainty_without_replay() {
     for live_shell in [false, true] {
         let pending = record(
             PendingDeliveryChannel::InteractiveInput,
@@ -206,30 +199,20 @@ fn restored_pending_input_failure_reaches_boot_event_seam() {
             false,
         );
         let fixture = Fixture::new(pending.clone(), live_shell);
-        let reason = fixture.restore().unwrap_err();
-        assert!(reason.starts_with("restored_input_pending:"));
-        assert_eq!(
-            fixture.events.lock().as_slice(),
-            [(BootStage::SpawnFailed, reason.clone())]
-        );
-        assert_eq!(fixture.launches.load(Ordering::SeqCst), 0);
+        assert!(fixture.restore().unwrap());
+        assert!(!fixture.restore().unwrap());
+        assert_eq!(fixture.launches.load(Ordering::SeqCst), 1);
         assert_eq!(fixture.historical_handoffs.load(Ordering::SeqCst), 0);
+        assert!(fixture.events.lock().is_empty());
         let mux = fixture.mux.read();
         let tab = mux.get_tab(&fixture.tab_id).unwrap();
-        assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
-        assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason.as_str()));
-        assert!(tab.reported_session_binding_nonce.is_none());
-        assert_eq!(tab.pending_delivery.as_ref(), Some(&pending));
-        assert_eq!(
-            tab.agent_session_id.as_deref(),
-            Some("original-used-session")
-        );
-        assert!(tab.restored_from_snapshot);
-        assert!(!tab.agent_booting);
-        assert_eq!(
-            super::super::reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref()),
-            None
-        );
+        let retained = tab.pending_delivery.as_ref().unwrap();
+        assert_eq!(retained.record_id(), pending.record_id());
+        assert_eq!(retained.send_id(), pending.send_id());
+        assert_eq!(retained.content_digest, pending.content_digest);
+        assert_eq!(retained.state(), PendingDeliveryState::Unconfirmed);
+        assert!(tab.agent_booting);
+        assert!(!tab.restored_from_snapshot);
     }
 }
 
@@ -529,7 +512,7 @@ fn restore_failure_publication_precedes_successor_ready_event() {
                 Some("original-used-session"),
                 Some("fixture-cwd"),
                 true,
-                resolve_restored_payload,
+                |_| Err("fixture payload lookup failure".into()),
                 |stage, reason, tab| {
                     assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
                     assert!(tab.reported_session_binding_nonce.is_none());
@@ -615,4 +598,28 @@ fn restore_failure_publication_precedes_successor_ready_event() {
     assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
     assert!(tab.launch_session_authenticated());
     assert_eq!(tab.pending_delivery.as_ref(), Some(&pending));
+}
+
+#[test]
+fn legacy_remote_pending_record_resumes_without_any_historical_write() {
+    let pending: PendingDeliveryRecord = serde_json::from_value(serde_json::json!({
+        "channel": "interactive_input", "provenance": "interactive_input",
+        "record_id": "2568c88c-7406-4da4-9b1d-bb5015680eb9",
+        "send_id": "ec6d6b92-5046-489c-8b09-a13a640062c9",
+        "content_digest": "d825f2b554d39b82cfc34875fe639557225baa5dd4c316c0960977ea27eb3812",
+        "state": "pending", "attempt_provenance": null
+    }))
+    .unwrap();
+    let fixture = Fixture::new(pending.clone(), true);
+    assert!(fixture.restore().unwrap());
+    assert_eq!(fixture.launches.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.historical_handoffs.load(Ordering::SeqCst), 0);
+    let mux = fixture.mux.read();
+    let tab = mux.get_tab(&fixture.tab_id).unwrap();
+    let retained = tab.pending_delivery.as_ref().unwrap();
+    assert_eq!(retained.record_id(), pending.record_id());
+    assert_eq!(retained.send_id(), pending.send_id());
+    assert_eq!(retained.content_digest, pending.content_digest);
+    assert_eq!(retained.state(), PendingDeliveryState::Unconfirmed);
+    assert!(tab.agent_booting);
 }

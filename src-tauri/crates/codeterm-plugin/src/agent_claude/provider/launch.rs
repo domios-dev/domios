@@ -21,6 +21,18 @@ pub(super) fn starter_prompt_text(prompt: crate::provider::StarterPrompt) -> Opt
     }
 }
 
+fn write_launch_prompt(task: &str) -> Option<String> {
+    let rule = crate::agent_claude::launch_prompt_rule()?;
+    let fragment = format!("{task}\n\n{rule}");
+    let body = if cfg!(target_os = "windows") {
+        format!("\u{feff}{fragment}")
+    } else {
+        fragment
+    };
+    let suffix = format!(".ct-task-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    codeterm_util::task_files::write(&body, Some(&suffix))
+}
+
 pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(ShellSyntax::UNSET_CLAUDECODE.to_string());
@@ -47,11 +59,12 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     };
     parts.extend(extra.iter().map(|arg| ShellSyntax::quote_arg(arg)));
 
-    // Keep large worker prompts out of shell parsing and argv on every platform.
-    if let Some(ref task) = params.task {
-        let path = ShellSyntax::task_file_path(task);
-        parts.push("--append-system-prompt-file".to_string());
-        parts.push(ShellSyntax::quote(&path));
+    let Some(path) = write_launch_prompt(params.task.as_deref().unwrap_or_default()) else {
+        return String::new();
+    };
+    parts.push("--append-system-prompt-file".to_string());
+    parts.push(ShellSyntax::quote(&path));
+    if params.task.as_ref().is_some_and(|task| !task.is_empty()) {
         if let Some(prompt) = starter_prompt_text(params.starter_prompt) {
             let prompt = params
                 .starter_prompt
@@ -100,17 +113,11 @@ pub(super) fn build_resume_command_with_context(
     let base = resume_base(&params.session_id, params.skip_permissions);
     let mut command =
         crate::provider::append_launch_args(base, &super::context::launch_args(&params.args)?);
-    if let Some(prompt) = params
-        .system_prompt
-        .as_deref()
-        .filter(|text| !text.trim().is_empty())
-    {
-        let path = ShellSyntax::task_file_path(prompt);
-        command = format!(
-            "{command} --append-system-prompt-file {}",
-            ShellSyntax::quote(&path)
-        );
-    }
+    let path = write_launch_prompt(params.system_prompt.as_deref().unwrap_or_default())?;
+    command = format!(
+        "{command} --append-system-prompt-file {}",
+        ShellSyntax::quote(&path)
+    );
     Some(command)
 }
 

@@ -1,6 +1,3 @@
-//! Shared test-only ServiceContext harness backed by a mock Tauri app.
-//! Requires a desktop runtime; tests using it are `ignore`d off Windows.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -18,8 +15,51 @@ pub(crate) struct ServiceFixture {
     /// The waiter lifetime owner. The registry keeps only a `Weak` of this, so
     /// dropping the fixture is itself the teardown signal.
     _owner: Arc<ServiceContext>,
-    pub(crate) _app: tauri::App,
+    pub(crate) _app: crate::app_runtime::App,
     pub(crate) temp: tempfile::TempDir,
+}
+
+#[derive(Default)]
+pub(crate) struct TestReadySendTasks {
+    pending: Mutex<HashMap<String, Vec<tokio::sync::oneshot::Receiver<bool>>>>,
+}
+
+pub(crate) struct TestReadySendTask(Option<tokio::sync::oneshot::Sender<bool>>);
+
+impl Drop for TestReadySendTask {
+    fn drop(&mut self) {
+        if let Some(completion) = self.0.take() {
+            let _ = completion.send(!std::thread::panicking());
+        }
+    }
+}
+
+impl TestReadySendTasks {
+    pub(crate) fn start(&self, tab_id: &str) -> TestReadySendTask {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending
+            .lock()
+            .entry(tab_id.to_owned())
+            .or_default()
+            .push(rx);
+        TestReadySendTask(Some(tx))
+    }
+
+    pub(crate) fn wait(&self, tab_id: &str, deadline: std::time::Duration) {
+        let pending = self.pending.lock().remove(tab_id).unwrap_or_default();
+        tauri::async_runtime::block_on(async {
+            tokio::time::timeout(deadline, async {
+                for task in pending {
+                    assert!(
+                        task.await.expect("ready-send task reports completion"),
+                        "ready-send task panicked"
+                    );
+                }
+            })
+            .await
+            .expect("ready-send tasks complete before the failure deadline");
+        });
+    }
 }
 
 pub(crate) struct TestPtyGuard {
@@ -78,11 +118,42 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
 }
 
 impl ServiceFixture {
+    pub(crate) fn install_seeded_storage_desk(&self) -> crate::storage::Storage {
+        let storage = crate::storage::Storage::open(
+            &self.temp.path().join("runtime-desk"),
+            crate::storage::StorageConfig::default(),
+        )
+        .expect("open fixture storage desk");
+        let snapshot = self.service.mux.read().to_session_snapshot();
+        let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+        adapter
+            .import_snapshot(&snapshot, Vec::new())
+            .expect("seed fixture storage desk from current mux");
+        let state = adapter.state().expect("read seeded fixture storage desk");
+        assert_eq!(state.snapshot.workspaces.len(), snapshot.workspaces.len());
+        for workspace in &snapshot.workspaces {
+            let persisted = state
+                .snapshot
+                .workspaces
+                .iter()
+                .find(|entry| entry.record.id.as_str() == workspace.id)
+                .expect("current mux workspace is persisted");
+            assert_eq!(persisted.tabs.len(), workspace.tabs.len());
+            for tab in &workspace.tabs {
+                assert!(persisted.tabs.iter().any(|entry| entry.id == tab.id));
+            }
+        }
+        super::session_persist::install_storage_desk_adapter(self._app.handle(), adapter)
+            .expect("install seeded fixture storage desk");
+        storage
+    }
+
     pub(crate) fn set_agent_full_access(&self, full_access: bool) {
-        let mut config = crate::config::schema::AppConfig::default();
-        config.agent.full_access = Some(full_access);
-        let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
-        assert!(self._app.manage(config));
+        self._app
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .agent
+            .full_access = Some(full_access);
     }
 
     pub(crate) fn new(mux: MultiplexerState) -> Self {
@@ -141,12 +212,14 @@ impl ServiceFixture {
                 mux.attach_closed_store(store);
             }
         }
-        let builder = tauri::Builder::default();
-        #[cfg(windows)]
-        let builder = builder.any_thread();
+        let builder = crate::app_runtime::builder();
         let app = builder
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
+        let mut config = crate::config::schema::AppConfig::default();
+        config.agent.full_access = Some(false);
+        let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
+        assert!(app.manage(config));
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         let chatbackend_registry = Arc::new(crate::chatbackend::ChatBackendRegistry::new());
         let provider_registry = Arc::new(crate::provider::ProviderRegistry::new(
@@ -184,6 +257,14 @@ impl ServiceFixture {
         );
         let usage_store = crate::usage::UsageStore::open(&data_dir).unwrap();
         let service = ServiceContext {
+            lifecycle_journal: Arc::new(crate::session::lifecycle::TabLifecycleJournal::for_dir(
+                data_dir.join("sessions"),
+            )),
+            ready_user_send_tasks: Arc::new(TestReadySendTasks::default()),
+            workspace_relocation_lock: Arc::new(parking_lot::Mutex::new(())),
+            account: Arc::new(tokio::sync::OnceCell::new()),
+            billing: Arc::new(tokio::sync::OnceCell::new()),
+            analytics: Arc::new(tokio::sync::OnceCell::new()),
             agent_pad_data_dir: data_dir.clone(),
             launch_task_files: Arc::new(Mutex::new(HashMap::new())),
             mux: Arc::new(TimedRwLock::new("mux", mux)),
@@ -296,6 +377,11 @@ impl ServiceFixture {
                 codeterm_plugin::local_recording::LocalRecordingRegistry::default(),
             ),
             local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
+            local_recording_selections: Arc::new(
+                crate::service::local_recording::RecordingSelectionStore::open(
+                    data_dir.join("local-recording-selections.json"),
+                ),
+            ),
             local_recording_targets: Arc::new(
                 crate::service::receiver_target::ReceiverTargetStore::open(
                     data_dir.join("local-recording-targets.json"),
@@ -386,5 +472,132 @@ impl ServiceFixture {
             sticky,
             intent.level,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri::{Emitter, Listener};
+
+    #[test]
+    fn fixture_constructs_emits_and_drops_on_an_owned_thread_without_windows() {
+        std::thread::spawn(|| {
+            let (mux, _) = MultiplexerState::new();
+            let fixture = ServiceFixture::new(mux);
+            assert!(fixture._app.webview_windows().is_empty());
+            fixture.set_agent_full_access(true);
+            let config = fixture
+                .service
+                .app_handle
+                .state::<crate::config::ConfigState>();
+            assert_eq!(config.lock().agent.full_access, Some(true));
+            let (tx, rx) = std::sync::mpsc::channel();
+            let listener = fixture
+                .service
+                .app_handle
+                .listen("fixture-event", move |event| {
+                    tx.send(event.payload().to_owned()).unwrap();
+                });
+            fixture
+                .service
+                .app_handle
+                .emit("fixture-event", 42)
+                .unwrap();
+            assert_eq!(
+                rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap(),
+                "42"
+            );
+            fixture.service.app_handle.unlisten(listener);
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn seeded_storage_desk_preserves_current_mux_and_subsequent_session_writes() {
+        let (mux, _) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let workspace = fixture.service.mux.read().list_workspaces()[0].id.clone();
+        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+        let storage = fixture.install_seeded_storage_desk();
+        let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage);
+        let seeded = MultiplexerState::from_session_snapshot(&adapter.snapshot().unwrap());
+        assert!(seeded.get_tab(&tab_id).is_some());
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("supplied-thread".into());
+            tab.session_binding_nonce = Some("supplied-nonce".into());
+            tab.agent_runtime_config =
+                Some(serde_json::json!({"systemPrompt":"supplied-identity"}));
+        }
+        assert!(matches!(
+            super::super::session_persist::write_session_snapshot(
+                fixture._app.handle(),
+                &fixture.service.mux,
+            )
+            .unwrap(),
+            crate::session::store::SaveOutcome::Saved
+        ));
+        let persisted = MultiplexerState::from_session_snapshot(&adapter.snapshot().unwrap());
+        let tab = persisted.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_session_id.as_deref(), Some("supplied-thread"));
+        assert_eq!(tab.session_binding_nonce.as_deref(), Some("supplied-nonce"));
+        assert_eq!(
+            tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"],
+            "supplied-identity"
+        );
+        super::super::session_persist::stop_worker(fixture._app.handle()).unwrap();
+    }
+
+    #[test]
+    fn fixture_journals_isolate_identical_tabs_through_compaction_and_inspection() {
+        use crate::multiplexer::types::AgentRole;
+        use crate::session::lifecycle::{JournalRecord, LifecycleTransition};
+        let (mux, tab_id) = MultiplexerState::new();
+        let snapshot = mux.to_session_snapshot();
+        let first = ServiceFixture::new(mux);
+        let second = ServiceFixture::new(MultiplexerState::from_session_snapshot(&snapshot));
+        first.service.mux.write().get_tab_mut(&tab_id).unwrap().role = Some(AgentRole::Worker);
+        {
+            let mut mux = second.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.role = Some(AgentRole::Manager);
+            tab.role_profile = Some("planner".into());
+        }
+        let first_key = first.service.open_lifecycle_epoch(&tab_id).unwrap();
+        assert!(second.service.lifecycle_journal.load().records.is_empty());
+        let second_key = second.service.open_lifecycle_epoch(&tab_id).unwrap();
+        assert_ne!(first_key, second_key);
+        let records = second.service.lifecycle_journal.load().records;
+        assert!(records.iter().any(|record| matches!(record,
+            JournalRecord::Transition { entry } if matches!(&entry.transition,
+                LifecycleTransition::RoleBinding { role: Some(role), role_profile: Some(profile), .. }
+                    if role == "Manager" && profile == "planner"
+            )
+        )));
+        first.service.lifecycle_journal.compact().unwrap();
+        assert_eq!(second.service.lifecycle_journal.load().records, records);
+        let inspected = crate::dispatch::dispatch(
+            &crate::dispatch::Command::TabInspect {
+                tab_ids: vec![tab_id],
+                lifecycle: true,
+            },
+            &second.service,
+        )
+        .unwrap()
+        .into_json();
+        assert_eq!(
+            inspected[0]["lifecycle"]["transitions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert!(Arc::ptr_eq(
+            &second.service.lifecycle_journal,
+            &second.service.clone().lifecycle_journal
+        ));
     }
 }

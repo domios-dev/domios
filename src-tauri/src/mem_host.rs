@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod dreaming_cron_tests;
-mod worker_spawn_spec;
+pub(crate) mod worker_spawn_spec;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -129,7 +129,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
     }
 }
 
-struct AppMemEventSink(tauri::AppHandle);
+struct AppMemEventSink(crate::app_runtime::AppHandle);
 
 impl MemEventSink for AppMemEventSink {
     fn emit_graph_worker_spawned(&self, info: &GraphWorkerInfo) {
@@ -336,7 +336,7 @@ fn spawn_worker(
             handle.pty_id.as_deref().unwrap_or("?")
         );
 
-        let memory_config = crate::config::memory_config();
+        let memory_config = svc_task.configuration().memory;
         let run_deadline_secs =
             crate::mem::worker_deadline::worker_deadline_secs(&intent_for_spawn, &memory_config);
         let watchdog_deadline_secs =
@@ -538,8 +538,8 @@ pub fn resume_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
 }
 
 fn extract_pending(svc: Arc<ServiceContext>, limit: usize, explicit: bool) -> usize {
-    let mem_cfg = crate::config::memory_config();
-    let default_agent = crate::config::default_agent_provider();
+    let mem_cfg = svc.configuration().memory;
+    let default_agent = svc.configuration().general_agent.agent_provider;
     let mut pending = match codeterm_mem::auto_extract::find_pending_items(&svc.mem, limit) {
         Ok(p) => p,
         Err(e) => {

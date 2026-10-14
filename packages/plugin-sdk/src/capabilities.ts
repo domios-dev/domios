@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "./agentRuntime";
 export type PreTrustOutcome =
   | { status: "already_trusted" | "granted" }
   | { status: "skipped" | "failed"; reason: string };
@@ -115,6 +116,8 @@ export interface LaunchParams {
   starterPrompt?: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake";
   /** Host-owned text for starter prompts shared across providers. */
   starterPromptText?: string;
+  /** Host-owned opening frame for the selected starter turn. */
+  starterPromptPrefix?: string;
   /// Fixed local server the host wants this agent's structured-prompt handle to
   /// listen on. Set only for providers that declare `supportsStructuredPrompts`;
   /// the plugin maps it to the provider's own server flags (opencode:
@@ -1011,6 +1014,7 @@ export interface AgentCommandHandler {
 
 export interface PluginModule
   extends Partial<AgentProvider>,
+    Partial<AgentRuntime>,
     Partial<SecretBackend>,
     Partial<Transcriber>,
     Partial<Converter>,
@@ -1020,10 +1024,17 @@ export interface PluginModule
     Partial<WebhookReceiver>,
     Partial<AgentCommandHandler>,
     Partial<ModelProviderConfig> {
+  onPermissionChanged?(event: PermissionChangedEvent): void | { error: string };
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;
   glanceAction?(action: string, ctx: TabContext): unknown;
   // Test-only exports and other plugin-private members are allowed.
   [key: string]: unknown;
+}
+
+export interface PermissionChangedEvent {
+  permission: string;
+  allowed: true;
+  source: "install" | "action" | "settings";
 }

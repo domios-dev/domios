@@ -43,12 +43,22 @@ name: Release Linux x86_64 platform
 permissions:
   contents: write
 
+env:
+  DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+  DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+  DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+  DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+  DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+  DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
+  DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
+
 jobs:
   build:
     name: build (x86_64-unknown-linux-gnu)
-    if: ${{ vars.RELEASE_LINUX_ENABLED != 'false' }}
-    runs-on: [self-hosted, linux-build]
+    runs-on: [self-hosted, "${{ vars.RELEASE_LINUX_X64_LABEL || 'linux-build' }}"]
+    timeout-minutes: 120
     env:
+      CODETERM_SCCACHE_VERIFY_ONLY: '1'
       TARGET: x86_64-unknown-linux-gnu
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       # Absolute: the prebuild step runs from the repo root and tauri-action runs
@@ -61,7 +71,7 @@ jobs:
       APPIMAGE_EXTRACT_AND_RUN: '1'
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 0
@@ -104,13 +114,13 @@ jobs:
           rustup target list --installed | grep -E 'x86_64-unknown-linux-gnu' || rustup target add "$TARGET"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -128,9 +138,9 @@ jobs:
           SOURCE_REPO: ${{ github.repository }}
         shell: bash
         run: |
-          node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG"
+          node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG" linux-x86_64
           if [ "$PUBLISH_MIRROR" = true ]; then
-            GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
+            GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG" linux-x86_64
           fi
 
       - name: Build release bundle inputs
@@ -140,7 +150,7 @@ jobs:
       # Build and sign only. tauri-action's uploader reports a bare "Error saving
       # asset" with no status, body or asset name, which cost 1.11.3 four runs.
       - name: Build and sign release bundles
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           # If the signing key is encrypted, add TAURI_KEY_PASSWORD to
@@ -150,6 +160,24 @@ jobs:
         with:
           includeUpdaterJson: false
           args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }} --bundles deb,appimage
+
+      - name: Smoke built release bundle
+        run: node scripts/release-bundle-smoke.mjs linux "src-tauri/target/${TARGET}/release/bundle" "${{ inputs.source_ref }}" x64
+
+      - name: Verify local updater signatures before uploads
+        env:
+          TAG: ${{ inputs.tag }}
+          REPO: rollacode/codeterm-releases
+          PLATFORM_KEY: linux-x86_64
+        run: |
+          set -euo pipefail
+          for type in appimage deb; do
+            root="src-tauri/target/${TARGET}/release/bundle/$type"
+            sig=$(find "$root" -name '*.sig' | head -n1)
+            test -n "$sig"
+            UPDATER_SIG="$sig" UPDATER_BUNDLE="${sig%.sig}" OUT="$RUNNER_TEMP/verify-$type.json" python3 .github/workflows/build-updater-fragment.py
+            node scripts/verify-updater-manifest.mjs --manifest "$RUNNER_TEMP/verify-$type.json" --local "$root" --require-version "${TAG#v}" --require-platform linux-x86_64
+          done
 
       - name: Publish the Linux bundles
         if: ${{ !inputs.dry_run }}

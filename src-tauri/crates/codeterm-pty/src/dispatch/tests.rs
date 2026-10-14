@@ -98,6 +98,9 @@ fn test_command_result_into_json() {
 struct StartupBlockedPort;
 
 impl CommandPort for StartupBlockedPort {
+    fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad {
+        crate::session::lifecycle::JournalLoad::empty()
+    }
     fn mark_user_activity(&self) {}
 
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot {
@@ -968,4 +971,14 @@ fn tab_summary_preserves_live_agent_state_transitions() {
             .unwrap();
         assert_eq!(row["agent_state"], expected);
     }
+}
+
+#[test]
+fn workspace_set_cwd_deserializes_without_replacing_identity() {
+    let cmd: Command = serde_json::from_value(serde_json::json!({
+        "cmd": "workspace_set_cwd", "workspace_id": "existing", "cwd": "/new"
+    }))
+    .unwrap();
+    assert!(matches!(cmd, Command::WorkspaceSetCwd { workspace_id, cwd }
+        if workspace_id == "existing" && cwd == "/new"));
 }

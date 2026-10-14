@@ -69,6 +69,18 @@ Orchestrator's canonical wave batch.
 Never use a dev build as a local-install artifact, and never turn a local
 installer build into a public release by uploading it manually.
 
+The utility and browser crates use `./build.sh test-one util|browser <selector>`; these focused operations acquire the build gateway and accept `--wait-build`.
+The isolated detection crate uses `./build.sh test-one agent-detect <selector>` through the build gateway.
+The notification domain crate uses `./build.sh test-one notification-core <selector>`; focused runs enter the build gateway and support `--wait-build`.
+
+The isolated billing crate uses `./build.sh test-one billing <selector>`; workers defer Rust execution to canonical.
+
+The isolated usage crate uses `./build.sh test-one usage <selector> --wait-build`; it queues through the machine build gateway.
+
+The isolated account crate uses `./build.sh test-one account <selector>`; workers defer Rust execution to canonical.
+
+The repository watcher crate uses `./build.sh test-one repowatch tests::`; its Tauri event adapter remains in the app.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.
@@ -104,6 +116,115 @@ minimum version or change the tuned profiles to hide the rebuild.
 CLI builds rely on `cli/build.rs` watching Git HEAD and its branch reference;
 do not touch `cli/src/main.rs` to force a rebuild. Repeated builds at the same
 SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
+
+## Shared compile cache
+
+`build.sh` owns cache setup through `scripts/cache-policy.sh`; `build.ps1`
+forwards to it. Release, DEV and capped Rust tests use the same configuration.
+On eight, air, ubunta, ROG, BLACKSTAR and green, first run
+`codeterm mem secret sync`. The two vault entries are
+`domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key`.
+Build setup resolves both directly into process environment variables
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; never write them to a file,
+argv, logs or memory. It exports `SCCACHE_ENDPOINT=http://100.64.10.5:9000`,
+`SCCACHE_BUCKET=sccache`, `SCCACHE_REGION=us-east-1` and
+`SCCACHE_S3_USE_SSL=false`. Setup reads the running server's actual location
+first. Matching S3 bucket or local disk storage is reused, even while
+Cargo is active. Only a storage mismatch restarts the server; an active
+Cargo/rustc process then refuses the change with exit 75. Serialize machine
+build ownership before changing storage. Each setup checks the actual server;
+no inherited process marker can bypass a required storage transition.
+A caller that cannot resolve the keys reuses any running S3 server with its
+server-owned credentials; it never downgrades that server to local disk.
+A matching S3 bucket keeps its running key prefix, even if a caller requests
+another prefix. Prefix/credential/size maintenance needs an explicitly owned
+idle server transition; ordinary builds never reset a matching server.
+Every setup prints `sccache: shared S3 cache at <endpoint>/<bucket>` or
+`sccache: local disk cache at <dir> (reason)`, without credentials.
+When either secret is unavailable and no S3 server is running, one log line
+announces local disk fallback;
+`SCCACHE_CACHE_SIZE` retains its existing default of `10G` and custom limits.
+A configured shared endpoint that cannot start is an error, not a claimed hit.
+
+`./build.sh cache-status` (Windows: `.\build.ps1 cache-status`) resolves the
+configured location, reads the running server's actual `Cache location`, and
+checks the shared endpoint's health URL. It starts no build or cache server,
+and changes no hooks or compiler environment. Configured and actual locations
+can differ until the next idle setup restarts the server.
+
+CI uses `./build.sh cache-verify` (Windows: `.\build.ps1 cache-verify`). It prints
+configured and actual storage plus endpoint health, exits 0 only when both storage
+checks select the shared S3 bucket, and otherwise exits 2. It never starts or
+restarts a server or checks for an idle machine. Set
+`CODETERM_SCCACHE_VERIFY_ONLY=1` in each CI build process so build setup follows
+that same verification path. Provision local-to-S3 storage separately while idle.
+
+BLACKSTAR-CI WSL builds are owned by a Windows runner. That Windows parent runs
+`codeterm mem secret sync`, resolves both vault entries into `AWS_ACCESS_KEY_ID`
+and `AWS_SECRET_ACCESS_KEY`, and sets `CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`.
+Forward these three names through `WSLENV` to the WSL process; append them to any
+existing `WSLENV` list. Values stay exclusively in process environment, never
+runner `.env`, command arguments, files or logs. This explicit source selects
+inherited runner credentials instead of querying an unavailable WSL vault CLI.
+Both values are required. No standalone WSL Worker builds are supported; keep
+Windows interop and mount settings unchanged. Select pinned Rust 1.95.0 only in
+the build process, preserving the machine's default toolchain.
+
+Post-release follow-up: establish a shared Linux user or an approved `/opt` path
+and compare cold/consumer hit and miss data at identical checkout, Cargo and
+compiler paths. The 1.14.7 Linux contract accepts different paths and does not
+claim cross-machine reuse.
+
+For cross-machine Rust reuse, macOS and Windows CI use identical **physical** paths.
+Linux uses user-owned per-machine paths for 1.14.7; cross-machine Linux hits are
+not expected because the usernames differ. No sudo or shared user is required:
+
+| Builders | Checkout | CARGO_HOME |
+|---|---|---|
+| eight, air | `/Users/Shared/domios-ci/work/codeterm` | `/Users/Shared/domios-ci/cargo` |
+| ROG, BLACKSTAR, green | `C:\domios-ci\work\codeterm` | `C:\domios-ci\cargo` |
+| ubunta | `/home/dev/domios-ci/work/codeterm` | `/home/dev/domios-ci/cargo` |
+| BLACKSTAR WSL | `/home/ci/domios-ci/work/codeterm` | `/home/ci/domios-ci/cargo` |
+
+Only the exact CI checkout paths above use checkout-local `target-check` for
+exceptional test compilation; other worktrees retain gateway target isolation.
+Each machine owns its own clean Cargo target; no target directory is shared
+across machines or worktrees. Pin the repository toolchain, target triple,
+profile, features and build environment on each same-OS pair. Developer
+checkouts stay at their existing paths and use shared storage when credentials
+resolve, but different paths may miss. Shared macOS directories need write
+access for each local builder account; they contain source and disposable Cargo
+artifacts, never credentials.
+
+Sccache 0.17 documents `SCCACHE_BASEDIRS`, but its Rust
+[`generate_hash_key`](https://github.com/mozilla/sccache/blob/v0.17.0/src/compiler/rust.rs)
+hashes cwd and Cargo environment paths directly, without that rewriting.
+Keep the issue #327 guard; BASEDIRS alone cannot prove Rust path independence.
+Upstream Rust normalization is a separate follow-up. Also match
+toolchain executable paths: `CARGO` is hashed. Select the pinned toolchain under
+`/Users/Shared/domios-ci/rustup/toolchains/` on macOS,
+`C:\domios-ci\rustup\toolchains\` on Windows, or
+`/home/dev/domios-ci/rustup/toolchains/` on ubunta or
+`/home/ci/domios-ci/rustup/toolchains/` in BLACKSTAR WSL in the builder process PATH;
+do not change developer toolchain defaults. See the builder path
+contract in `.codeterm/build-machine/README.md`.
+
+Measure a newly created checkout at one SHA with an empty target on each
+same-OS pair, first the populating builder and then the consuming builder.
+Capture `sccache --show-stats`, `rustc -vV`, the SHA, exact command, raw exit and
+wall time. Compute hit rate as hits / (hits + misses), excluding noncacheable
+calls; a successful build alone is not cache-hit proof.
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| CI refuses with exit 75 while another build is running | CI invoked cache configuration instead of read-only verification | Use `cache-verify` and set `CODETERM_SCCACHE_VERIFY_ONLY=1` for subsequent CI build processes. Provision storage separately while idle. |
+| A dev build requests S3 but refuses with exit 75 after another caller switched the server back to local | An unresolved-key caller could downgrade a previously shared server | Keep the no-downgrade guard: missing keys reuse running S3; keys may switch local to S3 only while idle. Verify `bash scripts/check-shared-sccache.sh`. |
+| Local fallback line on an intended builder | One or both vault entries could not resolve | Run `codeterm mem secret sync` locally, inspect secret backend status, then rerun with the machine idle. Never print the values. |
+| Shared server startup fails | Endpoint unreachable, credentials rejected, or installed sccache lacks S3 support | Verify Tailscale connectivity and tool features; inspect metadata and server health without secret logging. Preserve the failed receipt. |
+| Windows build reports MSVC not found despite an installed VS 2022 C++ workload | The VC tools are installed outside the default BuildTools directory | Use `setup_env` discovery through the installed `vswhere` utility; the default tools remain first choice, and discovered host/cross compiler paths also enter process PATH. Verify `source build.sh env` and `bash scripts/check-msvc-discovery.sh`; install nothing or change no global PATH for a relocated installation. |
+| Windows PowerShell refuses `build.ps1` because scripts are disabled | The shell process uses a restrictive execution policy | Invoke the authorized build through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1 <operation>`; this changes only that process, never machine policy. |
+| Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
+| Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
 
 ## Cache retention and troubleshooting
 
@@ -271,6 +392,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted Domios and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | Local install cannot read Tauri permissions under a deleted release directory | A relocated Cargo target retained absolute build-script `root-output` paths. | `install-local` now detects mismatched output roots before Cargo, preserves that exact cache in a sibling `.relocated-*` directory, and regenerates its local target; it leaves current warm caches and the machine sccache intact. |
+| `test-one app usage_routes` exits 97 with zero matches | The usage route module had no tests, so the assigned selector had no oracle. | Add focused query and persisted wire-contract coverage in that module, then rerun the same selector; never accept zero matches or replace it with the whole app suite. |
 | A focused Rust test spends most of its runtime linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`. |
 | PowerShell drops the standalone `--` before `--nocapture`, so Cargo rejects `--nocapture` as its own option | Native argument forwarding consumed the test-harness separator before Git Bash received it | Run the exact wrapper command through `bash -lc 'scripts/test-capped.sh ... <filter> -- --nocapture'` so the separator reaches Cargo's test binary. |
 | `verify` fails `daemon_windows_spawns_use_no_window_helper` after adding a Rust test fixture that invokes Git | The fixture constructed `std::process::Command` directly, so Windows could flash a console and the repository spawn audit rejected it | Build the command in a mutable variable and call `crate::process_util::no_window_std(&mut command)` before execution; run the spawn audit and the owning focused test, then retry `verify`. |
@@ -298,6 +420,12 @@ add a short symptom/cause/recovery row here before closing the work.
 
 Do not use `dev --wait` for an interactive Windows session. It is reserved for
 automation that needs a detached health gate and does not prove a visible window.
+
+### Crate extraction troubleshooting
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| A moved browser locator fails with E0433 at `dirs::home_dir()` | The extracted crate did not declare an existing third-party dependency that the app previously supplied | Declare `dirs = "6"` directly in the browser manifest, refresh the workspace lockfile, and rerun the focused check when the build owner authorizes it. |
 
 ### Focused Windows test prerequisite troubleshooting
 
@@ -369,7 +497,7 @@ was written is visible rather than silently reclassified.
 An owner that is wedged rather than dead is a different failure and is not
 reapable: see the `release-preflight` FIFO teardown row below.
 
-Use `./build.sh help` as the command index. `test-one <app|frontend-bundle|plan|pty|pty-fork|types|mem|mesh|plugin|plugins|cli> <filter>`
+Use `./build.sh help` as the command index. `test-one <account|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|mem|mesh|plugin|plugins|cli> <filter>`
 hides manifest/package details for focused tests. `frontend-bundle` (also
 `codeterm-frontend-bundle`) runs the isolated bundle crate through the gateway. The `types` and `cli`
 selectors include all Cargo targets so integration and binary tests are
@@ -378,12 +506,38 @@ target is its own test binary and prints its own `test result` line, so a
 target reporting `0 passed` only means the filter matched nothing there. Judge
 the run by the per-test `... ok` lines of the target that owns the test.
 `nextest <scope> [filterset]` uses the build gateway, compiles with
-`cargo nextest run --no-run`, then runs through `scripts/test-capped.sh` with
+`cargo nextest list --list-type binaries-only`, then runs through `scripts/test-capped.sh` with
 `--no-tests=fail`; it accepts the same scope names plus Cargo package names.
+Every `nextest` operation compiles a binaries-metadata inventory, saves Cargo
+metadata and reuses that exact inventory for execution. It captures per-test
+timings at normal parallelism. `check-slow-unit-tests.mjs LOG --candidates JSON`
+selects new or over-baseline timings above one second; the runner measures only
+those exact tests alone, reusing metadata without any Cargo build flags.
+`check-slow-unit-tests.mjs LOG --alone ALONE_LOG` reports both measurements and
+keeps the one-second target visible: alone times from 1.0 to 1.25 seconds warn;
+new alone times above 1.25 seconds fail. Existing regressions fail only above
+baseline + max(20%, 0.25 seconds); smaller increases warn.
+`scripts/slow-unit-tests.json` records alone durations and may only shrink against
+`origin/develop` (`SLOW_UNIT_TESTS_BASE` overrides the ref). Missing or partial
+timings fail closed, and test failures retain their original exit codes.
+Primary runs explicitly disable fail-fast for every manifest so one failed test
+does not cancel the remaining timing inventory.
+For an explicitly authorized bootstrap measurement, use `NEXTEST_TEST_THREADS=1
+SLOW_UNIT_TESTS_MEASUREMENT=alone` on the exact candidate selector; the runner
+refuses that mode without serial execution. Ordinary suites retain default
+parallelism.
+The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
+crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
+may only shrink after its first landing. `scripts/unit-test-benchmarks.json`
+contains exact benchmark identities with explicit throughput/latency reasons.
+Exemptions print their identity, timing and reason, preserve test failures,
+and cannot be added or changed after their first landing without review.
+Benchmarks never receive a slow-unit baseline allowance.
+
 Filtersets use nextest's `--filter-expr` syntax. A filterset containing
 `rdeps(...)` runs workspace targets so reverse dependents remain in scope.
 `verify` runs the standard
-check, full Rust workspace library suite, and source-size integration gate.
+check, full Rust workspace library suite, and source-size and provider-boundary integration gates.
 Rust tests keep the repository-owned `scripts/test-capped.sh` wrapper but wait
 for Cargo and libtest to finish by default. For a targeted diagnostic only, set
 `TEST_CAP_SECS=<positive-seconds>`; an enforced cap terminates the test process
@@ -448,6 +602,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Restoration integration fails with E0432/E0603 | Cross-crate request/result reexports were removed and the socket imported a private service module. | Export the two store types from task_attempts and route socket imports through the existing service facade; rerun `check-tests` before focused gates. |
 | `check-tests` reports E0505 in same-attempt binding restoration | The transaction borrowed `request.plan_id` while its closure consumed the request receipt. | Clone the transaction lookup ID before the closure; rerun `check-tests` and the focused plan/app restoration selectors. |
 | CI spawn audit flags a command factory and its subprocess fixture; Linux Clippy also reports `err_expect` | Moving command construction separated it from the audited no-window helper; the fixture omitted that helper and assertions used `err().expect()` | Apply `no_window_std` when constructing each command, retain the spawn audit unchanged, and use `expect_err` for these assertions. Run the focused spawn audit and executor tests, then the failed Clippy gate before a fresh-head platform run. |
+| App wiring tests fail to resolve `Motion` after detection extraction | Moving tests outside the classifier module removed an inherited private import | Import `Motion` directly from `signal_extractor` in the wiring test; rerun its focused app selector. |
 | `check` passes but `check-tests` reports E0433 for `mpsc` in shared-state tests | Parent import cleanup removed the module alias inherited by child tests through `super::*` | Import `std::sync::mpsc` explicitly in the owning test module, then rerun `check-tests`. |
 | `check-tests` reports E0046 for `NativeUpdateFixture`, missing `detect_session_id` | The provider-update parity fixture omitted a required `AgentProvider` method | Implement the fixture's unused session detector with `None`, then rerun `check-tests` and the focused `parity_update` filter. |
 | Courier integration reports E0603 for `build_prompt` and E0599 for `tab_is_idle` | App tests called a plugin-private fixture helper; the update refactor removed an idle helper still used by restart and model switching | Construct `PendingPrompt` from its public fields in the test and restore the unchanged pre-merge `tab_is_idle` helper, then rerun `check-tests` and the provider-update and restart filters. |
@@ -460,6 +615,8 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | `npm run test:unit` terminates healthy workers at the same elapsed time while files are still passing | The TypeScript scheduler applied an implicit suite deadline, so repository growth was misclassified as a hang | Use the current uncapped default and let the suite finish. Set `TS_UNIT_TIMEOUT_SECONDS` or `TS_UNIT_SUITE_TIMEOUT_SECONDS` only for a targeted diagnostic. |
 | `bash scripts/test-capped.test.sh` exits 141 before printing an assertion | Its host-triple probe closed the `rustc -vV` pipe early under `pipefail`, so rustc received SIGPIPE | Keep the probe consuming the complete rustc output; then rerun the shell contract. |
 | The test-capped shell contract exits 2 when simulating a Windows target on macOS | The fixture asked the wrapper to synthesize a foreign-platform embed sidecar with the local rustc host | Seed the fixture's inert Windows sidecar before testing Windows target selection. |
+| `state.lock/start_token: No such file or directory` or a missing `state.lock/pid` under contention | The old mutex published an empty directory before writing ownership; another acquirer reclaimed it during initialization. | Update the gateway scripts. Ownership now publishes a complete temporary directory by atomic rename, with publication/reclamation serialized by `state.lock.guard`. Incomplete ownership is never stale: callers observe filesystem changes until the 30-second failure deadline, then exit 75. The guard atomically publishes its helper pid and native process start token under a unique owner directory. A proven missing/reused helper is reclaimed automatically; live or unreadable identities remain bounded refusals. For unreadable ownership, stop gateway callers, verify no owner remains, and run the exact `rm -rf -- <blocked-path>` recovery command printed by the refusal. Verify with `node --test scripts/build-gateway-mutex.test.mjs`. |
+| `check-build-gateway-mutex-cleanup.sh` exits 127 with `coproc: command not found` on macOS | The fixture assumed Bash 4 while macOS provides Bash 3. | Update the fixture to its FIFO readiness handshake, then rerun `bash scripts/check-build-gateway-mutex-cleanup.sh`; it uses fake compiler children and compiles no Rust. |
 | A build exits with `Timed out acquiring build gateway state mutex` | Another live or stale gateway owner held the state mutex through the acquisition deadline. The failed invocation now terminates only its own Cargo/rustc descendants before returning. | Run `./build.sh gateway-status` to inspect the active and queued job IDs. If a job is stale, run `./build.sh gateway-cancel <job-id>`, then rerun the original command. |
 | `build.ps1 check` exits 75 because the visible dev owns the gateway | The canonical incremental target is intentionally single-owner; waiting behind a foreground dev process cannot complete. | Stop and make an explicit canonical integration decision. Do not move the command into a Worker lane, add `--wait-build`, or hand-compose `CARGO_TARGET_DIR`. |
 | A Windows dev build fails while writing `codeterm_lib.lib` with `os error 112` or a localized “not enough disk space” message | The canonical `src-tauri/target` exhausted the checkout drive while Cargo was replacing the debug archive. | Verify the failure owns the canonical target and no dev build is running, then run `.\build.ps1 clean`. Confirm free space before restarting `.\build.ps1 dev`; do not delete another worktree's target or touch production. |
@@ -488,8 +645,8 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | A focused `npx tsx` test on Windows reports `'tsx' is not recognized` even though `node_modules/.bin/tsx.cmd` exists | An inherited PATH longer than the legacy child-shell limit prevents the npm batch shim from resolving Node. | Resolve Node in PowerShell with `(Get-Command node.exe).Source` and invoke `node_modules/tsx/dist/cli.mjs <test-file>` directly; then remove stale PATH entries from the parent environment before the next session. |
 | `pnpm test:unit <filter>` starts from PowerShell but its npm child says `node is not recognized` | The pnpm launcher found Node by absolute path, while the nested npm script re-resolved `node` through a child shell whose executable lookup failed. | Invoke the repository unit runner with the resolved Node executable and the same filter (`node scripts/run-ts-unit-tests.mjs <filter>`); do not alter global PATH during a gate. |
 | `release-preflight` times out a provider-update test while its focused suite passes | The event-driven test's failure deadline was shorter than full-suite scheduler contention, so a healthy background transition was classified as missing. | Keep the test waiting on the emitted effect and use the full-suite-safe failure deadline; rerun the focused provider-update suite, then `release-preflight`. Do not add a sleep or make elapsed time a success condition. |
-| Windows `release-preflight` prints `Build gateway job ... exit: 0` but never returns | Git Bash orphaned the FIFO `tee` reader after every gate completed, so gateway log teardown waited forever despite a successful command status. | Interrupt only the stuck wrapper, set `CT_BUILD_GATEWAY_NO_TEE=1` for the retry, and rerun the complete named operation. Do not treat the printed inner exit as a completed preflight. |
-| Every gateway-backed command exits 75 naming a job whose log already ended `exit: 0` | That wedged wrapper still owns the machine slot. `build_gateway_logging_on_exit` waits on the log reader before calling `ct_gateway_finish`, so the lock is held for the whole hang, and the owner is alive — the reaper correctly refuses to reap it. | Interrupt the wedged wrapper. The next acquire then reaps it on its own and records `owner_lost` with the recovered `command_exit_code`; `gateway-cancel` is only needed to inspect. Do not wait it out and do not age the lock. |
+| A gateway log ends with `exit: 0` but the wrapper never returns | A FIFO reader can remain blocked after the writer closes, retaining the machine slot. | Update `build.sh`: reader EOF now has a 10-second failure deadline after writer closure; expiry terminates only the matching reader, exits 74, releases the gateway, and preserves `command_exit_code` (including 0). Inspect `gateway-status` for `logging_failed`; do not interpret inner success as wrapper success. Verify with `./build.sh gateway-logging-check`, whose stuck-reader fixtures preserve command exits 0 and 101. For a wrapper running the old script, interrupt only that wrapper and inspect the reaped job before another operation. |
+
 | Dev opens with a runtime identity mismatch while `codeterm-web-watch.log` repeats `'vite' is not recognized` | The Windows watcher launched Vite through a nested pnpm lifecycle shell that lost local executable lookup, leaving `dist/` stale while the daemon rebuilt. | Use the current dev operation, which launches Vite through the resolved Node process and package entrypoint, then restart dev and verify the runtime/UI identity banner is gone. |
 | `build.ps1 check` cannot resolve a newly re-exported plan mutation type | A split mutation module relied on `use super::*`, but the parent module did not import that public service type. | Import the type explicitly from `crate::service_plan`, then rerun the same canonical check. |
 | A focused app test passes `&ServiceContext` to a helper that only borrows service state but compilation expects `&Arc<ServiceContext>` | The helper accepted the runtime `ServiceState` alias even though it did not need shared ownership, making ordinary test fixtures incompatible. | Narrow the helper parameter to `&ServiceContext`; runtime `Arc` callers deref-coerce while fixtures pass the same service directly. Rerun the exact focused test. |
@@ -503,7 +660,9 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
 | Semantic-search tests execute a zero-byte `codeterm-embed` | A compile stub reached a real embedding test. | Build the debug sidecar before Rust library tests. |
 | `verify` downloads FastEmbed into a temporary test data directory and fails on a model-host outage | The Rust test wrapper let fixture-owned `CODETERM_DATA_DIR` choose the immutable model cache. | Use the current wrapper, which exports one machine-shared `CODETERM_EMBED_CACHE_DIR`; override it explicitly only for cache diagnostics. |
-| macOS task-authority tests panic creating a mock Tauri `EventLoop` | Six tests used the shared Windows-only `ServiceContext` fixture without the fixture's non-Windows ignore boundary, so libtest created the event loop off the macOS main thread. | Mark every test using that fixture ignored off Windows and keep portable authority logic covered by its headless tests. |
+| CLI essence-map test fails after a capability status wording update | The test pinned source prose rather than the status preservation mechanism. | Inject opaque statuses into fixture capability rows and assert those supplied values round-trip; retain node/edge assertions. |
+| Nextest metadata reuse exits 2 with `--manifest-path cannot be used with --cargo-metadata` before selecting tests | The reuse invocation retained a Cargo build selector. | Pass only the saved binaries/Cargo metadata and runtime/filter options to the capped execution phase; keep manifest/package/feature selectors exclusively on the inventory compilation. Rerun the same bounded selector, preserving the zero-executed receipt. |
+| macOS task-authority tests panic creating a Tauri `EventLoop` | The fixture built Wry on a libtest thread. | Use `app_runtime::builder()` and runtime aliases so `cfg(test)` constructs MockRuntime; remove fixture-only desktop ignores. Keep real native window oracles explicitly platform-gated. |
 | Unix REST lifecycle bind gets `Address already in use` | A guessed test port can collide; restart listeners overlap during handoff. | Prebind OS-assigned generation one; enable `SO_REUSEPORT` on every Unix bind. |
 | REST port-release fails only in the parallel macOS suite | Closing a real occupier races Darwin. | Inject the first bind failure, then prove recovery binds a healthy listener. |
 | Linux clippy rejects a test-only parameter | Only `cfg(test)` uses it. | Keep injection at the test call site, outside production signatures. |
@@ -523,6 +682,14 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Plugin test compilation cannot read an include_str! fixture | The relative fixture path traversed one directory beyond the repository root. | Resolve the path from the owning Rust source directory, correct the traversal, and rerun the same focused plugin gate before proceeding. |
 
+A moved repository-watcher source guard can fail with “expected the repository-watch sources, found 1” if it still scans the app path. Scan the new crate sources and retained app adapter, keep channel failure deadlines in test support, then rerun `./build.sh test-one repowatch tests::`.
+
+## Focused analytics checks
+
+`./build.sh test-one analytics tests::` runs the isolated product analytics crate
+through the capped Rust runner in canonical. Workers only format its Rust sources;
+its HTTP fixtures use a local fake destination with synthetic retry timestamps.
+
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `.agents/skills/build-reference/SKILL.md`. Test workflows: `.agents/skills/testing/SKILL.md`.
@@ -541,4 +708,34 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 17 -->
+
+
+## Build-time vendor configuration
+
+Inject these environment variables before the app build; CI reads GitHub secrets
+with the same names. Empty or missing secrets do not fail compilation.
+
+- DOMIOS_FIREBASE_API_KEY
+- DOMIOS_FIREBASE_PROJECT_ID
+- DOMIOS_FIREBASE_APP_ID
+- DOMIOS_ACCOUNT_REDEEM_URL
+- DOMIOS_BILLING_FUNCTIONS_URL
+- DOMIOS_AMPLITUDE_API_KEY_TEST
+- DOMIOS_AMPLITUDE_API_KEY_PROD
+
+Account, billing and analytics own one build_config module each, using option_env!.
+Only vendor adapters consume it. Runtime account and billing config overrides
+the compiled defaults; Amplitude prefers the compiled key over the secret store.
+Without Firebase values account uses local; without a billing endpoint billing
+returns free locally and reports subscription actions unavailable. Missing
+Amplitude credentials leave queued events undelivered with unavailable status.
+Changing build-time values requires rebuilding; never commit vendor credentials.
+Before Hosting deployment, run node cloud/write-signin-config.mjs with the
+Firebase variables exported; the generated config.json remains ignored.
+
+Fresh lanes may lack node_modules: pnpm exec tsc or vitest reports "Command not
+found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND for
+esbuild or tsx. Run
+pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
+non-Rust checks. A failed dependency lookup selected no executable tests.
+<!-- revision: 28 -->

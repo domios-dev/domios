@@ -81,6 +81,16 @@ fn remote_attempt_ack_deadline_marks_attempt_explicitly() {
         )
         .unwrap());
 
+    assert!(store
+        .acknowledge_remote_dispatch(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            "peer-origin",
+            "remote-worker-tab",
+            7
+        )
+        .is_err());
     let task = store.show_task(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::Pending);
     assert!(task.assigned_tab_id.is_none());
@@ -90,6 +100,7 @@ fn remote_attempt_ack_deadline_marks_attempt_explicitly() {
         Some(crate::plan::RemoteDispatchState::RemoteAckTimeout)
     );
     assert_eq!(attempt.mesh_peer.as_deref(), Some("peer-origin"));
+    assert_eq!(attempt.retired_at, Some(5));
     assert_eq!(attempt.executor_tab_id, "remote-worker-tab");
 }
 

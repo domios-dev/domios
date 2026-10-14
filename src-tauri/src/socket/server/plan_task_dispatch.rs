@@ -1,3 +1,4 @@
+use crate::app_runtime::AppHandle;
 use crate::plan::TaskLaneMetadata;
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, RegressionDispatchDecision,
@@ -10,7 +11,6 @@ use crate::service::{
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_refs;
@@ -27,6 +27,7 @@ pub(super) mod lane_safety;
 mod preflight;
 mod recovery;
 pub(super) mod remote;
+pub(crate) mod remote_recovery;
 mod routing;
 mod startup;
 mod tab_reservation;
@@ -439,7 +440,7 @@ where
     preflight_dispatch_task_status(&plan_id, &detail.task)?;
 
     // Group records stay visible without taking the dispatch path away.
-    let plan = store
+    store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
     let caller = crate::service::AuthenticatedPlanCaller {
@@ -460,6 +461,13 @@ where
         message,
         data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
     })?;
+    remote_recovery::recover_remote_attempts(svc, &plan_id, &task_id, now, false)?;
+    let detail = store
+        .show_task(&task_id)
+        .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+    let plan = store
+        .get(&plan_id)
+        .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
     refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
     let regression_warning = regression_dispatch_warning(regression_dispatch_decision(&plan));
     // Same frontier policy for the review WIP gate: decide before any tab
@@ -489,7 +497,7 @@ where
         &svc.agent_registry,
         owned_str(p, "agent").as_deref(),
         requested_model.as_deref(),
-        &crate::config::default_agent_provider(),
+        &svc.configuration().general_agent.agent_provider,
     )
     .map_err(super::model_errors::invalid_model_rpc_error)?;
     let resolved_provider = model_selection.provider_id;
@@ -553,6 +561,7 @@ where
     )
     .map_err(plan_rpc_err)?;
     let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+        &svc.configuration(),
         &svc.agent_registry,
         &resolved_provider,
         selected_model.clone(),
@@ -709,6 +718,9 @@ where
         parent_tab_id: Some(parent_tab_id.clone()),
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
+        execution_intent: Some(execution_intent.clone()),
+        authorized_gates: authorized_gates.clone(),
+        provider_reserve_pct: Some(reserve_pct),
         workspace_id: owned_str(p, "workspace_id"),
         model: selected_model.clone(),
         planned_model: detail.task.model.clone(),

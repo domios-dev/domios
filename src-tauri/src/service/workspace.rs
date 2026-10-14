@@ -9,6 +9,15 @@ use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::TeamMutationCaller;
 use tauri::Manager;
 
+pub(crate) fn create_workspace_with_count(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    name: String,
+    cwd: Option<String>,
+) -> (WorkspaceInfo, u32) {
+    let ws = mux.create_workspace(name, cwd);
+    (ws, super::analytics::count(mux.workspace_count()))
+}
+
 pub(crate) const MAX_WORKSPACE_NAME_CHARS: usize = 64;
 
 pub(crate) fn validate_workspace_name(name: &str) -> Result<(), String> {
@@ -148,19 +157,33 @@ impl ServiceContext {
             }
         }
 
-        let ws = self.mux.write().create_workspace(name, cwd.clone());
+        let (mut ws, workspaces) =
+            create_workspace_with_count(&mut self.mux.write(), name, cwd.clone());
         if activate {
             let _ = self.mux.write().set_active_workspace(&ws.id);
         }
+        ws.cwd_missing = self.refresh_workspace_cwd_state(&ws.id)?;
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
+        self.record_product_event(codeterm_analytics::Event::WorkspaceCreated { workspaces });
         Ok(ws)
     }
 
     pub fn focus_workspace(&self, id: &str) -> Result<(), String> {
-        self.mux.write().set_active_workspace(id)?;
+        let switched = {
+            let mut mux = self.mux.write();
+            let switched = mux
+                .get_active_workspace()
+                .map(|workspace| workspace.id.as_str())
+                != Some(id);
+            mux.set_active_workspace(id)?;
+            switched
+        };
+        if switched {
+            self.record_product_activity();
+        }
         let cwd = self
             .mux
             .read()
@@ -168,6 +191,7 @@ impl ServiceContext {
             .into_iter()
             .find(|w| w.id == id)
             .and_then(|w| w.cwd);
+        self.refresh_workspace_cwd_state(id)?;
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
         let _ =

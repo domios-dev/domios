@@ -5,11 +5,13 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs BLUEPRINTS` — Bounded status probes, changed-output classification and safe transition routes.
 - `codeterm docs BLUEPRINT-RECIPES` — Blueprint graph use-case patterns and built-in recipe skeletons.
 - `codeterm docs CONFIG` — Application configuration reference.
+- `codeterm docs ACCOUNT` — Domios account sign-in and opt-in product analytics settings.
 - `codeterm docs NOTIFICATIONS` — Notification levels, per-level surfaces, sound, and push channels.
 - `codeterm docs INTEGRATIONS` — Messaging, hooks, transcription, and secret-backed integration settings.
 - `codeterm docs RUNTIME-CONFIG` — Runtime, UI, session, cron, and memory settings.
 - `codeterm docs API` — REST, socket, and CLI integration reference.
 - `codeterm docs API-TABS` — Tab and workspace REST contracts.
+- `codeterm docs API-CHAT` — Chat send, admission, transcript, and snapshot REST contracts.
 - `codeterm docs API-REPAIR` — Tab identity repair REST contract.
 - `codeterm docs API-ADOPT` — Tab live-PTY adopt REST contract.
 - `codeterm docs API-EVENTS` — Event stream and full-state snapshot load contracts.
@@ -49,4 +51,4 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs TEST-AUTHORING` — Focused test authoring rules.
 - `codeterm docs ESSENCE-MAP` — Source-backed essence map generation and validation.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 fn prompt() -> PendingPrompt {
     PendingPrompt {
+        request_id: None,
         question: "opaque-question".into(),
         options: vec![PromptOption {
             label: "opaque-option".into(),
@@ -190,4 +191,103 @@ fn captured_followup_menu_reaches_pending_prompt_but_numbered_echo_does_not() {
         "/../plugins/provider-codex/tests/fixtures/tab-state/echoed-numbered-message.txt"
     ));
     assert!(parse_live_prompt(&provider, echo).is_none());
+}
+
+#[test]
+fn retained_model_pickers_reach_live_pending_prompt_with_structural_evidence() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for (provider_id, fixture, count) in [
+        ("claude", "model-picker-r3", 5),
+        ("codex", "model-picker-r3", 7),
+        ("cursor", "model-picker", 10),
+    ] {
+        let plugin_dir = root.join(format!("plugins/provider-{provider_id}"));
+        let mut manifest: PluginManifest =
+            serde_json::from_str(&std::fs::read_to_string(plugin_dir.join("plugin.json")).unwrap())
+                .unwrap();
+        manifest.id = format!("picker-fixture-{provider_id}");
+        let vm = PluginVm::from_source(
+            &manifest.id,
+            std::fs::read_to_string(plugin_dir.join("plugin.js")).unwrap(),
+        )
+        .unwrap();
+        let provider = JsProvider::new(manifest, Arc::new(vm));
+        let screen = std::fs::read_to_string(root.join(format!(
+            "testbench/snapshots/{provider_id}/{fixture}/screen.txt"
+        )))
+        .unwrap();
+        let (prompt, kind) = parse_live_prompt(&provider, &screen)
+            .unwrap_or_else(|| panic!("{provider_id}: retained picker resolves on the live path"));
+        assert_eq!(kind, PromptKind::Provider);
+        assert!(!prompt.question.is_empty());
+        assert_eq!(prompt.options.len(), count, "{provider_id}");
+        assert!(crate::agent::state_reactor::has_structural_prompt_evidence(
+            &screen, &prompt,
+        ));
+        assert!(!crate::agent::state_reactor::prompt_is_composer_text(
+            &screen, &prompt,
+        ));
+        let mut detector = crate::agent::prompt::PromptDetector::new();
+        let decision = detector.evaluate_pty_output_parsed(
+            provider_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt: prompt.clone(),
+                explicit: false,
+            }),
+        );
+        assert!(matches!(
+            decision,
+            crate::agent::prompt::PromptDecision::NewPrompt { .. }
+        ));
+        assert_eq!(detector.active_prompt(provider_id), Some(&prompt));
+        assert!(
+            !crate::agent::state_reactor::has_structural_prompt_evidence(
+                &format!("{screen}\n→"),
+                &prompt,
+            )
+        );
+    }
+}
+
+#[test]
+fn captured_msg07_model_picker_replays_parser_structure_and_prompt_detector() {
+    let provider = bundled_provider();
+    for screen in [
+        include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-after-trigger.txt"),
+        include_str!("../../../../plugins/provider-codex/tests/fixtures/tab-state/live-model-picker-msg07-result.txt"),
+    ] {
+        let rewritten = screen.replace("Select Model and Effort", "Opaque heading")
+            .replace("enter select · esc back", "enter accept · esc dismiss");
+        for input in [screen, rewritten.as_str()] {
+            let parsed = provider.parse_prompt(input).expect("provider parser accepts captured menu");
+            let (prompt, kind) = parse_live_prompt(&provider, input).expect("classifier admits captured menu");
+            assert_eq!(prompt, parsed);
+            assert_eq!(kind, PromptKind::Provider);
+            assert_eq!(prompt.options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+                vec!["1", "2", "3", "4", "5", "6", "7"]);
+            assert!(crate::agent::state_reactor::has_structural_prompt_evidence(input, &prompt));
+            assert!(crate::agent::state_reactor::has_numbered_terminal_choice(input, &prompt));
+            assert!(!crate::agent::state_reactor::prompt_is_composer_text(input, &prompt));
+            let mut detector = crate::agent::prompt::PromptDetector::new();
+            let decision = detector.evaluate_pty_output_parsed("capture", true, true,
+                Some(crate::agent::prompt::ResolvedPrompt {prompt: prompt.clone(), explicit: false}));
+            assert!(matches!(decision, crate::agent::prompt::PromptDecision::NewPrompt { .. }));
+            assert_eq!(detector.active_prompt("capture"), Some(&prompt));
+            assert!(parse_live_prompt(&provider, &format!("{input}\n› ready composer")).is_none());
+        }
+    }
+}
+
+#[test]
+fn directory_trust_capability_is_authoritative_over_generic_classification() {
+    for state in [TabState::Working, TabState::Unknown, TabState::IdleStuck] {
+        let parsed = Some((prompt(), PromptKind::DirectoryTrust));
+        assert_eq!(
+            resolve_live_prompt(parsed.clone(), Some(&classification(state, 0.1))),
+            parsed
+        );
+        assert!(resolve_live_prompt(None, Some(&classification(state, 0.1))).is_none());
+    }
 }

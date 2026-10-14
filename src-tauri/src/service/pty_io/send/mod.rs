@@ -584,6 +584,26 @@ impl ServiceContext {
         submit: bool,
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
     ) -> Result<(), DeliveryError> {
+        self.send_text_input_delivery_with_enqueued(tab_id, text, submit, claim, None)
+    }
+
+    pub(crate) fn send_chat_text_with_enqueued(
+        &self,
+        tab_id: &str,
+        text: &str,
+        enqueued: std::sync::Arc<dyn Fn() + Send + Sync>,
+    ) -> Result<(), DeliveryError> {
+        self.send_text_input_delivery_with_enqueued(tab_id, text, true, None, Some(enqueued))
+    }
+
+    fn send_text_input_delivery_with_enqueued(
+        &self,
+        tab_id: &str,
+        text: &str,
+        submit: bool,
+        claim: Option<super::submit_transaction::SubmitCycleClaim>,
+        enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    ) -> Result<(), DeliveryError> {
         if self.tab_chat_backing(tab_id).is_some() {
             return self
                 .chatbackend_tab_send(tab_id, text)
@@ -607,7 +627,7 @@ impl ServiceContext {
         let claim = claim
             .filter(|claim| claim.pty_id() == pty_id)
             .unwrap_or_else(|| super::submit_transaction::claim_submit_cycle(&pty_id));
-        self.deliver_pty_input_claimed(&pty_id, text, submit, claim)
+        self.deliver_pty_input_with_enqueued(&pty_id, text, submit, claim, enqueued)
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
@@ -662,11 +682,22 @@ impl ServiceContext {
         submit: bool,
         claim: super::submit_transaction::SubmitCycleClaim,
     ) -> Result<(), DeliveryError> {
+        self.deliver_pty_input_with_enqueued(pty_id, text, submit, claim, None)
+    }
+
+    fn deliver_pty_input_with_enqueued(
+        &self,
+        pty_id: &str,
+        text: &str,
+        submit: bool,
+        claim: super::submit_transaction::SubmitCycleClaim,
+        enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    ) -> Result<(), DeliveryError> {
         let rpc = submit
             .then(|| crate::service::codex_rpc::send::try_send_to_pty(self, pty_id, text))
             .flatten();
         crate::service::codex_rpc::send::route_or_pty(rpc, || {
-            self.deliver_plain_pty_input_claimed(pty_id, text, submit, claim)
+            self.deliver_plain_pty_input_claimed(pty_id, text, submit, claim, enqueued)
         })
     }
 
@@ -676,6 +707,7 @@ impl ServiceContext {
         text: &str,
         submit: bool,
         claim: super::submit_transaction::SubmitCycleClaim,
+        enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_agent(pty_id);
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
@@ -700,7 +732,7 @@ impl ServiceContext {
                 crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
             );
         let require_provider_turn = submit && track_exact_session_turn;
-        super::submit_transaction::submit_text_with_key_claimed_and_follow_up(
+        super::submit_transaction::submit_text_with_key_claimed_and_follow_up_revalidated(
             self,
             pty_id,
             &text,
@@ -717,6 +749,9 @@ impl ServiceContext {
             None,
             track_exact_session_turn,
             claim,
+            None,
+            false,
+            enqueued,
         )
         .and_then(|result| require_submission_result(result, require_provider_turn))
         .map_err(|error| match error {

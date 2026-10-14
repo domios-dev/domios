@@ -28,10 +28,6 @@ fn nonceless_duplicate_does_not_take_the_acknowledged_shortcut() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
 fn hook_session_offruntime_keeps_runtime_responsive_while_cron_writer_is_held() {
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

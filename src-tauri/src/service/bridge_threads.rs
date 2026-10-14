@@ -18,8 +18,7 @@ pub fn registry_path() -> PathBuf {
         .join("telegram-threads.json")
 }
 
-fn machine_name() -> String {
-    let configured = crate::config::load_config().mesh.instance_name.clone();
+fn machine_name(configured: &str) -> String {
     let configured = configured.trim();
     if !configured.is_empty() {
         return configured.to_string();
@@ -31,7 +30,7 @@ fn machine_name() -> String {
 
 impl ServiceContext {
     pub(crate) fn bridge_sender_identity(&self, tab_id: &str) -> Option<SenderIdentity> {
-        let machine = machine_name();
+        let machine = machine_name(&self.configuration().mesh.instance_name);
         let mux = self.mux.read();
         let tab = mux.get_tab(tab_id)?;
         let is_general = mux.resolve_tab_id(GENERAL_ALIAS).as_deref() == Some(tab_id);
@@ -66,7 +65,7 @@ impl ServiceContext {
 
     /// The owner's private chat with the bot is addressed by their Telegram id.
     pub(crate) fn bridge_owner_chat_id(&self) -> Option<i64> {
-        crate::config::load_config()
+        self.configuration()
             .integrations
             .telegram_allowed_users
             .iter()

@@ -10,6 +10,9 @@
 //! are intentionally not covered here — the native provider remains
 //! authoritative for them.
 
+#[path = "parity_test/runtime.rs"]
+mod runtime;
+
 use std::path::PathBuf;
 
 use crate::{
@@ -37,8 +40,12 @@ mod model_providers;
 mod model_switch;
 #[path = "parity_test/paste_capability.rs"]
 mod paste_capability;
+#[path = "parity_test/plugin_lifecycle.rs"]
+mod plugin_lifecycle;
 #[path = "parity_test/provider_compat.rs"]
 mod provider_compat;
+#[path = "parity_test/rotterdom.rs"]
+mod rotterdom;
 #[path = "parity_test/sqlite_fixture.rs"]
 mod sqlite_fixture;
 #[path = "parity_test/structured_control.rs"]
@@ -1173,3 +1180,6 @@ mod usage_sources;
 mod launch_session_support;
 
 mod reply_relay;
+
+#[path = "parity_test/local_recording_devices.rs"]
+mod local_recording_devices;

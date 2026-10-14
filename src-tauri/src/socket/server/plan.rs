@@ -2,6 +2,7 @@ use super::plan_fields::{groups_from_csv, kinds_from_csv, tag_facets_field};
 use super::plan_linking::{owner_from_params, tags_field};
 use super::plan_refs;
 use super::{get_string_param, JsonRpcError};
+use crate::app_runtime::AppHandle;
 use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
 use crate::service::lane_removal::LaneRemovalRequest;
 use crate::service::plan::adopt::AdoptPlanExt;
@@ -10,7 +11,6 @@ use crate::service::plan::{hints, PlanError, PlanStore};
 use crate::service::plan_batch_authority::{apply_batch_from_socket, BatchWriteError};
 use crate::service::{ServiceState, TeamPlanCreationError};
 use serde_json::{json, Value};
-use tauri::AppHandle;
 
 fn archived_next_response(plan_id: &str, status: PlanStatus) -> Option<Value> {
     (status == PlanStatus::Archived)
@@ -294,6 +294,23 @@ pub(super) fn dispatch(
             outcome.apply_to_response(&mut response);
             emit_plan_changed(app, &plan_id);
             Ok(response)
+        }
+
+        "plan.set_project" => {
+            let plan_id = plan_refs::resolve_plan(store, params)?;
+            let project = get_string_param(params, "project_path")?;
+            let update = svc
+                .set_plan_project(&plan_id, &project)
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            serde_json::to_value(update).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
         }
 
         "plan.adopt" => {

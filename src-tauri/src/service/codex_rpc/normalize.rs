@@ -5,12 +5,13 @@ use std::collections::{HashMap, HashSet};
 
 mod diffs;
 mod items;
+mod restored;
 
 #[derive(Default)]
 pub struct Normalizer {
     items: HashMap<(String, String), ChatMsg>,
     sequence: i64,
-    restored: HashSet<(String, String)>,
+    restored: restored::RestoredItems,
 }
 
 impl Normalizer {
@@ -59,11 +60,12 @@ impl Normalizer {
     }
 
     pub fn from_history(thread: &str, messages: Vec<ChatMsg>) -> Self {
+        let mut restored = restored::RestoredItems::default();
+        for message in &messages {
+            restored.insert(thread, &message.id);
+        }
         Self {
-            restored: messages
-                .iter()
-                .map(|message| (thread.into(), message.id.clone()))
-                .collect(),
+            restored,
             sequence: messages
                 .iter()
                 .map(|message| message.seq)
@@ -74,6 +76,36 @@ impl Normalizer {
                 .map(|message| ((thread.into(), message.id.clone()), message))
                 .collect(),
         }
+    }
+
+    pub fn restore_open_items(&mut self, thread: &str, items: &HashMap<String, String>) {
+        self.restored.open(thread, items);
+    }
+
+    pub fn finish_restored_turn(&mut self, thread: &str, turn: &str) -> HashSet<String> {
+        self.restored.finish_turn(thread, turn)
+    }
+
+    pub fn replace_restored_items(
+        &mut self,
+        thread: &str,
+        ids: &HashSet<String>,
+        messages: Vec<ChatMsg>,
+    ) -> Vec<ChatMsg> {
+        messages
+            .into_iter()
+            .filter_map(|mut message| {
+                if !ids.contains(&message.id) {
+                    return None;
+                }
+                let key = (thread.to_owned(), message.id.clone());
+                let previous = self.items.get(&key)?;
+                message.seq = previous.seq;
+                message.timestamp = previous.timestamp.clone();
+                self.items.insert(key, message.clone());
+                Some(message)
+            })
+            .collect()
     }
 
     pub fn snapshot(&self, thread: &str) -> Vec<ChatMsg> {
@@ -106,8 +138,8 @@ impl Normalizer {
             .or_else(|| params.get("itemId"))?
             .as_str()?;
         let key = (thread.to_owned(), id.to_owned());
-        // A snapshot has no delta cursor; only the completed item can safely replace it.
-        if self.restored.contains(&key) && method != "item/completed" {
+        // Unpositioned replay cannot safely extend an authoritative snapshot.
+        if self.restored.suppresses(&key) && method != "item/completed" {
             return None;
         }
         let previous = self.items.get(&key);
@@ -149,6 +181,9 @@ impl Normalizer {
                 .and_then(Value::as_i64)
                 .and_then(chrono::DateTime::from_timestamp_millis)
                 .map(|timestamp| timestamp.to_rfc3339());
+        }
+        if method == "item/completed" {
+            self.restored.completed(&key);
         }
         self.items.insert(key, message.clone());
         Some(message)
@@ -303,3 +338,6 @@ fn from_delta(method: &str, params: &Value, previous: Option<&ChatMsg>) -> Optio
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod recovery_tests;

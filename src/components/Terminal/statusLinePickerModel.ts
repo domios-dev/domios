@@ -12,7 +12,6 @@ export type StatusLineSwitchGate =
 
 export interface StatusLineTabFacts {
   hasSession: boolean;
-  protected: boolean;
 }
 
 export interface PickerModelRow {
@@ -73,7 +72,6 @@ export function statusLineSwitchGate(
       reason: `${descriptor.display_name} picks its model when a session starts, so it can't switch mid-session`,
     };
   }
-  if (facts.protected) return { interactive: false, reason: "This tab is protected, so its model stays fixed" };
   if (!facts.hasSession) return { interactive: false, reason: "Start the agent to change its model" };
   const timing = mode as SwitchTiming;
   return { interactive: true, timing, confirmRestart: timing === "restart_resume", note: switchTimingNote(timing) };

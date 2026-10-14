@@ -106,6 +106,7 @@ pub(crate) enum ModelSwitchError {
         observed_model: String,
     },
     LiveSwitchFailed(String),
+    RuntimeControlRefused(String),
     LiveCommandFailed(String),
     InputNotReady(String),
 }
@@ -135,7 +136,7 @@ impl std::fmt::Display for ModelSwitchError {
                 formatter,
                 "relaunched with {launched_model}, but the current session reported {observed}"
             ),
-            Self::LiveSwitchFailed(reason) | Self::LiveCommandFailed(reason) | Self::InputNotReady(reason) => {
+            Self::RuntimeControlRefused(reason) | Self::LiveSwitchFailed(reason) | Self::LiveCommandFailed(reason) | Self::InputNotReady(reason) => {
                 write!(formatter, "live model switch failed: {reason}")
             }
         }
@@ -170,6 +171,9 @@ impl From<AgentRestartError> for ModelSwitchError {
             AgentRestartError::RateLimited { retry_after_secs } => {
                 Self::RateLimited { retry_after_secs }
             }
+            AgentRestartError::RuntimeProviderHandoffUnsupported => Self::NotSwitchable(
+                "provider handoff into or out of an agent runtime is unsupported".to_string(),
+            ),
         }
     }
 }
@@ -206,6 +210,7 @@ impl ModelSwitchLaunch {
             .unwrap_or_default();
         let registry = &svc.agent_registry;
         let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+            &svc.configuration(),
             registry,
             &snap.provider,
             Some(requested.to_string()),
@@ -459,6 +464,15 @@ impl ServiceContext {
         restart_fallback: bool,
         staged: Option<&staging::SwitchRequest>,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab_id) {
+            return crate::service::agent_runtime::controls::switch(
+                self,
+                &tab,
+                requested,
+                requested_effort,
+                None,
+            );
+        }
         let requested = requested.trim();
         let (resolved_tab, provider) = {
             let mux = self.mux.read();
@@ -482,12 +496,6 @@ impl ServiceContext {
             })?;
         if declared_mode == ModelSwitchMode::Unsupported {
             return Err(ModelSwitchError::Unsupported { provider });
-        }
-        if self.general_agent_restart_snapshot(&resolved_tab).is_some() {
-            return Err(ModelSwitchError::NotSwitchable(
-                "the General Agent's model comes from its configuration; change it in Settings"
-                    .to_string(),
-            ));
         }
         crate::service::spawn::validate_agent_model(
             &self.agent_registry,

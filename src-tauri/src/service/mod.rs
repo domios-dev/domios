@@ -12,23 +12,27 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
+pub mod account;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
+pub(crate) mod agent_runtime;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
+pub mod analytics;
 mod analytics_host;
 pub(crate) mod background_work;
 pub(crate) mod background_work_watch;
+pub mod billing;
 mod blueprint_pipeline;
 mod blueprint_portable;
 pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
 pub(crate) mod bridge_threads;
-pub mod browser;
+pub use codeterm_browser as browser;
 pub(crate) mod capability_probe;
 pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
@@ -104,7 +108,7 @@ mod plan_pause;
 mod plan_reconcile;
 mod prompt_chain;
 mod provider_handoff;
-mod pty_frame_timing;
+use codeterm_util::pty_frame_timing;
 mod pty_output_pipeline;
 pub(crate) use plan_reconcile::tab_has_live_agent;
 pub(crate) mod local_recording;
@@ -159,6 +163,8 @@ pub(crate) mod stop_execution;
 mod tab_status_events;
 pub(crate) mod tab_stop;
 pub(crate) mod turn_resume;
+pub(crate) mod utility_deadline;
+pub(crate) mod utility_deadline_model;
 mod utility_tabs;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub(crate) mod blocking;
@@ -210,7 +216,7 @@ pub mod transport;
 pub mod watcher;
 pub mod web_access;
 #[cfg(windows)]
-pub(crate) mod windows_job;
+pub(crate) use codeterm_util::windows_job;
 pub(crate) mod worker_ack;
 mod worker_identity;
 pub(crate) mod worker_interruption;
@@ -224,6 +230,7 @@ pub(crate) use worker_lane::{
 };
 mod worker_persona;
 mod workspace;
+pub(crate) mod workspace_cwd;
 mod workspace_provision;
 
 pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
@@ -286,24 +293,34 @@ pub(crate) use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResul
 pub(crate) use team::{TeamCartographerAttachLocks, TeamOrchestratorAttachLocks};
 pub(crate) use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
-    respawn_title_provenance, restore_attempt_binding_for_caller, AttemptBindingRestoreResult,
+    respawn_title_provenance, restore_attempt_binding_for_caller, restore_attempt_binding_for_mux,
+    restore_review_attempt_binding_for_mux, AttemptBindingRestoreResult,
     AttemptBindingRestoreTarget,
 };
 pub(crate) use worker_persona::WorkerPersonaReservations;
+
+mod configuration;
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub(crate) lifecycle_journal: Arc<crate::session::lifecycle::TabLifecycleJournal>,
+    #[cfg(test)]
+    pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
+    pub account: Arc<tokio::sync::OnceCell<Arc<codeterm_account::Account>>>,
+    pub billing: Arc<tokio::sync::OnceCell<Arc<codeterm_billing::Billing>>>,
+    pub(crate) analytics: Arc<tokio::sync::OnceCell<codeterm_analytics::Worker>>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
     pub(crate) launch_task_files: Arc<parking_lot::Mutex<HashMap<String, Vec<std::path::PathBuf>>>>,
+    pub(crate) workspace_relocation_lock: Arc<parking_lot::Mutex<()>>,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,
     pub screen_state: ScreenStateHandle,
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
-    pub app_handle: tauri::AppHandle,
+    pub app_handle: crate::app_runtime::AppHandle,
     pub(crate) cartographer_attach_locks: TeamCartographerAttachLocks,
     pub(crate) orchestrator_attach_locks: TeamOrchestratorAttachLocks,
     pub agent_tracker: AgentTrackerState,
@@ -404,6 +421,7 @@ pub struct ServiceContext {
     pub(crate) surface_activity: Arc<surface::SurfaceActivityGate>,
     /// Sole owner of the webhook-receiver → tab bindings.
     pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
+    pub(crate) local_recording_selections: Arc<local_recording::RecordingSelectionStore>,
     pub(crate) local_recording_targets: Arc<receiver_target::ReceiverTargetStore>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,

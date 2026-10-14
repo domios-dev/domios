@@ -26,6 +26,67 @@
   ],
   "subcommands": [
     {
+      "name": "account",
+      "about": "Sign in, inspect identity or sign out on this machine",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "login",
+          "about": "Sign in using the system browser and wait for completion",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "logout",
+          "about": "Sign out and delete the saved credential",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "plan",
+          "about": "Show the current plan and stale-cache marker",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "portal",
+          "about": "Open subscription management in the system browser",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show the signed-in identity",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "upgrade",
+          "about": "Open an upgrade checkout in the system browser",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_key",
+              "positional": true,
+              "required": true,
+              "value_name": "PLAN_KEY",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "agent",
       "about": "Agent hierarchy management",
       "aliases": [],
@@ -236,6 +297,54 @@
               "possible_values": [],
               "default": null,
               "help": "Tab ID to link (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "login",
+          "about": "Sign in to the tab's runtime provider without a terminal",
+          "aliases": [],
+          "args": [
+            {
+              "name": "api-key-stdin",
+              "positional": false,
+              "required": false,
+              "value_name": "API_KEY_STDIN",
+              "possible_values": [],
+              "default": null,
+              "help": "Read the API key from stdin; never supply credentials in argv",
+              "aliases": []
+            },
+            {
+              "name": "cancel",
+              "positional": false,
+              "required": false,
+              "value_name": "CANCEL",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "device",
+              "positional": false,
+              "required": false,
+              "value_name": "DEVICE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -999,6 +1108,35 @@
               "aliases": []
             }
           ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "analytics",
+      "about": "Manage local opt-in product analytics",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "disable",
+          "about": "Record opt-out consent and clear queued events and identifiers",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "enable",
+          "about": "Record opt-in consent and create an installation identifier",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show recorded consent, queue size and delivery counters",
+          "aliases": [],
+          "args": [],
           "subcommands": []
         }
       ]
@@ -11225,6 +11363,34 @@
           ]
         },
         {
+          "name": "set-project",
+          "about": "Repair a plan's project folder after it moves, preserving plan and task identity",
+          "aliases": [],
+          "args": [
+            {
+              "name": "path",
+              "positional": true,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "required": true,
+              "value_name": "PLAN_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "skill",
           "about": "Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)",
           "aliases": [],
@@ -15995,6 +16161,16 @@
               "aliases": []
             },
             {
+              "name": "timeout",
+              "positional": false,
+              "required": false,
+              "value_name": "TIMEOUT",
+              "possible_values": [],
+              "default": null,
+              "help": "Shell lifetime: positive duration (30s, 10m, 2h), or none",
+              "aliases": []
+            },
+            {
               "name": "title",
               "positional": false,
               "required": false,
@@ -16264,6 +16440,34 @@
               "possible_values": [],
               "default": null,
               "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "timeout",
+          "about": "Reset an owned utility shell's lifetime from now, or disable it with none",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "timeout",
+              "positional": false,
+              "required": true,
+              "value_name": "DURATION",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -17288,6 +17492,34 @@
               "possible_values": [],
               "default": null,
               "help": "New name",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "set-cwd",
+          "about": "Relocate a workspace to an existing absolute folder, preserving its identity",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "path",
+              "positional": true,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],

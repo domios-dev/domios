@@ -116,3 +116,21 @@ fn spawn_routing_agent_launch_slot_exists_only_on_the_pty_command() {
         Some(MissingSpawnCapability::WorkerIdentityHandoff)
     );
 }
+
+#[test]
+fn runtime_launch_arguments_require_explicit_settings_instead_of_silent_drop() {
+    assert!(validate_runtime_launch_arguments("runtime-fixture", &[]).is_ok());
+    for args in [
+        vec!["opaque-arg".into()],
+        vec!["--model".into(), "opaque-model".into()],
+    ] {
+        let refusal = validate_runtime_launch_arguments("runtime-fixture", &args).unwrap_err();
+        assert_eq!(
+            refusal.missing_capability(),
+            Some(MissingSpawnCapability::RuntimeLaunchArguments)
+        );
+        assert_eq!(refusal.requested(), "runtime-fixture");
+        assert!(!refusal.advertises_requested_as_available());
+        assert!(!refusal.to_string().contains("opaque-arg"));
+    }
+}

@@ -31,6 +31,7 @@ pub mod peer_mandate;
 pub mod plan_skills;
 pub mod planner_requests;
 pub mod ports;
+pub mod project_paths;
 pub mod prompts_plan;
 pub mod qa;
 mod readback;
@@ -144,6 +145,7 @@ pub use types::{
 };
 
 pub struct PlanStore {
+    product_observer: RwLock<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
     plans: RwLock<HashMap<String, Arc<Mutex<Plan>>>>,
     specs: RwLock<HashMap<String, Arc<Mutex<Spec>>>>,
     index: RwLock<HashMap<String, IndexEntry>>,
@@ -215,6 +217,7 @@ impl PlanStore {
         let database = Arc::new(store_db::PlanDatabase::open(database_path)?);
         let (plans, specs) = database.load_snapshots()?;
         let store = Self {
+            product_observer: RwLock::new(None),
             plans: RwLock::new(HashMap::new()),
             specs: RwLock::new(HashMap::new()),
             index: RwLock::new(HashMap::new()),

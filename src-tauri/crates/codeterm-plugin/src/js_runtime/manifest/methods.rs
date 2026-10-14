@@ -54,6 +54,9 @@ impl PluginManifest {
                 Err(error) => log::warn!("[plugin] {}: {error}", manifest.id),
             }
         }
+        manifest
+            .validate_agent_runtime()
+            .map_err(|e| e.to_string())?;
         manifest.capabilities.validate_tab_menu()?;
         manifest.capabilities.validate_surfaces()?;
         manifest

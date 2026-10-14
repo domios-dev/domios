@@ -19,6 +19,28 @@ pub struct FrontendRouteState {
 }
 
 pub fn router(app: AppState, bundles: Arc<FrontendBundles>) -> Router<AppState> {
+    let service = app.svc.clone();
+    let weak_bundles = Arc::downgrade(&bundles);
+    let availability_app = service.app_handle.clone();
+    let availability_bundles = weak_bundles.clone();
+    bundles.bind_availability_observer(Arc::new(move || {
+        if let Some(bundles) = availability_bundles.upgrade() {
+            crate::update::discovery::publish_frontend(
+                &availability_app,
+                bundles.local_availability(),
+            );
+        }
+    }));
+    bundles.bind_installation_observer(Arc::new(move || {
+        service.record_product_event(codeterm_analytics::Event::UpdateInstalled {
+            kind: codeterm_analytics::UpdateKind::Frontend,
+        });
+        if let Some(bundles) = weak_bundles.upgrade() {
+            if let Some(version) = bundles.status()["active"]["version"].as_str() {
+                crate::update::discovery::frontend_installed(&service.app_handle, version);
+            }
+        }
+    }));
     routes(FrontendRouteState {
         bundles,
         is_owner: Arc::new(move |headers| is_local_caller(&app, headers)),

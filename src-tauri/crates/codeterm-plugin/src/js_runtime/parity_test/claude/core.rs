@@ -294,6 +294,9 @@ fn resume_with_context_reapplies_the_prompt_on_both_paths() {
             .trim()
             .trim_matches(['\'', '"']);
         let delivered = std::fs::read_to_string(path).expect("prompt file");
+        assert!(delivered.trim_start_matches('\u{feff}').starts_with(prompt));
+        let rule = crate::agent_claude::launch_prompt_rule().unwrap();
+        assert_eq!(delivered.matches(rule.as_str()).count(), 1, "{label}");
         assert_eq!(delivered.matches(prompt).count(), 1, "{label}");
     }
 }
@@ -948,4 +951,16 @@ fn retired_precompact_export_cleanup_native_js_parity() {
     let command = js_stop.as_str().unwrap();
     assert!(command.contains("--data-binary \"@-\""));
     assert!(command.contains("CODETERM_SESSION_BINDING_NONCE"));
+}
+
+#[test]
+fn prompt_answer_capability_native_js_parity() {
+    let (native, js) = pair();
+    assert!(!native.supports_prompt_answers());
+    assert!(!js.supports_prompt_answers());
+    assert!(!native.describe().supports_prompt_answers);
+    assert!(!js.describe().supports_prompt_answers);
+    assert!(!native.supports_structured_prompts());
+    assert!(!js.supports_structured_prompts());
+    assert!(load_js("codex").supports_prompt_answers());
 }

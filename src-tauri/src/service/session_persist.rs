@@ -126,7 +126,7 @@ impl PersistenceMailbox {
 }
 
 struct PersistenceContext {
-    app: tauri::AppHandle,
+    app: crate::app_runtime::AppHandle,
 }
 
 enum PersistenceBackend {
@@ -143,14 +143,14 @@ enum PersistenceBackend {
 /// `Ok(RefusedReduction)` is the guard succeeding (fuller desk kept on disk,
 /// already logged at error by the store); `Err` is a genuine persist failure.
 pub(crate) fn write_session_snapshot(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
 ) -> Result<SaveOutcome, String> {
     write_session_snapshot_with_intent(app, mux, SaveIntent::PreserveDesk)
 }
 
 pub(crate) fn write_session_snapshot_with_intent(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     intent: SaveIntent,
 ) -> Result<SaveOutcome, String> {
@@ -161,7 +161,7 @@ pub(crate) fn write_session_snapshot_with_intent(
 }
 
 pub(crate) fn submit_session_snapshot_with_intent(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     intent: SaveIntent,
 ) -> Result<(), String> {
@@ -170,7 +170,7 @@ pub(crate) fn submit_session_snapshot_with_intent(
 }
 
 pub(crate) fn write_captured_snapshot_with_live_identities(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     captured: &crate::session::SessionSnapshot,
     intent: SaveIntent,
@@ -185,7 +185,7 @@ pub(crate) fn write_captured_snapshot_with_live_identities(
 }
 
 pub(crate) fn install_storage_desk_adapter(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     adapter: crate::session::store::StorageDeskAdapter,
 ) -> Result<(), String> {
     let worker = ensure_worker(app)?;
@@ -193,18 +193,18 @@ pub(crate) fn install_storage_desk_adapter(
 }
 
 pub(crate) fn set_storage_unavailable(
-    app: &tauri::AppHandle,
+    app: &crate::app_runtime::AppHandle,
     reason: String,
 ) -> Result<(), String> {
     let worker = ensure_worker(app)?;
     worker.configure(WorkerMessage::Unavailable(reason))
 }
 
-pub(crate) fn start_worker(app: &tauri::AppHandle) -> Result<(), String> {
+pub(crate) fn start_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     ensure_worker(app).map(|_| ())
 }
 
-pub(crate) fn stop_worker(app: &tauri::AppHandle) -> Result<(), String> {
+pub(crate) fn stop_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     let worker = ensure_worker(app)?;
     let (response, completion) = mpsc::channel();
     worker.configure(WorkerMessage::Stop(response))?;
@@ -214,11 +214,11 @@ pub(crate) fn stop_worker(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 #[cfg(test)]
-pub(crate) fn flush_session_persistence(app: &tauri::AppHandle) -> Result<(), String> {
+pub(crate) fn flush_session_persistence(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     ensure_worker(app)?.flush()
 }
 
-fn ensure_worker(app: &tauri::AppHandle) -> Result<SessionPersistenceWorker, String> {
+fn ensure_worker(app: &crate::app_runtime::AppHandle) -> Result<SessionPersistenceWorker, String> {
     if let Some(worker) = app.try_state::<SessionPersistenceWorker>() {
         return Ok(worker.inner().clone());
     }
@@ -586,7 +586,7 @@ fn commit_storage_snapshot(
     adapter: &crate::session::store::StorageDeskAdapter,
     revision: &mut codeterm_storage::Revision,
     request: &PersistRequest,
-    app: Option<&tauri::AppHandle>,
+    app: Option<&crate::app_runtime::AppHandle>,
 ) -> Result<SaveOutcome, String> {
     let identities = desk_agent_session_identities(&request.snapshot);
     let mut rebases = 0;

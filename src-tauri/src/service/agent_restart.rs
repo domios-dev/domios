@@ -114,6 +114,7 @@ pub(super) fn claim_restart_attempt(
 #[derive(Debug, Clone)]
 pub enum AgentRestartError {
     BackgroundWork { items: Vec<String> },
+    RuntimeProviderHandoffUnsupported,
     NotFound(String),
     BadRequest(String),
     RateLimited { retry_after_secs: u64 },
@@ -253,6 +254,7 @@ impl ServiceContext {
         target_provider: &str,
         handoff_history: bool,
     ) -> Result<(), AgentRestartError> {
+        self.require_restart_provider_handoff(&snap.provider, target_provider)?;
         let transport = self
             .agent_registry
             .with_provider(target_provider, |provider| provider.describe().transport)
@@ -275,7 +277,8 @@ impl ServiceContext {
                 "provider restart requires a PTY source".into(),
             ));
         }
-        snap.auto_approve = crate::service::permission_policy::configured_permission_bypass(
+        snap.auto_approve = crate::service::permission_policy::configured_permission_bypass_for(
+            &self.app_handle,
             &self.agent_registry,
             target_provider,
         )
@@ -851,7 +854,8 @@ fn build_relaunch_command(
         &snap.tab_id,
         snap.cwd.as_deref(),
     );
-    let auto_approve = match crate::service::permission_policy::configured_permission_bypass(
+    let auto_approve = match crate::service::permission_policy::configured_permission_bypass_for(
+        &svc.app_handle,
         &svc.agent_registry,
         provider,
     ) {
@@ -1075,6 +1079,7 @@ mod exit_recovery;
 mod failed_launch;
 mod fresh;
 mod options;
+mod runtime;
 pub(crate) use options::RestartOptions;
 mod model_switch;
 mod relaunch;

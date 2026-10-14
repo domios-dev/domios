@@ -44,7 +44,10 @@ pub(crate) struct BlockedNotice {
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(plan_reminder_poll_secs())).await;
+            tokio::time::sleep(Duration::from_secs(plan_reminder_poll_secs(
+                &svc.configuration().orchestration,
+            )))
+            .await;
             let svc_for_scan = svc.clone();
             if let Err(e) = tauri::async_runtime::spawn_blocking(move || {
                 svc_for_scan.send_due_plan_time_reminders();
@@ -58,8 +61,7 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
     });
 }
 
-fn plan_reminder_poll_secs() -> u64 {
-    let cfg = crate::config::load_config().orchestration;
+fn plan_reminder_poll_secs(cfg: &crate::config::schema::OrchestrationConfig) -> u64 {
     cfg.nudge_interval_secs
         .clamp(1, MAX_PLAN_REMINDER_POLL_SECS)
 }
@@ -414,9 +416,7 @@ impl<'a> LiveHost<'a> {
     fn new(svc: &'a ServiceContext) -> Self {
         Self {
             svc,
-            interval: crate::config::load_config()
-                .orchestration
-                .nudge_interval_secs,
+            interval: svc.configuration().orchestration.nudge_interval_secs,
             plans: None,
         }
     }
@@ -549,7 +549,7 @@ impl ReminderHost for LiveHost<'_> {
 
 impl ServiceContext {
     fn send_due_plan_time_reminders(&self) {
-        let cfg = crate::config::load_config().orchestration;
+        let cfg = self.configuration().orchestration;
         if !cfg.plan_reminders || cfg.nudge_interval_secs == 0 {
             self.plan_turn_counter.clear_time_reminders();
             return;
@@ -616,7 +616,10 @@ impl ServiceContext {
                     crate::service::plan::complete_wrapup::complete_wrapup_message(&plan.id);
                 // A complete plan gets no heartbeat, so the release map boundary
                 // rides the one wrapup this plan is sent.
-                for line in crate::service::cartographer::digest_lines(plan) {
+                for line in crate::service::cartographer::digest_lines(
+                    plan,
+                    self.configuration().orchestration.map.enabled,
+                ) {
                     text.push_str("\n\n");
                     text.push_str(&line);
                 }
@@ -637,7 +640,7 @@ impl ServiceContext {
                             &crate::service::plan::reminders::parked_later_group_summary(plan),
                         )
                 } else {
-                    crate::service::plan::reminders::orchestrator_nudge_text(plan)
+                    String::new()
                 };
                 let mode_transition = snapshot.hard.contains(&HardWake::ModeChange);
                 let plain = mode_transition && plan.mode != PlanMode::Execution;
@@ -647,11 +650,6 @@ impl ServiceContext {
                 text.push_str("\n\n");
                 text.push_str(&decision.next_step_text());
                 if !plain {
-                    let now_ms = current_epoch_secs().saturating_mul(1000);
-                    if let Some(named) = aged_task_callout_text(plan, now_ms) {
-                        text.push_str("\n\n");
-                        text.push_str(&named);
-                    }
                     let resolution = self
                         .plan_store
                         .resolve_planner_tab(&plan.id, |pid| self.tab_probe(pid));
@@ -692,21 +690,26 @@ impl ServiceContext {
     ) -> Result<bool, String> {
         let mut envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
         envelope.delivery_observer = observer;
-        crate::service::messenger::Messenger::deliver(self, tab_id, envelope, text)
-            .map(|delivery| {
-                if delivery.is_written() {
-                    self.record_kpi_event(
-                        tab_id,
-                        crate::agent::kpi_ledger::KpiEventKind::Nudge,
-                        text.len(),
-                    );
-                }
-                delivery.is_written()
-            })
-            .map_err(|e| {
-                log::warn!("[plan-reminder] deliver to {} failed: {}", tab_id, e);
-                e
-            })
+        self.gateway_deliver(
+            tab_id,
+            envelope,
+            text,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        )
+        .map(|delivery| {
+            if delivery.is_written() {
+                self.record_kpi_event(
+                    tab_id,
+                    crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                    text.len(),
+                );
+            }
+            delivery.is_written()
+        })
+        .map_err(|e| {
+            log::warn!("[plan-reminder] deliver to {} failed: {}", tab_id, e);
+            e
+        })
     }
 
     fn notify_blocked(&self, _owner_tab: &str, notice: &BlockedNotice) {
@@ -850,66 +853,6 @@ pub(crate) fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanRemind
 fn non_empty(value: Option<&str>) -> Option<&str> {
     let value = value?.trim();
     (!value.is_empty()).then_some(value)
-}
-
-fn aged_task_callout_text(plan: &Plan, now_ms: u64) -> Option<String> {
-    let aged = crate::plan::reconcile::aged_open_tasks(plan, now_ms);
-    if aged.is_empty() {
-        return None;
-    }
-    let listed = aged
-        .iter()
-        .take(5)
-        .map(|item| {
-            let task = plan.tasks.iter().find(|task| task.id == item.task_id);
-            format!(
-                "- {} \"{}\" ({}, aged {}h)",
-                item.task_id,
-                item.name,
-                aged_task_status_text(item, task),
-                item.age_ms / 3_600_000
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    Some(format!("Stale tasks recorded as drift:\n{listed}"))
-}
-
-fn aged_task_status_text(
-    item: &crate::plan::reconcile::AgedOpenTask,
-    task: Option<&crate::plan::Task>,
-) -> String {
-    match item.presentation {
-        TaskPresentation::HandoffRequired => "handoff required".into(),
-        TaskPresentation::ActionablePending => "actionable pending".into(),
-        TaskPresentation::WaitingOnDependencies => {
-            let waits = item
-                .dependency_waits
-                .iter()
-                .map(|wait| match wait.status.as_ref() {
-                    Some(status) => {
-                        format!("{} ({})", wait.task_id, task_status_text(status))
-                    }
-                    None => format!("{} (missing)", wait.task_id),
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("waiting on dependencies: {waits}")
-        }
-        TaskPresentation::ParkedForLaterGroup => "parked for later groups".into(),
-        TaskPresentation::InProgress => "in progress".into(),
-        TaskPresentation::InReview => "in review".into(),
-        TaskPresentation::QueuedForQa => {
-            match task.and_then(|task| non_empty(task.status_label.as_deref())) {
-                Some(reason) => format!("queued for QA: {reason}"),
-                None => "queued for QA".into(),
-            }
-        }
-        TaskPresentation::Blocked => "blocked".into(),
-        TaskPresentation::BlockedOnSubtasks => "waiting on subtasks".into(),
-        TaskPresentation::Paused => "paused".into(),
-        TaskPresentation::Terminal => "terminal".into(),
-    }
 }
 
 fn task_status_text(status: &TaskStatus) -> &'static str {

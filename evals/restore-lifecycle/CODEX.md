@@ -1,7 +1,7 @@
 # Codex and OpenCode spawn and restore matrix
 
 Refs rollacode/codeterm#557 and #555. This is a live behaviour bench, not a
-source-only verdict. It restarts only `restartqa` at port `7692`. It never
+source-only verdict. It defaults to `restartqa` at port `7692`; `RL_INSTANCE` and `RL_PORT` select the target. An empty `RL_INSTANCE` selects canonical DEV. It never
 rebuilds, changes product source, rewrites provider hooks, or changes global
 Codex executables. The configured Codex entry point must be an npm env-node
 wrapper; a native entry point fails the GUI fixture prerequisite.
@@ -10,7 +10,7 @@ wrapper; a native entry point fails the GUI fixture prerequisite.
 
 Wait for the Orchestrator to supply the exact merged `release/1.14.2` SHA and
 send “restart bench is yours” with that final SHA. First check `http://127.0.0.1:7692/api/health`.
-The runner checks the named instance, approved SHA and canonical checkout HEAD
+The runner checks the selected instance, approved SHA and canonical checkout HEAD
 before a lifecycle operation. Every CLI command runs through `dc`; the Python
 observer receives its loopback URL and token only through `dev_run`.
 
@@ -25,6 +25,8 @@ RL_EXPECTED_SHA=APPROVED_LITERAL_SHA \
 RL_PREBUILT_CWD=/Users/dev/Developer/codeterm \
 bash evals/restore-lifecycle/run-codex.sh
 ```
+
+For the sole canonical DEV on 7686, pass `RL_INSTANCE='' RL_PORT=7686` instead. Keep the approved SHA, canonical checkout and pad variables above. `RL_PHASES=1,2` selects environment and spawn/ACK proof in both modes. The same instance identity, port, minimal GUI PATH, nonce, own-session and ACK assertions remain required.
 
 `RL_CODEX_MODEL` can select an advertised cheap model for the three Workers.
 Otherwise the runner selects the catalogue entry described as affordable.

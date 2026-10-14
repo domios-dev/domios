@@ -2,12 +2,14 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
+source "$ROOT/evals/_lib/bench.sh"
+bench_require node curl mktemp mkfifo
 source "$ROOT/evals/_lib/lib.sh"
 JSON_STATE="$ROOT/evals/lifecycle-recovery/json-state.mjs"
 SESSION_RECORD="$ROOT/evals/lifecycle-recovery/session-record.mjs"
 
 fail() { echo "FAIL $1" >&2; exit 1; }
-pass() { echo "PASS $1"; }
+pass() { bench_assertion; echo "PASS $1"; }
 json_field() { node "$JSON_STATE" field "$2" <<<"$1"; }
 new_session_id() { node -e 'process.stdout.write(require("node:crypto").randomUUID())'; }
 # The CLI makes one GET with no retry, and runs only after a waiter proved the state.
@@ -53,27 +55,19 @@ cleanup() {
     rm -rf "$RELAUNCH_CWD"
   fi
 }
-on_exit() {
-  local status=$?
-  trap - EXIT
-  cleanup
-  exit "$status"
-}
-trap on_exit EXIT
-
 WORKSPACE_JSON="$(dc --json workspace create "lifecycle-recovery-$RUN_ID")"
 WORKSPACE="$(json_field "$WORKSPACE_JSON" '.id // .workspace_id')"
 [ -n "$WORKSPACE" ] && [ "$WORKSPACE" != null ] || fail "workspace creation"
 
 EXIT_TITLE="LR-exit-$RUN_ID"
 EXIT_SESSION="$(new_session_id)"
-coproc EXIT_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" absent "$EXIT_TITLE"; }
-EXIT_WAIT_PROCESS="$EXIT_WAIT_PID"
-read -r ready <&"${EXIT_WAIT[0]}"
+bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" absent "$EXIT_TITLE"
+EXIT_WAIT_PROCESS=$BENCH_STREAM_PID
+read -r ready <&8
 [ "$ready" = READY ] || fail "exit observer readiness"
 EXIT_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$EXIT_TITLE" --role Orchestrator --non-user-facing --args --lifecycle-exit-fixture --stub-session "$EXIT_SESSION")"
 EXIT_TAB="$(json_field "$EXIT_SPAWN" '.tab_id')"
-read -r EXIT_OBSERVED <&"${EXIT_WAIT[0]}"
+read -r EXIT_OBSERVED <&8
 wait "$EXIT_WAIT_PROCESS"
 [ "$(json_field "$EXIT_OBSERVED" '.tab_id')" = "$EXIT_TAB" ] || fail "exit observation targeted spawned tab"
 EXIT_TEAM_ID="$(json_field "$EXIT_OBSERVED" '.team_id')"
@@ -94,13 +88,13 @@ esac
 EXIT_REFUSED_VISIBLE="$(cli_tabs "refused exit recovery CLI projection")"
 node "$JSON_STATE" absent-orchestrator "$EXIT_TAB" "$EXIT_TEAM_ID" <<<"$EXIT_REFUSED_VISIBLE" \
   || fail "refused exit recovery left the exited tab absent with its Team"
-coproc EXIT_RECOVERY_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" team-owner "$EXIT_TEAM_ID"; }
-EXIT_RECOVERY_WAIT_PROCESS="$EXIT_RECOVERY_WAIT_PID"
-read -r ready <&"${EXIT_RECOVERY_WAIT[0]}"
+bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" team-owner "$EXIT_TEAM_ID"
+EXIT_RECOVERY_WAIT_PROCESS=$BENCH_STREAM_PID
+read -r ready <&8
 [ "$ready" = READY ] || fail "exited-shell replacement observer readiness"
 EXIT_REPLACEMENT_SPAWN="$(dc --json agent spawn claude --team "$EXIT_TEAM_ID" --role Orchestrator)"
 EXIT_REPLACEMENT="$(json_field "$EXIT_REPLACEMENT_SPAWN" '.tab_id')"
-read -r EXIT_RECOVERED <&"${EXIT_RECOVERY_WAIT[0]}"
+read -r EXIT_RECOVERED <&8
 wait "$EXIT_RECOVERY_WAIT_PROCESS"
 [ "$(json_field "$EXIT_RECOVERED" '.owner_tab_id')" = "$EXIT_REPLACEMENT" ] || fail "exited-shell replacement observation"
 EXIT_TEAMS="$(dc --json team list)"
@@ -132,49 +126,49 @@ LOG_OFFSET=0
 
 # Each waiter's stdout is a descriptor this shell owns, so a waiter that
 # resolves before its action returns leaves its line readable after it exits.
-exec {RELAUNCH_EXIT_FD}< <(dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" absent-shell "$RELAUNCH_TITLE")
-RELAUNCH_EXIT_WAIT_PROCESS=$!
+bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" absent-shell "$RELAUNCH_TITLE"
+RELAUNCH_EXIT_WAIT_PROCESS=$BENCH_STREAM_PID
 ready=""
-read -r ready <&"$RELAUNCH_EXIT_FD" || true
+read -r ready <&8 || true
 [ "$ready" = READY ] || fail "exited provider observer readiness"
 RELAUNCH_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --cwd "$RELAUNCH_CWD_NATIVE" --title "$RELAUNCH_TITLE" --non-user-facing --args --lifecycle-relaunch-fixture --stub-session "$RELAUNCH_SESSION" --stub-session-record)"
 RELAUNCH_TAB="$(json_field "$RELAUNCH_SPAWN" '.tab_id')"
 RELAUNCH_EXITED=""
-read -r RELAUNCH_EXITED <&"$RELAUNCH_EXIT_FD" || true
+read -r RELAUNCH_EXITED <&8 || true
 wait "$RELAUNCH_EXIT_WAIT_PROCESS" || fail "exited provider observer"
-exec {RELAUNCH_EXIT_FD}<&-
+exec 8<&-
 [ "$(json_field "$RELAUNCH_EXITED" '.tab_id')" = "$RELAUNCH_TAB" ] || fail "exit observation targeted spawned tab"
 node "$SESSION_RECORD" exists claude "$RELAUNCH_CWD_NATIVE" "$RELAUNCH_SESSION" \
   || fail "stub provider recorded its own session before exiting"
 
-exec {RELAUNCH_RESUMED_FD}< <(dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" resumed "$RELAUNCH_TAB" "$RELAUNCH_SESSION" "$JOURNAL")
-RELAUNCH_RESUMED_WAIT_PROCESS=$!
+bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" resumed "$RELAUNCH_TAB" "$RELAUNCH_SESSION" "$JOURNAL"
+RELAUNCH_RESUMED_WAIT_PROCESS=$BENCH_STREAM_PID
 ready=""
-read -r ready <&"$RELAUNCH_RESUMED_FD" || true
+read -r ready <&8 || true
 [ "$ready" = READY ] || fail "exit recovery resume observer readiness"
 RECOVERY="$(dc --json agent restart --tab "$RELAUNCH_TAB" 2>&1)" \
   || fail "agent restart refused the exited provider's verified owned session: $RECOVERY"
 node "$JSON_STATE" recovered-restart "$RELAUNCH_TAB" "$RELAUNCH_SESSION" <<<"$RECOVERY" \
   || fail "agent restart reported the same tab, PTY and session resumed in place at agent_ready: $RECOVERY"
 RELAUNCH_RESUMED=""
-read -r RELAUNCH_RESUMED <&"$RELAUNCH_RESUMED_FD" || true
+read -r RELAUNCH_RESUMED <&8 || true
 wait "$RELAUNCH_RESUMED_WAIT_PROCESS" || fail "exit recovery resume observer"
-exec {RELAUNCH_RESUMED_FD}<&-
+exec 8<&-
 [ "$(json_field "$RELAUNCH_RESUMED" '.tab_id')" = "$RELAUNCH_TAB" ] \
   || fail "recovered provider live at agent_ready on the same session, with launch_ready journaled after the restart"
 RELAUNCH_VISIBLE="$(cli_tabs "exit recovery CLI projection")"
 node "$JSON_STATE" live-tab "$RELAUNCH_TAB" <<<"$RELAUNCH_VISIBLE" || fail "recovered tab is CLI-visible as live"
 
-exec {RELAUNCH_SEND_FD}< <(dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" received "$RELAUNCH_TAB" "$RELAUNCH_PROBE")
-RELAUNCH_SEND_WAIT_PROCESS=$!
+bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" received "$RELAUNCH_TAB" "$RELAUNCH_PROBE"
+RELAUNCH_SEND_WAIT_PROCESS=$BENCH_STREAM_PID
 ready=""
-read -r ready <&"$RELAUNCH_SEND_FD" || true
+read -r ready <&8 || true
 [ "$ready" = READY ] || fail "exit recovery delivery observer readiness"
 dc send "$RELAUNCH_PROBE" --tab "$RELAUNCH_TAB" >/dev/null || fail "send to the recovered provider"
 RELAUNCH_RECEIVED=""
-read -r RELAUNCH_RECEIVED <&"$RELAUNCH_SEND_FD" || true
+read -r RELAUNCH_RECEIVED <&8 || true
 wait "$RELAUNCH_SEND_WAIT_PROCESS" || fail "exit recovery delivery observer"
-exec {RELAUNCH_SEND_FD}<&-
+exec 8<&-
 [ "$(json_field "$RELAUNCH_RECEIVED" '.tab_id')" = "$RELAUNCH_TAB" ] || fail "stub received the routed send"
 if [ -f "$DEV_LOG" ] && tail -c +"$((LOG_OFFSET + 1))" "$DEV_LOG" | grep -F "$RELAUNCH_TAB" | grep -qF tab_busy_refused; then
   fail "dev log recorded tab_busy_refused for the recovered provider"
@@ -182,13 +176,13 @@ fi
 pass "exited provider is recovered by agent restart in the same tab and session, observed live, and receives sends"
 
 ORCH_TITLE="LR-owner-$RUN_ID"
-coproc OWNER_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" live "$ORCH_TITLE"; }
-OWNER_WAIT_PROCESS="$OWNER_WAIT_PID"
-read -r ready <&"${OWNER_WAIT[0]}"
+bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" live "$ORCH_TITLE"
+OWNER_WAIT_PROCESS=$BENCH_STREAM_PID
+read -r ready <&8
 [ "$ready" = READY ] || fail "owner observer readiness"
 OWNER_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$ORCH_TITLE" --role Orchestrator --non-user-facing)"
 OLD_ORCHESTRATOR="$(json_field "$OWNER_SPAWN" '.tab_id')"
-read -r OWNER_OBSERVED <&"${OWNER_WAIT[0]}"
+read -r OWNER_OBSERVED <&8
 wait "$OWNER_WAIT_PROCESS"
 [ "$(json_field "$OWNER_OBSERVED" '.tab_id')" = "$OLD_ORCHESTRATOR" ] || fail "owner live observation"
 
@@ -206,13 +200,13 @@ PLAN_AFTER_UNLINK="$(dc --json plan get "$PLAN_ID")"
 node "$JSON_STATE" plan-state "$PLAN_ID" "$TEAM_ID" null <<<"$PLAN_AFTER_UNLINK" \
   || fail "final Orchestrator unlink broke Plan continuity"
 
-coproc RECOVERY_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" recovered "$TEAM_ID" "$PLAN_ID"; }
-RECOVERY_WAIT_PROCESS="$RECOVERY_WAIT_PID"
-read -r ready <&"${RECOVERY_WAIT[0]}"
+bench_stream_start dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" recovered "$TEAM_ID" "$PLAN_ID"
+RECOVERY_WAIT_PROCESS=$BENCH_STREAM_PID
+read -r ready <&8
 [ "$ready" = READY ] || fail "recovery observer readiness"
 REPLACEMENT_SPAWN="$(dc --json agent spawn claude --team "$TEAM_ID" --role Orchestrator)"
 REPLACEMENT="$(json_field "$REPLACEMENT_SPAWN" '.tab_id')"
-read -r RECOVERED <&"${RECOVERY_WAIT[0]}"
+read -r RECOVERED <&8
 wait "$RECOVERY_WAIT_PROCESS"
 [ "$(json_field "$RECOVERED" '.owner_tab_id')" = "$REPLACEMENT" ] || fail "replacement owner observation"
 
@@ -223,3 +217,5 @@ node "$JSON_STATE" team-count "$TEAM_ID" 1 <<<"$TEAMS_FINAL" || fail "Team cardi
 node "$JSON_STATE" plan-state "$PLAN_ID" "$TEAM_ID" "$REPLACEMENT" 2 <<<"$PLAN_FINAL" || fail "Plan identity and owner history"
 node "$JSON_STATE" live-tab "$REPLACEMENT" <<<"$REPLACEMENT_VISIBLE" || fail "replacement liveness"
 pass "final Orchestrator replacement keeps one Team and the original Plan history"
+
+bench_complete

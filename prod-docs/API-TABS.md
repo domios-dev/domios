@@ -25,26 +25,15 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 
 Tab creation accepts `shell` (profile id). `GET /api/shells?refresh=true` refreshes detection; otherwise cached. Socket: `tab.new` (`shell`), `tab.shells` (`refresh`). Unknown ids refuse creation. Shells alone accept profiles; agents remain native.
 
-### Text input routes: `/send` vs `/chat-send`
+A workspace's `cwd_missing` flag is derived on daemon start, workspace open and spawn refusal. A missing folder or retired volume shows a workspace error with **Choose folder**, and session/team starts are unavailable until relocation. No folder fallback or polling occurs.
 
-Both routes exist as distinct handlers; choosing is route selection.
+```bash
+codeterm workspace set-cwd <workspace-id> <absolute-folder>
+```
 
-| Route | Returns |
-|-------|---------|
-| `POST /api/tabs/{id}/send` | `{ok:true, delivery:"sent"}` after confirmed delivery, `{ok:true, delivery:"pending"}` when a user send or an enveloped/programmatic agent send is accepted by its background queue, or a structured delivery error with its `bytes_written` status. User sends also return `send_id`. Long limited-provider sends add `pad_file`; batches add `pad_files`. |
-| `POST /api/tabs/{id}/chat-send` | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId`, and optional `pad_file`; accepts an agent tab at any launch stage or a chat-backend tab; a shell-only tab gets `tab_busy_refused`, `bytes_written:false` |
-| `GET /api/tabs/{id}/chat-send` | `ChatSendStatus[]` for the tab, reconciled against session-turn evidence on read |
-| `POST /api/tabs/{id}/chat-send/admissions` | Read-only lookup: `{clientTokens:[...]}` returns `{correlationId, evidence}[]`, evidence `present`, `absent` or `unknown`; incomplete retention never proves absence |
+This CLI command and the UI use the same relocation service. A spawn or pair request with an unusable cwd returns HTTP `422`, code `workspace_cwd_missing`, class `requires_workspace_repair`, the `path` and `workspace_id`, and a human message naming the workspace and recovery action.
 
-`POST .../send` carries user text, mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` input. User text sent while a provider dialog is classified waits in the durable user-send queue until a PTY state change makes delivery safe; agent and programmatic text use the delivery outbox the same way. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`).
-
-Local `codeterm send` uses socket `tab.send_text`: `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work or wrote bytes without submit confirmation, a refusal when no bytes were written. A substituted send names its recipient inbox file as `pad_file`; human output prints the path and multi-target JSON reports `pad_files`. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
-
-`POST .../chat-send` is the Chat UI user turn. A PTY tab without agent identity is refused before the send transaction so prose never reaches a bare shell. Accepted sends open a ledger entry for later reconciliation; `GET .../chat-send` reads it, `state` one of `accepted`, `unknown`, `confirmed`, `failed`.
-
-Local and mesh `codeterm send` open no Chat send ledger entry, so `GET .../chat-send` never lists them.
-
-Neither route promises the recipient *answered*. Replies come through the sender's return-address channel (`codeterm send --tab ID [--mesh PEER]`, or `codeterm agent report` for a Worker). The recipient's visible terminal text is never a delivery signal.
+Chat send and transcript routes: API-CHAT
 
 ### Workspace routes
 
@@ -52,7 +41,8 @@ Neither route promises the recipient *answered*. Replies come through the sender
 |---|---|---|---|
 | GET | `/api/workspaces` | — | List all workspaces |
 | POST | `/api/workspaces` | `{name, cwd?, provision?}` | Create workspace; `name` is required, non-empty, one line, at most 64 characters, and has no control characters (absent or invalid name: `400`). A `cwd` matching a workspace returns it with `existing: true`. `provision: true` (`400` with `cwd`) creates a new empty data-dir directory; agents started exactly there get directory trust. |
-| POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
+| POST | `/api/workspaces/{id}/focus` | — | Switch to workspace and check its folder |
+| POST | `/api/workspaces/{id}/cwd` | `{cwd}` | Choose an existing absolute folder for the same workspace. Returns `workspace_id`, `cwd`, `updated_tabs`, `updated_plans` and `warnings`. Invalid folders return `422`. Identity, Teams, Plans and sessions are retained; idle tab and stored launch paths beneath the old root are rebased. Active tabs and paths outside that root are reported unchanged. |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace with the same name limits as create. |
 | POST | `/api/workspaces/{id}/close` | `{force?, confirm?}` or no body | Close the workspace. Agent tabs require `force: true`. A request without `X-CodeTerm-Tab-Id` is Human only when it sends `{force: true, confirm: "<workspace_id>"}` after the user confirms (logged `human-attributed (headerless, confirmed)`); otherwise it is refused as Unattributed and logged. A coordinator agent cannot close its own workspace even with `force: true`. Every Team with members here is closed through Team close before remaining tabs are removed. |
 | GET | `/api/workspaces/{id}/recently-closed` | — | This workspace's recently-closed tabs as `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
@@ -116,15 +106,7 @@ curl -X POST "http://host:7685/api/tabs/$TAB/hook/session_start" \
 
 Response: `{"ok": true, "changed": true|false}` (whether the persisted id changed), or `{"ok": true, "deferred": true, ...}` when a fileless session is held until its reported transcript path emits a filesystem materialization event. One deferral per tab; a newer refusal replaces it and any legitimate intervening binding cancels it. `{"ok": false, "reason": "no session_id in body"}` means the body lacks a recognizable `session_id` field.
 
-#### Delayed Chat messages
-
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| GET | `/api/tabs/{id}/delayed-messages` | — | List queued and failed delayed Chat UI messages for this tab |
-| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs, createdByTab?, recurrence?: {everyMs, untilMs?, count?}}` | Queue a one-shot or recurring message for this tab. Recurrence starts at `scheduledAtMs`, repeats at an anchored interval of at least one minute, with at most one stop condition. Normal send is unaffected. |
-| PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?, recurrence?: {everyMs, untilMs?, count?}}` | Edit a queued or failed delayed message, including its recurrence rule |
-| DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
-| POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
+Chat send and transcript routes: API-CHAT
 
 #### Session Rebind (POST /api/tabs/{id}/session/rebind)
 
@@ -224,4 +206,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 57 -->
+<!-- revision: 59 -->

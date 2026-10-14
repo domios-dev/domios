@@ -1,6 +1,18 @@
 use super::{RestApiPhase, RestApiStatus};
 use url::{Host, Url};
 
+pub(super) fn external_link(url: &Url, origin: Option<&str>) -> Option<Url> {
+    if !matches!(url.scheme(), "http" | "https" | "mailto")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.host_str() == Some("tauri.localhost")
+        || origin.is_some_and(|origin| url.origin().ascii_serialization() == origin)
+    {
+        return None;
+    }
+    Some(url.clone())
+}
+
 pub(super) fn development_frontend(
     debug: bool,
     dev_url: Option<&Url>,

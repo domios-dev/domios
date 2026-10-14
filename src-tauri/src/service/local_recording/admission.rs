@@ -65,10 +65,7 @@ impl ServiceContext {
                 return LocalRecordingCommitOutcome::PreHandoffFailure { message: error };
             }
         };
-        let active_id = crate::config::load_config()
-            .integrations
-            .voice_transcribe
-            .active;
+        let active_id = self.configuration().integrations.voice_transcribe.active;
         let text = super::completion::complete_capture(
             &capture,
             async {
@@ -162,7 +159,7 @@ impl ServiceContext {
         client_token: String,
     ) -> Result<ChatSendResult, String> {
         self.validate_recording_target(&capture)?;
-        match &capture.target {
+        let result = match &capture.target {
             FrozenTarget::Pty(expected) => {
                 let reservation =
                     self.reserve_user_send(expected.tab_id.as_str(), Some(client_token))?;
@@ -187,6 +184,10 @@ impl ServiceContext {
                 )?;
                 Ok(ChatSendResult::new(status, pad_file))
             }
+        };
+        if result.is_ok() {
+            self.record_product_feature(codeterm_analytics::Feature::VoiceInputUsed);
         }
+        result
     }
 }

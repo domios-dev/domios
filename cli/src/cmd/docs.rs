@@ -45,6 +45,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/CONFIG.md"
     ),
     doc!(
+        "ACCOUNT",
+        "Domios account sign-in and opt-in product analytics settings",
+        "../../../prod-docs/ACCOUNT.md"
+    ),
+    doc!(
         "NOTIFICATIONS",
         "Notification levels, per-level surfaces, sound, and push channels",
         "../../../prod-docs/NOTIFICATIONS.md"
@@ -68,6 +73,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "API-TABS",
         "Tab and workspace REST contracts",
         "../../../prod-docs/API-TABS.md"
+    ),
+    doc!(
+        "API-CHAT",
+        "Chat send, admission, transcript, and snapshot REST contracts",
+        "../../../prod-docs/API-CHAT.md"
     ),
     doc!(
         "API-REPAIR",

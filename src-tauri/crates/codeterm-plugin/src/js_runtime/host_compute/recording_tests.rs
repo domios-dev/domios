@@ -54,7 +54,7 @@ fn lark_recording_contract_native_js_status_enable_revocation_and_confinement_pa
     assert_eq!(enabled["captureActive"], false);
     assert_eq!(
         call_json::<Value>(&vm, "authority", &[]).unwrap(),
-        json!(["undefined", "undefined", "undefined", "undefined"])
+        json!(["undefined", "undefined", "function", "undefined"])
     );
     native.recordings.revoke("trigger");
     let refused: Value = call_json(&vm, "enable", &[]).unwrap();

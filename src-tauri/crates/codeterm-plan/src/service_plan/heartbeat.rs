@@ -3,8 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{PlanError, PlanStore};
 use crate::plan::{
-    HeartbeatLearning, LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus,
-    PlannerRef, QaState, ReviewStage, TaskStatus,
+    HeartbeatLearning, LoopSpec, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus, PlannerRef,
+    TaskStatus,
 };
 
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
@@ -51,33 +51,12 @@ fn normalized_learning(text: &str) -> String {
     out.trim().to_string()
 }
 
-fn render_running_loops(loops: &[LoopSpec], out: &mut String) {
-    let running = loops
-        .iter()
-        .filter(|loop_spec| loop_spec.status == LoopStatus::Running)
-        .collect::<Vec<_>>();
-    if running.is_empty() {
-        return;
-    }
-    out.push_str("Running loops:\n");
-    for loop_spec in running {
-        out.push_str("- ");
-        out.push_str(&loop_spec.id);
-        out.push_str(": ");
-        out.push_str(loop_spec.target.trim());
-        out.push_str(" (");
-        out.push_str(&format!("{}/{}", loop_spec.count, loop_spec.budget));
-        out.push(')');
-        out.push('\n');
-    }
-}
-
 pub(super) fn competitive_attempt_summary_line(
     task_id: &str,
     task_name: &str,
     live_attempts: usize,
 ) -> String {
-    format!("- {task_id} ({task_name}): {live_attempts} live attempts")
+    format!("- {task_id}: compare {live_attempts} attempts ({task_name})")
 }
 
 fn render_competitive_attempts(plan: &Plan, out: &mut String) {
@@ -86,8 +65,10 @@ fn render_competitive_attempts(plan: &Plan, out: &mut String) {
         .iter()
         .filter_map(|task| {
             let live_attempts = super::task_attempts::live_attempt_count(task);
-            (live_attempts > 1)
-                .then(|| competitive_attempt_summary_line(&task.id, &task.name, live_attempts))
+            (live_attempts > 1
+                && task.status == TaskStatus::InReview
+                && crate::plan::reconcile::active_review_hold_note(task).is_none())
+            .then(|| competitive_attempt_summary_line(&task.id, &task.name, live_attempts))
         })
         .collect::<Vec<_>>();
     if summaries.is_empty() {
@@ -101,53 +82,6 @@ fn render_competitive_attempts(plan: &Plan, out: &mut String) {
     }
 }
 
-fn render_qa_queue(plan: &Plan, out: &mut String) {
-    let queued = plan
-        .tasks
-        .iter()
-        .filter(|task| {
-            task.status == TaskStatus::InReview
-                && crate::plan::reconcile::active_review_hold_note(task).is_none()
-                && task.review_stage == ReviewStage::Qa
-                && task.qa_state == Some(QaState::Queued)
-        })
-        .count();
-    let running = plan.tasks.iter().find(|task| {
-        task.status == TaskStatus::InReview
-            && crate::plan::reconcile::active_review_hold_note(task).is_none()
-            && task.review_stage == ReviewStage::Qa
-            && task.qa_state == Some(QaState::Running)
-    });
-    if queued == 0 && running.is_none() {
-        return;
-    }
-    out.push_str("QA queue:\n");
-    out.push_str(&format!("- queued: {queued}\n"));
-    if let Some(task) = running {
-        let age_ms = now_ms().saturating_sub(task.status_changed_at);
-        out.push_str(&format!(
-            "- running: {} ({}) age_ms={age_ms}\n",
-            task.id, task.name
-        ));
-    }
-}
-
-fn render_review_gate(plan: &Plan, out: &mut String) {
-    let mut active = plan.clone();
-    active
-        .tasks
-        .retain(|task| crate::plan::reconcile::active_review_hold_note(task).is_none());
-    let status = super::review_gate::review_gate_status(&active);
-    if status.reason.is_none() {
-        return;
-    }
-    out.push_str("Review backlog warning (dispatch allowed):\n");
-    out.push_str(&format!(
-        "- {}\n",
-        status.reason.as_deref().unwrap_or("review_wip_exceeded")
-    ));
-}
-
 fn render_regression_gates(plan: &Plan, out: &mut String) {
     let gates = super::milestone_gates::pending_regression_gates(plan);
     if gates.is_empty() {
@@ -158,9 +92,7 @@ fn render_regression_gates(plan: &Plan, out: &mut String) {
         .map(|gate| gate.key.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    out.push_str(&format!(
-        "Regression records pending (advisory; dispatch allowed): {groups}\n"
-    ));
+    out.push_str(&format!("Record group regression: {groups}\n"));
 }
 
 fn render_group_retrospectives(plan: &Plan, out: &mut String) {
@@ -173,21 +105,7 @@ fn render_group_retrospectives(plan: &Plan, out: &mut String) {
         .map(|gate| gate.key.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    out.push_str(&format!(
-        "Group retrospectives pending (advisory; dispatch allowed): {groups}\n"
-    ));
-}
-
-// Render gated or blocked work in the heartbeat so a plan with no other notable state is not silently omitted.
-fn render_outstanding_gated(plan: &Plan, out: &mut String) {
-    let count = super::state::outstanding_blocked_count(plan);
-    if count == 0 {
-        return;
-    }
-    out.push_str(&format!(
-        "Outstanding blocked/gated: {count} task(s) — see `codeterm plan next {}`.\n",
-        plan.id
-    ));
+    out.push_str(&format!("Close groups: {groups}\n"));
 }
 
 fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
@@ -244,90 +162,177 @@ fn role_identity_line(plan: &Plan, tab_id: Option<&str>) -> String {
     )
 }
 
+pub const HEARTBEAT_BLOCK_OPEN: &str = "<codeterm-orchestrator-heartbeat";
+pub const HEARTBEAT_MORE: &str =
+    "More: codeterm docs ORCHESTRATION; all learnings: codeterm orchestrator heartbeat show";
+pub const MAX_SITUATIONAL_LEARNINGS: usize = 3;
+
+fn is_owner_rule(learning: &HeartbeatLearning) -> bool {
+    learning.tag.as_deref() == Some("owner")
+}
+
+fn render_learning(learning: &HeartbeatLearning, out: &mut String) {
+    out.push_str("- ");
+    out.push_str(
+        &learning
+            .text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
+    out.push('\n');
+}
+
+const SITUATIONAL_LEARNING_CHARS: usize = 160;
+
+fn render_situational_learning(learning: &HeartbeatLearning, out: &mut String) {
+    let text = learning
+        .text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let excerpt = if text.chars().count() > SITUATIONAL_LEARNING_CHARS {
+        let prefix = text
+            .chars()
+            .take(SITUATIONAL_LEARNING_CHARS)
+            .collect::<String>();
+        let boundary = prefix.rfind(' ').unwrap_or(prefix.len());
+        format!("{}…", &prefix[..boundary])
+    } else {
+        text
+    };
+    out.push_str(&format!("- {}: {excerpt}\n", learning.id));
+}
+
+fn reminder_snapshot(plan: &Plan) -> super::state::PlanStateSnapshot {
+    super::state::build_plan_state_snapshot(
+        plan,
+        crate::plan::coverage::compute_coverage_report(plan),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        &Default::default(),
+        None,
+        now_ms(),
+    )
+}
+
+fn render_actions(
+    plan: &Plan,
+    snapshot: &super::state::PlanStateSnapshot,
+    out: &mut String,
+) -> Vec<String> {
+    use super::next_actions::NextActionKind;
+    let actionable = super::state::orchestrator_actionable_task_ids(plan);
+    let mut named = std::collections::HashSet::new();
+    let mut actions = Vec::new();
+    for action in &snapshot.next_actions {
+        let verb = match action.kind {
+            NextActionKind::Gate => "gate",
+            NextActionKind::ClaimQa => "claim QA",
+            NextActionKind::Dispatch => "dispatch",
+            NextActionKind::Advance => "unblock",
+            NextActionKind::WaitingOnDependency => "repair missing dependency",
+            NextActionKind::ConsiderStop => {
+                out.push_str(&format!("- {}\n", action.message));
+                continue;
+            }
+            _ => continue,
+        };
+        if let Some(id) = action.task_id.as_ref().filter(|id| actionable.contains(id)) {
+            if named.insert(id.clone()) {
+                out.push_str(&format!("- {id}: {verb}\n"));
+                actions.push(id.clone());
+            }
+        }
+    }
+    for task in &plan.tasks {
+        if actionable.contains(&task.id)
+            && !named.contains(&task.id)
+            && super::state::task_projection(plan, task).presentation
+                == super::state::TaskPresentation::HandoffRequired
+        {
+            out.push_str(&format!("- {}: recover handoff\n", task.id));
+            actions.push(task.id.clone());
+        }
+    }
+    actions
+}
+
+fn render_actionable_skills(plan: &Plan, actions: &[String], out: &mut String) {
+    if actions.is_empty() {
+        return;
+    }
+    for skill in super::skill_registry::list_plan_skill_summaries(plan) {
+        let referenced = plan.tasks.iter().any(|task| {
+            actions.contains(&task.id)
+                && [
+                    Some(task.body.as_str()),
+                    task.test_plan.as_deref(),
+                    task.qa_plan.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|text| {
+                    text.split(|ch: char| !ch.is_alphanumeric() && ch != '-' && ch != '_')
+                        .any(|token| token == skill.slug)
+                })
+        });
+        if referenced {
+            out.push_str(&format!(
+                "- skill {}: codeterm plan skill show --plan {} {}\n",
+                skill.slug, plan.id, skill.slug
+            ));
+        }
+    }
+}
+
 fn render_heartbeat(
     plan: &Plan,
     heartbeat: &OrchestratorHeartbeat,
-    loops: &[LoopSpec],
+    _loops: &[LoopSpec],
     extra_digest_lines: &[String],
 ) -> String {
-    let plan_id = &plan.id;
-    let has_learnings = heartbeat
+    let snapshot = reminder_snapshot(plan);
+    let pending = snapshot
+        .open_lanes
+        .iter()
+        .filter(|lane| lane.presentation == super::state::TaskPresentation::ActionablePending)
+        .count();
+    let mut out = format!("{HEARTBEAT_BLOCK_OPEN} plan=\"{}\">\nState: in_review={} in_progress={} pending_actionable={pending} blocked={}\n",
+        plan.id, snapshot.task_counts.in_review, snapshot.task_counts.in_progress, snapshot.task_counts.blocked);
+    let actions = render_actions(plan, &snapshot, &mut out);
+    for learning in heartbeat
         .learnings
         .iter()
-        .any(|learning| !learning.text.trim().is_empty());
-    let has_running_loops = loops
-        .iter()
-        .any(|loop_spec| loop_spec.status == LoopStatus::Running);
-    let has_competitive_attempts = plan
-        .tasks
-        .iter()
-        .any(|task| super::task_attempts::live_attempt_count(task) > 1);
-    let has_qa = plan.tasks.iter().any(|task| {
-        task.status == TaskStatus::InReview
-            && task.review_stage == ReviewStage::Qa
-            && task.qa_state.is_some()
-    });
-    let has_open_gates = plan.gates.iter().any(|g| g.is_open());
-    let has_regression_gates = !super::milestone_gates::pending_regression_gates(plan).is_empty()
-        || !super::milestone_gates::pending_group_retrospectives(plan).is_empty();
-    let has_review_gate = super::review_gate::review_gate_status(plan)
-        .reason
-        .is_some();
-    let has_digests = !extra_digest_lines.is_empty();
-    let has_outstanding_gated = super::state::outstanding_blocked_count(plan) > 0;
-    if !has_learnings
-        && !has_running_loops
-        && !has_competitive_attempts
-        && !has_qa
-        && !has_open_gates
-        && !has_regression_gates
-        && !has_review_gate
-        && !has_digests
-        && !has_outstanding_gated
+        .filter(|learning| is_owner_rule(learning))
     {
-        return String::new();
+        render_learning(learning, &mut out);
     }
-    let mut out = format!("<codeterm-orchestrator-heartbeat plan=\"{plan_id}\">\n");
-    if has_learnings {
-        out.push_str("Recent learnings:\n");
-        for learning in heartbeat
-            .learnings
-            .iter()
-            .rev()
-            .filter(|learning| !learning.text.trim().is_empty())
-            .take(12)
-        {
-            out.push_str("- ");
-            out.push_str(learning.text.trim());
-            out.push('\n');
-        }
+    for learning in heartbeat
+        .learnings
+        .iter()
+        .rev()
+        .filter(|learning| !is_owner_rule(learning) && !learning.text.trim().is_empty())
+        .take(MAX_SITUATIONAL_LEARNINGS)
+    {
+        render_situational_learning(learning, &mut out);
     }
-    render_qa_queue(plan, &mut out);
-    render_review_gate(plan, &mut out);
     render_regression_gates(plan, &mut out);
     render_group_retrospectives(plan, &mut out);
     render_competitive_attempts(plan, &mut out);
-    render_running_loops(loops, &mut out);
     render_open_gates(plan, now_ms(), &mut out);
-    render_outstanding_gated(plan, &mut out);
-    if has_digests {
-        out.push_str("Digests:\n");
-        for line in extra_digest_lines
-            .iter()
-            .filter(|line| !line.trim().is_empty())
-        {
-            out.push_str("- ");
-            out.push_str(line.trim());
-            out.push('\n');
-        }
+    for line in extra_digest_lines
+        .iter()
+        .filter(|line| !line.trim().is_empty())
+    {
+        out.push_str("- ");
+        out.push_str(line.trim());
+        out.push('\n');
     }
-    let skill_summaries = super::skill_registry::list_plan_skill_summaries(plan);
-    out.push_str(&super::skill_registry::render_plan_skills_registry_line(
-        skill_summaries.len(),
-        &skill_summaries,
-    ));
-    out.push('\n');
-    out.push_str("</codeterm-orchestrator-heartbeat>");
+    render_actionable_skills(plan, &actions, &mut out);
+    out.push_str(HEARTBEAT_MORE);
+    out.push_str("\n</codeterm-orchestrator-heartbeat>");
     out
 }
 
@@ -399,21 +404,10 @@ pub(super) fn prepend_plan_heartbeat_with_digests(
         return text.to_string();
     }
     let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops, digest_lines);
-    let identity = role_identity_line(plan, plan.owner.tab_id.as_deref());
-    let prompt = reconciliation_prompt(&plan.id, plan.owner.tab_id.as_deref());
-    let reconciliation = format!(
-        "<codeterm-state-reconciliation plan=\"{}\">\n{prompt}\n</codeterm-state-reconciliation>",
-        plan.id
-    );
-    let prelude = if block.is_empty() {
-        format!("{identity}\n\n{reconciliation}")
-    } else {
-        format!("{identity}\n\n{reconciliation}\n\n{block}")
-    };
     if text.trim().is_empty() {
-        prelude
+        block
     } else {
-        format!("{prelude}\n\n{text}")
+        format!("{block}\n\n{text}")
     }
 }
 
@@ -581,10 +575,19 @@ impl PlanStore {
             return text.to_string();
         };
         if let Some(ids) = learning_ids {
-            let allowed: Vec<_> = ids.iter().take(3).collect();
+            let allowed: Vec<_> = ids
+                .iter()
+                .filter(|id| {
+                    plan.heartbeat
+                        .learnings
+                        .iter()
+                        .any(|learning| &learning.id == *id && !is_owner_rule(learning))
+                })
+                .take(MAX_SITUATIONAL_LEARNINGS)
+                .collect();
             plan.heartbeat
                 .learnings
-                .retain(|learning| allowed.contains(&&learning.id));
+                .retain(|learning| is_owner_rule(learning) || allowed.contains(&&learning.id));
         }
         prepend_plan_heartbeat_with_digests(&plan, text, digests)
     }
@@ -616,3 +619,6 @@ impl PlanStore {
         self.prepend_heartbeat_for_plan(&plan_id, text)
     }
 }
+
+#[cfg(test)]
+mod compact_tests;

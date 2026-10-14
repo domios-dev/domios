@@ -32,8 +32,15 @@ function githubRemote(repository, output) {
   const gh = args => execFileSync('gh', args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, maxBuffer: 256 * 1024 * 1024 });
   const asset = name => path.join(output, name);
   return {
-    createDraft: async tag => { gh(['release', 'create', tag, '--repo', repository, '--draft', '--latest=false', '--title', tag, '--notes', 'Independent signed frontend release']); },
-    upload: async (tag, name) => { gh(['release', 'upload', tag, asset(name), '--repo', repository]); },
+    createDraft: async tag => {
+      const releases = JSON.parse(gh(['api', `repos/${repository}/releases?per_page=100`]));
+      const existing = releases.find(item => item.tag_name === tag);
+      if (existing && !existing.draft) return true;
+      if (!existing) gh(['release', 'create', tag, '--repo', repository, '--draft', '--latest=false', '--title', tag, '--notes', 'Independent signed frontend release']);
+      execFileSync(process.execPath, ['scripts/release-clear-wedged-assets.mjs', repository, tag, 'frontend'], { stdio: 'inherit' });
+      return false;
+    },
+    upload: async (tag, name) => { gh(['release', 'upload', tag, asset(name), '--clobber', '--repo', repository]); },
     download: async (tag, name) => {
       // The tags endpoint hides drafts, so the draft is read from the release list.
       const releases = JSON.parse(gh(['api', `repos/${repository}/releases?per_page=100`]));

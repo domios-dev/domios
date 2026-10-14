@@ -9,7 +9,7 @@ import {
 } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
-import { addChatSend, readChatSends } from "./chatSendStore";
+import { addChatSend, readChatSends, updateChatSendContent, failChatSendRequest, setChatSendDraft } from "./chatSendStore";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -25,6 +25,7 @@ function assert(condition: unknown, message: string): asserts condition {
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://localhost/" });
+  Object.defineProperty(window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 900 });
   Object.defineProperty(globalThis, "window", { value: window, configurable: true });
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
   Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
@@ -90,6 +91,7 @@ function muxActions(): MultiplexerActionsContextType {
     setActiveWorkspace: noop,
     closeWorkspace: noop,
     renameWorkspace: noop,
+    setWorkspaceCwd: async () => ({ warnings: [] }),
     moveTab: noop,
     reorderTabs: noop,
     reorderDisplay: noop,
@@ -199,7 +201,7 @@ test("Chat has no delivery status surface", async () => {
   host.remove();
 });
 
-test("three optimistic sends render as one bubble when one glued provider turn arrives", async () => {
+test("three optimistic sends reconcile to ordered parts of one provider turn", async () => {
   const tabId = "merged-delivery-tab";
   const { host, root, dispatch } = await renderChat(tabId);
   const bodies = ["opaque-first", "opaque-second", "opaque-third"];
@@ -231,11 +233,11 @@ test("three optimistic sends render as one bubble when one glued provider turn a
   });
 
   const bubbles = host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
-  assert(bubbles.length === 1, `one merged turn renders one user bubble, got ${bubbles.length}`);
-  assert(
-    bubbles[0]?.getAttribute("data-message-id") === "merged-provider-turn",
-    "the committed merged transcript row replaces all optimistic bubbles",
-  );
+  assert(bubbles.length === bodies.length, "merged turn renders each supplied part once");
+  bodies.forEach((body, index) => {
+    assert(bubbles[index]?.textContent?.includes(body), "ordered parts retain their supplied payload");
+    assert(bubbles[index]?.getAttribute("data-message-id") !== `send-${index}`, "committed parts replace optimistic rows");
+  });
 
   await act(async () => root.unmount());
   host.remove();
@@ -284,6 +286,43 @@ test("one bubble follows event state and Retry reuses it", async () => {
     await act(async () => root.unmount()); host.remove();
   }
 });
+
+for (const reducedMotion of [false, true]) {
+  test(`voice progress is wired inside its bubble (reduced motion: ${reducedMotion})`, async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = (query) => ({
+      media: query, matches: reducedMotion, onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+      dispatchEvent: () => true,
+    });
+    const tabId = `voice-progress-${reducedMotion}`;
+    const { host, root } = await renderChat(tabId);
+    try {
+      await act(async () => {
+        addChatSend(tabId, {
+          id: "voice", correlationId: "voice", content: "opaque-placeholder", sentAtMs: Date.now(),
+        });
+        setChatSendDraft(tabId, "voice", {
+          text: "", attachments: ["/voice.wav"], recordedVoiceAttachments: ["/voice.wav"], capsules: {}, reply: null,
+        });
+      });
+      const bubble = host.querySelector('[data-testid="chat-message"][data-message-id="voice"]')!;
+      const progress = bubble.querySelector('[role="status"][aria-busy="true"]');
+      assert(progress?.getAttribute("aria-label"), "progress has an accessible name");
+      assert(progress?.getAttribute("data-motion") === (reducedMotion ? "reduced" : "animated"), "motion preference reaches progress");
+      await act(async () => {
+        updateChatSendContent(tabId, "voice", "opaque-failure");
+        failChatSendRequest(tabId, "voice");
+      });
+      assert(!bubble.querySelector('[aria-busy="true"]'), "failure removes progress from the same bubble");
+      assert(bubble.querySelector('button'), "failed voice retains its retry control");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+}
 
 async function main() {
   const window = setupDom();

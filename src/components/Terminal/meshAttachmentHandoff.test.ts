@@ -1,5 +1,6 @@
-import { formatAttachmentMarker } from "@codeterm/chat-core";
+import { formatAttachmentMarker, markVoice } from "@codeterm/chat-core";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import {
   AttachmentTransferError,
   assertNoSourceAttachmentPaths,
@@ -74,9 +75,7 @@ async function main() {
 
   {
     const { deps } = harness({ transcribeLocal: async () => { throw new Error("no engine"); } });
-    const parts = await resolveAttachmentParts(local, plans, deps);
-    assert.equal(parts.transcribeFailed, true);
-    assert.deepEqual(parts.parts, [formatAttachmentMarker(sourceVoice), formatAttachmentMarker(sourceImage)]);
+    await assert.rejects(resolveAttachmentParts(local, plans, deps), /no engine/);
   }
 
   {
@@ -183,3 +182,14 @@ main().then(
     process.exit(1);
   },
 );
+
+test("host transcription notes and missing remote transcripts refuse delivery", async () => {
+  const note = markVoice(targetVoice, null, "transcribe request failed: engine offline");
+  const localFailure = harness({ transcribeLocal: async () => note });
+  await assert.rejects(resolveAttachmentParts(local, plans, localFailure.deps), /engine offline/);
+  for (const reference of [note, undefined, ""]) {
+    const remoteFailure = harness({ transfer: async () => ({ path: targetVoice, kind: "voice", size: 9000, reference }) });
+    await assert.rejects(resolveAttachmentParts(remote, [plans[0]], remoteFailure.deps),
+      reference ? /engine offline/ : /no voice transcript/);
+  }
+});

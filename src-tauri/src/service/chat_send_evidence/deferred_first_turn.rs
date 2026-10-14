@@ -1,6 +1,6 @@
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
-    normalize_turn_evidence_with, ChatSendStatus, DeferredFirstTurnCandidate,
+    written_payload_match_end, ChatSendStatus, DeferredFirstTurnCandidate,
 };
 use crate::service::ServiceContext;
 
@@ -69,6 +69,10 @@ fn first_session_user_turn(
         .map(|message| message.content)
 }
 
+fn first_turn_matches(candidate: &DeferredFirstTurnCandidate, turn: &str) -> bool {
+    written_payload_match_end(turn, &candidate.payload, candidate.turn_normalization, 0).is_some()
+}
+
 pub(super) fn reconcile(svc: &ServiceContext, tab_id: &str) -> Vec<(ChatSendStatus, String)> {
     let mut confirmed = Vec::new();
     for candidate in svc.chat_send_ledger.deferred_first_turn_candidates(tab_id) {
@@ -87,7 +91,7 @@ pub(super) fn reconcile(svc: &ServiceContext, tab_id: &str) -> Vec<(ChatSendStat
         let Some(turn) = first_session_user_turn(&svc.agent_registry, &binding) else {
             continue;
         };
-        if normalize_turn_evidence_with(&turn, candidate.turn_normalization) != candidate.payload
+        if !first_turn_matches(&candidate, &turn)
             || current_session_binding(svc, tab_id, &candidate).is_none_or(|current| {
                 current.session_id != binding.session_id
                     || current.binding_nonce != binding.binding_nonce
@@ -104,4 +108,35 @@ pub(super) fn reconcile(svc: &ServiceContext, tab_id: &str) -> Vec<(ChatSendStat
         confirmed.push((status, binding.session_id));
     }
     confirmed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::provider::TurnEvidenceNormalization;
+    use crate::service::chat_send_transaction::DeferredFirstTurnEvidence;
+
+    #[test]
+    fn first_turn_applies_only_the_candidates_declared_normalization() {
+        let mut candidate = DeferredFirstTurnCandidate {
+            send_id: "send".into(),
+            payload: "opaque 🚀 whole payload".into(),
+            turn_normalization: Default::default(),
+            evidence: DeferredFirstTurnEvidence {
+                provider_id: "capability-fixture".into(),
+                cwd: "cwd".into(),
+                binding_nonce: "launch".into(),
+            },
+        };
+        let turn = "earlier\nopaque  whole payload\nother";
+        assert!(!first_turn_matches(&candidate, turn));
+        candidate.turn_normalization = TurnEvidenceNormalization {
+            drop_supplementary_characters: true,
+            ..Default::default()
+        };
+        assert!(first_turn_matches(&candidate, turn));
+        assert!(!first_turn_matches(&candidate, "opaque  whole"));
+        candidate.payload = "🚀".into();
+        assert!(!first_turn_matches(&candidate, turn));
+    }
 }

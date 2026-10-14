@@ -44,7 +44,18 @@ function localRecordingConformance(host: Host) {
   host.localRecording.statusReport({ request: [1], path: "foreign" });
   // @ts-expect-error START is host-owned.
   host.localRecording.start();
-  // @ts-expect-error A plugin cannot select arbitrary devices.
+  host.localRecording.selectDevices({ inputId: "input", collectionId: "collection", microphoneId: "microphone" });
+  const saved = host.localRecording.savedSelection();
+  if (saved && !("error" in saved)) {
+    const microphone: string = saved.microphoneId;
+    void microphone;
+  }
+  const inputs = host.localRecording.listInputDevices();
+  if (inputs && !("error" in inputs)) {
+    const kind: "hid" | "audio_input" = inputs[0].kind;
+    void kind;
+  }
+  // @ts-expect-error Selection requires the full offered identity.
   host.localRecording.selectDevices("arbitrary-device");
   // @ts-expect-error A plugin cannot commit a transcript or choose a recipient.
   host.localRecording.commit("tab-B", "injected-text");
@@ -388,3 +399,31 @@ function callSurface(): string {
   return host.surface.call("status", "[]");
 }
 void callSurface;
+
+const lifecycleModule: PluginModule = {
+  onPermissionChanged(event) {
+    const permission: string = event.permission;
+    const allowed: true = event.allowed;
+    const source: "install" | "action" | "settings" = event.source;
+    void [permission, allowed, source];
+  },
+};
+void lifecycleModule;
+
+import type {AgentRuntime, RuntimeContext, RuntimeAction, AgentEvent, HostAgentEvent, StdioAgentRuntimeCapability, RuntimeRestoreContext, Operation} from "./index";
+function runtimeConformance(runtime:AgentRuntime, context:RuntimeContext) {
+  const restored:RuntimeRestoreContext={instructions:"opaque",additionalContext:[{key:"opaque",kind:"application",value:"opaque"}]};
+  const restore:Operation={kind:"control",action:"restoreContext",value:restored};
+  void restore;
+  const plan=runtime.runtimePlan(context,{kind:"initialize"});
+  const action:RuntimeAction=plan.action;
+  const event:AgentEvent={kind:"turnState",threadId:"own",state:"working",startedAt:1000};
+  const hostEvent:HostAgentEvent={...event,at:2000};
+  const descriptor:StdioAgentRuntimeCapability={runtime:"stdio-jsonrpc",command:{binary:"agent",args:[]},requestMethods:{initialize:["hello"]},notificationMethods:[]};
+  // @ts-expect-error Process handles are not in runtime context.
+  context.process.kill();
+  // @ts-expect-error The host receipt stamp is not produced by pure hooks.
+  const invalid:AgentEvent={kind:"turnState",threadId:"own",state:"idle",at:1};
+  void [action,event,hostEvent,descriptor,invalid];
+}
+void runtimeConformance;

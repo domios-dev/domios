@@ -3,7 +3,9 @@
 param(
     [string]$LogPath = "target-check/evals/chat-roundtrip/phase-b.log",
     [ValidateRange(-1, [int]::MaxValue)]
-    [int]$VerdictOnly = -1
+    [int]$VerdictOnly = -1,
+    [ValidateRange(0, [int]::MaxValue)]
+    [int]$AssertionCount = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +30,7 @@ if ($logParent) {
 }
 
 if ($VerdictOnly -ge 0) {
-    & $bash -lc 'set -o pipefail; source evals/chat-roundtrip/run.sh --verdict-only "$1" 2>&1 | tee "$2"' _ "$VerdictOnly" "$LogPath"
+    & $bash -lc 'set -o pipefail; source evals/chat-roundtrip/run.sh --verdict-only "$1" "$3" 2>&1 | tee "$2"' _ "$VerdictOnly" "$LogPath" "$AssertionCount"
 } else {
     & $bash -lc 'set -o pipefail; source evals/chat-roundtrip/run.sh 2>&1 | tee "$1"' _ "$LogPath"
 }

@@ -12,6 +12,14 @@ use crate::provider::AgentProvider;
 pub const PLUGIN_ID: &str = "agent-claude";
 pub const PROVIDER_ID: &str = "claude";
 
+pub fn launch_prompt_rule() -> Option<String> {
+    serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-claude/src/launchPromptRule.json"
+    )))
+    .ok()
+}
+
 pub struct AgentClaudePlugin {
     activated: bool,
 }

@@ -24,10 +24,25 @@ Hidden memory workers trust their daemon-owned folder. Crons trust the folder ch
 
 Plugins declare capabilities and permissions. The host registers only capabilities it supports, and declared permissions bound access to local files, subprocesses, network hosts and secrets. A plugin update cannot supply host behavior absent from the installed app. Plugin confinement and official-channel provenance remain under the [plugin-host contract](core.md#core:plugin-host).
 
+Plugin actions that require a missing sensitive grant show a host-owned consent
+prompt naming the plugin and access, with Allow and Not now. Allow persists the
+same decision as CLI configuration, applies it and retries the refused action
+once. Each approved grant delivers one permission-change lifecycle event to its
+own plugin, after application and only while the grant remains allowed. Install
+and update events let a plugin initialize itself; action events are informational
+and leave activation to the original action's retry. Refusals and revocations do
+not deliver approval events. Core never selects a plugin-specific Enable action. UI installation and updates ask once for each new sensitive permission;
+Not now is retained. Plugin settings list declared sensitive permissions with
+allowed states and reversible toggles beside network access. Extra network hosts
+use the same explicit consent boundary and remain exact-host grants.
+
 A declared local recording trigger requires an explicit user grant. System trust,
-development access, and a manifest request do not supply it. The host owns selected
-devices and recipient selection; the plugin can inspect its own sanitized status
-and arm or disable its trigger without receiving raw input, audio, or authority to
+development access, and a manifest request do not supply it. The plugin may list
+sanitized recording input identities, choose its devices and read only its own
+machine-local saved selection through the granted host capability. The host
+validates the declared input and owns recipient selection; the plugin can inspect
+its own sanitized status and arm or disable its trigger without raw input, audio,
+or authority to
 send to arbitrary tabs. START freezes an authenticated ready recipient and one
 capture generation. A closed explicit choice remains stale; General resolves only
 at START when no explicit choice exists. Cancellation, device loss, revocation and

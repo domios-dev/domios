@@ -42,7 +42,6 @@ fn codex_rpc_settings_need_a_subsequent_own_turn_and_requested_effort() {
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn codex_rpc_next_turn_request_uses_shared_pending_observation() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();

@@ -7,6 +7,10 @@ description: Run Domios's verification gates without burning a session on them. 
 
 For file-backed QA summaries and agent-tab delivery, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
 
+Set `QA_NOTIFY_TAB` to receive one immediate alert per failing step while the
+gate continues, followed by its final summary. See the reporting skill above
+for signals and log receipts.
+
 Two shapes, and picking the wrong one is what costs hours.
 
 | What you are proving | How |
@@ -43,6 +47,8 @@ active libtest case names captured from the execution output.
 node node_modules/typescript/bin/tsc --noEmit
 node --import tsx --import ./scripts/ts-test-asset-hook.mjs <file>.test.tsx
 bash scripts/check-file-sizes.sh --fail
+node scripts/check-provider-boundary.mjs
+node --test scripts/tests/check-provider-boundary.test.mjs
 ```
 
 Run these from the PowerShell tool directly. They are short enough to read.
@@ -51,6 +57,8 @@ In a Worker lane only the isolated ones run: `tsc`, a single node test file,
 `test-one plan`, `test-one pty` and the file-size script. `check`, `check-tests`
 and `test-one app` compile the app crate, a full rebuild; report them as
 deferred selectors for the Orchestrator's canonical wave batch.
+
+The provider boundary guard compares exact exceptions with `origin/develop`; CI supplies the target SHA through `PROVIDER_BOUNDARY_BASE`. Each exception names one exact file/token pair and its count. Lower or remove the entry when occurrences leave; moving or formatting existing occurrences within a file is allowed. Counts may only shrink; new provider coupling belongs in the provider plugin.
 
 ## Broad, delegate
 
@@ -113,10 +121,16 @@ failed.
 can push a file past the 1200-line gate that passed minutes earlier. Re-run the
 size check after any fmt.
 
+**The clippy gate rejects deprecated APIs.** Tauri shell's
+ShellExt::open fails under -D deprecated. Use the existing
+crate::commands::system::open_url inside spawn_blocking for account and billing
+browser launches; remove unused shell imports and handles. Recheck the focused
+account service selector and bash scripts/clippy-gate.sh in warm canonical.
+
 ## Release
 
 `.agents/skills/github-release/SKILL.md` owns the sequence. This skill only
 fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
 
-<!-- revision: 2 -->
+<!-- revision: 5 -->

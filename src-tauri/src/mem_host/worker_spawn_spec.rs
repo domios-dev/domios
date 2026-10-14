@@ -1,15 +1,3 @@
-//! Memory-worker spawn routing.
-//!
-//! Verdict (b) for this path: a chat backend genuinely cannot serve here. The
-//! worker contract is closed by `codeterm mem worker report`, whose only handle
-//! is `$CODETERM_WORKER_ID` (`cli/src/cmd/mem/worker.rs`), and that variable is
-//! exported solely by the PTY launch env (`service/spawn.rs`
-//! `spawn_hidden_agent_impl`). `TabCommand::ChatBackend` has no worker-identity
-//! slot at all and the chat exec env carries none, so a chat-backend worker
-//! would register, start, and never be able to report — reaped as `Orphaned`.
-//! The routing decision itself is still delegated to the registry seam; only the
-//! stamp of the worker identity can fail, and it fails naming the capability.
-
 use crate::chatbackend::ChatBackendRegistry;
 use crate::multiplexer::types::TabAudience;
 use crate::service::spawn::{SpawnTabSpec, TabVisibility};
@@ -36,7 +24,7 @@ pub(crate) fn build_mem_worker_spawn_spec(
     worker_cwd: std::path::PathBuf,
     inputs: MemWorkerSpawnInputs,
 ) -> Result<SpawnTabSpec, SpawnRejection> {
-    let params = SpawnAgentParams {
+    let mut params = SpawnAgentParams {
         agent: Some(inputs.agent_provider.clone()),
         model: (!inputs.model.is_empty()).then_some(inputs.model),
         task: Some(inputs.task),
@@ -49,6 +37,23 @@ pub(crate) fn build_mem_worker_spawn_spec(
         ..Default::default()
     };
 
+    if chatbackends
+        .get(&inputs.agent_provider)
+        .is_some_and(|backend| backend.spawnable())
+        && !chatbackends
+            .descriptor(&inputs.agent_provider)
+            .is_some_and(|descriptor| descriptor.agent_runtime.is_some())
+    {
+        return Err(SpawnRejection::CapabilityUnavailable {
+            requested: inputs.agent_provider,
+            missing: MissingSpawnCapability::WorkerIdentityHandoff,
+        });
+    }
+    crate::service::move_chatbackend_task_to_system_prompt(
+        chatbackends,
+        &inputs.agent_provider,
+        &mut params,
+    );
     let mut spec = SpawnTabSpec::from_agent_params_with_chatbackends(chatbackends, params);
     spec.visibility = TabVisibility::Hidden;
     spec.bind_worker_identity(&inputs.agent_provider, &inputs.worker_id)

@@ -80,7 +80,7 @@ fn codex_rpc_control_model_request_validates_runtime_mode_and_effort() {
     assert_eq!(request.reasoning_effort.as_deref(), Some("high"));
     assert_eq!(
         request.runtime_mode,
-        Some(crate::service::codex_rpc::model::RuntimeMode::Auto)
+        Some(crate::service::agent_runtime::model::RuntimeMode::Auto)
     );
     assert!(serde_json::from_value::<AgentModelBody>(
         serde_json::json!({"model":"selected","runtime_mode":"unknown"})
@@ -202,4 +202,15 @@ fn live_model_switch_success_reports_the_bound_session_record() {
     assert_eq!(body["evidence"], "live_session_record");
     assert_eq!(body["session_id"], "ses-live");
     assert!(body.get("restart").is_none());
+}
+
+#[test]
+fn runtime_control_refusal_is_typed_and_never_offers_restart_fallback() {
+    let error = ModelSwitchError::RuntimeControlRefused("provider refused settings".into());
+    assert_eq!(model_switch_error_status(&error), StatusCode::CONFLICT);
+    let body = model_switch_error_body(&error);
+    assert_eq!(body["reason"], "runtime_control_refused");
+    assert_eq!(body["mode_used"], "live");
+    assert_eq!(body["ok"], false);
+    assert!(body.get("restart_fallback_available").is_none());
 }

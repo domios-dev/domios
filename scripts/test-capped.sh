@@ -153,6 +153,10 @@ fi
 
 if [ "$EXEC_MODE" -eq 0 ]; then
     configure_windows_test_target
+    if [ "$CARGO_TEST_CMD_DEFAULT" -eq 1 ]; then
+        source "$ROOT/scripts/cache-policy.sh"
+        ct_configure_sccache
+    fi
     configure_embed_cache
     isolate_conpty_test_dir
     ensure_embed_sidecar

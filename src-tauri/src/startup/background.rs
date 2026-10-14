@@ -7,7 +7,10 @@ use crate::{keepawake, mesh, update};
 use super::states::AppStates;
 
 /// Start the persistence worker and background monitoring threads.
-pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &AppStates) {
+pub(crate) fn start_background_tasks(
+    app_handle: &crate::app_runtime::AppHandle,
+    states: &AppStates,
+) {
     if let Err(error) = crate::service::session_persist::start_worker(app_handle) {
         log::error!("[session-persist] worker startup failed: {error}");
     }
@@ -226,35 +229,17 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         });
     }
 
-    // Background update check (5s delay to not slow startup)
     {
         let update_st = states.update.clone();
         let app_h = app_handle.clone();
-        codeterm_util::named_thread::spawn("update-check", move || {
-            std::thread::sleep(std::time::Duration::from_secs(5));
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create update check runtime");
-            rt.block_on(async {
-                let method = update_st.lock().install_method.clone();
-                match update::checker::check_for_update(&method).await {
-                    Ok(info) => {
-                        if info.update_available {
-                            log::info!(
-                                "Update available: {} → {}",
-                                info.current_version,
-                                info.latest_version
-                            );
-                            crate::api::events::emit_everywhere(&app_h, "update-available", &info);
-                        }
-                        let mut us = update_st.lock();
-                        us.last_check = Some(info);
-                        us.last_check_time = Some(std::time::Instant::now());
-                    }
-                    Err(e) => log::warn!("Update check failed: {}", e),
-                }
-            });
+        use tauri::Manager;
+        let bundles = app_h
+            .try_state::<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>()
+            .map(|bundles| bundles.inner().clone());
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = update::discovery::check(&app_h, &update_st, bundles, true).await {
+                log::warn!("[update-discovery] startup check failed: {error}");
+            }
         });
     }
 

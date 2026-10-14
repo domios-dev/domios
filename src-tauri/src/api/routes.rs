@@ -111,10 +111,20 @@ pub fn create_router_with_frontend(
     state: AppState,
     bundles: Option<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>,
 ) -> Router {
-    // Separate budgets: the Documents existence probe re-runs while a reply streams and
-    // must never starve the preview reads that render content.
-    let preview_read_admission = super::local_preview_routes::admission();
-    let preview_check_admission = super::local_preview_routes::admission();
+    create_router_with_preview_admission(
+        state,
+        bundles,
+        super::local_preview_routes::admission(),
+        super::local_preview_routes::admission(),
+    )
+}
+
+pub(super) fn create_router_with_preview_admission(
+    state: AppState,
+    bundles: Option<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>,
+    preview_read_admission: std::sync::Arc<super::local_preview_routes::Admission>,
+    preview_check_admission: std::sync::Arc<super::local_preview_routes::Admission>,
+) -> Router {
     let router = Router::new()
         .route(
             "/api/tabs/{id}/preview/read",
@@ -209,6 +219,10 @@ pub fn create_router_with_frontend(
             post(workspace_routes::focus_workspace),
         )
         .route(
+            "/api/workspaces/{id}/cwd",
+            post(workspace_routes::set_workspace_cwd),
+        )
+        .route(
             "/api/workspaces/{id}/rename",
             post(workspace_routes::rename_workspace),
         )
@@ -269,6 +283,10 @@ pub fn create_router_with_frontend(
         .route(
             "/api/plans",
             get(plan_routes::list).post(plan_routes::create),
+        )
+        .route(
+            "/api/plans/{id}/project",
+            post(plan_routes::project::set_project),
         )
         .route("/api/plans/resolve-refs", post(plan_routes::resolve_refs))
         .route(
@@ -585,6 +603,18 @@ pub fn create_router_with_frontend(
             "/api/mesh/peers/{id}/crons/{cron_id}/history",
             get(web_routes::peer_cron_history),
         )
+        .route(
+            "/api/tabs/{id}/agent/runtime/login",
+            post(super::runtime_login::login),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/retry",
+            post(web_routes::agent_runtime_retry),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/questions/{item}/answer",
+            post(web_routes::agent_runtime_answer_question),
+        )
         .route("/api/events/stream", get(web_routes::events_stream))
         .route("/api/output/stream", get(output_stream::output_stream))
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
@@ -692,7 +722,30 @@ pub fn create_router_with_frontend(
             "/api/config",
             get(config_routes::get_config_api).patch(config_routes::patch_config_api),
         )
+        .route(
+            "/api/analytics/status",
+            get(super::analytics_routes::status),
+        )
+        .route(
+            "/api/analytics/consent",
+            post(super::analytics_routes::consent),
+        )
+        .route("/api/analytics/event", post(super::analytics_routes::event))
+        .route("/api/account/plan", get(super::account_routes::plan))
+        .route("/api/account/upgrade", post(super::account_routes::upgrade))
+        .route("/api/account/portal", post(super::account_routes::portal))
+        .route(
+            "/api/account/plan/refresh",
+            post(super::account_routes::refresh_plan),
+        )
+        .route("/api/account/status", get(super::account_routes::status))
+        .route("/api/account/login", post(super::account_routes::login))
+        .route("/api/account/logout", post(super::account_routes::logout))
         .route("/api/update/check", get(updater_routes::check_update))
+        .route(
+            "/api/update/availability",
+            get(updater_routes::availability),
+        )
         .route("/api/update/status", get(updater_routes::update_status))
         .route("/api/update/install", post(updater_routes::install_update))
         .route(
@@ -754,6 +807,10 @@ pub fn create_router_with_frontend(
             )),
         )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
+        .route(
+            "/api/mesh/worker-observation",
+            post(mesh_routes::mesh_worker_observation),
+        )
         .route(
             "/api/mesh/worker-dispatch",
             post(mesh_routes::mesh_worker_dispatch),

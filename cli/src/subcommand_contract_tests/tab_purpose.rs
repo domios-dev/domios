@@ -47,3 +47,26 @@ fn tab_new_description_and_icon_parse() {
             .is_err()
     );
 }
+
+#[test]
+fn utility_shell_timeout_cli_contract() {
+    let parsed = TabOnly::try_parse_from(["tab", "new", "--timeout", "30s"]).unwrap();
+    assert!(matches!(parsed.action, TabAction::New { timeout: Some(value), .. } if value == "30s"));
+    for value in ["20m", "none"] {
+        let parsed =
+            TabOnly::try_parse_from(["tab", "timeout", "--tab", "shell", "--timeout", value])
+                .unwrap();
+        assert!(
+            matches!(parsed.action, TabAction::Timeout { tab: Some(id), timeout } if id == "shell" && timeout == value)
+        );
+    }
+    assert!(TabOnly::try_parse_from([
+        "tab",
+        "new",
+        "--chat-backend",
+        "plugin",
+        "--timeout",
+        "30s"
+    ])
+    .is_err());
+}

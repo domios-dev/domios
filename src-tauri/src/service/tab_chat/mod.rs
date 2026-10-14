@@ -45,7 +45,6 @@ use crate::agent::chat_types::{
 };
 use content::{attachment_from_image, extract_tool_result_text};
 
-const THINKING_PREVIEW: usize = 200;
 pub const LIVE_CHAT_POLL_INTERVAL_MS: u64 = 100;
 
 pub fn live_chat_poll_interval() -> std::time::Duration {
@@ -83,7 +82,11 @@ pub fn enrich_interactive(
             }
         }
     }
-    msg.interactive = provider.parse_interactive_events(msg);
+    msg.interactive = if provider.supports_prompt_answers() {
+        provider.parse_interactive_events(msg)
+    } else {
+        Vec::new()
+    };
 }
 
 fn get_optional_string(data: &serde_json::Value, key: &str) -> Option<String> {
@@ -508,16 +511,10 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
                 if raw.trim().is_empty() {
                     continue;
                 }
-                let truncated: String = raw.chars().take(THINKING_PREVIEW).collect();
-                let content = if raw.chars().count() > THINKING_PREVIEW {
-                    format!("{truncated}...")
-                } else {
-                    truncated
-                };
                 ChatMsg {
                     id,
                     kind: "thinking".into(),
-                    content,
+                    content: raw.to_string(),
                     collapsed: true,
                     ..Default::default()
                 }
@@ -665,7 +662,12 @@ pub fn tab_chat_snapshot(
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
     let (messages, _) = tab_transcript_snapshot(svc, tab_id, 0)?;
-    Ok(restore_notice::snapshot(tab_id, messages, since))
+    Ok(restore_notice::snapshot(
+        &svc.lifecycle_journal,
+        tab_id,
+        messages,
+        since,
+    ))
 }
 
 fn tab_transcript_snapshot(
@@ -673,6 +675,11 @@ fn tab_transcript_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
+    if crate::service::agent_runtime::requested_for_tab(svc, tab_id) {
+        let (_, messages) = crate::service::agent_runtime::transport::snapshot(svc, tab_id)?;
+        let total = messages.len();
+        return Ok((messages.into_iter().skip(since).collect(), total));
+    }
     if crate::service::structured_endpoint::sse(tab_id).is_some() {
         let messages = crate::service::structured_prompt::snapshot::read(svc, tab_id)?;
         let total = messages.len();

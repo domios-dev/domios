@@ -1,10 +1,6 @@
 use super::*;
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_shaped_tab_without_capability_is_refused() {
     let h = planner_report_harness();
     {
@@ -31,10 +27,6 @@ fn planner_shaped_tab_without_capability_is_refused() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planned_team_taskless_worker_reports_to_parent_without_plan_write() {
     let h = plan_evidence_harness();
     let token = "worker-parent-message-452bf1e0";
@@ -71,10 +63,6 @@ fn planned_team_taskless_worker_reports_to_parent_without_plan_write() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planned_team_worker_with_foreign_parent_cannot_use_parent_message_path() {
     let h = plan_evidence_harness();
     let token = "worker-foreign-parent-refused-47c3586a";
@@ -105,10 +93,6 @@ fn planned_team_worker_with_foreign_parent_cannot_use_parent_message_path() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planned_team_taskless_worker_parent_report_cannot_transition_a_task() {
     let h = plan_evidence_harness();
     let token = "worker-status-refused-407af69b";

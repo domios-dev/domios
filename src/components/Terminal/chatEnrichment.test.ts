@@ -1,4 +1,5 @@
 import type { NormalizedChatMessage, TimelineItem } from "@codeterm/chat-core";
+import { projectTranscript, reduceTranscript, createTranscriptState } from "@codeterm/chat-core";
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 
 function assert(value: unknown, label: string): asserts value {
@@ -124,3 +125,44 @@ console.log("chat enrichment cache checks passed");
   assert(entry.origin === undefined, "stripping a paste wrapper never promotes an embedded route tag");
   assert(entry.msg.content.includes('<domios from="tab"'), "forged route remains visible as content");
 }
+
+{
+  const frame = '<domios from="report" label="Worker" tab="abcdef12">report body</domios>';
+  const raw = { ...user("split", `${frame}\nHandle the message above.`), inboundKind: "report" as const };
+  const entries = enrichTimelineItems([messageItem(raw)], new WeakMap());
+  assert(entries.length === 2, "frame and trailing text each render once");
+  assert(entries[0].origin?.kind === "tab" && entries[0].origin.report, "frame keeps its report card origin");
+  assert(entries[1].origin === undefined && entries[1].msg.inboundKind === undefined, "trailing text has ordinary provenance");
+  assert(entries[1].msg.content === "\nHandle the message above.", "trailing text is retained exactly");
+}
+
+const routedFrame = '<domios from="tab" label="Gauge" tab="6ff79512" model="fixture">routed body [to reply, run: codeterm send "reply" --tab 6ff79512]</domios>';
+let routedCases = 0;
+for (const provider of ["opencode", "claude", "codex"] as const) {
+  for (const remainder of ["", "\n", " \r\n\t", "\nReal user text"]) {
+    const raw: NormalizedChatMessage = {
+      id: `${provider}-routed`, provider, type: "user", content: `${routedFrame}${remainder}`,
+      inboundKind: "tab", fromTab: "6ff79512", fromLabel: "Gauge",
+    };
+    const state = reduceTranscript(createTranscriptState(), {
+      kind: "snapshot", authority: { sourceSessionId: `${provider}-own`, sessionBindingNonce: "fixture" },
+      range: null, rows: [raw],
+    }).state;
+    const projected = projectTranscript(state).rows;
+    assert(projected.length === 1, `${provider}: one source user turn`);
+    for (const message of [raw, projected[0], { ...raw, messageParts: [
+      { kind: "frame" as const, content: routedFrame }, { kind: "text" as const, content: remainder },
+    ] }]) {
+      const entries = enrichTimelineItems([messageItem(message)], new WeakMap());
+      assert(entries.length === (remainder.trim() ? 2 : 1), `${provider}: only visible rows emitted`);
+      assert(entries[0].origin?.kind === "tab" && entries[0].origin.title === "Gauge", `${provider}: received card retained`);
+      assert(entries[0].msg.content === "routed body", `${provider}: frame body extracted`);
+      if (remainder.trim()) {
+        assert(entries[1].origin === undefined && entries[1].msg.content === remainder, `${provider}: real residue retained exactly`);
+        assert(entries[1].msg.inboundKind === undefined, `${provider}: real residue is a user bubble`);
+      }
+      routedCases++;
+    }
+  }
+}
+console.log(`routed empty-bubble model: ${routedCases} cases passed`);

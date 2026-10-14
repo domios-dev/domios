@@ -16,7 +16,7 @@ interface ChatCursor {
 const chatCursorAdvanced = (prev: ChatCursor | null, next: ChatCursor): boolean => prev === null || next.boot !== prev.boot || next.seq > prev.seq;
 interface SubscriptionRecord {
     event: string;
-    kind: "chat" | "resize-owner" | "state";
+    kind: "chat" | "resize-owner" | "state" | "runtime";
     ordinaryTabId: string;
     peerId: string;
     remoteTabId: string;
@@ -84,6 +84,10 @@ function connect(record: SubscriptionRecord): void {
                     pty_id: record.ordinaryTabId,
                 } });
         }
+        else if (progressed && message.data && record.kind === "runtime"
+            && message.event_type === "agent-runtime-state" && message.data.tab_id === record.remoteTabId) {
+            record.handler({ payload: { ...message.data, tab_id: record.ordinaryTabId } });
+        }
         else if (progressed && record.kind === "state"
             && (message.event_type === "mux-state-changed" || message.event_type === "tab-status-changed")) {
             record.handler({ payload: { event_type: message.event_type, peer_id: record.peerId } });
@@ -114,16 +118,17 @@ function connect(record: SubscriptionRecord): void {
 export function subscribeRemoteTabEvent<T>(event: string, handler: (value: {
     payload: T;
 }) => void): (() => void) | null {
+    const runtimePrefix = "agent-runtime-state:";
     const chatPrefix = "tab-chat-msg-";
     const ownerPrefix = "pty-resize-owner-changed:";
     const statePrefix = "peer-state-changed:";
-    const kind = event.startsWith(chatPrefix) ? "chat"
+    const kind = event.startsWith(runtimePrefix) ? "runtime" : event.startsWith(chatPrefix) ? "chat"
         : event.startsWith(ownerPrefix) ? "resize-owner"
             : event.startsWith(statePrefix) ? "state"
                 : null;
     if (!kind)
         return null;
-    const eventTarget = event.slice(kind === "chat" ? chatPrefix.length : kind === "state" ? statePrefix.length : ownerPrefix.length);
+    const eventTarget = event.slice(kind === "runtime" ? runtimePrefix.length : kind === "chat" ? chatPrefix.length : kind === "state" ? statePrefix.length : ownerPrefix.length);
     if (classifyTabTarget(eventTarget).kind === "invalid-remote") {
         throw new Error(`Invalid remote tab id "${eventTarget}"; local event fallback is forbidden`);
     }

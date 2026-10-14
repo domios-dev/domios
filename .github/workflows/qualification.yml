@@ -57,7 +57,7 @@ jobs:
       JEV_EVENT_SHA: ${{ github.sha }}
       JEV_QA_PY: ${{ inputs.interpreter_path }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -166,7 +166,7 @@ jobs:
       JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
       JEV_EVENT_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -589,7 +589,7 @@ jobs:
       JEV_EVENT_SHA: ${{ github.sha }}
       JEV_QA_PY: ${{ inputs.interpreter_path }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -761,7 +761,7 @@ jobs:
         run: |
           $deadlineTicks = [Diagnostics.Stopwatch]::GetTimestamp() + [long](2940000 * [Diagnostics.Stopwatch]::Frequency / 1000)
           "CACHE_SESSION_DEADLINE_TICKS=$deadlineTicks" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -1077,7 +1077,7 @@ jobs:
           exit $exitCode
       - name: Retain complete task boundary evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -1094,15 +1094,17 @@ jobs:
       TEST_CAP_SECS: '600'
       CARGO_TERM_COLOR: never
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: 1.95.0
       - name: Verify exact source and run five native controls
         shell: bash
         run: |
@@ -1147,9 +1149,10 @@ jobs:
           if summaries != [('ok', '5', '0', '0')]:
               raise SystemExit(f'Unexpected native summaries: {summaries!r}')
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
+          overwrite: true
           name: sentinel-command-linux-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sentinel-command-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: error
@@ -1158,6 +1161,7 @@ jobs:
     name: Sentinel probe fixed qualification (Linux)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-linux-task-local' }}
     runs-on: [self-hosted, linux-build]
+    timeout-minutes: 30
     env:
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
@@ -1165,7 +1169,7 @@ jobs:
       TEST_CAP_SECS: '600'
       CARGO_TERM_COLOR: never
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -1184,11 +1188,13 @@ jobs:
           printf '%s\n' '{"schema":"sentinel-linux-fixed-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: 1.95.0
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -1227,6 +1233,8 @@ jobs:
           checkout_status=$?
           if (( checkout_status != 0 )); then refuse_preflight checkout_identity_unavailable; fi
           if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then refuse_preflight expected_source_sha_invalid; fi
+          # Different Actions contexts can resolve to the same reviewed SHA.
+          # shellcheck disable=SC2055
           if [[ "$EXPECTED_SOURCE_SHA" != "$WORKFLOW_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$EVENT_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$checkout_sha" ]]; then
             refuse_preflight source_identity_mismatch
           fi
@@ -1255,15 +1263,18 @@ jobs:
           node_identity=''
           if command -v rustc >/dev/null 2>&1; then
             rustc_identity="$(rustc -vV 2>&1)"
-            if (( $? != 0 )); then refuse_preflight rustc_identity_failed; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then refuse_preflight rustc_identity_failed; fi
           fi
           if command -v cargo >/dev/null 2>&1; then
             cargo_identity="$(cargo --version 2>&1)"
-            if (( $? != 0 )); then refuse_preflight cargo_identity_failed; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then refuse_preflight cargo_identity_failed; fi
           fi
           if command -v node >/dev/null 2>&1; then
             node_identity="$(node --version 2>&1)"
-            if (( $? != 0 )); then refuse_preflight node_identity_failed; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then refuse_preflight node_identity_failed; fi
           fi
           input_paths=(
             '.github/workflows/tests.yml'
@@ -1335,7 +1346,8 @@ jobs:
           export SENTINEL_CHECKOUT_SHA="$checkout_sha"
           export SENTINEL_SOURCE_BEFORE_CLEAN="$source_before_clean"
           export SENTINEL_PREFLIGHT_READY="$preflight_ready"
-          export SENTINEL_PREFLIGHT_ERRORS="$(IFS=,; printf '%s' "${preflight_errors[*]}")"
+          SENTINEL_PREFLIGHT_ERRORS="$(IFS=,; printf '%s' "${preflight_errors[*]}")"
+          export SENTINEL_PREFLIGHT_ERRORS
           export SENTINEL_SOURCE_AFTER_CLEAN="$source_after_clean"
           export SENTINEL_PORTABLE_EXIT="$portable_exit"
           export SENTINEL_PORTABLE_WALL="$portable_wall"
@@ -1553,7 +1565,7 @@ jobs:
           exit "$node_status"
       - name: Retain complete Linux qualification evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -1574,7 +1586,7 @@ jobs:
       CARGO_TERM_COLOR: never
       RUST_TEST_THREADS: '1'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -1593,11 +1605,13 @@ jobs:
           printf '%s\n' '{"schema":"storage-foundation-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: 1.95.0
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -1636,6 +1650,8 @@ jobs:
           checkout_status=$?
           if (( checkout_status != 0 )); then refuse_preflight checkout_identity_unavailable; fi
           if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then refuse_preflight expected_source_sha_invalid; fi
+          # Different Actions contexts can resolve to the same reviewed SHA.
+          # shellcheck disable=SC2055
           if [[ "$EXPECTED_SOURCE_SHA" != "$WORKFLOW_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$EVENT_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$checkout_sha" ]]; then
             refuse_preflight source_identity_mismatch
           fi
@@ -1665,15 +1681,18 @@ jobs:
           node_identity=''
           if command -v rustc >/dev/null 2>&1; then
             rustc_identity="$(rustc -vV 2>&1)"
-            if (( $? != 0 )); then refuse_preflight rustc_identity_failed; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then refuse_preflight rustc_identity_failed; fi
           fi
           if command -v cargo >/dev/null 2>&1; then
             cargo_identity="$(cargo --version 2>&1)"
-            if (( $? != 0 )); then refuse_preflight cargo_identity_failed; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then refuse_preflight cargo_identity_failed; fi
           fi
           if command -v node >/dev/null 2>&1; then
             node_identity="$(node --version 2>&1)"
-            if (( $? != 0 )); then refuse_preflight node_identity_failed; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then refuse_preflight node_identity_failed; fi
           fi
           account_identity="$(id -un 2>/dev/null)"
           kernel_identity="$(uname -srm 2>/dev/null)"
@@ -1766,7 +1785,8 @@ jobs:
             cat "$contract_log"
             stub_cleanup_status=0
             list_stub_entries > "$receipt_dir/stub-entries-after.list"
-            if (( $? != 0 )); then stub_cleanup_status=1; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then stub_cleanup_status=1; fi
             while IFS= read -r entry; do
               if grep -Fxq -- "$entry" "$receipt_dir/stub-entries-before.list"; then continue; fi
               known_stub=false
@@ -1796,13 +1816,15 @@ jobs:
             source_after_clean=false
           fi
           export STORAGE_RECEIPT_DIR="$receipt_dir"
-          export STORAGE_KNOWN_STUBS="$(IFS=,; printf '%s' "${known_stubs[*]}")"
+          STORAGE_KNOWN_STUBS="$(IFS=,; printf '%s' "${known_stubs[*]}")"
+          export STORAGE_KNOWN_STUBS
           export STORAGE_CHECKOUT_SHA="$checkout_sha"
           export STORAGE_AFTER_HEAD_SHA="$source_after_head"
           export STORAGE_SOURCE_BEFORE_CLEAN="$source_before_clean"
           export STORAGE_SOURCE_AFTER_CLEAN="$source_after_clean"
           export STORAGE_PREFLIGHT_READY="$preflight_ready"
-          export STORAGE_PREFLIGHT_ERRORS="$(IFS=,; printf '%s' "${preflight_errors[*]}")"
+          STORAGE_PREFLIGHT_ERRORS="$(IFS=,; printf '%s' "${preflight_errors[*]}")"
+          export STORAGE_PREFLIGHT_ERRORS
           export STORAGE_REVIEWED_ANCESTOR="$storage_ancestor"
           export STORAGE_INVENTORY_EQUAL="$storage_inventory_equal"
           export STORAGE_COMMAND_EXIT="$command_exit"
@@ -2079,7 +2101,7 @@ jobs:
           exit "$node_status"
       - name: Retain complete Linux Storage qualification evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -2102,7 +2124,7 @@ jobs:
       CARGO_TERM_COLOR: never
       RUST_TEST_THREADS: '1'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -2121,11 +2143,13 @@ jobs:
           printf '%s\n' '{"schema":"storage-domains-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: 1.95.0
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -2163,6 +2187,8 @@ jobs:
           checkout_status=$?
           if (( checkout_status != 0 )); then refuse_preflight checkout_identity_unavailable; fi
           if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then refuse_preflight expected_source_sha_invalid; fi
+          # Different Actions contexts can resolve to the same reviewed SHA.
+          # shellcheck disable=SC2055
           if [[ "$EXPECTED_SOURCE_SHA" != "$WORKFLOW_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$EVENT_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$checkout_sha" ]]; then
             refuse_preflight source_identity_mismatch
           fi
@@ -2195,15 +2221,18 @@ jobs:
           node_identity=''
           if command -v rustc >/dev/null 2>&1; then
             rustc_identity="$(rustc -vV 2>&1)"
-            if (( $? != 0 )); then refuse_preflight rustc_identity_failed; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then refuse_preflight rustc_identity_failed; fi
           fi
           if command -v cargo >/dev/null 2>&1; then
             cargo_identity="$(cargo --version 2>&1)"
-            if (( $? != 0 )); then refuse_preflight cargo_identity_failed; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then refuse_preflight cargo_identity_failed; fi
           fi
           if command -v node >/dev/null 2>&1; then
             node_identity="$(node --version 2>&1)"
-            if (( $? != 0 )); then refuse_preflight node_identity_failed; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then refuse_preflight node_identity_failed; fi
           fi
           account_identity="$(id -un 2>/dev/null)"
           kernel_identity="$(uname -srm 2>/dev/null)"
@@ -2315,14 +2344,16 @@ jobs:
             : > "$receipt_dir/assets-hashes.tsv"
             for revision in "$FOUNDATION_ACCEPTED_SHA" "$DOMAIN_ORIGIN_SHA" "$DOMAIN_REVIEWED_SHA"; do
               asset_hash="$(git show "${revision}:${asset_path}" 2>/dev/null | sha256sum 2>/dev/null)"
-              if [[ $? != 0 || ! "$asset_hash" =~ ^([0-9a-f]{64})[[:space:]] ]]; then
+              qualification_command_status=$?
+              if [[ $qualification_command_status != 0 || ! "$asset_hash" =~ ^([0-9a-f]{64})[[:space:]] ]]; then
                 refuse_preflight assets_anchor_hash_failed
               else
                 printf '%s\t%s\n' "$revision" "${BASH_REMATCH[1]}" >> "$receipt_dir/assets-hashes.tsv"
               fi
             done
             current_asset_hash="$(sha256sum -- "$asset_path" 2>/dev/null)"
-            if [[ $? != 0 || ! "$current_asset_hash" =~ ^([0-9a-f]{64})[[:space:]] ]]; then
+            qualification_command_status=$?
+            if [[ $qualification_command_status != 0 || ! "$current_asset_hash" =~ ^([0-9a-f]{64})[[:space:]] ]]; then
               refuse_preflight assets_source_hash_failed
             else
               printf '%s\t%s\n' checkout "${BASH_REMATCH[1]}" >> "$receipt_dir/assets-hashes.tsv"
@@ -2390,7 +2421,8 @@ jobs:
           export QUAL_BASH_IDENTITY="$BASH_VERSION"
           export QUAL_ACCOUNT_IDENTITY="$account_identity"
           export QUAL_KERNEL_IDENTITY="$kernel_identity"
-          export QUAL_KNOWN_STUBS="$(IFS=,; printf '%s' "${known_stubs[*]}")"
+          QUAL_KNOWN_STUBS="$(IFS=,; printf '%s' "${known_stubs[*]}")"
+          export QUAL_KNOWN_STUBS
           cat > "$receipt_dir/receipt.js" <<'NODE'
           const crypto = require('node:crypto');
           const fs = require('node:fs');
@@ -2939,7 +2971,8 @@ jobs:
             process.exitCode = 1;
           });
           NODE
-          if (( $? != 0 )); then
+          qualification_command_status=$?
+          if (( qualification_command_status != 0 )); then
             refuse_preflight receipt_parser_source_write_failed
             printf '%s\n' "${preflight_errors[@]}" > "$receipt_dir/preflight-errors.list"
           fi
@@ -2959,7 +2992,8 @@ jobs:
           cleanup_build_stubs() {
             local entry known
             list_stub_entries > "$receipt_dir/stub-entries-after.list"
-            if (( $? != 0 )); then stub_cleanup_status=1; return; fi
+            qualification_command_status=$?
+            if (( qualification_command_status != 0 )); then stub_cleanup_status=1; return; fi
             while IFS= read -r entry; do
               if grep -Fxq -- "$entry" "$receipt_dir/stub-entries-before.list"; then continue; fi
               known=false
@@ -3044,7 +3078,7 @@ jobs:
           if (( finish_status != 0 )); then exit "$finish_status"; fi
       - name: Retain complete Linux domain qualification evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: storage-domains-linux-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/storage-domains-linux-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -3061,7 +3095,7 @@ jobs:
       EVENT_SOURCE_SHA: ${{ github.sha }}
       MAINTENANCE_OPERATION: ${{ inputs.maintenance_operation }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -3093,7 +3127,7 @@ jobs:
           & .\scripts\windows-sccache-session.ps1 -Operation $env:MAINTENANCE_OPERATION
       - name: Retain fresh maintenance evidence
         if: ${{ always() && steps.maintenance.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-sccache-maintenance-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/windows-sccache-maintenance-${{ github.run_id }}-${{ github.run_attempt }}/

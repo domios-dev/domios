@@ -124,11 +124,8 @@ pub async fn install_update(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     if q.after_update.is_some() {
-        validate_after_update_enabled(
-            true,
-            crate::config::load_config().agent.continue_after_restart,
-        )
-        .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
+        validate_after_update_enabled(true, state.svc.configuration().agent.continue_after_restart)
+            .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
     }
     let caller_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
     if q.method.as_deref() == Some("auto") {
@@ -415,4 +412,22 @@ mod tests {
         assert!(validate_initiating_tab(Some("caller"), Some("caller")).is_ok());
         assert!(validate_initiating_tab(None, None).is_ok());
     }
+}
+
+pub async fn availability(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<CheckUpdateQuery>,
+    bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
+) -> Result<Json<crate::update::discovery::AvailabilitySnapshot>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
+    crate::update::discovery::check(
+        &state.svc.app_handle,
+        &state.update_state,
+        bundles.map(|b| b.0),
+        q.force.unwrap_or(false),
+    )
+    .await
+    .map(Json)
+    .map_err(|error| (StatusCode::BAD_GATEWAY, error))
 }

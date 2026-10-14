@@ -268,7 +268,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
     // (shared default). Resolved against `agent`'s own catalog so a cron job
     // fired without a stored model still gets a model that provider accepts.
     let model = model.map(|s| s.to_string()).or_else(|| {
-        let mem_cfg = crate::config::memory_config();
+        let mem_cfg = service.configuration().memory;
         let (resolved, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
             &mem_cfg.dreaming_model,
             &mem_cfg.worker_model,
@@ -287,10 +287,12 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
 
     // Routes through SpawnTabSpec::from_agent_params_with_chatbackends so a scheduled
     // agent and a CLI-spawned one agree on which runtime serves the provider.
+    let runtime_owner_prebound = crate::service::agent_runtime::engine::requested(service, agent);
     let spawn_spec = crate::cron::spawn_spec::build_cron_spawn_spec(
         service.chatbackend_registry.as_ref(),
         crate::cron::spawn_spec::CronSpawnInputs {
             job_id: job_id.to_string(),
+            run_id: run_id.clone(),
             job_name,
             agent: agent.to_string(),
             model,
@@ -318,13 +320,17 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
                 handle.tab_id
             );
 
-            cron_state
-                .lock()
-                .register_tab(&handle.tab_id, job_id, &run_id);
-            if let Err(error) = commit(cron_state, |store| {
-                Ok(store.prepare_set_run_tab(job_id, &run_id, &handle.tab_id))
-            }) {
-                log::error!("Failed to record cron run tab: job={job_id} run={run_id}: {error}");
+            if !runtime_owner_prebound {
+                cron_state
+                    .lock()
+                    .register_tab(&handle.tab_id, job_id, &run_id);
+                if let Err(error) = commit(cron_state, |store| {
+                    Ok(store.prepare_set_run_tab(job_id, &run_id, &handle.tab_id))
+                }) {
+                    log::error!(
+                        "Failed to record cron run tab: job={job_id} run={run_id}: {error}"
+                    );
+                }
             }
             service.sync_cron_owner_prompt_state(&handle.tab_id);
 
@@ -335,7 +341,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
                 .get(&handle.tab_id)
                 .cloned()
             {
-                let global_timeout = crate::config::memory_config().worker_timeout_seconds;
+                let global_timeout = service.configuration().memory.worker_timeout_seconds;
                 let timeout = job_timeout.unwrap_or(global_timeout);
                 if job_timeout.is_some() {
                     log::info!(
@@ -461,6 +467,9 @@ mod tests {
             temp.path().join("crons"),
             clock.clone(),
             CronStorageOptions::default(),
+            crate::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
         )
         .expect("hydrate cron store");
         StorageFixture {
@@ -647,6 +656,7 @@ mod tests {
             &crate::chatbackend::ChatBackendRegistry::new(),
             crate::cron::spawn_spec::CronSpawnInputs {
                 job_id: fire.job_id,
+                run_id: "fixture-run".into(),
                 job_name: "legacy".into(),
                 agent: fire.agent,
                 model: fire.model,

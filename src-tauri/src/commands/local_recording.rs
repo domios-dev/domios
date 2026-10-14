@@ -26,21 +26,26 @@ pub(crate) fn local_recording_set_enabled(
 }
 
 #[tauri::command]
-pub(crate) fn local_recording_select_devices(
+pub(crate) async fn local_recording_select_devices(
     svc: tauri::State<'_, ServiceState>,
     plugin_id: String,
     input_id: String,
     collection_id: String,
     microphone_id: String,
 ) -> Result<u64, String> {
-    svc.local_recording_select_devices(
-        &plugin_id,
-        codeterm_plugin::local_recording::SelectedDevices {
-            input_id,
-            collection_id,
-            microphone_id,
-        },
-    )
+    let service = svc.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        service.local_recording_select_devices(
+            &plugin_id,
+            codeterm_plugin::local_recording::SelectedDevices {
+                input_id,
+                collection_id,
+                microphone_id,
+            },
+        )
+    })
+    .await
+    .map_err(|_| "recording_selection_worker_failed".to_string())?
 }
 
 #[tauri::command]

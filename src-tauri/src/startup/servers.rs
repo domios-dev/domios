@@ -118,7 +118,12 @@ fn report_general_agent_frontend_deadline(service: &crate::service::ServiceConte
 }
 
 /// Start socket server, REST API server, and cron scheduler.
-pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
+pub(crate) fn start_servers(
+    app: &crate::app_runtime::App,
+    states: &AppStates,
+    service_state: &ServiceState,
+) {
+    crate::update::bind_status_emitter(app.handle().clone());
     let app_handle = app.handle().clone();
     super::state_incidents::install_notifier(service_state);
     if let Some(reason) = states.storage.unavailable_reason() {
@@ -167,12 +172,14 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         .map(|clock| clock as cron::clock::SharedClock)
         .unwrap_or_else(cron::clock::system_clock);
     let logs_root = crate::paths::data_dir().join("crons");
+    let default_agent_provider = states.config.lock().general_agent.agent_provider.clone();
     let cron_store = match states.storage.storage() {
         Some(storage) => cron::store::CronStore::open_storage(
             storage,
             logs_root.clone(),
             cron_clock.clone(),
             cron::store::CronStorageOptions::default(),
+            default_agent_provider,
         )
         .unwrap_or_else(|error| cron::store::CronStore::unavailable(error, logs_root, cron_clock)),
         None => cron::store::CronStore::unavailable(
@@ -496,10 +503,6 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    #[cfg_attr(
-        not(windows),
-        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-    )]
     fn general_agent_frontend_deadline_releases_mux_for_restored_backends() {
         let (mut mux, general_tab_id) = MultiplexerState::new();
         mux.register_alias(

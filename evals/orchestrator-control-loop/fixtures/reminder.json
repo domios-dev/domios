@@ -1,0 +1,114 @@
+{
+  "plan_id": "fixture",
+  "payload": "opaque trigger",
+  "learnings": [
+    {
+      "id": "learn_4q9mfe",
+      "tag": null,
+      "text": "Start frontend-only Worker lanes from origin/master, never from the integration branch: lanes dispatched from fix/1.14.3 carried Rust merges into the frontend PR, which ran the full Rust matrix and mixed backend code into a frontend release.",
+      "ts": 1791817967088
+    },
+    {
+      "id": "learn_rav21b",
+      "tag": "mesh",
+      "text": "Remote Worker dispatch needs the origin and the peer on the same mesh protocol: update the origin machine first; a 1.14.1 origin dispatching to a 1.14.6 peer reported peer_offline while the peer spawned orphan Workers whose ACKs were then refused.",
+      "ts": 1791843706414
+    },
+    {
+      "id": "learn_3gj19u",
+      "tag": "review",
+      "text": "Never append acceptance criteria during a bounce: the correction-scope guard refuses the Worker's report. Put owner additions in a new task, or record an owner P0 override before the Worker reports.",
+      "ts": 1791843706467
+    },
+    {
+      "id": "learn_4ld1pz",
+      "tag": "docs",
+      "text": "Lane Workers keep adding settings to CONFIG.md and routes to API.md and overflow the embedded 240-line and 24 KiB bounds; give each new feature its own prod doc (ACCOUNT) and check bounds right after each merge.",
+      "ts": 1791843706505
+    },
+    {
+      "id": "learn_4hb07r",
+      "tag": "release",
+      "text": "Windows-only tests (cfg windows or ignore on non-Windows) never run in canonical macOS QA; run the Windows Rust lib suite on a Windows runner before pushing a release branch, or the release run finds them.",
+      "ts": 1791843706538
+    },
+    {
+      "id": "learn_9o7ltr",
+      "tag": "secrets",
+      "text": "Two vault entries with the same name make secret get and delete by name fail as ambiguous; check secret search before saving, and delete a duplicate by its item id.",
+      "ts": 1791843706573
+    },
+    {
+      "id": "learn_eb52yy",
+      "tag": "ci",
+      "text": "A freshly registered GitHub runner auto-starts and can take a live release job; keep the runner service stopped (or register it without the shared labels) until its toolchain proof finishes.",
+      "ts": 1791843706614
+    },
+    {
+      "id": "learn_bspuxt",
+      "tag": "qa",
+      "text": "A long canonical QA batch can hang silently (gateway log tee never got EOF, 4.5 h lost) while plan reminders are also silently dropped, so neither the batch report nor the heartbeat wakes the Orchestrator. When launching a multi-hour batch, also schedule a one-shot bounded deadline self-message that triggers one inspection of the QA shell.",
+      "ts": 1791867461053
+    },
+    {
+      "id": "learn_sgo7jm",
+      "tag": "qa",
+      "text": "Owner: use the whole fleet for tests. Release broad gates run as CI on the self-hosted runners in parallel (BLACKSTAR windows-ci, green windows-light, Linux, macOS), not serially on eight. Focused Rust QA for incoming lanes is spread across warm checkouts on BLACKSTAR/ROG/air via mesh once eight runs a release with working remote dispatch; eight canonical stays the integrator.",
+      "ts": 1791870836157
+    },
+    {
+      "id": "learn_gagvvz",
+      "tag": "recovery",
+      "text": "After a Domios prod restart, a Worker whose task sits in review gets a new session binding and cannot ACK a follow-up message ('caller does not identify exactly one current attempt'). Send follow-ups to reviewed tasks through codeterm plan review bounce with the note, which mints a fresh attempt for the live Worker, never as a plain message.",
+      "ts": 1791871764164
+    },
+    {
+      "id": "learn_9xgkzd",
+      "tag": "providers",
+      "text": "Aider (openai/mimo-v2.6-pro) is not usable as an autonomous scout: it cannot run shell commands or codeterm itself, asks the user to paste grep output or add files, and never sends codeterm agent report. Use it only for interactive file editing; scouts stay on Codex/Claude.",
+      "ts": 1791871955129
+    },
+    {
+      "id": "learn_2yfmco",
+      "tag": "cleanup",
+      "text": "Workers leave Blueprint watchers (QA completion, matrix readiness) behind; the sidebar Jobs count showed 36 stale ones. At every acceptance, delete the accepted Worker's Blueprints (codeterm blueprint delete <id>; the Team owner may delete) along with its tab, shells and lane.",
+      "ts": 1791872300323
+    },
+    {
+      "id": "learn_7cwal3",
+      "tag": "owner",
+      "text": "Owner: implementation Workers run on codex:gpt-6.1-sol.",
+      "ts": 1791872944905
+    },
+    {
+      "id": "learn_gtq6xe",
+      "tag": "owner",
+      "text": "Owner: clean up at every acceptance: Worker tab, its QA shells, Blueprints/crons, and the ancestry-merged lane; never lose an unmerged lane.",
+      "ts": 1791872944937
+    },
+    {
+      "id": "learn_fyji76",
+      "tag": "owner",
+      "text": "Owner: no patches; reuse code, split by responsibility, review; think decisions through.",
+      "ts": 1791872944992
+    },
+    {
+      "id": "learn_x59p6j",
+      "tag": "owner",
+      "text": "Owner: every owner message that asks for something becomes a plan task.",
+      "ts": 1791872945048
+    },
+    {
+      "id": "learn_mk2czs",
+      "tag": "owner",
+      "text": "Owner: UI reuses existing components and the house style; never invent new visual language.",
+      "ts": 1791872945106
+    },
+    {
+      "id": "learn_eaxs5o",
+      "tag": "owner",
+      "text": "Owner: the bell is only codeterm notify; system notices are logs; toasts only for the user's own failed action.",
+      "ts": 1791872945145
+    }
+  ]
+}

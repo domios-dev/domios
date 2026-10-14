@@ -172,9 +172,9 @@ function fill(count: number): void {
   }
 }
 
-function rekeyRetainedTail(): void {
+function refreshRetainedTail(): void {
   const start = transcriptBackfillCursor(transcript);
-  if (start == null) throw new Error("no retained range to re-key");
+  if (start == null) throw new Error("no retained range to refresh");
   commit({
     kind: "snapshot",
     authority: AUTHORITY,
@@ -306,7 +306,7 @@ describe("attached tail at the history cap", () => {
       expectPinnedToBottom();
     }
 
-    rekeyRetainedTail();
+    refreshRetainedTail();
     await update();
     expectPinnedToBottom();
 
@@ -420,7 +420,7 @@ describe("send from history", () => {
 });
 
 describe("detached reader at the history cap", () => {
-  it("stays on the same content through optimistic send, eviction above, streamed rows and render-id re-key", async () => {
+  it("stays on the same content through optimistic send, eviction above, streamed rows and snapshot refresh", async () => {
     await mount();
     await userScrollTo(500);
     expect(followTail.current).toBe(false);
@@ -452,9 +452,9 @@ describe("detached reader at the history cap", () => {
     }
 
     const renderIdBefore = rowBySource(anchor).dataset.messageId;
-    rekeyRetainedTail();
+    refreshRetainedTail();
     await update();
-    expect(rowBySource(anchor).dataset.messageId).not.toBe(renderIdBefore);
+    expect(rowBySource(anchor).dataset.messageId).toBe(renderIdBefore);
     expect(readerPosition(anchor)).toBe(position);
 
     await deliverScrollEvent();
@@ -614,17 +614,17 @@ describe("bounded window anchor identity", () => {
     return visibleRows().map((message) => ({ kind: "message" as const, message }));
   }
 
-  it("follows the same source row through a render-id re-key", () => {
+  it("keeps the same anchor key through a snapshot refresh", () => {
     const items = timeline();
     const anchorKey = timelineItemKey(items[6]);
     const identity = chatWindowAnchorIdentity(items, anchorKey)!;
 
-    rekeyRetainedTail();
+    refreshRetainedTail();
     const rekeyedItems = timeline();
-    expect(rekeyedItems.some((item) => timelineItemKey(item) === anchorKey)).toBe(false);
+    expect(rekeyedItems.some((item) => timelineItemKey(item) === anchorKey)).toBe(true);
     const rekeyed = rekeyedChatWindowAnchor(rekeyedItems, identity);
     expect(rekeyed).not.toBeNull();
-    expect(rekeyed).not.toBe(anchorKey);
+    expect(rekeyed).toBe(anchorKey);
     const end = chatWindowRange(rekeyedItems, rekeyed).end;
     expect(sourceKey((rekeyedItems[end - 1] as { message: NormalizedChatMessage }).message)).toBe(identity.sourceId);
   });

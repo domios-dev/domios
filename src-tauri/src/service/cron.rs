@@ -18,7 +18,12 @@ pub(crate) fn cron_fired_payload(cron_id: &str, run_id: &str, tab_id: &str) -> s
     serde_json::json!({"cron_id": cron_id, "run_id": run_id, "tab_id": tab_id})
 }
 
-pub(crate) fn emit_cron_fired(app: &tauri::AppHandle, cron_id: &str, run_id: &str, tab_id: &str) {
+pub(crate) fn emit_cron_fired(
+    app: &crate::app_runtime::AppHandle,
+    cron_id: &str,
+    run_id: &str,
+    tab_id: &str,
+) {
     use tauri::Emitter;
     let _ = app.emit("cron-fired", cron_fired_payload(cron_id, run_id, tab_id));
 }
@@ -233,7 +238,7 @@ impl ServiceContext {
             .as_deref()
             .filter(|agent| !agent.trim().is_empty())
             .map(str::to_string)
-            .unwrap_or_else(crate::config::default_agent_provider);
+            .unwrap_or_else(|| self.configuration().general_agent.agent_provider);
         params.agent = Some(provider.clone());
         params.model = params.model.take().filter(|model| !model.trim().is_empty());
         self.validate_cron_spawn_fields(&provider, params.model.as_deref(), params.cwd.as_deref())?;
@@ -245,6 +250,7 @@ impl ServiceContext {
         let job = commit(cron, |store| store.prepare_create(params.clone()))?.value;
         wake.notify_all();
         self.emit_cron_changed();
+        self.record_product_feature(codeterm_analytics::Feature::CronCreated);
         Ok(job)
     }
 
@@ -360,7 +366,7 @@ impl ServiceContext {
             .as_deref()
             .is_some_and(|agent| agent.trim().is_empty())
         {
-            patch.agent = Some(crate::config::default_agent_provider());
+            patch.agent = Some(self.configuration().general_agent.agent_provider);
         }
         let (provider, model, cwd, effort) = {
             let store = cron.lock();
@@ -614,6 +620,27 @@ impl ServiceContext {
         Ok(job)
     }
 
+    pub(crate) fn prepare_runtime_cron_owner(
+        &self,
+        tab_id: &str,
+        job_id: &str,
+        run_id: &str,
+    ) -> Result<(), String> {
+        let cron = self
+            .app_handle
+            .try_state::<CronState>()
+            .ok_or("Runtime cron state unavailable")?;
+        if !runtime_cron_owner_needs_registration(&cron.lock(), tab_id, job_id, run_id)? {
+            return Ok(());
+        }
+        commit(&cron, |store| {
+            Ok(store.prepare_set_run_tab(job_id, run_id, tab_id))
+        })
+        .map_err(|error| error.to_string())?;
+        cron.lock().register_tab(tab_id, job_id, run_id);
+        Ok(())
+    }
+
     pub fn cron_trigger(&self, cron: &CronState, id: &str) -> Result<CronRunInfo, String> {
         let (
             agent,
@@ -688,7 +715,7 @@ impl ServiceContext {
         );
 
         let model = model.or_else(|| {
-            let mem_cfg = crate::config::memory_config();
+            let mem_cfg = self.configuration().memory;
             let (resolved, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
                 &mem_cfg.dreaming_model,
                 &mem_cfg.worker_model,
@@ -700,10 +727,12 @@ impl ServiceContext {
 
         // Same builder as the scheduler's automatic fire: one routing decision, so a
         // triggered run and a scheduled run cannot disagree about the runtime.
+        let runtime_owner_prebound = super::agent_runtime::engine::requested(self, &agent);
         let spec = crate::cron::spawn_spec::build_cron_spawn_spec(
             self.chatbackend_registry.as_ref(),
             crate::cron::spawn_spec::CronSpawnInputs {
                 job_id: id.to_string(),
+                run_id: run_id.clone(),
                 job_name,
                 agent,
                 model,
@@ -725,17 +754,19 @@ impl ServiceContext {
         match spawn {
             Ok(handle) => {
                 run_info.tab_id = Some(handle.tab_id.clone());
-                cron.lock().register_tab(&handle.tab_id, id, &run_id);
-                if let Err(error) = commit(cron, |store| {
-                    Ok(store.prepare_set_run_tab(id, &run_id, &handle.tab_id))
-                }) {
-                    log::error!(
-                        "Failed to record triggered cron Tab: job={id} run={run_id}: {error}"
-                    );
+                if !runtime_owner_prebound {
+                    cron.lock().register_tab(&handle.tab_id, id, &run_id);
+                    if let Err(error) = commit(cron, |store| {
+                        Ok(store.prepare_set_run_tab(id, &run_id, &handle.tab_id))
+                    }) {
+                        log::error!(
+                            "Failed to record triggered cron Tab: job={id} run={run_id}: {error}"
+                        );
+                    }
                 }
                 // Register with the auto-complete watcher (cron flavor).
                 if let Some(pty_id) = self.agent_run_pty_map.lock().get(&handle.tab_id).cloned() {
-                    let global_timeout = crate::config::memory_config().worker_timeout_seconds;
+                    let global_timeout = self.configuration().memory.worker_timeout_seconds;
                     let timeout = job_timeout.unwrap_or(global_timeout);
                     if job_timeout.is_some() {
                         log::info!(
@@ -935,6 +966,37 @@ fn resolve_cron_id_or_name<'a>(
         return Err(format!("Cron job name is ambiguous: {id_or_name}"));
     }
     Ok(&job.id)
+}
+
+fn runtime_cron_owner_needs_registration(
+    store: &CronStore,
+    tab_id: &str,
+    job_id: &str,
+    run_id: &str,
+) -> Result<bool, String> {
+    let (actual_job, run) = store
+        .find_run_by_id(run_id)
+        .ok_or("Runtime cron run unavailable")?;
+    if actual_job != job_id {
+        return Err("Runtime cron run belongs to another job".into());
+    }
+    if run
+        .tab_id
+        .as_deref()
+        .is_some_and(|existing| existing != tab_id)
+    {
+        return Err("Runtime cron run belongs to another tab".into());
+    }
+    if run.status != CronRunStatus::Running {
+        return Err("Runtime cron run already ended".into());
+    }
+    if let Some((owner_job, owner_run)) = store.get_tab_owner(tab_id) {
+        if owner_job != job_id || owner_run != run_id {
+            return Err("Runtime cron owner changed".into());
+        }
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 fn dispatch_after_trigger_record<T>(

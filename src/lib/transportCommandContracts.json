@@ -55,7 +55,9 @@
     "assignments": [],
     "cwd": "/cwd",
     "provider_id": "provider",
-    "fresh": true
+    "fresh": true,
+    "itemId": "question",
+    "answers": []
   },
   "commands": {
     "mux_get_state": [
@@ -254,7 +256,12 @@
         "/api/tabs/tab/chat-send"
       ]
     ],
-    "chat_send_admissions": [["POST", "/api/tabs/tab/chat-send/admissions"]],
+    "chat_send_admissions": [
+      [
+        "POST",
+        "/api/tabs/tab/chat-send/admissions"
+      ]
+    ],
     "chat_send_status": [
       [
         "GET",
@@ -1209,6 +1216,36 @@
       [
         "POST",
         "/api/setup/rules/install?provider=provider"
+      ]
+    ],
+    "mux_set_workspace_cwd": [
+      [
+        "POST",
+        "/api/workspaces/workspace/cwd"
+      ]
+    ],
+    "check_update_availability": [
+      [
+        "GET",
+        "/api/update/availability?force=false"
+      ]
+    ],
+    "agent_runtime_retry": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/retry"
+      ]
+    ],
+    "agent_runtime_answer_question": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/questions/question/answer"
+      ]
+    ],
+    "agent_runtime_login": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/login"
       ]
     ]
   }

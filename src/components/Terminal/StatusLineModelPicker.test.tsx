@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { TransportError } from "../../lib/transportClient";
 import type { ProviderDescriptor } from "../../lib/types";
 import { __setModelCatalogueRefreshApiForTest } from "../../lib/modelCatalogueRefresh";
 import { __setTabModelApiForTest } from "../Sidebar/tabModelApi";
@@ -41,7 +42,7 @@ async function mount(provider: ProviderDescriptor | undefined) {
     <StatusLineModelPicker
       tabId="tab"
       descriptor={provider}
-      facts={{ hasSession: true, protected: false }}
+      facts={{ hasSession: true }}
       label="Vendor · deep · high"
       modelCandidates={["deep"]}
       currentEffort="high"
@@ -231,6 +232,27 @@ test("a failed live command closes the picker and offers restart through a toast
     assert.ok(restart);
     await act(async () => restart.run());
     assert.deepEqual(fallback, [["tab", "fast", undefined]]);
+  } finally {
+    await view.unmount();
+    __setTabModelApiForTest(null);
+  }
+});
+
+test("runtime refusal toast shows the provider reason without restart", async () => {
+  __setTabModelApiForTest({
+    switchModel: async () => { throw new TransportError(409, "/api/tabs/owned/agent/model", JSON.stringify({
+      reason: "runtime_control_refused", error: "Provider refused: settings unavailable",
+    })); },
+  });
+  const view = await mount({ ...descriptor("next_turn"), transport: "chat_backend" });
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => view.option("Fast").click());
+    await act(async () => button("Apply").click());
+    assert.equal(toasts.length, 1);
+    assert.equal(toasts[0].body, "Provider refused: settings unavailable");
+    assert.equal(toasts[0].local_actions, undefined);
+    assert.equal(view.picker(), null);
   } finally {
     await view.unmount();
     __setTabModelApiForTest(null);
@@ -444,3 +466,37 @@ for (const fails of [false, true]) {
     }
   });
 }
+
+test("the protected General Agent exposes the shared model picker and switch handler", async () => {
+  const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
+  const { TabStatusLineModelPicker } = await import("./StatusLineModelPicker");
+  const calls = recordSwitches();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const tab = {
+    id: "general-main", title: "main", protected: true, role: "General",
+    pty_id: "pty", agent_type: "ga-capable", agent_session_model: "deep",
+  } as unknown as import("../../lib/types").Tab;
+  try {
+    for (const mode of ["live_command", "next_turn", "restart_resume"] as const) {
+      await act(async () => setAgentDescriptors([{ ...descriptor(mode), id: "ga-capable" }]));
+      await act(async () => root.render(<TabStatusLineModelPicker key={mode} tab={tab} label="Vendor · Deep" />));
+      const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Change model, currently Deep"]');
+      assert.ok(trigger);
+      await act(async () => trigger.click());
+      const option = Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]'))
+        .find((entry) => entry.textContent?.startsWith("Fast"));
+      assert.ok(option);
+      await act(async () => option.click());
+      await act(async () => button("Apply").click());
+      if (mode === "restart_resume") await act(async () => button("Restart and switch").click());
+    }
+    assert.deepEqual(calls, Array.from({ length: 3 }, () => ["general-main", "fast", undefined]));
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    setAgentDescriptors([]);
+    __setTabModelApiForTest(null);
+  }
+});

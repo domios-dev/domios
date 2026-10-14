@@ -13,6 +13,7 @@ export const CANNED_COMMANDS = { check_cli_installed: true };
 export function createCommandRegistry(client: TransportClient, cursors?: PtyCursors): Record<string, CommandAdapter> {
   const webJson = client.json.bind(client);
   const extra: Record<string, CommandAdapter> = {
+    check_update_availability: (a) => webJson("GET", `/api/update/availability?force=${a.force === true}`),
     notify: (a) =>
       webJson("POST", "/api/notifications", {
         title: a.title,

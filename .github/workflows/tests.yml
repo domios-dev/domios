@@ -2,7 +2,7 @@ name: tests
 
 # Full test rig on the self-hosted build farm (free, warm incremental caches).
 # The farm machines sit idle between releases — this puts them to work on every
-# push/PR: Rust lib+CLI tests on all three platforms, TS gates on Linux.
+# heavy run: shared Rust lib+CLI shards across the farm, native cfg tests per OS.
 
 on:
   workflow_call:
@@ -45,6 +45,16 @@ concurrency:
   group: ${{ inputs.source_ref != '' && format('release-tests-{0}-{1}', github.run_id, inputs.source_ref) || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
   cancel-in-progress: true
 
+env:
+  CODETERM_SCCACHE_VERIFY_ONLY: '1'
+  DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
+  DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
+  DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
+  DOMIOS_ACCOUNT_REDEEM_URL: ${{ secrets.DOMIOS_ACCOUNT_REDEEM_URL }}
+  DOMIOS_BILLING_FUNCTIONS_URL: ${{ secrets.DOMIOS_BILLING_FUNCTIONS_URL }}
+  DOMIOS_AMPLITUDE_API_KEY_TEST: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_TEST }}
+  DOMIOS_AMPLITUDE_API_KEY_PROD: ${{ secrets.DOMIOS_AMPLITUDE_API_KEY_PROD }}
+
 jobs:
   # A push whose tree equals a parent's tree introduces nothing that parent had
   # not already carried through its own pull request, so the matrix would retest
@@ -65,7 +75,7 @@ jobs:
       heavy: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.heavy == 'true' }}
       plugins: ${{ steps.tree.outputs.run == 'true' && steps.scope.outputs.plugins || '[]' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
           fetch-depth: 2
@@ -79,8 +89,8 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          tree=$(git rev-parse HEAD^{tree})
-          for parent in $(git rev-parse HEAD^@); do
+          tree=$(git rev-parse 'HEAD^{tree}')
+          for parent in $(git rev-parse 'HEAD^@'); do
             if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
               echo "HEAD tree $tree already carried by parent $parent"
               echo "run=false" >> "$GITHUB_OUTPUT"
@@ -89,7 +99,7 @@ jobs:
           done
           echo "run=true" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         if: steps.tree.outputs.run == 'true'
         with:
           package-manager-cache: false
@@ -108,11 +118,12 @@ jobs:
     needs: changed
     if: ${{ needs.changed.result == 'success' }}
     runs-on: [self-hosted, linux-ci]
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
@@ -124,19 +135,20 @@ jobs:
     needs: changed
     if: ${{ needs.changed.outputs.plugins != '[]' }}
     runs-on: [self-hosted, linux-ci]
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         plugin: ${{ fromJSON(needs.changed.outputs.plugins) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -154,7 +166,7 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       # Light runners include Linux services whose PATH can miss the runner user's rustup.
@@ -171,227 +183,211 @@ jobs:
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
           cargo fmt --manifest-path cli/Cargo.toml --check
 
-  rust-linux:
-    name: rust (linux)
-    # A seconds-long fmt failure stops the heavy builds before they start.
+  rust-archives:
+    name: rust archive (${{ matrix.os }} ${{ matrix.arch }})
     needs: [changed, fmt]
     if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, linux-ci]
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-
-      # Runner service PATH has no node (same as release-linux.yml).
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      # The Linux runner service PATH can miss rustc even when rustup is
-      # installed for the runner user; prepare-embed-stub.js shells out to it.
-      - name: Ensure Rust toolchain on PATH
-        run: |
-          if command -v rustc >/dev/null 2>&1; then rustc -vV; exit 0; fi
-          for dir in "$CARGO_HOME/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin; do
-            if [ -x "$dir/rustc" ]; then
-              echo "$dir" >> "$GITHUB_PATH"
-              "$dir/rustc" -vV
-              exit 0
-            fi
-          done
-          echo "rustc not found; restore Rust on the runner" >&2
-          exit 1
-
-      - name: Prepare compile stubs
-        id: stubs
-        run: |
-          mkdir -p dist src-tauri/bundled-cli
-          [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
-          node scripts/prepare-embed-stub.js
-
-      - name: Build runtime embed sidecar for semantic tests
-        id: embed
-        run: |
-          cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-          file src-tauri/target/debug/codeterm-embed | grep -q ELF
-          cp src-tauri/target/debug/codeterm-embed "$RUNNER_TEMP/codeterm-embed-runtime"
-
-
-
-      - name: Restore runtime embed sidecar
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        run: |
-          install -m 755 "$RUNNER_TEMP/codeterm-embed-runtime" src-tauri/target/debug/codeterm-embed
-          file src-tauri/target/debug/codeterm-embed | grep -q ELF
-
-      - name: Rust lib tests
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        # Whole workspace — app + every extracted crate. Warm execution ~33s;
-        # cold cost is compilation, absorbed by sccache + incremental caches.
-        run: 'cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib -- --skip startup::rest_api::tests::'
-
-      # A concurrent test's fork holds a copy of the listener until exec, so listener
-      # rebind tests run in their own process (#620).
-      - name: Rust REST listener lifecycle tests
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
-
-
-      # The _work checkout is shared with release jobs on this runner — never
-      # leave 0-byte stubs where the release resource glob would ship them.
-      - name: Clean 0-byte stubs
-        if: always()
-        run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
-
-  rust-macos:
-    name: rust (macos)
-    # A seconds-long fmt failure stops the heavy builds before they start.
-    needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
-    # Any Mac runner: tests need no signing keys, so air takes them while eight builds bundles.
-    runs-on: [self-hosted, macOS]
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-
-      - name: Prepare compile stubs
-        run: |
-          mkdir -p dist src-tauri/bundled-cli
-          [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
-          node scripts/prepare-embed-stub.js
-
-      - name: Build runtime embed sidecar for semantic tests
-        id: embed
-        run: cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-
-      - name: Rust lib tests
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        # Whole workspace — app + every extracted crate. Warm execution ~33s;
-        # cold cost is compilation, absorbed by sccache + incremental caches.
-        run: 'cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib -- --skip startup::rest_api::tests::'
-
-      # A concurrent test's fork holds a copy of the listener until exec, so listener
-      # rebind tests run in their own process (#620).
-      - name: Rust REST listener lifecycle tests
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
-
-
-      - name: Clean 0-byte stubs
-        if: always()
-        run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
-
-  rust-windows:
-    name: rust (windows)
-    # A seconds-long fmt failure stops the heavy builds before they start.
-    needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
-    # windows-ci = ROG and BLACKSTAR native, so the Windows lib and CLI jobs run in parallel.
-    runs-on: [self-hosted, windows-ci]
+    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}', '${{ matrix.arch }}']
     timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macOS
+            arch: ARM64
+            label: codeterm-builder
+          - os: Linux
+            arch: X64
+            label: linux-build
+          - os: Windows
+            arch: X64
+            label: windows-ci
     steps:
-      # Plan-sidecar filenames under .codeterm/plans/** exceed MAX_PATH; the
-      # runner service account (NETWORK SERVICE) can't take a system gitconfig,
-      # so inject core.longpaths per-invocation via GIT_CONFIG_* env instead.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          fetch-depth: 0
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Prepare runner tool paths
+        run: node scripts/ci-runner-paths.mjs
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: 1.95.0
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        with:
+          tool: cargo-nextest@0.9.148
+      - name: Prepare compile fixtures
+        run: node scripts/ci-rust-prepare.mjs
+      - name: Compile and archive once for platform
+        env:
+          CI_RUNNER_ARCH: ${{ runner.arch }}
+        shell: bash
+        run: |
+          source build.sh env
+          ct_configure_sccache
+          ./build.sh cache-verify
+          node scripts/ci-rust-archives.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          overwrite: true
+          name: rust-archive-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            ci-rust-archives/*.tar.zst
+            ci-rust-archives/*.suite.json
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          overwrite: true
+          name: rust-build-receipt-${{ matrix.os }}-${{ matrix.arch }}
+          path: ci-rust-builds/*.json
+          if-no-files-found: error
+      - name: Clean compile fixtures
+        if: always()
+        run: node scripts/ci-rust-prepare.mjs cleanup
+
+  rust-shards:
+    name: rust shard (${{ matrix.shard }}/12)
+    needs: [changed, rust-archives]
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
+    runs-on: [self-hosted, rust-shard]
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
           GIT_CONFIG_VALUE_0: 'true'
-
-      # The runner service session PATH can drop ~\.cargo\bin (same self-heal
-      # as release-windows.yml — rustup vanished from PATH on 2026-06-29).
-      - name: Ensure Rust toolchain on PATH
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if (Get-Command rustup -ErrorAction SilentlyContinue) { Write-Host "rustup already on PATH"; exit 0 }
-          $candidates = @()
-          if ($env:CARGO_HOME)  { $candidates += (Join-Path $env:CARGO_HOME 'bin') }
-          if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE '.cargo\bin') }
-          $candidates += (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue |
-                          ForEach-Object { Join-Path $_.FullName '.cargo\bin' })
-          $hit = $candidates | Where-Object { Test-Path (Join-Path $_ 'rustup.exe') } | Select-Object -First 1
-          if (-not $hit) { Write-Error "rustup.exe not found in: $($candidates -join '; '). Restore Rust on the runner."; exit 1 }
-          $hit | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          Write-Host "Prepended Rust bin to PATH: $hit"
-
-      # The runner service session (NETWORK SERVICE) lacks Windows PowerShell on
-      # PATH; host_exec tests spawn `powershell` by name and fail with
-      # "program not found" without this.
-      - name: Ensure Windows PowerShell on PATH
-        shell: pwsh
-        run: |
-          $psDir = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0'
-          if (-not (Test-Path (Join-Path $psDir 'powershell.exe'))) { Write-Error "powershell.exe not found at $psDir"; exit 1 }
-          $psDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          Write-Host "Prepended $psDir"
-
-      - name: Set up fixture Node interpreter
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
+          package-manager-cache: false
           node-version: '22.22.0'
-
-      - name: Prepare compile stubs
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist, src-tauri\bundled-cli | Out-Null
-          if (-not (Get-ChildItem src-tauri\bundled-cli -ErrorAction SilentlyContinue)) {
-            New-Item -ItemType File -Path src-tauri\bundled-cli\codeterm.exe | Out-Null
-          }
-          node scripts/prepare-embed-stub.js
-
-      - name: Build runtime embed sidecar for semantic tests
-        id: embed
-        shell: pwsh
-        run: cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-
-      # The app always points the PTY fork at the bundled ConPTY host (see
-      # startup/conpty_host.rs); without this CI would test the in-box conhost,
-      # whose ClosePseudoConsole deadlocks and which we never ship against.
-      - name: Use the bundled ConPTY host
-        shell: pwsh
-        run: |
-          $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
-          $dir = Join-Path $PWD "src-tauri\conpty\$arch"
-          if (-not (Test-Path (Join-Path $dir 'conpty.dll'))) { Write-Error "bundled conpty.dll not found at $dir"; exit 1 }
-          "CODETERM_CONPTY_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "CODETERM_CONPTY_DIR=$dir"
-
-      - name: Rust lib tests
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        shell: pwsh
-        run: 'cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib -- --skip startup::rest_api::tests::'
-
-      # Same rebind isolation as Unix (#620): on Windows a concurrent child launch also holds the listener.
-      - name: Rust REST listener lifecycle tests
-        if: ${{ !cancelled() && steps.embed.outcome == 'success' }}
-        shell: pwsh
-        run: 'cargo test --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::'
-
-
-      - name: Clean 0-byte stubs
+      - name: Prepare runner tool paths
+        run: node scripts/ci-runner-paths.mjs
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        with:
+          tool: cargo-nextest@0.9.148
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-archive-${{ runner.os }}-${{ runner.arch }}
+          path: ci-rust-archives
+      - name: Prepare runtime fixtures
+        run: node scripts/ci-rust-prepare.mjs runtime
+      - name: Shared tests (shard ${{ matrix.shard }}/12 on ${{ runner.name }})
+        env:
+          CI_RUNNER_ARCH: ${{ runner.arch }}
+        run: node scripts/ci-rust-shards.mjs shared ${{ matrix.shard }} 12
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
-        shell: pwsh
-        run: |
-          foreach ($dir in @('src-tauri\bundled-cli', 'src-tauri\bundled-embed')) {
-            Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Where-Object Length -eq 0 | Remove-Item -Force
-          }
+        with:
+          overwrite: true
+          name: rust-receipt-shard-${{ matrix.shard }}
+          path: |
+            ci-rust-receipts/*.json
+            ci-rust-receipts/*.log
+          if-no-files-found: error
+
+  rust-platform:
+    name: rust platform (${{ matrix.os }})
+    needs: [changed, rust-archives]
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
+    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: Linux
+            label: linux-ci
+          - os: macOS
+            label: rust-shard
+          - os: Windows
+            label: windows-ci
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Prepare runner tool paths
+        run: node scripts/ci-runner-paths.mjs
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        with:
+          tool: cargo-nextest@0.9.148
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-archive-${{ runner.os }}-${{ runner.arch }}
+          path: ci-rust-archives
+      - name: Prepare runtime fixtures
+        run: node scripts/ci-rust-prepare.mjs runtime
+      - name: Platform tests (${{ matrix.os }} on ${{ runner.name }})
+        env:
+          CI_RUNNER_ARCH: ${{ runner.arch }}
+        run: node scripts/ci-rust-shards.mjs platform
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          overwrite: true
+          name: rust-receipt-platform-${{ matrix.os }}
+          path: |
+            ci-rust-receipts/*.json
+            ci-rust-receipts/*.log
+          if-no-files-found: error
+
+  rust-coverage:
+    name: rust complete coverage
+    needs: [changed, rust-archives, rust-shards, rust-platform]
+    if: ${{ always() && needs.changed.outputs.heavy == 'true' }}
+    runs-on: [self-hosted, light]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: rust-receipt-*
+          path: ci-rust-receipts
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: rust-build-receipt-*
+          path: ci-rust-builds
+          merge-multiple: true
+      - name: Require every test job
+        env:
+          ARCHIVES_RESULT: ${{ needs.rust-archives.result }}
+          SHARDS_RESULT: ${{ needs.rust-shards.result }}
+          PLATFORM_RESULT: ${{ needs.rust-platform.result }}
+        run: node -e "if (process.env.ARCHIVES_RESULT !== 'success' || process.env.SHARDS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success') process.exit(1)"
+      - name: Prove exhaustive coverage and report runners
+        run: node scripts/ci-rust-shards.mjs verify ci-rust-receipts ci-rust-builds
 
   clippy-linux:
     name: clippy (linux)
@@ -400,11 +396,11 @@ jobs:
     runs-on: [self-hosted, linux-ci]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
@@ -427,94 +423,6 @@ jobs:
         if: always()
         run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
 
-  cli-linux:
-    name: cli (linux)
-    needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, linux-ci]
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-      - name: Ensure Rust toolchain on PATH
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
-      - name: CLI tests
-        run: cargo test --manifest-path cli/Cargo.toml
-
-  cli-macos:
-    name: cli (macos)
-    needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
-    runs-on: [self-hosted, macOS]
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-      - name: CLI tests
-        run: cargo test --manifest-path cli/Cargo.toml
-
-  cli-windows:
-    name: cli (windows)
-    needs: [changed, fmt]
-    if: ${{ needs.changed.outputs.heavy == 'true' }}
-    # windows-ci = ROG and BLACKSTAR native, so the Windows lib and CLI jobs run in parallel.
-    runs-on: [self-hosted, windows-ci]
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-        env:
-          GIT_CONFIG_COUNT: '1'
-          GIT_CONFIG_KEY_0: core.longpaths
-          GIT_CONFIG_VALUE_0: 'true'
-      - name: Ensure Rust toolchain on PATH
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if (Get-Command rustup -ErrorAction SilentlyContinue) { Write-Host "rustup already on PATH"; exit 0 }
-          $candidates = @()
-          if ($env:CARGO_HOME)  { $candidates += (Join-Path $env:CARGO_HOME 'bin') }
-          if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE '.cargo\bin') }
-          $candidates += (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue |
-                          ForEach-Object { Join-Path $_.FullName '.cargo\bin' })
-          $hit = $candidates | Where-Object { Test-Path (Join-Path $_ 'rustup.exe') } | Select-Object -First 1
-          if (-not $hit) { Write-Error "rustup.exe not found in: $($candidates -join '; '). Restore Rust on the runner."; exit 1 }
-          $hit | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          Write-Host "Prepended Rust bin to PATH: $hit"
-      - name: Ensure Windows PowerShell on PATH
-        shell: pwsh
-        run: |
-          $psDir = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0'
-          if (-not (Test-Path (Join-Path $psDir 'powershell.exe'))) { Write-Error "powershell.exe not found at $psDir"; exit 1 }
-          $psDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          Write-Host "Prepended $psDir"
-      - name: Set up fixture Node interpreter
-        uses: actions/setup-node@v5
-        with:
-          node-version: '22.22.0'
-      - name: CLI tests
-        shell: pwsh
-        run: cargo test --manifest-path cli/Cargo.toml
-
   ts-static:
     name: ts static checks
     needs: changed
@@ -522,17 +430,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -565,7 +473,7 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Ensure Rust toolchain on PATH
@@ -577,13 +485,13 @@ jobs:
           echo "cargo not found; restore Rust on the runner" >&2
           exit 1
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -602,17 +510,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -631,17 +539,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -663,17 +571,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -695,17 +603,17 @@ jobs:
     runs-on: [self-hosted, light]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
           run_install: false
@@ -715,7 +623,9 @@ jobs:
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Release test and publication gate contracts
-        run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs
+        run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs scripts/tests/release-job-graph.test.mjs scripts/tests/release-bundle-smoke.test.mjs scripts/tests/release-asset-scope.test.mjs
+      - name: Rust shard coverage contracts
+        run: node --test scripts/tests/ci-rust-shards.test.mjs scripts/tests/ci-runner-paths.test.mjs scripts/tests/ci-rust-archives.test.mjs
       - name: Release metadata contract tests
         run: python3 -m unittest scripts.tests.test_release_issue_contract
       - name: Release workflow signature-gate contract tests

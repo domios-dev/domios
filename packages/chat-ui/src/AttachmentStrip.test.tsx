@@ -151,3 +151,11 @@ describe("attachment markers in the user bubble", () => {
     expect(host.textContent).toContain(legacy);
   });
 });
+
+it("opens a labeled marker image through the named thumbnail control", async () => {
+  const host = await render(userTurn(`${formatAttachmentMarker(PATH, "image", "image1")}caption`));
+  const button = openButton(host)!;
+  expect(button.disabled).toBe(false);
+  await act(async () => button.click());
+  expect(viewer()?.querySelector(`img[alt="${NAME}"]`)?.getAttribute("src")).toBe(PNG);
+});

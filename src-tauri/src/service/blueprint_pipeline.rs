@@ -168,6 +168,7 @@ impl super::ServiceContext {
         let staged = handle.store.lock().stage_insert(job.clone());
         staged.settle(&handle.store)?;
         handle.notify();
+        self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
         let owner = match spec.owner {
             BlueprintOwner::Tab => json!({"kind":"tab", "id":caller.tab}),
             BlueprintOwner::Team => json!({"kind":"team", "id":caller.team}),
@@ -546,7 +547,6 @@ mod tests {
     use codeterm_types::blueprint_pipeline::{BlueprintResult, IoType, Step, Trigger};
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     fn blueprint_delivery_unresolvable_named_target_is_refused_at_create_with_reason() {
         let (mut mux, creator) = MultiplexerState::new();
         let workspace = mux.find_workspace_for_tab(&creator).unwrap();

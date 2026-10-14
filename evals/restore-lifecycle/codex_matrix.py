@@ -22,6 +22,8 @@ OUT.mkdir(parents=True, exist_ok=True)
 DEADLINE = int(os.environ.get("RL_BIND_DEADLINE", "180"))
 TURN_DEADLINE = int(os.environ.get("RL_TURN_DEADLINE", "240"))
 RUN = uuid.uuid4().hex[:10]
+INSTANCE = os.environ.get("RL_INSTANCE", "restartqa")
+PORT = os.environ.get("RL_PORT", "7692")
 
 
 class Matrix:
@@ -114,14 +116,14 @@ class Matrix:
         self.write('health.json', health)
         sha = health.get('build', '')
         oracle.require(sha and os.environ['RL_EXPECTED_SHA'].startswith(sha), f"health {sha} differs from approved SHA")
-        oracle.require(health.get('instance', {}).get('name') == 'restartqa', f"wrong health instance: {health}")
+        oracle.require((health.get('instance', {}).get('name') or '') == INSTANCE, f"wrong health instance: {health}")
 
     def restart(self, label, queued=None):
         observe.api('POST', '/api/session/save')
         since = time.time()
         before_size = self.log_path.stat().st_size
         env = dict(os.environ)
-        env['CODETERM_INSTANCE'], env['CODETERM_API_PORT'] = 'restartqa', '7692'
+        env['CODETERM_INSTANCE'], env['CODETERM_API_PORT'] = INSTANCE, PORT
         if MODE == 'gui':
             env['RL_GUI_MODE'] = '1'
             env['NODE_OPTIONS'] = '--require=' + str(ROOT / 'evals/restore-lifecycle/gui-env.cjs')
@@ -153,15 +155,15 @@ class Matrix:
         return before_size
 
     def environment(self, label):
-        result = subprocess.run(['lsof', '-t', '-iTCP:7692', '-sTCP:LISTEN'], capture_output=True, text=True, check=True)
+        result = subprocess.run(['lsof', '-t', f'-iTCP:{PORT}', '-sTCP:LISTEN'], capture_output=True, text=True, check=True)
         pids = result.stdout.split()
-        oracle.require(len(pids) == 1, f'expected one restartqa daemon, got {pids}')
+        oracle.require(len(pids) == 1, f'expected one {INSTANCE or "default"} daemon, got {pids}')
         result = subprocess.run(['ps', 'eww', '-p', pids[0], '-o', 'command='], capture_output=True, text=True, check=True)
         # Store only relevant environment entries, never tokens from ps output.
         entries = [part for part in shlex.split(result.stdout) if part.startswith(('PATH=', 'HOME=', 'USER=', 'CODETERM_INSTANCE=', 'CODETERM_API_PORT='))]
         raw = '\n'.join(entries)
         self.write(label + '-daemon-env.txt', raw)
-        oracle.daemon_environment(raw, MODE)
+        oracle.daemon_environment(raw, MODE, INSTANCE, PORT)
 
     def log_since(self, offset, label):
         with self.log_path.open('rb') as stream:
@@ -287,7 +289,7 @@ class Matrix:
         self.write('spawn-backend-verdict.json', {'result': 'PASS', 'sessions': baseline, 'detected_version': info['detected_version']})
         oracle.require(os.environ.get('RL_BROWSER_CHECKS', '1') != '0', 'Browser checks deferred to final SHA for #572; backend spawn passed')
         # This UI proof is intentionally mandatory and never inferred from an HTTP 200.
-        self.cli('browser-open', 'plugin', 'browser', 'open', 'http://127.0.0.1:7692/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
+        self.cli('browser-open', 'plugin', 'browser', 'open', f'http://127.0.0.1:{PORT}/#token=' + os.environ['CODETERM_API_TOKEN'], caller=self.orch, json_output=False)
         self.cli('browser-ready', 'plugin', 'browser', 'wait', '--selector', '[data-testid=sidebar]', caller=self.orch, json_output=False)
         for tab, row in baseline.items():
             self.browser_select(tab, 'browser-' + tab)

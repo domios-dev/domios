@@ -401,7 +401,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn worker_dispatch_status_recovers_spawn_and_refuses_foreign_attempt() {
         let (state, lane, _, _root, fixture) = bundle_fixture("peer-origin");
         let tab_id = {
@@ -465,7 +464,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn create_lane_bundle_refuses_binding_to_foreign_origin() {
         let (state, request, _, _root, _fixture) = bundle_fixture("different-peer");
         let error = create_lane_bundle_with_limit(
@@ -479,7 +477,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn create_lane_bundle_refuses_bundle_over_size_limit() {
         let (state, request, _, _root, _fixture) = bundle_fixture("peer-origin");
         let error =
@@ -493,7 +490,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn create_lane_bundle_refuses_head_or_lane_tip_different_from_report_sha() {
         let (state, mut request, _, _root, _fixture) = bundle_fixture("peer-origin");
         request.report_sha = "unreviewed-sha".into();
@@ -508,7 +504,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn create_lane_bundle_returns_refs_for_owned_attempt() {
         let (state, request, tip, _root, _fixture) = bundle_fixture("peer-origin");
         let response = create_lane_bundle_with_limit(
@@ -527,7 +522,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     fn remote_worker_spawn_succeeds_on_a_peer_without_a_local_orchestrator() {
         let mut mux = crate::multiplexer::state::MultiplexerState::empty();
         let workspace_id = mux.create_workspace("remote worker peer".into(), None).id;
@@ -535,7 +529,7 @@ mod tests {
         fixture.set_agent_full_access(true);
         fixture.service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new("remote-mock")
-                .with_launch_binary("cmd.exe"),
+                .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
         ));
         let worktree = fixture.temp.path().display().to_string();
         let request = super::MeshWorkerDispatchRequest {

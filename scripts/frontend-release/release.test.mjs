@@ -133,3 +133,18 @@ test('pull requests always force fixture dry run even when requested flag is fal
 test('the shipped contract version is a valid frontend tag version', () => {
   assert.equal(validateTag(`frontend-v${releaseContract.version}`, releaseContract), releaseContract.version);
 });
+test('a published retry verifies immutable bytes and repairs discovery without replacing assets', async () => {
+  const service = remote();
+  await publishRelease(input, service);
+  service.calls.length = 0;
+  service.createDraft = async () => true;
+  await publishRelease(input, service);
+  assert.deepEqual(service.calls, [`verify:${manifest.releaseId}.tar.gz`, 'verify:frontend-manifest.json', 'verify:frontend-manifest.json.minisig', 'discover']);
+});
+test('a published retry with mismatched bytes cannot mutate discovery', async () => {
+  const service = remote('corrupt');
+  service.createDraft = async () => true;
+  await assert.rejects(publishRelease(input, service));
+  assert.ok(!service.calls.includes('discover'));
+  assert.ok(!service.calls.some(call => call.startsWith('upload:')));
+});

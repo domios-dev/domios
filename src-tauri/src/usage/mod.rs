@@ -1,8 +1,6 @@
 pub mod poller;
 pub mod probe;
-pub mod projection;
-pub mod store;
-mod suspicious;
+pub use codeterm_usage::{projection, store};
 
 pub use poller::{TabActivity, UsagePoller};
 pub use probe::{ProbeError, UsageProbe, UsageProbeOutcome};

@@ -376,7 +376,7 @@ engines must each be self-starting:
    cd ~/actions-runner
    TOKEN=$(gh api -X POST repos/rollacode/codeterm/actions/runners/registration-token --jq .token)
    ./config.sh --url https://github.com/rollacode/codeterm --token "$TOKEN" \
-     --name codeterm-builder --labels codeterm-builder --unattended --replace
+     --name codeterm-builder --labels codeterm-builder,rust-shard --unattended --replace
    ./svc.sh install && ./svc.sh start        # launchd LaunchAgent, RunAtLoad=true
    ```
    (Runner registration creates a persistent code-execution surface with access to keychain/vault/VM
@@ -461,6 +461,34 @@ Direct-server maintenance at `ba3f4ffb1` authenticated the startup notification 
 | `node` missing in `Prepare compile stubs`. | Clean runner PATH had no Node.js. | Install official Node LTS zip, prepend it in `.env`, install `pnpm`, and add shims so PowerShell does not pick blocked `.ps1` launchers. | If Node download is blocked, install supported Node LTS manually and add it to `.env`. |
 | `link.exe` missing in Rust lib tests. | Visual Studio Build Tools and/or Windows SDK were absent. | Bootstrap detects `vswhere`, `vcvarsall.bat`, and Windows SDK inventory; with `-InstallVisualStudioBuildTools` in an elevated shell it installs Build Tools C++ workload, ARM64 tools, and Windows SDK, then writes MSVC `PATH`, `INCLUDE`, and `LIB` into runner `.env`. | If elevation/UAC is unavailable, install Visual Studio Build Tools manually with C++ tools and Windows SDK, then re-run bootstrap. |
 
+## CI job-local Bash path repair
+
+If Rust setup reports Bash is missing although checkout resolves Git, the service
+PATH may expose Git's cmd directory without its bin directory. The Rust shard
+and native workflows run scripts/ci-runner-paths.mjs before composite actions:
+it verifies Bash from standard Git installs or the inherited Git path, appends
+that directory and existing account-local Rust proxies to GITHUB_PATH, and
+fails clearly if Bash is absent. This changes only the current job environment.
+Restore Git for Windows on the runner if preflight refuses; do not remove the
+runner from the shared pool or replace its service/global PATH to hide failure.
+
+## CI archive extraction
+
+CI sets `CODETERM_SCCACHE_VERIFY_ONLY=1`, so build wrappers verify the running
+shared cache without starting or stopping it. The archive builder runs
+`./build.sh cache-verify` before compilation; provisioning belongs to idle setup.
+
+If archive classification rejects a generated `include!`, the classifier needs
+the package's exact Cargo `build-script-executed` OUT_DIR. The archive builder
+captures Cargo JSON and passes that directory to the classifier, which traverses
+the generated Rust source and refuses missing or unsupported include expressions.
+
+If nextest archive creation succeeds but extraction fails canonicalizing the
+destination with OS error 2, the extract directory has not been created.
+The builder classification and consumer helpers create their job-local extract
+directories before invoking nextest. Reuse the existing archive for the focused
+extraction check; an extraction failure does not justify recompiling the suite.
+
 ## Verification Checklist
 
 Run this after bootstrap:
@@ -482,7 +510,9 @@ The output must prove command resolution from the exact runner `.env` PATH:
 - the official runner service is installed and running under the intended runner account; no Startup `run.cmd` fallback remains
 - GitHub reports the registered runner online and idle after restarting only that service
 
-Then dispatch the non-secret `tests.yml` workflow and confirm `rust (windows)` reaches `Rust lib tests`. A fully restored builder must complete `rust (windows)` successfully before release workflows are trusted.
+Registration labels include `windows-ci,rust-shard` in addition to packaging labels. Every machine needs one qualified `rust-shard` runner; preserve OS labels for native cfg tests. See `.codeterm/build-machine/README.md` for the shared pool and coverage contract.
+
+Then dispatch `tests.yml` on a reviewed `ci/` branch. A restored builder must pass its native Windows job and any shared shard it accepts; inspect the final coverage summary for runner identities and durations before release workflows are trusted.
 
 ## Secret Handling
 
