@@ -50,7 +50,9 @@ jobs:
             runner_label: ${{ vars.RELEASE_MACOS_X64_LABEL || 'codeterm-builder' }}
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
       CARGO_INCREMENTAL: '0'
@@ -101,11 +103,17 @@ jobs:
             GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG" "$ASSET_SCOPE"
           fi
 
-      - name: Preflight macOS signing and notarization
+      - name: Import temporary release signing material
         env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: python3 scripts/release-signing-material.py macos
+
+      - name: Preflight macOS signing and notarization
         run: bash scripts/check-release-credentials-mac.sh
 
       - name: Frozen dependencies
@@ -134,6 +142,10 @@ jobs:
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART"
 
+      - name: Clean up temporary release signing material
+        if: always()
+        run: python3 scripts/release-signing-material.py cleanup
+
   linux-arm64:
     if: inputs.platform == 'linux-arm64'
     name: Linux arm64
@@ -141,6 +153,7 @@ jobs:
     timeout-minutes: 120
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
       ASSET_SCOPE: linux-aarch64
       ART: ${{ github.workspace }}/release-artifacts/linux-arm64
@@ -212,10 +225,17 @@ jobs:
       - name: Frozen signer dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Sign Linux updater bundles
+      - name: Import temporary release signing material
         env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        run: python3 scripts/release-signing-material.py macos
+
+      - name: Sign Linux updater bundles
         run: |
           for bundle in "$ART"/out/*.AppImage "$ART"/out/*.deb; do
             pnpm tauri signer sign "$bundle"
@@ -232,3 +252,7 @@ jobs:
           PUBLISH_PUBLIC_MIRROR: ${{ inputs.mirror }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART/out"
+
+      - name: Clean up temporary release signing material
+        if: always()
+        run: python3 scripts/release-signing-material.py cleanup
