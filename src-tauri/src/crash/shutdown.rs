@@ -5,9 +5,9 @@
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
-pub use codeterm_shutdown::{
-    subscribe_sentinel_shutdown, ShutdownLatch, ShutdownReason, ShutdownSubscription,
-};
+#[cfg(test)]
+pub use codeterm_shutdown::ShutdownLatch;
+pub use codeterm_shutdown::{subscribe_sentinel_shutdown, ShutdownReason, ShutdownSubscription};
 
 const NOT_SHUTTING_DOWN: u8 = 0;
 

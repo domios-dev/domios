@@ -39,7 +39,6 @@ pub(crate) type StartupReady = tokio::sync::oneshot::Receiver<Result<(), String>
 
 /// Socket-owned RPC entry points, registered once at startup so HTTP routes never name socket internals.
 pub(crate) struct RpcBridge {
-    pub(crate) protocol_version: u64,
     pub(crate) version_skew_gate: fn(Option<&Value>) -> Option<RpcError>,
     pub(crate) dispatch_service_rpc:
         fn(&str, Option<Value>, &ServiceState) -> Result<Value, RpcError>,

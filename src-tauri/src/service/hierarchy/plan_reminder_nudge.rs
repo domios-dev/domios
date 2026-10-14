@@ -69,6 +69,7 @@ fn plan_reminder_poll_secs(cfg: &crate::config::schema::OrchestrationConfig) -> 
         .clamp(1, MAX_PLAN_REMINDER_POLL_SECS)
 }
 
+#[cfg(test)]
 fn send_due_plan_time_reminders_with(
     plans: &[Plan],
     counter: &TurnCounter,
