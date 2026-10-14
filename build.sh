@@ -709,7 +709,7 @@ run_build_gateway_log_reader() {
 # Rust cache keys hash the absolute cwd, so each worktree misses another's entries.
 # Windows-only: Unix getcwd resolves symlinks, so no fixed alias can give rustc a stable cwd.
 enter_stable_build_path() {
-  CT_REAL_WORKTREE="$(pwd -P)"
+  CT_REAL_WORKTREE="$(cd "${1:-.}" && pwd -P)"
   export CT_REAL_WORKTREE
   [ "${CODETERM_STABLE_BUILD_PATH:-1}" = 1 ] || return 0
   case "$OSTYPE" in msys*|cygwin*|win32) ;; *) return 0 ;; esac
@@ -732,7 +732,7 @@ enter_build_gateway() {
   local gateway_log
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
-  enter_stable_build_path
+  [ "$CMD" = check-queue ] || enter_stable_build_path
   if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ]; then
     echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
     return
@@ -1442,6 +1442,7 @@ cli/
   cw="$(check_queue_worktree "$sha")"
   git -C "$cw" checkout -q --detach --force "$sha" >&2
   cd "$cw"
+  enter_stable_build_path "$cw"
   prepare_dev_frontend_dist "$cw"
   prepare_bundle_stubs
   ct_configure_sccache
@@ -2208,6 +2209,7 @@ EOF
     bash scripts/check-script-catalog.sh
     ;;
   worktree-check)
+    enter_build_gateway "$CMD ${*:2}"
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
