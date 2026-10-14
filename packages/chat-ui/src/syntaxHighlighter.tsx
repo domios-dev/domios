@@ -27,6 +27,8 @@ import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
 import { createElement } from "react-syntax-highlighter";
 import { BudgetedHighlightRows, useHighlightVisibility } from "./ChatHighlightBudget";
 import { highlightSourceEligible } from "./highlightBudget";
+import { DEV_BUILD } from "../../../src/lib/devBuild";
+import { createGrammarLoader, type GrammarLoader, type GrammarLoadResult } from "./syntaxGrammarLoader";
 export { createElement } from "react-syntax-highlighter";
 
 type Grammar = { displayName: string; aliases?: readonly string[] };
@@ -46,19 +48,12 @@ for (const grammarModule of EAGER_GRAMMARS) {
 }
 
 let allGrammarsLoaded = false;
-let allGrammars: Promise<boolean> | null = null;
-
-// The full Prism build registers every grammar into the refractor instance PrismLight shares.
-function loadAllGrammars(): Promise<boolean> {
-  allGrammars ??= import("react-syntax-highlighter/dist/esm/prism").then(() => {
-    allGrammarsLoaded = true;
-    return true;
-  }, () => {
-    allGrammars = null;
-    return false;
-  });
-  return allGrammars;
-}
+export const loadAllGrammars = createGrammarLoader(async () => {
+  await import("react-syntax-highlighter/dist/esm/prism");
+  allGrammarsLoaded = true;
+}, (error) => {
+  if (DEV_BUILD) console.debug("[chat-highlight] Grammar load failed; showing plain text", error);
+});
 
 function needsGrammar(language: string | undefined): language is string {
   return !!language && language !== "text" && !allGrammarsLoaded && !eagerNames.has(language);
@@ -66,22 +61,24 @@ function needsGrammar(language: string | undefined): language is string {
 
 type PrismLightProps = React.ComponentProps<typeof PrismLight>;
 
-export function SyntaxHighlighter({ explicitHighlight = false, ...props }: PrismLightProps & { explicitHighlight?: boolean }) {
+export function SyntaxHighlighter({ explicitHighlight = false, loadGrammars = loadAllGrammars, ...props }: PrismLightProps & { explicitHighlight?: boolean; loadGrammars?: GrammarLoader }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const visible = useHighlightVisibility(hostRef, explicitHighlight);
   const source = Array.isArray(props.children) ? props.children.join("") : props.children;
   const enabled = visible && highlightSourceEligible(source, explicitHighlight);
-  const language = enabled ? props.language : "text";
-  const [, setLoaded] = useState(0);
+  const [loadResult, setLoadResult] = useState<{ language: string; result: GrammarLoadResult } | null>(null);
+  const requestedLanguage = enabled ? props.language : "text";
+  const failed = loadResult?.language === requestedLanguage && loadResult?.result === "failed";
+  const language = failed ? "text" : requestedLanguage;
   useEffect(() => {
-    if (!needsGrammar(language)) return;
+    if (!needsGrammar(requestedLanguage)) return;
     let live = true;
-    void loadAllGrammars().then((ok) => {
-      if (live && ok) setLoaded((n) => n + 1);
+    void loadGrammars().then((result) => {
+      if (live) setLoadResult({ language: requestedLanguage, result });
     });
     return () => { live = false; };
-  }, [language]);
-  return <div ref={hostRef} style={{ display: "contents" }}><PrismLight {...props} language={language}
+  }, [requestedLanguage, loadGrammars]);
+  return <><div ref={hostRef} style={{ display: "contents" }}><PrismLight {...props} language={language}
     wrapLines={props.renderer ? props.wrapLines : props.wrapLines ?? false}
     renderer={(arguments_) => <BudgetedHighlightRows rows={arguments_.rows} enabled={enabled}
       plain={() => props.renderer
@@ -89,7 +86,7 @@ export function SyntaxHighlighter({ explicitHighlight = false, ...props }: Prism
         : source}
       render={() => props.renderer ? props.renderer(arguments_) : arguments_.rows.map((node, index) => createElement({
         node, stylesheet: arguments_.stylesheet, useInlineStyles: arguments_.useInlineStyles, key: index,
-      }))} />} /></div>;
+      }))} />} /></div>{failed && <span role="status">Syntax highlighting unavailable; showing plain text.</span>}</>;
 }
 
 interface PlainHighlightNode { value?: string | number; children?: readonly PlainHighlightNode[] }
