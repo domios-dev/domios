@@ -98,7 +98,7 @@ impl PlanStore {
 }
 
 fn refused() -> PlanError {
-    PlanError::Io("authorized runtime restart binding refused".into())
+    super::super::AttemptBindingRefusalKind::CurrentBindingRequired.refusal()
 }
 
 #[cfg(test)]
