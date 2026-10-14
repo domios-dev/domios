@@ -788,3 +788,6 @@ mod workspace_role_tests;
 
 #[cfg(test)]
 mod workspace_close_tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod test_fixture;
