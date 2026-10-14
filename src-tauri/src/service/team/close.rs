@@ -23,15 +23,15 @@ pub(crate) struct CloseTeamCleanup {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct TeamCloseLane {
-    plan_id: String,
-    pub(super) task_id: String,
-    project_path: String,
-    pub(super) worktree_path: Option<String>,
-    pub(super) branch: Option<String>,
-    base: Option<String>,
-    destination: Option<String>,
-    hold_reason: Option<String>,
+pub(crate) struct TeamCloseLane {
+    pub(crate) plan_id: String,
+    pub(crate) task_id: String,
+    pub(crate) project_path: String,
+    pub(crate) worktree_path: Option<String>,
+    pub(crate) branch: Option<String>,
+    pub(crate) base: Option<String>,
+    pub(crate) destination: Option<String>,
+    pub(crate) hold_reason: Option<String>,
 }
 
 pub(super) struct PreparedTeamClose {
@@ -143,20 +143,33 @@ pub(super) fn team_close_lanes(
     team_id: &str,
     member_tab_ids: &[String],
 ) -> Vec<TeamCloseLane> {
-    let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
+    collect_lanes(plans, Some((team_id, member_tab_ids)))
+}
+
+pub(crate) fn plan_cleanup_lanes(plan: &Plan) -> Vec<TeamCloseLane> {
+    collect_lanes(std::slice::from_ref(plan), None)
+}
+
+fn collect_lanes(plans: &[Plan], scope: Option<(&str, &[String])>) -> Vec<TeamCloseLane> {
+    let tabs: HashSet<_> = scope
+        .into_iter()
+        .flat_map(|(_, tabs)| tabs.iter().map(String::as_str))
+        .collect();
     let mut lanes = Vec::new();
     for plan in plans {
-        let team_owned_plan = plan.team_id.as_deref() == Some(team_id);
+        let team_owned_plan =
+            scope.is_none_or(|(team_id, _)| plan.team_id.as_deref() == Some(team_id));
         let project_path = if plan.canonical_project_path.trim().is_empty() {
             plan.project_path.clone()
         } else {
             plan.canonical_project_path.clone()
         };
         for task in &plan.tasks {
-            if task
-                .execution_attempts
-                .iter()
-                .any(|attempt| attempt.remote_worktree_path.is_some())
+            if scope.is_some()
+                && task
+                    .execution_attempts
+                    .iter()
+                    .any(|attempt| attempt.remote_worktree_path.is_some())
             {
                 continue;
             }
@@ -445,7 +458,42 @@ fn push_lane(
     });
 }
 
-fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
+pub(crate) fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
+    if let Some(reason) = &lane.hold_reason {
+        return Some(reason.clone());
+    }
+    if let Some(branch) = lane.branch.as_deref() {
+        let registrations =
+            match git_output(&lane.project_path, &["worktree", "list", "--porcelain"]) {
+                Ok(output) if output.status.success() => {
+                    String::from_utf8_lossy(&output.stdout).to_string()
+                }
+                Ok(output) => {
+                    return Some(git_output_error(
+                        "worktree list",
+                        &lane.project_path,
+                        &output,
+                    ))
+                }
+                Err(error) => return Some(error),
+            };
+        let mut worktree = None;
+        for line in registrations.lines() {
+            if let Some(path) = line.strip_prefix("worktree ") {
+                worktree = Some(path);
+            }
+            if line.strip_prefix("branch refs/heads/") == Some(branch) {
+                if worktree
+                    .zip(lane.worktree_path.as_deref())
+                    .is_none_or(|(actual, expected)| {
+                        !crate::service::worker_lane::same_path(actual, expected)
+                    })
+                {
+                    return Some("lane branch is checked out in a different worktree".into());
+                }
+            }
+        }
+    }
     if lane
         .worktree_path
         .as_deref()
@@ -471,9 +519,25 @@ fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
             }
             Ok(_) => {}
         }
+        if let Some(destination) = lane.destination.as_deref() {
+            if let Some(reason) = merged_refusal(path, "HEAD", destination) {
+                return Some(reason);
+            }
+        }
+        if let Some(branch) = lane.branch.as_deref() {
+            match git_output(path, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
+                Ok(output)
+                    if output.status.success()
+                        && String::from_utf8_lossy(&output.stdout).trim() == branch => {}
+                _ => return Some("worktree HEAD does not match its recorded lane branch".into()),
+            }
+        }
     }
     let branch = lane.branch.as_deref();
     if let Some(branch) = branch {
+        if lane.destination.as_deref() == Some(branch) {
+            return Some("lane destination is its own branch".into());
+        }
         if lane.base.as_deref() == Some(branch) {
             return Some(format!("branch {branch} is the recorded base branch"));
         }
@@ -483,6 +547,14 @@ fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
             ));
         }
     }
+    let branch = match branch {
+        Some(branch) => match branch_exists(lane, branch) {
+            Ok(true) => Some(branch),
+            Ok(false) => None,
+            Err(error) => return Some(error),
+        },
+        None => None,
+    };
     let (cwd, reference) = match branch {
         Some(branch) => (lane.project_path.as_str(), branch),
         None => match lane
@@ -497,6 +569,18 @@ fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
     let Some(destination) = lane.destination.as_deref() else {
         return Some("lane destination is not recorded; cannot verify merged commits".into());
     };
+    let reference = if branch.is_some() {
+        format!("refs/heads/{reference}")
+    } else {
+        reference.to_string()
+    };
+    merged_refusal(cwd, &reference, destination)
+}
+
+pub(crate) fn merged_refusal(cwd: &str, reference: &str, destination: &str) -> Option<String> {
+    if reference.starts_with('-') || destination.starts_with('-') {
+        return Some("invalid lane ancestry reference".into());
+    }
     match git_output(
         cwd,
         &["merge-base", "--is-ancestor", reference, destination],
@@ -537,32 +621,38 @@ pub struct TeamCloseLaneRecord {
 }
 
 fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
-    if let Some(branch) = lane.branch.as_deref() {
-        if lane.base.as_deref() == Some(branch) {
-            return Err(format!("refusing to delete recorded base branch {branch}"));
-        }
-        if !branch.starts_with(LANE_BRANCH_PREFIX) {
-            return Err(format!("refusing to delete non-lane branch {branch}"));
-        }
+    cleanup_lane_with_tabs(lane, &[])
+}
+
+pub(crate) fn cleanup_lane_with_tabs(
+    lane: &TeamCloseLane,
+    live_tabs: &[crate::service::lane_removal::LiveTabCwd],
+) -> Result<(), String> {
+    if let Some(reason) = lane_hold_reason(lane) {
+        return Err(reason);
     }
-    if let Some(branch) = lane.branch.as_deref() {
+    let branch_tip = if let Some(branch) = lane.branch.as_deref() {
         if branch_exists(lane, branch)? {
-            let destination = lane.destination.as_deref().ok_or_else(|| {
-                "lane destination is not recorded; cannot verify merged commits".to_string()
-            })?;
-            let ancestry = git_output(
-                &lane.project_path,
-                &["merge-base", "--is-ancestor", branch, destination],
-            )?;
-            if !ancestry.status.success() {
-                return Err(if ancestry.status.code() == Some(1) {
-                    format!("branch has unmerged commits ahead of destination {destination}")
-                } else {
-                    git_output_error("merge-base --is-ancestor", &lane.project_path, &ancestry)
-                });
+            let reference = format!("refs/heads/{branch}");
+            let output = git_output(&lane.project_path, &["rev-parse", "--verify", &reference])?;
+            if !output.status.success() {
+                return Err(git_output_error("rev-parse", &lane.project_path, &output));
             }
+            let tip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let destination = lane
+                .destination
+                .as_deref()
+                .ok_or_else(|| "lane destination is not recorded".to_string())?;
+            if let Some(reason) = merged_refusal(&lane.project_path, &tip, destination) {
+                return Err(reason);
+            }
+            Some((reference, tip))
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
     if let Some(path) = lane.worktree_path.as_deref() {
         crate::service::lane_removal::remove_lane(
             &crate::service::lane_removal::LaneRemovalRequest {
@@ -571,14 +661,12 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
                 canonical_cwd: Some(lane.project_path.clone()),
                 force: false,
             },
-            &[],
+            live_tabs,
         )?;
     }
-    if let Some(branch) = lane.branch.as_deref() {
-        if branch_exists(lane, branch)? {
-            run_git(&lane.project_path, &["branch", "-d", branch])
-                .map_err(|error| format!("branch {branch} could not be deleted: {error}"))?;
-        }
+    if let Some((reference, tip)) = branch_tip {
+        run_git(&lane.project_path, &["update-ref", "-d", &reference, &tip])
+            .map_err(|error| format!("branch {reference} could not be deleted: {error}"))?;
     }
     Ok(())
 }
