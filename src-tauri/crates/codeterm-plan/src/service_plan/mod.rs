@@ -1,4 +1,6 @@
 pub mod atomic_write;
+mod attempt_binding_refusal;
+pub use attempt_binding_refusal::AttemptBindingRefusalKind;
 pub mod attachments;
 pub mod batch;
 pub mod body_files;
@@ -30,6 +32,7 @@ pub mod pause_operation;
 pub mod peer_mandate;
 pub mod plan_skills;
 pub mod planner_requests;
+mod planner_session;
 pub mod ports;
 pub mod project_paths;
 pub mod prompts_plan;

@@ -9,7 +9,7 @@ platform caller and tests, verifies downloaded draft artifact signatures, then p
 
 | Runner | Machine | Workflow | Builds |
 |--------|---------|----------|--------|
-| **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `release-builder.yml` | independent macOS `x64`/`arm64` (Developer ID + notarized) and independent `arm64` Linux `.deb`+`.AppImage` (Docker) |
+| **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `release-macos-build.yml` + `release-linux-arm64.yml` | independent macOS `x64`/`arm64` (Developer ID + notarized) and independent `arm64` Linux `.deb`+`.AppImage` (Docker) |
 | **`ROG-windows-build`** (`windows-build`) | ROG, Windows (x86_64) | `release.yml` → `release-windows.yml` | Windows `x64`+`arm64` NSIS, signed on the runner |
 | **`linux-build`** | ubunta, Ubuntu 24.04 (x86_64) | `release.yml` → `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native; also plugin publication and release preparation |
 | **`linux-ci`** | ubunta and BLACKSTAR-wsl-ci (WSL2 Ubuntu 24.04 on BLACKSTAR) | `tests.yml` Linux jobs and the PR lint workflows | test pool only: either idle runner takes the job; never packaging or signing |
@@ -96,7 +96,7 @@ Docker uses its isolated clean target and does not provision a shared cache serv
 
 Defaults require no runner reconfiguration. Jobs targeting the same runner queue independently;
 a Linux arm64 retry never rebuilds or re-signs macOS. To move an artifact, provision its toolchain
-and signing prerequisites on an existing approved machine, add a custom label without removing
+on an existing approved machine, add a custom label without removing
 current labels, then set the corresponding repository variable:
 
 ```bash
@@ -144,7 +144,15 @@ cd .codeterm/build-machine/docker
 docker build -t codeterm-build-linux-arm64 -f Dockerfile.linux-arm64 .
 docker build -t codeterm-build-linux-x64   -f Dockerfile.linux-x64   .
 ```
-Plus: macOS Developer ID + notary profile, `~/.tauri/codeterm.key` (minisign updater key).
+Mac release runners need Xcode command line tools, Rust, Node and pnpm; Linux arm64 also
+needs Docker and the baked arm64 image. Signing state comes from repository secrets, not
+machine provisioning. Every macOS matrix job and the Mac-hosted Linux arm64 job imports
+`APPLE_CERTIFICATE` with `APPLE_CERTIFICATE_PASSWORD` into its own `RUNNER_TEMP` keychain,
+configures codesign access, and validates the Apple notary credentials there. Existing identities
+in other keychains remain untouched. `APPLE_SIGNING_IDENTITY` selects the imported identity.
+`TAURI_SIGNING_PRIVATE_KEY` is written to a mode-0600 job file; `TAURI_KEY_PASSWORD` is passed
+through the signer environment. An `always()` step removes the keychain, its search-list entry,
+and the updater key, including after failures. Credential preflight uses the same setup.
 
 **Windows host (the ROG), one-time:** registered as a **self-hosted GitHub Actions runner**
 (`ROG-windows-build`, labels include `windows-build`) — NOT driven over SSH. Toolchain on the runner:
@@ -298,4 +306,4 @@ No SSH between machines; each runner signs and uploads its platform assets, and 
 job publishes the verified release. Keep the repo private / gate fork PRs — self-hosted runners
 execute repo workflow code.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
