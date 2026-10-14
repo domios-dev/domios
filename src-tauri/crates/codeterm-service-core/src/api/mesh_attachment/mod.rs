@@ -8,11 +8,11 @@ use axum::{
     Json,
 };
 use base64::Engine as _;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_tab, AppState};
+use crate::service::mesh_attachment::*;
 
-pub const MESH_ATTACHMENT_MAX_BYTES: u64 = 25 * 1024 * 1024;
 const ENCODED_MAX_BYTES: usize = (MESH_ATTACHMENT_MAX_BYTES as usize).div_ceil(3) * 4;
 /// Relay and ingest JSON bodies carry the base64 payload plus a small envelope.
 pub const MESH_ATTACHMENT_RELAY_BODY_LIMIT: usize = ENCODED_MAX_BYTES + 1024 * 1024;
@@ -20,54 +20,6 @@ pub const MESH_ATTACHMENT_SUFFIX: &str = "/attachments";
 pub const SOURCE_PATH_REFUSAL: &str = "source_attachment_path: a remote send references an attachment stored on this host; transfer it to the target host before sending";
 const GUARD_SCAN_WINDOW: usize = 1024;
 const GUARD_MAX_CANDIDATES: usize = 32;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AttachmentKind {
-    Voice,
-    File,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IngestRequest {
-    pub kind: AttachmentKind,
-    pub name: String,
-    pub size: u64,
-    pub data: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IngestedAttachment {
-    pub path: String,
-    pub kind: AttachmentKind,
-    pub size: u64,
-    #[serde(default)]
-    pub reference: Option<String>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum IngestRefusal {
-    TooLarge(u64),
-    Malformed(&'static str),
-}
-
-impl IngestRefusal {
-    pub fn status(&self) -> StatusCode {
-        match self {
-            Self::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::Malformed(_) => StatusCode::BAD_REQUEST,
-        }
-    }
-
-    pub fn message(&self) -> String {
-        match self {
-            Self::TooLarge(size) => format!(
-                "attachment of {size} bytes exceeds the {MESH_ATTACHMENT_MAX_BYTES}-byte mesh limit"
-            ),
-            Self::Malformed(reason) => format!("malformed attachment: {reason}"),
-        }
-    }
-}
 
 /// Validate a received payload before any byte touches disk; returns the sanitized name.
 pub fn decode_ingest(req: &IngestRequest) -> Result<(String, Vec<u8>), IngestRefusal> {
@@ -100,10 +52,13 @@ pub async fn ingest(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     resolve_tab(&state, &id).map_err(|(s, e)| (s, e.to_string()))?;
     let (name, bytes) = decode_ingest(&req).map_err(|r| (r.status(), r.message()))?;
-    let stored =
-        crate::api::web_routes::store_upload(&crate::api::web_routes::uploads_dir(), &name, &bytes)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let stored = crate::api::web_routes::store_upload(
+        &crate::service::web_access::uploads_dir(),
+        &name,
+        &bytes,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     let path = stored.to_string_lossy().to_string();
     let reference = match req.kind {
         AttachmentKind::Voice => {
@@ -141,75 +96,6 @@ pub fn is_attachment_ingest(method: &str, path: &str) -> bool {
     method.eq_ignore_ascii_case("POST")
         && bare.starts_with("/api/tabs/")
         && bare.ends_with(MESH_ATTACHMENT_SUFFIX)
-}
-
-/// Read a source attachment on the origin host into a bounded ingest payload.
-pub fn build_ingest_request(
-    source: &std::path::Path,
-    kind: AttachmentKind,
-) -> Result<IngestRequest, String> {
-    let meta = std::fs::metadata(source)
-        .map_err(|e| format!("attachment is not readable on this host: {e}"))?;
-    if !meta.is_file() {
-        return Err("attachment is not a regular file".into());
-    }
-    let too_large = |size: u64| IngestRefusal::TooLarge(size).message();
-    if meta.len() > MESH_ATTACHMENT_MAX_BYTES {
-        return Err(too_large(meta.len()));
-    }
-    let bytes = std::fs::read(source)
-        .map_err(|e| format!("attachment is not readable on this host: {e}"))?;
-    if bytes.is_empty() {
-        return Err("attachment is empty".into());
-    }
-    if bytes.len() as u64 > MESH_ATTACHMENT_MAX_BYTES {
-        return Err(too_large(bytes.len() as u64));
-    }
-    let name = source
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    Ok(IngestRequest {
-        kind,
-        name,
-        size: bytes.len() as u64,
-        data: base64::engine::general_purpose::STANDARD.encode(&bytes),
-    })
-}
-
-/// A transfer only succeeds with a target-local copy that never echoes the source path.
-pub fn parse_ingest_response(
-    source: &str,
-    resp: crate::mesh::types::RelayResponse,
-) -> Result<IngestedAttachment, String> {
-    if !resp.ok {
-        let reason = resp
-            .error
-            .unwrap_or_else(|| format!("HTTP {}", resp.status));
-        return Err(format!(
-            "attachment transfer to the target host failed: {reason}"
-        ));
-    }
-    let data = resp
-        .data
-        .ok_or("attachment transfer failed: the target host returned no reference")?;
-    let ingested: IngestedAttachment = serde_json::from_value(data).map_err(|e| {
-        format!("attachment transfer failed: the target host returned a malformed reference: {e}")
-    })?;
-    if ingested.path.trim().is_empty() {
-        return Err("attachment transfer failed: the target host returned an empty path".into());
-    }
-    let echoes_source = ingested.path == source
-        || ingested
-            .reference
-            .as_deref()
-            .is_some_and(|reference| reference.contains(source));
-    if echoes_source {
-        return Err(
-            "attachment transfer failed: the target host echoed the source-machine path".into(),
-        );
-    }
-    Ok(ingested)
 }
 
 /// Origin-side handoff shared by the Tauri command and the web mirror.
@@ -301,7 +187,7 @@ fn outbound_texts(body: &serde_json::Value) -> Vec<&str> {
 
 pub fn source_attachment_roots() -> Vec<String> {
     vec![
-        crate::api::web_routes::uploads_dir()
+        crate::service::web_access::uploads_dir()
             .to_string_lossy()
             .to_string(),
         crate::attachments::bucket_dir("")

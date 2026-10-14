@@ -912,7 +912,7 @@ impl ServiceContext {
                 log::debug!(
                     "[spawn-token] tab={} injecting CODETERM_API_TOKEN {}",
                     tab_id,
-                    crate::api::auth::token_fp(tok)
+                    crate::service::tokens::token_fp(tok)
                 );
                 env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
             }
@@ -1040,7 +1040,7 @@ impl ServiceContext {
                 provider,
                 launch_session_id,
                 task: task_for_thread,
-                selection: super::codex_rpc::launch::Selection {
+                selection: crate::ports::transport::Selection {
                     model: launch_model.clone(),
                     effort: agent.reasoning_effort.clone(),
                     resume: agent.resume_session_id.clone(),

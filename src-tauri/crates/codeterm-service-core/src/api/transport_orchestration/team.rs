@@ -56,7 +56,7 @@ pub(super) async fn close(
         State(state),
         headers,
         Path(id),
-        crate::api::optional_json::OptionalJson(Some(body)),
+        crate::api_support::optional_json::OptionalJson(Some(body)),
     )
     .await
 }

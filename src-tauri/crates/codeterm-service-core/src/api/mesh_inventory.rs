@@ -1,35 +1,15 @@
 use std::collections::BTreeMap;
 
 use axum::{extract::State as AxumState, http::HeaderMap, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
 
 use crate::api::routes::{check_auth, AppState};
 use crate::mesh::types::AccessLevel;
+use crate::mesh_host::{MeshInventoryResource, MeshInventoryView};
 use crate::service::store::{Service, ServiceKind};
 use codeterm_mesh::contract::inventory::{
     InventoryCapability, InventoryFreshness, InventoryOperation, InventoryProvenance,
     InventoryUnavailableReason,
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MeshInventoryResource {
-    #[serde(flatten)]
-    pub service: Service,
-    pub resource_id: String,
-    pub machine_id: String,
-    pub machine_name: String,
-    pub provenance: InventoryProvenance,
-    pub capabilities: BTreeMap<InventoryOperation, InventoryCapability>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MeshInventoryView {
-    pub contract_version: u16,
-    pub machine_id: String,
-    pub machine_name: String,
-    pub resources: Vec<MeshInventoryResource>,
-    pub provenance: InventoryProvenance,
-}
 
 pub const INVENTORY_CONTRACT_VERSION: u16 = 1;
 
@@ -110,7 +90,7 @@ fn capability_for_operation(
             InventoryUnavailableReason::UnsupportedResourceKind,
         );
     };
-    if !crate::api::access_policy::check_access(access, &method, &path) {
+    if !crate::api_support::access_policy::check_access(access, &method, &path) {
         return InventoryCapability::unavailable(InventoryUnavailableReason::NotAuthorized);
     }
     if protected && operation == InventoryOperation::Delete {

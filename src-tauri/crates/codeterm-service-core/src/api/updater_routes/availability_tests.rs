@@ -22,7 +22,7 @@ async fn availability_json_contract_preserves_prerelease_and_escaped_errors() {
         );
         assert_eq!(item.reason, "local_ahead");
         assert_eq!(item.state, codeterm_plugins::AvailabilityState::UpToDate);
-        let mut snapshot: crate::update::discovery::AvailabilitySnapshot =
+        let mut snapshot: crate::update_state::AvailabilitySnapshot =
             serde_json::from_str(SNAPSHOT).unwrap();
         snapshot.items = vec![item];
         let expected = serde_json::to_value(&snapshot).unwrap();

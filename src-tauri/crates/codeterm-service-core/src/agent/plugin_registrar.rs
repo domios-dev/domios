@@ -22,7 +22,7 @@ impl PluginProviderRegistrar for AgentRegistry {
     // The same consented reconciliation the daemon-start pass runs, so it
     // refuses identically without a recorded consent.
     fn provider_reloaded(&self, id: &str) {
-        crate::commands::ensure_integration_for_provider(self, id);
+        crate::service::provider_hooks::ensure_integration_for_provider(self, id);
     }
 
     // Unlike provider_reloaded, never touches provider hook files.

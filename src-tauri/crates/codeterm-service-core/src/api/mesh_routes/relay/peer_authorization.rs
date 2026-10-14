@@ -1,5 +1,5 @@
-use crate::api::access_policy::{peer_access_allowed, request_path};
 use crate::api::routes::AppState;
+use crate::api_support::access_policy::{peer_access_allowed, request_path};
 use axum::http::{Method, StatusCode};
 
 #[derive(Debug, PartialEq, Eq)]

@@ -582,7 +582,7 @@ pub(crate) fn marked_launch_command_for_tab(
     tab_id: &str,
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
-    selection: super::codex_rpc::launch::Selection,
+    selection: crate::ports::transport::Selection,
 ) -> Option<String> {
     if let Some(command) =
         super::codex_rpc::launch::selection_plan(svc, tab_id, provider_id, cwd, params, selection)
@@ -1001,7 +1001,7 @@ impl ServiceContext {
         } = detected;
         let source = binding_source(detection.source);
         let session_id = detection.session_id;
-        let claim = match crate::api::hook_routes::bind_detected_session(
+        let claim = match crate::service::hook_session_binding::bind_detected_session(
             &self.mux,
             self.agent_registry.as_ref(),
             tab_id,
@@ -1022,20 +1022,21 @@ impl ServiceContext {
             "[launch-session-detection] Tab {tab_id} bound {provider_id} session {session_id} from {}",
             source_label(source),
         );
-        if let Err((status, message)) = crate::api::hook_routes::finish_session_binding(
-            self,
-            tab_id,
-            &provider_id,
-            &session_id,
-            Some(&binding_nonce),
-            Some(AgentTypeWriteOrigin::Hook),
-            source_label(source),
-            &serde_json::Value::Null,
-            claim,
-            source,
-            false,
-        )
-        .await
+        if let Err((status, message)) =
+            crate::service::hook_session_binding::finish_session_binding(
+                self,
+                tab_id,
+                &provider_id,
+                &session_id,
+                Some(&binding_nonce),
+                Some(AgentTypeWriteOrigin::Hook),
+                source_label(source),
+                &serde_json::Value::Null,
+                claim,
+                source,
+                false,
+            )
+            .await
         {
             log::warn!(
                 "[launch-session-detection] Tab {tab_id} binding follow-up failed ({status}): {message}"

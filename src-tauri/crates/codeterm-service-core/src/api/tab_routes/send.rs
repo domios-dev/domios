@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_tab};
 use crate::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin};
+use crate::service::input_transport::{should_prepend_source, TabInputTransport};
 
 use super::AppState;
 
@@ -253,23 +254,6 @@ fn route_payload_bytes(text: Option<&str>, batch: Option<&[BatchCommand]>) -> us
 
 pub(super) use self::await_pty_link as wait_for_pty_link;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TabInputTransport {
-    Pty,
-    ChatBackend,
-}
-
-/// Whether to inject the sender return-address marker into the PTY text. The
-/// marker is meaningful only to an AGENT reading its input; a bare shell runs
-/// the bytes verbatim and a chatBackend carries identity structurally.
-pub(crate) fn should_prepend_source(
-    has_source: bool,
-    target_has_agent: bool,
-    transport: TabInputTransport,
-) -> bool {
-    has_source && target_has_agent && transport == TabInputTransport::Pty
-}
-
 pub(crate) fn utility_shell_purpose(tab: &crate::multiplexer::types::Tab) -> Option<String> {
     (tab.is_utility_shell()
         && !tab.agent_booting
@@ -346,13 +330,13 @@ pub(crate) use crate::agent::keys::action_key_bytes as send_action_bytes;
 
 /// Keys aimed at a provider dialog are written as-is, so Enter is a plain carriage return.
 fn owner_dialog_keys(
-    ordered: &[crate::service::pty_io::OrderedPtyAction],
-) -> Vec<crate::service::pty_io::OrderedPtyAction> {
+    ordered: &[crate::service::ordered_actions::OrderedPtyAction],
+) -> Vec<crate::service::ordered_actions::OrderedPtyAction> {
     ordered
         .iter()
         .map(|action| match action {
-            crate::service::pty_io::OrderedPtyAction::Submit => {
-                crate::service::pty_io::OrderedPtyAction::Raw(b"\r".to_vec())
+            crate::service::ordered_actions::OrderedPtyAction::Submit => {
+                crate::service::ordered_actions::OrderedPtyAction::Raw(b"\r".to_vec())
             }
             other => other.clone(),
         })
@@ -613,7 +597,7 @@ pub async fn send_text(
         for action in &actions {
             match action {
                 SendAction::Delay { ms } => {
-                    ordered.push(crate::service::pty_io::OrderedPtyAction::Delay(
+                    ordered.push(crate::service::ordered_actions::OrderedPtyAction::Delay(
                         std::time::Duration::from_millis(*ms),
                     ))
                 }
@@ -622,9 +606,11 @@ pub async fn send_text(
                         return Err((StatusCode::BAD_REQUEST, "unknown action key").into());
                     };
                     if bytes == b"\r" {
-                        ordered.push(crate::service::pty_io::OrderedPtyAction::Submit);
+                        ordered.push(crate::service::ordered_actions::OrderedPtyAction::Submit);
                     } else {
-                        ordered.push(crate::service::pty_io::OrderedPtyAction::Raw(bytes));
+                        ordered.push(crate::service::ordered_actions::OrderedPtyAction::Raw(
+                            bytes,
+                        ));
                     }
                 }
             }
@@ -654,7 +640,7 @@ pub async fn send_text(
             let action_result = tokio::task::spawn_blocking(move || {
                 if keys_only {
                     // Keys alone answer whatever the screen shows, so they are written as-is.
-                    return crate::service::pty_io::execute_ordered_actions(
+                    return crate::service::ordered_actions::execute_ordered_actions(
                         "",
                         &owner_dialog_keys(&ordered),
                         |_, _| Ok(()),
@@ -662,10 +648,10 @@ pub async fn send_text(
                             svc.write_raw(&action_tab, bytes)
                                 .map_err(|error| DeliveryError::from_opaque(&action_tab, error))
                         },
-                        crate::service::pty_io::await_action_deadline,
+                        crate::service::ordered_actions::await_action_deadline,
                     );
                 }
-                crate::service::pty_io::execute_ordered_actions(
+                crate::service::ordered_actions::execute_ordered_actions(
                     &text,
                     &ordered,
                     |body, enter| match svc.send_text_input_delivery(&action_tab, body, enter, None)
@@ -706,7 +692,7 @@ pub async fn send_text(
                             })
                             .map(|()| bytes_written.set(bytes_written.get() || !bytes.is_empty()))
                     },
-                    crate::service::pty_io::await_action_deadline,
+                    crate::service::ordered_actions::await_action_deadline,
                 )
             })
             .await
@@ -858,7 +844,7 @@ pub async fn send_text(
 
     if origin == SendOrigin::Programmatic && target_has_agent && transport == TabInputTransport::Pty
     {
-        let text = crate::service::pty_io::sanitize_agent_prompt_input(&text);
+        let text = codeterm_pty::pty::ansi::sanitize_agent_prompt_input(&text);
         let svc = state.svc.clone();
         let target = tab_id.clone();
         let payload = text.clone();

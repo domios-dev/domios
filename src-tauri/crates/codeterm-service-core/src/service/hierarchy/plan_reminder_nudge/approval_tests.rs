@@ -1,11 +1,11 @@
 use super::approval::{admit, scope_key, scope_keys, ReminderOutcome};
 use super::tests::{plan, task};
 use super::*;
-use crate::api::mem_routes::decision::SupporterRegistry;
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
 use crate::service::hierarchy::heartbeat_gate::{Telemetry, Worker};
 use crate::service::hierarchy::stalled_team::{maybe_nudge_stalled_team, StallEpisodeTracker};
+use crate::service::supporter::registry::SupporterRegistry;
 use crate::service::supporter::{SupporterRuntime, TokenSnapshot};
 use codeterm_decision::{
     DecisionAnswer, DecisionAnswers, DecisionError, DecisionModel, DecisionModelInfo,

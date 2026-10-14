@@ -1,7 +1,8 @@
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 
 use crate::api::routes::AppState;
 use crate::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
+use crate::mem_ops::sanitize_actor;
 
 pub(super) const WORKER_ID_HEADER: &str = "x-codeterm-worker-id";
 pub(super) const WORKER_INTENT_HEADER: &str = "x-codeterm-worker-intent";
@@ -45,8 +46,8 @@ pub use pinned::{
 pub use search::mem_search;
 pub use sync::{mem_sync, mem_sync_status};
 pub use workers::{
-    cancel_worker, workers_get, workers_kill, workers_list, workers_log, workers_progress,
-    workers_report, workers_spawn,
+    workers_get, workers_kill, workers_list, workers_log, workers_progress, workers_report,
+    workers_spawn,
 };
 
 /// Exact Worker id a request is attributed to, for commit authorization. Absent
@@ -54,25 +55,6 @@ pub use workers::{
 pub(super) fn worker_id_from_headers(headers: &HeaderMap) -> Option<&str> {
     headers.get(WORKER_ID_HEADER).and_then(|v| v.to_str().ok())
 }
-
-pub(crate) fn validate_item_fields(
-    title: &str,
-    body: &str,
-    area: &Option<String>,
-    tags: &[String],
-    importance: Option<f64>,
-) -> Result<(), (StatusCode, String)> {
-    codeterm_mem::curation::validate_item_fields(title, body, area, tags, importance).map_err(
-        |(code, msg)| {
-            (
-                StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST),
-                msg,
-            )
-        },
-    )
-}
-
-pub(crate) use codeterm_mem::curation::sanitize_actor;
 
 /// Map incoming HTTP headers to a `changed_by` label for the history log.
 /// - `x-codeterm-worker-id` present → `worker:<intent-or-other>`

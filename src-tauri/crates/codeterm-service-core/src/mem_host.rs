@@ -11,8 +11,14 @@ use crate::cron::store::{self, CronCreateParams, CronStore};
 use crate::mem::ports::{
     MemCronCreateParams, MemCronJob, MemEventSink, MemHostContext, MemSchedulerPort,
 };
+use crate::mem::rerank::RerankConfig;
+use crate::mem::search::{SearchConfig, SearchQuery};
 use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
+use crate::mem::SearchHit;
+use crate::mem_ops::search::RecallBackend;
 use crate::multiplexer::types::TabCloseReason;
+use crate::service::plan::ports::PlanIndexQuery;
+use crate::service::plan::search_index::PlanSearchHit;
 use crate::service::ServiceContext;
 
 fn cron_to_mem(job: &store::CronJob) -> MemCronJob {
@@ -493,7 +499,7 @@ pub fn spawn_extraction_worker(
                     generation.token(),
                     worker_id
                 );
-                crate::api::mem_routes::cancel_worker(svc, &worker_id);
+                cancel_worker(svc, &worker_id);
                 return None;
             }
             log::info!(
@@ -527,7 +533,7 @@ impl codeterm_mem::ExtractionCancelSink for WorkerCancelSink {
             let Some(worker_id) = r.worker_id.as_deref() else {
                 continue;
             };
-            crate::api::mem_routes::cancel_worker(&self.0, worker_id);
+            cancel_worker(&self.0, worker_id);
         }
     }
 }
@@ -659,4 +665,44 @@ pub fn spawn_rem_worker(
         Ok(wid) => log::info!("[dreaming] REM worker spawned: {}", wid),
         Err(e) => log::error!("[dreaming] REM worker spawn failed: {}", e),
     }
+}
+
+impl RecallBackend for ServiceContext {
+    fn recall(&self, q: &SearchQuery, cfg: &SearchConfig) -> Result<Vec<SearchHit>, String> {
+        self.mem.recall_with_config(q, cfg)
+    }
+
+    fn legacy_rerank(&self, q: &SearchQuery, cfg: &RerankConfig) -> Result<Vec<SearchHit>, String> {
+        self.mem.search_with_rerank(q, cfg)
+    }
+
+    fn plan_hits(&self, project: &str, q: &PlanIndexQuery) -> Result<Vec<PlanSearchHit>, String> {
+        let project_root = self
+            .ensure_plan_project_loaded(std::path::Path::new(project))
+            .map_err(|e| e.to_string())?;
+        self.plan_store.search_plan_index(&project_root, q)
+    }
+}
+
+/// Terminate one Worker by exact id: mark it terminal, close its tab, announce
+/// it. Shared by the kill route and extraction revocation so both cancel a
+/// Worker the same way — and only ever the Worker named.
+pub fn cancel_worker(
+    svc: &std::sync::Arc<crate::service::ServiceContext>,
+    worker_id: &str,
+) -> Option<codeterm_mem::workers::GraphWorkerInfo> {
+    let info = match svc.workers.kill(worker_id) {
+        Ok(info) => info,
+        Err(e) => {
+            log::warn!("[graph-workers] cancel {}: {}", worker_id, e);
+            return None;
+        }
+    };
+    if !info.tab_id.is_empty() {
+        if let Err(e) = svc.close_tab_with_reason(&info.tab_id, TabCloseReason::Cancelled) {
+            log::warn!("[graph-workers] cancel Tab {}: {}", info.tab_id, e);
+        }
+    }
+    codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
+    Some(info)
 }

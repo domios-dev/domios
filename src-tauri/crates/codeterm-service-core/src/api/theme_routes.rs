@@ -177,7 +177,7 @@ pub async fn restore_hooks_api(
     }
     let registry = state.svc.agent_registry.clone();
     tokio::task::spawn_blocking(move || {
-        crate::commands::restore_provider_integration_core(&registry, &q.provider)
+        crate::service::provider_hooks::restore_provider_integration_core(&registry, &q.provider)
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -274,7 +274,7 @@ pub async fn install_hooks_api(
     let api_port = state.api_port;
     let provider_id = q.provider.clone();
     tokio::task::spawn_blocking(move || {
-        crate::commands::install_provider_integration_with_consent(
+        crate::service::provider_hooks::install_provider_integration_with_consent(
             &registry,
             &config,
             provider_id,
@@ -325,7 +325,7 @@ pub async fn uninstall_hooks_api(
     }
     let registry = state.svc.agent_registry.clone();
     tokio::task::spawn_blocking(move || {
-        crate::commands::uninstall_provider_integration_core(&registry, &q.provider)
+        crate::service::provider_hooks::uninstall_provider_integration_core(&registry, &q.provider)
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?

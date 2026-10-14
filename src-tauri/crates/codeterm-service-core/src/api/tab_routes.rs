@@ -29,9 +29,9 @@ pub use stop::stop_tab;
 pub(crate) use exec::ExecBody;
 
 #[cfg(test)]
-pub(crate) use send::{
-    send_action_bytes, should_prepend_source, SendAction, SendTextBody, TabInputTransport,
-};
+pub(crate) use crate::service::input_transport::{should_prepend_source, TabInputTransport};
+#[cfg(test)]
+pub(crate) use send::{send_action_bytes, SendAction, SendTextBody};
 
 pub async fn list_tabs(
     AxumState(state): AxumState<AppState>,

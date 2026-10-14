@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import { FileText, Image as ImageIcon } from "lucide-react";
+import { Film, FileText, Image as ImageIcon } from "lucide-react";
 import { attachmentFileName, inlineAttachmentSrc, type AttachmentMarker, type ChatAttachment } from "@codeterm/chat-core";
+import { VideoFullscreen } from "./VideoFullscreen";
 import { ImageFullscreen, REVEAL_UNAVAILABLE, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable } from "./localArtifactLoader";
 import { useLocalImage } from "./localImage";
@@ -45,25 +46,27 @@ function ImageTile({ attachment, onOpen }: { attachment: ChatAttachment; onOpen:
   );
 }
 
-function FileChip({ file }: { file: AttachmentMarker }) {
-  const name = file.path.split(/[\\/]/).filter(Boolean).pop() ?? file.path;
+function FileChip({ file, onPlay }: { file: AttachmentMarker; onPlay: (file: AttachmentMarker) => void }) {
+  const isVideo = file.kind === "video";
+  const name = file.label ?? file.path.split(/[\\/]/).filter(Boolean).pop() ?? file.path;
   const canReveal = localArtifactOpeningAvailable();
+  const Icon = isVideo ? Film : FileText;
   return (
     <button
       type="button"
-      data-testid="chat-file-attachment"
-      aria-label={`Reveal file ${name}`}
-      title={canReveal ? file.path : `${file.path} (${REVEAL_UNAVAILABLE})`}
-      disabled={!canReveal}
-      onClick={() => revealLocalFile(file.path)}
-      className="ct-liquid-interactive disabled:cursor-default inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
+      data-testid={isVideo ? "chat-video-attachment" : "chat-file-attachment"}
+      aria-label={isVideo ? `Play video ${name}` : `Reveal file ${name}`}
+      title={isVideo || canReveal ? file.path : `${file.path} (${REVEAL_UNAVAILABLE})`}
+      disabled={!isVideo && !canReveal}
+      onClick={() => (isVideo ? onPlay(file) : revealLocalFile(file.path))}
+      className="ct-liquid-interactive ct-bubble-chip disabled:cursor-default border font-mono text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
       style={{
         background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
         borderColor: TILE_BORDER,
         color: "var(--ct-fg)",
       }}
     >
-      <FileText size={12} aria-hidden className="shrink-0 opacity-70" />
+      <Icon size={12} aria-hidden className="shrink-0 opacity-70" />
       <span className="min-w-0 max-w-[14rem] truncate">{name}</span>
     </button>
   );
@@ -73,6 +76,7 @@ function FileChip({ file }: { file: AttachmentMarker }) {
 export function AttachmentStrip({ images, files, captioned }: { images: ChatAttachment[]; files: AttachmentMarker[]; captioned: boolean }) {
   const [open, setOpen] = useState<FullscreenImage | null>(null);
   const close = useCallback(() => setOpen(null), []);
+  const [playing, setPlaying] = useState<AttachmentMarker | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   return (
     <>
@@ -81,14 +85,15 @@ export function AttachmentStrip({ images, files, captioned }: { images: ChatAtta
         role="group"
         aria-label="Attachments"
         data-testid="chat-attachment-strip"
-        className={`flex flex-wrap items-end gap-1.5 ${captioned ? "mb-2" : ""}`}
+        className={`ct-bubble-attachments${captioned ? " ct-bubble-attachments--captioned" : ""}`}
       >
         {images.map((attachment) => (
           <ImageTile key={attachment.id} attachment={attachment} onOpen={setOpen} />
         ))}
-        {files.map((file) => <FileChip key={file.path} file={file} />)}
+        {files.map((file) => <FileChip key={file.path} file={file} onPlay={setPlaying} />)}
       </div>
       {open && <ImageFullscreen image={open} anchorRef={stripRef} onClose={close} />}
+      {playing && <VideoFullscreen label={playing.label ?? playing.path} path={playing.path} anchorRef={stripRef} onClose={() => setPlaying(null)} />}
     </>
   );
 }
