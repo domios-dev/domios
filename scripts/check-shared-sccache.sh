@@ -210,3 +210,28 @@ printf 'PASS synthetic offline S3 stats cannot pass verification\n'
 ) > "$WORK/stats.log" 2>&1
 grep -Eq '^sccache endpoint:' "$WORK/stats.log"
 printf 'PASS stats refuses offline synthetic counters and names the endpoint\n'
+
+(
+  rm -f "$WORK/events" "$WORK/idle-scans"
+  unset CT_SCCACHE_CONFIGURED
+  export FIXTURE_BUSY=1 SCCACHE_CACHE_SIZE=10G
+  mkdir -p "$WORK/gateway/lock"
+  CT_GATEWAY_ACTIVE=1 CT_BUILD_JOB_ID=owned-cache CT_GATEWAY_PROCESS_START=fixture-start
+  printf '%s\n' owned-cache > "$WORK/gateway/lock/job_id"
+  printf '%s\n' "$$" > "$WORK/gateway/lock/pid"
+  printf '%s\n' fixture-start > "$WORK/gateway/lock/start_token"
+  pgrep() { echo scan >> "$WORK/idle-scans"; return 0; }
+  powershell.exe() { echo scan >> "$WORK/idle-scans"; return 0; }
+  source "$ROOT/scripts/build-gateway.sh"
+  ct_gateway_state_tool() { [ "$1" = evidence-reset ]; }
+  printf 's3, name: other-bucket, prefix: /' > "$WORK/location"
+  ct_configure_sccache
+  [ ! -e "$WORK/idle-scans" ]
+  [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
+  printf foreign-job > "$WORK/gateway/lock/job_id"
+  printf 's3, name: other-bucket, prefix: /' > "$WORK/location"
+  if ct_configure_sccache; then exit 1; else [ "$?" = 75 ]; fi
+  [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
+  [ -e "$WORK/idle-scans" ]
+) > "$WORK/owned-busy.log" 2>&1
+printf 'PASS exact gateway owner skips global idle scans; foreign marker refuses\n'
