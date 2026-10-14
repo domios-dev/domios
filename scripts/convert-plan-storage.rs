@@ -8,7 +8,7 @@
 //! ```
 
 fn main() {
-    if let Err(error) = codeterm_lib::service::plan::convert_storage::main() {
+    if let Err(error) = codeterm_service_core::service::plan::convert_storage::main() {
         eprintln!("convert-plan-storage: {error}");
         std::process::exit(1);
     }

@@ -144,7 +144,103 @@ ${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
   return render(normalized, 0);
 }
 
-// packages/plugin-sdk/src/fileDiffs.ts
+// plugins/provider-codex/src/commandLabel.ts
+var MAX_LABEL_CHARS = 160;
+var POWERSHELL = /* @__PURE__ */ new Set(["pwsh", "powershell"]);
+var POSIX_SHELLS = /* @__PURE__ */ new Set(["bash", "sh", "zsh"]);
+function executableName(token) {
+  const leaf = token.split(/[\\/]+/).filter(Boolean).pop() ?? token;
+  return leaf.replace(/\.(exe|cmd|bat|com)$/i, "");
+}
+function unquoteWhole(value) {
+  const trimmed = value.trim();
+  if (trimmed.length < 2 || !trimmed.startsWith('"') || !trimmed.endsWith('"')) return trimmed;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return typeof parsed === "string" ? parsed : trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+function tokenize(source) {
+  const tokens = [];
+  const starts = [];
+  let current = "";
+  let open = false;
+  let quote = "";
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\" && quote === '"' && source[i + 1] === '"') current += source[++i];
+      else if (char === quote) quote = "";
+      else current += char;
+    } else if (char === '"' || char === "'") {
+      if (!open) {
+        starts.push(i);
+        open = true;
+      }
+      quote = char;
+    } else if (/\s/.test(char)) {
+      if (open) {
+        tokens.push(current);
+        current = "";
+        open = false;
+      }
+    } else {
+      if (!open) {
+        starts.push(i);
+        open = true;
+      }
+      current += char;
+    }
+  }
+  if (open) tokens.push(current);
+  return { tokens, rest: (index) => index < starts.length ? source.slice(starts[index]) : "" };
+}
+function argvParsed(argv) {
+  const display2 = argv.map((argument) => argument === "" || /\s/.test(argument) ? `"${argument}"` : argument);
+  return { tokens: argv, rest: (index) => display2.slice(index).join(" ") };
+}
+function isCommandSwitch(name, option) {
+  const flag = option.toLowerCase();
+  if (POWERSHELL.has(name)) return flag === "-command" || flag === "-c";
+  if (POSIX_SHELLS.has(name)) return /^-[a-z]*c$/.test(flag);
+  return name === "cmd" && (flag === "/c" || flag === "/k");
+}
+function innerCommand(parsed) {
+  const name = executableName(parsed.tokens[0] ?? "").toLowerCase();
+  if (!POWERSHELL.has(name) && !POSIX_SHELLS.has(name) && name !== "cmd") return null;
+  for (let i = 1; i < parsed.tokens.length; i++) {
+    if (!isCommandSwitch(name, parsed.tokens[i])) continue;
+    const inner = POSIX_SHELLS.has(name) ? parsed.tokens[i + 1] ?? "" : parsed.rest(i + 1);
+    return inner.trim() ? unquoteWhole(inner) : null;
+  }
+  return null;
+}
+function compact(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+function clip(value) {
+  const chars = Array.from(value);
+  return chars.length <= MAX_LABEL_CHARS ? value : chars.slice(0, MAX_LABEL_CHARS - 3).join("").trimEnd() + "...";
+}
+function commandLabel(command) {
+  let parsed;
+  if (Array.isArray(command) && command.length > 0 && command.every((part) => typeof part === "string")) {
+    parsed = argvParsed(command);
+  } else if (typeof command === "string") {
+    parsed = tokenize(unquoteWhole(command));
+  } else {
+    return "";
+  }
+  if (parsed.tokens.length === 0) return "";
+  const inner = innerCommand(parsed);
+  if (inner !== null) return clip(compact(inner));
+  const rest = parsed.rest(1);
+  return clip(compact(`${executableName(parsed.tokens[0])}${rest ? " " + rest : ""}`));
+}
+
+// ../../codeterm/packages/plugin-sdk/src/fileDiffs.ts
 function recordedPatchDiff(path, patch, kind) {
   if (!path.trim()) return [];
   const hunks = [];
@@ -420,8 +516,8 @@ function runtimeItem(raw, seq, previous) {
       return { ...row2, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
     case "commandExecution":
       row2.toolKind = "command";
-      row2.toolSummary = String(item.command ?? "");
-      row2.toolDetail = row2.toolSummary;
+      row2.toolDetail = String(item.command ?? "");
+      row2.toolSummary = commandLabel(item.command) || row2.toolDetail;
       if (typeof item.aggregatedOutput === "string") row2.toolResult = item.aggregatedOutput;
       else if (previous?.toolResult !== void 0) row2.toolResult = previous.toolResult;
       if (typeof item.exitCode === "number") row2.toolExitCode = item.exitCode;
@@ -509,7 +605,7 @@ function runtimeItem(raw, seq, previous) {
   row2.toolId = id;
   row2.toolName ?? (row2.toolName = String(item.type));
   row2.toolInput ?? (row2.toolInput = item);
-  if (row2.toolSummary !== void 0) row2.toolArgs = row2.toolSummary;
+  if (row2.toolSummary !== void 0) row2.toolArgs = row2.toolKind === "command" ? row2.toolDetail : row2.toolSummary;
   row2.collapsed = true;
   if (typeof item.durationMs === "number") row2.toolDurationMs = item.durationMs;
   if (row2.toolError == null) {
@@ -2786,9 +2882,9 @@ function clipSummary(value, limit = MAX_SUMMARY_CHARS) {
   return value.substring(0, Math.max(1, limit - 3)).trimEnd() + "...";
 }
 function commandSummary(commands) {
-  const compact = commands.map(compactCommand).filter(Boolean);
-  const first = compact[0];
-  const suffix = compact.length > 1 ? ` (+${compact.length - 1} more)` : "";
+  const compact2 = commands.map(compactCommand).filter(Boolean);
+  const first = compact2[0];
+  const suffix = compact2.length > 1 ? ` (+${compact2.length - 1} more)` : "";
   const summary = clipSummary(first, MAX_SUMMARY_CHARS - suffix.length) + suffix;
   return { kind: "command", summary, detail: commands.map((value) => value.trim()).join("\n\n") };
 }
@@ -2855,10 +2951,10 @@ function patchEdits(patch) {
 
 // plugins/provider-codex/src/actionTitle.ts
 var MAX_TITLE_CHARS = 48;
-function clip(value) {
-  const compact = value.replace(/\s+/g, " ").trim();
-  if (compact.length <= MAX_TITLE_CHARS) return compact;
-  return compact.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
+function clip2(value) {
+  const compact2 = value.replace(/\s+/g, " ").trim();
+  if (compact2.length <= MAX_TITLE_CHARS) return compact2;
+  return compact2.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
 }
 function text2(value) {
   return typeof value === "string" ? value : "";
@@ -2877,15 +2973,15 @@ function actionTitle(fields) {
   const detail = text2(fields.tool_detail);
   if (fields.tool_kind === "command") {
     const more = /\(\+(\d+) more\)$/.exec(summary);
-    return clip(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
+    return clip2(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
   }
-  if (fields.tool_kind === "read" && summary) return clip(`Read ${baseName(summary)}`);
+  if (fields.tool_kind === "read" && summary) return clip2(`Read ${baseName(summary)}`);
   if (fields.tool_kind === "edit") {
     const edits = Array.isArray(fields.tool_edits) ? fields.tool_edits : [];
     const paths = edits.map((edit) => text2(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
-    if (paths.length > 0) return clip(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
+    if (paths.length > 0) return clip2(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
   }
-  return clip(summary || "Tool activity");
+  return clip2(summary || "Tool activity");
 }
 
 // plugins/provider-codex/src/agentActivity.ts
