@@ -16,6 +16,8 @@ export interface ChatScrollGestureInput {
   atBottom: boolean;
   positionChanged: boolean;
   towardBottom?: boolean;
+  /** Whether the wheel's direction has room to move; a wheel that cannot move never produces the scrollend that ends it. */
+  canMove?: boolean;
 }
 
 const defaultInput: ChatScrollGestureInput = { supportsScrollEnd: true, atBottom: false, positionChanged: false };
@@ -28,8 +30,9 @@ export function chatScrollGestureAfterEvent(state: ChatScrollGesture, event: Cha
       if (!state.touching) return state;
       return { touching: false, scrolling: input.supportsScrollEnd && (state.scrolling || (!state.observedScroll && input.positionChanged)),
         awaitingMovement: !input.supportsScrollEnd, observedScroll: state.observedScroll };
-    case "wheel": return input.atBottom && input.towardBottom
-      ? { ...state, scrolling: false, awaitingMovement: false } : { ...state, scrolling: true };
+    case "wheel":
+      if (input.canMove !== false) return { ...state, scrolling: true };
+      return input.towardBottom ? { ...state, scrolling: false, awaitingMovement: false } : state;
     case "scroll":
       if (!input.supportsScrollEnd) return { ...state,
         scrolling: !input.atBottom && (state.scrolling || ((state.touching || state.awaitingMovement) && input.positionChanged)),
