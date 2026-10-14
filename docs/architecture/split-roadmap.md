@@ -173,3 +173,13 @@ Crate dependencies that changed:
 Which crates stopped rebuilding on which edits (hypothesis from the manifests): an edit to routed-message code (`wire`) no longer rebuilds pty, plan, mem, mesh, storage, usage, notification-core, input-windows; decision edits rebuild only mem, plugin and the app; blueprint-type edits only storage, plugin, cli and the app; events/config/secrets/keepawake/cron/shutdown edits no longer rebuild any crate except the app and each other.
 
 Next: R5 (sentinel, 32k lines) is the first step that cuts into the core cycle.
+
+## R5 status: `codeterm-sentinel` (data core carved out)
+
+Source facts; check-queue errors=0 on lane `375953736` (all targets, so tests compile); no timings yet.
+
+- New crate `codeterm-sentinel`, 18,253 lines incl. tests: `store`, `storage`, `amend`, `machine`, `handlers`, `probe` (the most-edited area, 139 touches in 90 days), `command`, `input`, `terminal`, `portable`, `provenance`, `progress`, `session`, `stage_source`, `delete`, `escalation`, `cleanup`, `identity` (split out of `graph`), data half of `source`, `Store` half of `run_binding`. Depends on codeterm-cron, -storage, -paths, -pty, -util, -blueprint-types, -plugin, -types; none of them depend on it.
+- Still in the app: `scheduler`, `pipeline`, `routes`, `classify`, `actions`, `wake`, `graph` projection, `source` host functions, `run_binding` (cron binding), `probe_env`. Reason: they use `ServiceContext`, `CronState` and `flow_trace`. `crate::sentinel::*` paths are kept by re-export, so the 12 core call sites needed no change; the ports in `codeterm-sentinel-ports` are not wired and the moved crate does not need them.
+- Counts after: app crate 507,534 -> 489,511 lines; core cycle 253,706 -> 240,757 non-test lines (units unchanged at 142: the `sentinel` module still sits in the cycle through the host half).
+- Seams made explicit: `codeterm_util::redact::text` (was `supporter_tab_state::privacy`), `command::START_TRACE` hook (was `flow_trace::record`), `probe_env::current_instance` stays in the app, `test-support` feature carries the cfg(test) helpers that app tests use. Tests that need `ServiceFixture` or the scheduler (`storage_tests`, `terminal_tests`, `session_tests`, `*_tests`) live in `src/sentinel`.
+- Remaining to finish the carve: move `scheduler` behind the ports (needs `ServiceContext` as a trait), then `routes`/`pipeline`.
