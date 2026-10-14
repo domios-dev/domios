@@ -181,7 +181,7 @@ pub(crate) fn verify_planner_report_authority(
     let registered_session_id = match &plan.planner {
         Some(PlannerRef::Tab {
             tab_id: planner_tab,
-            session_id: Some(session_id),
+            session_id,
             ..
         }) if planner_tab == tab_id => session_id.clone(),
         _ => {
@@ -199,12 +199,30 @@ pub(crate) fn verify_planner_report_authority(
             "{PLANNER_AUTHORITY_REFUSAL}: tab '{tab_id}' has a stale or unverified session binding"
         ));
     }
-    if tab.agent_session_id.as_deref() != Some(registered_session_id.as_str()) {
+    let live_session = tab
+        .agent_session_id
+        .as_deref()
+        .filter(|session| !session.trim().is_empty())
+        .ok_or_else(|| {
+            format!("{PLANNER_AUTHORITY_REFUSAL}: tab '{tab_id}' has no live session")
+        })?;
+    if registered_session_id
+        .as_deref()
+        .is_some_and(|registered| registered != live_session)
+    {
         return Err(format!(
             "{PLANNER_AUTHORITY_REFUSAL}: tab '{tab_id}' session does not match the plan's \
              registered Planner session"
         ));
     }
+    plan_store
+        .complete_planner_report_session(
+            plan_id,
+            tab_id,
+            live_session,
+            super::planner_delivery::epoch_ms(),
+        )
+        .map_err(|error| format!("{PLANNER_AUTHORITY_REFUSAL}: {error}"))?;
     Ok(())
 }
 
@@ -222,6 +240,26 @@ pub(crate) fn classify_plan_only_report_authority(
         &plan.planner,
         Some(PlannerRef::Tab { tab_id: planner_tab, .. }) if planner_tab == tab_id
     ) {
+        let tab = mux
+            .get_tab(tab_id)
+            .ok_or_else(|| format!("{PLANNER_AUTHORITY_REFUSAL}: tab '{tab_id}' not found"))?;
+        if details
+            .caller_tab_id
+            .as_deref()
+            .is_some_and(|claim| claim != tab_id)
+            || details
+                .caller_session_id
+                .as_deref()
+                .is_some_and(|claim| tab.agent_session_id.as_deref() != Some(claim))
+            || details
+                .session_binding_nonce
+                .as_deref()
+                .is_some_and(|claim| tab.session_binding_nonce.as_deref() != Some(claim))
+        {
+            return Err(format!(
+                "{PLANNER_AUTHORITY_REFUSAL}: caller identity is stale or foreign"
+            ));
+        }
         verify_planner_report_authority(plan_store, mux, plan_id, tab_id)?;
         return Ok(PlanOnlyReportAuthority::Planner);
     }
@@ -305,7 +343,9 @@ fn session_binding_is_live(tab: &Tab) -> bool {
         tab.session_binding_nonce.as_deref(),
         tab.reported_session_binding_nonce.as_deref(),
     ) {
-        (Some(configured), Some(reported)) => configured == reported,
+        (Some(configured), Some(reported)) => {
+            !configured.trim().is_empty() && configured == reported
+        }
         _ => false,
     }
 }

@@ -22,6 +22,7 @@ impl ServiceContext {
         thread: &str,
         nonce: &str,
     ) -> Result<(), String> {
+        self.bind_planner_session(tab_id);
         if self.finalize_authorized_runtime_restart_binding(tab_id, thread, nonce)? {
             return Ok(());
         }
