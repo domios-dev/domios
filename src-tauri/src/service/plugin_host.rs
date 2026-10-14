@@ -550,7 +550,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     fn receiver_status_report_json(
         &self,
         plugin_id: &str,
-        query: &codeterm_types::local_recording::ReceiverStatusQuery,
+        query: &codeterm_local_recording::ReceiverStatusQuery,
     ) -> String {
         super::local_recording::host_json(self.read_receiver_status_report(plugin_id, query))
     }

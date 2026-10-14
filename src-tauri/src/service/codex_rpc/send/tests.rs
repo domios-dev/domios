@@ -6,8 +6,8 @@ use crate::service::{
     pending_delivery_payloads::user_sends::UserSendAuthority,
     test_fixture::ServiceFixture,
 };
+use codeterm_local_recording::LocalRecordingTrigger;
 use codeterm_plugin::local_recording::SelectedDevices;
-use codeterm_types::local_recording::LocalRecordingTrigger;
 use std::collections::VecDeque;
 
 async fn drive(

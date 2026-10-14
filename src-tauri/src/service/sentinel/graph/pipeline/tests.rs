@@ -1,7 +1,7 @@
 use super::*;
 use crate::cron::clock::MockClock;
 use crate::sentinel::store::{Owner, Store};
-use codeterm_types::blueprint_pipeline::{
+use codeterm_blueprint_types::blueprint_pipeline::{
     BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
 };
 use std::collections::BTreeMap;

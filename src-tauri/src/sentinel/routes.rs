@@ -6,7 +6,7 @@ use crate::service::message_gateway::DeliveryClass;
 use crate::service::messenger::Delivery;
 use crate::service::messenger::MessageEnvelope;
 use crate::service::ServiceContext;
-use codeterm_types::blueprint_pipeline::{BlueprintOwner, BlueprintSpec};
+use codeterm_blueprint_types::blueprint_pipeline::{BlueprintOwner, BlueprintSpec};
 
 pub fn owner_live(svc: &ServiceContext, job: &Sentinel) -> bool {
     let mux = svc.mux.read();
@@ -458,7 +458,7 @@ fn spec_is_input(job: &Sentinel) -> bool {
     job.pipeline().is_some_and(|pipeline| {
         matches!(
             &pipeline.trigger,
-            codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+            codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
         )
     })
 }

@@ -318,7 +318,7 @@ impl CronStore {
     }
 
     pub(super) fn build_job(&self, params: CronCreateParams) -> Result<CronJob, String> {
-        codeterm_types::automation_name::validate_cron_name(&params.name)?;
+        codeterm_blueprint_types::automation_name::validate_cron_name(&params.name)?;
         let oneshot = params.oneshot.unwrap_or(false);
         let jitter = params.jitter_max_ms;
         let tz = params
@@ -400,7 +400,7 @@ impl CronStore {
         let enabled_requested = patch.enabled == Some(true);
 
         if let Some(name) = patch.name {
-            codeterm_types::automation_name::validate_cron_name(&name)?;
+            codeterm_blueprint_types::automation_name::validate_cron_name(&name)?;
             job.name = name;
         }
         if let Some(desc) = patch.description {

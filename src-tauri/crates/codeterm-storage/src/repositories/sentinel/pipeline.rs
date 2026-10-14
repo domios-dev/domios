@@ -4,7 +4,7 @@ use super::records::{
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::{ReadCx, WriteCx};
 use crate::repositories::{from_sql_u64, to_sql_u64};
-use codeterm_types::blueprint_journal::{
+use codeterm_blueprint_types::blueprint_journal::{
     JournalMarker, JournalOutcome, JournalReason, JournalState,
 };
 use rusqlite::{params, OptionalExtension};

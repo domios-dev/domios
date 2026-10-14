@@ -5,7 +5,7 @@ use crate::multiplexer::{state::MultiplexerState, types::AgentRole};
 use crate::sentinel::routes::pipeline_result_owner;
 use crate::sentinel::store::{Owner, Store};
 use crate::service::test_fixture::ServiceFixture;
-use codeterm_types::blueprint_pipeline::{
+use codeterm_blueprint_types::blueprint_pipeline::{
     BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
 };
 use std::cell::RefCell;

@@ -1,7 +1,7 @@
 use super::*;
 use crate::storage::{BlueprintJournalWrite, SentinelId};
-use codeterm_types::blueprint_journal::{JournalMarker, JournalState};
-use codeterm_types::blueprint_pipeline::{
+use codeterm_blueprint_types::blueprint_journal::{JournalMarker, JournalState};
+use codeterm_blueprint_types::blueprint_pipeline::{
     BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
 };
 
@@ -316,7 +316,7 @@ fn blueprint_journal_retains_a_complete_sixty_four_step_run_and_derives_its_clos
 
 #[test]
 fn blueprint_journal_body_reference_round_trips_outside_summary_and_held_close_is_typed() {
-    use codeterm_types::blueprint_journal::JournalReason;
+    use codeterm_blueprint_types::blueprint_journal::JournalReason;
     let root = temp_root();
     let storage = open(root.path());
     let clock = Arc::new(MockClock::starting_at(1000));

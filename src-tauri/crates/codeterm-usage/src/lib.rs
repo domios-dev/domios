@@ -1,3 +1,4 @@
+pub mod contract;
 pub mod projection;
 mod sample;
 pub mod store;

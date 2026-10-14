@@ -148,7 +148,7 @@ pub(super) struct PluginSandbox {
     analytics_allowed: bool,
     graph_events_allowed: bool,
     local_recording_allowed: bool,
-    receiver_status_query: Option<codeterm_types::local_recording::ReceiverStatusQuery>,
+    receiver_status_query: Option<codeterm_local_recording::ReceiverStatusQuery>,
     /// The plugin's settings blob, returned by `host.settingsJson()`. Interior-mutable
     /// so a config-only hot-reload re-stamps it in place without a VM rebuild (which would wipe in-memory sessions).
     settings_json: parking_lot::Mutex<String>,
@@ -357,7 +357,7 @@ impl PluginSandbox {
 
     pub(super) fn with_receiver_status_query(
         mut self,
-        query: Option<codeterm_types::local_recording::ReceiverStatusQuery>,
+        query: Option<codeterm_local_recording::ReceiverStatusQuery>,
     ) -> Self {
         self.receiver_status_query = query.filter(|query| query.valid());
         self
@@ -365,7 +365,7 @@ impl PluginSandbox {
 
     pub(super) fn receiver_status_query(
         &self,
-    ) -> Option<&codeterm_types::local_recording::ReceiverStatusQuery> {
+    ) -> Option<&codeterm_local_recording::ReceiverStatusQuery> {
         self.receiver_status_query.as_ref()
     }
 

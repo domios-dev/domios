@@ -1,7 +1,7 @@
 use super::*;
 use crate::service::local_recording::chat::ChatIdentity;
 use crate::service::local_recording::leases::{CapturePhase, FrozenTarget};
-use codeterm_types::local_recording::LocalRecordingTrigger;
+use codeterm_local_recording::LocalRecordingTrigger;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

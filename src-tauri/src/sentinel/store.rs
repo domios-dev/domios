@@ -11,7 +11,7 @@ use super::probe::cancellation::Cancellation;
 use super::source::{self, RunBinding, TabBinding};
 use super::storage::{Backend, LoadFailure, Staged};
 use crate::cron::clock::SharedClock;
-use codeterm_types::sentinel_input::InputSpec;
+use codeterm_blueprint_types::sentinel_input::InputSpec;
 
 pub(super) const MAX_SENTINELS: usize = 256;
 pub(super) const MAX_ACTIVE: usize = 64;
@@ -23,7 +23,7 @@ pub(super) type ScopeKey = (String, Option<String>);
 #[serde(deny_unknown_fields)]
 pub struct Create {
     #[serde(default)]
-    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    pub terminal: Option<codeterm_blueprint_types::blueprint_terminal::Config>,
     #[serde(default)]
     pub session: bool,
     pub name: Option<String>,
@@ -67,7 +67,7 @@ pub struct Sentinel {
     #[serde(default)]
     pub session: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub causal_run: Option<codeterm_types::blueprint_run::Context>,
+    pub causal_run: Option<codeterm_blueprint_types::blueprint_run::Context>,
     pub id: String,
     pub team_id: Option<String>,
     pub creator_tab_id: String,
@@ -205,7 +205,7 @@ impl Store {
         let now = self.clock.now_ms();
         let job = self.jobs.iter().find(|job| job.id == event.pipeline_id)?;
         let matches_kind = job.pipeline().is_some_and(|pipeline| {
-            matches!(&pipeline.trigger, codeterm_types::blueprint_pipeline::Trigger::Event { kind, .. } if kind == &event.kind)
+            matches!(&pipeline.trigger, codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { kind, .. } if kind == &event.kind)
         });
         if !matches_kind
             || job.machine.stopped
@@ -557,7 +557,7 @@ impl Store {
         if job.pipeline().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
-                codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
             )
         }) {
             return false;
@@ -684,7 +684,7 @@ impl Store {
             target.pipeline().is_some_and(|pipeline| {
                 matches!(
                     &pipeline.trigger,
-                    codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                    codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
                 )
             })
         });
@@ -848,19 +848,20 @@ impl Store {
                 let event_trigger = job.pipeline().is_some_and(|pipeline| {
                     matches!(
                         &pipeline.trigger,
-                        codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                        codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
                     )
                 });
                 let input_waiting = job.pipeline().is_some_and(|pipeline| {
                     matches!(
                         &pipeline.trigger,
-                        codeterm_types::blueprint_pipeline::Trigger::Input { .. }
-                    ) && job.next_run == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
+                        codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
+                    ) && job.next_run
+                        == codeterm_blueprint_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
                 });
                 let next = if ((job.terminal().is_some()
                     || (job.input().is_some()
                         && job.next_run
-                            == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS))
+                            == codeterm_blueprint_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS))
                     && !self.wake_pending.contains(&job.id))
                     || event_trigger
                     || (input_waiting && !self.wake_pending.contains(&job.id))
@@ -897,8 +898,8 @@ impl Store {
                         || job.pipeline().is_some_and(|pipeline| {
                             matches!(
                                 &pipeline.trigger,
-                                codeterm_types::blueprint_pipeline::Trigger::Event { .. }
-                                    | codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                                codeterm_blueprint_types::blueprint_pipeline::Trigger::Event { .. }
+                                    | codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
                             )
                         }))
             })
@@ -915,10 +916,10 @@ impl Sentinel {
     pub fn input(&self) -> Option<&InputSpec> {
         self.source.input()
     }
-    pub fn terminal(&self) -> Option<&codeterm_types::blueprint_terminal::Config> {
+    pub fn terminal(&self) -> Option<&codeterm_blueprint_types::blueprint_terminal::Config> {
         self.source.terminal()
     }
-    pub fn pipeline(&self) -> Option<&codeterm_types::blueprint_pipeline::BlueprintSpec> {
+    pub fn pipeline(&self) -> Option<&codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec> {
         self.source.pipeline()
     }
     #[cfg(test)]
@@ -932,7 +933,7 @@ impl Sentinel {
     }
     pub fn set_pipeline(
         &mut self,
-        pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
+        pipeline: Option<codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec>,
     ) {
         if let Some(pipeline) = pipeline {
             self.source = super::stage_source::StageSource::Pipeline(pipeline);
@@ -947,7 +948,10 @@ impl Sentinel {
         }
     }
     #[cfg(test)]
-    pub fn set_terminal(&mut self, config: Option<codeterm_types::blueprint_terminal::Config>) {
+    pub fn set_terminal(
+        &mut self,
+        config: Option<codeterm_blueprint_types::blueprint_terminal::Config>,
+    ) {
         if let Some(binding) = self.observe().cloned() {
             self.source = match config {
                 Some(config) => super::stage_source::StageSource::Terminal { binding, config },

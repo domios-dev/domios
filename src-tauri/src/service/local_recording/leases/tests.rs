@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::local_recording::LocalRecordingTrigger;
+use codeterm_local_recording::LocalRecordingTrigger;
 
 fn pty_authority() -> UserSendAuthority {
     UserSendAuthority {

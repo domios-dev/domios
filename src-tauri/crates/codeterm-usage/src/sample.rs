@@ -1,7 +1,7 @@
 #[derive(Debug, Clone)]
 pub struct UsageSample {
     pub provider: String,
-    pub billing_mode: codeterm_types::usage::BillingMode,
+    pub billing_mode: crate::contract::BillingMode,
     pub limits_reported: bool,
     pub account_id: Option<String>,
     pub captured_at_ms: i64,

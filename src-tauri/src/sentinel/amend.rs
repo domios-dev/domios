@@ -8,7 +8,7 @@ use super::machine::{self, Route};
 use super::source::{bounded_id, TabBinding};
 use super::storage::Staged;
 use super::store::{Sentinel, Store};
-use codeterm_types::sentinel_input::{DataRef, InputSpec, MediaKind};
+use codeterm_blueprint_types::sentinel_input::{DataRef, InputSpec, MediaKind};
 
 pub const MAX_AMENDMENTS: usize = crate::storage::MAX_SENTINEL_LINEAGE;
 const MAX_UPDATE_BYTES: usize = 65_536;
@@ -17,12 +17,12 @@ const MAX_UPDATE_BYTES: usize = 65_536;
 #[serde(deny_unknown_fields)]
 pub struct DefinitionSnapshot {
     #[serde(default)]
-    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    pub terminal: Option<codeterm_blueprint_types::blueprint_terminal::Config>,
     #[serde(default)]
     pub session: bool,
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
+    pub pipeline: Option<codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec>,
     pub probe: String,
     pub observe: Option<TabBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -218,7 +218,7 @@ impl Update {
             "Blueprint update definition needs a name; use a short name such as ci-green-watch"
                 .to_string()
         })?;
-        codeterm_types::automation_name::validate_sentinel_name(name)?;
+        codeterm_blueprint_types::automation_name::validate_sentinel_name(name)?;
         if self.question.trim().is_empty() || self.question.len() > 4096 {
             return Err("question must be nonempty and bounded to 4096 bytes".into());
         }
@@ -548,7 +548,7 @@ fn amended_input(
                 convert_to: patch.convert_to,
                 convert_timeout_ms: patch.convert_timeout_ms,
             };
-            codeterm_types::sentinel_input::validate(&next)
+            codeterm_blueprint_types::sentinel_input::validate(&next)
                 .map_err(|error| format!("input: {error}"))?;
             Ok(Some(next))
         }

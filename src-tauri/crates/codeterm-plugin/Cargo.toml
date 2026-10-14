@@ -8,6 +8,9 @@ async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 codeterm-types = { path = "../codeterm-types" }
+codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
+codeterm-local-recording = { path = "../codeterm-local-recording" }
+codeterm-usage = { path = "../codeterm-usage" }
 codeterm-wire = { path = "../codeterm-wire" }
 codeterm-util = { path = "../codeterm-util" }
 codeterm-paths = { path = "../../../crates/codeterm-paths" }

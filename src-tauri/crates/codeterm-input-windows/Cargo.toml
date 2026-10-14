@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 codeterm-types = { path = "../codeterm-types" }
+codeterm-local-recording = { path = "../codeterm-local-recording" }
 parking_lot = "0.12"
 
 [target.'cfg(windows)'.dependencies]

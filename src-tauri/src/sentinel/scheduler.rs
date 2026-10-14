@@ -497,7 +497,8 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         return;
     }
     if lease.job.input().is_some_and(|input| {
-        input.kind != codeterm_types::sentinel_input::MediaKind::Text || input.convert_to.is_some()
+        input.kind != codeterm_blueprint_types::sentinel_input::MediaKind::Text
+            || input.convert_to.is_some()
     }) {
         record_input_unavailable(handle, svc, lease);
         return;

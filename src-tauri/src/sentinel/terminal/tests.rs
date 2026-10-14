@@ -4,7 +4,7 @@ use crate::sentinel::{
     source::TabBinding,
     store::{Owner, Store},
 };
-use codeterm_types::blueprint_terminal::Config;
+use codeterm_blueprint_types::blueprint_terminal::Config;
 use serde_json::json;
 
 fn fixture() -> (tempfile::TempDir, Store, Sentinel) {
@@ -161,9 +161,9 @@ fn blueprint_text_input_admission_wakes_only_live_stage_and_routes_queued_body()
     let (_dir, mut store, mut job) = fixture();
     job.set_terminal(None);
     job.set_observe(None);
-    job.set_input(Some(codeterm_types::sentinel_input::InputSpec {
-        kind: codeterm_types::sentinel_input::MediaKind::Text,
-        data: codeterm_types::sentinel_input::DataRef::Text("initial".into()),
+    job.set_input(Some(codeterm_blueprint_types::sentinel_input::InputSpec {
+        kind: codeterm_blueprint_types::sentinel_input::MediaKind::Text,
+        data: codeterm_blueprint_types::sentinel_input::DataRef::Text("initial".into()),
         convert_to: None,
         convert_timeout_ms: None,
     }));
