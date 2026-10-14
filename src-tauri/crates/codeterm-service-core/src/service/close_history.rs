@@ -42,7 +42,27 @@ impl Drop for WorkspaceCloseGuard {
 struct Resources {
     plans: Vec<crate::plan::Plan>,
     crons: Vec<crate::cron::store::CronJob>,
-    blueprints: Vec<crate::ports::sentinel::BlueprintRecord>,
+    blueprints: Vec<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct SavedScope {
+    id: String,
+    workspace_id: String,
+    team_id: Option<String>,
+}
+
+fn saved_blueprint(
+    definition: &serde_json::Value,
+) -> Result<crate::ports::sentinel::BlueprintRecord, String> {
+    let scope = SavedScope::deserialize(definition).map_err(|error| error.to_string())?;
+    Ok(crate::ports::sentinel::BlueprintRecord {
+        id: scope.id,
+        workspace_id: scope.workspace_id,
+        team_id: scope.team_id,
+        scenario_root: false,
+        definition: definition.clone(),
+    })
 }
 
 impl ServiceContext {
@@ -119,6 +139,7 @@ impl ServiceContext {
                     .records()
                     .into_iter()
                     .filter(|job| in_scope(&job.workspace_id, job.team_id.as_deref()))
+                    .map(|job| job.definition)
                     .collect()
             })
             .unwrap_or_default();
@@ -165,10 +186,12 @@ impl ServiceContext {
             .app_handle
             .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
-            changed |= resources
-                .blueprints
-                .iter()
-                .any(|saved| blueprints.store.scope_of(&saved.id).is_none());
+            for saved in &resources.blueprints {
+                changed |= blueprints
+                    .store
+                    .scope_of(&saved_blueprint(saved)?.id)
+                    .is_none();
+            }
         }
         let mux = self.mux.read();
         if changed {
@@ -317,7 +340,8 @@ impl ServiceContext {
                 .app_handle
                 .try_state::<crate::ports::sentinel::SentinelPorts>()
                 .ok_or("Blueprint store unavailable")?;
-            for job in &resources.blueprints {
+            for saved in &resources.blueprints {
+                let job = saved_blueprint(saved)?;
                 let existing = ports.store.scope_of(&job.id);
                 if let Some((workspace_id, team_id)) = existing {
                     if workspace_id != job.workspace_id || team_id != job.team_id {
@@ -328,7 +352,7 @@ impl ServiceContext {
                     }
                     continue;
                 }
-                ports.store.insert_restored(job)?;
+                ports.store.insert_restored(&job)?;
             }
             ports.wake.notify();
         }
