@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage"]
+members = [".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-events"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
@@ -38,6 +38,7 @@ serde_yaml = "0.9"
 uuid = { version = "1", features = ["v4", "serde"] }
 codeterm-types = { path = "crates/codeterm-types" }
 codeterm-wire = { path = "crates/codeterm-wire" }
+codeterm-events = { path = "crates/codeterm-events" }
 codeterm-util = { path = "crates/codeterm-util" }
 codeterm-browser = { path = "crates/codeterm-browser" }
 codeterm-mesh = { path = "crates/codeterm-mesh" }
