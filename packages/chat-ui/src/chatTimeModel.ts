@@ -1,7 +1,12 @@
-export const CHAT_TIME_GUTTER_BREAKPOINT = 640;
+export const CHAT_TIME_GUTTER_BREAKPOINT = 900;
 
 export function showChatTimeGutter(width: number): boolean {
   return Number.isFinite(width) && width >= CHAT_TIME_GUTTER_BREAKPOINT;
+}
+
+export function chatHorizontalInsets(width: number, composerInset: number, timestampWidth: number) {
+  const timeGutter = showChatTimeGutter(width) ? timestampWidth + 8 : 0;
+  return { composerInset, contentInset: composerInset + timeGutter, timeGutter };
 }
 
 export interface ChatTimeLabels { today: string; yesterday: string }
