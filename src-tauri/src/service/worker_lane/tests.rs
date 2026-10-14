@@ -410,7 +410,7 @@ fn lane_provenance_is_a_path_git_accepts_as_a_working_directory() {
     git(&project, &["commit", "-qm", "fixture"]);
 
     let canonical_project = std::fs::canonicalize(&project).unwrap();
-    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test").unwrap();
+    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test", &[]).unwrap();
     let provenance = verify_worker_lane(
         canonical_project.to_str().unwrap(),
         &lane.cwd,
@@ -447,7 +447,7 @@ fn canonical_checkout_provisions_a_sibling_worker_lane() {
     git(&project, &["commit", "-qm", "fixture"]);
 
     let canonical_project = std::fs::canonicalize(&project).unwrap();
-    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test").unwrap();
+    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test", &[]).unwrap();
     let lane_path = PathBuf::from(&lane.cwd);
     assert!(lane_path.is_dir());
     assert_eq!(
@@ -482,7 +482,7 @@ fn worker_lane_verification_reads_back_branch_and_base_commit() {
     git(&project, &["add", "README.md"]);
     git(&project, &["commit", "-qm", "fixture"]);
 
-    let lane = provision_lane(project.to_str().unwrap(), "verify").unwrap();
+    let lane = provision_lane(project.to_str().unwrap(), "verify", &[]).unwrap();
     let provenance = lane.verify().unwrap();
     assert_eq!(provenance.branch, lane.branch);
     assert_eq!(
@@ -516,7 +516,7 @@ fn branch_lookup_reads_attached_and_detached_heads() {
     git(&project, &["add", "README.md"]);
     git(&project, &["commit", "-qm", "fixture"]);
 
-    let lane = provision_lane(project.to_str().unwrap(), "head-shape").unwrap();
+    let lane = provision_lane(project.to_str().unwrap(), "head-shape", &[]).unwrap();
     assert_eq!(current_branch(&lane.cwd).unwrap(), lane.branch);
 
     let head = git_value(&lane.cwd, ["rev-parse", "HEAD"]).unwrap();

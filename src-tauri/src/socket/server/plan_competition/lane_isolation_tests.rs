@@ -97,7 +97,7 @@ fn mutating_competition_gives_each_attempt_its_own_lane() {
         (1..=3).map(|lane| draft(&plan, &task_id, lane)).collect();
     let lanes: Vec<_> = drafts
         .iter_mut()
-        .map(|draft| provision_competitor_lane(&plan, &task_id, draft).unwrap())
+        .map(|draft| provision_competitor_lane(&plan, &task_id, draft, &[]).unwrap())
         .collect();
 
     let worktrees: HashSet<String> = drafts
@@ -138,8 +138,8 @@ fn mutating_competition_never_uses_canonical_or_a_shared_lane() {
 
     let mut first = draft(&plan, &task_id, 1);
     let mut second = draft(&plan, &task_id, 2);
-    let lane_a = provision_competitor_lane(&plan, &task_id, &mut first).unwrap();
-    let lane_b = provision_competitor_lane(&plan, &task_id, &mut second).unwrap();
+    let lane_a = provision_competitor_lane(&plan, &task_id, &mut first, &[]).unwrap();
+    let lane_b = provision_competitor_lane(&plan, &task_id, &mut second, &[]).unwrap();
 
     for draft in [&first, &second] {
         let resolved = codeterm_paths::normalize_cwd(&draft.cwd);
@@ -213,7 +213,7 @@ fn provisioning_failure_before_spawn_leaves_zero_tabs_attempts_and_worktrees() {
         .execution_intent = ExecutionIntent::Mutating;
     let drafts: Vec<TaskCompeteDraft> = (1..=2).map(|lane| draft(&plan, &task_id, lane)).collect();
 
-    let error = provision_all_competitor_lanes(&plan, &task_id, drafts).unwrap_err();
+    let error = provision_all_competitor_lanes(&plan, &task_id, drafts, &[]).unwrap_err();
 
     assert_eq!(error.data.unwrap()["stage"], "lane_provision");
     let container = root.path().join("project-worktrees");
@@ -320,7 +320,7 @@ fn successful_competitors_retain_their_lanes() {
     let (_root, _store, plan, task_id) = repo_plan(ExecutionIntent::Mutating);
     let drafts: Vec<TaskCompeteDraft> = (1..=3).map(|lane| draft(&plan, &task_id, lane)).collect();
 
-    let (drafts, lanes) = provision_all_competitor_lanes(&plan, &task_id, drafts).unwrap();
+    let (drafts, lanes) = provision_all_competitor_lanes(&plan, &task_id, drafts, &[]).unwrap();
 
     assert_eq!(lanes.iter().filter(|lane| lane.is_some()).count(), 3);
     for draft in &drafts {
