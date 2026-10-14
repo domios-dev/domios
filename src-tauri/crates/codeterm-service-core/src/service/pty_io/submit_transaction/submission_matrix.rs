@@ -511,8 +511,8 @@ macro_rules! provider_matrix {
 }
 
 provider_matrix! {
-    claude => "../../../../../plugins/provider-claude/plugin.json",
-    codex => "../../../../../plugins/provider-codex/plugin.json",
-    opencode => "../../../../../plugins/provider-opencode/plugin.json",
-    cursor => "../../../../../plugins/provider-cursor/plugin.json",
+    claude => "../../../../../../../plugins/provider-claude/plugin.json",
+    codex => "../../../../../../../plugins/provider-codex/plugin.json",
+    opencode => "../../../../../../../plugins/provider-opencode/plugin.json",
+    cursor => "../../../../../../../plugins/provider-cursor/plugin.json",
 }
