@@ -104,11 +104,18 @@ export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): Chat
         ? String(item.result) : `data:image/png;base64,${item.result}`;
       break;
     case "collabAgentToolCall": case "subAgentActivity": {
+      if (item.type === "collabAgentToolCall" && !list(item.receiverThreadIds).length) {
+        if (item.tool === "spawnAgent") return undefined;
+        row.toolKind = "generic"; row.toolName = text(item.tool) ?? "collabAgentToolCall";
+        break;
+      }
       const agent = String(item.agentThreadId ?? list(item.receiverThreadIds)[0] ?? id);
       const status = String(item.kind ?? object(object(item.agentsStates)[agent]).status ?? "");
       row.toolKind = "agent"; row.toolName = "agent_activity"; row.toolSummary = agent;
       row.toolInput = json({agent_id:agent,agent_path:item.agentPath,agent_state:({pendingInit:"started",errored:"failed",shutdown:"closed"} as Record<string,string>)[status] ?? status,
-        agent_call_id:id,description:item.prompt,model:item.model,result:object(object(item.agentsStates)[agent]).message});
+        agent_call_id:id,agent_description:item.prompt,agent_model:item.model,
+        agent_reasoning_effort:item.reasoningEffort,agent_ordinal:item.ordinal,
+        agent_result:object(object(item.agentsStates)[agent]).message});
       break;
     }
     case "planUpdate":
@@ -130,7 +137,7 @@ export function runtimeItems(raw:unknown, seq:number): ChatMsg[] {
   const item=object(raw);
   const receivers=list(item.receiverThreadIds);
   if(item.type === "collabAgentToolCall" && receivers.length) return receivers.flatMap((receiver,index)=>{
-    const row=runtimeItem({...item,id:`${item.id}:${receiver}`,receiverThreadIds:[receiver]},seq+index);
+    const row=runtimeItem({...item,id:`${item.id}:${receiver}`,receiverThreadIds:[receiver],...(item.tool === "spawnAgent" ? {ordinal:index+1} : {})},seq+index);
     return row ? [row] : [];
   });
   const row=runtimeItem(raw,seq);
