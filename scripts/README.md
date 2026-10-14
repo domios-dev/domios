@@ -22,6 +22,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `build-gateway-mutex.test.mjs` | skill build |
 | `build-gateway-output.mjs` | build.sh; scripts/build-gateway-output.test.mjs |
 | `build-gateway-output.test.mjs` | build.sh script-guards |
+| `build-gateway-owner.mjs` | scripts/build-gateway.sh; scripts/build-gateway-owner.test.mjs |
+| `build-gateway-owner.test.mjs` | build.sh script-guards; skill build |
 | `build-gateway-reader-deadline.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe |
 | `build-gateway-record.mjs` | scripts/build-gateway-state.mjs, scripts/build-history.mjs |
 | `build-gateway-record.test.mjs` | skill build |
