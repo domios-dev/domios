@@ -4,6 +4,9 @@
 mod graph;
 mod hygiene;
 
+use crate::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
+use crate::mem::learnings::{self, LearnKind};
+use crate::mem::store::{with_changed_by, MemKind, MemScope, MemUpdate, NewMemItem};
 use crate::mem_ops::items::{
     bump_on_get, compose_appended_body, validate_update_body, wake_up_options_from_params,
     AppendBody, LearnBody, PinnedListParams, ReembedParams, SaveBody, TailParams, TaxonomyParams,
@@ -11,9 +14,6 @@ use crate::mem_ops::items::{
 };
 use crate::mem_ops::search::{execute_search, SearchError, SearchParams};
 use crate::mem_ops::{sanitize_actor, validate_item_fields};
-use crate::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
-use crate::mem::learnings::{self, LearnKind};
-use crate::mem::store::{with_changed_by, MemKind, MemScope, MemUpdate, NewMemItem};
 use crate::service::ServiceState;
 
 use super::{get_string_param, opt_string_param, JsonRpcError};
@@ -498,9 +498,7 @@ fn mem_calibration_log(
     let count_only = p.count.unwrap_or(false);
     svc.mem
         .with_conn(|conn| {
-            crate::mem_ops::calibration::calibration_log_query(
-                conn, &since, limit, count_only,
-            )
+            crate::mem_ops::calibration::calibration_log_query(conn, &since, limit, count_only)
         })
         .map_err(internal_error)
 }

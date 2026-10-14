@@ -1022,20 +1022,21 @@ impl ServiceContext {
             "[launch-session-detection] Tab {tab_id} bound {provider_id} session {session_id} from {}",
             source_label(source),
         );
-        if let Err((status, message)) = crate::service::hook_session_binding::finish_session_binding(
-            self,
-            tab_id,
-            &provider_id,
-            &session_id,
-            Some(&binding_nonce),
-            Some(AgentTypeWriteOrigin::Hook),
-            source_label(source),
-            &serde_json::Value::Null,
-            claim,
-            source,
-            false,
-        )
-        .await
+        if let Err((status, message)) =
+            crate::service::hook_session_binding::finish_session_binding(
+                self,
+                tab_id,
+                &provider_id,
+                &session_id,
+                Some(&binding_nonce),
+                Some(AgentTypeWriteOrigin::Hook),
+                source_label(source),
+                &serde_json::Value::Null,
+                claim,
+                source,
+                false,
+            )
+            .await
         {
             log::warn!(
                 "[launch-session-detection] Tab {tab_id} binding follow-up failed ({status}): {message}"

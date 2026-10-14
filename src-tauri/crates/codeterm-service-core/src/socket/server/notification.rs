@@ -41,9 +41,8 @@ pub(super) fn dispatch(
                 message,
                 data: None,
             };
-            let title =
-                crate::notification::vet::vet_title(&get_string_param(params, "title")?)
-                    .map_err(invalid)?;
+            let title = crate::notification::vet::vet_title(&get_string_param(params, "title")?)
+                .map_err(invalid)?;
             crate::notification::vet::vet_target_tab(
                 string_at(params, "target_tab_id").as_deref(),
                 |tab| svc.mux.read().resolve_tab_id(tab).is_some(),
@@ -78,12 +77,10 @@ pub(super) fn dispatch(
                     ),
                 };
             let actions =
-                crate::notification::vet::vet_actions(actions).map_err(|message| {
-                    JsonRpcError {
-                        code: -32602,
-                        message,
-                        data: None,
-                    }
+                crate::notification::vet::vet_actions(actions).map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
                 })?;
             let level = string_param("level");
             let intent = crate::notification::vet::parse_push_intent(

@@ -7,7 +7,7 @@ use tauri::Manager;
 
 use crate::multiplexer::types::TabBacking;
 use crate::service::ServiceState;
-use crate::{api, cron, mem, mesh, service, CronState, CronWake};
+use crate::{cron, mem, mesh, service, CronState, CronWake};
 
 use super::states::AppStates;
 
@@ -123,7 +123,7 @@ pub(crate) fn start_servers(
     states: &AppStates,
     service_state: &ServiceState,
 ) {
-    crate::update::bind_status_emitter(app.handle().clone());
+    (crate::ports::update::hooks().bind_status_emitter)(app.handle().clone());
     let app_handle = app.handle().clone();
     super::state_incidents::install_notifier(service_state);
     if let Some(reason) = states.storage.unavailable_reason() {
@@ -307,7 +307,12 @@ pub(crate) fn start_servers(
 
     {
         let api_config = states.config.lock().api.clone();
-        let api_state = api::routes::AppState {
+        let bundles = super::frontend_bundles::open(&states.event_broadcaster);
+        if let Some(bundles) = &bundles {
+            app.manage(bundles.clone());
+            super::frontend_bundles::check(bundles.clone());
+        }
+        let rest_inputs = crate::ports::rest::RestInputs {
             svc: service_state.clone(),
             cron: cron_state.clone(),
             cron_wake: cron_wake.clone(),
@@ -321,16 +326,12 @@ pub(crate) fn start_servers(
             test_clock: test_clock.clone(),
             events: states.event_broadcaster.clone(),
             web_dist: resolve_web_dist(app.path().resource_dir().ok()),
-            snapshot_bound: api::snapshot_bound::SnapshotBound::new(),
+            snapshot_bound: super::snapshot_bound::SnapshotBound::new(),
+            bundles,
         };
-        let bundles = super::frontend_bundles::open(&states.event_broadcaster);
-        if let Some(bundles) = &bundles {
-            app.manage(bundles.clone());
-            super::frontend_bundles::check(bundles.clone());
-        }
-        let router = api::routes::create_router_with_frontend(api_state, bundles);
-        app.manage(api::routes::LocalApiRouter(router.clone()));
-        if let Err(e) = (crate::rpc_bridge::bridge().start_server)(
+        let router = (crate::ports::rest::hooks().build_router)(rest_inputs);
+        app.manage(crate::ports::rest::LocalApiRouter(router.clone()));
+        if let Err(e) = (crate::ports::socket::bridge().start_server)(
             states.mux.clone(),
             states.pty.clone(),
             states.notif.clone(),

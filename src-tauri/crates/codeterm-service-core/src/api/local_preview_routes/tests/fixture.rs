@@ -135,7 +135,8 @@ impl Fixture {
             .service
             .agent_registry
             .register_provider(Box::new(TranscriptProvider(rows.clone())));
-        let root = crate::service::local_preview::html_preview::preview_test_root(service.temp.path());
+        let root =
+            crate::service::local_preview::html_preview::preview_test_root(service.temp.path());
         let state = app_state(&service);
         let app = crate::api::routes::create_router_with_preview_admission(
             state.clone(),

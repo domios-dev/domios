@@ -16,7 +16,7 @@ use crate::api::routes::AppState;
 use crate::config::schema::SupporterConfig;
 use crate::mem::decision::token_store::{TokenStatus, TokenStore};
 use crate::service::supporter::registry::{
-    registered_adapters, SupporterRegistry, supporter_state, token_mode_name, token_store,
+    registered_adapters, supporter_state, token_mode_name, token_store, SupporterRegistry,
 };
 
 mod supporter_json;

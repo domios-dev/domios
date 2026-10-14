@@ -407,9 +407,11 @@ pub(super) async fn install_staged_deb_and_restart(
     initiating_tab_id: Option<&str>,
 ) -> Result<(), String> {
     let target = version.clone();
-    tokio::task::spawn_blocking(move || crate::service::analytics::update_confirm::stage_app(&target))
-        .await
-        .map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        crate::service::analytics::update_confirm::stage_app(&target)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     install_verified_deb_async(path, version).await?;
 
     refresh_bundled_cli_off_runtime(app).await?;

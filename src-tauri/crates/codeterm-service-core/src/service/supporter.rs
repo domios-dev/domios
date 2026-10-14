@@ -25,13 +25,13 @@ mod spend;
 mod storage;
 
 pub(crate) use activity::SupporterRuntime;
-use registry::SupporterRegistry;
 pub(crate) use journal::{Action, ActionRecord, VerdictKind};
 pub(crate) use narrative::sentinel as sentinel_questions;
 pub(crate) use narrative::{
     provider_update as update_questions, recovery as recovery_questions, tab_state as tab_questions,
 };
 pub(crate) use narrative::{ActivityContext, QuestionAnswer};
+use registry::SupporterRegistry;
 
 #[derive(Default)]
 pub(crate) struct TokenSnapshot {

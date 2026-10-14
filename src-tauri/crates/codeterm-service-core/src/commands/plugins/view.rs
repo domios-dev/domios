@@ -142,10 +142,10 @@ mod tests {
     use serde_json::Value;
 
     use super::{dispatch_view_call, format_base_url, webhook_settings_with};
-    use crate::service::web_access::{PEBBLE_WEBHOOK_PATH, PEBBLE_WEBHOOK_SECRET};
     use crate::plugin::WebhookReceiverKind;
     use crate::secrets::mock::MockStore;
     use crate::secrets::{SaveRequest, SecretStore, SecretString};
+    use crate::service::web_access::{PEBBLE_WEBHOOK_PATH, PEBBLE_WEBHOOK_SECRET};
     use crate::view_host::{ViewError, ViewProvider, ViewRegistry};
 
     #[tokio::test]

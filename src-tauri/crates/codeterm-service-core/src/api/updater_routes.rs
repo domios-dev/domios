@@ -419,10 +419,8 @@ pub async fn availability(
     headers: HeaderMap,
     query: Result<Query<CheckUpdateQuery>, axum::extract::rejection::QueryRejection>,
     bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
-) -> Result<
-    Json<crate::update::discovery::AvailabilitySnapshot>,
-    (StatusCode, Json<serde_json::Value>),
-> {
+) -> Result<Json<crate::update_state::AvailabilitySnapshot>, (StatusCode, Json<serde_json::Value>)>
+{
     check_auth(&state, &headers)
         .map_err(|(status, error)| availability_error(status, error.to_string()))?;
     let Query(q) =
@@ -439,11 +437,9 @@ pub async fn availability(
 }
 
 fn availability_response(
-    result: Result<crate::update::discovery::AvailabilitySnapshot, String>,
-) -> Result<
-    Json<crate::update::discovery::AvailabilitySnapshot>,
-    (StatusCode, Json<serde_json::Value>),
-> {
+    result: Result<crate::update_state::AvailabilitySnapshot, String>,
+) -> Result<Json<crate::update_state::AvailabilitySnapshot>, (StatusCode, Json<serde_json::Value>)>
+{
     result
         .map(Json)
         .map_err(|error| availability_error(StatusCode::BAD_GATEWAY, error))

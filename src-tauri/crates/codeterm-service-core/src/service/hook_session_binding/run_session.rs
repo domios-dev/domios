@@ -18,13 +18,13 @@ pub(super) fn propagate(svc: &ServiceContext, tab_id: &str, sid: &str) {
         svc.workers
             .set_run_session(&worker_id, sid.to_string(), cwd.clone());
         if let Some(info) = svc.workers.get(&worker_id) {
-            crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-progress", &info);
+            codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-progress", &info);
         }
     }
 
     if let Some(cron_state) = svc.app_handle.try_state::<CronState>() {
         if commit_cron_run_session(cron_state.inner(), tab_id, sid, cwd.as_deref()) {
-            crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+            codeterm_events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
         }
     }
 }

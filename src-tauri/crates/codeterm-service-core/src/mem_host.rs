@@ -11,9 +11,9 @@ use crate::cron::store::{self, CronCreateParams, CronStore};
 use crate::mem::ports::{
     MemCronCreateParams, MemCronJob, MemEventSink, MemHostContext, MemSchedulerPort,
 };
-use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
 use crate::mem::rerank::RerankConfig;
 use crate::mem::search::{SearchConfig, SearchQuery};
+use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
 use crate::mem::SearchHit;
 use crate::mem_ops::search::RecallBackend;
 use crate::multiplexer::types::TabCloseReason;

@@ -75,7 +75,6 @@ mod delete;
 pub use archive::mem_archive;
 pub use delete::{mem_delete, mem_forget_area};
 
-
 pub async fn mem_save(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -433,10 +432,11 @@ pub async fn mem_restore(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let target = id.clone();
-    let out =
-        tokio::task::spawn_blocking(move || crate::mem_ops::mem_merge::restore_item(&svc, &target, &b))
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))??;
+    let out = tokio::task::spawn_blocking(move || {
+        crate::mem_ops::mem_merge::restore_item(&svc, &target, &b)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))??;
     emit_activity(&state, &headers, "update", vec![id]);
     Ok(Json(out))
 }

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
-use crate::service::mesh_attachment::{build_ingest_request, parse_ingest_response, AttachmentKind};
 use crate::mesh::{transport::PeerClient, types::RelayCommand};
+use crate::service::mesh_attachment::{
+    build_ingest_request, parse_ingest_response, AttachmentKind,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Directive {
@@ -110,7 +112,8 @@ pub(crate) async fn transfer(
     transfer_with(method, path, body, |source, ingest_path| async move {
         let source_path = source.clone();
         let request = tokio::task::spawn_blocking(move || {
-            let source_path = crate::service::local_preview::html_preview::checked_path(&source_path)?;
+            let source_path =
+                crate::service::local_preview::html_preview::checked_path(&source_path)?;
             build_ingest_request(&source_path, AttachmentKind::File)
         })
         .await

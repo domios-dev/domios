@@ -24,7 +24,8 @@ fn rejects_traversal_network_device_and_ads_paths() {
 #[test]
 fn reads_are_bounded_even_when_the_open_file_grows() {
     let temp = tempfile::tempdir().unwrap();
-    let path = crate::service::local_preview::html_preview::preview_test_root(temp.path()).join("grow.txt");
+    let path = crate::service::local_preview::html_preview::preview_test_root(temp.path())
+        .join("grow.txt");
     std::fs::write(&path, b"small").unwrap();
     let mut source = PreviewSource::open(path.to_str().unwrap(), &|_, _| Ok(())).unwrap();
     File::options()
@@ -81,7 +82,8 @@ fn refuses_symlink_file_and_ancestor_escapes() {
 #[test]
 fn guard_refuses_before_canonicalization_or_file_access() {
     let temp = tempfile::tempdir().unwrap();
-    let path = crate::service::local_preview::html_preview::preview_test_root(temp.path()).join("missing.txt");
+    let path = crate::service::local_preview::html_preview::preview_test_root(temp.path())
+        .join("missing.txt");
     let error = PreviewSource::open(path.to_str().unwrap(), &|_, canonical| {
         assert!(canonical.is_none());
         Err("reference refusal".into())
