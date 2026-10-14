@@ -270,7 +270,7 @@ impl SplitNodeSnapshot {
                 agent_type: Some(provider),
                 claude_session_id: Some(session),
                 ..
-            } => Some((provider, session)),
+            } => Some((provider.as_str(), session.as_str())),
             _ => None,
         }
     }
