@@ -1,3 +1,4 @@
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts tests/local-install-cache.test.mjs
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";

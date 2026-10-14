@@ -1,0 +1,31 @@
+name: script-catalog
+
+# Every scripts/ entry carries a caller header, has a caller, and README.md is current.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'build.sh'
+      - '.github/workflows/**'
+      - 'package.json'
+      - '.agents/skills/**'
+  push:
+    branches: [master]
+    paths-ignore:
+      - '.codeterm/build-machine/**'
+
+concurrency:
+  group: script-catalog-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: [self-hosted, linux-ci]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Script catalogue and fixture guards
+        run: bash build.sh script-guards

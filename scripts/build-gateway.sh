@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; CI build-gateway.yml; scripts build-gateway-mutex.mjs, build-gateway-mutex.test.mjs, build-gateway-reader-deadline.mjs
 
 ct_gateway_dir() {
   local home local_app_data

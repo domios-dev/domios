@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; CI build-gateway.yml; scripts check-build-gateway-policy.sh, check-release-signing.sh, dev-prep.mjs
 
 ct_load_release_signing_key() {
   if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then

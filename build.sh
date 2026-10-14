@@ -1785,6 +1785,7 @@ CodeTerm build commands
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
   install-local               Build and install locally (cheap fmt/size/clean gates first)
+  script-guards               Run the script catalogue gate and uncalled fixture guards
   qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
   lane-recover keep|merge ...  Park a wrong-base lane on keep/<lane>, then merge it back
 
@@ -1959,6 +1960,7 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
+    bash scripts/check-script-catalog.sh
     node scripts/check-plugin-bundles.mjs
     node scripts/sync-plugin-versions.mjs --check
     cargo check --manifest-path src-tauri/Cargo.toml
@@ -2074,6 +2076,7 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
+    bash scripts/check-script-catalog.sh
     ;;
   worktree-check)
     prepare_exceptional_worktree_target
@@ -2175,6 +2178,21 @@ EOF
       -u RUSTC_WRAPPER \
       -u SCCACHE_BASEDIRS \
       "$FRESH_CLI" "${INSTALL_ARGS[@]}"
+    ;;
+  script-guards)
+    # Cheap fixture guards for build/dev/QA scripts; Linux-only ones need a POSIX-clean runner (CI linux-ci).
+    sg_failed=0
+    sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
+    sg_run bash scripts/check-script-catalog.sh
+    for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
+      sg_run bash "scripts/$sg"
+    done
+    if [ "$(uname -s)" = Linux ]; then
+      sg_run bash scripts/check-build-dev-port-overrides.sh
+      sg_run bash scripts/check-cache-provenance.sh
+      sg_run node --test scripts/check-analytics-catalog.test.mjs
+    fi
+    exit "$sg_failed"
     ;;
   qa-batch)
     # ./build.sh qa-batch <label> [--notify-tab <tab>] '<cmd>' ... — `check` always runs first.

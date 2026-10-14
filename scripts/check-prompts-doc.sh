@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: CI docs-source-of-truth.yml; skill build, prompts
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

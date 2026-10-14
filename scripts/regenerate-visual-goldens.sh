@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: package.json script; scripts check-visual-golden-edits.sh
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"

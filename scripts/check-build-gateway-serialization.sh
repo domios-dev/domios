@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: CI build-gateway.yml
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

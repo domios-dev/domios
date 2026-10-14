@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts qa-gates.lib.sh
 # Flags MuxState .write() calls that chain directly to a known read-only method.
 # These should use .read() — exclusive write locks on hot paths stall concurrent
 # PTY readers without cause. The compiler is the hard safety guard (a RwLockReadGuard

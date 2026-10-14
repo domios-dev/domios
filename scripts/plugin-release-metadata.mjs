@@ -1,3 +1,4 @@
+// Caller: scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs
 import fs from "node:fs";
 import path from "node:path";
 

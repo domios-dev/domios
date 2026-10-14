@@ -1,3 +1,4 @@
+// Caller: CI rust-warnings-summary.yml; scripts tests/collect-rust-warnings.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';

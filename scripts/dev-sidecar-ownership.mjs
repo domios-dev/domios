@@ -1,3 +1,4 @@
+// Caller: scripts reap-dev-sidecars.mjs, tests/dev-sidecar-ownership.test.mjs
 import path from 'node:path';
 
 export function ownedSidecar(command, dataDir, platform = process.platform) {

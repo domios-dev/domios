@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh helpers; scripts qa-report.sh, tests/qa-report-early-alerts.sh, tests/utility-shell-reports.test.mjs
 
 dev_notify_capture_parent() {
   DEV_NOTIFY_PARENT_CLI="$(command -v codeterm 2>/dev/null || true)"

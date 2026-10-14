@@ -1,3 +1,4 @@
+// Caller: build.sh ci-archives; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';

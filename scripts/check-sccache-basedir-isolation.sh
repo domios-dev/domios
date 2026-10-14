@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts cache-policy.sh; skill build
 # Containment check for codeterm#327: assert that SCCACHE_BASEDIRS can never
 # make two worktrees' sccache cache keys collide.
 #
