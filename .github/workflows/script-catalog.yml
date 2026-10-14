@@ -24,8 +24,12 @@ jobs:
     runs-on: [self-hosted, linux-ci]
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Script catalogue and fixture guards
+        env:
+          VISUAL_GOLDEN_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: bash build.sh script-guards
