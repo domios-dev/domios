@@ -1,7 +1,7 @@
 import { Timer, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { DelayedMessage } from "./delayedSend";
-import { formatCadence, formatTickAt } from "./systemHeartbeatProjection";
+import { formatCadence, presentTick } from "./systemHeartbeatProjection";
 
 export function SystemHeartbeatDetail({ message, busy, onClose }: {
   message: DelayedMessage;
@@ -25,16 +25,17 @@ export function SystemHeartbeatDetail({ message, busy, onClose }: {
           <p data-testid="heartbeat-origin">system</p>
           <p data-testid="heartbeat-cadence">{formatCadence(message.recurrence?.everyMs ?? 0)}</p>
           <p data-testid="heartbeat-reason">{message.reason}</p>
-          <p data-testid="heartbeat-content">{message.text}</p>
-          <ul>
-            {ticks.map((tick) => (
-              <li key={`${tick.atMs}:${tick.spinalReason}`} data-testid="heartbeat-tick">
-                <time dateTime={new Date(tick.atMs).toISOString()}>{formatTickAt(tick.atMs)}</time>
-                <span>{tick.outcome}</span>
-                <span>{tick.spinalVerdict}</span>
-                <span>{tick.spinalReason}</span>
-              </li>
-            ))}
+          <pre className="ct-system-heartbeat__content" data-testid="heartbeat-content">{message.text}</pre>
+          <ul aria-label="Delivery log">
+            {ticks.map((tick, index) => {
+              const row = presentTick(tick);
+              return (
+                <li key={`${tick.atMs}:${index}`} data-testid="heartbeat-tick">
+                  <time dateTime={new Date(tick.atMs).toISOString()}>{row.time}</time>
+                  {` · ${row.outcome} · ${row.reason}`}
+                </li>
+              );
+            })}
           </ul>
         </div>
         <div className="ct-delayed-modal__foot">

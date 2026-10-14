@@ -41,6 +41,16 @@ ct_gateway_set_fixture_dir() {
   export CT_BUILD_GATEWAY_SCOPE CT_BUILD_GATEWAY_FIXTURE_DIR
 }
 
+ct_gateway_owned_by_caller() {
+  local lock
+  [ "${CT_GATEWAY_ACTIVE:-0}" = 1 ] && [ -n "${CT_BUILD_JOB_ID:-}" ] &&
+    [ -n "${CT_GATEWAY_PROCESS_START:-}" ] || return 1
+  lock="$(ct_gateway_dir)/lock"
+  [ "$(cat "$lock/job_id" 2>/dev/null)" = "$CT_BUILD_JOB_ID" ] &&
+    [ "$(cat "$lock/pid" 2>/dev/null)" = "$$" ] &&
+    [ "$(cat "$lock/start_token" 2>/dev/null)" = "$CT_GATEWAY_PROCESS_START" ]
+}
+
 ct_gateway_now() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
