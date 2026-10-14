@@ -1,3 +1,4 @@
+mod abort_provenance;
 pub(crate) mod authority;
 pub(crate) mod blocking;
 mod bootstrap;

@@ -11,6 +11,7 @@ import { codexReportedSettings } from "./runtimeSettings";
 import { abandonOpenTurn, interruptPendingCalls, runningCallStatus, stampToolLifecycle, type RuntimeItem } from "./runtimeAbandonedTurns";
 import { reduceRuntimeAgents, type RuntimeAgents } from "./runtimeAgents";
 import { threadStatus, turnOutcome, requestDetail, withDetail } from "./runtimeTurnStatus";
+import { capEvents, compactState, isRetired, markClosed, markOpen } from "./runtimeStateBudget";
 
 interface ReduceState {
   epoch: number;
@@ -31,6 +32,8 @@ interface ReduceState {
   reasoning?:Record<string,{summary:string[]; content:string[]}>;
   agents?:RuntimeAgents;
   compacting?:string;
+  open?:string[];
+  retired?:string[];
 }
 function initial(ctx: RuntimeContext, raw: JsonValue): ReduceState {
   const state = object(raw);
@@ -93,13 +96,16 @@ function mapItem(state: ReduceState, method: string, params: Record<string,unkno
   const raw = object(params.item);
   const id = text(raw.id) ?? text(params.itemId);
   if (!id) return undefined;
-  const previous = state.items[id];
+  const retired = isRetired(state,id);
+  const previous = retired ? undefined : state.items[id];
   if (method === "item/started" || method === "item/completed") {
+    if (method === "item/started") markOpen(state,id); else markClosed(state,id);
     const row = runtimeItem(raw,state.seq + 1,previous);
     return row ? stamp(state,stampToolLifecycle(row,previous,method,params),params) : undefined;
   }
   const delta = text(params.delta) ?? text(params.message);
-  if (!delta) return undefined;
+  if (!delta || retired) return undefined;
+  markOpen(state,id);
   const row: ChatMsg = previous ? {...previous} : {id,seq:state.seq + 1,type:"assistant",content:""};
   switch (method) {
     case "item/agentMessage/delta": case "item/plan/delta": row.type = "assistant"; row.content += delta; break;
@@ -204,10 +210,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       }
       case "item/fileChange/patchUpdated": {
         const id = text(params.itemId);
-        if (!id || !Array.isArray(params.changes)) break;
+        if (!id || !Array.isArray(params.changes) || isRetired(state,id)) break;
         const previous = state.items[id];
         const row = runtimeItem({id,type:"fileChange",changes:params.changes,status:"inProgress"},state.seq+1,previous);
         if (!row) break;
+        markOpen(state,id);
         if (previous?.toolResult !== undefined) row.toolResult = previous.toolResult;
         events.push({kind:"chatItem",threadId,item:stamp(state,row,params)}); break;
       }
@@ -283,6 +290,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         }
         const reasoningId = text(rawItem.id) ?? text(params.itemId);
         if (reasoningId && (rawItem.type === "reasoning" || frame.method.startsWith("item/reasoning/"))) {
+          if (frame.method !== "item/completed" && isRetired(state,reasoningId)) continue;
           state.reasoning ??= {};
           const parts = state.reasoning[reasoningId] ?? {summary:[],content:[]};
           state.reasoning[reasoningId] = parts;
@@ -299,6 +307,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
             if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
           }
           row = stamp(state,{id:reasoningId,seq:state.seq+1,type:"thinking",content:parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"),collapsed:true},params);
+          if (frame.method === "item/completed") markClosed(state,reasoningId); else markOpen(state,reasoningId);
         } else row = mapItem(state,frame.method,params);
         if (row) {
           events.push({kind:"chatItem",threadId,item:row});
@@ -317,7 +326,8 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       }
     }
   }
-  return {state:json(state),events};
+  compactState(state);
+  return {state:json(state),events:capEvents(events)};
 }
 
 function pendingStatus(state: ReduceState, threadId: string): AgentEvent | undefined {

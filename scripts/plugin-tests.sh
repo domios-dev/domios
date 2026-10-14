@@ -32,6 +32,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/pre-trust.test.ts
       plugins/provider-claude/tests/image-metadata.test.ts
       plugins/provider-codex/tests/runtime.test.ts
+      plugins/provider-codex/tests/runtime-state-budget.test.ts
       plugins/provider-codex/tests/access-errors.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/resume-compatibility.test.ts
@@ -110,6 +111,7 @@ case "${1:-all}" in
   provider-codex)
     tests=(
       plugins/provider-codex/tests/runtime.test.ts
+      plugins/provider-codex/tests/runtime-state-budget.test.ts
       plugins/provider-codex/tests/access-errors.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/resume-compatibility.test.ts
