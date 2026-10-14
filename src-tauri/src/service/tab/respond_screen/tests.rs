@@ -110,6 +110,11 @@ const CAPTURED_TRUST_SCREEN: &str = include_str!(concat!(
     "/../tests/fixtures/tab-respond/directory-trust-matrix-1147.txt"
 ));
 
+const OUTSIDE_DIRECTORY_SCREEN: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../tests/fixtures/tab-respond/outside-directory-permission.txt"
+));
+
 fn trust_registry() -> AgentRegistry {
     bundled_registry(
         include_str!(concat!(
@@ -138,6 +143,55 @@ fn captured_directory_trust_admits_option_two_once() {
             Ok(vec![b"j".to_vec(), b"\r".to_vec()])
         );
     }
+}
+
+#[test]
+fn outside_directory_permission_parses_three_options_and_responds() {
+    let registry = trust_registry();
+    let (prompt, kind) = registry
+        .parse_interactive_prompt("response-fixture", OUTSIDE_DIRECTORY_SCREEN)
+        .expect("outside-directory permission is a live provider prompt");
+    assert_eq!(kind, PromptKind::Provider);
+    assert_eq!(
+        prompt
+            .options
+            .iter()
+            .map(|option| option.label.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Yes",
+            "Yes, and always allow access to D:\\outside-target from this project",
+            "No",
+        ]
+    );
+    let steps = response_steps(
+        &registry,
+        Some("response-fixture"),
+        OUTSIDE_DIRECTORY_SCREEN,
+        0,
+        None,
+        || panic!("the provider must declare the response keys"),
+    );
+    assert_eq!(steps, Ok(vec![b"\r".to_vec()]));
+
+    let mut state = crate::pty::screen_state::ScreenState::new();
+    state.resize("fixture", 120, 24);
+    state.process(
+        "fixture",
+        OUTSIDE_DIRECTORY_SCREEN.replace('\n', "\r\n").as_bytes(),
+    );
+    let rendered = state.get_screen_text("fixture").unwrap();
+    assert_eq!(
+        response_steps(
+            &registry,
+            Some("response-fixture"),
+            &rendered,
+            0,
+            None,
+            || panic!("the provider must declare the response keys"),
+        ),
+        Ok(vec![b"\r".to_vec()])
+    );
 }
 
 #[test]

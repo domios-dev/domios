@@ -241,7 +241,12 @@ function activeClarifyingPromptBlock(screen: string): ClarifyingPromptBlock | nu
 }
 
 function isActiveChoiceFooter(line: string): boolean {
-  return /^(?:press\s+)?enter\s+\S/i.test(line.trim());
+  const trimmed = line.trim();
+  return /^(?:press\s+)?enter\s+\S/i.test(trimmed) || isCancelOnlyChoiceFooter(trimmed);
+}
+
+function isCancelOnlyChoiceFooter(line: string): boolean {
+  return /^esc\s+to\s+cancel(?:\s*[·•]\s*tab\s+to\s+amend)?$/i.test(line);
 }
 
 function lastMeaningfulLineIndex(lines: string[]): number {
