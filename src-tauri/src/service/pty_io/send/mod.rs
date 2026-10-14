@@ -9,8 +9,9 @@ pub(super) mod readiness;
 fn compose_routed_suffix(suffix: &str, requires_instruction: bool) -> String {
     let mut typed_suffix = suffix.to_string();
     if requires_instruction {
-        typed_suffix.push(' ');
+        typed_suffix.push_str(" <tip>");
         typed_suffix.push_str(codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION);
+        typed_suffix.push_str("</tip>");
     }
     typed_suffix.push_str(codeterm_types::domios::DOMIOS_CLOSE_TAG);
     typed_suffix

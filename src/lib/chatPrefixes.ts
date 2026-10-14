@@ -88,7 +88,7 @@ function parseTranscriptDomiosMessage(content: string) {
   if (close < 0) return null;
   const end = close + DOMIOS_CLOSE_TAG.length;
   const prefix = parseDomiosMessage(content.slice(0, end));
-  if (!prefix || !REORDERED_FRAME_CONTENT.test(prefix.content)) return null;
+  if (!prefix || !REORDERED_FRAME_CONTENT.test(prefix.body)) return null;
   return parseDomiosMessage(buildDomiosMessage(prefix.attrs, `${content.slice(end)}${prefix.content}`));
 }
 
@@ -161,11 +161,11 @@ export function splitChatPrefixedMessages(content: string): Array<{ origin?: Cha
 }
 
 // A header-only frame (empty body) owns the plain text after it, the way sentinel notices are written.
-export function foldHeaderFrames<T extends { origin?: ChatOrigin; body: string }>(prefixes: readonly T[]): T[] {
+export function foldHeaderFrames<T extends { origin?: ChatOrigin; body: string; correlationId?: string }>(prefixes: readonly T[]): T[] {
   const folded: T[] = [];
   for (const prefix of prefixes) {
     const previous = folded[folded.length - 1];
-    if (previous?.origin && !previous.body.trim() && !prefix.origin) {
+    if (previous?.origin && !previous.body.trim() && !prefix.origin && previous.correlationId === prefix.correlationId) {
       folded[folded.length - 1] = { ...previous, body: prefix.body };
       continue;
     }
