@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { formatAttachmentMarker } from "./attachmentMarker";
-import { attachmentFileName, inlineAttachmentSrc, userMessageAttachments, userVisibleText } from "./userAttachments";
+import { placedAttachmentSegments, attachmentFileName, inlineAttachmentSrc, userMessageAttachments, userVisibleText } from "./userAttachments";
 
 const PATH = String.raw`C:\Users\dev\AppData\Local\Temp\codeterm-chat\e8a97274-pasted-image-1791277476989.png`;
 const pathImage = { id: "a", mimeType: "image/png", path: PATH };
@@ -69,3 +69,16 @@ assert.deepEqual(userMessageAttachments("plain text"), { text: "plain text", ima
 }
 
 console.log("userAttachments tests passed");
+
+{
+  const first = formatAttachmentMarker(PATH, "image", "image1");
+  const file = formatAttachmentMarker("/tmp/log.txt", "text", "text1");
+  assert.deepEqual(placedAttachmentSegments(`before ${first} between ${file} after`, [pathImage]), [
+    { text: "before " }, { attachment: { kind: "image", path: PATH, label: "image1" }, image: pathImage },
+    { text: " between " }, { attachment: { kind: "text", path: "/tmp/log.txt", label: "text1" }, image: undefined }, { text: " after" },
+  ]);
+  assert.equal(placedAttachmentSegments(`${first}${first}`, [pathImage]).filter((part) => "attachment" in part).length, 2);
+  assert.deepEqual(placedAttachmentSegments("caption", [pathImage]).map((part) => "text" in part ? part.text : part.attachment.path), ["caption", " ", PATH]);
+  assert.equal(placedAttachmentSegments("[1 image]", [pathImage]).length, 1);
+  assert.equal(placedAttachmentSegments(first, [{ ...pathImage, path: PATH.replace(/\\/g, "/") }]).length, 1);
+}

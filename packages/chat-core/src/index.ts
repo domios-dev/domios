@@ -194,3 +194,5 @@ export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactPa
 export { messageRowParts, parseMessageParts, splitExactSendTexts, projectMessageParts, projectTranscriptParts, type MessagePart, type ExactSendText } from "./messageParts";
 
 export { emptyQuestionSelection, questionOptionValue, selectQuestionOption, selectQuestionFreeText, questionAnswerSelection, questionAnswerText } from "./questionSelection";
+
+export { placedAttachmentSegments, type PlacedAttachmentSegment } from "./userAttachments";
