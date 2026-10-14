@@ -5,12 +5,16 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "../../helpers/fixtures";
 import { isStubTransportActive } from "../../helpers/stub-gate";
+import { STUB_ENV_ABSENT_SKIP, stubEnvActive } from "../../helpers/perf-seed";
 import { ApiClient, type Tab } from "../../helpers/api-client";
 import { PlanRegistry } from "../../helpers/plan-cleanup";
 
 const TEST_WS_PREFIX = "pw-picker";
+// The provider the stub-gate probe proves is replayed; every spawn case pins it on every head.
+const STUB_PROVIDER = "claude";
 
 const NEW_SESSION_CHOICE_STORAGE_KEY = "codeterm:new-session-choice";
 
@@ -35,6 +39,9 @@ interface MuxTab {
 /** `/agents/providers` — the descriptor that owns the model defaults the picker resolves. */
 interface PickerProvider {
   id: string;
+  display_name?: string;
+  transport?: "pty" | "chat_backend";
+  agent_runtime?: unknown;
   default_model?: string | null;
   available_models?: { id: string }[];
 }
@@ -168,6 +175,8 @@ async function clickOption(page: Page, testId: string, value: string): Promise<v
  * it instead of assuming the default provider happens to be installed here.
  */
 async function settleOnUsableModel(page: Page, providerTestId: string, modelTestId: string): Promise<void> {
+  // The provider catalogue (list_agent_providers) lands after mount; an empty value means not loaded yet.
+  await expect(dropdown(page, providerTestId), `${providerTestId} preselects a provider`).not.toHaveAttribute("data-value", "", { timeout: 15_000 });
   const tried = new Set<string>();
   await expect
     .poll(
@@ -360,8 +369,56 @@ async function cleanupWorkspace(api: ApiClient, wsId: string | undefined): Promi
 test.describe("new-session picker", () => {
   // Spawn-flow tests run on the stub transport; picker UI plumbing is
   // provider-independent, so golden carries no live-LLM cost here.
-  async function requireStub(api: import("../../helpers/api-client").ApiClient) {
-    test.skip(!(await isStubTransportActive(api)), "dev daemon is not running with CODETERM_STUB_AGENT_CMD");
+  // Fails, never skips: plain Playwright must not launch a live provider. Checks run in
+  // launch-free order, so the probe spawn only happens once claude is proven replayable.
+  async function requireStub(api: ApiClient): Promise<PickerProvider> {
+    if (!stubEnvActive()) throw new Error(`picker spawn cases ${STUB_ENV_ABSENT_SKIP}`);
+    const only = (process.env.CODETERM_STUB_AGENT_PROVIDERS ?? "").trim();
+    if (only && !only.split(",").some((id) => id.trim().toLowerCase() === STUB_PROVIDER)) {
+      throw new Error(`CODETERM_STUB_AGENT_PROVIDERS="${only}" leaves ${STUB_PROVIDER} unstubbed; it would launch live`);
+    }
+    const stub = (await api.get<PickerProvider[]>("/agents/providers")).find((p) => p.id === STUB_PROVIDER);
+    if (!stub) throw new Error(`/agents/providers does not list the stub provider ${STUB_PROVIDER}`);
+    // The replayer wraps PTY launches only; a runtime-capable provider bypasses it.
+    if (stub.transport !== "pty" || stub.agent_runtime !== undefined) {
+      throw new Error(
+        `${STUB_PROVIDER} would launch outside the PTY replayer (transport=${stub.transport}, agent_runtime=${JSON.stringify(stub.agent_runtime)})`,
+      );
+    }
+    if (!(await isStubTransportActive(api))) {
+      throw new Error(`CODETERM_STUB_AGENT_CMD is set but the daemon did not replay ${STUB_PROVIDER}; refusing a live launch`);
+    }
+    return stub;
+  }
+
+  /** Selects the stub provider on every head through the picker's own dropdowns. */
+  async function pinStubProvider(page: Page, stub: PickerProvider, heads: Locator[]): Promise<void> {
+    for (const trigger of heads) {
+      await expect(trigger, "provider catalogue must load before a head can be pinned").not.toHaveAttribute("data-value", "", { timeout: 15_000 });
+      await trigger.click();
+      const option = page.getByRole("menuitem", { name: stub.display_name ?? STUB_PROVIDER, exact: true });
+      await expect(option, `${STUB_PROVIDER} must be installed and selectable`).toBeEnabled({ timeout: 5_000 });
+      await option.click();
+      await expect(trigger, `head must launch the stubbed ${STUB_PROVIDER}`).toHaveAttribute("data-value", STUB_PROVIDER);
+    }
+  }
+
+  async function pinPairToStub(page: Page, stub: PickerProvider): Promise<void> {
+    await page.locator('[data-testid="picker-mode-orchestration"]').click();
+    await pinStubProvider(page, stub, [
+      dropdown(page, "picker-provider-orchestrator"),
+      dropdown(page, "picker-provider-planner"),
+    ]);
+  }
+
+  async function pinSingleToStub(page: Page, stub: PickerProvider): Promise<void> {
+    await page.locator('[data-testid="picker-mode-single"]').click();
+    const picker = page.locator('[data-testid="new-session-picker"]');
+    await pinStubProvider(page, stub, [picker.getByRole("button", { name: "Agent provider", exact: true })]);
+  }
+
+  function expectStubLaunch(tab: MuxTab): void {
+    expect(tab.agent_type, `tab ${tab.id} must run the stubbed provider`).toBe(STUB_PROVIDER);
   }
 
   // scenarios that spawn real agents raise their own timeout explicitly.
@@ -459,6 +516,8 @@ test.describe("new-session picker", () => {
     // The old spec CLICKED the pair card here, which masked whether pair is the
     // unpersisted default at all. defaultNewSessionChoice returns mode "pair".
     await expect(page.locator('[data-testid="picker-mode-orchestration"]')).toHaveAttribute("data-selected", "true");
+    // After the reload the provider catalogue resolves asynchronously; wait for it before reading.
+    await expect(dropdown(page, "picker-provider-orchestrator"), "an unpersisted picker must preselect a provider").not.toHaveAttribute("data-value", "", { timeout: 15_000 });
 
     const orchProvider = await dropdown(page, "picker-provider-orchestrator").getAttribute("data-value");
     const plannerProvider = await dropdown(page, "picker-provider-planner").getAttribute("data-value");
@@ -496,13 +555,13 @@ test.describe("new-session picker", () => {
 
   test("@golden IN-PLACE PAIR SPAWN: confirm materializes orchestrator + planner, no husk left behind", async ({ api, ui }) => {
     test.setTimeout(120_000);
-    await requireStub(api);
+    const stub = await requireStub(api);
     const page = ui.page;
     // Fresh workspace: no backend tabs before confirm (picker is virtual).
     const before = await muxState(api);
     expect(visibleTabsInWorkspace(before, ws.id)).toHaveLength(0);
 
-    await page.locator('[data-testid="picker-mode-orchestration"]').click();
+    await pinPairToStub(page, stub);
     await page.locator('[data-testid="picker-confirm"]').click();
 
     // The picker retires; the group (orchestrator + planner child) appears.
@@ -515,6 +574,7 @@ test.describe("new-session picker", () => {
 
     const orchestrator = await waitForOrchestrator(api, ws.id);
     expect(orchestrator.role).toBe("Orchestrator");
+    expectStubLaunch(orchestrator);
     // No leftover virtual husk anywhere in the snapshot.
     const after = await muxState(api);
     expect(Object.values(after.tabs).some((p) => p.title === "New session")).toBe(false);
@@ -523,12 +583,13 @@ test.describe("new-session picker", () => {
 
   test("@golden GREETING: orchestrator's first assistant message is the PEER_ORCH_GREETING, unprompted", async ({ api, ui }) => {
     test.setTimeout(120_000);
-    await requireStub(api);
+    const stub = await requireStub(api);
     const page = ui.page;
-    await page.locator('[data-testid="picker-mode-orchestration"]').click();
+    await pinPairToStub(page, stub);
     await page.locator('[data-testid="picker-confirm"]').click();
 
     const tab = await waitForOrchestrator(api, ws.id);
+    expectStubLaunch(tab);
     const segments = peerOrchGreetingSegments();
     expect(segments.length, "PEER_ORCH_GREETING yielded no constant segment to assert").toBeGreaterThan(0);
 
@@ -554,15 +615,16 @@ test.describe("new-session picker", () => {
 
   test("@golden SINGLE SELECT: Start closes the picker and selects + focuses the created agent tab", async ({ api, ui }) => {
     test.setTimeout(120_000);
-    await requireStub(api);
+    const stub = await requireStub(api);
     const page = ui.page;
-    await page.locator('[data-testid="picker-mode-single"]').click();
+    await pinSingleToStub(page, stub);
     // No post-confirm permissions dialog exists any more: full access is the
     // picker's own "Full access for agents" checkbox (NewSessionPicker.tsx).
     await page.locator('[data-testid="picker-confirm"]').click();
 
     await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
     const tab = await waitForSingleAgent(api, ws.id);
+    expectStubLaunch(tab);
     await expect
       .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.active_tab_id ?? null, {
         timeout: 30_000,
@@ -577,13 +639,14 @@ test.describe("new-session picker", () => {
 
   test("@golden PAIR SELECT: Start selects + focuses the ORCHESTRATOR tab of the new group", async ({ api, ui }) => {
     test.setTimeout(120_000);
-    await requireStub(api);
+    const stub = await requireStub(api);
     const page = ui.page;
-    await page.locator('[data-testid="picker-mode-orchestration"]').click();
+    await pinPairToStub(page, stub);
     await page.locator('[data-testid="picker-confirm"]').click();
 
     await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
     const orchestrator = await waitForOrchestrator(api, ws.id);
+    expectStubLaunch(orchestrator);
     await expect
       .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.active_tab_id ?? null, {
         timeout: 30_000,
@@ -608,9 +671,9 @@ test.describe("new-session picker", () => {
    */
   test("@golden GROUP CLOSE: a manager row closes on its own; closing the team head confirms before anything closes", async ({ api, ui }) => {
     test.setTimeout(120_000);
-    await requireStub(api);
+    const stub = await requireStub(api);
     const page = ui.page;
-    await page.locator('[data-testid="picker-mode-orchestration"]').click();
+    await pinPairToStub(page, stub);
     await page.locator('[data-testid="picker-confirm"]').click();
 
     await expect
@@ -620,6 +683,7 @@ test.describe("new-session picker", () => {
       .toBe(2);
 
     const orchTab = await waitForOrchestrator(api, ws.id);
+    expectStubLaunch(orchTab);
     const state = await muxState(api);
     const plannerTab = visibleTabsInWorkspace(state, ws.id).find((t) => t.id !== orchTab.id)!;
 
@@ -710,9 +774,9 @@ test.describe("new-session picker", () => {
 
   test("@golden NO GHOST TITLE across a pair spawn (scenario 12)", async ({ api, ui }) => {
     test.setTimeout(120_000);
-    await requireStub(api);
+    const stub = await requireStub(api);
     const page = ui.page;
-    await page.locator('[data-testid="picker-mode-orchestration"]').click();
+    await pinPairToStub(page, stub);
 
     // Prove the surface exists once up front — a sampler over an absent scope observes nothing and would report "no ghost" forever.
     await expect(workspaceDetail(page, ws.id), "no sidebar body to sample for ghosts").toHaveCount(1);
@@ -729,7 +793,7 @@ test.describe("new-session picker", () => {
     })();
 
     await page.locator('[data-testid="picker-confirm"]').click();
-    await waitForOrchestrator(api, ws.id);
+    expectStubLaunch(await waitForOrchestrator(api, ws.id));
     // Let the group settle (planner child materializes + titles resolve).
     await expect
       .poll(async () => visibleTabsInWorkspace(await muxState(api), ws.id).length, {
