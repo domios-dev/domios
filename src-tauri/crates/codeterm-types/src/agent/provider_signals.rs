@@ -269,7 +269,9 @@ impl ApiErrorKind {
         ] {
             fields.extend(record.get(key));
         }
-        let text = |value: &&Value| value.as_str();
+        fn text<'a>(value: &&'a Value) -> Option<&'a str> {
+            value.as_str()
+        }
         let status = |value: &&Value| {
             value
                 .as_u64()

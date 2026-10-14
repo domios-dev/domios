@@ -674,7 +674,7 @@ fn system_projection_is_a_view_not_a_queue_row() {
     });
     assert_eq!(message.origin, MessageOrigin::System);
     assert_eq!(message.scheduled_at_ms, 120_000);
-    assert_eq!(message.recurrence.unwrap().every_ms, 60_000);
+    assert_eq!(message.recurrence.as_ref().unwrap().every_ms, 60_000);
     assert_eq!(message.reason.as_deref(), Some(reason));
     assert_eq!(message.ticks[0].at_ms, 50_000);
     assert_eq!(message.ticks[0].outcome, "sent");
