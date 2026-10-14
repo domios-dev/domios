@@ -7,6 +7,9 @@ edition = "2021"
 name = "codeterm"
 path = "src/main.rs"
 
+[lints.rust]
+warnings = "deny"
+
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }

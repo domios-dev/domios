@@ -144,3 +144,43 @@ R4(a) done: `socket_path()`/`socket_display_path()` moved from `socket/server` i
 
 Done: `codeterm-cron` holds `clock` and the pure `schedule` functions (git renames; `cron::clock` is a `pub use` facade, `cron::store` re-exports the schedule API); `codeterm-shutdown` holds `ShutdownReason` and the sentinel `ShutdownLatch` with `subscribe_sentinel_shutdown`/`arm_sentinel_shutdown` (the `SHUTDOWN_CAUSE` state and clean-exit sentinel stay in `crash::shutdown`). The storage bucket constants (`OTHER_BUCKET` and siblings) were already in `codeterm-storage`; `crate::storage` re-exports them. Not moved: `CronStore` and its staged-commit layer, which depend on `cron::scheduler::CronState`; sentinel needs only `parse_oneshot_schedule_at` from it. Selectors: `./build.sh test-one cron NAME` (crate-level, if supported, else `cargo test -p codeterm-cron` / `-p codeterm-shutdown`), app `crash::shutdown`, `cron::store`, `cron::clock`.
 R4(a) done: `socket_path()`/`socket_display_path()` moved from `socket/server` into `codeterm-paths`; all 5 callers plus the server use `crate::paths::`. R4(b) done: `cli_rpc_routes`, `mesh_routes/rpc` and `plan_routes/tasks` reach socket only through the startup-registered function table in `src-tauri/src/rpc_bridge.rs` (`socket::register_rpc_bridge`); `JsonRpcError` and `DispatchStartup` now live there. Remaining (c) physical `codeterm-socket` crate move are not done. Selectors: `./build.sh test-one app socket::server`.
+
+R6a status: partial, option C. `mem_routes` cannot move whole (14 files take AppState/ServiceContext; port trait deferred until after R5). Its pure conn/data logic moved into `codeterm_mem::curation` (calibration sweep/log/stale/archive, merge, kind restore, `sanitize_actor`, `validate_item_fields`, `pick_restore_body`); handlers stay in `api/mem_routes` as facades with unchanged signatures. Selectors: `cargo test -p codeterm-mem curation` and app `api::mem_routes`.
+## Status after R1-R4b (regenerated against develop 6a1709cbf)
+
+Source facts from `scripts/module-graph.py` and the manifests; not timings.
+
+| metric | before | after |
+|---|---:|---:|
+| app crate lines (src-tauri/src, incl. tests) | 515,682 | 507,534 |
+| top-level modules in the one cycle | 36 | 34 |
+| units in the core cycle | 162 | 142 |
+| lines in the core cycle (non-test) | 266,148 | 253,706 |
+| second cycle | none | 3 units (`mesh`, `paths`, `user_last_activity`): a re-export-shim artifact, not a real cycle |
+
+Reading: the splits so far moved ~12k non-test lines of leaves out of the cycle (20 units). The core cycle shrank 4.7%; it is still `service/*` plus the api/sentinel/socket-adjacent modules. The wins to date are rebuild-scope wins in the crate graph, not a cut in the core.
+
+New crates and sizes (lines incl. tests): `codeterm-wire` 998, `codeterm-events` 837, `codeterm-config` 2,416, `codeterm-cron` 611, `codeterm-shutdown` 188, `codeterm-secrets` 2,702, `codeterm-keepawake` 1,497, `codeterm-decision` 795, `codeterm-provider-signals` 472, `codeterm-blueprint-types` 2,720, `codeterm-local-recording` 114, `codeterm-notify-types` 110, `codeterm-sentinel-ports` 39 (unused until R5).
+
+Crate dependencies that changed:
+
+- `codeterm-types` now depends on `codeterm-notify-types` and `codeterm-provider-signals`; it no longer holds `domios`, `message_markers`, `decision`, `blueprint_*`, `sentinel_input`, `local_recording`, `usage`, `mesh`, `notification` content.
+- `codeterm-pty` depends on `codeterm-provider-signals`, no longer on a types module for it; `codeterm-mem` on `codeterm-decision`; `codeterm-storage` on `codeterm-blueprint-types`.
+- `codeterm-plugin` depends on blueprint-types, decision, local-recording, provider-signals, usage, wire (it used only `codeterm-types` before).
+- `codeterm-input-windows` depends on `codeterm-local-recording`; `codeterm-plan` on `codeterm-usage`; `codeterm-notification-core` on `codeterm-notify-types`.
+- `codeterm-secrets` depends on config, paths, plugin, util; `codeterm-keepawake` on events, paths, util; `codeterm-events` on plugin only; `codeterm-config` on mesh, paths, types, util.
+- The CLI now depends on `codeterm-mesh`, `codeterm-notification-core`, `codeterm-blueprint-types`, `codeterm-wire` (heavier than before) and still on `codeterm-types`.
+
+Which crates stopped rebuilding on which edits (hypothesis from the manifests): an edit to routed-message code (`wire`) no longer rebuilds pty, plan, mem, mesh, storage, usage, notification-core, input-windows; decision edits rebuild only mem, plugin and the app; blueprint-type edits only storage, plugin, cli and the app; events/config/secrets/keepawake/cron/shutdown edits no longer rebuild any crate except the app and each other.
+
+Next: R5 (sentinel, 32k lines) is the first step that cuts into the core cycle.
+
+## R5 status: `codeterm-sentinel` (data core carved out)
+
+Source facts; check-queue errors=0 on lane `375953736` (all targets, so tests compile); no timings yet.
+
+- New crate `codeterm-sentinel`, 18,253 lines incl. tests: `store`, `storage`, `amend`, `machine`, `handlers`, `probe` (the most-edited area, 139 touches in 90 days), `command`, `input`, `terminal`, `portable`, `provenance`, `progress`, `session`, `stage_source`, `delete`, `escalation`, `cleanup`, `identity` (split out of `graph`), data half of `source`, `Store` half of `run_binding`. Depends on codeterm-cron, -storage, -paths, -pty, -util, -blueprint-types, -plugin, -types; none of them depend on it.
+- Still in the app: `scheduler`, `pipeline`, `routes`, `classify`, `actions`, `wake`, `graph` projection, `source` host functions, `run_binding` (cron binding), `probe_env`. Reason: they use `ServiceContext`, `CronState` and `flow_trace`. `crate::sentinel::*` paths are kept by re-export, so the 12 core call sites needed no change; the ports in `codeterm-sentinel-ports` are not wired and the moved crate does not need them.
+- Counts after: app crate 507,534 -> 489,511 lines; core cycle 253,706 -> 240,757 non-test lines (units unchanged at 142: the `sentinel` module still sits in the cycle through the host half).
+- Seams made explicit: `codeterm_util::redact::text` (was `supporter_tab_state::privacy`), `command::START_TRACE` hook (was `flow_trace::record`), `probe_env::current_instance` stays in the app, `test-support` feature carries the cfg(test) helpers that app tests use. Tests that need `ServiceFixture` or the scheduler (`storage_tests`, `terminal_tests`, `session_tests`, `*_tests`) live in `src/sentinel`.
+- Remaining to finish the carve: move `scheduler` behind the ports (needs `ServiceContext` as a trait), then `routes`/`pipeline`.

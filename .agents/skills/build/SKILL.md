@@ -105,6 +105,47 @@ A lane Worker runs isolated checks only. When a generator needs the checkout's b
 
 ## Build timing and warm reuse
 
+`./build.sh build-history [--last N] [--verb V] [--json]` (Windows:
+`.\build.ps1 build-history`) reads the existing machine gateway job records,
+without acquiring the build slot or starting a cache server. The default is 50
+jobs, newest start/queue time first. Verb filtering happens before the limit.
+The table shows UTC time, verb, elapsed/duration, exit, canonical/lane/check
+worktree, SHA, known crates or touched-file count, and sccache hit rate.
+Queued jobs have no duration; running jobs show elapsed time at the query clock.
+Successful completed jobs in that same selected window contribute to per-verb
+n, median, nearest-rank p90 and max. Trend compares the newest ten successful
+durations with the preceding ten; fewer than twenty reports insufficient samples.
+A positive trend means slower builds. JSON durations are milliseconds; hit rate
+is a fraction of hits plus misses, excluding non-cacheable requests.
+
+New gateway jobs retain start/end sccache snapshots and request/hit/miss deltas
+in their existing JSON. Missing/offline stats, storage changes, detected counter
+resets and gateway-owned server restarts yield an unavailable delta. These are
+server-interval counters: compiler clients outside the gateway can contribute.
+Old records have no cache evidence; `Compiling` alone never proves a cache miss
+or an S3 hit. Check-queue records the requested SHA, selected crate set and
+touched-file count, and preserves its full compiler log beside that job.
+
+Gateway Cargo runs add `cargo::core::compiler::fingerprint=info` to `CARGO_LOG`.
+At completion the fingerprint lines are saved in `jobs/<id>.fingerprint.log`
+and compact unit/stale-reason entries enter the job JSON. History shows up to ten
+rebuilt units per job, ranked by observed dirty events; the complete list is in
+JSON. Missing Cargo reasons stay unknown. This counts invalidations, not CPU time.
+
+Normal idle cache-server starts enable `sccache::server=debug` and write
+`sccache-server.log` in the gateway directory (or use `SCCACHE_ERROR_LOG`). Each
+job copies only its new `CannotCache` lines into `jobs/<id>.sccache.log`, preserving
+the observed Rust unit, crate type and reason (including build scripts and
+proc-macros). A pre-existing server keeps its logging configuration: per-unit
+evidence remains unavailable until a normal owned idle server transition enables
+logging. History says so alongside aggregate non-cacheable reason counts; do not
+restart a matching live server solely to populate history. Raw side logs remain
+diagnostic artifacts, not a second job store. No history can reconstruct old reasons.
+
+Focused proof: `node --test scripts/build-history.test.mjs scripts/build-gateway-evidence.test.mjs`,
+`bash -n build.sh && bash -n scripts/build-gateway.sh && bash -n scripts/cache-policy.sh`, and
+`.\build.ps1 build-history --last 5 --json` on BLACKSTAR.
+
 `release-inputs` (also used by `build` and `install-local`) records Cargo HTML
 timings for CLI and app/embed preparation under the operation’s target
 `cargo-timings/` directory. App preparation enables `tauri/custom-protocol`,
@@ -255,7 +296,7 @@ calls; a successful build alone is not cache-hit proof.
 
 ## Warm check queue for lanes
 
-`./build.sh check-queue [<sha>] [--max-errors N] [--touched-only] [--all]` gives a Worker compile feedback on a committed lane SHA without a cold lane build. It takes the machine gateway slot (fail-fast, exit 75 when busy, `--wait-build` only when blocking is intended), checks the SHA out in the single per-machine check worktree `<gateway dir>/check-worktree`, and runs `cargo check --all-targets --message-format=short` with the worktree's own `target/app` and `target/cli`. Packages come from `git diff <merge-base with develop> <sha>`: `src-tauri/crates/<name>` maps to `-p <name>`, `src-tauri/src` to `codeterm`, `cli/` to the CLI manifest; a crate change also checks `codeterm` unless `--touched-only`. `--all` ignores the diff and checks the whole app workspace plus the CLI, for integration checks from canonical after merges (where the diff against `develop` is empty). Output is the first N `file:line:col: error[...]` lines, an `errors=N shown=M` total, and the full log path (`check-worktree-last.log`). It never builds in canonical or a lane target. The first run on a machine is cold; subsequent runs are incremental.
+`./build.sh check-queue [<sha>] [--max-errors N] [--max-warnings N] [--touched-only] [--all]` gives a Worker compile feedback on a committed lane SHA without a cold lane build. It takes the machine gateway slot (fail-fast, exit 75 when busy, `--wait-build` only when blocking is intended), checks the SHA out in the single per-machine check worktree `<gateway dir>/check-worktree`, and runs `cargo clippy --all-targets --no-deps --message-format=short -- <scripts/clippy-allow.sh>` with the worktree's own `target/app` and `target/cli`. Packages come from `git diff <merge-base with develop> <sha>`: `src-tauri/crates/<name>` maps to `-p <name>`, `src-tauri/src` to `codeterm`, `cli/` to the CLI manifest; a crate change also checks `codeterm` unless `--touched-only`. Output is the first N `file:line:col: error[...]` lines, an `errors=N shown=M` total, the first `--max-warnings` (default 40) unique warning lines, `warnings crate=<name> count=N` per warned crate, `warnings=N shown=M failing=<crates|none>`, and the full log path. Any rustc or clippy warning in a touched crate fails the run (exit 1); `--all` checks the whole app workspace plus the CLI and fails on any warning. `./build.sh check` prints the same per-crate warning lines and a `check: warnings=N` total. Crates deny `warnings` through Cargo `[lints]`, so check-queue warnings normally surface as errors. It never builds in canonical or a lane target. The first run on a machine is cold; subsequent runs are incremental.
 
 Troubleshooting:
 - Symptom `sccache: incremental compilation is prohibited` from `rustc -vV`: cause an exported `CARGO_INCREMENTAL`; recovery is to leave it unset (the verb unsets it) and let the profile decide.

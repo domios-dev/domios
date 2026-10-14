@@ -71,14 +71,17 @@ const RUNTIME_FAILURE_REASONS: readonly (readonly [RegExp, string])[] = [
   [/^(?:Superseded\b|Runtime session changed;)/, "The agent session changed and the operation was canceled."],
 ];
 
-export function runtimeBannerView(state: AgentRuntimeState | null) {
+export function runtimeStatusPresentation(state: AgentRuntimeState | null) {
   if (!state || state.state === "loaded") return null;
+  const loading = state.state === "loading";
   return {
-    loading: state.state === "loading",
-    reason: RUNTIME_FAILURE_REASONS.find(([pattern]) => pattern.test(state.reason ?? ""))?.[1]
-      ?? (state.state === "loading" ? "Loading the agent runtime." : "The agent runtime is unavailable."),
+    severity: loading ? "transient" as const : "action_needed" as const,
+    label: loading ? "Recovering agent runtime" : "Agent runtime unavailable",
+    reason: loading ? "Loading the agent runtime."
+      : RUNTIME_FAILURE_REASONS.find(([pattern]) => pattern.test(state.reason ?? ""))?.[1]
+        ?? "The agent runtime is unavailable.",
     details: state.reason?.trim() ? state.reason : null,
-    canRetry: state.state !== "loading",
+    canRetry: !loading,
   };
 }
 

@@ -624,7 +624,7 @@ fn run_step(
                 Path::new(&lease.job.cwd),
                 remaining,
                 &handle.probe_owner,
-                &probe::environment::Environment::current_instance(svc.configuration().api),
+                &super::probe_env::current_instance(svc.configuration().api),
             );
             match result {
                 Ok(output) => {

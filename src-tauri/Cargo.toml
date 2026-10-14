@@ -5,9 +5,15 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel-ports", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown"]
+members = [".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-sentinel-ports", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
+
+[workspace.lints.rust]
+warnings = "deny"
+
+[lints]
+workspace = true
 
 [dependencies]
 codeterm-agent-detect = { path = "crates/codeterm-agent-detect" }
@@ -40,6 +46,7 @@ codeterm-types = { path = "crates/codeterm-types" }
 codeterm-blueprint-types = { path = "crates/codeterm-blueprint-types" }
 codeterm-local-recording = { path = "crates/codeterm-local-recording" }
 codeterm-wire = { path = "crates/codeterm-wire" }
+codeterm-sentinel = { path = "crates/codeterm-sentinel" }
 codeterm-decision = { path = "crates/codeterm-decision" }
 codeterm-provider-signals = { path = "crates/codeterm-provider-signals" }
 codeterm-events = { path = "crates/codeterm-events" }
@@ -151,6 +158,7 @@ clipboard-win = "5"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
+codeterm-sentinel = { path = "crates/codeterm-sentinel", features = ["test-support"] }
 codeterm-decision = { path = "crates/codeterm-decision", features = ["decision-fixture-clock"] }
 mockito = "1"
 filetime = "0.2.29"

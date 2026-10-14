@@ -5,7 +5,6 @@ use std::collections::HashMap;
 pub(crate) struct DeliveryReadiness {
     pub(crate) pty_id: String,
     pub(crate) generation: Option<u64>,
-    pub(crate) modal_visible: bool,
 }
 
 #[derive(Default)]

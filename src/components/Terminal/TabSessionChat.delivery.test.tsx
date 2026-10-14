@@ -201,9 +201,12 @@ for (const touch of [false, true]) {
       const tabId = `runtime-${state}-${touch}`;
       const { host, root, calls, dispatch } = await renderChat(tabId, { state, epoch: 2, reason: "opaque-overflow" });
       try {
+        const badge = host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]');
+        assert(badge, "runtime status badge is mounted");
+        await act(async () => badge.click());
         const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]');
         assert(retry, "runtime recovery action is mounted");
-        assert(!host.querySelector('textarea'), "runtime recovery replaces the composer");
+        assert(host.querySelector('textarea'), "composer remains available during runtime recovery");
         assert(retry.disabled === (state === "loading"), "only pending recovery disables Retry");
         if (state !== "loading") {
           await act(async () => { retry.click(); });
@@ -213,7 +216,8 @@ for (const touch of [false, true]) {
             tab_id: tabId, session_binding_nonce: "nonce-1", state: { state: "loaded", epoch: 3 },
           }));
         }
-        assert(!host.querySelector('button[aria-label="Retry"]'), "loaded runtime removes recovery");
+        assert(!host.querySelector('button[aria-haspopup="dialog"]'), "loaded runtime removes recovery badge");
+        assert(!host.querySelector('[role="dialog"]'), "loaded runtime removes open popover");
         assert(host.querySelector('textarea'), "loaded runtime restores the shared composer");
       } finally {
         await act(async () => root.unmount()); host.remove();
@@ -245,7 +249,7 @@ test("mobile held and written sends retain one bubble beside runtime recovery", 
       assert(bubble().length === 1, "mobile delivery updates one row");
       assert(bubble()[0]?.querySelector('[role="status"]')?.textContent === label, "shared delivery model reaches the bubble");
       assert(!bubble()[0]?.querySelector("button"), "held and written sends never offer replay");
-      assert(host.querySelector('button[aria-label="Retry"]'), "runtime recovery remains available");
+      assert(host.querySelector('button[aria-haspopup="dialog"]'), "runtime recovery remains available");
     }
   } finally {
     await act(async () => root.unmount()); host.remove();
@@ -265,7 +269,7 @@ test("mobile runtime sign-in uses the shared account card", async () => {
   try {
     const card = host.querySelector('[role="group"][aria-label="Sign in to Fixture"]');
     assert(card, "provider account card is mounted");
-    assert(!host.querySelector('textarea'), "signed-out runtime replaces composer");
+    assert(host.querySelector('textarea'), "sign-in keeps composer available");
     const keyButton = Array.from(card.querySelectorAll("button")).find(button => button.textContent?.includes("API key"));
     assert(keyButton, "provider method is available");
     await act(async () => keyButton.click());
@@ -442,3 +446,4 @@ void main().then(
     process.exit(1);
   },
 );
+

@@ -43,3 +43,6 @@ embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", 
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints]
+workspace = true
