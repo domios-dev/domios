@@ -1,3 +1,4 @@
+use crate::service::agent_runtime::plan_warning::PlanBindingFailure;
 use crate::service::{
     plan::task_attempts::{RuntimeRestartBinding, RuntimeRestartMode},
     ServiceContext,
@@ -30,6 +31,26 @@ impl ServiceContext {
         nonce: &str,
         fresh: bool,
     ) -> Result<Option<RestartBindingAuthority>, String> {
+        match self.try_authorize_runtime_restart_binding(tab_id, provider, nonce, fresh) {
+            Ok(authority) => Ok(authority),
+            Err(reason) => {
+                self.warn_runtime_plan_binding(
+                    tab_id,
+                    crate::service::agent_runtime::plan_warning::PlanBindingWarningStage::RestartAuthorization,
+                    &reason,
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    fn try_authorize_runtime_restart_binding(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        nonce: &str,
+        fresh: bool,
+    ) -> Result<Option<RestartBindingAuthority>, PlanBindingFailure> {
         let mut tab = self
             .mux
             .read()
@@ -67,7 +88,7 @@ impl ServiceContext {
         let detail = self
             .plan_store
             .show_task(&task)
-            .ok_or("Runtime restart task absent")?;
+            .ok_or_else(|| PlanBindingFailure::bookkeeping("Runtime restart task absent"))?;
         let old = detail
             .task
             .execution_attempts
@@ -126,7 +147,7 @@ impl ServiceContext {
         tab_id: &str,
         thread: &str,
         nonce: &str,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, PlanBindingFailure> {
         let Some(authority) = BINDINGS.lock().get(&key(self, tab_id)).cloned() else {
             return Ok(false);
         };
@@ -164,7 +185,7 @@ impl ServiceContext {
                     .map(|elapsed| elapsed.as_millis() as u64)
                     .unwrap_or_default(),
             )
-            .map_err(|reason| reason.to_string())?;
+            .map_err(PlanBindingFailure::from_plan_error)?;
         BINDINGS.lock().remove(&key(self, tab_id));
         Ok(true)
     }

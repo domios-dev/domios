@@ -1,4 +1,4 @@
-use crate::multiplexer::types::{AgentRole, PriorBindingNonce, Tab, TabBacking};
+use crate::multiplexer::types::{AgentRole, PriorBindingNonce, Tab};
 use crate::plan::AttemptBindingRestorationReceipt;
 use crate::service::plan::task_attempts::{
     RestoreCurrentAttemptBinding, RestoreCurrentAttemptBindingResult,
@@ -67,11 +67,8 @@ pub(crate) fn restore_attempt_binding_for_mux(
     {
         return Err(Refusal::CurrentBindingRequired.refusal());
     }
-    if !crate::service::plan_reconcile::tab_has_live_agent(tab)
-        || tab.backing != TabBacking::Pty
-        || tab.pty_id.is_none()
-    {
-        return Err(Refusal::LivePtyRequired.refusal());
+    if !crate::service::plan_reconcile::tab_has_live_agent(tab) {
+        return Err(Refusal::LiveAgentRequired.refusal());
     }
     let binding =
         authenticated_tab_binding(tab).ok_or_else(|| Refusal::CurrentBindingRequired.refusal())?;

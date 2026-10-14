@@ -18,7 +18,7 @@ Dispatch assigns the task and delivers its brief to the Worker. Local reassignme
 
 Every Worker turn ends in a report. The report is pushed to the Orchestrator, including across the mesh for a remote Worker. A refused report is a diagnostic, not a recorded task report. A report is input and is never replied to; acceptance, bounce or hold is the Orchestrator's answer. A submitted result is not an accepted result. Tool-less Workers acknowledge receipt through exact own-session user-turn evidence. Their completed report-marked replies become reports; unmarked completed replies remain routed answers. Completion is provider-authoritative and never inferred from the terminal screen.
 
-A bounce carries its reason and failing evidence. It returns work to a live Worker when continuation is available; otherwise it reopens the task as pending, preserving the note, attempt history and lane for redispatch. Ambiguous attempts refuse rather than assigning ownership by guess.
+A bounce carries its reason and failing evidence. It returns work to a live Worker when continuation is available; otherwise it reopens the task as pending, preserving the note, attempt history and lane for redispatch. Ambiguous attempts refuse rather than assigning ownership by guess. Same-attempt restoration and review continuation accept a live PTY or Chat runtime Worker with its exact session and nonce. Restoring a conversation preserves task status and review evidence, and a plan-binding failure leaves the conversation usable with an owner-visible warning.
 
 A delivered task-bound report ends with one verdict reminder naming its plan, task, accept/bounce command and report time. The reminder is advisory and never blocks dispatch, integration or other work.
 
