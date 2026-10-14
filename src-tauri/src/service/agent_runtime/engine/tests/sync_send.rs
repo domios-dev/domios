@@ -12,10 +12,8 @@ impl Drop for Cleanup {
     }
 }
 
-#[test]
-fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
+fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
-    const PAYLOAD: &str = "opaque supplied user input";
     let (mut mux, tab_id) = MultiplexerState::new();
     let nonce = uuid::Uuid::new_v4().to_string();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -109,7 +107,14 @@ module.exports = {
         control_changes: tokio::sync::watch::channel(()).0,
     });
     SESSIONS.lock().insert(tab_id.clone(), session);
-    let _cleanup = Cleanup(tab_id.clone());
+    let cleanup = Cleanup(tab_id.clone());
+    (fixture, tab_id, peer, cleanup)
+}
+
+#[test]
+fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
+    const PAYLOAD: &str = "opaque supplied user input";
+    let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
     let pending = fixture
         .service
         .chat_send_ledger
@@ -168,5 +173,112 @@ module.exports = {
             Some(&pending.send_id)
         ),
         Err(crate::service::delivery_error::DeliveryError::SubmitUnconfirmed { .. })
+    ));
+}
+
+#[test]
+fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc() {
+    use crate::service::messenger::{Delivery, MessageEnvelope};
+    const PAYLOAD: &str = "opaque routed payload";
+    let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
+    let mut envelope = MessageEnvelope::tab("Source", "source").from_agent(Some(true));
+    envelope.id = Some(uuid::Uuid::new_v4().to_string());
+    let expected_text = crate::service::messenger::Messenger::from(envelope.clone())
+        .routed_frame(PAYLOAD)
+        .to_message();
+    let peer = tauri::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), peer.read_line(&mut line))
+            .await
+            .unwrap()
+            .unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["method"], "fixture/submit");
+        assert_eq!(request["params"]["threadId"], "own-thread");
+        let text = request["params"]["input"]["text"].as_str().unwrap();
+        assert_eq!(text, expected_text);
+        let send_id = request["params"]["sendId"].as_str().unwrap().to_string();
+        let response = json!({"id":request["id"],"result":{"turnId":"accepted-turn"}});
+        peer.get_mut()
+            .write_all(format!("{response}\n").as_bytes())
+            .await
+            .unwrap();
+        (peer, send_id)
+    });
+    let delivery = fixture
+        .service
+        .gateway_deliver_with_pad_file(
+            &tab_id,
+            envelope.clone(),
+            PAYLOAD,
+            crate::service::message_gateway::DeliveryClass::AgentTraffic,
+        )
+        .unwrap()
+        .0;
+    let (mut peer, send_id) = tauri::async_runtime::block_on(peer).unwrap();
+    assert!(matches!(delivery, Delivery::ChatBackend { message_id } if message_id == send_id));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Written
+    );
+    let nonce = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .session_binding_nonce
+        .clone()
+        .unwrap();
+    assert!(fixture
+        .service
+        .chat_send_ledger
+        .confirm_rpc_send(&tab_id, "other-thread", &nonce, &send_id)
+        .is_none());
+    assert!(fixture
+        .service
+        .chat_send_ledger
+        .confirm_rpc_send(&tab_id, "own-thread", &nonce, &send_id)
+        .is_some());
+    let delivery = fixture
+        .service
+        .gateway_deliver_with_pad_file(
+            &tab_id,
+            envelope,
+            PAYLOAD,
+            crate::service::message_gateway::DeliveryClass::AgentTraffic,
+        )
+        .unwrap()
+        .0;
+    assert!(matches!(delivery, Delivery::ChatBackend { message_id } if message_id == send_id));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Sent
+    );
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Wake, Waker},
+    };
+    use tokio::io::AsyncBufRead;
+    struct Noop;
+    impl Wake for Noop {
+        fn wake(self: Arc<Self>) {}
+    }
+    let waker = Waker::from(Arc::new(Noop));
+    let mut context = Context::from_waker(&waker);
+    assert!(matches!(
+        Pin::new(&mut peer).poll_fill_buf(&mut context),
+        Poll::Pending
     ));
 }
