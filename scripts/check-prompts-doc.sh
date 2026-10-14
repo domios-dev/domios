@@ -13,7 +13,7 @@ import sys
 root = Path(sys.argv[1])
 docs = root / ".agents/skills/prompts/inventory.md"
 prompts_dir = root / "src-tauri/prompts"
-prompts_rs = root / "src-tauri/src/prompts.rs"
+prompts_rs = root / "src-tauri/crates/codeterm-service-core/src/prompts.rs"
 plan_prompts_rs = root / "src-tauri/crates/codeterm-plan/src/service_plan/prompts_plan.rs"
 mem_prompts_rs = root / "src-tauri/crates/codeterm-mem/src/prompt_text.rs"
 seed_rs = root / "src-tauri/crates/codeterm-mem/src/seed.rs"
@@ -86,7 +86,7 @@ for name in sorted(files & doc_pairs.keys() & loaders.keys()):
 
 codeterm_rule_owners = {source for source, _, _ in loaders.get("codeterm_rule.md", [])}
 expected_rule_owners = {
-    "src-tauri/src/prompts.rs",
+    "src-tauri/crates/codeterm-service-core/src/prompts.rs",
     "src-tauri/crates/codeterm-plugin/src/prompts.rs",
 }
 if codeterm_rule_owners != expected_rule_owners:

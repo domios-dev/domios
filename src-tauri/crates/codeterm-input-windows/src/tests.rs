@@ -1,5 +1,4 @@
 const CONSUMER_CONTROL_PAGE: u16 = 12;
-const CONSUMER_CONTROL_USAGE: u16 = 1;
 const COLLECTION_ID: &str = "Col01";
 const BUTTON_REPORT_ID: u8 = 6;
 const BUTTON_REPORT_BYTES: usize = 3;

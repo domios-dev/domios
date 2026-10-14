@@ -8,6 +8,7 @@ codeterm-types = { path = "../codeterm-types" }
 codeterm-provider-signals = { path = "../codeterm-provider-signals" }
 codeterm-storage = { path = "../codeterm-storage" }
 codeterm-util = { path = "../codeterm-util" }
+codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-paths = { path = "../../../crates/codeterm-paths" }
 portable-pty = { path = "../../pty-fork" }
 vt100 = "0.16"
@@ -35,3 +36,6 @@ wait-timeout = "0.2"
 
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp"] }
+
+[lints]
+workspace = true
