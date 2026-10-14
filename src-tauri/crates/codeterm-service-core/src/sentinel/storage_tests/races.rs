@@ -194,8 +194,8 @@ fn storage_sentinel_held_writer_serves_committed_scope_and_holds_events() {
     store.lock().take_changes();
 
     let hold = held(&storage);
-    let (scoped, leases) = crate::sentinel::storage::committed_scope(&store, "workspace", None)
-        .expect("committed read");
+    let (scoped, leases) =
+        crate::sentinel::storage::committed_scope(&store, "workspace", None).expect("committed read");
     assert_eq!(scoped.len(), 2, "the exact null-Team scope only");
     assert!(leases.is_empty());
     let staged = store.lock().stage_stop(&first.id, "explicit");

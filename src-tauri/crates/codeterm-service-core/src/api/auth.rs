@@ -419,8 +419,8 @@ pub async fn auth_middleware(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::api_support::access_policy::check_access;
+    use super::*;
 
     #[test]
     fn remote_ownership_release_accepts_only_local_identity() {
