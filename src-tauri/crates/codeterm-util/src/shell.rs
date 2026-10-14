@@ -74,6 +74,14 @@ impl ShellSyntax {
         }
     }
 
+    pub fn quote_native_arg(value: &str) -> String {
+        if Self::IS_WINDOWS {
+            windows_native_arg(value)
+        } else {
+            Self::quote(value)
+        }
+    }
+
     /// One argv element: plain flag/value tokens pass through, anything a shell
     /// could reinterpret is quoted.
     pub fn quote_arg(s: &str) -> String {
@@ -88,9 +96,97 @@ impl ShellSyntax {
     }
 }
 
+pub fn quote_windows_argument(value: &str) -> String {
+    let mut result = String::from("\"");
+    let mut backslashes = 0;
+    for character in value.chars() {
+        if character == '\\' {
+            backslashes += 1;
+            continue;
+        }
+        let count = if character == '"' {
+            backslashes * 2 + 1
+        } else {
+            backslashes
+        };
+        result.extend(std::iter::repeat_n('\\', count));
+        result.push(character);
+        backslashes = 0;
+    }
+    result.extend(std::iter::repeat_n('\\', backslashes * 2));
+    result.push('"');
+    result
+}
+
+pub fn windows_native_arg(value: &str) -> String {
+    let quote = |value: &str| format!("'{}'", value.replace('\'', "''"));
+    format!(
+        "$(if ($PSVersionTable.PSVersion -ge [version]'7.3') {{ {} }} else {{ {} }})",
+        quote(value),
+        quote(&quote_windows_argument(value))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse_windows_argument(command: &str) -> String {
+        let mut result = String::new();
+        let mut characters = command.chars().peekable();
+        let mut quoted = false;
+        while characters.peek().is_some() {
+            let mut slashes = 0;
+            while characters.peek() == Some(&'\\') {
+                characters.next();
+                slashes += 1;
+            }
+            if characters.peek() == Some(&'"') {
+                characters.next();
+                result.extend(std::iter::repeat_n('\\', slashes / 2));
+                if slashes % 2 == 1 {
+                    result.push('"');
+                } else {
+                    quoted = !quoted;
+                }
+            } else {
+                result.extend(std::iter::repeat_n('\\', slashes));
+                if let Some(character) = characters.next() {
+                    assert!(quoted || !character.is_whitespace());
+                    result.push(character);
+                }
+            }
+        }
+        assert!(!quoted);
+        result
+    }
+
+    #[test]
+    fn windows_argument_round_trips_the_assigned_task_frame() {
+        let frame = r#"<domios from="system" context="assigned-task">opaque body</domios>"#;
+        for value in [
+            frame,
+            "",
+            "plain",
+            "two words",
+            "slash\\",
+            "slash\\\"quote",
+            "🦀 $env:X `x` %PATH%\n'quoted'",
+        ] {
+            assert_eq!(
+                parse_windows_argument(&quote_windows_argument(value)),
+                value
+            );
+            let expression = windows_native_arg(value);
+            let literal = |value: &str| format!("'{}'", value.replace('\'', "''"));
+            assert!(expression.contains(&format!("{{ {} }} else", literal(value))));
+            assert!(expression.ends_with(&format!(
+                "{{ {} }})",
+                literal(&quote_windows_argument(value))
+            )));
+        }
+        assert_ne!(parse_windows_argument(&format!("\"{frame}\"")), frame);
+    }
 
     #[test]
     fn task_file_expr_writes_file_and_returns_inline_subexpr() {

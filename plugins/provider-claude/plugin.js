@@ -24,6 +24,16 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/nativeArgument.ts
+function quoteWindowsArgument(value) {
+  return '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/\\+$/, "$&$&") + '"';
+}
+function quoteNativeArgument(value, platform, quote) {
+  const literal = quote(value, platform);
+  if (platform !== "windows") return literal;
+  return `$(if ($PSVersionTable.PSVersion -ge [version]'7.3') { ${literal} } else { ${quote(quoteWindowsArgument(value), platform)} })`;
+}
+
 // plugins/provider-claude/src/launchPromptRule.json
 var launchPromptRule_default = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
 
@@ -2503,7 +2513,7 @@ var plugin = {
       if (prompt) {
         parts.push("--");
         const framed = p.starterPromptPrefix ? p.starterPromptPrefix + prompt + "</domios>" : prompt;
-        parts.push(host.shell.quoteFor(framed, host.platform()));
+        parts.push(quoteNativeArgument(framed, host.platform(), host.shell.quoteFor));
       }
     }
     return parts.join(" ");
