@@ -3,7 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use codeterm_types::notification::{validate_answer_labels, CallerAction};
+use codeterm_notification_core::contract::{validate_answer_labels, CallerAction};
 use serde::Deserialize;
 use std::io::Read;
 
@@ -121,7 +121,7 @@ pub(crate) fn parse_push_intent(
 
 /// A caller's title, trimmed and bounded by the one rule every transport shares.
 pub(crate) fn vet_title(title: &str) -> Result<String, String> {
-    codeterm_types::notification::validate_title(title).map(str::to_string)
+    codeterm_notification_core::contract::validate_title(title).map(str::to_string)
 }
 
 /// A jump target must be a tab on this daemon, or the record would open nothing.
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn notify_send_refuses_blank_long_titles_and_missing_target_tabs() {
-        let limit = codeterm_types::notification::MAX_CALLER_TITLE_CHARS;
+        let limit = codeterm_notification_core::contract::MAX_CALLER_TITLE_CHARS;
         assert!(super::vet_title("   ").is_err());
         assert!(super::vet_title(&"t".repeat(limit + 1)).is_err());
         assert_eq!(super::vet_title("  opaque  ").unwrap(), "opaque");

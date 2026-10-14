@@ -25,7 +25,7 @@ fn persisted_usage_row_keeps_the_api_wire_contract() {
     let store = crate::usage::UsageStore::open(data_dir.path()).unwrap();
     let sample = codeterm_usage::UsageSample {
         provider: "fixture".into(),
-        billing_mode: codeterm_types::usage::BillingMode::Subscription,
+        billing_mode: codeterm_usage::contract::BillingMode::Subscription,
         limits_reported: false,
         account_id: Some("account-a".into()),
         captured_at_ms: 1000,
@@ -49,7 +49,7 @@ fn persisted_usage_row_keeps_the_api_wire_contract() {
     )
     .unwrap()
     .0;
-    let row: Option<codeterm_types::usage::UsageSnapshotRow> = store
+    let row: Option<codeterm_usage::contract::UsageSnapshotRow> = store
         .get_latest_with_stale_reason(&query.provider, query.account_id.as_deref())
         .unwrap();
     let value = serde_json::to_value(row).unwrap();

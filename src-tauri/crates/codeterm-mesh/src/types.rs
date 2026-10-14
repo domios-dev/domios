@@ -1,2 +1,2 @@
-pub use codeterm_types::mesh::inventory::*;
-pub use codeterm_types::mesh::types::*;
+pub use crate::contract::inventory::*;
+pub use crate::contract::types::*;

@@ -533,14 +533,14 @@ impl HandlerDefinition {
 }
 
 impl StageDefinition {
-    pub fn terminal(&self) -> Option<&codeterm_types::blueprint_terminal::Config> {
+    pub fn terminal(&self) -> Option<&codeterm_blueprint_types::blueprint_terminal::Config> {
         if let StageSource::Terminal { config, .. } = &self.source {
             Some(config)
         } else {
             None
         }
     }
-    pub fn pipeline(&self) -> Option<&codeterm_types::blueprint_pipeline::BlueprintSpec> {
+    pub fn pipeline(&self) -> Option<&codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec> {
         if let StageSource::Pipeline(spec) = &self.source {
             Some(spec)
         } else {
@@ -569,7 +569,7 @@ impl StageDefinition {
                 identifier("terminal source", &binding.reference)?
             }
             StageSource::Pipeline(_) => {}
-            StageSource::Input(input) => codeterm_types::sentinel_input::validate(input)
+            StageSource::Input(input) => codeterm_blueprint_types::sentinel_input::validate(input)
                 .map_err(|error| StorageError::invalid("blueprint input", error.to_string()))?,
         }
         if let Some(pipeline) = self.pipeline() {

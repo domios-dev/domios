@@ -1,7 +1,7 @@
 //! Recording the user's choice on a notification. The asking tab is captured
 //! when the question is created; answering resolves nothing.
 
-use codeterm_types::notification::{AnswerSlot, NotificationAction};
+use crate::contract::{AnswerSlot, NotificationAction};
 
 use super::store::Notification;
 

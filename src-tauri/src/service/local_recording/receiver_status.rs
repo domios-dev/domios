@@ -1,5 +1,5 @@
 use crate::service::ServiceContext;
-use codeterm_types::local_recording::ReceiverStatusQuery;
+use codeterm_local_recording::ReceiverStatusQuery;
 
 impl ServiceContext {
     pub(crate) fn read_receiver_status_report(

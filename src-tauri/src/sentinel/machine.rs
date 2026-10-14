@@ -139,8 +139,9 @@ pub enum Route {
 }
 
 impl Route {
-    pub const DESCRIPTORS: &'static [codeterm_types::blueprint_catalog::NodeDescriptor] =
-        codeterm_types::blueprint_catalog::ROUTES;
+    pub const DESCRIPTORS:
+        &'static [codeterm_blueprint_types::blueprint_catalog::NodeDescriptor] =
+        codeterm_blueprint_types::blueprint_catalog::ROUTES;
     pub fn name(&self) -> &'static str {
         Self::DESCRIPTORS[match self {
             Self::Notify => 0,

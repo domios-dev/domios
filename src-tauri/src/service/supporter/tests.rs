@@ -105,7 +105,7 @@ fn supporter_invalid_token_acl_notifies_owner_once_per_invalid_period() {
     assert_eq!(notices.len(), 2);
     assert_eq!(
         notices[0].level,
-        codeterm_types::notification::NotifyLevel::Failure
+        codeterm_notification_core::contract::NotifyLevel::Failure
     );
     assert!(!notices[0].title.contains("private-token-fixture"));
 }

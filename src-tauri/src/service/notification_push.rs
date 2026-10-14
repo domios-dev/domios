@@ -11,8 +11,8 @@ use crate::notification::authority::SurfaceTarget;
 use crate::notification::channels::{
     self, Audience, ChannelHost, ChannelReadiness, PushChannel, RegisteredChannel,
 };
+use codeterm_notification_core::contract::{NotifyDestination, NotifyLevel};
 use codeterm_types::config::schema::AppConfig;
-use codeterm_types::notification::{NotifyDestination, NotifyLevel};
 
 /// One channel this notification is actually going to, with the audience that
 /// channel resolved for it.

@@ -612,7 +612,7 @@ mod tests {
         let store = crate::usage::UsageStore::open(data_dir.path()).unwrap();
         let snapshot = UsageSnapshot {
             provider: "fixture".into(),
-            billing_mode: codeterm_types::usage::BillingMode::Subscription,
+            billing_mode: codeterm_usage::contract::BillingMode::Subscription,
             limits_reported: true,
             account_id: Some("account-a".into()),
             captured_at_ms: 1_783_601_000_000,

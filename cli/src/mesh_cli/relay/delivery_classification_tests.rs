@@ -2,7 +2,7 @@
 //! hop's own `ok` attests acceptance, which is not the same claim.
 
 use super::*;
-use codeterm_types::mesh::delivery;
+use codeterm_mesh::contract::delivery;
 
 const SEND: (&str, &str) = ("POST", "/api/tabs/e35319d7/send");
 

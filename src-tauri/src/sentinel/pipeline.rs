@@ -1,11 +1,11 @@
-use codeterm_types::blueprint_journal::{
+use codeterm_blueprint_types::blueprint_journal::{
     JournalMarker, JournalOutcome, JournalReason, JournalState,
 };
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use codeterm_types::blueprint_pipeline::{
+use codeterm_blueprint_types::blueprint_pipeline::{
     self as blueprint_pipeline, BlueprintSpec, ResultTarget, RunStatus, RunnerState, Step,
     StepJournalEntry, StepKind, StepOutcome,
 };
@@ -17,8 +17,8 @@ use super::scheduler::Handle;
 use super::storage;
 use super::store::{Lease, Sentinel};
 use crate::service::ServiceContext;
+use codeterm_blueprint_types::sentinel_input::{InputRun, InputSpec, MediaKind};
 use codeterm_storage::BlueprintJournalWrite;
-use codeterm_types::sentinel_input::{InputRun, InputSpec, MediaKind};
 
 struct StepResult {
     outcome: StepOutcome,
@@ -128,7 +128,7 @@ fn prepare_input(
         serde_json::to_string(&event.payload).unwrap_or_default()
     });
     let input = match &spec.trigger {
-        codeterm_types::blueprint_pipeline::Trigger::Input { kind, source } => {
+        codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { kind, source } => {
             let mut state = InputRun::Pending;
             let _ = state.advance(InputRun::Materializing);
             let spec = InputSpec {
@@ -149,10 +149,14 @@ fn prepare_input(
         _ => None,
     };
     let cleanup = input.as_ref().and_then(|_| {
-        codeterm_types::sentinel_input::run_dir(&crate::paths::data_dir(), &lease.job.id, &run_id)
-            .ok()
-            .map(super::input::Cleanup::new)
-            .map(std::sync::Arc::new)
+        codeterm_blueprint_types::sentinel_input::run_dir(
+            &crate::paths::data_dir(),
+            &lease.job.id,
+            &run_id,
+        )
+        .ok()
+        .map(super::input::Cleanup::new)
+        .map(std::sync::Arc::new)
     });
     let input_source = input
         .as_ref()
@@ -166,7 +170,8 @@ fn prepare_input(
             match std::fs::metadata(path) {
                 Ok(metadata)
                     if metadata.len()
-                        <= codeterm_types::sentinel_input::MAX_CONVERTED_TEXT_BYTES as u64 =>
+                        <= codeterm_blueprint_types::sentinel_input::MAX_CONVERTED_TEXT_BYTES
+                            as u64 =>
                 {
                     match std::fs::read_to_string(path) {
                         Ok(input_text) => text = input_text,
@@ -180,7 +185,7 @@ fn prepare_input(
     }
     let input_display = input
         .as_ref()
-        .map(|(_, source, _, _)| codeterm_types::sentinel_input::display_name(source));
+        .map(|(_, source, _, _)| codeterm_blueprint_types::sentinel_input::display_name(source));
     let input_run = input.as_ref().map(|(_, _, _, state)| state.clone());
     PreparedInput {
         text,
@@ -853,7 +858,9 @@ fn failed_input_step(reason: &str) -> StepResult {
 
 fn input_deadline(handle: &Handle, lease: &Lease) -> Instant {
     let default = Instant::now()
-        + Duration::from_millis(codeterm_types::sentinel_input::DEFAULT_CONVERT_TIMEOUT_MS);
+        + Duration::from_millis(
+            codeterm_blueprint_types::sentinel_input::DEFAULT_CONVERT_TIMEOUT_MS,
+        );
     lease
         .job
         .expires_at
@@ -915,7 +922,7 @@ fn result_routes(
 ) -> Result<Vec<Route>, String> {
     match &spec.result.to {
         ResultTarget::Owner
-            if spec.owner == codeterm_types::blueprint_pipeline::BlueprintOwner::Team =>
+            if spec.owner == codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team =>
         {
             team_routes(svc, job)
         }

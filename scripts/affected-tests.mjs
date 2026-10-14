@@ -28,6 +28,8 @@ const scopeAliases = new Map([
   ["codeterm-usage", "usage"],
   ["codeterm-mem", "mem"],
   ["codeterm-mesh", "mesh"],
+  ["codeterm-blueprint-types", "codeterm-blueprint-types"],
+  ["codeterm-local-recording", "codeterm-local-recording"],
 ]);
 
 function parseArgs(argv) {

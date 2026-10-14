@@ -1,4 +1,4 @@
-use codeterm_types::sentinel_input::InputSpec;
+use codeterm_blueprint_types::sentinel_input::InputSpec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObserveKind {
@@ -54,9 +54,9 @@ pub enum StageSource {
     Input(InputSpec),
     Terminal {
         binding: ObserveSource,
-        config: codeterm_types::blueprint_terminal::Config,
+        config: codeterm_blueprint_types::blueprint_terminal::Config,
     },
-    Pipeline(codeterm_types::blueprint_pipeline::BlueprintSpec),
+    Pipeline(codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec),
 }
 
 impl StageSource {

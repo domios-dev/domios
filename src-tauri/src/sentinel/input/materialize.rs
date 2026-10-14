@@ -3,7 +3,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use codeterm_types::sentinel_input::{run_dir, within_budget, DataRef, MAX_INPUT_SOURCE_BYTES};
+use codeterm_blueprint_types::sentinel_input::{
+    run_dir, within_budget, DataRef, MAX_INPUT_SOURCE_BYTES,
+};
 
 use super::InputFiles;
 

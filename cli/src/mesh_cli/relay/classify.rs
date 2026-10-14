@@ -2,7 +2,7 @@
 //! a structured failure. Pure — no I/O, no process exit.
 
 use super::MeshSpawnFailure;
-use codeterm_types::mesh::delivery;
+use codeterm_mesh::contract::delivery;
 
 /// Whether repeating the identical request can ever succeed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

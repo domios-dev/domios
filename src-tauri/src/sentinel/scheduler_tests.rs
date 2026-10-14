@@ -168,7 +168,8 @@ fn blueprint_session_exchanges_bypass_budgets_but_stop_at_safety_and_rate_limits
     live.session = true;
     assert!(!super::store::transition_budget_spent(&live));
     let transition = live.transitions[0].clone();
-    live.transitions = vec![transition; codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT];
+    live.transitions =
+        vec![transition; codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT];
     assert!(super::store::transition_budget_spent(&live));
     {
         let mut store = store.lock();

@@ -1,5 +1,5 @@
 use super::{ffi::*, raw_device_name, raw_device_preparsed_data, raw_input_devices};
-use codeterm_types::local_recording::ReceiverStatusQuery;
+use codeterm_local_recording::ReceiverStatusQuery;
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, GetLastError, ERROR_IO_PENDING, HANDLE, INVALID_HANDLE_VALUE},

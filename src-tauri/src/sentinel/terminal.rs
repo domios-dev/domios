@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES;
+use codeterm_blueprint_types::blueprint_terminal::MAX_PAYLOAD_BYTES;
 
 use super::store::Sentinel;
 

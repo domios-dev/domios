@@ -4,13 +4,13 @@ const COLLECTION_ID: &str = "Col01";
 const BUTTON_REPORT_ID: u8 = 6;
 const BUTTON_REPORT_BYTES: usize = 3;
 
-fn declaration() -> codeterm_types::local_recording::LocalRecordingTrigger {
-    codeterm_types::local_recording::LocalRecordingTrigger {
+fn declaration() -> codeterm_local_recording::LocalRecordingTrigger {
+    codeterm_local_recording::LocalRecordingTrigger {
         vendor_id: 0x3547,
         product_id: 8,
         usage_page: 12,
         usage: 1,
-        button: Some(codeterm_types::local_recording::LocalRecordingButton {
+        button: Some(codeterm_local_recording::LocalRecordingButton {
             interface_number: 0,
             collection_id: "Col01".into(),
             report_id: 6,
@@ -31,7 +31,7 @@ use std::time::Duration;
 
 #[test]
 fn lark_input_windows_inventory_requires_exact_trigger_capability() {
-    use codeterm_types::local_recording::LocalRecordingTrigger;
+    use codeterm_local_recording::LocalRecordingTrigger;
     let approved = declaration();
     assert!(supports_trigger(&approved));
     for foreign in [
