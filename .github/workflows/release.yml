@@ -352,6 +352,10 @@ jobs:
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then git push origin --delete "$BRANCH"; fi
 
   rust-warnings:
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: write
     needs: [prepare, quick-checks, tests, macos, linux-arm64, linux-x86_64, windows]
     if: always()
     uses: ./.github/workflows/rust-warnings-summary.yml
