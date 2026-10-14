@@ -292,4 +292,3 @@ mod tests {
         assert!(!admission.claim("launch", 2, 42, Cause::Frame, now + FRAME_INTERVAL * 2));
     }
 }
-const _SPLIT_METRIC_PROBE: u8 = 0;

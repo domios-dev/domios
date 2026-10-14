@@ -147,4 +147,3 @@ impl ServiceContext {
         Ok(serde_json::json!({"ok": true, "report_id": result.report_id}))
     }
 }
-const _SPLIT_METRIC_PROBE: u8 = 0;
