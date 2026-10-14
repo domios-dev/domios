@@ -67,6 +67,34 @@ pub fn socket_prefix() -> String {
     }
 }
 
+/// Bare namespaced socket name for the current process (`GenericNamespaced` adds `/tmp/` on Unix).
+pub fn socket_path() -> String {
+    #[cfg(debug_assertions)]
+    {
+        format!("{}.sock", socket_prefix())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let pid = std::process::id();
+        format!("{}-{}.sock", socket_prefix(), pid)
+    }
+}
+
+/// Full socket display path: `/tmp/<name>` on Unix, `\.\pipe\<name>` on Windows.
+pub fn socket_display_path() -> String {
+    let bare = socket_path();
+
+    #[cfg(target_os = "windows")]
+    {
+        format!("\\.\pipe\{}", bare)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        format!("/tmp/{}", bare)
+    }
+}
+
 /// Get the CodeTerm data directory (`~/.codeterm` or `~/.codeterm-dev`).
 /// Creates the directory if it doesn't exist.
 pub fn data_dir() -> PathBuf {
