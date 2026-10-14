@@ -7,7 +7,7 @@ use codeterm_types::pty::BootStage;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum SessionBindingStateKind {
+pub enum SessionBindingStateKind {
     Healthy,
     DeferredPending,
     Refused,

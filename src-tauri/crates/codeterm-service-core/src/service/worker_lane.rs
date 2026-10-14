@@ -108,7 +108,7 @@ impl LaneProtection {
 }
 
 #[derive(Debug)]
-pub(crate) struct ProvisionedWorkerLane {
+pub struct ProvisionedWorkerLane {
     canonical_cwd: String,
     pub(crate) cwd: String,
     pub(crate) branch: String,
@@ -145,7 +145,7 @@ impl ProvisionedWorkerLane {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkerLaneProvenance {
+pub struct WorkerLaneProvenance {
     pub(crate) canonical_cwd: String,
     pub(crate) worktree_path: String,
     pub(crate) branch: String,

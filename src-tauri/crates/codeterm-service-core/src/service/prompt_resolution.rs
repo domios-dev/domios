@@ -73,6 +73,7 @@ pub mod tests {
         PromptIdentity::new(PromptKind::Provider, prompt)
     }
 
+    #[cfg(test)]
     fn notification(store: &mut NotificationStore, identity: &PromptIdentity) -> String {
         store.add_ext(
             "opaque title".into(),

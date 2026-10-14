@@ -78,7 +78,7 @@ pub struct LaunchGeneration {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderSessionBinding {
+pub struct ProviderSessionBinding {
     pub(crate) pty_id: String,
     pub(crate) binding_nonce: String,
 }

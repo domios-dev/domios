@@ -123,7 +123,7 @@ impl LaunchExitSource {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LaunchExitProof {
+pub struct LaunchExitProof {
     attempt: LaunchAttempt,
     source: LaunchExitSource,
     tree_key: Option<crate::service::process_tree::ProviderTreeKey>,

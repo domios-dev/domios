@@ -89,7 +89,7 @@ impl SurfaceNotice {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum SurfaceEvent {
+pub enum SurfaceEvent {
     State(SurfaceState),
     Frame(Arc<ScreencastFrame>),
     Notice(SurfaceNotice),

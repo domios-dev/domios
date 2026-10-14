@@ -1,7 +1,7 @@
 use crate::agent::registry::AgentRegistry;
 use tauri::Manager;
 #[derive(Clone, Debug)]
-pub(crate) struct PermissionBypassAuthorization {
+pub struct PermissionBypassAuthorization {
     provider_id: String,
 }
 
