@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { lexRust, parseCargoToml, scanWorkspace } from "../rust-test-inventory.mjs";
+import { diffInventories, lexRust, loadInventory, parseCargoToml, scanWorkspace } from "../rust-test-inventory.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(here, "fixtures", "rust-test-inventory");
@@ -81,4 +81,91 @@ test("scan CLI writes {tests, warnings} JSON and exits 0", () => {
   const inv = JSON.parse(readFileSync(out, "utf8"));
   assert.equal(inv.tests.length, 18);
   assert.equal(inv.warnings.length, 4);
+});
+
+const tmp = () => mkdtempSync(path.join(tmpdir(), "rti-"));
+const staticOf = (name) => loadInventory(scanWorkspace(path.join(fixtures, name)));
+const nextestJson = () => JSON.parse(readFileSync(path.join(fixtures, "nextest-move-after.json"), "utf8"));
+const keys = (xs) => xs.map((x) => x.key);
+const writeJson = (dir, name, value) => {
+  const file = path.join(dir, name);
+  writeFileSync(file, JSON.stringify(value));
+  return file;
+};
+const runDiff = (before, after) => spawnSync(process.execPath, [script, "diff", before, after], { encoding: "utf8" });
+
+test("diff allows a module that moves between two crates and reports it as moved", () => {
+  const d = diffInventories(staticOf("move-before"), staticOf("move-after"));
+  assert.equal(d.ok, true);
+  assert.deepEqual(keys(d.lost), []);
+  assert.deepEqual(d.moved.map((m) => `${m.key} ${m.from.join(",")}->${m.to.join(",")}`), [
+    "parser::tests::parses_body fixture-app->fixture-core",
+    "parser::tests::parses_header fixture-app->fixture-core",
+  ]);
+  const dir = tmp();
+  const run = runDiff(writeJson(dir, "b.json", scanWorkspace(path.join(fixtures, "move-before"))), writeJson(dir, "a.json", scanWorkspace(path.join(fixtures, "move-after"))));
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.match(run.stdout, /lost: 0\b/);
+  assert.match(run.stdout, /moved: 2\b/);
+});
+
+test("diff fails on a renamed test and names both the lost and the added key", () => {
+  const d = diffInventories(staticOf("move-before"), staticOf("rename-after"));
+  assert.equal(d.ok, false);
+  assert.deepEqual(keys(d.lost), ["parser::tests::parses_header"]);
+  assert.deepEqual(keys(d.added), ["parser::tests::parses_head"]);
+  const dir = tmp();
+  const run = runDiff(writeJson(dir, "b.json", scanWorkspace(path.join(fixtures, "move-before"))), writeJson(dir, "a.json", scanWorkspace(path.join(fixtures, "rename-after"))));
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.match(run.stdout, /parser::tests::parses_header/);
+});
+
+test("diff counts a key compiled into several binaries as a multiset", () => {
+  const t = { crate: "c", module_path: "support", test_name: "shared" };
+  const d = diffInventories(loadInventory([t, t]), loadInventory([t]));
+  assert.equal(d.ok, false);
+  assert.deepEqual(d.lost.map((l) => `${l.key}x${l.count}`), ["support::sharedx1"]);
+});
+
+test("nextest list JSON on the after side: moves pass and nextest-only keys are reported, not failed", () => {
+  const after = loadInventory(nextestJson());
+  assert.equal(after.format, "nextest");
+  const d = diffInventories(staticOf("move-before"), after);
+  assert.equal(d.ok, true);
+  assert.deepEqual(keys(d.moved), ["parser::tests::parses_body", "parser::tests::parses_header"]);
+  assert.deepEqual(keys(d.nextestOnly), ["tests::generated_case"]);
+  assert.deepEqual(keys(d.added), []);
+});
+
+test("a static key missing from nextest fails", () => {
+  const json = nextestJson();
+  delete json["rust-suites"]["fixture-core"].testcases["parser::tests::parses_body"];
+  const d = diffInventories(staticOf("move-after"), loadInventory(json));
+  assert.equal(d.ok, false);
+  assert.deepEqual(keys(d.lost), ["parser::tests::parses_body"]);
+  const dir = tmp();
+  const run = runDiff(writeJson(dir, "static.json", scanWorkspace(path.join(fixtures, "move-after"))), writeJson(dir, "nextest.json", json));
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.match(run.stdout, /parser::tests::parses_body/);
+});
+
+test("nextest list JSON on the before side is diffed strictly", () => {
+  assert.equal(diffInventories(loadInventory(nextestJson()), loadInventory(nextestJson())).ok, true);
+  const d = diffInventories(loadInventory(nextestJson()), staticOf("move-after"));
+  assert.equal(d.ok, false);
+  assert.deepEqual(keys(d.lost), ["tests::generated_case"]);
+});
+
+test("loadInventory detects the format by shape and refuses anything else", () => {
+  const t = { crate: "c", module_path: "", test_name: "x" };
+  assert.equal(loadInventory([t]).format, "static");
+  assert.equal(loadInventory({ tests: [t], warnings: [] }).format, "static");
+  assert.throws(() => loadInventory({ suites: {} }), /unrecognised/);
+});
+
+test("diff CLI on an identical inventory exits 0 with zero lost", () => {
+  const file = writeJson(tmp(), "inv.json", scanWorkspace(path.join(fixtures, "scan")));
+  const run = runDiff(file, file);
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.match(run.stdout, /lost: 0\b/);
 });
