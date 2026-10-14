@@ -561,18 +561,35 @@ function loginCompleted(value) {
   return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
 }
 
+// plugins/provider-codex/src/runtimeUsage.ts
+function rateLimitEvents(raw) {
+  const limits = object(raw);
+  if (limits.limitId && limits.limitId !== "codex") return [];
+  const windows = ["primary", "secondary"].flatMap((window) => {
+    const value = object(limits[window]);
+    if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
+    return [{
+      window,
+      usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
+      ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
+      ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
+    }];
+  });
+  return windows.length ? [{ kind: "rateLimits", rateLimits: windows }] : [];
+}
+
 // plugins/provider-codex/src/runtimeAuth.ts
 function accountAuth(value) {
   const response = object(value);
   if (response.account === null && response.requiresOpenaiAuth === true) return { kind: "auth", state: "signedOut" };
   const account = object(response.account);
-  if (text(account.type)) return { kind: "auth", state: "signedIn" };
+  if (text(account.type)) return { kind: "auth", state: "signedIn", billingMode: account.type === "apiKey" ? "api" : account.type === "chatgpt" || account.type === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 function notificationAuth(value) {
   const params = object(value);
   if (params.authMode === null) return { kind: "auth", state: "signedOut" };
-  if (text(params.authMode)) return { kind: "auth", state: "signedIn" };
+  if (text(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 
@@ -812,6 +829,7 @@ function usage(params) {
   const total = object(token.total);
   if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return void 0;
   return {
+    ...typeof total.costUsd === "number" && Number.isFinite(total.costUsd) && total.costUsd >= 0 ? { cost_micros: Math.round(total.costUsd * 1e6) } : {},
     input_tokens: total.inputTokens,
     output_tokens: total.outputTokens,
     ...typeof total.cacheWriteInputTokens === "number" ? { cache_write_tokens: total.cacheWriteInputTokens } : {},
@@ -933,17 +951,7 @@ function runtimeReduce(ctx, raw, frames) {
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
-      const windows = ["primary", "secondary"].flatMap((window) => {
-        const value = object(state.rateLimitSnapshot?.[window]);
-        if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
-        return [{
-          window,
-          usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
-          ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
-          ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
-        }];
-      });
-      if (windows.length) events.push({ kind: "rateLimits", rateLimits: windows });
+      events.push(...rateLimitEvents(state.rateLimitSnapshot));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
@@ -1190,6 +1198,7 @@ function runtimeResponse(ctx, op, raw, reply) {
   validateBinding(ctx, op);
   const state = object(raw);
   if (reply.kind === "error") {
+    if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: { kind: "initialized" }, events: [state.auth] };
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
     if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
@@ -1205,7 +1214,12 @@ function runtimeResponse(ctx, op, raw, reply) {
     case "initialize":
       if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: { stage: "initializedNotification" } });
       if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
-      return { kind: "complete", result: { kind: "initialized" }, events: [accountAuth(value)] };
+      if (state.stage === "initializeAccount") {
+        const auth = accountAuth(value);
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", {}, { stage: "initializeLimits", auth }));
+        return { kind: "complete", result: { kind: "initialized" }, events: [auth] };
+      }
+      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits)] };
     case "openThread": {
       if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: state.settings } };
       const threadId = userThread(value);

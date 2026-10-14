@@ -1,3 +1,4 @@
+import { ownRuntimeUsage, runtimeLimitsSnapshot, runtimeTokenLabel, runtimeTokenBreakdown } from "./runtimeUsage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
@@ -14,6 +15,8 @@ import { formatAge } from "../../lib/timeLabels";
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
       tab that already knows its provider via `usageProvider`. */
+  tabId?: string;
+  threadId?: string | null;
   provider: string;
   accountId?: string | null;
   /// Pass-through from a single top-level `useConfig()` so every tab's
@@ -33,6 +36,8 @@ const STALE_MS = 20 * 60 * 1000;
 
 export function UsageBubble({
   provider,
+  tabId,
+  threadId,
   accountId = null,
   trackingEnabled = false,
   modelId = null,
@@ -55,7 +60,9 @@ export function UsageBubble({
     accountId,
     enabled: trackingEnabled && !groupSnapshot,
   });
-  const active = groupSnapshot ?? snapshot;
+  const runtime = ownRuntimeUsage(snapshot,tabId,threadId);
+  const active = runtime && snapshot ? runtimeLimitsSnapshot(snapshot,runtime) : snapshot?.runtime_usage ? null : groupSnapshot ?? snapshot;
+  const tokenSession = runtime?.billing_mode === "api" ? runtime : null;
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
@@ -141,16 +148,17 @@ export function UsageBubble({
         type="button"
         className={bubbleClass}
         aria-label={
-          billingLabel ?? (isSpend
+          tokenSession ? `usage ${runtimeTokenLabel(tokenSession)}` : billingLabel ?? (isSpend
             ? `usage ${spendLabel}`
             : usageMetricsAriaLabel(metrics))
         }
+        title={tokenSession ? runtimeTokenBreakdown(tokenSession) : undefined}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
       >
-        {billingLabel ? <span>{billingLabel}</span> : isSpend ? (
+        {tokenSession ? <span>{runtimeTokenLabel(tokenSession)}</span> : billingLabel ? <span>{billingLabel}</span> : isSpend ? (
           <span className="glyph neutral">
             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M6 1.6v8.8M8 3.2H4.9a1.4 1.4 0 0 0 0 2.8h2.2a1.4 1.4 0 0 1 0 2.8H3.8" />
@@ -170,7 +178,9 @@ export function UsageBubble({
         {isStale && <span className="stale-age">·{formatAge(active.captured_at, now)}</span>}
       </button>
 
-      {open && isSpend && (
+      {open && tokenSession && <div role="status" className="ct-usage-detail">{runtimeTokenBreakdown(tokenSession)}</div>}
+
+      {open && !tokenSession && isSpend && (
         <UsageSpendDetail
           snapshot={active}
           flipUp={flipUp}
@@ -182,7 +192,7 @@ export function UsageBubble({
         />
       )}
 
-      {open && !isSpend && (
+      {open && !tokenSession && !isSpend && (
         <UsageDetail
           snapshot={active}
           flipUp={flipUp}

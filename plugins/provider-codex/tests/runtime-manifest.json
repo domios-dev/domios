@@ -15,7 +15,8 @@
       "initialize": [
         "initialize",
         "initialized",
-        "account/read"
+        "account/read",
+        "account/rateLimits/read"
       ],
       "openThread": [
         "thread/start",
@@ -83,7 +84,8 @@
         "apiKey"
       ],
       "terminalCommand": "codex login"
-    }
+    },
+    "usage": true
   },
   "chatBackend": {
     "spawnable": true,

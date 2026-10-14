@@ -573,6 +573,55 @@
           }
         ]
       }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "threadId": "thread-a",
+        "settings": {},
+        "providerSettings": {}
+      },
+      "state": null,
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "usage",
+              "threadId": "thread-a",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "cache_read_tokens": 30,
+                "cost_micros": 20000
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "state": {
+          "count": 1
+        },
+        "events": [
+          {
+            "kind": "usage",
+            "threadId": "thread-a",
+            "usage": {
+              "input_tokens": 100,
+              "output_tokens": 20,
+              "cache_read_tokens": 30,
+              "cost_micros": 20000
+            }
+          }
+        ]
+      }
     }
   ]
 }

@@ -1,0 +1,18 @@
+import assert from "node:assert/strict";
+import {ownRuntimeUsage,runtimeLimitsSnapshot,runtimeTokenLabel,runtimeTokenBreakdown} from "./runtimeUsage";
+import type {UsageSnapshot,RuntimeUsageProjection} from "../../types/usage";
+const reading:RuntimeUsageProjection={tab_id:"own",thread_id:"thread",billing_mode:"subscription",token_usage:null,rate_limits:{captured_at:100,value:[{window:"primary",usedPercent:2,resetsAt:1000},{window:"secondary",usedPercent:0,resetsAt:2000}]}};
+const snapshot={provider:"fixture",captured_at:100,runtime_usage:[reading]} as UsageSnapshot;
+assert.equal(ownRuntimeUsage(snapshot,"foreign","thread"),null);
+assert.equal(ownRuntimeUsage(snapshot,"own","old"),null);
+assert.equal(ownRuntimeUsage(snapshot,"own","thread"),reading);
+const limits=runtimeLimitsSnapshot(snapshot,reading);
+assert.equal(limits.session_pct,2);
+assert.equal(limits.weekly_pct,0);
+assert.equal(limits.session_resets_at,1000);
+const api={...reading,billing_mode:"api" as const,token_usage:{captured_at:200,value:{input_tokens:100,output_tokens:20,cache_read_tokens:30}}};
+assert.equal(runtimeLimitsSnapshot(limits,api).session_pct,null);
+assert.equal(runtimeTokenLabel(api),"120 tokens");
+assert.equal(runtimeTokenBreakdown(api),"Session input: 100; cached input: 30; cache write: 0; output: 20");
+assert.equal(runtimeTokenLabel({...api,token_usage:{captured_at:200,value:{...api.token_usage.value,cost_micros:20000}}}),"120 tokens · $0.02");
+console.log("PASS runtime usage: exact binding, windows, API tokens and optional cost");

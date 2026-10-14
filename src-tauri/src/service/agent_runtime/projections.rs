@@ -23,6 +23,8 @@ struct UsageProjection {
     nonce: String,
     #[serde(skip)]
     epoch: u64,
+    billing_mode: codeterm_types::usage::BillingMode,
+    captured_at: u64,
     token_usage: Option<Reading<TokenUsage>>,
     rate_limits: Option<Reading<Vec<RuntimeRateLimit>>>,
 }
@@ -60,29 +62,74 @@ fn projection<'a>(
             provider: provider.into(),
             nonce: context.binding_nonce.clone(),
             epoch: context.epoch,
+            billing_mode: Default::default(),
+            captured_at: 0,
             token_usage: None,
             rate_limits: None,
         });
-    if reading.provider != provider
-        || reading.nonce != context.binding_nonce
-        || reading.thread_id != context.thread_id
-    {
+    if reading.provider != provider || reading.nonce != context.binding_nonce {
         reading.provider = provider.into();
         reading.nonce = context.binding_nonce.clone();
         reading.thread_id = context.thread_id.clone();
+        reading.billing_mode = Default::default();
         reading.token_usage = None;
         reading.rate_limits = None;
+    }
+    if reading.thread_id != context.thread_id {
+        reading.thread_id = context.thread_id.clone();
+        reading.token_usage = None;
     }
     reading.epoch = context.epoch;
     reading
 }
 
-pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64) {
+fn publishes_usage(svc: &ServiceContext, session: &Session) -> bool {
+    svc.agent_registry
+        .with_provider(&session.provider, |provider| {
+            provider
+                .agent_runtime()
+                .is_some_and(|capability| capability.usage)
+        })
+        .unwrap_or(false)
+}
+
+pub fn billing(
+    svc: &ServiceContext,
+    session: &Session,
+    mode: codeterm_types::usage::BillingMode,
+    at: u64,
+) {
+    if !publishes_usage(svc, session) {
+        return;
+    }
     let context = session.context.lock().clone();
-    projection(&mut USAGE.lock(), &session.provider, &context).token_usage = Some(Reading {
+    let mut readings = USAGE.lock();
+    let reading = projection(&mut readings, &session.provider, &context);
+    reading.billing_mode = mode;
+    reading.captured_at = at;
+    if mode != codeterm_types::usage::BillingMode::Subscription {
+        reading.rate_limits = None;
+    }
+    if mode == codeterm_types::usage::BillingMode::Unknown {
+        reading.token_usage = None;
+    }
+    drop(readings);
+    svc.notify_event("usage-snapshot-updated", serde_json::json!({"provider":session.provider,"account_id":null,"tab_id":context.tab_id,"captured_at":at}));
+}
+
+pub fn usage(svc: &ServiceContext, session: &Session, usage: TokenUsage, at: u64) {
+    if !publishes_usage(svc, session) {
+        return;
+    }
+    let context = session.context.lock().clone();
+    let mut readings = USAGE.lock();
+    let reading = projection(&mut readings, &session.provider, &context);
+    reading.captured_at = at;
+    reading.token_usage = Some(Reading {
         captured_at: at,
         value: usage,
     });
+    drop(readings);
     svc.notify_event(
         "usage-snapshot-updated",
         serde_json::json!({"provider":session.provider,"account_id":null}),
@@ -95,6 +142,9 @@ pub async fn rate_limits(
     limits: Vec<RuntimeRateLimit>,
     at: u64,
 ) -> Result<(), RuntimeFailure> {
+    if !publishes_usage(svc, session) {
+        return Ok(());
+    }
     let context = session.context.lock().clone();
     let sample = rate_sample(&session.provider, &limits, at);
     let store = svc.usage_store.clone();
@@ -102,10 +152,14 @@ pub async fn rate_limits(
         .await
         .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
         .map_err(RuntimeFailure::HookFailed)?;
-    projection(&mut USAGE.lock(), &session.provider, &context).rate_limits = Some(Reading {
+    let mut readings = USAGE.lock();
+    let reading = projection(&mut readings, &session.provider, &context);
+    reading.captured_at = at;
+    reading.rate_limits = Some(Reading {
         captured_at: at,
         value: limits,
     });
+    drop(readings);
     svc.notify_event(
         "usage-snapshot-updated",
         serde_json::json!({"provider":session.provider,"account_id":null,"snapshot_id":snapshot_id}),
@@ -130,7 +184,7 @@ fn rate_sample(
     };
     codeterm_usage::UsageSample {
         provider: provider.into(),
-        billing_mode: Default::default(),
+        billing_mode: codeterm_types::usage::BillingMode::Subscription,
         limits_reported: !limits.is_empty(),
         account_id: None,
         captured_at_ms: at as i64,
@@ -174,12 +228,21 @@ pub fn latest(
             reading.provider == provider
                 && mux.get_tab(&reading.tab_id).is_some_and(|tab| {
                     tab.agent_type.as_deref() == Some(provider)
-                        && tab.agent_session_id == reading.thread_id
+                        && (tab.agent_session_id == reading.thread_id
+                            || reading.thread_id.is_none())
                         && tab.session_binding_nonce.as_deref() == Some(&reading.nonce)
                         && tab.reported_session_binding_nonce.as_deref() == Some(&reading.nonce)
                 })
         })
         .cloned()
+        .map(|mut reading| {
+            if reading.thread_id.is_none() {
+                reading.thread_id = mux
+                    .get_tab(&reading.tab_id)
+                    .and_then(|tab| tab.agent_session_id.clone());
+            }
+            reading
+        })
         .collect::<Vec<_>>();
     current.sort_by(|a, b| a.tab_id.cmp(&b.tab_id));
     enrich_latest(result, provider, current)
@@ -257,9 +320,12 @@ mod tests {
             provider: "fixture".into(),
             nonce: "nonce".into(),
             epoch: 1,
+            billing_mode: codeterm_types::usage::BillingMode::Api,
+            captured_at: 10,
             token_usage: Some(Reading {
                 captured_at: 10,
                 value: TokenUsage {
+                    cost_micros: None,
                     input_tokens: 12,
                     output_tokens: 3,
                     cache_read_tokens: Some(4),
@@ -283,6 +349,41 @@ mod tests {
             .unwrap()
             .is_null());
     }
+    #[test]
+    fn runtime_usage_binding_changes_clear_tokens_but_keep_account_limits() {
+        let mut readings = HashMap::new();
+        let mut context: RuntimeContext = serde_json::from_value(serde_json::json!({
+            "epoch":1,"tabId":"own","cwd":"/fixture","hostVersion":"1",
+            "bindingNonce":"nonce","settings":{},"providerSettings":{},
+            "activeTurns":[],"threadParents":[],"claimedSends":[]
+        }))
+        .unwrap();
+        let first = projection(&mut readings, "fixture", &context);
+        first.billing_mode = codeterm_types::usage::BillingMode::Subscription;
+        first.rate_limits = Some(Reading {
+            captured_at: 10,
+            value: vec![window("primary", 20.0, 300)],
+        });
+        context.thread_id = Some("thread".into());
+        let loaded = projection(&mut readings, "fixture", &context);
+        assert_eq!(
+            loaded.billing_mode,
+            codeterm_types::usage::BillingMode::Subscription
+        );
+        assert_eq!(
+            loaded.rate_limits.as_ref().unwrap().value[0].used_percent,
+            20.0
+        );
+        context.binding_nonce = "new".into();
+        let rebound = projection(&mut readings, "fixture", &context);
+        assert_eq!(
+            rebound.billing_mode,
+            codeterm_types::usage::BillingMode::Unknown
+        );
+        assert!(rebound.rate_limits.is_none());
+        assert!(rebound.token_usage.is_none());
+    }
+
     #[test]
     fn partial_confirmation_preserves_other_runtime_controls() {
         let prior = RuntimeSettings {

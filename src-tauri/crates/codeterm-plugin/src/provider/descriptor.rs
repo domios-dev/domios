@@ -19,7 +19,7 @@ pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
     if provider.usage_parser().is_some() {
         let probe_cmd = provider.usage_probe_command().unwrap_or("/usage");
         settings.push(usage_tracking_section(probe_cmd));
-    } else if provider.reports_group_usage() {
+    } else if provider.reports_group_usage() || runtime.as_ref().is_some_and(|cap| cap.usage) {
         settings.push(usage_store_tracking_section());
     }
     ProviderDescriptor {

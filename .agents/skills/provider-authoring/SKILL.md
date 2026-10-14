@@ -563,3 +563,5 @@ stdout from caller-supplied JSON (1 MiB record and 24 KiB declaration bounds),
 with no filesystem, network, environment or subprocess access. The guard,
 confirmation reader and native/JS model-label detection share that parser;
 shared command fixtures cover native/QuickJS parity.
+
+`agentRuntime.usage: true` declares live usage publication and earns the shared Usage Tracking setting. Runtime auth events declare `billingMode`; account rate windows reach the subscription meter and exact-thread token events reach the session chip. `TokenUsage.cost_micros` is optional reported USD cost, never an estimate. These pure data extensions grant no host filesystem, environment, network or subprocess access.
