@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/chat-engine",
-  "version": "1.14.9-dev.5",
+  "version": "1.14.9-dev.6",
   "type": "module",
   "description": "Pure context-engine helpers for chatBackend plugins (chat window policy + machine assembly).",
   "license": "ISC",
