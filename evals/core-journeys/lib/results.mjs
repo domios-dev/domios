@@ -9,6 +9,7 @@ export const JOURNEYS = {
   J4: "DEV restart: every restored tab ready, sends answered, attempt bindings intact",
   J5: "Upgrade N-1 to N on a disposable instance, then J1-J4",
   CLEAN: "Owned plans, Teams, tabs and workspace removed",
+  EVIDENCE: "Window screenshots captured for the run",
   HARNESS: "Harness error outside a journey check",
 };
 
@@ -82,6 +83,7 @@ export function recorder(out, results, { log = console.log } = {}) {
       entry.evidence = error?.evidence ?? null;
       return undefined;
     } finally {
+      entry.verdict = entry.pass ? "pass" : "fail";
       entry.ms = Math.round(performance.now() - started);
       results.checks.push(entry);
       saveResults(out, results);
