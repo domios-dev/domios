@@ -451,7 +451,6 @@ impl ServiceContext {
             teardown
                 .sentinel
                 .store
-                .lock()
                 .adopt_external_commit(&sentinel_commit)?;
         }
         let commit = {
