@@ -5,7 +5,8 @@
 //! never against a provider id. An undeclared event yields nothing and changes
 //! nothing.
 
-use codeterm_types::pty::{AgentLiveState, TabVerdict, TimelineState};
+use codeterm_plugin::agent_runtime::{RuntimeTurnDetail, RuntimeTurnState};
+use codeterm_types::pty::{AgentLiveState, QuestionSubtype, TabVerdict, TimelineState};
 
 use crate::agent::provider::{declared_state_verdict, ProviderStateVerdict};
 use crate::multiplexer::commands::MuxState;
@@ -26,6 +27,50 @@ pub fn live_state_for(verdict: ProviderStateVerdict) -> AgentLiveState {
     .into()
 }
 
+const RUNTIME_STATUS_LINE_CHARS: usize = 160;
+
+/// The live state a structured runtime turn report commits to. The detail names
+/// a phase or question subtype; the UI owns the words shown for it.
+pub fn live_state_for_runtime(
+    state: &RuntimeTurnState,
+    detail: Option<RuntimeTurnDetail>,
+    status_line: Option<&str>,
+) -> AgentLiveState {
+    let (timeline, subtype, phase) = match (state, detail) {
+        (RuntimeTurnState::Working, Some(RuntimeTurnDetail::Compacting)) => {
+            (TimelineState::Working, None, Some("compacting"))
+        }
+        (RuntimeTurnState::Working, _) => (TimelineState::Working, None, None),
+        (RuntimeTurnState::NeedsInput, Some(RuntimeTurnDetail::AwaitingApproval)) => (
+            TimelineState::Question,
+            Some(QuestionSubtype::Permission),
+            None,
+        ),
+        (RuntimeTurnState::NeedsInput, Some(RuntimeTurnDetail::SystemError)) => {
+            (TimelineState::Question, Some(QuestionSubtype::Error), None)
+        }
+        (RuntimeTurnState::NeedsInput, _) => (TimelineState::Question, None, None),
+        (RuntimeTurnState::Idle, Some(RuntimeTurnDetail::Interrupted)) => {
+            (TimelineState::Idle, None, Some("interrupted"))
+        }
+        (RuntimeTurnState::Idle, Some(RuntimeTurnDetail::Failed)) => {
+            (TimelineState::Idle, None, Some("failed"))
+        }
+        (RuntimeTurnState::Idle, _) => (TimelineState::Idle, None, None),
+    };
+    let mut live: AgentLiveState = TabVerdict {
+        state: timeline,
+        subtype,
+    }
+    .into();
+    live.phase = phase.map(str::to_string);
+    live.status_line = status_line
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.chars().take(RUNTIME_STATUS_LINE_CHARS).collect());
+    live
+}
+
 /// Commit a verdict onto the tab. Returns true only when the tab's state
 /// actually moved, so a repeated report changes nothing and emits nothing.
 pub fn apply(
@@ -34,7 +79,11 @@ pub fn apply(
     session_id: &str,
     verdict: ProviderStateVerdict,
 ) -> bool {
-    let next = live_state_for(verdict);
+    apply_live(mux, tab_id, session_id, live_state_for(verdict))
+}
+
+/// Commit a complete live state onto the tab bound to `session_id`.
+pub fn apply_live(mux: &MuxState, tab_id: &str, session_id: &str, next: AgentLiveState) -> bool {
     let mut mux = mux.write();
     match mux.get_tab_mut(tab_id) {
         Some(tab)

@@ -199,6 +199,8 @@ fn completed_parent_retains_ancestry_and_descendant_interrupt_authority() {
             state,
             started_at: None,
             completed_at: None,
+            detail: None,
+            status_line: None,
         };
     for event in [
         event("child", "a", Some("root"), RuntimeTurnState::Working),
@@ -234,6 +236,8 @@ fn old_completion_cannot_remove_an_auto_started_goal_turn() {
                 state,
                 started_at: None,
                 completed_at: None,
+                detail: None,
+                status_line: None,
             },
         );
     }
