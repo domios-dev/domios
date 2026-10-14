@@ -21,3 +21,11 @@ pub mod windows_env;
 #[cfg(windows)]
 pub mod windows_job;
 pub mod windows_powershell;
+
+#[cfg(test)]
+mod swift_probe {
+    pub(crate) fn probe() -> u32 {
+        let missing_value = 1;
+        missing_value
+    }
+}
