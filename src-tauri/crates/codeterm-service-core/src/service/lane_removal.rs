@@ -905,7 +905,7 @@ impl ServiceContext {
     ) -> Result<LaneRemovalOutcome, String> {
         remove_lane_and_clear_task_references(
             &self.plan_store,
-            &self.repo_watch,
+            self.ext::<crate::repowatch::RepoWatchRegistryHandle>(),
             request,
             &self.live_tab_cwds(),
         )

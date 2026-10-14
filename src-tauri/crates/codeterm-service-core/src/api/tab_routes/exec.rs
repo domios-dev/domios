@@ -98,7 +98,11 @@ pub async fn exec_in_tab(
     }
     if completion.is_none() {
         resp["timeout"] = serde_json::json!(true);
-        let integrated = state.svc.shell_caps.lock().integration_observed(&pty_id);
+        let integrated = state
+            .svc
+            .ext::<crate::ShellCapabilityState>()
+            .lock()
+            .integration_observed(&pty_id);
         resp["shell_integration"] = serde_json::json!(integrated);
     }
     Ok(Json(resp))

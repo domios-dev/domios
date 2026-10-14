@@ -1,4 +1,4 @@
-use super::skills::extract_revision;
+use crate::service::skill_mirror::extract_revision;
 use std::fs;
 
 // Mirror CLAUDE hook marker from integration tests to keep legacy `$`-escaping regression covered.

@@ -656,7 +656,9 @@ pub(crate) fn launch_agent_in_background_with_env(
 
         let shell_ready_from_exit =
             exited_provider_recovery_has_shell_ready_evidence(origin, reused_live_pty, || {
-                svc.shell_caps.lock().prompt_idle_after_command(&pty_id)
+                svc.ext::<crate::ShellCapabilityState>()
+                    .lock()
+                    .prompt_idle_after_command(&pty_id)
             });
         if shell_ready_from_exit {
             log::info!(

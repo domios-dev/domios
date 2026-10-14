@@ -352,7 +352,7 @@ mod model_refresh_tests {
             .notify_surviving_shell_restart_required(&tab_id, "pty-switch");
         assert!(fixture.service.notif.lock().list(false).is_empty());
 
-        let claim = crate::api::hook_routes::bind_reported_session(
+        let claim = crate::service::hook_session_binding::bind_reported_session(
             &fixture.service.mux,
             fixture.service.agent_registry.as_ref(),
             &tab_id,
@@ -1009,7 +1009,7 @@ mod model_refresh_tests {
             "an unbound tab has no session to attribute a model to"
         );
 
-        crate::api::hook_routes::bind_reported_session(
+        crate::service::hook_session_binding::bind_reported_session(
             &fixture.service.mux,
             fixture.service.agent_registry.as_ref(),
             &tab_id,

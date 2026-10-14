@@ -712,7 +712,9 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
         .service
         .provider_tree_key_for_tab(&general_id, pty_id)
         .expect("provider capability supplies the process name");
-    let witnesses = &fixture.service.provider_tree_witnesses;
+    let witnesses = fixture
+        .service
+        .ext::<Arc<crate::service::process_tree::ProviderTreeWitnesses>>();
     witnesses.record_for_test(
         &key,
         ProviderProcessTreeSnapshot::Present(

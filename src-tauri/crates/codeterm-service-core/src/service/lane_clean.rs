@@ -286,7 +286,7 @@ impl ServiceContext {
                 let finalized = if let Some(path) = lane.worktree_path.as_deref() {
                     super::lane_removal::finalize_lane_removal(
                         &self.plan_store,
-                        &self.repo_watch,
+                        self.ext::<crate::repowatch::RepoWatchRegistryHandle>(),
                         &super::lane_removal::LaneRemovalOutcome {
                             canonical_cwd: project.clone(),
                             worktree_path: path.into(),

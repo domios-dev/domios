@@ -3,10 +3,13 @@ use codeterm_billing::{adapters, Billing, Entitlements, RefreshEvent, Snapshot};
 use std::{sync::Arc, time::Instant};
 use tauri::Manager;
 
+pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
+
 impl ServiceContext {
     pub async fn billing(&self) -> Result<Arc<Billing>, String> {
         let billing = self
-            .billing
+            .ext::<crate::service::billing::BillingCell>()
+            .0
             .get_or_try_init(|| async {
                 let state = self
                     .app_handle
@@ -65,7 +68,7 @@ impl ServiceContext {
     pub async fn account_plan(&self) -> Result<Snapshot, String> {
         let session = self.account().await?.session().await;
         if session.is_none() {
-            if let Some(billing) = self.billing.get() {
+            if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
                 billing.snapshot(None);
             }
             return Ok(Snapshot::default());
@@ -76,7 +79,7 @@ impl ServiceContext {
         let account = self.account().await?;
         let session = account.session().await;
         if session.is_none() {
-            if let Some(billing) = self.billing.get() {
+            if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
                 billing.snapshot(None);
             }
             return Ok(Snapshot::default());
@@ -111,7 +114,7 @@ impl ServiceContext {
         {
             return Err("Account changed while opening billing".into());
         }
-        tokio::task::spawn_blocking(move || crate::commands::open_url(url.to_string()))
+        tokio::task::spawn_blocking(move || crate::service::open_url::open_url(url.to_string()))
             .await
             .map_err(|_| "System browser unavailable")?
             .map_err(|_| "System browser unavailable")?;

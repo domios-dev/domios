@@ -7,6 +7,7 @@ mod background;
 mod bridge;
 mod cli_install;
 mod cli_shim;
+pub(crate) mod conpty_cleanup;
 mod conpty_host;
 pub(crate) mod frontend_bundles;
 mod frontend_ready;
@@ -21,6 +22,7 @@ mod rest_api;
 pub(crate) mod restart_stdio;
 mod restore_complete;
 mod servers;
+pub(crate) mod snapshot_bound;
 #[cfg(test)]
 mod stall_tests;
 mod state_incidents;

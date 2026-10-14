@@ -36,7 +36,7 @@ pub(super) fn publish_statuses(
 impl ServiceContext {
     pub(crate) fn publish_authoritative_tab_statuses(&self) {
         // Serialize snapshot capture with publication so concurrent producers cannot publish stale state.
-        let mut published = self.published_tab_statuses.lock();
+        let mut published = self.ext::<crate::service::PublishedTabStatuses>().0.lock();
         let Some(statuses) = super::status_reconciliation::try_reconciled_tab_statuses(
             &self.mux,
             &self.agent_tracker,

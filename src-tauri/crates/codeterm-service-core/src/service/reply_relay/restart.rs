@@ -263,7 +263,7 @@ impl ServiceContext {
             })
             .flatten();
         if let Some(boundary) = boundary {
-            self.reply_relays
+            self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
                 .restored
                 .lock()
                 .insert(target.into(), (session, boundary));
@@ -271,7 +271,12 @@ impl ServiceContext {
     }
 
     pub(super) fn restore_worker_after_binding(&self, target: &str) {
-        let Some(boundary) = self.reply_relays.restored.lock().remove(target) else {
+        let Some(boundary) = self
+            .ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .restored
+            .lock()
+            .remove(target)
+        else {
             return;
         };
         if let Err(error) = self.restore_worker_turns(target, boundary) {
@@ -416,7 +421,8 @@ impl ServiceContext {
                 &pending.user_text,
                 &mut cursor,
             ) {
-                self.reply_relays.wake(target);
+                self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+                    .wake(target);
                 return Ok(());
             }
             let pty = self
@@ -433,7 +439,8 @@ impl ServiceContext {
                 frame,
             )?;
         }
-        self.reply_relays.wake(target);
+        self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .wake(target);
         Ok(())
     }
 }
