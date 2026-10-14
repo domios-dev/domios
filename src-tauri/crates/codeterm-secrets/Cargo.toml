@@ -4,6 +4,7 @@ version = "1.6.2"
 edition = "2021"
 
 [dependencies]
+hostname = "0.4.2"
 async-trait = "0.1"
 codeterm-config = { path = "../codeterm-config" }
 codeterm-paths = { path = "../../../crates/codeterm-paths" }

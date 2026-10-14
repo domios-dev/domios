@@ -1653,6 +1653,7 @@ dependencies = [
  "codeterm-plugin",
  "codeterm-util",
  "dirs 6.0.0",
+ "hostname",
  "log",
  "parking_lot",
  "serde",
