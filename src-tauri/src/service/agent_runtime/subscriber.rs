@@ -11,6 +11,16 @@ use std::sync::Arc;
 mod compaction;
 pub(super) use compaction::CompactionState;
 
+#[path = "subscriber/apply.rs"]
+mod apply;
+pub(super) use apply::publish_events;
+
+#[path = "subscriber/bookkeeping.rs"]
+mod bookkeeping;
+
+#[path = "subscriber/batch.rs"]
+mod batch;
+
 pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, process: Arc<Process>) {
     let mut events = process.client.subscribe();
     let mut ended = process.client.ended();
@@ -18,171 +28,69 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
     let epoch = session.context.lock().epoch;
     tauri::async_runtime::spawn(async move {
         loop {
-            let received = match events.try_recv() {
-                Ok(frame) => Ok(frame),
-                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
-                    if ended.borrow().is_some() || exited.borrow().is_some() {
-                        break;
-                    }
-                    tokio::select! {
-                        biased;
-                        event = events.recv() => event,
-                        _ = ended.changed() => continue,
-                        _ = exited.changed() => continue,
-                    }
-                }
-                Err(error) => {
-                    process.client.close(RuntimeFailure::PipeFailure {
-                        stream: "events".into(),
-                        reason: error.to_string(),
-                    });
-                    break;
-                }
-            };
-            let frame = match received {
-                Ok(frame) => frame,
-                Err(error) => {
-                    process.client.close(RuntimeFailure::PipeFailure {
-                        stream: "events".into(),
-                        reason: error.to_string(),
-                    });
-                    break;
-                }
-            };
-            if let RuntimeFrame::Notification { method, .. } = &frame {
-                let accepted = session
-                    .adapter
-                    .lock()
-                    .as_ref()
-                    .and_then(|adapter| adapter.agent_runtime())
-                    .is_some_and(|capability| capability.notification_methods.contains(method));
-                if !accepted {
-                    continue;
-                }
-            }
             if session.context.lock().epoch != epoch
                 || engine::validate_binding(&svc, &session).is_err()
             {
                 break;
             }
-            let request_id = match &frame {
-                RuntimeFrame::Request {
-                    request_id,
-                    method,
-                    params,
-                } => {
-                    let refused = {
-                        let mut pending = session.prompts.lock();
-                        if outstanding_bound_exceeded(pending.len())
-                            || pending.contains_key(request_id)
-                        {
-                            true
-                        } else {
-                            pending.insert(
-                                request_id.clone(),
-                                engine::OutstandingRequest {
-                                    request: PendingRuntimeRequest {
-                                        request_id: request_id.clone(),
-                                        method: method.clone(),
-                                        params: params.clone(),
-                                    },
-                                    prompt: None,
-                                },
-                            );
-                            false
-                        }
-                    };
-                    if refused {
-                        if let Err(reason) =
-                            reply_unhandled(&process.client, request_id, -32601).await
-                        {
-                            process.client.close(reason);
-                            break;
-                        }
-                        continue;
+            let first = match events.try_recv() {
+                Ok(frame) => batch::Poll::Frame(frame),
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                    if ended.borrow().is_some() || exited.borrow().is_some() {
+                        break;
                     }
-                    Some(request_id.clone())
+                    match tokio::select! {
+                        biased;
+                        event = events.recv() => event,
+                        _ = ended.changed() => continue,
+                        _ = exited.changed() => continue,
+                    } {
+                        Ok(frame) => batch::Poll::Frame(frame),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            batch::Poll::Lagged
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            batch::Poll::Closed
+                        }
+                    }
                 }
-                _ => None,
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => batch::Poll::Lagged,
+                Err(tokio::sync::broadcast::error::TryRecvError::Closed) => batch::Poll::Closed,
             };
-            let adapter = session.adapter.lock().clone();
-            let Some(adapter) = adapter else {
-                if let Some(id) = &request_id {
-                    let _ = reply_unhandled(&process.client, id, -32601).await;
-                    session.prompts.lock().remove(id);
-                }
-                break;
-            };
-            let (context, state) = (
-                session.context.lock().clone(),
-                session.hook_state.lock().clone(),
+            let drained = batch::drain_ready(
+                first,
+                || match events.try_recv() {
+                    Ok(frame) => batch::Poll::Frame(frame),
+                    Err(tokio::sync::broadcast::error::TryRecvError::Empty) => batch::Poll::Empty,
+                    Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
+                        batch::Poll::Lagged
+                    }
+                    Err(tokio::sync::broadcast::error::TryRecvError::Closed) => batch::Poll::Closed,
+                },
+                MAX_RUNTIME_BATCH,
             );
-            let result = tokio::time::timeout(
-                RUNTIME_HOOK_DEADLINE,
-                adapter.runtime_reduce(&context, &state, &[frame]),
-            )
-            .await;
-            let reduced = match result {
-                Ok(Ok(reduced)) => reduced,
-                other => {
-                    if let Some(id) = &request_id {
-                        session.prompts.lock().remove(id);
-                        if let Err(reason) = reply_unhandled(&process.client, id, -32602).await {
-                            process.client.close(reason);
-                            break;
-                        }
+            let step = match drained {
+                batch::Drained::Closed { frames } => {
+                    if !frames.is_empty() {
+                        let _ = batch::handle(&svc, &session, &process, epoch, frames, false).await;
                     }
-                    process.client.close(RuntimeFailure::HookFailed(format!(
-                        "Event mapping failed: {other:?}"
-                    )));
+                    process.client.close(RuntimeFailure::PipeFailure {
+                        stream: "events".into(),
+                        reason: "event broadcast closed".into(),
+                    });
                     break;
                 }
+                batch::Drained::Ready { frames, lagged } => {
+                    batch::handle(&svc, &session, &process, epoch, frames, lagged).await
+                }
             };
-            let received_at = chrono::Utc::now().timestamp_millis().max(0) as u64;
-            if session.context.lock().epoch != epoch {
-                break;
-            }
-            let valid_events = reduced
-                .events
-                .iter()
-                .cloned()
-                .map(|event| HostAgentRuntimeEvent {
-                    at: received_at,
-                    event,
-                })
-                .collect::<Vec<_>>();
-            if super::model::validate_state_size(&reduced.state).is_err()
-                || reduced.events.len() > MAX_RUNTIME_BATCH
-                || validate_host_runtime_events(&context, &valid_events).is_err()
-            {
-                if let Some(id) = &request_id {
-                    session.prompts.lock().remove(id);
-                    if let Err(reason) = reply_unhandled(&process.client, id, -32602).await {
-                        process.client.close(reason);
-                        break;
-                    }
+            match step {
+                bookkeeping::Step::Continue => {}
+                bookkeeping::Step::Break => break,
+                bookkeeping::Step::Close(reason) => {
+                    process.client.close(reason);
+                    break;
                 }
-                process.client.close(RuntimeFailure::Refused(
-                    "Reducer state or event limit".into(),
-                ));
-                break;
-            }
-            if let Some(id) = &request_id {
-                if let Some(error) = unmapped_request_error(&context, id, &reduced.events) {
-                    session.prompts.lock().remove(id);
-                    if let Err(reason) = process.client.reply(id, Err(error)).await {
-                        process.client.close(reason);
-                        break;
-                    }
-                }
-            }
-            *session.hook_state.lock() = reduced.state;
-            if let Err(reason) =
-                publish_events(&svc, &session, epoch, reduced.events, received_at).await
-            {
-                session.state.lock().degrade(epoch, &reason);
-                process.client.close(reason);
-                break;
             }
         }
         if session.context.lock().epoch == epoch {
@@ -312,322 +220,6 @@ async fn reply_unhandled(
     code: i64,
 ) -> Result<(), RuntimeFailure> {
     client.reply(id, Err(request_error(code))).await
-}
-
-pub(super) async fn publish_events(
-    svc: &ServiceContext,
-    session: &Arc<Session>,
-    epoch: u64,
-    events: Vec<AgentRuntimeEvent>,
-    at: u64,
-) -> Result<(), RuntimeFailure> {
-    let context = session.context.lock().clone();
-    if context.epoch != epoch {
-        return Err(RuntimeFailure::Superseded);
-    }
-    engine::validate_binding(svc, session)?;
-    let evidence = super::model::validated_evidence(&context.claimed_sends, &events);
-    let enriched = events
-        .into_iter()
-        .map(|event| HostAgentRuntimeEvent { at, event })
-        .collect::<Vec<_>>();
-    validate_host_runtime_events(&context, &enriched)
-        .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
-    let mut run_completed = false;
-    let mut run_chat_item = false;
-    for event in enriched {
-        if matches!(&event.event, AgentRuntimeEvent::SendEvidence { send_id, .. } if !evidence.contains(send_id))
-        {
-            continue;
-        }
-        if let AgentRuntimeEvent::Question {
-            thread_id,
-            item_id,
-            questions,
-            response,
-        } = &event.event
-        {
-            let record = super::questions::QuestionRecord {
-                thread_id: thread_id.clone(),
-                item_id: item_id.clone(),
-                questions: questions.clone(),
-                response: response.clone(),
-                created_at: at,
-                resolved: None,
-            };
-            let owner = svc.clone();
-            let tab = context.tab_id.clone();
-            let questions = tokio::task::spawn_blocking(move || {
-                owner
-                    .pending_delivery_payloads
-                    .user_sends
-                    .persist_runtime_question(&tab, record)
-            })
-            .await
-            .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
-            .map_err(RuntimeFailure::HookFailed)?;
-            super::question_delivery::publish(svc, &context.tab_id, session, questions)
-                .map_err(RuntimeFailure::HookFailed)?;
-        }
-        if let AgentRuntimeEvent::RateLimits { rate_limits, .. } = &event.event {
-            super::projections::rate_limits(svc, session, rate_limits.clone(), at).await?;
-        }
-        super::model::observe_turn(&mut session.context.lock(), &event.event);
-        super::controls::observe_event(session, &event.event);
-        let send_id = match &event.event {
-            AgentRuntimeEvent::SendEvidence { send_id, .. } => Some(send_id.clone()),
-            _ => None,
-        };
-        let completed_turn = match &event.event {
-            AgentRuntimeEvent::TurnState {
-                thread_id,
-                turn_id: Some(turn),
-                state: RuntimeTurnState::Idle,
-                ..
-            } if Some(thread_id) == context.thread_id.as_ref()
-                && super::model::accepts_turn_transition(
-                    session.context.lock().active_turn_id.as_deref(),
-                    Some(turn),
-                    &RuntimeTurnState::Idle,
-                ) =>
-            {
-                Some((thread_id.clone(), turn.clone()))
-            }
-            _ => None,
-        };
-        let chat_item = matches!(&event.event, AgentRuntimeEvent::ChatItem { .. });
-        apply(svc, session, epoch, event);
-        run_completed |= completed_turn
-            .is_some_and(|(thread, turn)| session.completions.lock().contains(&thread, &turn));
-        run_chat_item |= chat_item;
-        if let Some(status) = send_id.and_then(|id| svc.chat_send_ledger.status(&id)) {
-            let owner = svc.clone();
-            tokio::task::spawn_blocking(move || {
-                owner
-                    .pending_delivery_payloads
-                    .user_sends
-                    .persist_runtime_status(&status)?;
-                super::envelope_delivery::record_write(&owner, &status)
-            })
-            .await
-            .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
-            .map_err(RuntimeFailure::HookFailed)?;
-        }
-    }
-    if (run_completed || run_chat_item) && svc.run_watcher.has_runtime_run(&context.tab_id) {
-        let owner = svc.clone();
-        let binding = session.context.lock().clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            if run_completed {
-                owner.run_watcher.runtime_turn_completed(&owner, &binding);
-            } else {
-                owner.run_watcher.check_runtime_completion(&owner, &binding);
-            }
-        })
-        .await;
-    }
-    Ok(())
-}
-
-fn apply(
-    svc: &ServiceContext,
-    session: &Arc<Session>,
-    epoch: u64,
-    enriched: HostAgentRuntimeEvent,
-) {
-    let at = enriched.at;
-    let event = enriched.event;
-    let context = session.context.lock().clone();
-    if context.epoch != epoch || engine::validate_binding(svc, session).is_err() {
-        return;
-    }
-    let owned = |thread: &str| context.thread_id.as_deref() == Some(thread);
-    match event {
-        AgentRuntimeEvent::AuthLogin { login } => super::login::apply(svc, session, epoch, login),
-        AgentRuntimeEvent::Auth {
-            state,
-            detail,
-            billing_mode,
-        } => {
-            super::projections::billing(svc, session, billing_mode.unwrap_or_default(), at);
-            let previous = std::mem::replace(&mut *session.auth.lock(), state.clone());
-            if matches!(state, RuntimeAuthState::SignedIn)
-                && matches!(previous, RuntimeAuthState::SignedOut)
-            {
-                if session
-                    .thread_loaded
-                    .load(std::sync::atomic::Ordering::Acquire)
-                {
-                    if let Some(thread) = &context.thread_id {
-                        session.state.lock().load(epoch, thread);
-                    }
-                } else {
-                    session.state.lock().phase = RuntimePhase::Loading;
-                }
-                engine::publish(svc, &context.tab_id, session);
-            }
-            if matches!(state, RuntimeAuthState::SignedOut) {
-                session.state.lock().degrade(
-                    epoch,
-                    &RuntimeFailure::Refused(detail.map_or_else(
-                        || "Sign-in required".into(),
-                        |detail| format!("Sign-in required: {detail}"),
-                    )),
-                );
-                engine::publish(svc, &context.tab_id, session);
-            }
-        }
-        AgentRuntimeEvent::ChatItem { thread_id, item } if owned(&thread_id) => {
-            let item = session.cache.lock().reconcile_live(item, at);
-            crate::service::tab_chat::structured_sink::emit_chat_msgs(
-                &svc.app_handle,
-                &context.tab_id,
-                &[item],
-                None,
-                Some(&thread_id),
-                Some(&context.binding_nonce),
-            );
-        }
-        AgentRuntimeEvent::SendEvidence {
-            thread_id,
-            send_id,
-            turn_id,
-        } if owned(&thread_id) => {
-            if !context
-                .claimed_sends
-                .iter()
-                .any(|claim| claim.send_id == send_id && claim.thread_id == thread_id)
-            {
-                return;
-            }
-            if let Some(status) = svc.chat_send_ledger.confirm_rpc_send(
-                &context.tab_id,
-                &thread_id,
-                &context.binding_nonce,
-                &send_id,
-            ) {
-                session
-                    .context
-                    .lock()
-                    .claimed_sends
-                    .retain(|claim| claim.send_id != send_id);
-                crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
-                let consumed = {
-                    let mut mux = svc.mux.write();
-                    let pending = mux
-                        .get_tab_mut(&context.tab_id)
-                        .and_then(|tab| tab.pending_delivery.as_mut());
-                    pending
-                        .filter(|pending| pending.send_id() == Some(send_id.as_str()))
-                        .is_some_and(|pending| {
-                            pending.state().is_accepted() || pending.confirm_strong().is_ok()
-                        })
-                };
-                if consumed {
-                    let _ = svc.cleanup_confirmed_pending_delivery(&context.tab_id);
-                }
-                log::debug!(
-                    "[agent-runtime] tab={} turn={turn_id} send={send_id} evidence=delivered",
-                    context.tab_id
-                );
-            }
-        }
-        AgentRuntimeEvent::TurnState {
-            thread_id,
-            turn_id,
-            state,
-            detail,
-            status_line,
-            started_at,
-            completed_at,
-            ..
-        } if owned(&thread_id) => {
-            if !super::model::accepts_turn_transition(
-                context.active_turn_id.as_deref(),
-                turn_id.as_deref(),
-                &state,
-            ) {
-                return;
-            }
-            match state {
-                RuntimeTurnState::Working => {
-                    session
-                        .state
-                        .lock()
-                        .working(context.active_turn_id == turn_id, at, started_at)
-                }
-                RuntimeTurnState::Idle => {
-                    engine::record_completed_turn(session, &thread_id, turn_id.as_deref());
-                    session.state.lock().completed(at, completed_at);
-                }
-                RuntimeTurnState::NeedsInput => {}
-            }
-            let live = crate::agent::state_verdict::live_state_for_runtime(
-                &state,
-                detail,
-                status_line.as_deref(),
-            );
-            crate::agent::state_verdict::apply_live(&svc.mux, &context.tab_id, &thread_id, live);
-            session.context.lock().active_turn_id = match state {
-                RuntimeTurnState::Idle => None,
-                _ => turn_id,
-            };
-            match state {
-                RuntimeTurnState::Working => svc.mark_agent_turn_started(&context.tab_id),
-                RuntimeTurnState::Idle => svc.mark_agent_turn_complete(&context.tab_id),
-                RuntimeTurnState::NeedsInput => svc.mark_agent_waiting(&context.tab_id),
-            };
-            engine::publish(svc, &context.tab_id, session);
-            if matches!(state, RuntimeTurnState::Idle) {
-                svc.staged_model_turn_completed(
-                    &context.tab_id,
-                    &thread_id,
-                    &context.binding_nonce,
-                );
-            }
-        }
-        AgentRuntimeEvent::Prompt {
-            thread_id,
-            request_id,
-            prompt,
-        } if owned(&thread_id) => {
-            let accepted = {
-                let mut prompts = session.prompts.lock();
-                if let Some(pending) = prompts.get_mut(&request_id) {
-                    pending.prompt = Some(prompt.clone());
-                    true
-                } else {
-                    false
-                }
-            };
-            if accepted {
-                super::prompt_answers::publish(svc, session, request_id, prompt);
-            }
-        }
-        AgentRuntimeEvent::PromptResolved {
-            thread_id,
-            request_id,
-        } if owned(&thread_id) => {
-            session.prompts.lock().remove(&request_id);
-            super::prompt_answers::resolve(svc, session, &request_id);
-        }
-        AgentRuntimeEvent::Usage { thread_id, usage } if owned(&thread_id) => {
-            super::projections::usage(svc, session, usage, at);
-        }
-        AgentRuntimeEvent::ControlsConfirmed {
-            thread_id,
-            settings,
-        } if owned(&thread_id) => {
-            super::projections::controls(svc, session, settings);
-        }
-        AgentRuntimeEvent::ContextCompacted { thread_id, item_id } if owned(&thread_id) => {
-            let _ = compaction::schedule(svc, session, epoch, &thread_id, &item_id);
-        }
-        _ => {}
-    }
-    if !matches!(session.state.lock().phase, RuntimePhase::Loading) {
-        svc.emit_state_changed();
-    }
 }
 
 fn unload_retaining_degradation(
