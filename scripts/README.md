@@ -149,6 +149,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `run-ts-unit-tests.test.mjs` | CI frontend-release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs |
 | `runner-toggle.mjs` | build.sh runner-pause, runner-resume, runner-status |
 | `runner-toggle.test.mjs` | build.sh script-guards (node --test) |
+| `rust-test-inventory.mjs` | crate-split QA (static vs nextest test-count oracle); scripts tests/rust-test-inventory.test.mjs |
 | `rust-warnings-baseline.json` | scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs; skill gates, github-release |
 | `rust-warnings-comment.mjs` | CI rust-warnings-summary.yml |
 | `rust-warnings-report.mjs` | CI rust-warnings-summary.yml; scripts tests/collect-rust-warnings.test.mjs |
