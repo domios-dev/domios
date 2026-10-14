@@ -53,7 +53,7 @@ QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'
 
 ## Launcher recipes (copy-paste)
 
-`check`, `check-tests`, `test-one`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
+`check`, `check-queue`, `check-tests`, `test-one`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
 `--notify-tab <tab>` (or `BUILD_NOTIFY_TAB`, or `-NotifyTab` through `build.ps1`): one `OK` receipt on success, or one
 early-failure receipt naming the step, first error line and log path (gateway refusal 75 included), sent
 through the captured parent context. `install-local` runs rustfmt, the file-size gate and the clean-checkout check
@@ -67,6 +67,7 @@ PowerShell `$env:CODETERM_TAB_ID`, inside double quotes).
 |---|---|---|
 | install-local | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".uild.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"` | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.sh install-local --notify-tab $CODETERM_TAB_ID"` |
 | check | `... --cmd ".uild.ps1 check -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh check --notify-tab $CODETERM_TAB_ID"` |
+| check-queue | `... --purpose qa --cmd ".\build.ps1 check-queue <sha> -NotifyTab $env:CODETERM_TAB_ID"` | `... --purpose qa --cmd "./build.sh check-queue <sha> --notify-tab $CODETERM_TAB_ID"` |
 | test-one | `... --cmd ".uild.ps1 test-one app NAME -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh test-one app NAME --notify-tab $CODETERM_TAB_ID"` |
 | release-preflight | `... --cmd ".uild.ps1 release-preflight -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh release-preflight --notify-tab $CODETERM_TAB_ID"` |
 | QA batch (`check` first) | `... --purpose qa --cmd ".uild.ps1 qa-batch smoke -NotifyTab $env:CODETERM_TAB_ID 'node --test scripts/tests/dev-wait.test.mjs'"` | `... --purpose qa --cmd "./build.sh qa-batch smoke --notify-tab $CODETERM_TAB_ID 'node --test scripts/tests/dev-wait.test.mjs'"` |
@@ -153,4 +154,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
