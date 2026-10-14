@@ -70,3 +70,18 @@ fn automation_inventory_round_trip_preserves_enabled_and_paused_states() {
     assert!(restored_blueprint.machine.paused);
     assert!(!restored_blueprint.machine.stopped);
 }
+
+#[test]
+fn restore_refuses_a_corrupt_saved_blueprint_before_any_effect() {
+    let corrupt = Resources {
+        blueprints: vec![serde_json::json!({"id": "b", "workspace_id": "w", "team_id": null})],
+        ..Default::default()
+    };
+    assert!(validate_saved_blueprints(&corrupt).is_err());
+    let unscoped = Resources {
+        blueprints: vec![serde_json::json!({"cwd": "/project"})],
+        ..Default::default()
+    };
+    assert!(validate_saved_blueprints(&unscoped).is_err());
+    assert!(validate_saved_blueprints(&Resources::default()).is_ok());
+}
