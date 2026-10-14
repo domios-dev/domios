@@ -98,4 +98,4 @@ Relocate a workspace after its folder moves: `codeterm workspace set-cwd <worksp
 
 Repair a moved Plan project without its old folder: `codeterm plan set-project <plan> <path>`. It validates the target host folder and preserves Plan, task, Team and attempt identities.
 
-Voice notes arrive as `<domios type="attachment" kind="voice" path="<file>" label="voice" />` followed by `<transcript>…</transcript>`. Read that element's text as the message and keep the path as its audio attachment. A frame with `status="untranscribed"` has no transcript element and carries a failure note instead. A self-closing frame followed by bare text, and the legacy `-=-codeterm:voice file=<path>-=-` form, are older notes; recognise them when reading, and emit only the attachment frame plus `<transcript>`.
+Voice notes arrive as `<domios type="attachment" kind="voice" path="<file>" label="voice" />` plus `<transcript>…</transcript>`: the transcript is the message, the path its audio. `status="untranscribed"` carries a failure note instead. Older notes (bare text after the frame, or `-=-codeterm:voice file=<path>-=-`) are read-only legacy.
