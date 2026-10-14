@@ -301,7 +301,7 @@ ct_gateway_on_signal() {
 
 ct_gateway_acquire() {
   local command="$1" dir lock wait_mode deadline first owner job log queued_at source_sha worktree owner_command
-  local blocker_job blocker_command blocker_owner blocker_record queued_notice=0
+  local blocker_job blocker_command blocker_owner blocker_record slot_snapshot queued_notice=0
   CT_BUILD_GATEWAY_STATE_SCRIPT="$(ct_repo_root)/scripts/build-gateway-state.mjs"
   dir="$(ct_gateway_dir)"
   lock="$dir/lock"
@@ -408,11 +408,9 @@ ct_gateway_acquire() {
         "$CODETERM_INSTANCE" "$CT_BUILD_JOB_ID" "$blocker_job" "$blocker_owner" "$blocker_command" >&2
       queued_notice=1
     fi
+    slot_snapshot="$(node "$(ct_repo_root)/scripts/build-gateway-slot.mjs" snapshot "$dir")"
     ct_gateway_mutex_release "$dir"
-    if [ "$(date +%s)" -gt "$deadline" ]; then
-      return 75
-    fi
-    sleep "${CODETERM_BUILD_GATEWAY_POLL_SECS:-0.2}"
+    node "$(ct_repo_root)/scripts/build-gateway-slot.mjs" wait "$dir" "$slot_snapshot" "$((deadline * 1000))" || return $?
   done
 }
 
