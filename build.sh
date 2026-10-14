@@ -1365,12 +1365,18 @@ check_queue_targets() {
 
 # Reads cargo --message-format=short output on stdin; prints at most $1 diagnostics.
 check_queue_errors() {
-  awk -v max="$1" '
+  awk -v max="$1" -v status="${2:-0}" '
     /^[^ ].*:[0-9]+:[0-9]+: error(\[E[0-9]+\])?:/ || /^error(\[E[0-9]+\])?:/ && !/could not compile/ {
       total++
       if (total <= max) print
     }
-    END { printf "errors=%d shown=%d\n", total, (total < max ? total : max) }
+    END {
+      if (status != 0 && total == 0) {
+        total=1
+        if (max > 0) printf "error: cargo check failed (exit %d); see full log\n", status
+      }
+      printf "errors=%d shown=%d\n", total, (total < max ? total : max)
+    }
   '
 }
 
@@ -1439,7 +1445,7 @@ check_queue_run() {
       --all-targets --message-format=short >> "$out" 2>&1 || status=$?
   fi
   grep 'cargo::core::compiler::fingerprint' "$out" || true
-  check_queue_errors "$max_errors" < "$out"
+  check_queue_errors "$max_errors" "$status" < "$out"
   echo "check-queue: sha=$sha packages=${pkg_args[*]:-} cli=$cli exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
   return "$status"
 }
@@ -2045,7 +2051,7 @@ EOF
   check-queue-probe)
     case "${2:-}" in
       targets) check_queue_targets ;;
-      errors) check_queue_errors "${3:?errors requires a max}" ;;
+      errors) check_queue_errors "${3:?errors requires a max}" "${4:-0}" ;;
       *) echo "Unknown check-queue probe: ${2:-}" >&2; exit 2 ;;
     esac
     ;;

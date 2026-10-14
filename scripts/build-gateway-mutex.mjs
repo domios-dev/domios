@@ -13,13 +13,14 @@ const deadline = Date.now() + Number(timeout);
 const publisher = publicationGuard(directory);
 const read = (name) => {
   try { return fs.readFileSync(path.join(mutex, name), 'utf8').trim(); }
-  catch (error) { if (error.code === 'ENOENT') return ''; throw error; }
+  catch (error) { if (['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) return ''; throw error; }
 };
 const fingerprint = () => [mutex, guard].map((name) => {
   try { const s = fs.statSync(name); return `${s.ino}:${s.mtimeMs}:${s.size}`; }
-  catch (error) { if (error.code === 'ENOENT') return ''; throw error; }
+  catch (error) { if (['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) return ''; throw error; }
 }).join('|') + `|${read('pid')}|${read('start_token')}`;
-const alive = (owner, token) => spawnSync('bash', [
+const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+const alive = (owner, token) => spawnSync(bash, [
   '-c', 'source "$1"; ct_gateway_identity_alive "$2" "$3"', 'gateway', script, owner, token,
 ], { stdio: 'ignore' }).status === 0;
 
@@ -30,7 +31,7 @@ async function changed(previous) {
   ownershipWatcher?.close();
   ownershipWatcher = undefined;
   try { ownershipWatcher = fs.watch(mutex, () => pending?.()); }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  catch (error) { if (!['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
   if (fingerprint() !== previous) return;
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -57,6 +58,13 @@ try {
   }
   while (true) {
     if (Date.now() >= deadline) throw new Error('Timed out acquiring build gateway state mutex.');
+    if (operation === 'acquire') {
+      const observed = fingerprint();
+      const owner = read('pid');
+      const token = read('start_token');
+      // Checking a live metadata owner must not block its release behind the publication guard.
+      if (owner && token && alive(owner, token)) { await changed(observed); continue; }
+    }
     if (!publisher.acquire()) {
       const observed = fingerprint();
       if (fs.existsSync(guard)) await changed(observed);
@@ -64,7 +72,7 @@ try {
     }
     if (scope === 'fixture' && process.env.CT_GATEWAY_PUBLICATION_BARRIER) {
       fs.writeFileSync(process.env.CT_GATEWAY_PUBLICATION_READY, String(process.pid));
-      fs.readFileSync(process.env.CT_GATEWAY_PUBLICATION_BARRIER);
+      fs.readSync(0, Buffer.alloc(1), 0, 1, null);
     }
     let completed = false;
     try {
