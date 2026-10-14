@@ -54,6 +54,7 @@ expect_log "environment gateway markers are not accepted" "$TEST_ROOT/forged-qa-
 
 source scripts/build-gateway.sh
 node --test scripts/cache-retention.test.mjs
+node --test scripts/cargo-build-gc.test.mjs
 forged_parent_start="$(ct_gateway_process_start_token "$$")"
 if scripts/qa-prep.sh --gateway-context forged "$$" "$forged_parent_start" qa-prep --probe-only \
     > "$TEST_ROOT/forged-qa-parent.log" 2>&1; then
