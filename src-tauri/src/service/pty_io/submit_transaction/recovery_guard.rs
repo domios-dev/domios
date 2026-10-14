@@ -1,4 +1,4 @@
-use super::{PtySubmitTransport, SubmitTransport};
+use super::PtySubmitTransport;
 use crate::service::inject_verify::InjectionError;
 
 /// What a recovery key (any submit key after the first) may rely on.

@@ -653,7 +653,7 @@ fn sentinel_command_shutdown_subscription_closes_source_admission_and_wakes_sche
     let wake = Arc::new(CountWake(std::sync::atomic::AtomicUsize::new(0)));
     let _registration = lease.cancelled.register(wake.clone()).unwrap();
     let handle = super::scheduler::fixture_handle_without_app(store);
-    let latch = crate::crash::shutdown::ShutdownLatch::default();
+    let latch = codeterm_shutdown::ShutdownLatch::default();
     let _subscription = super::scheduler::fixture_shutdown(&handle, &latch);
     assert_eq!(
         super::scheduler::fixture_shutdown_status(&handle),

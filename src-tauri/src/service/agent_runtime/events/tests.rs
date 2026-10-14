@@ -9,6 +9,10 @@ fn item(id: &str, running: bool, content: &str) -> ChatMsg {
     row
 }
 
+fn item_ids(maps: &RuntimeMaps) -> Vec<String> {
+    maps.items.iter().map(|item| item.item.id.clone()).collect()
+}
+
 fn put(maps: &mut RuntimeMaps, epoch: u64, row: ChatMsg) {
     fold(
         maps,
@@ -25,8 +29,8 @@ fn an_item_update_replaces_the_row_with_the_same_id() {
     let mut maps = RuntimeMaps::default();
     put(&mut maps, 1, item("a", true, "one"));
     put(&mut maps, 1, item("a", false, "one two"));
-    assert_eq!(maps.item_ids(), vec!["a".to_string()]);
-    assert_eq!(maps.text_bytes(), "one two".len());
+    assert_eq!(item_ids(&maps), vec!["a".to_string()]);
+    assert_eq!(text_total(&maps.items), "one two".len());
 }
 
 #[test]
@@ -36,7 +40,7 @@ fn the_item_cap_retires_closed_rows_oldest_first_and_keeps_running_ones() {
     for index in 0..LIVE_ITEM_CAP + 10 {
         put(&mut maps, 1, item(&format!("done-{index}"), false, ""));
     }
-    let ids = maps.item_ids();
+    let ids = item_ids(&maps);
     assert_eq!(ids.len(), LIVE_ITEM_CAP);
     assert!(ids.contains(&"running".to_string()));
     assert!(!ids.contains(&"done-0".to_string()));
@@ -49,8 +53,8 @@ fn the_byte_budget_shrinks_running_text_instead_of_failing() {
     let big = "x".repeat(LIVE_ITEM_BYTES);
     put(&mut maps, 1, item("a", true, &big));
     put(&mut maps, 1, item("b", true, &big));
-    assert!(maps.text_bytes() <= LIVE_ITEM_BYTES);
-    assert_eq!(maps.item_ids().len(), 2);
+    assert!(text_total(&maps.items) <= LIVE_ITEM_BYTES);
+    assert_eq!(item_ids(&maps).len(), 2);
 }
 
 #[test]
@@ -58,7 +62,7 @@ fn a_new_epoch_resets_the_maps() {
     let mut maps = RuntimeMaps::default();
     put(&mut maps, 1, item("a", false, "x"));
     put(&mut maps, 2, item("b", false, "y"));
-    assert_eq!(maps.item_ids(), vec!["b".to_string()]);
+    assert_eq!(item_ids(&maps), vec!["b".to_string()]);
 }
 
 #[test]
@@ -74,7 +78,7 @@ fn warnings_with_distinct_ids_never_merge() {
             },
         );
     }
-    assert_eq!(maps.item_ids().len(), 2);
+    assert_eq!(item_ids(&maps).len(), 2);
 }
 
 #[test]
