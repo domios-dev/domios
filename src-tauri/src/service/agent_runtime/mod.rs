@@ -5,6 +5,7 @@ mod bootstrap;
 pub(crate) mod capture;
 mod completions;
 pub(crate) mod controls;
+mod events;
 pub mod engine;
 mod envelope_delivery;
 mod environment;

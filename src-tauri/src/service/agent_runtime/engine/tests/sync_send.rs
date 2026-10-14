@@ -102,6 +102,8 @@ module.exports = {
         auth: Mutex::new(RuntimeAuthState::SignedIn),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
         hook_state: Mutex::new(Value::Null),
+        maps: Mutex::new(super::super::super::events::RuntimeMaps::default()),
+        bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
         prompts: Mutex::new(HashMap::new()),
         process: Mutex::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
