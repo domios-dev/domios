@@ -10,6 +10,7 @@
 //! - Doc comments on ports stay within two lines.
 
 pub mod rest;
+pub mod sentinel;
 pub mod transport;
 pub mod update;
 

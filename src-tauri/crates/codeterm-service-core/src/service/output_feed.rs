@@ -75,11 +75,11 @@ impl ServiceContext {
         let observed_tab = { self.mux.read().tab_id_for_pty(pty_id) };
         if let Some(tab_id) = observed_tab {
             super::supporter_tab_state::note_output(&tab_id);
-            if let Some(handle) = self
+            if let Some(ports) = self
                 .app_handle
-                .try_state::<crate::sentinel::scheduler::Handle>()
+                .try_state::<crate::ports::sentinel::SentinelPorts>()
             {
-                handle.terminal_output(&tab_id, generation, data);
+                ports.wake.terminal_output(&tab_id, generation, data);
             }
         }
         crate::service::pty_io::submit_transaction::wake_submit_cycle_output(pty_id);
