@@ -406,6 +406,14 @@ console.log("automation origins");
 }
 
 console.log();
+
+{
+  const content = '<domios from="tab" label="Sender" tab="abc12345">first<tip>opaque hidden token</tip>second <tip>opaque return route</tip></domios>';
+  eq(detectChatPrefix(content)?.body, "firstsecond", "tip spans are omitted independently of their words");
+  eq(detectChatPrefix('<domios from="tab" label="Sender" tab="abc12345"> <tip>opaque hint</tip></domios>opaque paste')?.body,
+    "opaque paste", "reordered tip-only typed frame projects its paste body");
+}
+
 if (failed === 0) {
   console.log(`✓ all ${passed} tests passed`);
 } else {

@@ -66,6 +66,14 @@ pub fn parse_message(text: &str) -> Option<ParsedDomiosMessage> {
 
 pub fn strip_typed_suffix(content: &str) -> &str {
     let mut body = content;
+    while let Some(prefix) = body.strip_suffix("</tip>") {
+        let Some(start) = prefix.rfind("<tip>") else {
+            break;
+        };
+        body = prefix[..start]
+            .strip_suffix(' ')
+            .unwrap_or(&prefix[..start]);
+    }
     let instruction = format!(" {DOMIOS_TYPED_INSTRUCTION}");
     if let Some(stripped) = body.strip_suffix(&instruction) {
         body = stripped;
@@ -235,6 +243,18 @@ mod tests {
         assert!(parse_message("<domiosX from=\"tab\">body</domios>").is_none());
         assert!(parse_message("<domios>body</domios>").is_none());
         assert!(parse_message("<domios from=\"tab\">body</domios>tail").is_none());
+    }
+
+    #[test]
+    fn tip_suffix_is_projected_out_but_preserved_in_agent_content() {
+        let frame = DomiosFrame {
+            opening_tag: build_opening_tag(&[("from", "tab"), ("tab", "abc12345")]),
+            body: "opaque body".into(),
+            suffix: " <tip>opaque hint</tip> <tip>opaque instruction</tip>".into(),
+        };
+        let parsed = parse_message(&frame.to_message()).unwrap();
+        assert_eq!(parsed.body, frame.body);
+        assert_eq!(parsed.content, format!("{}{}", frame.body, frame.suffix));
     }
 
     #[test]
