@@ -1,3 +1,4 @@
+// Caller: CI rust-warnings-summary.yml
 import fs from 'node:fs';
 const token = process.env.GH_TOKEN;
 const repo = process.env.GITHUB_REPOSITORY;

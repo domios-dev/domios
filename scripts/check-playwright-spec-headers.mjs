@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: package.json script
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {

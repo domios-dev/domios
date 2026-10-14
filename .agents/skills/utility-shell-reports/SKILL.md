@@ -51,6 +51,43 @@ scripts/qa-report.sh smoke 'true' 'node --test scripts/tests/dev-wait.test.mjs'
 QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'
 ```
 
+## Launcher recipes (copy-paste)
+
+`check`, `check-tests`, `test-one`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
+`--notify-tab <tab>` (or `BUILD_NOTIFY_TAB`, or `-NotifyTab` through `build.ps1`): one `OK` receipt on success, or one
+early-failure receipt naming the step, first error line and log path (gateway refusal 75 included), sent
+through the captured parent context. `install-local` runs rustfmt, the file-size gate and the clean-checkout check
+first, so a format failure returns in seconds, before any gateway work.
+
+The Windows utility shell is PowerShell, where `&&` is invalid: set the directory with `--cwd` and never chain.
+`<checkout>` is this checkout's absolute path; `<tab>` is the calling tab (bash `$CODETERM_TAB_ID`,
+PowerShell `$env:CODETERM_TAB_ID`, inside double quotes).
+
+| Operation | PowerShell caller and shell | bash caller and shell |
+|---|---|---|
+| install-local | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".uild.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"` | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.sh install-local --notify-tab $CODETERM_TAB_ID"` |
+| check | `... --cmd ".uild.ps1 check -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh check --notify-tab $CODETERM_TAB_ID"` |
+| test-one | `... --cmd ".uild.ps1 test-one app NAME -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh test-one app NAME --notify-tab $CODETERM_TAB_ID"` |
+| release-preflight | `... --cmd ".uild.ps1 release-preflight -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh release-preflight --notify-tab $CODETERM_TAB_ID"` |
+| QA batch (`check` first) | `... --purpose qa --cmd ".uild.ps1 qa-batch smoke -NotifyTab $env:CODETERM_TAB_ID 'node --test scripts/tests/dev-wait.test.mjs'"` | `... --purpose qa --cmd "./build.sh qa-batch smoke --notify-tab $CODETERM_TAB_ID 'node --test scripts/tests/dev-wait.test.mjs'"` |
+| dev (ready receipt) | `... --purpose dev --cmd ".uild.ps1 dev -NotifyTab $env:CODETERM_TAB_ID"` | `... --purpose dev --cmd "./build.sh dev --notify-tab $CODETERM_TAB_ID"` |
+
+`...` is `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>"`. `qa-batch <label> '<cmd>'...`
+always runs `./build.sh check` as step one, then your commands, and sends one QA summary.
+
+## Recovering a lane whose recorded base is wrong
+
+Run in the canonical checkout. `keep` refuses a dirty worktree, parks the tip on `keep/<lane>`, removes the worktree and
+the lane branch; re-dispatch the lane from the correct base; then `merge` real-merges the kept ref and deletes it once
+it is an ancestor.
+
+```
+bash ./build.sh lane-recover keep <lane-branch> <worktree-path>
+bash ./build.sh lane-recover merge <lane-branch>
+```
+
+`bash ./build.sh ...` runs unchanged on bash and PowerShell with Git Bash on PATH; `.uild.ps1 lane-recover keep <lane-branch> <worktree-path>` is the PowerShell-only form.
+
 From PowerShell, use:
 
 ```powershell
@@ -116,4 +153,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

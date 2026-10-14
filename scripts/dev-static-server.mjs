@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1, dev-prep.mjs, tests/dev-static-api.test.mjs
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-dev-resource-preflight.sh, dev-prep.mjs; skill build
 import fs from "node:fs";
 import path from "node:path";
 

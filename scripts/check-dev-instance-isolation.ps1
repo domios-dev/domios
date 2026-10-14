@@ -1,3 +1,4 @@
+# Caller: manual: PowerShell dev-instance isolation check (Windows)
 param(
   [int] $NamedPort = 7787,
   [string] $NamedInstance = "provider-model-oracle"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh release-preflight; CI tests.yml; scripts test-clippy-gate.sh; skill build, gates, testing
 # Single source of truth for the clippy gate — called by .githooks/pre-push
 # (integration pushes) and .github/workflows/tests.yml (CI linux job).
 set -euo pipefail

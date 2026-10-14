@@ -1,3 +1,4 @@
+// Caller: scripts ci-rust-archives.mjs, ci-rust-shards.mjs
 export function classifyInventory(inventory, sources) {
   const rows = [];
   for (const suite of Object.values(inventory['rust-suites'])) {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: skill github-release
 # Refuse to cut a release unless every self-hosted runner label the release needs is online.
 set -euo pipefail
 

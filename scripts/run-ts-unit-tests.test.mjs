@@ -1,3 +1,4 @@
+// Caller: CI frontend-release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { EventEmitter, once } from "node:events";

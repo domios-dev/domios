@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Caller: CI release-credentials.yml, release-linux-arm64.yml, release-macos-build.yml; scripts check-release-credentials-mac.sh, tests/release-job-graph.test.mjs, tests/release_signing_material_test.py; skill github-release
 import base64
 import hashlib
 import os

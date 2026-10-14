@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs
 import crypto from "node:crypto";
 import {
   accessSync,

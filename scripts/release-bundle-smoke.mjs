@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI release-linux.yml, release-macos-build.yml, release-windows.yml; scripts tests/release-bundle-smoke.test.mjs
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, mkdtempSync, rmSync, appendFileSync, existsSync } from 'node:fs';
 import { tmpdir, platform, arch } from 'node:os';
