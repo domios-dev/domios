@@ -158,17 +158,17 @@ extern "C" {
     fn IORegistryEntryGetRegistryEntryID(entry: u32, entry_id: *mut u64) -> IOReturn;
 }
 
-pub(crate) struct MacInputSubscription {
+pub struct MacInputSubscription {
     active: Arc<AtomicBool>,
     run_loop: Option<RunLoopHandle>,
     completion: Option<Receiver<Result<(), String>>>,
 }
 
-pub(crate) struct MacSetupFailure {
-    pub(crate) reason: String,
-    pub(crate) teardown: Option<MacTeardown>,
+pub struct MacSetupFailure {
+    pub reason: String,
+    pub teardown: Option<MacTeardown>,
 }
-pub(crate) struct MacTeardown {
+pub struct MacTeardown {
     completion: Receiver<Result<(), String>>,
     run_loop: Option<RunLoopHandle>,
     state: TeardownState,
@@ -180,7 +180,7 @@ enum TeardownState {
 }
 
 impl MacTeardown {
-    pub(crate) fn wait_blocking(&mut self) -> Result<(), String> {
+    pub fn wait_blocking(&mut self) -> Result<(), String> {
         match &self.state {
             TeardownState::Complete => return Ok(()),
             TeardownState::Failed(error) => return Err(error.clone()),
@@ -229,7 +229,7 @@ fn request_run_loop_stop(run_loop: CFRunLoopRef, stop_requested: &AtomicBool) {
     }
 }
 impl MacInputSubscription {
-    pub(crate) fn request_stop(&mut self) -> Option<MacTeardown> {
+    pub fn request_stop(&mut self) -> Option<MacTeardown> {
         self.active.store(false, Ordering::Release);
         if let Some(run_loop) = self.run_loop.as_mut() {
             run_loop.stop();

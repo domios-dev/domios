@@ -314,6 +314,7 @@ run_nextest_scope() {
 
   case "$scope" in
     app|codeterm) package="codeterm"; targets+=(--lib --no-default-features) ;;
+    input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
     analytics|codeterm-analytics) package="codeterm-analytics"; targets+=(--lib) ;;
@@ -1726,7 +1727,7 @@ CodeTerm build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
+  test-one <input-macos|input-windows|billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   test                        Run the application Rust unit suite
@@ -1937,6 +1938,10 @@ EOF
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        ;;
+      input-macos|input-windows)
+        enter_build_gateway "$CMD ${*:2}"
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
       frontend-bundle|codeterm-frontend-bundle)
         enter_build_gateway "$CMD ${*:2}"
