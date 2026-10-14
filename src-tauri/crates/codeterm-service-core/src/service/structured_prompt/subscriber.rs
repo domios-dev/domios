@@ -194,7 +194,7 @@ async fn apply_event(
 
 fn transport_state(svc: &ServiceContext, tab_id: &str, status: &str, detail: &str) {
     log::info!("[structured-channel] tab={tab_id} status={status} detail={detail}");
-    crate::api::events::emit_everywhere(
+    codeterm_events::emit_everywhere(
         &svc.app_handle,
         "structured-channel-state",
         serde_json::json!({

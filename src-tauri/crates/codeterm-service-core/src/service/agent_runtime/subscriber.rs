@@ -120,11 +120,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     .chat_send_ledger
                     .rpc_uncertain_for_launch(&context.tab_id, Some(&context.binding_nonce))
                 {
-                    crate::api::events::emit_everywhere(
-                        &svc.app_handle,
-                        "chat-send-status",
-                        status,
-                    );
+                    codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
                 }
                 engine::publish(&svc, &context.tab_id, &session);
                 svc.emit_state_changed();

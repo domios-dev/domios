@@ -97,7 +97,7 @@ fn push_hints(value: &mut Value, hints: Vec<String>) {
 }
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+    codeterm_events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {

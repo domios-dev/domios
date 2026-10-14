@@ -478,7 +478,7 @@ pub fn install_invalidations(
                     .collect::<Vec<_>>()
             };
             for change in changes {
-                crate::api::events::emit_everywhere(&app, "automation-graph-changed", change);
+                codeterm_events::emit_everywhere(&app, "automation-graph-changed", change);
             }
         });
     }
