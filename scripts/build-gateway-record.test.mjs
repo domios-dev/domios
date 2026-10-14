@@ -95,17 +95,27 @@ test(identity === 'readable' ? 'dead queued owner is reaped without removing the
     ct_gateway_set_fixture_dir "$1"
     mkdir -p "$1/jobs" "$1/queue"
     ct_gateway_mutex_acquire "$1"
-    live_token="$(ct_gateway_process_start_token "$$")"
+    ct_gateway_capture_owner
+    live_token="$CT_GATEWAY_PROCESS_START"
     for job in dead live; do
       if [ "$job" = dead ]; then pid=99999999; token=gone; else pid=$$; token="$live_token"; fi
       mkdir "$1/queue/$job"
       printf '%s\\n' "$pid" > "$1/queue/$job/pid"
       printf '%s\\n' "$token" > "$1/queue/$job/start_token"
+      if [ "$job" = live ]; then
+        ct_gateway_write_owner "$1/queue/$job"
+      else
+        printf '%s\\n' 99999999 > "$1/queue/$job/native_pid"
+        printf '%s\\n' gone > "$1/queue/$job/native_start_token"
+      fi
       printf '%s\\n' "$job" > "$1/queue/$job/job_id"
       ct_gateway_state_tool create --dir "$1" --job-id "$job" --job check-queue --command fixture \
         --owner "$job" --owner-pid "$pid" --owner-start-token "$token" --queue-key "$job" --queued-at fixture
     done
-    if [ "$2" = unreadable ]; then ct_gateway_process_start_token() { return 2; }; fi
+    if [ "$2" = unreadable ]; then
+      ct_gateway_process_start_token() { return 2; }
+      rm "$1/queue/live/native_start_token"
+    fi
     ct_gateway_reap_stale_queue_locked "$1"
     ct_gateway_state_tool status --dir "$1"
     ct_gateway_mutex_release "$1"

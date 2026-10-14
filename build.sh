@@ -1534,7 +1534,7 @@ configure_dev_cargo() {
 
 check_queue_worktree() {
   node "$CT_GATEWAY_SCRIPT_ROOT/scripts/check-worktree.mjs" \
-    "$CT_GATEWAY_SCRIPT_ROOT" "$(ct_gateway_dir)" "$1" "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START"
+    "$CT_GATEWAY_SCRIPT_ROOT" "$(ct_gateway_dir)" "$1" "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START"
 }
 
 enter_check_worktree() {
@@ -2332,7 +2332,7 @@ EOF
         ;;
       qa-child)
         enter_build_gateway "qa-prep"
-        bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "qa-prep" --probe-only
+        bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START" "qa-prep" --probe-only
         ;;
       dev-resources)
         enter_build_gateway "dev-resource-preflight"
@@ -2637,7 +2637,7 @@ EOF
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run bash scripts/check-script-catalog.sh
     sg_run node --test --test-concurrency=1 scripts/build-gateway-mutex.test.mjs scripts/build-gateway-slot.test.mjs scripts/build-gateway-record.test.mjs scripts/build-gateway-cache.test.mjs scripts/check-worktree.test.mjs scripts/dev-build-configuration.test.mjs scripts/build-history.test.mjs scripts/build-gateway-evidence.test.mjs
-    sg_run node --test scripts/build-gateway-mutex-evidence.test.mjs scripts/build-gateway-output.test.mjs scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
+    sg_run node --test scripts/build-gateway-owner.test.mjs scripts/build-gateway-mutex-evidence.test.mjs scripts/build-gateway-output.test.mjs scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
     sg_run bash scripts/check-build-script-head.sh
@@ -2733,7 +2733,7 @@ EOF
     exit "$cst_status"
     ;;
   qa-prep)
-    bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
+    bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
     ;;
   bootstrap)
     ensure_deps
