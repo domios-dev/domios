@@ -500,7 +500,7 @@ function TabItemInner({
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
           <span
             data-testid="tab-title"
-            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""}`}
+            className={`${touchMode && !attachment ? tabTouchText : tabText} block min-w-0 overflow-clip text-ellipsis whitespace-nowrap ${attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""}`}
             onDoubleClick={(e) => {
               if (tab?.protected) return; // Main is unrenameable
               e.stopPropagation();
