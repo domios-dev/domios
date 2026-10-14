@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionQuestionsRequest, DecisionResponse,
 };
 use parking_lot::Mutex;

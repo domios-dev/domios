@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use codeterm_types::decision::physical;
+use codeterm_decision::physical;
 use futures_util::StreamExt;
 use parking_lot::Mutex;
 use serde::Deserialize;
@@ -782,7 +782,7 @@ mod tests {
 #[cfg(test)]
 mod physical_tests {
     use super::*;
-    use codeterm_types::decision::{physical, DecisionError};
+    use codeterm_decision::{physical, DecisionError};
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,

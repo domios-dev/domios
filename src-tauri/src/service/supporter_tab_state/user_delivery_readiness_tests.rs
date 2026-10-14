@@ -1,5 +1,5 @@
 use super::{identity, user_delivery_pair_has_same_generation, user_delivery_verdict_qualifies};
-use codeterm_types::decision::{DecisionAnswer, DecisionResponse};
+use codeterm_decision::{DecisionAnswer, DecisionResponse};
 use std::collections::BTreeMap;
 
 fn local_identity() -> identity::LocalIdentity {

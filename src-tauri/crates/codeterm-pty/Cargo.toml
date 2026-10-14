@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 codeterm-types = { path = "../codeterm-types" }
+codeterm-provider-signals = { path = "../codeterm-provider-signals" }
 codeterm-storage = { path = "../codeterm-storage" }
 codeterm-util = { path = "../codeterm-util" }
 codeterm-paths = { path = "../../../crates/codeterm-paths" }

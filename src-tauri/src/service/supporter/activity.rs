@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use codeterm_types::decision::{DecisionAnswer, DecisionError, DecisionPricing, DecisionResponse};
+use codeterm_decision::{DecisionAnswer, DecisionError, DecisionPricing, DecisionResponse};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
@@ -112,7 +112,7 @@ impl SupporterRuntime {
         self.backoffs.lock().available(
             adapter,
             self.connection_epoch(),
-            codeterm_types::decision::deadline::now(),
+            codeterm_decision::deadline::now(),
         )
     }
 
@@ -220,7 +220,7 @@ impl SupporterRuntime {
             if !self.backoffs.lock().failed(
                 adapter,
                 self.connection_epoch(),
-                codeterm_types::decision::deadline::now(),
+                codeterm_decision::deadline::now(),
             ) {
                 return;
             }
@@ -511,8 +511,8 @@ impl SupporterRuntime {
 }
 
 fn journal_answers(
-    answers: &codeterm_types::decision::DecisionAnswers,
-) -> codeterm_types::decision::DecisionAnswers {
+    answers: &codeterm_decision::DecisionAnswers,
+) -> codeterm_decision::DecisionAnswers {
     answers
         .iter()
         .map(|(name, answer)| {

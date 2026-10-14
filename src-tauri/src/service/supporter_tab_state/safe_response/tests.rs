@@ -376,11 +376,11 @@ fn supporter_first_opinion_safe_response_adapter_replacement_resets_agreement() 
         fn id(&self) -> &str {
             "fixture"
         }
-        fn token_mode(&self) -> codeterm_types::decision::TokenMode {
-            codeterm_types::decision::TokenMode::Required
+        fn token_mode(&self) -> codeterm_decision::TokenMode {
+            codeterm_decision::TokenMode::Required
         }
-        fn primitives(&self) -> codeterm_types::decision::DecisionPrimitives {
-            codeterm_types::decision::DecisionPrimitives {
+        fn primitives(&self) -> codeterm_decision::DecisionPrimitives {
+            codeterm_decision::DecisionPrimitives {
                 choice: true,
                 noul: true,
                 score: false,
@@ -388,10 +388,10 @@ fn supporter_first_opinion_safe_response_adapter_replacement_resets_agreement() 
         }
         fn decide(
             &self,
-            _: &codeterm_types::decision::DecisionRequest,
+            _: &codeterm_decision::DecisionRequest,
             _: Instant,
-        ) -> Result<DecisionAnswer, codeterm_types::decision::DecisionError> {
-            Err(codeterm_types::decision::DecisionError::Unsupported)
+        ) -> Result<DecisionAnswer, codeterm_decision::DecisionError> {
+            Err(codeterm_decision::DecisionError::Unsupported)
         }
     }
     let first: Arc<dyn DecisionModel> = Arc::new(Model);

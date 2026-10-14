@@ -11,7 +11,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use codeterm_types::decision::{DecisionModel, TokenMode};
+use codeterm_decision::{DecisionModel, TokenMode};
 use serde::Deserialize;
 use serde_json::{json, Value};
 

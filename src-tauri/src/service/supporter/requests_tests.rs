@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::decision::{DecisionQuestion, DecisionUsage};
+use codeterm_decision::{DecisionQuestion, DecisionUsage};
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -40,7 +40,7 @@ impl DecisionModel for Model {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
-        codeterm_types::decision::physical::before_request()?;
+        codeterm_decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         if self.exhausted {
             return Err(DecisionError::Http(402));
@@ -396,7 +396,7 @@ fn supporter_rerank_rejects_sequential_wire_requests_after_one_call() {
             }
         }
         fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
-            codeterm_types::decision::physical::before_request()?;
+            codeterm_decision::physical::before_request()?;
             Ok(DecisionAnswer::Noul { p: 0.8 })
         }
     }
@@ -476,8 +476,8 @@ fn supporter_first_opinion_adapter_batch_cannot_hide_a_second_physical_request()
             request: &DecisionQuestionsRequest,
             _: Instant,
         ) -> Result<DecisionResponse, DecisionError> {
-            codeterm_types::decision::physical::before_request()?;
-            let _ = codeterm_types::decision::physical::before_request();
+            codeterm_decision::physical::before_request()?;
+            let _ = codeterm_decision::physical::before_request();
             Ok(DecisionResponse {
                 answers: request
                     .questions
@@ -512,7 +512,7 @@ fn supporter_first_opinion_adapter_batch_cannot_hide_a_second_physical_request()
 
 #[test]
 fn supporter_unavailable_backoff_emits_once_and_does_not_extend_on_blocked_calls() {
-    let clock = codeterm_types::decision::deadline::FixtureClock::new(Instant::now());
+    let clock = codeterm_decision::deadline::FixtureClock::new(Instant::now());
     let origin = clock.now();
     let _scope = clock.enter();
     let dir = tempfile::tempdir().unwrap();

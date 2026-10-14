@@ -559,7 +559,7 @@ fn sqlite_assistant_api_error_is_session_scoped_and_visible() {
     );
     assert_eq!(
         signals.api_error,
-        Some(codeterm_types::agent::provider_signals::ApiErrorKind::Other)
+        Some(codeterm_provider_signals::ApiErrorKind::Other)
     );
     let foreign = provider.read_structured_chat("/work/proj", "ses_foreign", None);
     assert!(foreign.messages.is_empty());

@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::RwLock;
 use std::time::Instant;
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionAnswers, DecisionError, DecisionModel, DecisionModelInfo,
     DecisionPricing, DecisionPrimitives, DecisionQuestion, DecisionQuestionsRequest,
     DecisionRequest, DecisionResponse, DecisionUsage, NamedDecisionQuestion, TokenMode,
@@ -263,8 +263,8 @@ impl DecisionModel for TypeSafeAdapter {
         })
     }
 
-    fn metadata(&self) -> codeterm_types::decision::DecisionMetadata {
-        codeterm_types::decision::DecisionMetadata {
+    fn metadata(&self) -> codeterm_decision::DecisionMetadata {
+        codeterm_decision::DecisionMetadata {
             display_name: Some("TypeSafe Jev".into()),
             help_url: Some("https://docs.typesafe.ai".into()),
             ..Default::default()
@@ -379,7 +379,7 @@ impl TypeSafeAdapter {
             .json(&body)
             .build()
             .map_err(|_| DecisionError::Transport("invalid_request".into()))?;
-        codeterm_types::decision::physical::before_request()?;
+        codeterm_decision::physical::before_request()?;
         let response = client.execute(request).map_err(|error| {
             if error.is_timeout() {
                 DecisionError::Deadline
