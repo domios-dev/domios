@@ -51,7 +51,7 @@ test('dev launch and the regular library check share profile, features, flags an
 
 test('check-queue reports dev library arguments and its own exit in the summary and full log', () => {
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
-  const pass = source.match(/^  configure_dev_cargo\n  local dev_status=0[\s\S]*?(?=^  grep 'cargo::core::compiler::fingerprint')/m)[0];
+  const pass = source.match(/^  configure_dev_cargo\n  local dev_status=0[\s\S]*?(?=^  local test_runner test_status)/m)[0];
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-cargo-receipt-'));
   try {
     for (const exit of [0, 42]) {
@@ -74,5 +74,73 @@ test('check-queue reports dev library arguments and its own exit in the summary 
       assert.equal(result.stdout.trim(), `${marker}\naggregate=${exit || 17}`);
       assert.equal(fs.readFileSync(path.join(directory, 'pass.log'), 'utf8').trim(), marker);
     }
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('app test checks share both runner configurations and persist per-pass receipts', () => {
+  const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
+  const configuration = source.match(/^configure_app_test_cargo\(\) \{[\s\S]*?^\}/m)[0];
+  const nextest = source.match(/^run_nextest_scope\(\) \{[\s\S]*?^\}/m)[0];
+  const app = source.slice(source.indexOf('  test-one)')).match(/^      app\)[\s\S]*?^        ;;/m)[0];
+  const pass = source.match(/^  local test_runner test_status[\s\S]*?(?=^  grep 'cargo::core::compiler::fingerprint')/m)[0];
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'app-test-cfg-'));
+  try {
+    const result = spawnSync(bash, ['-c', `
+      set -euo pipefail
+      ${configuration}
+      ${nextest}
+      prepare_dev_frontend_dist() { :; }
+      prepare_bundle_stubs() { :; }
+      prepare_exceptional_worktree_target() { :; }
+      cargo() {
+        printf '%s\\n' "$*" >> calls.log
+        if [ "$1" = nextest ]; then return 71; fi
+        case "$*" in *--no-default-features*) return 42 ;; esac
+      }
+      scripts/test-capped.sh() { printf 'test-one %s\\n' "$*" >> calls.log; }
+      run_nextest_scope app || [ "$?" = 71 ]
+      test_filter=opaque-filter
+      case app in
+      ${app}
+      esac
+      run_checks() {
+        cw="$PWD"
+        out=pass.log
+        status=0
+        ${pass}
+        printf 'aggregate=%s\\n' "$status"
+      }
+      run_checks
+    `], { cwd: directory, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const calls = fs.readFileSync(path.join(directory, 'calls.log'), 'utf8').trim().split('\n');
+    const nextestArgs = calls[0];
+    const focusedArgs = calls[1];
+    const checks = calls.slice(2);
+    assert.equal(checks.length, 2);
+    for (const [launch, check] of [[nextestArgs, checks[0]], [focusedArgs, checks[1]]]) {
+      for (const option of ['--manifest-path', '-p']) {
+        const value = launch.split(' ')[launch.split(' ').indexOf(option) + 1];
+        assert.ok(check.includes(`${option} ${value}`), `${launch} vs ${check}`);
+      }
+      assert.ok(launch.includes('--lib') && check.includes('--lib'));
+      assert.equal(launch.includes('--no-default-features'), check.includes('--no-default-features'));
+      assert.equal(launch.includes('--all-features'), check.includes('--all-features'));
+      const featureValue = args => args.match(/(?:--features|-F) (\S+)/)?.[1];
+      assert.equal(featureValue(launch), featureValue(check));
+      assert.ok(check.includes('--tests'), 'test cfg must be checked');
+      assert.ok(check.includes('--profile test'));
+      assert.doesNotMatch(launch, /--release|--profile|--cargo-profile/);
+    }
+    assert.ok(nextestArgs.includes('--no-default-features'));
+    assert.ok(!focusedArgs.includes('--no-default-features'));
+    const markers = fs.readFileSync(path.join(directory, 'pass.log'), 'utf8').trim().split('\n');
+    assert.equal(markers.length, 2);
+    for (const [index, runner] of ['nextest', 'test-one'].entries()) {
+      const args = checks[index].replace(/^check /, '').replace(/ --message-format=short$/, '');
+      assert.equal(markers[index], `check-queue: app-test scope=${runner} args=${args} exit=${index ? 0 : 42}`);
+      assert.ok(result.stdout.includes(markers[index]));
+    }
+    assert.ok(result.stdout.includes('aggregate=42'), 'a later successful pass must preserve the failed pass');
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });

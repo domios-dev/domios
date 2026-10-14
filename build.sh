@@ -360,7 +360,12 @@ run_nextest_scope() {
   local filter_args=()
 
   case "$scope" in
-    app|codeterm|service-core|codeterm-service-core) package="codeterm-service-core"; targets+=(--lib --no-default-features) ;;
+    app|codeterm|service-core|codeterm-service-core)
+      configure_app_test_cargo nextest
+      manifest="$CT_APP_TEST_MANIFEST"
+      package="$CT_APP_TEST_PACKAGE"
+      targets+=("${CT_APP_TEST_TARGET_ARGS[@]}")
+      ;;
     input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
@@ -1459,6 +1464,18 @@ check_warning_summary() {
   '
 }
 
+configure_app_test_cargo() {
+  CT_APP_TEST_MANIFEST=src-tauri/Cargo.toml
+  CT_APP_TEST_PACKAGE=codeterm-service-core
+  CT_APP_TEST_TARGET_ARGS=(--lib)
+  case "${1:?app test configuration requires a runner}" in
+    nextest) CT_APP_TEST_TARGET_ARGS+=(--no-default-features) ;;
+    test-one) ;;
+    *) echo "Unknown app test runner: $1" >&2; return 2 ;;
+  esac
+  CT_APP_TEST_ARGS=(--manifest-path "$CT_APP_TEST_MANIFEST" -p "$CT_APP_TEST_PACKAGE" "${CT_APP_TEST_TARGET_ARGS[@]}")
+}
+
 configure_dev_cargo() {
   CT_DEV_CARGO_PROFILE=dev
   CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" src-tauri/Cargo.toml)"
@@ -1549,6 +1566,14 @@ check_queue_run() {
     cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=short >> "$out" 2>&1 || dev_status=$?
   [ "$dev_status" = 0 ] || status="$dev_status"
   echo "check-queue: dev-lib args=${CT_DEV_CHECK_ARGS[*]} exit=$dev_status" | tee -a "$out"
+  local test_runner test_status
+  for test_runner in nextest test-one; do
+    configure_app_test_cargo "$test_runner"
+    test_status=0
+    CARGO_TARGET_DIR="$cw/target/app" cargo check "${CT_APP_TEST_ARGS[@]}" --profile test --tests --message-format=short >> "$out" 2>&1 || test_status=$?
+    [ "$test_status" = 0 ] || status="$test_status"
+    echo "check-queue: app-test scope=$test_runner args=${CT_APP_TEST_ARGS[*]} --profile test --tests exit=$test_status" | tee -a "$out"
+  done
   grep 'cargo::core::compiler::fingerprint' "$out" || true
   check_queue_errors "$max_errors" "$status" < "$out"
   check_queue_warnings "$max_warnings" "$touched" < "$out" || [ "$status" != 0 ] || status=1
@@ -2249,7 +2274,8 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-service-core --lib "$test_filter"
+        configure_app_test_cargo test-one
+        scripts/test-capped.sh "${CT_APP_TEST_ARGS[@]}" "$test_filter"
         ;;
       input-macos|input-windows)
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
