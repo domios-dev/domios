@@ -7,7 +7,7 @@ fn capability() -> AgentRuntimeCapability {
             binary: "node".into(),
             args: vec![format!(
                 "{}/../tests/fixtures/agent-runtime/fake-peer.mjs",
-                env!("CARGO_MANIFEST_DIR")
+                crate::test_support::fixture_manifest_dir().display()
             )],
         },
         inherited_environment_exclusions: Vec::new(),

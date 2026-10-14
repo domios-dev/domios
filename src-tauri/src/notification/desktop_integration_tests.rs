@@ -43,7 +43,7 @@ mod no_inference {
     ];
 
     fn src_root() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
+        PathBuf::from(crate::test_support::fixture_manifest_dir()).join("src")
     }
 
     fn files_naming(needle: &str) -> Vec<String> {

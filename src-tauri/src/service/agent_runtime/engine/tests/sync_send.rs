@@ -23,7 +23,12 @@ fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
     tab.agent_session_id = Some("own-thread".into());
     tab.session_binding_nonce = Some(nonce.clone());
     tab.reported_session_binding_nonce = Some(nonce.clone());
-    tab.cwd = Some(env!("CARGO_MANIFEST_DIR").into());
+    tab.cwd = Some(
+        crate::test_support::fixture_manifest_dir()
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+    );
     tab.backing = TabBacking::ChatBackend {
         plugin_id: PROVIDER.into(),
         session_id: "own-thread".into(),
@@ -80,7 +85,10 @@ module.exports = {
             tab_id: tab_id.clone(),
             binding_nonce: nonce,
             thread_id: Some("own-thread".into()),
-            cwd: env!("CARGO_MANIFEST_DIR").into(),
+            cwd: crate::test_support::fixture_manifest_dir()
+                .to_string_lossy()
+                .into_owned()
+                .into(),
             host_version: env!("CARGO_PKG_VERSION").into(),
             provider_settings: json!({}),
             ..Default::default()

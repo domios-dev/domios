@@ -34,7 +34,9 @@ const TARGETS: [&str; 5] = [
 ];
 
 fn plugins_root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("plugins")
+    crate::test_support::fixture_manifest_dir()
+        .join("..")
+        .join("plugins")
 }
 
 fn js_registry(plugin_dir: &str, id: &str, sessions_root: &Path) -> Arc<AgentRegistry> {

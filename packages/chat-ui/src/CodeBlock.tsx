@@ -1,3 +1,4 @@
+import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
 import { createPortal } from "react-dom";
@@ -188,8 +189,8 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   const resolvedLanguage = language !== "text" ? language : inferCodeLanguage(null, displayedText);
   if (forcePlainText) {
     return (
-      <div
-        className="min-w-0 w-full max-w-full select-text overflow-auto"
+      <BoundedMessageContent collapsedHeight={maxHeight} unbounded={fullSize}
+        className={`min-w-0 w-full max-w-full select-text ${fullSize ? "overflow-auto" : ""}`}
         style={{ maxHeight: fullSize ? "100%" : maxHeight }}
       >
         <pre
@@ -206,12 +207,12 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
             <span aria-hidden="true" className="select-none pr-2 text-right text-[var(--ct-muted-fg)]">{index + 1}</span><span>{line || " "}</span>
           </span>) : displayedText}
         </pre>
-      </div>
+      </BoundedMessageContent>
     );
   }
   return (
-    <div
-      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-0 w-full max-w-full select-text ${fullSize ? "h-full overflow-hidden" : "overflow-x-auto overflow-y-auto"}`}
+    <BoundedMessageContent collapsedHeight={maxHeight} unbounded={fullSize}
+      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-0 w-full max-w-full select-text ${fullSize ? "h-full overflow-hidden" : ""}`}
       style={{ maxHeight: fullSize ? "100%" : maxHeight }}
     >
       {suppressMermaidErrorOutput ? null : shouldDisplayMermaid ? (
@@ -231,7 +232,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           onDoubleClick={onMermaidDoubleClick}
         >
           <div
-            className={`flex w-full items-center justify-center ${interactiveMermaid ? "h-full overflow-hidden" : "overflow-auto"}`}
+            className={`flex w-full items-center justify-center ${interactiveMermaid ? "h-full overflow-hidden" : ""}`}
             style={{
               background: "var(--ct-surface)",
               minHeight: "max(100%, 0px)",
@@ -293,7 +294,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           </SyntaxHighlighter>
         </>
       )}
-    </div>
+    </BoundedMessageContent>
   );
 });
 

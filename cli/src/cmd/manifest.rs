@@ -206,9 +206,11 @@ fn render_document(current: &str, preamble: &str, body: &str) -> Result<String, 
 }
 
 fn repo_path(rel: &str) -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join(rel)
+    #[cfg(test)]
+    let manifest = crate::test_support::fixture_manifest_dir();
+    #[cfg(not(test))]
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest.join("..").join(rel)
 }
 
 fn output_path(file: &str) -> std::path::PathBuf {
@@ -249,10 +251,10 @@ mod tests {
         s.replace("\r\n", "\n")
     }
 
-    const COMMAND_PATHS_PATH: &str = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../packages/chat-ui/src/codeterm/commandPaths.ts"
-    );
+    fn command_paths_path() -> std::path::PathBuf {
+        crate::test_support::fixture_manifest_dir()
+            .join("../packages/chat-ui/src/codeterm/commandPaths.ts")
+    }
 
     #[test]
     fn cli_manifest_is_fresh() {
@@ -342,7 +344,7 @@ mod tests {
     #[test]
     fn chat_ui_command_paths_are_fresh() {
         let committed =
-            std::fs::read_to_string(COMMAND_PATHS_PATH).expect("commandPaths.ts missing");
+            std::fs::read_to_string(command_paths_path()).expect("commandPaths.ts missing");
         assert_eq!(
             normalize_newlines(&committed),
             normalize_newlines(&to_command_paths()),
@@ -350,27 +352,29 @@ mod tests {
         );
     }
 
-    const PROMPT_PATH: &str = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../src-tauri/prompts/codeterm_cli.md"
-    );
-    const SKILL_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../skills/codeterm/SKILL.md");
+    fn prompt_path() -> std::path::PathBuf {
+        crate::test_support::fixture_manifest_dir().join("../src-tauri/prompts/codeterm_cli.md")
+    }
+    fn skill_path() -> std::path::PathBuf {
+        crate::test_support::fixture_manifest_dir().join("../skills/codeterm/SKILL.md")
+    }
 
     #[test]
     fn shipped_agent_instructions_use_tab_cli_vocabulary() {
-        for path in [PROMPT_PATH, SKILL_PATH] {
-            let text = std::fs::read_to_string(path).expect("read agent instruction source");
+        for path in [prompt_path(), skill_path()] {
+            let path_display = path.display();
+            let text = std::fs::read_to_string(&path).expect("read agent instruction source");
             assert!(
                 !text.contains("codeterm pane "),
-                "{path} teaches the removed legacy command namespace"
+                "{path_display} teaches the removed legacy command namespace"
             );
             assert!(
                 !text.contains(" --pane "),
-                "{path} teaches the removed `--pane` flag"
+                "{path_display} teaches the removed `--pane` flag"
             );
             assert!(
                 text.contains("codeterm tab "),
-                "{path} omits the canonical tab namespace"
+                "{path_display} omits the canonical tab namespace"
             );
         }
     }
@@ -380,7 +384,7 @@ mod tests {
     #[test]
     fn prompt_cli_commands_exist() {
         let root = Cli::command();
-        let text = std::fs::read_to_string(PROMPT_PATH).expect("read codeterm_cli.md");
+        let text = std::fs::read_to_string(prompt_path()).expect("read codeterm_cli.md");
         let mut bad: Vec<String> = Vec::new();
         for (idx, line) in text.lines().enumerate() {
             let Some(rest) = prescription(line, "codeterm") else {

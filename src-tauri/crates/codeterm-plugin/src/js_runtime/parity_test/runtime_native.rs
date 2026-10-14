@@ -156,10 +156,27 @@ impl AgentProvider for NativeRuntime {
                     },
                     _ => RuntimeResult::Done,
                 };
-                RuntimeStep::Complete {
-                    result,
-                    events: None,
-                    notification: None,
+                if value["more"] == true && matches!(op, RuntimeOperation::ReadHistory { .. }) {
+                    RuntimeStep::Continue {
+                        history: Some(result),
+                        plan: RuntimePlan {
+                            action: RuntimeAction::Request {
+                                call: RpcCall {
+                                    method: op.kind().into(),
+                                    params: json!(op),
+                                    target: None,
+                                },
+                            },
+                            state: Value::Null,
+                        },
+                        before_acceptance: false,
+                    }
+                } else {
+                    RuntimeStep::Complete {
+                        result,
+                        events: None,
+                        notification: None,
+                    }
                 }
             }
         };

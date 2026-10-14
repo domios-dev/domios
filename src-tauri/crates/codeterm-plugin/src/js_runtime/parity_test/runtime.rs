@@ -40,7 +40,7 @@ fn generic_paths() -> PathBuf {
     std::env::var_os("CODETERM_GENERIC_RUNTIME_FIXTURES")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            PathBuf::from(crate::test_support::fixture_manifest_dir())
                 .join("src/js_runtime/parity_test/fixtures/runtime")
         })
 }
@@ -142,4 +142,60 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
                 .code
         );
     }
+}
+
+#[test]
+fn runtime_streamed_history_validation_preserves_bounds_and_binding() {
+    let dir = generic_paths();
+    let fixture: GenericFixture =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("shared.json")).unwrap()).unwrap();
+    let js = generic_provider(&dir);
+    let cap = js.agent_runtime().unwrap();
+    let case = fixture
+        .operations
+        .iter()
+        .find(|case| {
+            matches!(
+                case.step,
+                Some(RuntimeStep::Continue {
+                    history: Some(_),
+                    ..
+                })
+            )
+        })
+        .unwrap();
+    let ctx = case.context.as_ref().unwrap_or(&fixture.context);
+    let reply = case.reply.as_ref().unwrap();
+    let step = case.step.as_ref().unwrap();
+    validate_runtime_step(&cap, ctx, &case.operation, reply, step).unwrap();
+    let mut oversized = step.clone();
+    if let RuntimeStep::Continue { plan, .. } = &mut oversized {
+        plan.state = json!({"items":"x".repeat(MAX_RUNTIME_STATE_BYTES)});
+    }
+    assert_eq!(
+        validate_runtime_step(&cap, ctx, &case.operation, reply, &oversized)
+            .unwrap_err()
+            .code,
+        RuntimeFailureCode::SizeLimit
+    );
+    let mut foreign = step.clone();
+    if let RuntimeStep::Continue {
+        history: Some(RuntimeResult::HistoryPage { thread_id, .. }),
+        ..
+    } = &mut foreign
+    {
+        *thread_id = "foreign".into();
+    }
+    assert_eq!(
+        validate_runtime_step(&cap, ctx, &case.operation, reply, &foreign)
+            .unwrap_err()
+            .code,
+        RuntimeFailureCode::BindingMismatch
+    );
+    assert_eq!(
+        validate_runtime_step(&cap, ctx, &RuntimeOperation::Initialize, reply, step)
+            .unwrap_err()
+            .code,
+        RuntimeFailureCode::BindingMismatch
+    );
 }

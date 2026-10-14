@@ -52,8 +52,8 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
     case "openThread": return request("thread/start",settingsParams(ctx,op.settings,op.instructions));
     case "resumeThread": return request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true});
     case "readHistory":
-      return request("thread/turns/list",{threadId:op.threadId,itemsView:"notLoaded",sortDirection:"asc",limit:100,cursor:op.cursor},
-        {stage:"turns",turns:[],cursors:[],items:[],openItems:[],seq:0});
+      return request("thread/turns/list",{threadId:op.threadId,itemsView:"notLoaded",sortDirection:"asc",limit:8,cursor:op.cursor},
+        {stage:"turns",turns:[],cursor:null,seq:0});
     case "submitTurn": {
       const params = turnParams(ctx,op);
       if (!op.activeTurnId) return request("turn/start",params);
@@ -99,7 +99,7 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
     if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
-      return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",items:[],openItems:[],questions:[],seq:0}));
+      return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",seq:0}));
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error,op.activeTurnId))
       return continuation(request("turn/start",turnParams(ctx,op)),true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived
@@ -150,11 +150,11 @@ function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Rec
     if (!userThread(value,op.threadId)) return refused("History snapshot thread identity unverified");
     const turns = object(value.thread).turns;
     if (!Array.isArray(turns)) return refused("Missing history snapshot turns");
-    let collected = state;
+    let collected = {...state,items:[],openItems:[],questions:[]};
     for (const raw of turns) {
       const turn = object(raw);
       if (!text(turn.id) || !Array.isArray(turn.items)) return refused("Missing history snapshot turn items");
-      collected = collectHistoryItems(op,collected,turn,turn.items);
+      collected = collectHistoryItems(op,collected,turn,turn.items) as typeof collected;
     }
     return historyGoal(op,collected);
   }
@@ -165,9 +165,12 @@ function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Rec
   }
   if (!Array.isArray(value.data)) return refused("Missing history page data");
   if (state.stage === "turns") {
-    const turns = list(value.data).map(object);
+    const source = list(value.data).map(object);
+    if (source.length > 8 || source.some(turn=>typeof turn.id !== "string" || !turn.id || turn.id.length > 4096)) return refused("Invalid history turn page");
+    const turns = source.map(turn=>({id:turn.id,status:turn.status === "inProgress" ? "inProgress" : "completed",
+      startedAt:typeof turn.startedAt === "number" && Number.isFinite(turn.startedAt) ? turn.startedAt : null}));
     const next = text(value.nextCursor);
-    if (next && next === op.cursor) return refused("Repeated history cursor");
+    if (next && (next.length > 4096 || next === op.cursor)) return refused("Repeated history cursor");
     const collected = {...state,turns,nextCursor:next,index:0,stage:"items"};
     if (!turns.length) return historyGoal(op,collected);
     return historyItems(op,collected);
@@ -176,14 +179,13 @@ function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Rec
   const turns = list(state.turns).map(object);
   const turn = turns[Number(state.index)];
   if (!turn || !text(turn.id)) return refused("Missing history turn id");
-  const mapped = collectHistoryItems(op,state,turn,value.data);
+  const mapped = collectHistoryItems(op,{...state,items:[],openItems:[],questions:[]},turn,value.data);
   const next = text(value.nextCursor);
-  const cursors = list(state.cursors);
-  if (next && cursors.includes(next)) return refused("Repeated history cursor");
+  if (next && (next.length > 4096 || next === state.cursor)) return refused("Repeated history cursor");
   const collected = {...mapped};
-  if (next) return historyItems(op,{...collected,cursors:[...cursors,next]},next);
+  if (next) return streamHistory(op,historyItems(op,{...collected,cursor:next},next),collected);
   const index = Number(state.index) + 1;
-  if (index < turns.length) return historyItems(op,{...collected,index,cursors:[]});
+  if (index < turns.length) return streamHistory(op,historyItems(op,{...collected,index,cursor:null}),collected);
   return historyGoal(op,collected);
 }
 function collectHistoryItems(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>, turn: Record<string,unknown>, entries: unknown[]): Record<string,unknown> {
@@ -214,10 +216,18 @@ function historyItems(op: Extract<Operation,{kind:"readHistory"}>, state: Record
 }
 function historyGoal(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>): RuntimeStep {
   if (text(state.nextCursor)) return historyComplete(op,state);
-  return continuation(request("thread/goal/get",{threadId:op.threadId},{...state,stage:"goal"}));
+  return streamHistory(op,continuation(request("thread/goal/get",{threadId:op.threadId},{...state,stage:"goal"})),state);
 }
 function historyComplete(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>): RuntimeStep {
   return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:list(state.items) as ChatMsg[],openItems:list(state.openItems) as OpenItem[],
     ...(text(state.nextCursor) ? {nextCursor:String(state.nextCursor)} : {}),
     ...(list(state.questions).length ? {questions:list(state.questions) as RuntimeHistoryQuestion[]} : {})}};
+}
+
+function streamHistory(op: Extract<Operation,{kind:"readHistory"}>, step: RuntimeStep, state: Record<string,unknown>): RuntimeStep {
+  if (step.kind !== "continue") return step;
+  const {items,openItems,questions,...cursor} = object(step.plan.state);
+  const complete = historyComplete(op,{...state,nextCursor:undefined});
+  if (complete.kind !== "complete" || complete.result.kind !== "historyPage") return step;
+  return {...step,plan:{...step.plan,state:json(cursor)},history:complete.result};
 }

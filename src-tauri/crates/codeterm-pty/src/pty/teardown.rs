@@ -154,6 +154,29 @@ impl PtyReaper {
 
     fn observe_exit(&self) {
         self.session.teardown.state.lock().console_closed = false;
+        // ClosePseudoConsole needs its output drained even when no backend claimed the reader.
+        #[cfg(windows)]
+        if let Some(mut reader) = self
+            .session
+            .reader
+            .lock()
+            .ok()
+            .and_then(|mut reader| reader.take())
+        {
+            self.session.teardown.mark_reader_started();
+            let session = self.session.clone();
+            std::thread::spawn(move || {
+                if let Err(error) = std::io::copy(&mut reader, &mut std::io::sink()) {
+                    if error.kind() != std::io::ErrorKind::BrokenPipe {
+                        session
+                            .teardown
+                            .mark_child_failed(format!("output drain failed: {error}"));
+                    }
+                }
+                drop(reader);
+                session.teardown.mark_reader_finished();
+            });
+        }
         let session = self.session.clone();
         let pty_id = self.pty_id.clone();
         std::thread::spawn(move || {

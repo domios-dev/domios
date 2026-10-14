@@ -112,10 +112,7 @@ struct Accumulator {
 }
 
 pub fn state_dumps_root() -> PathBuf {
-    PathBuf::from(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../testbench/state-dumps"
-    ))
+    crate::test_support::fixture_manifest_dir().join("../testbench/state-dumps")
 }
 
 pub fn run_state_calibration(root: &Path) -> StateCalibrationSummary {

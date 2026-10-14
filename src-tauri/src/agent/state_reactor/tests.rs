@@ -430,7 +430,7 @@ fn garbage_reset_time_is_rejected() {
 
 #[test]
 fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
-    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let fixture_path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir())
         .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-frame-full-screen-trailing-blank-rows.txt");
     let screen = std::fs::read_to_string(fixture_path).expect("captured Codex folder trust frame");
     let options = screen
@@ -637,7 +637,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
 
 #[test]
 fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_output() {
-    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+    let fixture_path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
         "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
     );
     let screen =
@@ -746,7 +746,7 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
 
 #[test]
 fn live_command_approval_frame_reaches_existing_auto_approve_output_path() {
-    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+    let fixture_path = std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
         "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
     );
     let screen =

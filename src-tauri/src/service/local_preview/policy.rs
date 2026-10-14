@@ -7,7 +7,7 @@ use crate::commands::html_preview::checked_path;
 pub(super) struct PreviewPolicy {
     references: HashSet<String>,
     denied: Vec<String>,
-    uploads: Option<PathBuf>,
+    uploads: Vec<PathBuf>,
     upload_denied: Vec<String>,
 }
 
@@ -24,20 +24,22 @@ impl PreviewPolicy {
         Ok(Self {
             references,
             denied: roots,
-            uploads: None,
+            uploads: Vec::new(),
             upload_denied: Vec::new(),
         })
     }
 
     pub fn with_uploads(mut self, uploads: &Path, denied: &[PathBuf]) -> Result<Self, String> {
         self.upload_denied = Self::new(HashSet::new(), denied)?.denied;
-        self.uploads = uploads.canonicalize().ok();
+        if let Ok(root) = uploads.canonicalize() {
+            self.uploads.push(root);
+        }
         Ok(self)
     }
 
     pub fn authorize(&self, requested: &Path, canonical: Option<&Path>) -> Result<(), String> {
         // Uploads are user-provided artifacts; require a canonical direct child to exclude symlink escapes.
-        if let Some(uploads) = &self.uploads {
+        for uploads in &self.uploads {
             if requested
                 .parent()
                 .and_then(|parent| parent.canonicalize().ok())
