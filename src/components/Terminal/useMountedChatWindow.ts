@@ -118,13 +118,15 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     const el = scrollRef.current;
     if (!el) return;
     const mounted = Array.from(el.querySelectorAll<HTMLElement>("[data-chat-window-row]"));
+    // A hidden scroller reports zero for every row; a laid-out row of zero height is a real measurement.
     const measure = () => {
+      if (el.clientHeight === 0) return;
       let changed = false;
       for (const row of mounted) {
         const id = row.dataset.chatWindowRow;
         const height = row.getBoundingClientRect().height;
         const index = id == null ? undefined : transcript.byId.get(id);
-        if (id == null || index == null || height <= 0) continue;
+        if (id == null || index == null) continue;
         heights.current.set(id, height);
         changed = transcript.geometry.update(index, height) || changed;
       }
