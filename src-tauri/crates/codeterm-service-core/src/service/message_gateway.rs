@@ -9,9 +9,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use parking_lot::Mutex;
 
 use super::messenger::{Delivery, MessageEnvelope, Messenger};
-use super::pty_io::{
-    await_action_deadline, execute_ordered_actions, OrderedPtyAction, SendBatchItem,
-};
+use super::ordered_actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
+use crate::ports::transport::SendBatchItem;
 
 /// Default bound for the idempotency cache (entries, no persistence).
 pub const IDEMPOTENCY_CAPACITY: usize = 512;

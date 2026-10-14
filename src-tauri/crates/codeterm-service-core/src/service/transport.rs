@@ -172,7 +172,7 @@ impl AgentTransport for PtyTransport {
                 ctx.tab_id,
                 &cwd,
                 &mut params,
-                super::codex_rpc::launch::Selection {
+                crate::ports::transport::Selection {
                     model: model_resolution.model.clone(),
                     effort: ctx
                         .reasoning_effort
