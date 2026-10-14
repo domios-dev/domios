@@ -568,7 +568,7 @@ pub fn run(
             );
 
             let user_last_activity = crate::user_last_activity::UserLastActivity::new();
-            states.mesh.lock().build_hash = codeterm_build_info::BUILD_HASH.to_string();
+            states.mesh.lock().build_hash = codeterm_build_info::hash().to_string();
             states.mesh.lock().last_activity = Arc::new(
                 crate::mesh::UserLastActivityProvider(user_last_activity.clone()),
             );

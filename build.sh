@@ -2557,6 +2557,7 @@ EOF
     sg_run node --test scripts/build-gateway-mutex-evidence.test.mjs scripts/build-gateway-output.test.mjs scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
+    sg_run bash scripts/check-build-script-head.sh
     sg_run bash scripts/check-shared-sccache.sh
     sg_run node --test scripts/runner-toggle.test.mjs
     for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
