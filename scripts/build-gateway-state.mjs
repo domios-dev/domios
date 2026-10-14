@@ -2,6 +2,7 @@
 // Caller: CI build-gateway.yml; scripts build-gateway.sh, check-build-gateway-serialization.sh
 import fs from "node:fs";
 import path from "node:path";
+import { startEvidence, finishEvidence } from './build-gateway-evidence.mjs';
 
 function parseArgs(argv) {
   const opts = {};
@@ -32,7 +33,7 @@ function jobFile(dir, jobId) {
 
 function createJob(opts) {
   const record = {
-    schema: 2,
+    schema: 3,
     job_id: opts.job_id,
     job: opts.job,
     command: opts.command,
@@ -52,6 +53,8 @@ function createJob(opts) {
     command_exit_code: null,
     outcome: null,
     log_path: opts.log_path,
+    crates: opts.crates ? opts.crates.split(/\s+/).filter(Boolean) : null,
+    touched_files_count: opts.touched_files_count ? Number(opts.touched_files_count) : null,
   };
   atomicWrite(jobFile(opts.dir, opts.job_id), record);
 }
@@ -116,6 +119,16 @@ try {
   if (command === "create") createJob(opts);
   else if (command === "update") updateJob(opts);
   else if (command === "status") gatewayStatus(opts);
+  else if (command.startsWith('evidence-')) {
+    const file = jobFile(opts.dir, opts.job_id);
+    const record = readJson(file);
+    if (!record) throw new Error(`unknown gateway job: ${opts.job_id}`);
+    if (command === 'evidence-start') await startEvidence(record, opts.dir, opts.scope);
+    else if (command === 'evidence-end') await finishEvidence(record, opts.dir);
+    else if (command === 'evidence-reset' && record.sccache) record.sccache.reset_during_job = true;
+    else throw new Error(`unknown evidence operation: ${command}`);
+    atomicWrite(file, record);
+  }
   else throw new Error("usage: build-gateway-state.mjs create|update|status");
 } catch (error) {
   console.error(`[build-gateway] ${error.message}`);
