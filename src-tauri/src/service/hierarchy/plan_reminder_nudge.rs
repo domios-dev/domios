@@ -1,6 +1,6 @@
 use crate::plan::{Plan, PlanMode, PlanStatus, Task, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::{
-    self, Decision, Gate, HardWake, Observation, ReminderKind, Scope, Snapshot, Supporter,
+    self, Decision, Gate, HardWake, Observation, ReminderKind, Scope, Snapshot, Supporter, TickFact,
 };
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::plan::reminders::{NudgeKind, TurnCounter};
@@ -14,6 +14,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod approval;
 #[cfg(test)]
 mod approval_tests;
+mod projection;
+
+pub(crate) use projection::{project_for_tab, ProjectedHeartbeat, ProjectedTick};
 
 use approval::{Emission, Recipient, ReminderHost, ReminderRequest, Transport};
 
@@ -73,6 +76,24 @@ fn send_due_plan_time_reminders_with(
     interval_secs: u64,
     deliver: impl Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
 ) {
+    send_due_plan_time_reminders_noting(
+        plans,
+        counter,
+        now,
+        interval_secs,
+        deliver,
+        |_, _, _: TickFact| {},
+    );
+}
+
+fn send_due_plan_time_reminders_noting(
+    plans: &[Plan],
+    counter: &TurnCounter,
+    now: u64,
+    interval_secs: u64,
+    deliver: impl Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
+    note: impl Fn(&str, &PlanReminderTarget, TickFact),
+) {
     let targets = timed_plan_reminder_targets(plans);
     counter.retain_time_reminders(&deadline_tabs(plans, counter));
     let candidates = targets.len();
@@ -81,6 +102,7 @@ fn send_due_plan_time_reminders_with(
         counter.record_time_tick(&timed.tab_id, now);
         let is_due = counter.time_nudge_due(&timed.tab_id, now, interval_secs);
         if !is_due && matches!(timed.target, PlanReminderTarget::Worker) {
+            note(&timed.tab_id, &timed.target, TickFact::NotDue);
             continue;
         }
         due += 1;
@@ -145,12 +167,13 @@ fn run_reminder_tick(
             }
         }
     }
-    send_due_plan_time_reminders_with(
+    send_due_plan_time_reminders_noting(
         plans,
         counter,
         now,
         interval_secs,
         |tab_id, target, kind| deliver_target(host, counter, tab_id, target, kind, now),
+        |tab_id, target, fact| record_target_tick(host, tab_id, target, now, fact),
     );
     send_due_complete_wrapup_reminders(host, plans, counter, now, interval_secs);
 }
@@ -199,7 +222,10 @@ fn deliver_target(
     kind: NudgeKind,
     now: u64,
 ) -> Result<bool, String> {
-    ensure_routable(host, tab_id)?;
+    if let Err(error) = ensure_routable(host, tab_id) {
+        record_target_tick(host, tab_id, target, now, TickFact::Unavailable);
+        return Err(error);
+    }
     let state_key = match target {
         PlanReminderTarget::Owner { plan_id } => host
             .plan(plan_id)
@@ -210,6 +236,7 @@ fn deliver_target(
     if matches!(target, PlanReminderTarget::Worker)
         && !counter.reminder_content_due(tab_id, &state_key, now)
     {
+        record_target_tick(host, tab_id, target, now, TickFact::UnchangedContent);
         return Ok(false);
     }
     let mut request = target.request(tab_id, kind);
@@ -238,8 +265,31 @@ fn deliver_reminder(
     request: &ReminderRequest,
     now: u64,
 ) -> Result<bool, String> {
-    ensure_routable(host, &request.tab_id)?;
+    if let Err(error) = ensure_routable(host, &request.tab_id) {
+        host.gate().record_tick(heartbeat_gate::delivery_tick(
+            &request.tab_id,
+            request.plan_id.as_deref().unwrap_or(""),
+            now,
+            TickFact::Unavailable,
+        ));
+        return Err(error);
+    }
     approval::admit(host, request, now).into_delivery()
+}
+
+fn record_target_tick(
+    host: &impl ReminderHost,
+    tab_id: &str,
+    target: &PlanReminderTarget,
+    now: u64,
+    fact: TickFact,
+) {
+    let plan_id = match target {
+        PlanReminderTarget::Owner { plan_id } => plan_id.as_str(),
+        PlanReminderTarget::Worker => "",
+    };
+    host.gate()
+        .record_tick(heartbeat_gate::delivery_tick(tab_id, plan_id, now, fact));
 }
 
 fn ensure_routable(host: &impl ReminderHost, tab_id: &str) -> Result<(), String> {
@@ -654,9 +704,7 @@ impl ServiceContext {
                         .plan_store
                         .resolve_planner_tab(&plan.id, |pid| self.tab_probe(pid));
                     if let Some(prefix) =
-                        crate::service::plan::peer_mandate::planner_pairing_nudge_prefix(
-                            &resolution,
-                        )
+                        crate::service::plan::peer_mandate::reminder_planner_prefix(&resolution)
                     {
                         text = format!("{prefix}\n\n{text}");
                     }
@@ -782,7 +830,7 @@ impl PlanReminderTarget {
     }
 }
 
-fn current_epoch_secs() -> u64 {
+pub(crate) fn current_epoch_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

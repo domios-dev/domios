@@ -79,6 +79,10 @@ async function main() {
   };
 
   const stashed: DelayedMessage = { ...delayed, id: "stash-1", text: "Keep this for later", state: "stashed", scheduledAtMs: 0 };
+  const system: DelayedMessage = {
+    ...delayed, id: "system:heartbeat:pl:tab-a", origin: "system", text: "Plan reminder",
+    reason: "sent because tasks task_a are still in progress in plan pl", recurrence: { everyMs: 60_000 },
+  };
 
   const opened: unknown[] = [];
   const edited: string[] = [];
@@ -98,7 +102,7 @@ async function main() {
       adapter={adapter}
     /></MuxStateStoreContext.Provider>,
   );
-  await act(async () => { render("tab-a", [stashed, delayed]); });
+  await act(async () => { render("tab-a", [stashed, delayed, system]); });
 
   const crons = await waitForSelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]');
   assert.equal(crons.querySelector(".ct-ctx-kind__count")?.textContent, "5", "the cron button counts every cron bound to the tab");
@@ -126,6 +130,9 @@ async function main() {
   assert.equal(lastDelayed?.getAttribute("data-tone"), "stashed", "stashed messages sort after scheduled ones");
   assert.ok(lastDelayed?.querySelector(".ct-ctx-bubble__stash"), "a stashed message shows the stash mark instead of a time");
   assert.equal(lastDelayed?.querySelector(".ct-ctx-bubble__meta"), null, "a stashed message shows no send time");
+  const systemOpen = host.querySelector('[aria-label^="System heartbeat"]');
+  assert.equal(systemOpen?.parentElement?.querySelector(".ct-ctx-bubble__dismiss"), null, "a system heartbeat has no cancel");
+  assert.ok(host.querySelector('[aria-label^="Edit delayed message"]')?.parentElement?.querySelector(".ct-ctx-bubble__dismiss"), "a user delayed message stays cancellable");
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Edit delayed message"]')!.click(); });
   assert.deepEqual(edited, ["later-1"], "a delayed bubble opens its editor");
 
