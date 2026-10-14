@@ -311,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-cli"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 dependencies = [
  "base64",
  "chrono",
