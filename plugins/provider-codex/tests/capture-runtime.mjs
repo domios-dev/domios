@@ -46,7 +46,7 @@ async function capture(scenario) {
       for(let i=waiters.length-1;i>=0;i--)if(waiters[i].predicate(frame)){const w=waiters.splice(i,1)[0];w.resolve(frame);}
     }else if(pending.has(frame.id)){
       const p=pending.get(frame.id);pending.delete(frame.id);
-      const result=p.method === "account/read" ? {account:frame.result?.account ? {type:frame.result.account.type,planType:frame.result.account.planType} : null,requiresOpenaiAuth:frame.result?.requiresOpenaiAuth} : frame.result;
+      const result=p.method === "account/rateLimits/read" ? {rateLimits:frame.result?.rateLimits??null} : p.method === "account/read" ? {account:frame.result?.account ? {type:frame.result.account.type,planType:frame.result.account.planType} : null,requiresOpenaiAuth:frame.result?.requiresOpenaiAuth} : frame.result;
       const reply=frame.error ? {kind:"error",error:frame.error} : {kind:"success",value:result??null};
       record({direction:"inbound",operation:p.index,reply});
       frame.error ? p.reject(new Error(frame.error.message)) : p.resolve(frame.result);
@@ -69,7 +69,8 @@ async function capture(scenario) {
     record({direction:"outbound",operation:0,action:{kind:"notification",notification:{method:"initialized",params:{}}}});
     child.stdin.write(JSON.stringify({method:"initialized",params:{}})+"\n");
     record({direction:"inbound",operation:0,reply:{kind:"success",value:null}});
-    await rpc(undefined,"account/read",{refreshToken:false},0);
+    const account=await rpc(undefined,"account/read",{refreshToken:false},0);
+    if(["chatgpt","chatgptAuthTokens"].includes(account?.account?.type)) await rpc(undefined,"account/rateLimits/read",{},0);
     const instructions="Keep responses minimal. Do only the explicitly requested trivial capture exercise.";
     const opened=await rpc({kind:"openThread",instructions,settings},"thread/start",{cwd,model,threadSource:"user",config:{check_for_update_on_startup:false,project_doc_max_bytes:65536,model_reasoning_effort:"low"},approvalPolicy:"untrusted",approvalsReviewer:"user",sandbox:"read-only",developerInstructions:instructions});
     ctx.threadId=opened.thread.id;

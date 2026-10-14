@@ -147,8 +147,8 @@ fn fixtures(dir: &Path) -> Vec<(PathBuf, Fixture)> {
     let mut paths = scenario_paths(dir);
     assert_eq!(
         paths.len(),
-        8,
-        "shared runtime gate requires all eight scenarios"
+        9,
+        "shared runtime gate requires all nine scenarios"
     );
     let captures = dir.join("captured");
     if captures.exists() {
