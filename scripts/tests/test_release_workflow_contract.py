@@ -125,12 +125,13 @@ class SingleRunGraphTest(unittest.TestCase):
             ("windows", "release-windows.yml"),
         ):
             self.assertIn(f"  {job}:\n    name:", caller)
-            self.assertIn("    needs: prepare", caller[caller.index(f"  {job}:") :])
+            block = caller[caller.index(f"  {job}:") :].split("\n\n", 1)[0]
+            self.assertIn("    needs: [prepare, quick-checks]", block)
             self.assertIn(f"uses: ./.github/workflows/{workflow}", caller)
 
         final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
         self.assertIn(
-            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, tests]", final
+            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]", final
         )
         self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", final)
         self.assertNotIn("if: always()", final)
@@ -277,7 +278,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertEqual(platform_jobs, sorted(platform_jobs))
         self.assertGreater(manifest_job, max(platform_jobs))
         self.assertIn(
-            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, tests]",
+            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]",
             caller[manifest_job:],
         )
 

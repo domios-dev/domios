@@ -98,3 +98,12 @@ test('Mac jobs provision secret material before building and always clean up', (
   assert.match(read('scripts/check-release-credentials-mac.sh'), /find-identity -v -p codesigning "\$RELEASE_KEYCHAIN"/);
   assert.match(read('scripts/release-macos-x86_64.sh'), /--keychain "\$RELEASE_KEYCHAIN" --sign "\$SIGN_ID"/);
 });
+
+test('platform builds wait only for fast checks while Rust tests queue earlier', () => {
+  for (const build of ['macos', 'linux-arm64', 'linux-x86_64', 'windows']) {
+    assert.deepEqual(release.jobs[build].needs, ['prepare', 'quick-checks']);
+  }
+  assert.equal(release.jobs.tests.needs, 'prepare');
+  assert.equal(release.jobs.tests.with.phase, 'long');
+  assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
+});
