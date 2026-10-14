@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Caller: build.sh script-guards
+# Caller: build.sh script-guards; skill build
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,6 +31,12 @@ report="$(printf '%s\n' \
   | ./build.sh check-queue-probe errors 2 | grep -Ev '^MSVC env')"
 [ "$(printf '%s\n' "$report" | sed -n 1p)" = 'src-tauri/src/a.rs:10:5: error[E0425]: cannot find value `x` in this scope' ] || { echo "first error missing" >&2; exit 1; }
 [ "$(printf '%s\n' "$report" | tail -n 1)" = 'errors=3 shown=2' ] || { echo "bound/total summary wrong: $report" >&2; exit 1; }
+for failure in 'sccache: error: failed to start server (os error 10048)' 'cargo terminated without a diagnostic'; do
+  report="$(printf '%s\n' "$failure" | ./build.sh check-queue-probe errors 2 101 | grep -Ev '^MSVC env')"
+  [ "$(printf '%s\n' "$report" | tail -n 1)" = 'errors=1 shown=1' ] || { echo "failed cargo reported no errors: $report" >&2; exit 1; }
+done
+report="$(printf '' | ./build.sh check-queue-probe errors 2 0 | grep -Ev '^MSVC env')"
+[ "$report" = 'errors=0 shown=0' ] || { echo "successful empty log reported failure: $report" >&2; exit 1; }
 warning_log="$(printf '%s\n' \
   'src-tauri/crates/codeterm-util/src/a.rs:1:5: warning: unused import: `x`' \
   'src-tauri/crates/codeterm-util/src/a.rs:1:5: warning: unused import: `x`' \

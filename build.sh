@@ -1393,12 +1393,18 @@ check_queue_targets() {
 
 # Reads cargo --message-format=short output on stdin; prints at most $1 diagnostics.
 check_queue_errors() {
-  awk -v max="$1" '
+  awk -v max="$1" -v status="${2:-0}" '
     /^[^ ].*:[0-9]+:[0-9]+: error(\[E[0-9]+\])?:/ || /^(sccache: )?error(\[E[0-9]+\])?:/ && !/could not compile/ {
       total++
       if (total <= max) print
     }
-    END { printf "errors=%d shown=%d\n", total, (total < max ? total : max) }
+    END {
+      if (status != 0 && total == 0) {
+        total=1
+        if (max > 0) printf "error: cargo check failed (exit %d); see full log\n", status
+      }
+      printf "errors=%d shown=%d\n", total, (total < max ? total : max)
+    }
   '
 }
 
@@ -1528,7 +1534,7 @@ check_queue_run() {
       --all-targets --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" >> "$out" 2>&1 || status=$?
   fi
   grep 'cargo::core::compiler::fingerprint' "$out" || true
-  check_queue_errors "$max_errors" < "$out"
+  check_queue_errors "$max_errors" "$status" < "$out"
   check_queue_warnings "$max_warnings" "$touched" < "$out" || [ "$status" != 0 ] || status=1
   echo "check-queue: sha=$sha packages=${pkg_args[*]:-} cli=$cli exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
   return "$status"
@@ -2139,7 +2145,7 @@ EOF
   check-queue-probe)
     case "${2:-}" in
       targets) check_queue_targets ;;
-      errors) check_queue_errors "${3:?errors requires a max}" ;;
+      errors) check_queue_errors "${3:?errors requires a max}" "${4:-0}" ;;
       warnings) check_queue_warnings "${3:?warnings requires a max}" "${4:-}" ;;
       summary) check_warning_summary ;;
       *) echo "Unknown check-queue probe: ${2:-}" >&2; exit 2 ;;
@@ -2409,7 +2415,12 @@ EOF
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run bash scripts/check-script-catalog.sh
-    for sg in check-build-check-queue.sh check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
+    sg_run node --test --test-concurrency=1 scripts/build-gateway-mutex.test.mjs scripts/build-gateway-slot.test.mjs scripts/build-gateway-record.test.mjs scripts/build-gateway-cache.test.mjs scripts/build-history.test.mjs scripts/build-gateway-evidence.test.mjs
+    sg_run bash scripts/check-build-gateway-owner-reap.sh
+    sg_run bash scripts/check-build-check-queue.sh
+    sg_run bash scripts/check-shared-sccache.sh
+    sg_run node --test scripts/runner-toggle.test.mjs
+    for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
     done
     if [ "$(uname -s)" = Linux ]; then

@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/cache-policy.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+export CT_BUILD_GATEWAY_SCOPE=fixture CT_BUILD_GATEWAY_FIXTURE_DIR="$WORK/gateway"
 
 codeterm() {
   [ "$1 $2 $3" = 'mem secret get' ] || return 2
@@ -42,6 +43,7 @@ sccache() {
 }
 ct_sccache_server_live() { [ "${FIXTURE_SERVER_LIVE:-1}" = 1 ]; }
 pgrep() { [ "${FIXTURE_BUSY:-0}" = 1 ]; }
+powershell.exe() { [ "${FIXTURE_BUSY:-0}" = 1 ]; }
 ct_repo_root() { printf '%s\n' "$WORK"; }
 
 (
@@ -52,7 +54,7 @@ ct_repo_root() { printf '%s\n' "$WORK"; }
   FIXTURE_BUSY=1 ct_configure_sccache
   [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
 ) > "$WORK/shared.log"
-! rg -q 'fixture-access|fixture-secret|fixture-old-session' "$WORK/shared.log"
+! grep -Eq 'fixture-access|fixture-secret|fixture-old-session' "$WORK/shared.log"
 printf 'PASS shared configuration and nested reuse\n'
 
 for missing in ACCESS SECRET; do
@@ -65,8 +67,8 @@ for missing in ACCESS SECRET; do
     [ "$SCCACHE_CACHE_SIZE" = 3G ]
     [ "$CT_SCCACHE_STORAGE" = local ]
   ) > "$WORK/local.log"
-  [ "$(rg -c '^sccache: local disk cache at .*shared credentials unavailable' "$WORK/local.log")" = 1 ]
-  ! rg -q 'fixture-access|fixture-secret' "$WORK/local.log"
+  [ "$(grep -Ec '^sccache: local disk cache at .*shared credentials unavailable' "$WORK/local.log")" = 1 ]
+  ! grep -Eq 'fixture-access|fixture-secret' "$WORK/local.log"
 done
 printf 'PASS missing either credential uses bounded local fallback\n'
 
@@ -75,7 +77,7 @@ printf 'PASS missing either credential uses bounded local fallback\n'
   ct_sccache_storage
   case "$-" in *x*) ;; *) exit 1 ;; esac
 ) > "$WORK/trace.log" 2>&1
-! rg -q 'fixture-access|fixture-secret' "$WORK/trace.log"
+! grep -Eq 'fixture-access|fixture-secret' "$WORK/trace.log"
 printf 'PASS credential resolution suppresses tracing\n'
 
 (
@@ -101,10 +103,10 @@ printf 'PASS CI target paths and developer target isolation\n'
   ct_sccache_status
   [ ! -e "$WORK/events" ]
 ) > "$WORK/status.log"
-rg -q '^sccache: shared S3 cache at http://100.88.47.88:9000/sccache$' "$WORK/status.log"
-rg -q '^running server: Cache location Local disk:' "$WORK/status.log"
-rg -q '^shared endpoint health: 200$' "$WORK/status.log"
-! rg -q 'fixture-access|fixture-secret' "$WORK/status.log"
+grep -Eq '^sccache: shared S3 cache at http://100.88.47.88:9000/sccache$' "$WORK/status.log"
+grep -Eq '^running server: Cache location Local disk:' "$WORK/status.log"
+grep -Eq '^shared endpoint health: 200$' "$WORK/status.log"
+! grep -Eq 'fixture-access|fixture-secret' "$WORK/status.log"
 printf 'PASS read-only cache status and endpoint health\n'
 
 (
@@ -144,8 +146,8 @@ printf 'PASS busy matching servers are reused; wrong buckets refuse without stop
   [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
   [ "$(cat "$WORK/location")" = 's3, name: sccache, prefix: /' ]
 ) > "$WORK/no-downgrade.log" 2>&1
-[ "$(rg -c 'using running server credentials' "$WORK/no-downgrade.log")" = 2 ]
-! rg -q '^sccache: local disk cache at' "$WORK/no-downgrade.log"
+[ "$(grep -Ec 'using running server credentials' "$WORK/no-downgrade.log")" = 2 ]
+! grep -Eq '^sccache: local disk cache at' "$WORK/no-downgrade.log"
 printf 'PASS unresolved keys never downgrade S3; local-to-S3 needs keys and idle\n'
 
 (
@@ -170,7 +172,7 @@ printf 'PASS unresolved keys never downgrade S3; local-to-S3 needs keys and idle
   command() { if [ "$1 $2" = '-v sccache' ]; then return 1; fi; builtin command "$@"; }
   if ct_configure_sccache; then exit 1; else [ "$?" = 2 ]; fi
 ) > "$WORK/verify.log" 2>&1
-! rg -q 'fixture-access|fixture-secret|idle machine; Cargo' "$WORK/verify.log"
+! grep -Eq 'fixture-access|fixture-secret|idle machine; Cargo' "$WORK/verify.log"
 printf 'PASS CI verification never configures or refuses busy matching S3\n'
 
 (
@@ -188,7 +190,7 @@ printf 'PASS CI verification never configures or refuses busy matching S3\n'
   [ "$CT_SCCACHE_STORAGE" = local ]
   [ ! -e "$WORK/events" ]
 ) > "$WORK/runner.log" 2>&1
-! rg -q 'fixture-access|fixture-secret' "$WORK/runner.log"
+! grep -Eq 'fixture-access|fixture-secret' "$WORK/runner.log"
 printf 'PASS runner process credentials require both keys and never query vault\n'
 
 (
@@ -197,7 +199,7 @@ printf 'PASS runner process credentials require both keys and never query vault\
   FIXTURE_SERVER_LIVE=0
   if ct_sccache_verify; then exit 1; else [ "$?" = 2 ]; fi
 ) > "$WORK/offline.log" 2>&1
-rg -q 'running server: cache location unavailable' "$WORK/offline.log"
+grep -Eq 'running server: cache location unavailable' "$WORK/offline.log"
 printf 'PASS synthetic offline S3 stats cannot pass verification\n'
 (
   FIXTURE_SERVER_LIVE=0
@@ -206,5 +208,5 @@ printf 'PASS synthetic offline S3 stats cannot pass verification\n'
   ct_repo_root() { printf '%s\n' "$ROOT"; }
   ct_sccache_stats
 ) > "$WORK/stats.log" 2>&1
-rg -q '^sccache endpoint:' "$WORK/stats.log"
+grep -Eq '^sccache endpoint:' "$WORK/stats.log"
 printf 'PASS stats refuses offline synthetic counters and names the endpoint\n'

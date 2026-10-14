@@ -58,6 +58,8 @@ test('CLI JSON remains parseable with an unreadable record; table exposes cache 
   try {
     mkdirSync(path.join(root, 'jobs'));
     writeFileSync(path.join(root, 'jobs', 'broken.json'), '{');
+    writeFileSync(path.join(root, 'jobs', 'null.json'), 'null');
+    writeFileSync(path.join(root, 'jobs', 'ignored.json.123.tmp'), '{');
     const record = { ...jobs[2], sccache: { delta: { hits: 3, misses: 1, hit_rate: 0.75, non_cacheable: 1, not_cached: { 'crate-type': 1 } } }, diagnostics: { rebuilt_units: [{ unit: 'getrandom', count: 1, reasons: ['dependency changed'] }], non_cacheable_units: [{ unit: 'getrandom/build-script-build', reason: 'crate-type, bin' }] } };
     writeFileSync(path.join(root, 'jobs', 'valid.json'), JSON.stringify(record));
     const result = spawnSync(process.execPath, ['scripts/build-history.mjs', '--dir', root, '--json'], { encoding: 'utf8' });
