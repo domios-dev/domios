@@ -228,5 +228,3 @@ fn notification_allowed(session: &Session, method: &str) -> bool {
                 .any(|item| item == method)
         })
 }
-
-// probe
