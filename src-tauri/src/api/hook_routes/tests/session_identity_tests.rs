@@ -279,6 +279,16 @@ fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
     use crate::service::parked_user_delivery::tests::{queue_fixture, UserSubmitBoundary};
     let (fixture, tab_id) = queue_fixture(false, None);
     crate::service::parked_user_delivery::tests::attach_fixture_pty(&fixture, &tab_id);
+    let attempt = crate::service::launch_readiness::LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: "opaque-pty".into(),
+        binding_nonce: "opaque-current-nonce".into(),
+    };
+    crate::service::launch_readiness::arm(attempt.clone());
+    let launch_settled =
+        fixture
+            .service
+            .observe_launch_readiness(attempt.clone(), Duration::from_secs(10), false);
     let first = fixture
         .service
         .start_chat_send(
@@ -317,6 +327,10 @@ fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
         write_rx.try_recv(),
         Err(std::sync::mpsc::TryRecvError::Empty)
     ));
+    assert!(matches!(
+        launch_settled.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
     let claim = bind_reported_session(
         &fixture.service.mux,
         fixture.service.agent_registry.as_ref(),
@@ -336,6 +350,16 @@ fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
     .unwrap();
     assert_eq!(identity.pty_id, "opaque-pty");
     assert_eq!(identity.binding_nonce, "opaque-current-nonce");
+    assert_eq!(
+        launch_settled
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap(),
+        crate::service::launch_readiness::LaunchSettlement::Ready
+    );
+    // The launch owner, not the hook, publishes AgentReady once its readiness observer settles.
+    fixture
+        .service
+        .emit_boot_stage(&tab_id, codeterm_types::pty::BootStage::AgentReady, None);
     assert_eq!(
         write_rx.recv_timeout(Duration::from_secs(10)).unwrap(),
         (first.send_id.clone(), "opaque-hook-first".into())
