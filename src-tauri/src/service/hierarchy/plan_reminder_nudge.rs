@@ -546,7 +546,7 @@ impl ReminderHost for LiveHost<'_> {
         decision: &Decision,
     ) -> Emission {
         self.svc
-            .compose_plan_reminder(plan, scope, snapshot, decision)
+            .compose_plan_reminder(plan, scope, snapshot, decision, false)
     }
 
     fn emit(
@@ -557,6 +557,9 @@ impl ReminderHost for LiveHost<'_> {
         observer: Option<crate::service::messenger::DeliveryWriteObserver>,
     ) -> Result<bool, String> {
         let tab_id = scope.tab_id.as_str();
+        self.svc
+            .heartbeat_gate
+            .remember_body(tab_id, plan_id, &emission.text);
         match &emission.transport {
             Transport::Heartbeat {
                 learning_ids,
@@ -595,6 +598,39 @@ impl ReminderHost for LiveHost<'_> {
 }
 
 impl ServiceContext {
+    pub(crate) fn heartbeat_body_for_popup(
+        &self,
+        plan: &Plan,
+        tab_id: &str,
+        worker: bool,
+    ) -> String {
+        if let Some(text) = self.heartbeat_gate.last_body(tab_id, &plan.id) {
+            return text;
+        }
+        let scope = Scope {
+            tab_id: tab_id.into(),
+            kind: if worker {
+                ReminderKind::Worker
+            } else {
+                ReminderKind::Owner
+            },
+            ..Default::default()
+        };
+        let snapshot = Snapshot {
+            plan_id: plan.id.clone(),
+            scope: scope.clone(),
+            ..Default::default()
+        };
+        self.compose_plan_reminder(
+            plan,
+            &scope,
+            &snapshot,
+            &heartbeat_gate::cadence(&snapshot),
+            true,
+        )
+        .text
+    }
+
     fn send_due_plan_time_reminders(&self) {
         let cfg = self.configuration().orchestration;
         if !cfg.plan_reminders || cfg.nudge_interval_secs == 0 {
@@ -648,6 +684,7 @@ impl ServiceContext {
         scope: &Scope,
         snapshot: &Snapshot,
         decision: &Decision,
+        preview: bool,
     ) -> Emission {
         let tab_id = scope.tab_id.as_str();
         match scope.kind {
@@ -715,6 +752,27 @@ impl ServiceContext {
                         text = format!("{defer}\n\n{text}");
                     }
                 }
+                let digests = crate::service::orchestrator_digests::collect_digest_lines(
+                    self,
+                    plan,
+                    if preview { None } else { Some(tab_id) },
+                );
+                let heartbeat = if plain {
+                    String::new()
+                } else {
+                    self.plan_store.prepend_heartbeat_with_selected_learnings(
+                        &plan.id,
+                        "",
+                        &digests,
+                        decision.learning_ids.as_deref(),
+                    )
+                };
+                let actions = crate::service::plan::reminders::composition::action_groups(plan);
+                let parked = crate::service::plan::reminders::parked_later_group_summary(plan);
+                let text = crate::service::plan::reminders::composition::compose(
+                    plan,
+                    &[&actions, &text, &parked, &heartbeat],
+                );
                 Emission {
                     text,
                     transport: Transport::Heartbeat {

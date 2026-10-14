@@ -841,7 +841,6 @@ fn plan_reminder_owner_with_two_plans_considers_both_gates() {
 #[test]
 fn project_for_tab_reads_the_scheduler_targets() {
     use crate::service::hierarchy::heartbeat_gate::{delivery_tick, TickFact};
-    use crate::service::plan::reminders::{orchestrator_nudge_text, worker_nudge_text};
 
     let owner_plan = plan(
         "pl",
@@ -878,7 +877,7 @@ fn project_for_tab_reads_the_scheduler_targets() {
     assert_eq!(owners[0].id, "system:heartbeat:pl:owner-tab");
     assert_eq!(owners[0].cadence_ms, 60_000);
     assert_eq!(owners[0].next_due_ms, 100_000);
-    assert_eq!(owners[0].text, orchestrator_nudge_text(&owner_plan));
+    assert!(owners[0].text.is_empty());
     assert!(owners[0].reason.contains("task_a"));
     assert!(owners[0].reason.contains("task_c"));
     assert!(!owners[0].reason.contains("task_b"));
@@ -899,7 +898,7 @@ fn project_for_tab_reads_the_scheduler_targets() {
     );
     assert_eq!(workers.len(), 1);
     assert_eq!(workers[0].id, "system:heartbeat:worker:worker-tab");
-    assert_eq!(workers[0].text, worker_nudge_text());
+    assert!(workers[0].text.is_empty());
     assert_eq!(workers[0].next_due_ms, 160_000);
     assert!(workers[0].reason.contains("task_a"));
     assert!(!workers[0].reason.contains("task_b"));
