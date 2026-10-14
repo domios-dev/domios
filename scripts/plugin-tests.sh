@@ -21,6 +21,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-claude/tests/live-model-command.test.ts
+      plugins/provider-claude/tests/switch-confirmation.test.ts
       plugins/provider-claude/tests/classify-tab-state.test.ts
       plugins/provider-claude/tests/hook-ownership.test.ts
       plugins/provider-claude/tests/file-diffs.test.ts
@@ -93,6 +94,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-claude/tests/live-model-command.test.ts
+      plugins/provider-claude/tests/switch-confirmation.test.ts
       plugins/provider-claude/tests/classify-tab-state.test.ts
       plugins/provider-claude/tests/hook-ownership.test.ts
       plugins/provider-claude/tests/file-diffs.test.ts
