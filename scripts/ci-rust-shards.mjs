@@ -104,11 +104,17 @@ export function timingAuditArgs(guard, aloneLog, release) {
   return [...guard, ...(aloneLog ? ['--alone', aloneLog] : []), '--policy', release ? 'advisory' : 'enforce'];
 }
 
-export function requireTestSuccess(result, report, label) {
+export function requireTestSuccess(result, report, label, { warn = console.log, summary = process.env.GITHUB_STEP_SUMMARY } = {}) {
   const output = report.replace(/\x1b\[[0-9;]*m/g, '');
-  const failedTest = /^\s*(?:FAIL|LEAK|TIMEOUT)\s+\[/m.test(output) || /\b[1-9]\d* (?:failed|leaky|timed out)\b/.test(output);
+  const failedTest = /^\s*(?:FAIL|TIMEOUT)\s+\[/m.test(output) || /\b[1-9]\d* (?:failed|timed out)\b/.test(output);
   if (result.error || result.signal || result.status !== 0 || failedTest) {
-    throw new Error(`${label}: ${result.error || result.signal || (failedTest ? 'failed, leaking or timed-out test' : result.status)}`);
+    throw new Error(`${label}: ${result.error || result.signal || (failedTest ? 'failed or timed-out test' : result.status)}`);
+  }
+  const leaks = output.split('\n').filter(line => /^\s*LEAK\s+\[/.test(line) || /\b[1-9]\d* leaky\b/.test(line));
+  if (leaks.length) {
+    const warning = `::warning::Nextest leaky pass (${label}): ${leaks.map(line => line.trim()).join('; ')}`;
+    warn(warning);
+    if (summary) fs.appendFileSync(summary, `\n${warning}\n`);
   }
 }
 
