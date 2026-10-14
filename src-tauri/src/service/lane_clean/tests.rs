@@ -9,8 +9,9 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
-        let project = root.path().join("project");
-        let path = root.path().join("lane");
+        let root_path = root.path().canonicalize().unwrap();
+        let project = root_path.join("project");
+        let path = root_path.join("lane");
         std::fs::create_dir(&project).unwrap();
         let cwd = project.to_str().unwrap();
         git(cwd, &["init", "-q", "--initial-branch=main"]).unwrap();
@@ -177,6 +178,7 @@ fn lane_clean_keeps_dirty_unmerged_and_occupied_lanes() {
     unmerged.commit_lane();
     unmerged.assert_kept(&[]);
     let occupied = Fixture::new();
+    std::fs::create_dir(Path::new(occupied.path()).join("subdirectory")).unwrap();
     occupied.assert_kept(&[LiveTabCwd {
         id: "shell".into(),
         title: "Shell".into(),
