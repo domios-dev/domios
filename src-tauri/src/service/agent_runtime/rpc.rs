@@ -54,7 +54,7 @@ impl Client {
         W: AsyncWrite + Unpin + Send + 'static,
     {
         let (outgoing, mut messages) = mpsc::channel::<Write>(64);
-        let (events, initial_events) = broadcast::channel(512);
+        let (events, initial_events) = broadcast::channel(EVENT_BUFFER);
         let (ended, _) = watch::channel(None);
         let client = Self(Arc::new(Inner {
             state: Mutex::new(State {
@@ -253,6 +253,7 @@ impl Drop for PendingRequest {
     }
 }
 
+const EVENT_BUFFER: usize = 8192;
 const FRAME_LIMIT: usize = 16 * 1024 * 1024;
 async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,

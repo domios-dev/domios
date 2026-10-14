@@ -193,11 +193,8 @@ pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     interrupt::interrupt(svc, tab)
 }
 
-pub(super) fn observe_event(
-    session: &engine::Session,
-    event: &codeterm_plugin::agent_runtime::AgentRuntimeEvent,
-) {
-    if let codeterm_plugin::agent_runtime::AgentRuntimeEvent::TurnState {
+pub(super) fn observe_event(session: &engine::Session, event: &super::events::RuntimeEvent) {
+    if let super::events::RuntimeEvent::TurnUpdated {
         thread_id,
         turn_id: Some(turn),
         state: codeterm_plugin::agent_runtime::RuntimeTurnState::Idle,
