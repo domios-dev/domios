@@ -1,6 +1,7 @@
 use super::*;
 use crate::service::local_recording::leases::Capture;
-use codeterm_plugin::local_recording::{LocalRecordingTrigger, SelectedDevices};
+use codeterm_plugin::local_recording::SelectedDevices;
+use codeterm_types::local_recording::LocalRecordingTrigger;
 
 fn armed_capture(fixture: &ServiceFixture, tab: &str) -> (Capture, u64) {
     fixture.service.local_recording_registry.register(

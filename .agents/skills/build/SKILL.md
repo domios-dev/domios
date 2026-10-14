@@ -81,6 +81,12 @@ The isolated account crate uses `./build.sh test-one account <selector>`; worker
 
 The repository watcher crate uses `./build.sh test-one repowatch tests::`; its Tauri event adapter remains in the app.
 
+The native recording crates use `./build.sh nextest input-platform` to compile
+both library test targets once and run their focused cases. macOS IOHID model
+cases also run on Linux/Windows; Raw Input cases compile only on Windows.
+`./build.sh test-one input-macos|input-windows <selector>` targets one crate;
+select Windows only on Windows. Workers defer Rust execution to canonical.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.

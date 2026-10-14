@@ -72,7 +72,7 @@ test('workflow shards use the macOS pool and all results feed the coverage job',
   }
   assert.match(platform, /name: rust-archive-\$\{\{ runner.os \}\}-\$\{\{ runner.arch \}\}/);
   assert.match(workflow, /shard: \[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12\]/);
-  assert.match(workflow, /needs: \[changed, rust-archives, rust-shards, rust-platform\]/);
+  assert.match(workflow, /needs: \[changed, rust-archives, rust-shards, rust-platform, rust-input-platform\]/);
   assert.match(workflow, /fail-fast: false/);
 });
 
@@ -150,4 +150,14 @@ test('candidate timing audits are reported separately from primary coverage', ()
   const summary = verifyCoverage(receipts, 2);
   assert.match(summary, /TOKEN_PARALLEL TOKEN_ALONE/);
   assert.match(summary, /runner-1, TOKEN_LOG/);
+});
+
+test('recording native matrix runs dedicated crates and gates coverage', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/tests.yml', import.meta.url), 'utf8');
+  const job = workflow.slice(workflow.indexOf('  rust-input-platform:'), workflow.indexOf('  rust-platform:'));
+  for (const os of ['Linux', 'macOS', 'Windows']) assert.match(job, new RegExp(`- os: ${os}`));
+  assert.match(job, /build.sh nextest input-platform/);
+  assert.doesNotMatch(job, /ci-rust-archives|ci-rust-shards|download-artifact|--workspace/);
+  assert.match(workflow, /INPUT_PLATFORM_RESULT: \$\{\{ needs.rust-input-platform.result \}\}/);
+  assert.match(workflow, /process.env.INPUT_PLATFORM_RESULT !== 'success'/);
 });

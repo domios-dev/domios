@@ -1,3 +1,5 @@
+#![cfg(any(target_os = "macos", test))]
+
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 
@@ -63,7 +65,7 @@ impl Drop for RunLoopHandle {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MacInputEvent {
+pub enum MacInputEvent {
     Press {
         generation: u64,
     },
@@ -73,14 +75,14 @@ pub(crate) enum MacInputEvent {
     },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MacUnavailableReason {
+pub enum MacUnavailableReason {
     Removed,
     AccessLost,
     Error,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MacSelection {
+pub struct MacSelection {
     pub input_id: String,
     pub collection_id: String,
     pub vendor_id: u16,
@@ -91,7 +93,7 @@ pub(crate) struct MacSelection {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct MacElementUsage {
+pub struct MacElementUsage {
     pub usage_page: u16,
     pub usage: u16,
 }
@@ -347,9 +349,9 @@ impl InputDecoder {
     }
 }
 #[cfg(target_os = "macos")]
-pub(crate) use native::{MacInputSubscription, MacSetupFailure, MacTeardown};
+pub use native::{MacInputSubscription, MacSetupFailure, MacTeardown};
 #[cfg(target_os = "macos")]
-pub(crate) fn subscribe(
+pub fn subscribe(
     selection: MacSelection,
     generation: u64,
     callback: Arc<dyn Fn(MacInputEvent) + Send + Sync>,
@@ -358,8 +360,8 @@ pub(crate) fn subscribe(
 }
 
 #[cfg(target_os = "macos")]
-#[path = "macos/native.rs"]
+#[path = "native.rs"]
 mod native;
 #[cfg(test)]
-#[path = "macos/tests.rs"]
+#[path = "tests.rs"]
 mod tests;

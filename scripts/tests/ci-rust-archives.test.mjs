@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { archivePlatform, archiveRunArgs, generatedDirectories, validateArchiveSuite, verifyArchiveBuilds } from '../ci-rust-archives.mjs';
+import { archivePlatform, archiveRunArgs, archiveTargets, generatedDirectories, validateArchiveSuite, verifyArchiveBuilds } from '../ci-rust-archives.mjs';
 
 const builds = () => ['macOS', 'Linux', 'Windows'].map((os) => ({ os, arch: os === 'macOS' ? 'ARM64' : 'X64', sha: 'TOKEN_SHA', exit: 0, runner: os + '-builder', seconds: 10 }));
 const receipts = () => builds().map(({ os, arch, sha }) => ({ os, arch, sha }));
@@ -49,4 +49,12 @@ test('macOS shared shards and all native consumers retain matching archive build
   const native = receipts();
   const shared = Array.from({ length: 12 }, () => ({ ...native[0] }));
   assert.match(verifyArchiveBuilds(builds(), [...native, ...shared]), /Linux-builder/);
+});
+
+test('native recording packages have an independent compile boundary', () => {
+  const workspace = archiveTargets('workspace');
+  const exclusions = workspace.flatMap((arg, index) => arg === '--exclude' ? [workspace[index + 1]] : []);
+  assert.deepEqual(exclusions, ['codeterm-input-macos', 'codeterm-input-windows']);
+  assert.ok(workspace.includes('--lib'));
+  assert.deepEqual(archiveTargets('cli'), ['--workspace']);
 });
