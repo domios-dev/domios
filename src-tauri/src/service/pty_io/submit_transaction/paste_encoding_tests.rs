@@ -41,8 +41,8 @@ fn xterm_paste_keeps_single_line_chat_input_in_one_paste_frame() {
 #[test]
 fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
     for body in ["opaque body", "opaque first line\nopaque second line"] {
-        let frame = codeterm_types::domios::DomiosFrame {
-            opening_tag: codeterm_types::domios::build_opening_tag(&[
+        let frame = codeterm_wire::domios::DomiosFrame {
+            opening_tag: codeterm_wire::domios::build_opening_tag(&[
                 ("from", "tab"),
                 ("tab", "abc12345"),
             ]),
@@ -73,7 +73,7 @@ fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
 fn routed_tags_are_typed_around_a_bracketed_body_only() {
     let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
     let body = "line one\nline two";
-    let suffix = format!(" [reply hint]{}", codeterm_types::domios::DOMIOS_CLOSE_TAG);
+    let suffix = format!(" [reply hint]{}", codeterm_wire::domios::DOMIOS_CLOSE_TAG);
     let encoded = encode_paste_frame(
         body,
         Some(open),

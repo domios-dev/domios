@@ -799,7 +799,7 @@ fn restored_structured_frame_confirms_only_exact_own_session_append() {
     ))
     .unwrap();
     let session = fixture["session_id"].as_str().unwrap();
-    let frame = codeterm_types::domios::DomiosFrame {
+    let frame = codeterm_wire::domios::DomiosFrame {
         opening_tag: fixture["opening_tag"].as_str().unwrap().into(),
         body: fixture["body"].as_str().unwrap().into(),
         suffix: fixture["suffix"].as_str().unwrap().into(),

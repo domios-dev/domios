@@ -23,7 +23,7 @@ pub async fn format_attachment_line(
     transcribers: &TranscribeRegistry,
     active_id: &str,
 ) -> String {
-    use codeterm_types::message_markers as mk;
+    use codeterm_wire::message_markers as mk;
     if kind == "voice" {
         if path.is_empty() {
             return mk::voice(path, None, None);
@@ -84,7 +84,7 @@ mod tests {
         reg.register("fake", Arc::new(FakeTranscriber));
         let line = format_attachment_line("/note.oga", "voice", None, &reg, "fake").await;
         assert_eq!(line, "<domios type=\"attachment\" kind=\"voice\" path=\"/note.oga\" label=\"voice\" />\n<transcript>hello world</transcript>");
-        let parsed = codeterm_types::message_markers::parse(&line).unwrap();
+        let parsed = codeterm_wire::message_markers::parse(&line).unwrap();
         assert_eq!(parsed.payload, "hello world");
     }
 
@@ -93,7 +93,7 @@ mod tests {
     async fn voice_attachment_no_transcriber_offers_install() {
         let reg = TranscribeRegistry::new();
         let line = format_attachment_line("/note.oga", "voice", None, &reg, "missing").await;
-        let parsed = codeterm_types::message_markers::parse(&line).unwrap();
+        let parsed = codeterm_wire::message_markers::parse(&line).unwrap();
         assert_eq!(parsed.attr("status"), Some("untranscribed"));
         assert_eq!(
             parsed.payload,
