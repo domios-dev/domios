@@ -158,3 +158,35 @@ fn recovered_hidden_worker_materializes_without_changing_worker_identity() {
     assert_eq!(tab.agent_session_id.as_deref(), Some("worker-thread"));
     assert_eq!(tab.role, Some(crate::multiplexer::types::AgentRole::Worker));
 }
+
+#[test]
+fn restored_legacy_worker_materialization_preserves_saved_attempt_binding() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("restore-runtime".into());
+    tab.agent_session_id = Some("saved-thread".into());
+    tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+    let binding = crate::multiplexer::types::TaskBinding {
+        plan_id: Some("saved-plan".into()),
+        task_id: Some("saved-task".into()),
+        attempt_id: Some("saved-attempt".into()),
+        ..Default::default()
+    };
+    tab.task_binding = Some(binding.clone());
+    let snapshot = mux.to_session_snapshot();
+    let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(&snapshot));
+    register_runtime(&fixture.service);
+    assert!(super::tab(&fixture.service, &id).unwrap());
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&id)
+            .unwrap()
+            .task_binding
+            .as_ref(),
+        Some(&binding)
+    );
+    super::super::authority::revoke(&id);
+}
