@@ -151,3 +151,82 @@ test('candidate timing audits are reported separately from primary coverage', ()
   assert.match(summary, /TOKEN_PARALLEL TOKEN_ALONE/);
   assert.match(summary, /runner-1, TOKEN_LOG/);
 });
+
+
+test('only release timing audits request an advisory policy', async () => {
+  const { timingAuditArgs } = await import('../ci-rust-shards.mjs');
+  assert.deepEqual(timingAuditArgs(['GUARD', 'LOG'], 'ALONE', true), ['GUARD', 'LOG', '--alone', 'ALONE', '--policy', 'advisory']);
+  assert.deepEqual(timingAuditArgs(['GUARD', 'LOG'], undefined, false), ['GUARD', 'LOG', '--policy', 'enforce']);
+  const workflow = readFileSync(new URL('../../.github/workflows/tests.yml', import.meta.url), 'utf8');
+  for (const [start, end] of [['rust-shards', 'rust-platform'], ['rust-platform', 'rust-coverage']]) {
+    const job = workflow.slice(workflow.indexOf(`  ${start}:`), workflow.indexOf(`  ${end}:`));
+    assert.match(job, /CI_RELEASE_TESTS: \$\{\{ inputs.source_ref != '' \}\}/);
+  }
+});
+
+test('release timing advice never accepts failed or timed-out executions', async () => {
+  const { requireTestSuccess } = await import('../ci-rust-shards.mjs');
+  const ok = { status: 0 };
+  requireTestSuccess(ok, 'PASS [ 5.0s] crate slow\nSummary [ 5.0s] 1 tests run: 1 passed', 'primary');
+  for (const status of ['FAIL', 'TIMEOUT']) {
+    assert.throws(() => requireTestSuccess(ok, `${status} [ 5.0s] crate case`, 'primary'), /failed or timed-out/);
+  }
+  for (const result of [{ status: 100 }, { status: 124 }, { status: null, signal: 'SIGTERM' }, { status: null, error: new Error('spawn failed') }]) {
+    assert.throws(() => requireTestSuccess(result, 'PASS [ 0.1s] crate case', 'alone'));
+  }
+});
+
+test('release advisory records a warning and summary while invalid timing reports still fail', async () => {
+  const { timingAuditArgs } = await import('../ci-rust-shards.mjs');
+  const { mkdtempSync, writeFileSync, rmSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const directory = mkdtempSync(join(tmpdir(), 'release-timing-'));
+  try {
+    const log = join(directory, 'parallel.log');
+    const alone = join(directory, 'alone.log');
+    const summary = join(directory, 'summary.md');
+    const output = 'PASS [ 5.000s] codeterm_lib advisory_fixture_token\nSummary [ 5.000s] 1 tests run: 1 passed\n';
+    writeFileSync(log, output);
+    writeFileSync(alone, output);
+    const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', 'HEAD'];
+    const run = (release, confirmation = alone) => spawnSync(process.execPath, timingAuditArgs(guard, confirmation, release), {
+      encoding: 'utf8', env: { ...process.env, GITHUB_STEP_SUMMARY: summary },
+    });
+    const advisory = run(true);
+    assert.equal(advisory.status, 0, advisory.stderr);
+    assert.match(advisory.stdout, /::warning::Slow unit ratchet ADVISORY/);
+    assert.match(readFileSync(summary, 'utf8'), /::warning::.*advisory_fixture_token/);
+    assert.equal(run(false).status, 1);
+    assert.equal(run(true, '').status, 1, 'missing serial confirmation fails');
+    writeFileSync(alone, 'PASS [ 5.0s] codeterm_lib advisory_fixture_token\n');
+    assert.equal(run(true).status, 1, 'incomplete timing log fails');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('nextest leaky passes stay successful and emit a persisted warning', async () => {
+  const { requireTestSuccess } = await import('../ci-rust-shards.mjs');
+  const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const directory = mkdtempSync(join(tmpdir(), 'nextest-leaky-'));
+  const summary = join(directory, 'summary.md');
+  const warnings = [];
+  try {
+    for (const report of ['LEAK [ 1.4s] codeterm_mem dreaming::tests::fixture', 'Summary [ 5s] 1 tests run: 1 passed, 1 leaky']) {
+      requireTestSuccess({ status: 0 }, report, 'primary', { warn: value => warnings.push(value), summary });
+    }
+    assert.equal(warnings.length, 2);
+    assert.ok(warnings.every(value => value.startsWith('::warning::')));
+    assert.match(readFileSync(summary, 'utf8'), /dreaming::tests::fixture/);
+    assert.match(readFileSync(summary, 'utf8'), /1 leaky/);
+    assert.throws(() => requireTestSuccess({ status: 100 }, 'LEAK [ 1.4s] crate fixture', 'primary', { warn: value => warnings.push(value), summary }));
+    assert.equal(warnings.length, 2, 'failed executions remain fatal before leak advice');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
