@@ -2,12 +2,15 @@
   min-width: 0;
 }
 .ct-chat-surface {
-  padding-left: 1.25rem;
+  padding-left: var(--ct-chat-content-inset, 1.25rem);
+  padding-right: var(--ct-chat-composer-inset, 1.25rem);
   overflow-x: hidden;
   overflow-y: auto;
   overflow-wrap: anywhere;
 }
-.ct-chat-surface[data-time-gutter="true"] { padding-left: 5.5rem; }
+.ct-chat-surface .ct-chat-message-row { max-width: none; }
+.ct-chat-surface .ct-chat-message-time--left { right: calc(100% + 8px); }
+.ct-chat-time-measure { visibility: hidden; width: max-content; }
 .ct-chat-surface[data-time-gutter="false"] .ct-chat-message-time { display: none; }
 :where(.ct-chat-surface) :where(div, pre, blockquote, button, a, figure, details, header) {
   min-width: 0;
