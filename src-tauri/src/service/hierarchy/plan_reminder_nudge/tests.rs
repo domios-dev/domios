@@ -837,3 +837,97 @@ fn plan_reminder_owner_with_two_plans_considers_both_gates() {
     });
     assert_eq!(*considered.borrow(), vec!["plan-a", "plan-b"]);
 }
+
+#[test]
+fn project_for_tab_reads_the_scheduler_targets() {
+    use crate::service::hierarchy::heartbeat_gate::{delivery_tick, TickFact};
+    use crate::service::plan::reminders::{orchestrator_nudge_text, worker_nudge_text};
+
+    let owner_plan = plan(
+        "pl",
+        "owner-tab",
+        PlanMode::Execution,
+        vec![
+            task("task_a", TaskStatus::InProgress, Some("worker-tab")),
+            task("task_b", TaskStatus::Pending, Some("worker-tab")),
+            task("task_c", TaskStatus::InProgress, Some("owner-tab")),
+        ],
+    );
+    let owner_tick = delivery_tick(
+        "owner-tab",
+        "pl",
+        50,
+        TickFact::Accepted {
+            decided_by: "adapter".into(),
+        },
+    );
+    let other_plan_tick = delivery_tick("owner-tab", "other", 51, TickFact::NotDue);
+    let worker_tick = delivery_tick("worker-tab", "", 52, TickFact::NotDue);
+    let ticks = [owner_tick, other_plan_tick, worker_tick];
+
+    let owners = super::projection::project_for_tab(
+        &[owner_plan.clone()],
+        "owner-tab",
+        60,
+        100,
+        Some(40),
+        &ticks,
+        true,
+    );
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].id, "system:heartbeat:pl:owner-tab");
+    assert_eq!(owners[0].cadence_ms, 60_000);
+    assert_eq!(owners[0].next_due_ms, 100_000);
+    assert_eq!(owners[0].text, orchestrator_nudge_text(&owner_plan));
+    assert!(owners[0].reason.contains("task_a"));
+    assert!(owners[0].reason.contains("task_c"));
+    assert!(!owners[0].reason.contains("task_b"));
+    assert_eq!(owners[0].ticks.len(), 1);
+    assert_eq!(owners[0].ticks[0].at_ms, 50_000);
+    assert_eq!(owners[0].ticks[0].outcome, "sent");
+    assert_eq!(owners[0].ticks[0].spinal_verdict, "processed");
+    assert_eq!(owners[0].ticks[0].spinal_reason, "delivered");
+
+    let workers = super::projection::project_for_tab(
+        &[owner_plan.clone()],
+        "worker-tab",
+        60,
+        100,
+        None,
+        &ticks,
+        true,
+    );
+    assert_eq!(workers.len(), 1);
+    assert_eq!(workers[0].id, "system:heartbeat:worker:worker-tab");
+    assert_eq!(workers[0].text, worker_nudge_text());
+    assert_eq!(workers[0].next_due_ms, 160_000);
+    assert!(workers[0].reason.contains("task_a"));
+    assert!(!workers[0].reason.contains("task_b"));
+    assert!(!workers[0].reason.contains("task_c"));
+    assert_eq!(workers[0].ticks.len(), 1);
+    assert_eq!(workers[0].ticks[0].at_ms, 52_000);
+    assert_eq!(workers[0].ticks[0].outcome, "skipped");
+    assert_eq!(workers[0].ticks[0].spinal_reason, "not_due");
+
+    assert!(super::projection::project_for_tab(
+        &[owner_plan.clone()],
+        "owner-tab",
+        60,
+        100,
+        None,
+        &ticks,
+        false,
+    )
+    .is_empty());
+    assert!(super::projection::project_for_tab(
+        &[owner_plan],
+        "owner-tab",
+        0,
+        100,
+        None,
+        &[],
+        true
+    )
+    .is_empty());
+    assert!(super::projection::project_for_tab(&[], "", 60, 100, None, &[], true).is_empty());
+}

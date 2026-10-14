@@ -74,6 +74,17 @@ pub fn planner_pairing_nudge_prefix(resolution: &PeerResolution) -> Option<&'sta
     }
 }
 
+/// Reminder copy for a planner that is down. A gone tab is not attached; a tab
+/// that still exists keeps the down hint, because rebinding it cannot revive it.
+pub fn reminder_planner_prefix(resolution: &PeerResolution) -> Option<&'static str> {
+    match resolution {
+        PeerResolution::OrchestratorFallback { reason, .. } if reason.contains(" gone") => {
+            Some(super::prompts_plan::CLOSED_PLANNER_HINT)
+        }
+        other => planner_pairing_nudge_prefix(other),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

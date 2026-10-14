@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::multiplexer::types::Tab;
 use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::{
-    self, Claim, Decision, Gate, Observation, ReminderKind, Scope, Snapshot, Supporter,
+    self, Claim, Decision, Gate, Observation, ReminderKind, Scope, Snapshot, Supporter, TickFact,
 };
 use codeterm_plan::service_plan::state::orchestrator_actionable_task_ids;
 
@@ -151,12 +151,33 @@ pub(crate) fn admit(
 ) -> ReminderOutcome {
     let (plan, scope) = match resolve(host, request, None) {
         Ok(found) => found,
-        Err(reason) => return ReminderOutcome::Suppressed(reason),
+        Err(reason) => {
+            note_request_tick(
+                host.gate(),
+                request,
+                now,
+                TickFact::Suppressed {
+                    reason: reason.into(),
+                },
+            );
+            return ReminderOutcome::Suppressed(reason);
+        }
     };
     let gate = host.gate();
     let claim = match gate.claim(&scope_key(&plan.id, &scope.tab_id)) {
         Ok(claim) => claim,
-        Err(refusal) => return ReminderOutcome::Suppressed(refusal.reason()),
+        Err(refusal) => {
+            let reason = refusal.reason();
+            note_request_tick(
+                gate,
+                request,
+                now,
+                TickFact::Suppressed {
+                    reason: reason.into(),
+                },
+            );
+            return ReminderOutcome::Suppressed(reason);
+        }
     };
     let last_reason = gate.telemetry(claim.key()).last_reason;
     let outcome = admit_claimed(host, request, &claim, plan, scope, now);
@@ -205,7 +226,7 @@ fn admit_claimed(
         && owner_can_act(&plan)
         && gate.cadence_due(key, now, host.interval());
     if connection.is_none() && !floor {
-        return suppress(gate, claim, "no_adapter");
+        return suppress(gate, claim, request, now, "no_adapter");
     }
     let adapter = connection.as_ref().map(|(_, adapter)| adapter.clone());
     let previous = gate.observation(key);
@@ -221,7 +242,7 @@ fn admit_claimed(
         Some((model, _)) => {
             if scope.kind == ReminderKind::Owner {
                 if let Err(reason) = gate.admit_judgement(key, &snapshot, now, host.interval()) {
-                    return suppress(gate, claim, reason);
+                    return suppress(gate, claim, request, now, reason);
                 }
             }
             gate.decide_with_interval(
@@ -242,7 +263,7 @@ fn admit_claimed(
         None => None,
     };
     let Some(decision) = decision else {
-        return suppress(gate, claim, "gate_unavailable");
+        return suppress(gate, claim, request, now, "gate_unavailable");
     };
     if !matches!(decision.reason, "same_snapshot" | "healthy_snapshot") {
         heartbeat_gate::journal(&supporter.runtime, &decision, &plan.id, now);
@@ -257,15 +278,15 @@ fn admit_claimed(
     };
     if decision.tick_label == "blocked" {
         if decision.reason != "model_answer" || decision.decided_by == "cache" {
-            return suppress(gate, claim, decision.reason);
+            return suppress(gate, claim, request, now, decision.reason);
         }
         let Some(plan) = current(&plan.id) else {
-            return suppress(gate, claim, "stale_scope");
+            return suppress(gate, claim, request, now, "stale_scope");
         };
         let (mut fresh, _) = observe(host, &plan, &scope, &previous, now);
         fresh.scope = snapshot.scope.clone();
         if fresh.hash() != decision.snapshot_hash {
-            return suppress(gate, claim, "stale_observation");
+            return suppress(gate, claim, request, now, "stale_observation");
         }
         if let Some(owner_tab) = non_empty(plan.owner.tab_id.as_deref()) {
             for notice in super::blocked_notices(&plan, &scope, &fresh) {
@@ -274,19 +295,19 @@ fn admit_claimed(
                 }
             }
         }
-        return suppress(gate, claim, "recipient_blocked");
+        return suppress(gate, claim, request, now, "recipient_blocked");
     }
     if !decision.wake {
-        return suppress(gate, claim, decision.reason);
+        return suppress(gate, claim, request, now, decision.reason);
     }
     let Some(plan) = current(&plan.id) else {
-        return suppress(gate, claim, "stale_scope");
+        return suppress(gate, claim, request, now, "stale_scope");
     };
     // The approved identity must still describe the plan the text is built from.
     let (mut fresh, _) = observe(host, &plan, &scope, &previous, now);
     fresh.scope = snapshot.scope.clone();
     if fresh.hash() != decision.snapshot_hash {
-        return suppress(gate, claim, "stale_observation");
+        return suppress(gate, claim, request, now, "stale_observation");
     }
     if scope.kind == ReminderKind::Worker
         && scope.task_id.as_deref().is_some_and(|task_id| {
@@ -296,12 +317,12 @@ fn admit_claimed(
                 .is_some_and(|task| task.status == crate::plan::TaskStatus::Blocked)
         })
     {
-        return suppress(gate, claim, "recipient_not_actionable");
+        return suppress(gate, claim, request, now, "recipient_not_actionable");
     }
     let emission = host.compose(&plan, &scope, &snapshot, &decision);
     // Re-observation and compose can take IO time; the last check is bound to the handoff.
     if current(&plan.id).is_none() || !gate.attempt(claim, &decision) {
-        return suppress(gate, claim, "stale_scope");
+        return suppress(gate, claim, request, now, "stale_scope");
     }
     match host.emit(
         &plan.id,
@@ -311,11 +332,23 @@ fn admit_claimed(
     ) {
         Ok(true) => {
             gate.delivered(key, &snapshot, &decision, now);
+            note_request_tick(
+                gate,
+                request,
+                now,
+                TickFact::Accepted {
+                    decided_by: decision.decided_by.clone(),
+                },
+            );
             ReminderOutcome::Accepted
         }
-        Ok(false) => ReminderOutcome::Pending,
+        Ok(false) => {
+            note_request_tick(gate, request, now, TickFact::Pending);
+            ReminderOutcome::Pending
+        }
         Err(error) => {
             gate.failed(key);
+            note_request_tick(gate, request, now, TickFact::Failed);
             ReminderOutcome::Failed(error)
         }
     }
@@ -349,8 +382,31 @@ fn observe(
     }
 }
 
-fn suppress(gate: &Gate, claim: &Claim<'_>, reason: &'static str) -> ReminderOutcome {
+fn note_request_tick(gate: &Gate, request: &ReminderRequest, now: u64, fact: TickFact) {
+    gate.record_tick(heartbeat_gate::delivery_tick(
+        &request.tab_id,
+        request.plan_id.as_deref().unwrap_or(""),
+        now,
+        fact,
+    ));
+}
+
+fn suppress(
+    gate: &Gate,
+    claim: &Claim<'_>,
+    request: &ReminderRequest,
+    now: u64,
+    reason: &'static str,
+) -> ReminderOutcome {
     gate.suppressed(claim.key(), reason);
+    note_request_tick(
+        gate,
+        request,
+        now,
+        TickFact::Suppressed {
+            reason: reason.into(),
+        },
+    );
     ReminderOutcome::Suppressed(reason)
 }
 
