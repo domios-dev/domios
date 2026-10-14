@@ -1,0 +1,12 @@
+────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   Get-Item .\link-outside
+   Touches a path through a symlink outside the allowed working directories
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to D:\outside-target from this project
+   3. No
+
+ Esc to cancel

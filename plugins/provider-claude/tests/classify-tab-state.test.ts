@@ -168,6 +168,51 @@ for (const f of ["structured-pending-prompt.txt", "active-terminal-choice.txt"])
   assertSingleInputSurface(r, "clarifying_question", f);
 }
 
+console.log("\n--- positive: cancel-only tool permission stays a live three-option prompt ---\n");
+{
+  const screen = fixture("outside-directory-permission.txt");
+  const r = classify(plugin, screen);
+  eq(r?.state, "clarifying_question", "outside-directory permission is clarifying_question");
+  assert((r?.confidence ?? 0) >= GLOBAL_THRESHOLD, "outside-directory permission confidence >= threshold", `conf=${r?.confidence}`);
+  assertSingleInputSurface(r, "clarifying_question", "outside-directory permission");
+  const parsed = plugin.parsePrompt(screen);
+  eq(
+    parsed?.options,
+    [
+      ["Yes", "1"],
+      ["Yes, and always allow access to D:\\outside-target from this project", "2"],
+      ["No", "3"],
+    ],
+    "outside-directory permission parses three options",
+  );
+  eq(classify(plugin, `${screen}\n(esc to interrupt)`)?.state, "working", "busy tail is not a prompt");
+  const idle = `${screen}\n────────────────────────────────────────────────────────────────────────────────\n❯\n`;
+  eq(classify(plugin, idle)?.state, "working", "ready composer after the frame is not a prompt");
+  eq(plugin.parsePrompt(idle), null, "ready composer after the frame parses no prompt");
+}
+
+console.log("\n--- existing tab-state fixtures keep their class ---\n");
+for (const [name, state] of Object.entries({
+  "active-terminal-choice.txt": "clarifying_question",
+  "answered-clarifying-question.txt": "unknown",
+  "auth-login.txt": "waiting_on_auth",
+  "clarifying-question.txt": "clarifying_question",
+  "completed-numbered-answer-dev67.txt": "working",
+  "diff-and-shell.txt": "working",
+  "normal-idle-numbered-history.txt": "working",
+  "normal-working.txt": "working",
+  "prose-limit-mention.txt": "unknown",
+  "rate-limit-menu.txt": "rate_limited",
+  "rate-limit-no-reset-time.txt": "rate_limited",
+  "rate-limit-wait-not-default.txt": "rate_limited",
+  "stale-auth-ready-composer.txt": "working",
+  "stale-auth-streaming.txt": "working",
+  "structured-pending-prompt.txt": "clarifying_question",
+  "tool-call-list.txt": "working",
+})) {
+  eq(classify(plugin, fixture(name))?.state, state, `${name} stays ${state}`);
+}
+
 console.log("\n--- auth guard: login screen → waiting_on_auth, NEVER auto-acted ---\n");
 {
   const r = classify(plugin, fixture("auth-login.txt"));
@@ -213,7 +258,7 @@ console.log("\n--- ensemble: a single weak signal must NOT reach threshold ---\n
 console.log("\n--- CRLF robustness: Windows tab output (\\r\\n) classifies identically to LF ---\n");
 // so the verdict (state + confidence + actions) is byte-identical to the LF read.
 const toCrlf = (s: string) => s.replace(/\r\n?/g, "\n").replace(/\n/g, "\r\n");
-for (const f of ["rate-limit-menu.txt", "rate-limit-wait-not-default.txt", "clarifying-question.txt", "auth-login.txt"]) {
+for (const f of ["rate-limit-menu.txt", "rate-limit-wait-not-default.txt", "clarifying-question.txt", "auth-login.txt", "outside-directory-permission.txt"]) {
   const lf = fixture(f).replace(/\r\n?/g, "\n");
   const crlf = toCrlf(lf);
   assert(crlf.includes("\r\n"), `${f}: CRLF variant actually contains \\r\\n`);
