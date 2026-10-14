@@ -706,6 +706,24 @@ run_build_gateway_log_reader() {
   exec tee -a "$1"
 }
 
+# Rust cache keys hash the absolute cwd, so each worktree misses another's entries.
+# Windows-only: Unix getcwd resolves symlinks, so no fixed alias can give rustc a stable cwd.
+enter_stable_build_path() {
+  CT_REAL_WORKTREE="$(pwd -P)"
+  export CT_REAL_WORKTREE
+  [ "${CODETERM_STABLE_BUILD_PATH:-1}" = 1 ] || return 0
+  case "$OSTYPE" in msys*|cygwin*|win32) ;; *) return 0 ;; esac
+  local drive="${CODETERM_STABLE_BUILD_DRIVE:-X}" lower
+  lower="$(printf '%s' "$drive" | tr 'A-Z' 'a-z')"
+  MSYS2_ARG_CONV_EXCL='*' subst "$drive:" /D >/dev/null 2>&1 || true
+  if ! MSYS2_ARG_CONV_EXCL='*' subst "$drive:" "$(cygpath -w "$CT_REAL_WORKTREE")" >/dev/null 2>&1; then
+    echo "[cache-policy] stable build path unavailable; building from $CT_REAL_WORKTREE" >&2
+    return 0
+  fi
+  cd "/$lower"
+  echo "[cache-policy] stable build path $drive:\ -> $CT_REAL_WORKTREE"
+}
+
 enter_build_gateway() {
   ct_gateway_acquire "$*"
   if [ "$CMD" != gc ]; then
@@ -714,6 +732,7 @@ enter_build_gateway() {
   local gateway_log
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
+  enter_stable_build_path
   if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ]; then
     echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
     return
@@ -894,8 +913,8 @@ JS
 prepare_exceptional_worktree_target() {
   local dir identity
   dir="$(ct_gateway_dir)"
-  identity="$(printf '%s' "$(pwd -P)" | git hash-object --stdin)"
-  export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "$(pwd -P)" "$dir" "$identity")"
+  identity="$(printf '%s' "${CT_REAL_WORKTREE:-$(pwd -P)}" | git hash-object --stdin)"
+  export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "${CT_REAL_WORKTREE:-$(pwd -P)}" "$dir" "$identity")"
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
