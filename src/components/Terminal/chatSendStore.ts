@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { ChatSend, SendEcho } from "@codeterm/chat-core";
-import { applyDeliveryStatus, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
+import { applyDeliveryStatus, canDeleteChatSend, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
 
@@ -14,6 +14,8 @@ const EMPTY: readonly DeliverySend[] = [];
 const sendsByTab = new Map<string, readonly DeliverySend[]>();
 const listeners = new Map<string, Set<() => void>>();
 let loaded = false;
+const deleting = new Set<string>();
+const deletionKey = (tabId: string, id: string) => JSON.stringify([tabId, id]);
 
 function storage(): Storage | null {
   try {
@@ -87,7 +89,8 @@ export function readChatSends(tabId: string): readonly DeliverySend[] {
 
 export function addChatSend(tabId: string, send: ChatSend): void {
   if (readChatSends(tabId).some((existing) => existing.id === send.id)) return;
-  publish(tabId, [...readChatSends(tabId), send].slice(-MAX_SENDS_PER_TAB));
+  const current: DeliverySend[] = [...readChatSends(tabId), send];
+  publish(tabId, [...current.filter((item) => item.dismissed), ...current.filter((item) => !item.dismissed).slice(-MAX_SENDS_PER_TAB)]);
 }
 
 export function removeChatSend(tabId: string, id: string): void {
@@ -140,7 +143,7 @@ export function reconcileDeliveryStatuses(
 export function beginChatSendRetry(tabId: string, id: string): DeliverySend | undefined {
   const current = readChatSends(tabId);
   const send = current.find((item) => item.id === id);
-  if (!send || send.status?.system_send || deliveryState(send) !== "failed") return;
+  if (!send || deleting.has(deletionKey(tabId, id)) || send.dismissed || send.status?.system_send || deliveryState(send) !== "failed") return;
   const next = { ...send, requestFailed: false, requestUncertain: false, requestHadResponse: undefined, status: undefined,
     correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
@@ -194,4 +197,27 @@ export function useChatSends(tabId: string): readonly DeliverySend[] {
   const subscribeToTab = useCallback((onChange: () => void) => subscribe(tabId, onChange), [tabId]);
   const read = useCallback(() => readChatSends(tabId), [tabId]);
   return useSyncExternalStore(subscribeToTab, read, read);
+}
+
+export type ChatSendDismissal = { send_id: string; send: ChatSend };
+
+export function observeChatSendDismissal(tabId: string, receipt: ChatSendDismissal): void {
+  const current = readChatSends(tabId);
+  const matches = (send: DeliverySend) => send.correlationId === receipt.send.correlationId;
+  const next = current.some(matches)
+    ? current.map((send) => matches(send) ? { ...send, dismissed: true } : send)
+    : [...current, { ...receipt.send, dismissed: true }];
+  publish(tabId, next);
+}
+
+export function beginChatSendDeletion(tabId: string, id: string): DeliverySend | undefined {
+  const send = readChatSends(tabId).find((item) => item.id === id);
+  const key = deletionKey(tabId, id);
+  if (!send || !canDeleteChatSend(send) || deleting.has(key)) return;
+  deleting.add(key);
+  return send;
+}
+
+export function endChatSendDeletion(tabId: string, id: string): void {
+  deleting.delete(deletionKey(tabId, id));
 }

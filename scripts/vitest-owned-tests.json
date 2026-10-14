@@ -206,5 +206,6 @@
   "src/lib/agentRuntimeQuestions.test.ts",
   "src/components/Terminal/RuntimeQuestionCard.test.tsx",
   "src/lib/modelSwitchFailure.test.ts",
-  "src/components/Terminal/RuntimeLoginActions.test.tsx"
+  "src/components/Terminal/RuntimeLoginActions.test.tsx",
+  "src/components/Terminal/ChatSendDelete.test.tsx"
 ]

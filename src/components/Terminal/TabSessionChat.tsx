@@ -85,9 +85,9 @@ import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
-import { deliveryPresentation, sendForRow } from "./chatDeliveryModel";
+import { canDeleteChatSend, deliveryPresentation, sendForRow } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSends } from "./chatSendStore";
-import { sendTrackedChatMessage } from "./chatSendStatus";
+import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { MessageSelectionBar } from "./MessageSelectionBar";
@@ -866,6 +866,8 @@ export function TabSessionChat({
               msg={msg}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
+              onDelete={deliverySend && canDeleteChatSend(deliverySend)
+                ? () => { void deleteTrackedChatMessage(tabId, deliverySend.id).catch((error: unknown) => showComposerError(error instanceof Error ? error.message : String(error))); } : undefined}
               selected={messageSelection.selected.has(msg.id)}
               joinNext={nextId !== undefined && following.length === 0 && messageSelection.selected.has(nextId)}
               selecting={messageSelection.active}
