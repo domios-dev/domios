@@ -133,6 +133,19 @@ account service selector and bash scripts/clippy-gate.sh in warm canonical.
 fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
 
+An app release also requires the [upgrade restore bench](../../../evals/upgrade-restore/README.md)
+before pushing `release/X.Y.Z`. In canonical, capture a sanitized real desk through
+`node scripts/capture-upgrade-desk.mjs`, replay it and the generated worst cases
+against the exact release build, and retain `replay-result.json` plus provider
+traces. Follow the bench's prepare → stage → named DEV restart → verify sequence;
+all bench CLI calls use `dc`, and all readiness waits have failure deadlines.
+Missing backing, unsupported provider, unready tab or missing receipt blocks the
+push. Node fixture tests and import acknowledgement do not replace live proof.
+For the runtime migration, retain pre-fix failures naming desk leaf bound,
+SizeLimit and binding incomplete, plus post-fix passes. Only canonical may build
+or start those versions. Frontend-only and plugin-only releases do not run this
+app startup gate.
+
 <!-- revision: 5 -->
 
 ## Rust warning inventory and cleanup

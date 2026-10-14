@@ -657,6 +657,15 @@ pub(super) fn create_router_with_preview_admission(
             "/api/session/backups/{name}/restore",
             post(session_routes::restore_session_backup_api),
         )
+        .route(
+            "/api/session/backups/{name}/export",
+            get(super::session_exchange::export),
+        )
+        .route(
+            "/api/session/backups/import",
+            post(super::session_exchange::import)
+                .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
         .route("/api/providers", get(agent_routes::list_agent_providers))
         .route(
             "/api/sessions/search",
