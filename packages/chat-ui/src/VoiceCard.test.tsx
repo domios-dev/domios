@@ -29,6 +29,7 @@ it("renders a voice transcript and opens its audio once", async () => {
 });
 
 it("renders spoken frame delimiters as one voice chip", async () => {
+  configureLocalArtifactOpener(vi.fn(async () => {}));
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -40,5 +41,6 @@ it("renders spoken frame delimiters as one voice chip", async () => {
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    configureLocalArtifactOpener(null);
   }
 });
