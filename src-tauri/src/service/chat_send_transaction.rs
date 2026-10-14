@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Weak};
 
+mod dismissal;
 mod durable_restore;
 mod live_evidence;
 mod rpc_evidence;

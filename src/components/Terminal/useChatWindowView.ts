@@ -29,7 +29,8 @@ import {
   timelineItemKey,
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
-import { deliveryProjectionSends } from "./chatDeliveryModel";
+import { deliveryProjectionSends, visibleDeliveryRows } from "./chatDeliveryModel";
+import { useChatSendDismissals } from "./useChatSendDismissals";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { setTranscriptAnchor } from "./transcriptStore";
 
@@ -51,6 +52,7 @@ export function useChatWindowView({
   loadOlderPage: (beforeOffset: number) => Promise<boolean>;
 }) {
   const sends = useChatSends(tabId);
+  useChatSendDismissals(tabId);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const backfillInFlightRef = useRef(false);
   const pendingRevealRef = useRef(false);
@@ -66,7 +68,7 @@ export function useChatWindowView({
   }, [committedRows]);
   const liveSends = useMemo(() => deliveryProjectionSends(sends, resetCutoffMs), [sends, resetCutoffMs]);
   const projection = useMemo(() => projectTranscript(transcript, liveSends), [transcript, liveSends]);
-  const allMessages = useMemo(() => projectContextEpochs(projection.rows), [projection]);
+  const allMessages = useMemo(() => projectContextEpochs(visibleDeliveryRows(projection.rows, sends, projection.echoes)), [projection, sends]);
   useLayoutEffect(() => {
     recordChatSendEchoes(tabId, projection.echoes);
   }, [projection, tabId]);

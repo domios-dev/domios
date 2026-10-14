@@ -30,7 +30,7 @@ function Gutter({ side, children }: { side: DotSide; children?: ReactNode }) {
 }
 
 /** One chat row: the bubble, a quiet actions dot in its gutter that follows the pointer, and its place in a block selection. */
-export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, deliveryState, sourceOrdinal, ariaLabel, selected, joinNext, selecting, cursor, handlers, children }: {
+export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, deliveryState, sourceOrdinal, ariaLabel, selected, joinNext, selecting, cursor, handlers, onDelete, children }: {
   msg: { id: string; type: string; sourceMessageId?: string };
   timestamp?: number;
   deliveryState?: string;
@@ -42,6 +42,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
   cursor: boolean;
   handlers: MessageRowHandlers;
   children: ReactNode;
+  onDelete?: () => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [hot, setHot] = useState(false);
@@ -56,10 +57,11 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
   const hint = useMessageActionHint(rowRef, selecting || menuOpen);
   const clip = hot || menuOpen ? handlers.clipFor(targetId) : null;
   const actions = useMemo<MessageMenuActions>(() => ({
+    delete: onDelete,
     quote: handlers.quote,
     ask: handlers.ask,
     select: () => handlers.select(targetId),
-  }), [handlers, targetId]);
+  }), [handlers, targetId, onDelete]);
   useMessageTouch(rowRef, {
     selecting,
     open: (id) => { setPartId(id); setTouchMenu(true); setMenuOpen(true); hint.opened(); },
@@ -84,7 +86,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
   };
 
   const time = timestamp == null || (!hot && !menuOpen) ? null : messageTimeLabels(timestamp, { timeZone: TIME_ZONE });
-  const dot = clip && !selecting ? (
+  const dot = clip && (!selecting || menuOpen) ? (
     <MessageActionsDot metadata={time ? { ...time, sender: fullClip?.author, deliveryState } : undefined} touch={touchMenu} whole={whole} hasParts={parts.length > 1} onScopeChange={setWhole} clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} hint={hint.hint} onHintEnd={hint.finish} />
   ) : null;
 
@@ -135,6 +137,13 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
         setHot(true);
       }}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHot(false); }}
+      onContextMenu={onDelete ? (event) => { event.preventDefault(); setPartId(null); setHot(true); setMenuOpen(true); hint.opened(); } : undefined}
+      onKeyDown={(event) => {
+        if (onDelete && selected && event.code === "Delete" && event.target === event.currentTarget
+          && !event.altKey && !event.ctrlKey && !event.metaKey) {
+          event.preventDefault(); event.stopPropagation(); onDelete();
+        }
+      }}
       onMouseDown={(event) => handlers.rowMouseDown(msg.id, event)}
     >
       <Gutter side="start" />

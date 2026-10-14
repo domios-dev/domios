@@ -144,7 +144,10 @@ Claimed or uncertain records remain held and are never replayed.
   unconfirmed input, queued while held, normal when delivered, and a quiet
   not-delivered mark with Retry for proven refusal or failed never-written input.
   Retry reuses the bubble with a fresh correlation token and transaction; it never
-  replays uncertain or written input. Provider echoes reconcile into that bubble.
+  replays uncertain or written input. Delete cancels queued input under the same durable
+  lock as claim; a claimed send can only be dismissed. Durable dismissal receipts
+  hide the bubble across restart and later evidence without replay. Delivered
+  bubbles have no Delete. Provider echoes reconcile into that bubble.
 
 ## Hard don'ts
 
@@ -170,4 +173,4 @@ Claimed or uncertain records remain held and are never replayed.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -10,11 +10,13 @@ use std::sync::Arc;
 
 mod admission_evidence;
 mod admission_tokens;
+pub(crate) mod dismissal;
 mod runtime_capture;
 mod runtime_observers;
 pub(crate) use admission_evidence::UserAdmissionEvidence;
 use runtime_observers::RuntimeAdmission;
 pub(crate) mod continuity;
+mod handoff;
 mod ready_launch;
 mod reservations;
 pub(crate) mod runtime_questions;
@@ -86,6 +88,8 @@ struct UserIndex {
     #[serde(default)]
     receipts: Vec<continuity::UserSendReceipt>,
     #[serde(default)]
+    dismissals: Vec<dismissal::UserSendDismissal>,
+    #[serde(default)]
     runtime_questions: crate::service::agent_runtime::questions::QuestionBook,
     #[serde(default)]
     runtime_observers: runtime_observers::WriteObservers,
@@ -98,6 +102,7 @@ impl Default for UserIndex {
             next_sequence: 1,
             records: Vec::new(),
             receipts: Vec::new(),
+            dismissals: Vec::new(),
             runtime_questions: Default::default(),
             runtime_observers: Default::default(),
         }
@@ -322,6 +327,11 @@ impl UserSendStore {
         let tab = &reservation.tab;
         let mut data = tab.data.lock();
         let loaded = self.load(tab, &mut data)?;
+        if loaded.index.dismissals.iter().any(|receipt| {
+            reservation.client_token.as_deref() == Some(receipt.send.correlation_id.as_str())
+        }) {
+            return Err("user send cancelled before admission".into());
+        }
         if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
             return Err("user send owner is held or revoked".into());
         }
@@ -614,6 +624,57 @@ impl UserSendStore {
         self.persist(&tab, &next)?;
         loaded.index = next;
         Ok(())
+    }
+
+    pub(crate) fn discard_queued_from_ended_launch(
+        &self,
+        record: &UserSendRecord,
+    ) -> Result<bool, String> {
+        let tab = self.tab(&record.authority.tab_id);
+        if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
+            return Ok(false);
+        }
+        let mut data = tab.data.lock();
+        let loaded = self.load(&tab, &mut data)?;
+        let Some(current) = loaded
+            .index
+            .records
+            .iter()
+            .find(|item| item.send_id == record.send_id)
+        else {
+            return Ok(false);
+        };
+        if current.authority != record.authority
+            || current.state != UserSendState::Queued
+            || current.owner_epoch != record.owner_epoch
+        {
+            return Ok(false);
+        }
+        let mut next = loaded.index.clone();
+        next.records.retain(|item| item.send_id != record.send_id);
+        continuity::retain_receipt(&mut next, record, continuity::ReceiptState::Failed);
+        self.persist(&tab, &next)?;
+        loaded.index = next;
+        tab.unsettled
+            .store(unsettled_count(&loaded.index), Ordering::Release);
+        let cleanup = (|| {
+            for suffix in ["original", "prepared", "body"] {
+                let path = tab.payload_path(&record.send_id, suffix)?;
+                match fs::remove_file(path) {
+                    Ok(()) => (),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(error) => return Err(io_error(error)),
+                }
+            }
+            sync_directory(&tab.dir)
+        })();
+        if let Err(error) = cleanup {
+            log::warn!(
+                "[chat-send] expired user send {} payload cleanup failed: {error}",
+                record.send_id
+            );
+        }
+        Ok(true)
     }
 
     #[cfg(test)]
