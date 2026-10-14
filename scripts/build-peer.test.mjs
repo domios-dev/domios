@@ -46,7 +46,7 @@ test('dispatch args keep check-queue flags, drop the peer route and require a pe
   assert.equal(opts.peer, 'ROG');
   assert.equal(opts.sha, SHA);
   assert.equal(opts.lane, true);
-  assert.deepEqual(opts.remoteArgs, ['--max-errors', '5', '--touched-only']);
+  assert.deepEqual(opts.remoteArgs, ['--lane', '--max-errors', '5', '--touched-only']);
   assert.throws(() => parseDispatchArgs('check-queue', [SHA]), /--peer/);
   assert.throws(() => parseDispatchArgs('check-queue', [SHA, '--peer', 'ROG', '--lane', '--all']), /exclusive/);
   const nextest = parseDispatchArgs('nextest', ['plan', 'test(store)', '--peer', 'auto', '--sha', SHA]);
@@ -204,7 +204,8 @@ test('named peer dispatch opens one bounded build tab on that peer and records t
   assert.equal(flag('--timeout'), '55m');
   assert.equal(flag('--purpose'), 'build');
   assert.match(flag('--cmd'), new RegExp(`'run-job' .*'--reply-peer' 'a35724e2-c7e3-486b-95d1-5edaa7f8d749' '--reply-tab' 'tab01' .*'--' 'check-queue' '${fx.sha}'`));
-  assert.doesNotMatch(flag('--cmd'), /--peer'|--lane/);
+  assert.doesNotMatch(flag('--cmd'), /'--peer'/);
+  assert.match(flag('--cmd'), /'check-queue' '[0-9a-f]{40}' '--lane'; fi$/);
   const records = fs.readdirSync(fx.state);
   assert.equal(records.length, 1);
   assert.equal(JSON.parse(fs.readFileSync(path.join(fx.state, records[0]), 'utf8')).remote_tab, 'remote01');
