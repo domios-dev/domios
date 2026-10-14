@@ -1,5 +1,7 @@
 //! With `--json` every command prints exactly one JSON value on stdout, and every
 //! failure is one error envelope with a closed `error.code`, whatever the cause.
+#[path = "support/codeterm_bin.rs"]
+mod codeterm_bin;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -69,7 +71,7 @@ fn kill_process(pid: u32) {
 /// Runs the CLI against a scratch data dir and a deterministic, never-live socket
 /// name, so no command can reach a real daemon or a real user directory.
 fn run_cli(env: &CliEnv, args: &[String]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_codeterm"));
+    let mut command = Command::new(codeterm_bin::codeterm_bin());
     for (key, _) in std::env::vars() {
         if key.starts_with("CODETERM_") {
             command.env_remove(key);
