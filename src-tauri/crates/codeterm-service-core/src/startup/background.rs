@@ -146,7 +146,7 @@ pub(crate) fn start_background_tasks(
                         peers.iter().map(|p| p.instance_id.clone()).collect();
                     last_sync_secs.retain(|id, _| paired_ids.contains(id));
                     if changed {
-                        crate::api::events::emit_everywhere(
+                        codeterm_events::emit_everywhere(
                             &app_h,
                             "mesh-state-changed",
                             serde_json::Value::Null,

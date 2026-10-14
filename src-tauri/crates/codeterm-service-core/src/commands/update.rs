@@ -39,7 +39,7 @@ pub async fn check_for_update(
     };
 
     if info.update_available {
-        crate::api::events::emit_everywhere(&app, "update-available", &info);
+        codeterm_events::emit_everywhere(&app, "update-available", &info);
     }
 
     let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;

@@ -383,7 +383,7 @@ impl ServiceContext {
 
     fn publish_receiver_targets_changed(&self) {
         self.events
-            .publish(crate::api::events::SystemEvent::ContributionsChanged {
+            .publish(codeterm_events::SystemEvent::ContributionsChanged {
                 kind: RECEIVER_TARGET_CONTRIBUTION_KIND.to_string(),
             });
     }

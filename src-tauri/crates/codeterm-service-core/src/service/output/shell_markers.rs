@@ -27,7 +27,7 @@ impl ServiceContext {
             })
         };
         if changed {
-            crate::api::events::emit_everywhere(
+            codeterm_events::emit_everywhere(
                 &self.app_handle,
                 "shell-state-changed",
                 serde_json::json!({ "tab_id": tab_id, "pty_id": pty_id, "state": state }),
@@ -140,7 +140,7 @@ impl ServiceContext {
                         &sidecar.launch_nonce,
                         "remote TUI exited to shell",
                     );
-                    crate::api::events::emit_everywhere(
+                    codeterm_events::emit_everywhere(
                         &self.app_handle,
                         "shell-command-changed",
                         serde_json::json!({ "tab_id": tab_id, "event": event }),
@@ -155,7 +155,7 @@ impl ServiceContext {
                     );
                 }
             }
-            crate::api::events::emit_everywhere(
+            codeterm_events::emit_everywhere(
                 &self.app_handle,
                 "shell-command-changed",
                 serde_json::json!({ "tab_id": tab_id, "event": event }),

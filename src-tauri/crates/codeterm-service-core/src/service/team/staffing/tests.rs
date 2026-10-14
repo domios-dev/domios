@@ -3,12 +3,12 @@
 
 use super::*;
 
-use crate::api::events::EventBroadcaster;
 use crate::plan::{OrchestratorRef, Plan, PlannerRef};
 use crate::service::hierarchy::plan_reminder_nudge::{
     timed_plan_reminder_targets, PlanReminderTarget,
 };
 use crate::service::plan::PlanStore;
+use codeterm_events::EventBroadcaster;
 
 /// An Orchestrator-anchored Team with a Planner and a Worker, where the anchor
 /// carries an agent identity — the shape a live Team actually has.

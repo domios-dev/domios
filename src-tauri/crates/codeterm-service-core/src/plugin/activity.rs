@@ -4,7 +4,7 @@ pub fn emit_plugin_activity(svc: &crate::service::ServiceContext, activity: &Plu
     use tauri::Emitter;
     let _ = svc.app_handle.emit("plugin-activity", activity);
     svc.events
-        .publish(crate::api::events::SystemEvent::PluginActivity(
+        .publish(codeterm_events::SystemEvent::PluginActivity(
             activity.clone(),
         ));
 }

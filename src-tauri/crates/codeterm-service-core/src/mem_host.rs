@@ -133,7 +133,7 @@ struct AppMemEventSink(crate::app_runtime::AppHandle);
 
 impl MemEventSink for AppMemEventSink {
     fn emit_graph_worker_spawned(&self, info: &GraphWorkerInfo) {
-        crate::api::events::emit_everywhere(&self.0, "graph-worker-spawned", info);
+        codeterm_events::emit_everywhere(&self.0, "graph-worker-spawned", info);
     }
 }
 

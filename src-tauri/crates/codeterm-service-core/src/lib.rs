@@ -41,6 +41,7 @@ pub(crate) mod sentinel;
 pub use codeterm_util::persisted_state;
 pub mod plan;
 pub mod plugin;
+pub mod ports;
 pub mod process_util;
 pub mod prompts;
 pub mod provider;
@@ -312,7 +313,7 @@ pub fn run(
                 let bridge_chatbackend_registry = chatbackend_registry.clone();
                 tauri::async_runtime::spawn(async move {
                     while let Ok(ev) = sub.recv().await {
-                        if let crate::api::events::SystemEvent::ContributionsChanged { kind } =
+                        if let codeterm_events::SystemEvent::ContributionsChanged { kind } =
                             &ev.event
                         {
                             let _ = bridge_handle.emit(
@@ -596,7 +597,7 @@ pub fn run(
             {
                 let handle = app_handle.clone();
                 kpi.on_commit(move |plan_ids| {
-                    crate::api::events::emit_everywhere(
+                    codeterm_events::emit_everywhere(
                         &handle,
                         "kpi-recorded",
                         serde_json::json!({ "plan_ids": plan_ids }),
@@ -958,7 +959,7 @@ pub fn run(
                             files.len(),
                             dir.display()
                         );
-                        crate::api::events::emit_everywhere(
+                        codeterm_events::emit_everywhere(
                             &app_handle,
                             "crash_report_available",
                             serde_json::json!({

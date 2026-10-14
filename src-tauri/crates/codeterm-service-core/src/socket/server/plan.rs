@@ -95,7 +95,7 @@ pub(crate) fn apply_batch_rpc(
 }
 
 pub(super) fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+    codeterm_events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
 /// The CodeTerm-owned lane removal boundary. A live tab whose shell sits inside

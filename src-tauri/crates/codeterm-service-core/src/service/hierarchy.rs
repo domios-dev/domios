@@ -715,7 +715,7 @@ impl ServiceContext {
                             report_outcome = Some(ReportOutcomeClass::BlockProposed);
                         }
                         self.plan_turn_counter.reset_activity(tab_id);
-                        crate::api::events::emit_everywhere(
+                        codeterm_events::emit_everywhere(
                             &self.app_handle,
                             "plan-changed",
                             serde_json::json!({ "plan_id": plan_id }),
@@ -802,7 +802,7 @@ impl ServiceContext {
                 "report_outcome": report_outcome,
             }),
         );
-        crate::api::events::emit_everywhere(
+        codeterm_events::emit_everywhere(
             &self.app_handle,
             "agent-report",
             report_event::agent_report_event(

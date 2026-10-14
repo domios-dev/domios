@@ -92,7 +92,7 @@ static STATUS_EMITTER: std::sync::OnceLock<StatusEmitter> = std::sync::OnceLock:
 
 pub fn bind_status_emitter(app: crate::app_runtime::AppHandle) {
     let _ = STATUS_EMITTER.set(Box::new(move |status| {
-        crate::api::events::emit_everywhere(&app, "update-status-changed", status);
+        codeterm_events::emit_everywhere(&app, "update-status-changed", status);
     }));
 }
 

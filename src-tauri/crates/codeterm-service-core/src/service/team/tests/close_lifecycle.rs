@@ -22,7 +22,7 @@ fn team_close_removes_roleless_members_and_keeps_loose_tabs() {
     let loose = mux.create_tab(&workspace_id).unwrap();
     assert!(mux.get_tab(&loose).unwrap().team_id.is_none());
     let (_plan_dir, plan_store) = isolated_plan_store();
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
 
     close_team_with_state_change(
         &mut mux,
@@ -95,7 +95,7 @@ fn team_close_skips_remote_lane_without_touching_peer_worktree() {
     let plan_snapshot = store.get(&plan_id).unwrap();
     assert!(super::super::close::team_close_lanes(&[plan_snapshot], &team_id, &[]).is_empty());
 
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     close_team_with_state_change(
         &mut mux,
         &events,
@@ -116,7 +116,7 @@ fn ordinary_close_preserves_team_but_explicit_close_removes_it() {
     mux.close_tab(&planner).unwrap();
     mux.close_tab(&worker).unwrap();
     assert!(mux.get_team(&team_id).is_some());
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     close_team_with_state_change(
         &mut mux,
         &events,
@@ -133,7 +133,7 @@ fn ordinary_close_preserves_team_but_explicit_close_removes_it() {
 fn close_team_unknown_and_repeat_are_structured_errors() {
     let (mut mux, team_id, orchestrator, _, _) = team_members();
     let (_plan_dir, plan_store) = isolated_plan_store();
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     assert!(close_team_with_state_change(
         &mut mux,
         &events,
@@ -184,7 +184,7 @@ fn zero_member_team_closes_and_cleans_up_crons() {
     );
     assert!(mux.get_team(&team_id).is_some());
 
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let (closed, cleanup, _) = close_team_with_state_change(
         &mut mux,
         &events,
@@ -211,7 +211,7 @@ fn close_team_removes_chat_backend_member_and_registry() {
         plugin_id: "chat-backend".into(),
         session_id: "session-1".into(),
     };
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
 
     let (_, cleanup, _) = close_team_with_state_change(
         &mut mux,
@@ -236,7 +236,7 @@ fn team_close_retains_provider_ids_for_launch_artifact_release() {
     let (mut mux, team_id, orchestrator, _, worker) = team_members();
     let (_plan_dir, plan_store) = isolated_plan_store();
     mux.get_tab_mut(&worker).unwrap().agent_type = Some("codex".into());
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
 
     let (_, cleanup, _) = close_team_with_state_change(
         &mut mux,
@@ -265,7 +265,7 @@ fn close_team_detaches_cartographer_manager_with_every_member_tab() {
     )
     .unwrap();
     mux.get_tab_mut(&cartographer).unwrap().agent_type = Some("provider-neutral".into());
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
 
     let (_, cleanup, _) = close_team_with_state_change(
         &mut mux,
@@ -299,7 +299,7 @@ fn team_close_collects_members_even_after_role_change() {
     assert!(remaining_members.contains(&orchestrator));
     assert!(remaining_members.contains(&worker));
 
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     let (_, cleanup, _) = close_team_with_state_change(
         &mut mux,
         &events,
@@ -409,7 +409,7 @@ fn team_close_finalizes_attempts_and_returns_tasks_to_pending() {
         .unwrap()
         .status = crate::plan::TaskStatus::InProgress;
     store.save(&mut plan, 6).unwrap();
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
 
     close_team_with_state_change(
         &mut mux,
@@ -514,7 +514,7 @@ fn team_close_does_not_rewrite_done_task_lane_for_a_closed_attempt() {
     let lane_before = task.lane.clone();
     store.save(&mut plan, 4).unwrap();
 
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
     close_team_with_state_change(
         &mut mux,
         &events,
@@ -681,7 +681,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &base,
         6,
     );
-    let events = crate::api::events::EventBroadcaster::new();
+    let events = codeterm_events::EventBroadcaster::new();
 
     close_team_with_state_change(
         &mut mux,
