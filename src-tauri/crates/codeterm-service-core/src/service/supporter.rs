@@ -137,7 +137,7 @@ pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<Sup
     runtime.attach_visibility(
         Arc::new(move |tab| mux.read().get_tab(tab).and_then(|tab| tab.team_id.clone())),
         Arc::new(move |event| {
-            crate::api::events::emit_everywhere(&app, "supporter-journal-appended", event)
+            codeterm_events::emit_everywhere(&app, "supporter-journal-appended", event)
         }),
     );
     let svc = svc.clone();

@@ -86,7 +86,7 @@ pub(super) async fn submit(
         .chat_send_ledger
         .status(&send_id)
         .ok_or(RuntimeFailure::Superseded)?;
-    crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+    codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
     let binding = session.context.lock().clone();
     svc.run_watcher
         .arm_runtime(&binding.tab_id, &binding.binding_nonce);

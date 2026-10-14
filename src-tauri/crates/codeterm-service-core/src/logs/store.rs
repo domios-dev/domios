@@ -162,7 +162,7 @@ impl LogStore {
                 "message": pending.message,
                 "context": context,
             });
-            crate::api::events::emit_everywhere(&handle, "logs-updated", payload);
+            codeterm_events::emit_everywhere(&handle, "logs-updated", payload);
         }
     }
 

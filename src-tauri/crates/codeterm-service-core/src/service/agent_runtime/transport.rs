@@ -165,7 +165,7 @@ pub(crate) async fn submit_loaded(
                 }
             }
             if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(&pending.send_id) {
-                crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
             }
             Ok(())
         }
@@ -194,7 +194,7 @@ pub(crate) async fn submit_loaded(
         }
         other => {
             if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(&pending.send_id) {
-                crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
             }
             Err(DeliveryError::SubmitUnconfirmed {
                 tab: tab.into(),

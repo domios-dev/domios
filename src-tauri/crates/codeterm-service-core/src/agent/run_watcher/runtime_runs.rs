@@ -304,7 +304,7 @@ impl RunWatcherRegistry {
                 }
                 let _ = svc.close_tab_with_reason(tab, TabCloseReason::AgentRunEnded);
                 if let Some(info) = svc.workers.get(&worker_id) {
-                    crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-done", info);
+                    codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-done", info);
                 }
             }
         }
