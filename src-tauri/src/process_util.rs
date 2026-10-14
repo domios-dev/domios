@@ -7,7 +7,7 @@ mod spawn_audit_tests {
 
     #[test]
     fn daemon_windows_spawns_use_no_window_helper() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+        let root = PathBuf::from(crate::test_support::fixture_manifest_dir()).join("src");
         let mut failures = Vec::new();
         audit_dir(&root, &root, &mut failures);
         assert!(

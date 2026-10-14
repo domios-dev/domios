@@ -1,3 +1,6 @@
+#[path = "../src/test_support.rs"]
+mod test_support;
+
 // vt100 ATTRIBUTED grid (bgcolor/fgcolor/inverse), where flattened text shows no marker?
 use codeterm_lib::agent::attributed_screen::{detect_picker, AttributedScreen};
 use serde_json::Value;
@@ -134,7 +137,11 @@ fn attr_spike_dump() {
         }
         return;
     }
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../testbench/snapshots");
+    let root = format!(
+        "{}{}",
+        test_support::fixture_manifest_dir().display(),
+        "/../testbench/snapshots"
+    );
     analyze(
         "CURSOR model-picker (bg-only selection, hardest)",
         &format!("{root}/cursor/model-picker/raw.cast"),

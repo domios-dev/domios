@@ -523,7 +523,7 @@ fn v2_question_events_keep_their_session_scoped_routes() {
 }
 
 fn diff_provider() -> crate::plugin::js_runtime::JsProvider {
-    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let manifest = crate::test_support::fixture_manifest_dir()
         .join("../plugins/provider-opencode/plugin.json");
     crate::plugin::js_runtime::loader::load_one(&manifest).unwrap()
 }

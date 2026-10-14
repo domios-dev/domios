@@ -96,11 +96,12 @@ fn has_input_events(cast: PathBuf) -> bool {
 
 #[test]
 fn detected_prompt_stays_respondable_without_notification() {
-    let screen =
-        std::fs::read_to_string(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+    let screen = std::fs::read_to_string(
+        std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
             "../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt",
-        ))
-        .expect("Claude trust fixture");
+        ),
+    )
+    .expect("Claude trust fixture");
     let (fixture, tab_id, pty_id) = fixture_with_screen(&screen);
     fixture.service.clear_pending_prompt(&tab_id);
     fixture.service.prompt_detector.lock().clear(&tab_id);
@@ -201,11 +202,12 @@ fn detected_prompt_stays_respondable_without_notification() {
 
 #[test]
 fn tab_respond_answers_trust_prompt_in_pair_tabs() {
-    let screen =
-        std::fs::read_to_string(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+    let screen = std::fs::read_to_string(
+        std::path::PathBuf::from(crate::test_support::fixture_manifest_dir()).join(
             "../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt",
-        ))
-        .expect("Claude trust fixture");
+        ),
+    )
+    .expect("Claude trust fixture");
     let (fixture, tab_id, pty_id) = fixture_with_screen(&screen);
     {
         let mut mux = fixture.service.mux.write();

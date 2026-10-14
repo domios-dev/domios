@@ -342,7 +342,7 @@ fn sentinel_observe_source_scan_has_no_pty_writer() {
         }
     }
 
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = crate::test_support::fixture_manifest_dir();
     let mut sources = Vec::new();
     for directory in ["src/sentinel", "src/service/sentinel"] {
         read_sources(&root.join(directory), &mut sources);

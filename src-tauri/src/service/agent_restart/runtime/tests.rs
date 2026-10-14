@@ -71,7 +71,12 @@ impl RuntimeFixture {
             plugin_id: PROVIDER.into(),
             session_id: "own-thread".into(),
         };
-        target.cwd = Some(env!("CARGO_MANIFEST_DIR").into());
+        target.cwd = Some(
+            crate::test_support::fixture_manifest_dir()
+                .to_string_lossy()
+                .into_owned()
+                .into(),
+        );
         target.role = Some(crate::multiplexer::types::AgentRole::Worker);
         let fixture = ServiceFixture::new(mux);
         fixture.set_agent_full_access(false);
