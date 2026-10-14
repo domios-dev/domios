@@ -76,7 +76,8 @@ export function smoke(kind, directory, sha, expectedArch) {
       expectedArch ||= arch();
     } else if (kind === 'windows') {
       const installer = one(artifacts, file => file.endsWith('-setup.exe'), 'NSIS installer');
-      run(process.env.RELEASE_7ZIP || '7z', ['x', '-y', `-o${scratch}`, installer]);
+      const standard7z = 'C:\\Program Files\\7-Zip\\7z.exe';
+      run(process.env.RELEASE_7ZIP || (existsSync(standard7z) ? standard7z : '7z'), ['x', '-y', `-o${scratch}`, installer]);
       format = 'PE';
       if (!['x64', 'arm64'].includes(expectedArch)) throw new Error('Windows target architecture required');
     } else throw new Error(`Unknown platform ${kind}`);
@@ -104,7 +105,7 @@ export function smoke(kind, directory, sha, expectedArch) {
       one(debFiles, file => file.endsWith(`${path.sep}dist${path.sep}index.html`), 'Debian frontend entry point');
     }
     if (kind === 'windows') {
-      const statuses = run('pwsh', ['-NoProfile', '-File', path.join(root, 'scripts/release-windows-artifact.ps1'), '-App', app, '-Cli', cli, '-Embed', embed, '-Version', version]);
+      const statuses = run(process.env.RELEASE_PWSH || 'pwsh', ['-NoProfile', '-File', path.join(root, 'scripts/release-windows-artifact.ps1'), '-App', app, '-Cli', cli, '-Embed', embed, '-Version', version]);
       console.log(`Authenticode (not required): ${statuses}`);
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Authenticode (not required): ${statuses}\n`);
     }
