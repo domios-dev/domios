@@ -184,6 +184,48 @@ pub(super) fn dispatch(
     if super::plan_skills_rpc::handles(method) {
         return super::plan_skills_rpc::dispatch(method, params, svc, now);
     }
+    if method == "plan.lanes_clean" {
+        let id = plan_refs::resolve_plan(&svc.plan_store, params)?;
+        let p = params.as_ref();
+        let confirm = p
+            .and_then(|value| value.get("confirm"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let fetch = p
+            .and_then(|value| value.get("fetch"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if confirm || fetch {
+            svc.authorize_plan_orchestrator(
+                &id,
+                &crate::service::AuthenticatedPlanCaller {
+                    tab_id: optional_string(p, "caller_tab_id"),
+                    session_id: optional_string(p, "session_id"),
+                    binding_nonce: optional_string(p, "session_binding_nonce"),
+                },
+            )
+            .map_err(|message| JsonRpcError {
+                code: -32003,
+                message,
+                data: None,
+            })?;
+        }
+        let plan = svc
+            .plan_store
+            .get(&id)
+            .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+        let lanes = svc
+            .clean_plan_lanes(&plan, confirm, fetch)
+            .map_err(|message| JsonRpcError {
+                code: -32003,
+                message,
+                data: None,
+            })?;
+        if confirm {
+            emit_plan_changed(app, &id);
+        }
+        return Ok(json!({"plan_id": id, "dry_run": !confirm, "lanes": lanes}));
+    }
     if method == "plan.lane_remove" {
         return lane_remove(params, svc);
     }
