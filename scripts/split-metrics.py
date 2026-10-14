@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Caller: skill crate-split; docs/architecture/split-metrics.md
 """Crate-map metrics for docs/architecture/split-metrics.md.
 
 Usage: python3 scripts/split-metrics.py [--row 'check=..;test=..']   # prints the metrics as JSON and a table row
