@@ -20,6 +20,9 @@ the `github-release` skill. Do not use `dev` output as an installer artifact.
 ```
 
 That's it. Hot-reloads Vite on every TSX edit, rebuilds Rust on `src-tauri/` edits, opens the Tauri window. Auto-builds CLI into the active `~/.codeterm-dev*/bin/` and routes dev PTYs to that binary.
+All Cargo work, including named `dev --wait` startup, owns the shared build gateway
+and initializes sccache through its common entry. Named startup releases its job
+when readiness ends the launcher; interactive dev retains ownership through its monitor.
 
 Run it in the **background** so you can keep working:
 
