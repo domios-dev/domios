@@ -2416,18 +2416,18 @@ EOF
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run bash scripts/check-script-catalog.sh
-    sg_run node --test --test-concurrency=1 scripts/build-gateway-mutex.test.mjs scripts/build-gateway-slot.test.mjs scripts/build-gateway-record.test.mjs scripts/build-gateway-cache.test.mjs scripts/build-history.test.mjs scripts/build-gateway-evidence.test.mjs
+    sg_run node scripts/test-catalogue.mjs validate
+    sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
     sg_run bash scripts/check-shared-sccache.sh
-    sg_run node --test scripts/runner-toggle.test.mjs
     for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
     done
     if [ "$(uname -s)" = Linux ]; then
       sg_run bash scripts/check-build-dev-port-overrides.sh
       sg_run bash scripts/check-cache-provenance.sh
-      sg_run node --test scripts/check-analytics-catalog.test.mjs
+      sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-cargo
     fi
     exit "$sg_failed"
     ;;

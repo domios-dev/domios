@@ -1,179 +1,34 @@
 #!/usr/bin/env bash
 # Caller: package.json script; scripts affected-tests.mjs, ci-scope.mjs, run-plugin-tests.mjs; skill provider-authoring, testing
-# Runs every plugin-side test in the repo (TS only, via the local tsx CLI).
-# Aggregator stays tiny so each plugin can keep its own runner setup;
-# vitest migration is a follow-up.
-set -e
+# Runs the plugin tests the catalogue runner plugin-tests discovers (all, or one plugins/<dir>) through the local tsx CLI.
+# Usage: bash scripts/plugin-tests.sh [all|<plugin-dir>]
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-case "${1:-all}" in
-  all)
-    tests=(
-      plugins/git/tests/plugin.test.ts
-      plugins/provider-claude/tests/availability.test.ts
-      plugins/provider-claude/tests/native-argument.test.ts
-      plugins/provider-claude/tests/context.test.ts
-      plugins/provider-claude/tests/access-errors.test.ts
-      plugins/provider-claude/tests/signals.test.ts
-      plugins/provider-claude/tests/background-work.test.ts
-      plugins/provider-claude/tests/model-capabilities.test.ts
-      plugins/provider-claude/tests/detect.test.ts
-      plugins/provider-claude/tests/models.test.ts
-      plugins/provider-claude/tests/status.test.ts
-      plugins/provider-claude/tests/plugin.test.ts
-      plugins/provider-claude/tests/live-model-command.test.ts
-      plugins/provider-claude/tests/switch-confirmation.test.ts
-      plugins/provider-claude/tests/classify-tab-state.test.ts
-      plugins/provider-claude/tests/hook-ownership.test.ts
-      plugins/provider-claude/tests/file-diffs.test.ts
-      plugins/provider-claude/tests/subagents.test.ts
-      plugins/provider-claude/tests/launch-session.test.ts
-      plugins/provider-claude/tests/account-home.test.ts
-      plugins/provider-claude/tests/pre-trust.test.ts
-      plugins/provider-claude/tests/image-metadata.test.ts
-      plugins/provider-codex/tests/runtime.test.ts
-      plugins/provider-codex/tests/runtime-state-budget.test.ts
-      plugins/provider-codex/tests/access-errors.test.ts
-      plugins/provider-codex/tests/plugin.test.ts
-      plugins/provider-codex/tests/resume-compatibility.test.ts
-      plugins/provider-codex/tests/models.test.ts
-      plugins/provider-codex/tests/directory-trust-frames.test.ts
-      plugins/provider-codex/tests/activity.test.ts
-      plugins/provider-codex/tests/rich-results.test.ts
-      plugins/provider-codex/tests/hook-events.test.ts
-      plugins/provider-codex/tests/app-server-0.157.1.test.ts
-      plugins/provider-codex/tests/hook-ownership.test.ts
-      plugins/provider-codex/tests/hook-content-verdict.test.ts
-      plugins/provider-codex/tests/session-paths.test.ts
-      plugins/provider-codex/tests/trust-grant.test.ts
-      plugins/provider-codex/tests/provider-helper-parity.test.ts
-      plugins/provider-codex/tests/transcript-dedupe.test.ts
-      plugins/provider-codex/tests/tool-fields.test.ts
-      plugins/provider-codex/tests/command-label.test.ts
-      plugins/provider-codex/tests/classify-tab-state.test.ts
-      plugins/provider-codex/tests/usage.test.ts
-      plugins/provider-codex/tests/update-check.test.ts
-      plugins/provider-codex/tests/profile-sweep.test.ts
-      plugins/provider-codex/tests/windows-launch.test.ts
-      plugins/provider-codex/tests/windows-hook-command.test.ts
-      plugins/provider-codex/tests/file-diffs.test.ts
-      plugins/provider-codex/tests/launch-session.test.ts
-      plugins/provider-codex/tests/account-home.test.ts
-      plugins/provider-codex/tests/user-images.test.ts
-      plugins/provider-opencode/tests/plugin.test.ts
-      plugins/provider-opencode/tests/file-diffs.test.ts
-      plugins/provider-opencode/tests/lifecycle.test.ts
-      plugins/provider-opencode/tests/modelSwitch.test.ts
-      plugins/provider-opencode/tests/opencodeConfig.test.ts
-      plugins/provider-opencode/tests/modelProviders.test.ts
-      plugins/provider-opencode/tests/modelVariants.test.ts
-      plugins/provider-opencode/tests/opencodePresets.test.ts
-      plugins/provider-opencode/tests/decisionModel.test.ts
-      plugins/provider-cursor/tests/plugin.test.ts
-      packages/plugin-sdk/src/fileDiffs.test.ts
-      plugins/chat-preprocessor/tests/plugin.test.ts
-      src/lib/plugins/registry.test.ts
-      packages/chat-ui/src/codeterm/recognize.test.ts
-      packages/chat-ui/src/codeterm/templates.test.ts
-      packages/chat-ui/src/codeterm/planRefs.test.ts
-      packages/chat-ui/src/codeterm/SentMessageBubble.test.tsx
-    )
-    ;;
-  git)
-    tests=(
-      plugins/git/tests/plugin.test.ts
-    )
-    ;;
-  provider-claude)
-    tests=(
-      plugins/provider-claude/tests/native-argument.test.ts
-      plugins/provider-claude/tests/context.test.ts
-      plugins/provider-claude/tests/access-errors.test.ts
-      plugins/provider-claude/tests/signals.test.ts
-      plugins/provider-claude/tests/background-work.test.ts
-      plugins/provider-claude/tests/model-capabilities.test.ts
-      plugins/provider-claude/tests/availability.test.ts
-      plugins/provider-claude/tests/detect.test.ts
-      plugins/provider-claude/tests/models.test.ts
-      plugins/provider-claude/tests/status.test.ts
-      plugins/provider-claude/tests/plugin.test.ts
-      plugins/provider-claude/tests/live-model-command.test.ts
-      plugins/provider-claude/tests/switch-confirmation.test.ts
-      plugins/provider-claude/tests/classify-tab-state.test.ts
-      plugins/provider-claude/tests/hook-ownership.test.ts
-      plugins/provider-claude/tests/file-diffs.test.ts
-      plugins/provider-claude/tests/subagents.test.ts
-      plugins/provider-claude/tests/launch-session.test.ts
-      plugins/provider-claude/tests/account-home.test.ts
-      plugins/provider-claude/tests/pre-trust.test.ts
-      plugins/provider-claude/tests/image-metadata.test.ts
-    )
-    ;;
-  provider-codex)
-    tests=(
-      plugins/provider-codex/tests/runtime.test.ts
-      plugins/provider-codex/tests/runtime-state-budget.test.ts
-      plugins/provider-codex/tests/access-errors.test.ts
-      plugins/provider-codex/tests/plugin.test.ts
-      plugins/provider-codex/tests/resume-compatibility.test.ts
-      plugins/provider-codex/tests/models.test.ts
-      plugins/provider-codex/tests/directory-trust-frames.test.ts
-      plugins/provider-codex/tests/activity.test.ts
-      plugins/provider-codex/tests/rich-results.test.ts
-      plugins/provider-codex/tests/hook-events.test.ts
-      plugins/provider-codex/tests/app-server-0.157.1.test.ts
-      plugins/provider-codex/tests/hook-ownership.test.ts
-      plugins/provider-codex/tests/hook-content-verdict.test.ts
-      plugins/provider-codex/tests/session-paths.test.ts
-      plugins/provider-codex/tests/trust-grant.test.ts
-      plugins/provider-codex/tests/provider-helper-parity.test.ts
-      plugins/provider-codex/tests/classify-tab-state.test.ts
-      plugins/provider-codex/tests/usage.test.ts
-      plugins/provider-codex/tests/update-check.test.ts
-      plugins/provider-codex/tests/profile-sweep.test.ts
-      plugins/provider-codex/tests/windows-launch.test.ts
-      plugins/provider-codex/tests/command-label.test.ts
-      plugins/provider-codex/tests/windows-hook-command.test.ts
-      plugins/provider-codex/tests/file-diffs.test.ts
-      plugins/provider-codex/tests/launch-session.test.ts
-      plugins/provider-codex/tests/account-home.test.ts
-      plugins/provider-codex/tests/user-images.test.ts
-    )
-    ;;
-  provider-opencode)
-    tests=(
-      plugins/provider-opencode/tests/plugin.test.ts
-      plugins/provider-opencode/tests/file-diffs.test.ts
-      plugins/provider-opencode/tests/lifecycle.test.ts
-      plugins/provider-opencode/tests/modelSwitch.test.ts
-      plugins/provider-opencode/tests/opencodeConfig.test.ts
-      plugins/provider-opencode/tests/modelProviders.test.ts
-      plugins/provider-opencode/tests/modelVariants.test.ts
-      plugins/provider-opencode/tests/opencodePresets.test.ts
-      plugins/provider-opencode/tests/decisionModel.test.ts
-    )
-    ;;
-  provider-cursor)
-    tests=(
-      plugins/provider-cursor/tests/plugin.test.ts
-      packages/plugin-sdk/src/fileDiffs.test.ts
-    )
-    ;;
-  chat-preprocessor)
-    tests=(
-      plugins/chat-preprocessor/tests/plugin.test.ts
-    )
-    ;;
-  *)
-    echo "unknown plugin test suite: $1" >&2
+node_bin="${CODETERM_NODE_BIN:-node}"
+suite="${1:-all}"
+prefix="plugins/"
+if [ "$suite" != all ]; then
+  if [ ! -d "plugins/$suite" ]; then
+    echo "unknown plugin test suite: $suite" >&2
     exit 2
-    ;;
-esac
+  fi
+  prefix="plugins/$suite/"
+fi
+
+discovered="$("$node_bin" scripts/test-catalogue.mjs list --entry plugin-tests)"
+tests=()
+while IFS= read -r t; do
+  case "$t" in "$prefix"*) tests+=("$t") ;; esac
+done <<< "$discovered"
+if [ "${#tests[@]}" -eq 0 ]; then
+  echo "no plugin tests discovered under $prefix"
+  exit 0
+fi
 
 fails=0
 tsx_cli="node_modules/tsx/dist/cli.mjs"
-node_bin="${CODETERM_NODE_BIN:-node}"
 for t in "${tests[@]}"; do
   echo
   echo "════ $t ════"
@@ -185,9 +40,9 @@ done
 
 echo
 if [ "$fails" -eq 0 ]; then
-  echo "✓ all plugin test suites green"
+  echo "✓ all ${#tests[@]} plugin test suites green"
   exit 0
 else
-  echo "✗ $fails test suite(s) failed"
+  echo "✗ $fails of ${#tests[@]} plugin test suite(s) failed"
   exit 1
 fi

@@ -814,24 +814,11 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - name: Release test and publication gate contracts
-        run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs scripts/tests/release-job-graph.test.mjs scripts/tests/release-bundle-smoke.test.mjs scripts/tests/release-asset-scope.test.mjs
-      - name: Rust shard coverage contracts
-        run: node --test scripts/tests/ci-rust-shards.test.mjs scripts/tests/ci-runner-paths.test.mjs scripts/tests/ci-rust-archives.test.mjs
-      - name: Release metadata contract tests
-        run: python3 -m unittest scripts.tests.test_release_issue_contract
-      - name: Release workflow signature-gate contract tests
+      - name: Node script tests (tests/catalogue.json node-script-tests)
+        run: node scripts/test-catalogue.mjs run --entry node-script-tests
+      - name: Python script tests (tests/catalogue.json python-script-tests)
         if: ${{ !cancelled() }}
-        run: python3 -m unittest scripts.tests.test_release_workflow_contract
-      - name: Updater manifest merge + signature tests
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/updater-manifest.test.mjs
-      - name: Release closure authority tests
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/release-closure-authority.test.mjs
-      - name: Release notes synchronization tests
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/release-notes-sync.test.mjs
+        run: node scripts/test-catalogue.mjs run --entry python-script-tests
       - *cancel-release-on-failure
 
   rust-warnings:
