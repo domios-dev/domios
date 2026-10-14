@@ -261,6 +261,7 @@ dependencies = [
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-types",
+ "codeterm-wire",
  "deunicode",
  "dirs 5.0.1",
  "ed25519-dalek",
@@ -308,6 +309,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-types",
  "codeterm-util",
+ "codeterm-wire",
  "dirs 6.0.0",
  "futures-executor",
  "futures-util",
@@ -377,6 +379,10 @@ dependencies = [
  "windows-sys 0.61.2",
  "winreg",
 ]
+
+[[package]]
+name = "codeterm-wire"
+version = "1.6.2"
 
 [[package]]
 name = "colorchoice"

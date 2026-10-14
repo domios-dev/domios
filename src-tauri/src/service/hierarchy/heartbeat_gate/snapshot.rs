@@ -738,7 +738,7 @@ pub(super) fn is_owner_turn(message: &ChatMsg) -> bool {
     if message.kind != "user" || message.system_subtype.is_some() {
         return false;
     }
-    let marker = codeterm_types::message_markers::parse_host_injected(&message.content);
+    let marker = codeterm_wire::message_markers::parse_host_injected(&message.content);
     let kind = message.inbound_kind.as_deref().or_else(|| {
         marker.as_ref().map(|m| {
             if m.kind == "inbound" {

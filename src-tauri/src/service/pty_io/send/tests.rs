@@ -125,7 +125,7 @@ fn never_written_agent_report_survives_reopen() {
 
 #[test]
 fn routed_suffix_is_the_reply_hint_and_closing_tag() {
-    let close = codeterm_types::domios::DOMIOS_CLOSE_TAG;
+    let close = codeterm_wire::domios::DOMIOS_CLOSE_TAG;
     assert_eq!(
         super::compose_routed_suffix(" [reply]"),
         format!(" [reply]{close}")
@@ -704,8 +704,8 @@ fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
         .unwrap_or(false);
     assert!(!requires_instruction);
 
-    let frame = codeterm_types::domios::DomiosFrame {
-        opening_tag: codeterm_types::domios::build_opening_tag(&[
+    let frame = codeterm_wire::domios::DomiosFrame {
+        opening_tag: codeterm_wire::domios::build_opening_tag(&[
             ("from", "tab"),
             ("label", "sender"),
             ("tab", "abc12345"),
@@ -718,7 +718,7 @@ fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
     assert_eq!(input.typed_prefix, None);
     assert_eq!(input.pasted_tail, None);
     assert_eq!(input.typed_suffix, None);
-    let parsed = codeterm_types::domios::parse_message(&input.body).unwrap();
+    let parsed = codeterm_wire::domios::parse_message(&input.body).unwrap();
     assert_eq!(parsed.attr("tab"), Some("abc12345"));
     assert_eq!(parsed.content, format!("{}{}", frame.body, frame.suffix));
 }
@@ -729,7 +729,7 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
         "../../../../../tests/fixtures/pty-delivery/restored-structured-turn.json"
     ))
     .unwrap();
-    let frame = codeterm_types::domios::DomiosFrame {
+    let frame = codeterm_wire::domios::DomiosFrame {
         opening_tag: fixture["opening_tag"].as_str().unwrap().into(),
         body: fixture["body"].as_str().unwrap().into(),
         suffix: fixture["suffix"].as_str().unwrap().into(),
@@ -758,7 +758,7 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
     );
     assert_eq!(
         typed.pasted_tail,
-        Some(codeterm_types::domios::pasted_marker_tail())
+        Some(codeterm_wire::domios::pasted_marker_tail())
     );
 }
 
@@ -779,7 +779,7 @@ fn routed_agent_and_report_hints_stay_out_of_the_body_in_both_transport_forms() 
         assert!(!suffix.contains("<tip>"));
         let tail = input.pasted_tail.unwrap();
         let delivered = format!("{}{}{}{}", frame.opening_tag, input.body, tail, suffix);
-        let parsed = codeterm_types::domios::parse_message(&delivered).unwrap();
+        let parsed = codeterm_wire::domios::parse_message(&delivered).unwrap();
         assert_eq!(parsed.body, frame.body);
         assert!(parsed.content.contains(&frame.suffix));
         let pasted = super::prepare_routed_input(&frame, false);

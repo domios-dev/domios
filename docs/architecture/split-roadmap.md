@@ -124,3 +124,7 @@ No clean seam. Only a trait-port rewrite of `ServiceContext` would split it. Out
 ## What the first split does and does not claim
 
 R1 is chosen because it is the only candidate with zero cycles to break and zero behaviour surface (pure string/struct functions). It addresses the owner's concern that volatile logic in `codeterm-types` triggers a workspace-wide rebuild. It does not shrink the 515k-line app crate; R4 and R5 do that.
+
+## R1 status
+
+Executed on this branch: `src-tauri/crates/codeterm-wire` holds `domios` and `message_markers` (git renames, content unchanged). Dependents changed: `codeterm-plugin`, `codeterm-bridge`, the app crate (`src-tauri/Cargo.toml`), and the CLI. Both lockfiles were edited by hand to add the package and its edges; `./build.sh release-preflight` should confirm them. Selectors: `./build.sh test-one wire NAME`, and the existing app selectors that exercise markers (`message_markers`, `paste_encoding`, `inbound_webhook`). Timings: canonical measures touch-`domios.rs` + `./build.sh check` before (types) and after (wire).

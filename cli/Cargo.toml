@@ -39,6 +39,7 @@ codeterm-paths = { path = "../crates/codeterm-paths" }
 # The notification level set is defined once in the daemon-shared crate; the CLI
 # derives its flag values from it instead of mirroring the enum.
 codeterm-types = { path = "../src-tauri/crates/codeterm-types" }
+codeterm-wire = { path = "../src-tauri/crates/codeterm-wire" }
 
 [dev-dependencies]
 tempfile = "3"

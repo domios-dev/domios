@@ -23,7 +23,7 @@ impl Messenger {
         let routed_frame = should_prefix.then(|| Self::from(envelope.clone()).routed_frame(body));
         let wrapped = routed_frame
             .as_ref()
-            .map(codeterm_types::domios::DomiosFrame::to_message)
+            .map(codeterm_wire::domios::DomiosFrame::to_message)
             .unwrap_or_else(|| body.to_string());
         let (body, _pad_file) =
             svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
@@ -33,7 +33,7 @@ impl Messenger {
         });
         let text = routed_frame
             .as_ref()
-            .map(codeterm_types::domios::DomiosFrame::to_message)
+            .map(codeterm_wire::domios::DomiosFrame::to_message)
             .unwrap_or(body);
         let evidence = svc.chat_send_anchor(to_tab);
         let turn_text = svc.chat_send_turn_evidence(to_tab, &text);

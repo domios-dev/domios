@@ -73,7 +73,7 @@ fn starter_frame_native_argument_matches_native_and_js() {
         "{}{}{}",
         params.starter_prompt.system_prefix().unwrap(),
         expected,
-        codeterm_types::domios::DOMIOS_CLOSE_TAG
+        codeterm_wire::domios::DOMIOS_CLOSE_TAG
     );
     let argument = codeterm_util::shell::ShellSyntax::quote_native_arg(&frame);
     for command in [

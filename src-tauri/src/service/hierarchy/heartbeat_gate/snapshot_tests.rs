@@ -97,8 +97,8 @@ fn heartbeat_gate_owner_signals_use_structural_provenance() {
     message.from_tab = None;
     message.inbound_kind = None;
     for kind in ["system", "reminder", "report", "tab"] {
-        message.content = codeterm_types::domios::DomiosFrame {
-            opening_tag: codeterm_types::domios::build_opening_tag(&[("from", kind)]),
+        message.content = codeterm_wire::domios::DomiosFrame {
+            opening_tag: codeterm_wire::domios::build_opening_tag(&[("from", kind)]),
             body: "opaque daemon input".into(),
             suffix: String::new(),
         }
