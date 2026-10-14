@@ -16,6 +16,10 @@ pub trait BlueprintStore: Send + Sync {
     fn scope_of(&self, id: &str) -> Option<(String, Option<String>)>;
     fn insert_restored(&self, record: &BlueprintRecord) -> Result<(), String>;
     fn ensure_external_commit_ready(&self) -> Result<(), String>;
+    fn adopt_external_commit(
+        &self,
+        committed: &codeterm_storage::Committed<codeterm_storage::SentinelCommit>,
+    ) -> Result<(), String>;
 }
 
 pub trait SentinelWake: Send + Sync {

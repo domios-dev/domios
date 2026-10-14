@@ -54,11 +54,18 @@ impl BlueprintStore for HandlePorts {
     fn insert_restored(&self, record: &BlueprintRecord) -> Result<(), String> {
         let job: Sentinel =
             serde_json::from_value(record.definition.clone()).map_err(|error| error.to_string())?;
-        storage::commit(&self.0.store, |store| store.stage_insert(job.clone()))
+        storage::commit(&self.0.store, |store| store.stage_insert(job.clone())).map(|_| ())
     }
 
     fn ensure_external_commit_ready(&self) -> Result<(), String> {
         self.0.store.lock().ensure_external_commit_ready()
+    }
+
+    fn adopt_external_commit(
+        &self,
+        committed: &codeterm_storage::Committed<codeterm_storage::SentinelCommit>,
+    ) -> Result<(), String> {
+        self.0.store.lock().adopt_external_commit(committed)
     }
 }
 
