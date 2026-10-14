@@ -106,6 +106,14 @@ codeterm tab restart --tab <qa-tab-id> --cmd "QA_NOTIFY_TAB=<agent-tab-id> scrip
 The send uses `codeterm send --tab <agent-tab-id> --from-file <body-file>`.
 Every report body is written to a file before it is sent.
 
+## Shared Git config lock before Bash
+
+If a PowerShell utility shell stops at `git config core.hooksPath` with a config
+lock error, the launcher still contains the old redundant setup write. The
+PowerShell wrapper now forwards directly; build.sh owns best-effort hook setup.
+Use the updated wrapper and retain the original failed shell receipt. No Cargo
+or gateway job ran when the old wrapper stopped before forwarding.
+
 ## Parent environment trap
 
 `build.sh` captures the parent `codeterm` path and its connection and request
@@ -154,4 +162,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
