@@ -146,7 +146,20 @@ SizeLimit and binding incomplete, plus post-fix passes. Only canonical may build
 or start those versions. Frontend-only and plugin-only releases do not run this
 app startup gate.
 
-<!-- revision: 5 -->
+The [core-journeys suite](../../../evals/core-journeys/README.md) is a required
+pre-push gate for every app release and every owner hotfix build (any build
+handed to the owner to install, such as `X.Y.Z-bs.N`). On that exact SHA, in
+canonical, with DEV running that build and its window open, run
+`bash evals/core-journeys/run.sh all` once in a Team-bound QA shell. Only a zero
+exit with `Verdict: PASS` in `results.md` clears the push; record its wall time
+and keep `results.json` with the release evidence. A failed journey blocks the
+push until it is fixed and the suite rerun green on the new SHA. An app release
+also runs `run.sh upgrade` from the previous release on a disposable named
+instance. Offline node tests do not replace the live run. Frontend-only and
+plugin-only releases are outside this gate.
+
+
+<!-- revision: 7 -->
 
 ## Rust warning inventory and cleanup
 

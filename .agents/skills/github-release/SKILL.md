@@ -89,6 +89,8 @@ bound, SizeLimit and missing attempt identity, alongside post-fix passes. A
 capture/import success is not startup proof. Worker lanes defer live replay to
 the Orchestrator; frontend-only and plugin-only releases are outside this gate.
 
+**Required before `git push origin release/X.Y.Z` and before any owner hotfix build** (a build handed to the owner to install, such as `X.Y.Z-bs.N`): a green [core-journeys](../../../evals/core-journeys/README.md) run on the exact SHA being pushed or built. In canonical, with DEV running that build and its window open, run `bash evals/core-journeys/run.sh all` in a Team-bound QA shell; for an app release also run `CODETERM_INSTANCE=<disposable> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh upgrade --from-checkout <previous-release-checkout> --all-tabs`. Push or hand over only after exit 0 and `Verdict: PASS` in each `results.md`; put the wall times and `results.json` in the release evidence. Any failed journey blocks the push. The gates skill places this step.
+
 ---
 
 ## ⚡ Default release path: a push to release/X.Y.Z (automated, self-hosted CI)
@@ -790,25 +792,28 @@ git checkout -b fix/<description> && git push origin fix/<description>
 # On GitHub: open PR fix/<description> -> master and merge it.
 git checkout master && git pull origin master --no-rebase
 
-# 2. Move the release trigger tag:
+# 2. Run the core-journeys gate on the merged SHA (see "Application release"); green only:
+bash evals/core-journeys/run.sh all
+
+# 3. Move the release trigger tag:
 git tag -f "release-$VER"
 git push origin "release-$VER" --force
 
-# 3. Checkout the new trigger tag commit (now points at the merge):
+# 4. Checkout the new trigger tag commit (now points at the merge):
 git checkout "release-$VER"
 
-# 4. Rebuild + notarize + staple all 3 platforms (steps 5–8 above).
+# 5. Rebuild + notarize + staple all 3 platforms (steps 5–8 above).
 
-# 5. Re-upload to private repo with --clobber:
+# 6. Re-upload to private repo with --clobber:
 gh release upload v$VER "$ARM" "$X64" "$WIN_EXE" --clobber
 
-# 6. Fetch existing latest.json BEFORE patching, to preserve any platform's signature
+# 7. Fetch existing latest.json BEFORE patching, to preserve any platform's signature
 #    you are NOT rebuilding (e.g. if you only re-ran macOS, keep the Windows sig):
 curl -sLO https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json
 #    ... patch only the rebuilt platforms ...
 gh release upload v$VER --repo rollacode/codeterm-releases <new files + latest.json> --clobber
 
-# 7. Bump brew cask sha256 (DMG bytes change with every rebuild even if content is equivalent).
+# 8. Bump brew cask sha256 (DMG bytes change with every rebuild even if content is equivalent).
 ```
 
 **Constraint:** only safe while the audience is small/internal. Anyone who already auto-updated to the broken artifact keeps the broken binary. For external user-facing releases, always bump version instead.
