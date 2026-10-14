@@ -155,6 +155,10 @@ jobs:
           package-manager-cache: false
           node-version: '22.22.0'
 
+      - name: Reset compiler capture
+        continue-on-error: true
+        run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
@@ -294,22 +298,21 @@ jobs:
 
       - name: Build release bundle inputs
         shell: pwsh
-        run: .\build.ps1 release-inputs
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -File build.ps1 release-inputs
 
       # A dropped upload leaves a starter asset that holds the name and makes every
       # later upload of it fail opaquely, including tauri-action's own.
       - name: Build and sign release assets
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           # If the signing key is encrypted, add TAURI_KEY_PASSWORD to
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          includeUpdaterJson: false
-          updaterJsonPreferNsis: true
-          args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }}
+        run: |
+          # shellcheck disable=SC2016
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c 'pnpm tauri build --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"'
 
       - name: Smoke built release bundle
         shell: pwsh
@@ -395,3 +398,11 @@ jobs:
           gh release view "$env:TAG" --repo "$env:MIRROR_REPO" | Out-Null
 
           gh release upload "$env:TAG" "$bundle" --clobber --repo "$env:MIRROR_REPO"
+
+      - uses: ./.github/actions/rust-warnings
+        if: always()
+        continue-on-error: true
+        with:
+          complete: ${{ job.status == 'success' }}
+          platform: release-Windows
+          target: ${{ matrix.target }}
