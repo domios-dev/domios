@@ -53,3 +53,16 @@ test("release preparation exports the packaging deployment target to child proce
   assert.deepEqual(cargoTargets, Array(2).fill(`cargo-deployment-target=<${config.bundle.macOS.minimumSystemVersion}>`));
   assert.equal(calls.at(-1), `deployment-target=<${config.bundle.macOS.minimumSystemVersion}>`);
 });
+
+test('release entrypoint configures the wrapper before spawning compiler children', () => {
+  const entrypoint = source.match(/^  release-inputs\)\n([\s\S]*?)^    ;;/m)?.[1];
+  assert.ok(entrypoint);
+  const result = execFileSync('bash', ['-c', `
+set -e
+ct_configure_sccache() { export RUSTC_WRAPPER=fixture-wrapper; }
+ensure_deps() { :; }
+prepare_release_bundle_inputs() { bash -c 'printf "%s" "$RUSTC_WRAPPER"'; }
+${entrypoint}
+`], { encoding: 'utf8', env: { ...process.env, RUSTC_WRAPPER: '' } });
+  assert.equal(result, 'fixture-wrapper');
+});

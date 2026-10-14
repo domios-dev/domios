@@ -1179,7 +1179,7 @@ Moved out of the embedded `codeterm docs` pages because they describe Domios's o
 
 - [references/updater-internals.md](references/updater-internals.md) — the auto-install flow
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 
 ## Rust warning inventory and cleanup
 
@@ -1207,3 +1207,27 @@ an incomplete run's inventory over the baseline or hand-increase an allowance.
 Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
+
+## Shared compiler cache in release jobs
+
+Every native platform job sets `RUSTC_WRAPPER=sccache`, verifies the prestarted
+shared server before compilation, and ends with `build.sh cache-stats`
+(`build.ps1 cache-stats` from pwsh on Windows). `release-inputs` itself configures
+or verifies through the common cache policy; a separate Tauri step inherits the
+job wrapper. Windows release and archive steps invoke `build.ps1` from pwsh and
+locate the existing Git Bash executable through that forwarder; bash need not be
+on the runner PATH.
+
+The Linux arm64 Docker image includes sccache. The host resolves the vault keys
+only into environment and forwards their names with Docker `-e`; no credential
+values enter arguments or files. The disposable container owns a separate cache
+server, starts it through `cache-policy.sh` with runner credentials, verifies S3,
+and prints its own counters on exit. Host macOS stats cannot establish container
+reuse. Rebuild the existing image after its Dockerfile changes; a stale image
+without sccache refuses before Rust compilation.
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| Release compiles hundreds of crates with no sccache output | Wrapper setup was omitted from release inputs or the later Tauri environment | Use the shared release-input policy, job-scoped wrapper, preflight verification and final stats. Repeat one SHA with a clean owned target and require nonzero hits. |
+| S3 stats show zero requests although no cache server is running | `sccache --show-stats` manufactures configured zero counters on connection failure | Require the configured endpoint to be live through `cache-verify` and `cache-stats`; preserve before/after counters and logs rather than treating a configured S3 label as proof. |
+| Windows archive refuses before compiling because bash is absent from PATH | The Actions step requested `shell: bash` instead of the Windows forwarder | Use the pwsh `build.ps1 ci-archives` step; its owning build implementation still lives in `build.sh`. |
