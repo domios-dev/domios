@@ -83,7 +83,7 @@ mod tests {
         let reg = TranscribeRegistry::new();
         reg.register("fake", Arc::new(FakeTranscriber));
         let line = format_attachment_line("/note.oga", "voice", None, &reg, "fake").await;
-        assert_eq!(line, "<domios type=\"attachment\" kind=\"voice\" path=\"/note.oga\" label=\"voice\" />\nhello world");
+        assert_eq!(line, "<domios type=\"attachment\" kind=\"voice\" path=\"/note.oga\" label=\"voice\" />\n<transcript>hello world</transcript>");
         let parsed = codeterm_types::message_markers::parse(&line).unwrap();
         assert_eq!(parsed.payload, "hello world");
     }

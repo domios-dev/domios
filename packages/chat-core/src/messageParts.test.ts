@@ -109,6 +109,8 @@ assert.deepEqual(messageRowParts([text("first"), text("second")]), [text("first"
   assert.deepEqual(parseMessageParts(`${owner}${report}`), [{ kind: "text", content: `${owner}${report}` }]);
 }
 
+const persistedVoice = '<domios type="attachment" kind="voice" path="/u/v.webm" label="voice" />\nпривет';
+assert.deepEqual(parseMessageParts(persistedVoice), parseMessageParts(markVoice("/u/v.webm", "привет")));
 for (const [legacy, wire] of [
   ["-=-codeterm:voice file=/u/v.webm-=-\nпривет", markVoice("/u/v.webm", "привет")],
   ["-=-codeterm:voice file=/u/v.webm status=untranscribed-=-\nno daemon", markVoice("/u/v.webm", null, "no daemon")],

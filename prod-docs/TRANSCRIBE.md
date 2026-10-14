@@ -48,12 +48,21 @@ fallback_raw_on_error = true      # on failure, GA still sees the raw file path
 health_check_ttl_secs = 60
 ```
 
-When enabled, a Telegram voice/video note is transcribed before the GA sees it —
-the tab receives `<domios type="attachment" kind="voice" path="<file>" label="voice" />`
-followed by the transcript. The audio path remains available with the text. A
-`status="untranscribed"` attribute means the following text explains the failure.
-Existing transcripts using `-=-codeterm:voice file=<path>-=-` remain readable;
-new notes always use the structured attachment frame. Point `daemon_url` at a live backend.
+When enabled, a Telegram voice/video note is transcribed before the GA sees it.
+The tab receives the attachment frame, then the speech in one element:
+
+```
+<domios type="attachment" kind="voice" path="<file>" label="voice" />
+<transcript>…</transcript>
+```
+
+`&`, `<` and `>` inside the transcript are escaped, so spoken `</transcript>` or
+`<domios` cannot close this element or forge a frame. The audio path stays on the
+attachment. An untranscribed note does not emit `<transcript>`: `status="untranscribed"`
+on the frame already records that outcome, and the following text explains the
+failure. Notes already stored as bare text after the self-closing frame, and notes
+using `-=-codeterm:voice file=<path>-=-`, stay readable. New transcribed notes always
+use the `<transcript>` element. Point `daemon_url` at a live backend.
 
 ## Standing up the STT engine (reference: local whisper)
 
@@ -113,4 +122,4 @@ A working prototype lives in the `transcribe-telegram-voice` skill scripts
 
 Transcription uses an external service; today an external dictation driver can submit through the supported tab-send API. To add a new STT backend, implement `/transcribe` and point a URL at it. Don't put the model in the binary.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
