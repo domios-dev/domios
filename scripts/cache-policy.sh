@@ -206,14 +206,16 @@ ct_sccache_storage_matches() {
 ct_sccache_restart() { ct_sccache_with_lock ct_sccache_restart_locked "$@"; }
 
 ct_sccache_restart_locked() {
-  if command -v pgrep >/dev/null 2>&1 && { pgrep -x cargo >/dev/null 2>&1 || pgrep -x rustc >/dev/null 2>&1; }; then
-    echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
-    return 75
-  fi
-  if command -v cygpath >/dev/null 2>&1 &&
-      powershell.exe -NoProfile -NonInteractive -Command 'if (Get-Process cargo,rustc -ErrorAction SilentlyContinue) { exit 0 }; exit 1' >/dev/null 2>&1; then
-    echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
-    return 75
+  if ! ct_gateway_owned_by_caller; then
+    if command -v pgrep >/dev/null 2>&1 && { pgrep -x cargo >/dev/null 2>&1 || pgrep -x rustc >/dev/null 2>&1; }; then
+      echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
+      return 75
+    fi
+    if command -v cygpath >/dev/null 2>&1 &&
+        powershell.exe -NoProfile -NonInteractive -Command 'if (Get-Process cargo,rustc -ErrorAction SilentlyContinue) { exit 0 }; exit 1' >/dev/null 2>&1; then
+      echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
+      return 75
+    fi
   fi
   local evidence_log="${SCCACHE_ERROR_LOG:-}"
   if declare -F ct_gateway_dir >/dev/null; then

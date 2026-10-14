@@ -56,6 +56,9 @@ export interface UseChatScrollOptions {
   followTailRef?: MutableRefObject<boolean>;
   onViewportChange?: () => void;
   onModeChange?: (mode: ChatViewportMode) => void;
+  userScrollingRef?: MutableRefObject<boolean>;
+  /** Releases layout shift held off-screen during the gesture; returns the scroll delta that keeps the view still. */
+  foldLayoutDrift?: () => number;
 }
 
 export interface UseChatScrollResult {
@@ -81,6 +84,8 @@ export function useChatScroll({
   followTailRef,
   onModeChange,
   onViewportChange,
+  userScrollingRef: sharedUserScrollingRef,
+  foldLayoutDrift,
 }: UseChatScrollOptions): UseChatScrollResult {
   const ownScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = externalScrollRef ?? ownScrollRef;
@@ -105,7 +110,7 @@ export function useChatScroll({
   const gestureEndRef = useRef<() => void>(() => {});
   const gestureStartRef = useRef<() => void>(() => {});
   gestureStartRef.current = () => { hookScrollTopRef.current = null; };
-  const gesture = useChatScrollGesture(scrollRef, active, sessionKey, gestureEndRef, gestureStartRef);
+  const gesture = useChatScrollGesture(scrollRef, active, sessionKey, gestureEndRef, gestureStartRef, sharedUserScrollingRef);
   const userScrollingRef = gesture.userScrolling;
   const resetGesture = gesture.reset;
   const recordGestureScroll = gesture.recordScroll;
@@ -377,6 +382,8 @@ export function useChatScroll({
     if (el) {
       const mode = chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el, true);
       if (mode !== modeRef.current || shouldCaptureChatAnchor(lastViewportRef.current, el, true)) setMode(mode, el);
+      const scrollBy = foldLayoutDrift?.() ?? 0;
+      if (scrollBy !== 0) writeScrollTop(el, el.scrollTop + scrollBy);
     }
     repairViewport();
   };

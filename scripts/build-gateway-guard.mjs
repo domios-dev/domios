@@ -23,12 +23,11 @@ export function nativeIdentity(pid) {
   return result.status === 0 && token ? { state: 'present', token } : { state: 'unknown' };
 }
 
-export function publicationGuard(directory) {
+export function publicationGuard(directory, identify = nativeIdentity) {
   const guard = path.join(directory, 'state.lock.guard');
   const reclamation = path.join(directory, 'state.guard.reclaim');
-  const identity = nativeIdentity(process.pid);
-  if (identity.state !== 'present') throw new Error('Cannot establish publication helper identity');
-  const record = JSON.stringify({ pid: process.pid, token: identity.token, owner: randomUUID() });
+  let record;
+  let identityUnavailable = false;
   const read = () => {
     try { return fs.readFileSync(guard, 'utf8'); }
     catch (error) { if (['ENOENT', 'EISDIR', 'EACCES', 'EPERM'].includes(error.code)) return ''; throw error; }
@@ -45,7 +44,14 @@ export function publicationGuard(directory) {
     } finally { if (fd !== undefined) fs.closeSync(fd); }
   };
   return {
+    get identityUnavailable() { return identityUnavailable; },
     acquire() {
+      if (!record) {
+        const identity = identify(process.pid);
+        identityUnavailable = identity.state !== 'present';
+        if (identityUnavailable) return false;
+        record = JSON.stringify({ pid: process.pid, token: identity.token, owner: randomUUID() });
+      }
       if (create()) return true;
       const observed = read();
       let owner;
