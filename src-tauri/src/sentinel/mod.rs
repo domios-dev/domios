@@ -1,6 +1,6 @@
 pub(crate) use codeterm_sentinel::{
     agent_stage, amend, classification_policy, cleanup, command, delete, escalation, handlers, input,
-    machine, pipeline_journal, portable, probe, progress, provenance, public_definition, session,
+    machine, portable, probe, progress, provenance, public_definition, session,
     stage_source, storage, store, terminal,
 };
 pub(crate) mod actions;
