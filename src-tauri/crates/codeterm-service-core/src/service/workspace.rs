@@ -424,7 +424,10 @@ impl ServiceContext {
         let mut partial_team_teardown = false;
         for team_id in self.workspace_team_ids(workspace_id) {
             let team_existed = { self.mux.read().get_team(&team_id).is_some() };
-            if let Err(error) = self.close_team(&team_id, caller.team_caller(), force).await {
+            if let Err(error) = crate::ports::orchestration::installed(&self.extensions)
+                .close_team(team_id.clone(), caller.team_caller(), force)
+                .await
+            {
                 team_close_refusals_only &=
                     error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX);
                 let team_remains = { self.mux.read().get_team(&team_id).is_some() };

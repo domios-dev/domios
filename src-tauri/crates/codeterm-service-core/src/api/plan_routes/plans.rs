@@ -150,10 +150,7 @@ pub async fn list(
     Query(q): Query<ListPlansQuery>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    state
-        .svc
-        .validate_active_team_plan_bindings()
-        .map_err(team_plan_err)?;
+    crate::service::validate_active_team_plan_bindings(&state.svc).map_err(team_plan_err)?;
     let want = if let Some(project) = &q.project {
         Some(
             state
@@ -688,10 +685,7 @@ pub async fn get(
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    state
-        .svc
-        .validate_plan_team_binding(&id)
-        .map_err(team_plan_err)?;
+    crate::service::validate_plan_team_binding(&state.svc, &id).map_err(team_plan_err)?;
     let plan = state
         .svc
         .plan_store
@@ -933,10 +927,7 @@ pub async fn unarchive(
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
-    state
-        .svc
-        .unarchive_team_plan(&id, epoch_ms())
-        .map_err(team_plan_err)?;
+    crate::service::unarchive_team_plan(&state.svc, &id, epoch_ms()).map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -1057,9 +1048,7 @@ pub async fn transfer(
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let caller = transfer_caller(&headers)?;
-    state
-        .svc
-        .transfer_team_plan(&id, body.to, &body.reason, caller, epoch_ms())
+    crate::service::transfer_team_plan(&state.svc, &id, body.to, &body.reason, caller, epoch_ms())
         .map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }

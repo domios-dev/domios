@@ -27,8 +27,8 @@ use paste_encoding::{
     encode_paste_frame, encode_paste_frame_with_tail, xterm_paste, BRACKETED_PASTE_END,
     BRACKETED_PASTE_START,
 };
-use readiness::{exact_session_turn_source_available, pty_owner_guard};
 pub(crate) use readiness::observe_delivery_readiness;
+use readiness::{exact_session_turn_source_available, pty_owner_guard};
 mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{

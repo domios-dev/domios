@@ -74,6 +74,8 @@ mod notification_desktop;
 pub(crate) mod notification_push;
 pub(crate) mod open_url;
 mod orchestration_pair;
+mod orchestration_port;
+pub(crate) use orchestration_port::register_orchestration;
 pub(crate) mod orchestrator;
 pub(crate) mod ordered_actions;
 pub(crate) mod parked_user_delivery;
@@ -141,9 +143,9 @@ pub mod reply_relay;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
 mod role_identity;
-mod role_target;
 pub(crate) mod role_preset;
 pub(crate) mod role_profile;
+mod role_target;
 mod session_backup;
 pub(crate) mod session_binding_deferral;
 mod session_binding_state;
@@ -277,6 +279,9 @@ pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
 };
+pub(crate) use orchestration_pair::{
+    bind_pending_paired_planner, tab_has_pending_paired_planner, OrchestrationPairExt,
+};
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(test)]
 pub(crate) use orchestrator::{
@@ -291,6 +296,11 @@ pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,
 };
+#[cfg(test)]
+pub(crate) use orchestrator_onboard::deliver_orchestrator_onboarding;
+pub(crate) use orchestrator_onboard::{
+    make_orchestrator, maybe_deliver_orchestrator_promotion_onboarding,
+};
 pub(crate) use plan_authority::{
     ensure_planner_task_fields_are_structural, launch_binding_is_pending,
     planner_forbidden_task_field, AuthenticatedPlanCaller, OrchestratorLearningError,
@@ -300,10 +310,15 @@ pub(crate) use session_binding_state::SessionBindingState;
 pub(crate) use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
-pub(crate) use team_core::TeamMutationCaller;
-pub(crate) use team_core::TeamPlanError;
+pub(crate) use team::{
+    add_team_member, adopt_agent_for_team, adopt_plan_for_team, live_team_ids,
+    reconcile_dangling_team_plan_bindings_and_emit, resume_team_plan, transfer_team_plan,
+    unarchive_team_plan, validate_active_team_plan_bindings, validate_plan_team_binding, TeamExt,
+};
 pub(crate) use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
 pub(crate) use team::{CartographerAttachLocks, OrchestratorAttachLocks};
+pub(crate) use team_core::TeamMutationCaller;
+pub(crate) use team_core::TeamPlanError;
 pub(crate) use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
     respawn_title_provenance, restore_attempt_binding_for_caller, restore_attempt_binding_for_mux,
@@ -833,8 +848,9 @@ impl ServiceContext {
                 .0
                 .lock()
                 .insert(project_root.clone());
-            let live_team_ids = self.live_team_ids();
-            self.reconcile_dangling_team_plan_bindings(
+            let orchestration = crate::ports::orchestration::installed(&self.extensions);
+            let live_team_ids = orchestration.live_team_ids();
+            orchestration.reconcile_dangling_team_plan_bindings(
                 &live_team_ids,
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

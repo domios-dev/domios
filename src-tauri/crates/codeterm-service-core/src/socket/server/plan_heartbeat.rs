@@ -78,7 +78,8 @@ pub(super) fn dispatch(
                 .map_err(learning_error)?;
             emit_plan_changed(app, &result.plan_id);
             if let Some(tab_id) = body.get("tab_id").and_then(|v| v.as_str()) {
-                svc.maybe_refresh_after_reflection(
+                crate::service::orchestrator::refresh::maybe_refresh_after_reflection(
+                    svc,
                     tab_id,
                     &result.plan_id,
                     body.get("tag").and_then(|v| v.as_str()),

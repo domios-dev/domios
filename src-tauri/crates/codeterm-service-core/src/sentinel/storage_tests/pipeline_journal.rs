@@ -1,9 +1,9 @@
 use super::*;
-use codeterm_storage::{BlueprintJournalWrite, SentinelId};
 use codeterm_blueprint_types::blueprint_journal::{JournalMarker, JournalState};
 use codeterm_blueprint_types::blueprint_pipeline::{
     BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
 };
+use codeterm_storage::{BlueprintJournalWrite, SentinelId};
 
 fn create_pipeline(store: &Mutex<Store>, owner: Owner) -> Sentinel {
     create_pipeline_with_steps(store, owner, 2)

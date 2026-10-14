@@ -549,26 +549,26 @@ impl ReminderHost for LiveHost<'_> {
                 learning_ids,
                 plain,
                 mode_transition,
-            } => crate::service::orchestrator_digests::deliver_gated_heartbeat_exact(
-                self.svc,
-                plan_id,
-                tab_id,
-                &emission.text,
-                learning_ids.as_deref(),
-                *plain,
-                *mode_transition,
-                observer,
-            )
-            .map(|delivery| {
-                if delivery.is_written() {
-                    self.svc.record_kpi_event(
-                        tab_id,
-                        crate::agent::kpi_ledger::KpiEventKind::Nudge,
-                        emission.text.len(),
-                    );
-                }
-                delivery.is_written()
-            }),
+            } => crate::ports::orchestration::installed(&self.svc.extensions)
+                .deliver_gated_heartbeat_exact(
+                    plan_id,
+                    tab_id,
+                    &emission.text,
+                    learning_ids.as_deref(),
+                    *plain,
+                    *mode_transition,
+                    observer,
+                )
+                .map(|delivery| {
+                    if delivery.is_written() {
+                        self.svc.record_kpi_event(
+                            tab_id,
+                            crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                            emission.text.len(),
+                        );
+                    }
+                    delivery.is_written()
+                }),
             Transport::Automated => {
                 self.svc
                     .deliver_automated_plan_reminder(tab_id, &emission.text, observer)
@@ -739,11 +739,8 @@ impl ServiceContext {
                         text = format!("{defer}\n\n{text}");
                     }
                 }
-                let digests = crate::service::orchestrator_digests::collect_digest_lines(
-                    self,
-                    plan,
-                    if preview { None } else { Some(tab_id) },
-                );
+                let digests = crate::ports::orchestration::installed(&self.extensions)
+                    .collect_digest_lines(plan, if preview { None } else { Some(tab_id) });
                 let heartbeat = if plain {
                     String::new()
                 } else {

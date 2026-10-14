@@ -95,9 +95,7 @@ fn team_workspace_names_the_current_project_in_the_manager_bootstrap() {
         ..Default::default()
     };
 
-    fixture
-        .service
-        .attach_manager_bootstrap(&team_id, Some(&anchor), &mut params)
+    super::attach_manager_bootstrap(&fixture.service, &team_id, Some(&anchor), &mut params)
         .unwrap();
 
     let bootstrap = params.manager_bootstrap.unwrap();

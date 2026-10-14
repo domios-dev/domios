@@ -9,6 +9,7 @@ mod spawn;
 pub mod tab_relink_signal;
 mod types;
 
+pub(crate) use batch::batch;
 #[cfg(test)]
 pub(crate) use launch::launch_waits_for_first_turn_binding;
 #[cfg(test)]
