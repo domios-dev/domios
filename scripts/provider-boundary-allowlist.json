@@ -7261,42 +7261,42 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/src/config/agent_access.rs",
+      "file": "src-tauri/crates/codeterm-config/src/agent_access.rs",
       "token": "claude",
       "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/src/config/load/tests.rs",
+      "file": "src-tauri/crates/codeterm-config/src/load/tests.rs",
       "token": "claude",
       "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/src/config/load/tests.rs",
+      "file": "src-tauri/crates/codeterm-config/src/load/tests.rs",
       "token": "codex",
       "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/src/config/load/tests.rs",
+      "file": "src-tauri/crates/codeterm-config/src/load/tests.rs",
       "token": "opencode",
       "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/src/config/mod.rs",
+      "file": "src-tauri/crates/codeterm-config/src/lib.rs",
       "token": "claude",
       "count": 9,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/src/config/mod.rs",
+      "file": "src-tauri/crates/codeterm-config/src/lib.rs",
       "token": "codex",
       "count": 3,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
