@@ -2,8 +2,8 @@ mod detail;
 pub(crate) mod files;
 mod history;
 mod runs;
-pub(crate) use detail::configured_fallback;
 pub use codeterm_sentinel::identity::{identity, scope_revision, Identity};
+pub(crate) use detail::configured_fallback;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -24,7 +24,6 @@ use crate::service::supporter::QuestionAnswer;
 pub const MAX_NODES: usize = 1024;
 pub const MAX_EDGES: usize = 4096;
 pub const MAX_RUNS_PER_CRON: usize = 64;
-
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Scenario {
@@ -54,7 +53,6 @@ pub struct ConnectedCron {
     pub identity: Identity,
     pub runs: Vec<CronRunInfo>,
 }
-
 
 pub fn validate_scope(
     mux: &MultiplexerState,
@@ -142,7 +140,6 @@ fn safe_name(text: &str) -> String {
 fn safe_purpose(text: &str) -> String {
     QuestionAnswer::new("", text, "").question
 }
-
 
 /// The node source shape: probe, observe kind, or input metadata without inline text,
 /// path directories or the URL query.
