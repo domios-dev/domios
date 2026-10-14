@@ -56,15 +56,16 @@ describe('build nextest ratchet', () => {
   before(() => {
     root = mkdtempSync(join(tmpdir(), 'slow-unit-gate-'));
     mkdirSync(join(root, 'scripts'));
-    for (const file of ['check-slow-unit-tests.mjs', 'confirm-slow-unit-tests.mjs']) copyFileSync(resolve('scripts', file), join(root, 'scripts', file));
+    for (const file of ['check-slow-unit-tests.mjs', 'confirm-slow-unit-tests.mjs', 'build-gateway-output.mjs']) copyFileSync(resolve('scripts', file), join(root, 'scripts', file));
     writeFileSync(join(root, 'scripts/slow-unit-tests.json'), JSON.stringify(baseline()));
     execFileSync('git', ['init', '-q', root]);
     execFileSync('git', ['-C', root, 'add', '.']);
     execFileSync('git', ['-C', root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'baseline']);
     const build = readFileSync('build.sh', 'utf8');
+    const configuration = build.match(/^configure_app_test_cargo\(\) \{[\s\S]*?^\}/m)[0];
     const fn = build.match(/run_nextest_scope\(\) \{[\s\S]*?\n\}/)[0];
     writeFileSync(join(root, 'scripts/test-capped.sh'), '#!/usr/bin/env bash\ncat "$FIXTURE_REPORT"\nexit "$FIXTURE_RUN_EXIT"\n', {mode: 0o755});
-    writeFileSync(join(root, 'gate.sh'), 'set -e\nenter_build_gateway() { :; }\nprepare_dev_frontend_dist() { :; }\nprepare_bundle_stubs() { :; }\nprepare_exceptional_worktree_target() { :; }\ncargo() { printf \"%s\\n\" \"$*\" >> \"$FIXTURE_CARGO_LOG\"; printf \"{}\\n\"; }\nCMD=nextest\n' + fn + '\nrun_nextest_scope "${FIXTURE_SCOPE:-app}"\n');
+    writeFileSync(join(root, 'gate.sh'), 'set -e\nenter_build_gateway() { :; }\nprepare_dev_frontend_dist() { :; }\nprepare_bundle_stubs() { :; }\nprepare_exceptional_worktree_target() { :; }\ncargo() { printf \"%s\\n\" \"$*\" >> \"$FIXTURE_CARGO_LOG\"; printf \"{}\\n\"; }\nCMD=nextest\n' + 'configure_dev_cargo() { :; }\nfind_app_test_archive() { return 1; }\n' + configuration + '\n' + fn + '\nrun_nextest_scope "${FIXTURE_SCOPE:-app}"\n');
   });
   after(() => rmSync(root, {recursive: true, force: true}));
   const run = (report, code, scope = 'app') => {
@@ -131,6 +132,20 @@ describe('build nextest ratchet', () => {
   test('serial confirmation refuses duplicates before any execution', () => {
     assert.throws(() => confirmCandidates([entry('a', 2), entry('a', 2)], {output: join(root, 'duplicate.log')},
       () => { throw new Error('must not execute'); }), /duplicate serial candidate/);
+  });
+
+  test('serial confirmation reuses the selected archive without compiling or switching binaries', () => {
+    let args;
+    assert.equal(confirmCandidates([{binary: 'codeterm', test: 'opaque'}], {
+      archive: 'opaque-archive.tar.zst', output: join(root, 'archive-alone.log'), print: () => {},
+    }, (_command, selected, options) => {
+      args = selected;
+      assert.equal(options.env.CARGO_TEST_BUILD_CMD, '');
+      return { status: 0, stdout: 'PASS [ 0.2s] codeterm opaque\nSummary [ 0.2s] 1 tests run\n' };
+    }), 0);
+    assert.equal(args[args.indexOf('--archive-file') + 1], 'opaque-archive.tar.zst');
+    assert.ok(args.includes('--workspace-remap'));
+    assert.ok(!args.includes('--binaries-metadata'));
   });
 
 });

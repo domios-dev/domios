@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { publicationGuard } from './build-gateway-guard.mjs';
+import { mutexTimeoutEvidence } from './build-gateway-mutex-evidence.mjs';
 
 const [operation, directory, pid, startToken, timeout = '30000', scope = 'production'] = process.argv.slice(2);
 const mutex = path.join(directory, 'state.lock');
@@ -29,12 +30,12 @@ const gone = (owner, token) => spawnSync(bash, [
 ], { stdio: 'ignore' }).status === 0;
 
 let pending;
-const watcher = fs.watch(directory, () => pending?.(true));
+const watcher = fs.watch(directory, (_, name) => pending?.(true, name?.toString() ?? ''));
 let ownershipWatcher;
-async function changed(previous, identityEvent = false) {
+async function changed(previous, identityEvent = false, publicationEvent = false) {
   ownershipWatcher?.close();
   ownershipWatcher = undefined;
-  try { ownershipWatcher = fs.watch(mutex, () => pending?.(true)); }
+  try { ownershipWatcher = fs.watch(mutex, () => pending?.(true, 'state.lock')); }
   catch (error) { if (!['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
   if (fingerprint() !== previous) return;
   await new Promise((resolve, reject) => {
@@ -44,8 +45,9 @@ async function changed(previous, identityEvent = false) {
         ? 'Gateway publication helper identity unavailable; no ownership published. Retry-safe after process lookup recovers (exit 75).'
         : 'Timed out acquiring build gateway state mutex (ownership incomplete or busy).'));
     }, Math.max(0, deadline - Date.now()));
-    pending = (event = false) => {
-      if (!(identityEvent && event) && fingerprint() === previous) return;
+    pending = (event = false, name = '') => {
+      if (publicationEvent && event && name && name !== 'state.lock') return;
+      if (!((identityEvent || publicationEvent) && event) && fingerprint() === previous) return;
       clearTimeout(timer);
       pending = undefined;
       resolve();
@@ -60,18 +62,24 @@ try {
     candidate = fs.mkdtempSync(path.join(directory, 'state.lock.pending.'));
     fs.writeFileSync(path.join(candidate, 'pid'), `${pid}\n`);
     fs.writeFileSync(path.join(candidate, 'start_token'), `${startToken}\n`);
-    fs.writeFileSync(path.join(candidate, 'metadata.json'), JSON.stringify({ pid, startToken }));
+    fs.writeFileSync(path.join(candidate, 'job_id'), `${process.env.CT_BUILD_JOB_ID || 'unknown'}\n`);
   }
   while (true) {
     if (Date.now() >= deadline) throw new Error(publisher.identityUnavailable
       ? 'Gateway publication helper identity unavailable; no ownership published. Retry-safe after process lookup recovers (exit 75).'
       : 'Timed out acquiring build gateway state mutex.');
+    let inspectedOwner = '';
+    let inspectedToken = '';
+    let inspectedGone = false;
     if (operation === 'acquire') {
       const observed = fingerprint();
       const owner = read('pid');
       const token = read('start_token');
       // Checking a live metadata owner must not block its release behind the publication guard.
       if (owner && token && alive(owner, token)) { await changed(observed); continue; }
+      inspectedOwner = owner;
+      inspectedToken = token;
+      inspectedGone = Boolean(owner && token && gone(owner, token));
     }
     const publicationSnapshot = fingerprint();
     if (!publisher.acquire()) {
@@ -83,6 +91,7 @@ try {
       fs.readSync(0, Buffer.alloc(1), 0, 1, null);
     }
     let completed = false;
+    let publicationBlocked = false;
     try {
       if (operation === 'release') {
         if (read('pid') === pid && read('start_token') === startToken) fs.rmSync(mutex, { recursive: true });
@@ -90,21 +99,30 @@ try {
       } else {
         const owner = read('pid');
         const token = read('start_token');
+        if (owner !== inspectedOwner || token !== inspectedToken) continue;
         // Publication and reclamation share this guard so stale observations cannot remove a new owner.
-        if (owner && token && gone(owner, token)) fs.rmSync(mutex, { recursive: true });
+        if (inspectedGone) fs.rmSync(mutex, { recursive: true });
         if (!fs.existsSync(mutex)) {
-          fs.renameSync(candidate, mutex);
-          candidate = undefined;
-          completed = true;
+          fs.writeFileSync(path.join(candidate, 'metadata.json'), JSON.stringify({ pid, startToken, acquiredAt: Date.now() }));
+          try {
+            fs.renameSync(candidate, mutex);
+            candidate = undefined;
+            completed = true;
+          } catch (error) {
+            if (!['EPERM', 'EACCES', 'EEXIST', 'ENOTEMPTY', 'EBUSY'].includes(error.code)) throw error;
+            publicationBlocked = true;
+          }
         }
       }
     } finally { publisher.release(); }
     if (completed) break;
     const observed = fingerprint();
-    if (fs.existsSync(mutex)) await changed(observed);
+    if (publicationBlocked) await changed(observed, false, true);
+    else if (fs.existsSync(mutex)) await changed(observed);
   }
 } catch (error) {
   console.error(error.message);
+  console.error(`[build-gateway] mutex refusal caller_job=${process.env.CT_BUILD_JOB_ID || 'unknown'} evidence=${JSON.stringify(mutexTimeoutEvidence(directory))}`);
   const blockedPath = fs.existsSync(guard) ? guard : mutex;
   const quotedPath = `'${blockedPath.replaceAll("'", "'\\''")}'`;
   console.error(`If ownership is unreadable, stop gateway callers and verify no owner remains, ask the owner to resolve ${quotedPath}; do not delete unknown shared ownership`);

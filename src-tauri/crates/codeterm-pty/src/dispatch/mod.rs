@@ -425,7 +425,7 @@ fn cmd_health() -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
-        "build": codeterm_build_info::BUILD_HASH,
+        "build": codeterm_build_info::hash(),
         "name": "CodeTerm",
         "platform": std::env::consts::OS,
     })))
