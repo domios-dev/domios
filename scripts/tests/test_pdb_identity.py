@@ -8,6 +8,8 @@ a directory that retention never wrote — which is the 2026-09-05 failure.
 import importlib.util
 import struct
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[1] / "pdb_identity.py"
@@ -43,39 +45,45 @@ def write_pdb(path: Path, guid: bytes, age: int) -> None:
     path.write_bytes(b"".join(blocks))
 
 
-def test_key_matches_the_symbol_store_form(tmp_path):
-    pdb = tmp_path / "codeterm.pdb"
-    write_pdb(pdb, GUID_BYTES, 1)
+class PdbIdentityTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.tmp_path = Path(directory.name)
 
-    assert pdb_identity.pdb_identity(pdb) == ("06BBF58E-ADAC-4DCD-AE38-084A16853450", 1)
-    assert pdb_identity.identity_key(pdb_identity.pdb_identity(pdb)) == EXPECTED_KEY
+    def test_key_matches_the_symbol_store_form(self):
+        pdb = self.tmp_path / "codeterm.pdb"
+        write_pdb(pdb, GUID_BYTES, 1)
+
+        assert pdb_identity.pdb_identity(pdb) == ("06BBF58E-ADAC-4DCD-AE38-084A16853450", 1)
+        assert pdb_identity.identity_key(pdb_identity.pdb_identity(pdb)) == EXPECTED_KEY
+
+    def test_key_carries_no_separators_and_ends_with_the_age(self):
+        pdb = self.tmp_path / "codeterm.pdb"
+        write_pdb(pdb, GUID_BYTES, 17)
+        key = pdb_identity.identity_key(pdb_identity.pdb_identity(pdb))
+        assert "-" not in key
+        assert key == EXPECTED_KEY[:-1] + "11"  # 17 == 0x11
+
+    def test_two_builds_never_share_a_key(self):
+        first, second = self.tmp_path / "a.pdb", self.tmp_path / "b.pdb"
+        write_pdb(first, GUID_BYTES, 1)
+        write_pdb(second, bytes([GUID_BYTES[0] ^ 0xFF]) + GUID_BYTES[1:], 1)
+        assert pdb_identity.pdb_identity(first) != pdb_identity.pdb_identity(second)
+
+    def test_a_pe_rsds_record_yields_the_same_key_shape(self):
+        record = b"RSDS" + GUID_BYTES + struct.pack("<I", 1) + b"codeterm.pdb\0"
+        assert pdb_identity.identity_key(pdb_identity.cv_identity(record)) == EXPECTED_KEY
+        assert pdb_identity.describe_cv(record) == (
+            "06BBF58E-ADAC-4DCD-AE38-084A16853450 age=1 pdb=codeterm.pdb"
+        )
+
+    def test_a_file_that_is_neither_pdb_nor_pe_has_no_identity(self):
+        plain = self.tmp_path / "notes.txt"
+        plain.write_text("not a symbol file")
+        assert pdb_identity.identity_of(plain) is None
+        assert pdb_identity.identity_key(None) is None
 
 
-def test_key_carries_no_separators_and_ends_with_the_age(tmp_path):
-    pdb = tmp_path / "codeterm.pdb"
-    write_pdb(pdb, GUID_BYTES, 17)
-    key = pdb_identity.identity_key(pdb_identity.pdb_identity(pdb))
-    assert "-" not in key
-    assert key == EXPECTED_KEY[:-1] + "11"  # 17 == 0x11
-
-
-def test_two_builds_never_share_a_key(tmp_path):
-    first, second = tmp_path / "a.pdb", tmp_path / "b.pdb"
-    write_pdb(first, GUID_BYTES, 1)
-    write_pdb(second, bytes([GUID_BYTES[0] ^ 0xFF]) + GUID_BYTES[1:], 1)
-    assert pdb_identity.pdb_identity(first) != pdb_identity.pdb_identity(second)
-
-
-def test_a_pe_rsds_record_yields_the_same_key_shape():
-    record = b"RSDS" + GUID_BYTES + struct.pack("<I", 1) + b"codeterm.pdb\0"
-    assert pdb_identity.identity_key(pdb_identity.cv_identity(record)) == EXPECTED_KEY
-    assert pdb_identity.describe_cv(record) == (
-        "06BBF58E-ADAC-4DCD-AE38-084A16853450 age=1 pdb=codeterm.pdb"
-    )
-
-
-def test_a_file_that_is_neither_pdb_nor_pe_has_no_identity(tmp_path):
-    plain = tmp_path / "notes.txt"
-    plain.write_text("not a symbol file")
-    assert pdb_identity.identity_of(plain) is None
-    assert pdb_identity.identity_key(None) is None
+if __name__ == "__main__":
+    unittest.main()
