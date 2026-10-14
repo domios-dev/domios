@@ -61,6 +61,72 @@ var serverRequestMethods = [
   "mcpServer/elicitation/request"
 ];
 
+// plugins/provider-codex/src/runtimeHistoryBounds.ts
+var HISTORY_CHUNK_BYTES = 512 * 1024;
+var ITEM_BYTES = 64 * 1024;
+var STRING_BYTES = 16 * 1024;
+function utf8Bytes(value) {
+  let bytes = 0;
+  for (const char of value) {
+    const point = char.codePointAt(0);
+    bytes += point <= 127 ? 1 : point <= 2047 ? 2 : point <= 65535 ? 3 : 4;
+  }
+  return bytes;
+}
+function serializedBytes(value) {
+  return utf8Bytes(JSON.stringify(value));
+}
+function boundedString(value) {
+  const scrubbed = value.replace(
+    /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
+    (image) => `[image omitted: ${utf8Bytes(image)} bytes]`
+  );
+  const bytes = utf8Bytes(scrubbed);
+  if (bytes <= STRING_BYTES) return scrubbed;
+  return `${scrubbed.slice(0, 2048)}
+[content truncated: ${bytes} bytes total]`;
+}
+function sanitizeHistory(value) {
+  return JSON.parse(JSON.stringify(value, (_key, entry) => {
+    if (typeof entry === "string") return boundedString(entry);
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const item = entry;
+      if (item.type === "image" && typeof item.data === "string" && !item.data.startsWith("[image omitted:")) {
+        const { data, ...rest } = item;
+        return { ...rest, data: `[image omitted: ${utf8Bytes(data)} bytes]` };
+      }
+      if (item.type === "imageGeneration" && typeof item.result === "string" && !item.result.startsWith("[image omitted:")) {
+        return { ...item, result: `[image omitted: ${utf8Bytes(item.result)} bytes]` };
+      }
+    }
+    return entry;
+  }));
+}
+function historyItem(value) {
+  const sanitized = sanitizeHistory(value);
+  const bytes = serializedBytes(sanitized);
+  return bytes <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes} serialized bytes]` };
+}
+function boundHistoryRows(rows) {
+  const bounded = rows.map((row2) => {
+    const sanitized = sanitizeHistory(row2);
+    const bytes2 = serializedBytes(sanitized);
+    if (sanitized.attachments) {
+      sanitized.attachments = sanitized.attachments.map((attachment) => {
+        if (!attachment.url?.startsWith("[image omitted:")) return attachment;
+        sanitized.content += `
+${attachment.url}`;
+        const { url, ...chip } = attachment;
+        return chip;
+      });
+    }
+    if (bytes2 <= ITEM_BYTES) return sanitized;
+    return { id: row2.id, seq: row2.seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` };
+  });
+  const bytes = serializedBytes(bounded);
+  return bytes <= ITEM_BYTES || !rows.length ? bounded : [{ id: rows[0].id, seq: rows[0].seq, type: "system", content: `[history item omitted: ${bytes} serialized bytes]` }];
+}
+
 // plugins/provider-codex/src/canonicalJson.ts
 function canonicalJson(value, indentation = 0) {
   const normalized = JSON.parse(JSON.stringify(value ?? null));
@@ -290,7 +356,7 @@ function toolOutput(value) {
   const parts = Array.isArray(result) ? result : list(object(result).content);
   const mapped = parts.map((part) => {
     const item = object(part);
-    if (item.type === "image") return { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
+    if (item.type === "image") return typeof item.data === "string" && item.data.startsWith("[image omitted:") ? { type: "text", text: item.data } : { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
     if (item.type === "inputImage") return { type: "image_url", image_url: { url: item.imageUrl } };
     return part;
   });
@@ -404,7 +470,7 @@ function runtimeItem(raw, seq, previous) {
       row2.toolKind = "image";
       row2.toolSummary = String(item.savedPath ?? item.path ?? item.revisedPrompt ?? "");
       row2.toolRichResult = json({ kind: "image", origin: item.type === "imageGeneration" ? "generated" : "viewed", path: item.savedPath ?? item.path, prompt: item.revisedPrompt, status: item.status });
-      if (text(item.result)) row2.toolResult = String(item.result).startsWith("data:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
+      if (text(item.result)) row2.toolResult = String(item.result).startsWith("data:") || String(item.result).startsWith("[image omitted:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
       break;
     case "collabAgentToolCall":
     case "subAgentActivity": {
@@ -1136,15 +1202,20 @@ function historyResponse(op, state, value) {
     const turns2 = object(value.thread).turns;
     if (!Array.isArray(turns2)) return refused("Missing history snapshot turns");
     let collected2 = { ...state, items: [], openItems: [], questions: [] };
-    for (const raw of turns2) {
+    for (const raw of turns2.slice(Number(state.snapshotTurn ?? 0))) {
       const turn2 = object(raw);
       if (!text(turn2.id) || !Array.isArray(turn2.items)) return refused("Missing history snapshot turn items");
       collected2 = collectHistoryItems(op, collected2, turn2, turn2.items);
+      if (collected2.offset != null) return streamHistory(op, continuation(request(
+        "thread/read",
+        { threadId: op.threadId, includeTurns: true },
+        { ...collected2, stage: "snapshot", snapshotTurn: turns2.indexOf(raw) }
+      )), collected2);
     }
     return historyGoal(op, collected2);
   }
   if (state.stage === "goal") {
-    const objective = text(object(value.goal).objective);
+    const objective = text(object(sanitizeHistory(object(value.goal))).objective);
     if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: { goal: objective } }];
     return historyComplete(op, state);
   }
@@ -1168,6 +1239,7 @@ function historyResponse(op, state, value) {
   const turn = turns[Number(state.index)];
   if (!turn || !text(turn.id)) return refused("Missing history turn id");
   const mapped = collectHistoryItems(op, { ...state, items: [], openItems: [], questions: [] }, turn, value.data);
+  if (mapped.offset != null) return streamHistory(op, historyItems(op, mapped, text(state.cursor)), mapped);
   const next = text(value.nextCursor);
   if (next && (next.length > 4096 || next === state.cursor)) return refused("Repeated history cursor");
   const collected = { ...mapped };
@@ -1181,26 +1253,33 @@ function collectHistoryItems(op, state, turn, entries) {
   const openItems = list(state.openItems);
   let seq = Number(state.seq);
   let questions = list(state.questions);
-  for (const entry of entries) {
-    const record4 = object(entry);
-    const rawItem = record4.item ?? record4;
-    questions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const rows = runtimeItems(rawItem, seq + 1);
-    seq += rows.length;
+  let bytes = serializedBytes({ items, openItems, questions });
+  for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
+    const record4 = object(entries[index]);
+    const rawItem = historyItem(record4.item ?? record4);
+    const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
+    const rows = boundHistoryRows(runtimeItems(rawItem, seq + 1));
+    const timestamp = record4.startedAtMs ?? record4.completedAtMs;
     for (const row2 of rows) {
       row2.toolFlowId = String(turn.id);
-      const timestamp = record4.startedAtMs ?? record4.completedAtMs;
       if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
-      items.push(row2);
-      if (turn.status === "inProgress" && turn.startedAt != null && record4.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status))) openItems.push({ turnId: String(turn.id), item: row2 });
     }
+    const active = turn.status === "inProgress" && turn.startedAt != null && record4.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
+    const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
+    if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
+    bytes += rowBytes;
+    questions = nextQuestions;
+    seq += rows.length;
+    items.push(...rows);
+    openItems.push(...opened);
   }
-  return { ...state, items, openItems, seq, questions };
+  return { ...state, items, openItems, seq, questions, offset: null };
 }
 function historyItems(op, state, cursor) {
   const turn = object(list(state.turns)[Number(state.index)]);
   if (!text(turn.id)) return refused("Missing history turn id");
-  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: 100, cursor }, state));
+  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: 100, cursor }, { ...state, cursor: cursor ?? null }));
 }
 function historyGoal(op, state) {
   if (text(state.nextCursor)) return historyComplete(op, state);
