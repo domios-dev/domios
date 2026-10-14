@@ -87,5 +87,5 @@ export { MessageTimeFrame } from "./MessageTimeFrame";
 
 export { ChatHighlightBudgetProvider, ChatHighlightRow } from "./ChatHighlightBudget";
 export { ChatDaySeparator } from "./ChatDaySeparator";
-export { chatLocalDay, chatDaySeparators, messageTimeLabels, showChatTimeGutter } from "./chatTimeModel";
+export { chatLocalDay, chatDaySeparators, messageTimeLabels, showChatTimeGutter, chatHorizontalInsets } from "./chatTimeModel";
 export { messageRowTime } from "./messageRowTime";

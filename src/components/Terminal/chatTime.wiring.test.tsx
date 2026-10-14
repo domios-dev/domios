@@ -37,18 +37,23 @@ it("renders separators from the day model between consecutive local days", async
 });
 
 it("hides the side time gutter below the breakpoint and restores it on resize", async () => {
-  let width = 639;
+  let width = 899;
+  let composerLeft = 20;
   let resized = () => {};
   vi.stubGlobal("ResizeObserver", class {
     constructor(callback: () => void) { resized = callback; }
     observe() {}
     disconnect() {}
   });
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({ width, height: 400, top: 0, bottom: 400, left: 0, right: width, x: 0, y: 0, toJSON: () => ({}) }));
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const left = this.classList.contains("ct-composer-lane") ? composerLeft : 0;
+    const measuredWidth = this.classList.contains("ct-chat-time-measure") ? 28 : width;
+    return { width: measuredWidth, height: 400, top: 0, bottom: 400, left, right: left + measuredWidth, x: left, y: 0, toJSON: () => ({}) };
+  });
   function Surface() {
     const rootRef = useRef<HTMLDivElement>(null);
     useChatLayoutInsets(rootRef);
-    return <div ref={rootRef}><div role="log" className="ct-chat-surface"><MessageTimeFrame timestamp="2026-10-14T12:00:00Z" side="left"><button>fixture</button></MessageTimeFrame></div><div className="ct-chat-bottom-bar" /></div>;
+    return <div ref={rootRef}><div role="log" className="ct-chat-surface"><MessageTimeFrame timestamp="2026-10-14T12:00:00Z" side="left"><button>fixture</button></MessageTimeFrame></div><div className="ct-chat-bottom-bar"><div className="ct-composer-lane" /></div></div>;
   }
   const host = document.createElement("div");
   document.body.append(host);
@@ -59,8 +64,18 @@ it("hides the side time gutter below the breakpoint and restores it on resize", 
     const time = host.querySelector("time")!;
     expect(time).toBeTruthy();
     expect(time.hidden).toBe(true);
-    width = 640;
+    const surface = host.querySelector<HTMLElement>("[role='log']")!;
+    expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe("20px");
+    expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe(surface.style.getPropertyValue("--ct-chat-composer-inset"));
+    width = 900;
     await act(async () => resized());
     expect(time.hidden).toBe(false);
+    expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe("56px");
+    width = 700;
+    composerLeft = 16;
+    await act(async () => resized());
+    expect(time.hidden).toBe(true);
+    expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe("16px");
+    expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe(surface.style.getPropertyValue("--ct-chat-composer-inset"));
   } finally { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); }
 });
