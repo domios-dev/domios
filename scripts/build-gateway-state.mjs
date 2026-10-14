@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI build-gateway.yml; scripts build-gateway.sh, check-build-gateway-serialization.sh
 import fs from "node:fs";
 import path from "node:path";
 

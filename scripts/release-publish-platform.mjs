@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI release-linux-arm64.yml, release-macos-build.yml; scripts tests/test_release_workflow_contract.py
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, readdirSync, copyFileSync } from 'node:fs';
 import path from 'node:path';

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI release-linux-arm64.yml, release-linux.yml, release-macos-build.yml; scripts frontend-release/release.mjs, tests/test_release_workflow_contract.py
 // A GitHub asset upload that dies mid-transfer leaves the asset in `starter`
 // state. It holds the name, never appears in a normal asset listing, and makes
 // every later upload of that name fail with the opaque "Error saving asset" —

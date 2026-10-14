@@ -1,3 +1,4 @@
+// Caller: CI frontend-release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs, ts-test-asset-hook.mjs
 // Vite resolves an asset import to a URL string. Node does not, so a component
 // that imports one is untestable under the unit runner unless we do the same.
 const ASSET = /\.(png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|mp3|wav)$/i;

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts tests/dev-frontend-ready.test.mjs
 
 const mode = process.argv[2] || "ready";
 const cdpPort = process.env.CODETERM_CDP_PORT;
