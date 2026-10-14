@@ -185,7 +185,7 @@
             "threadId": "thread-fixture",
             "itemsView": "notLoaded",
             "sortDirection": "asc",
-            "limit": 100
+            "limit": 8
           }
         }
       }
@@ -347,7 +347,7 @@
             "threadId": "thread-fixture",
             "itemsView": "notLoaded",
             "sortDirection": "asc",
-            "limit": 100
+            "limit": 8
           }
         }
       }
