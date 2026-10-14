@@ -134,7 +134,7 @@ pub struct Lease {
     pub event: Option<codeterm_plugin::graph_events::EventEnvelope>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Lease {
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
@@ -339,12 +339,12 @@ impl Store {
         Ok(association_ids)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn insert(&mut self, job: Sentinel) -> Result<Sentinel, String> {
         self.locked(|store| store.stage_insert(job))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn create(
         &mut self,
         params: Create,
@@ -397,7 +397,7 @@ impl Store {
         Some(job.clone())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn stop(&mut self, id: &str, reason: &str) -> Result<Sentinel, String> {
         self.locked(|store| store.stage_stop(id, reason))
     }
@@ -467,7 +467,7 @@ impl Store {
         Staged::ready(result)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn remove_team(&mut self, team: &str) -> Result<(), String> {
         self.locked(|store| store.stage_remove_team(team))
     }
@@ -512,7 +512,7 @@ impl Store {
         Staged::ready(Ok(due))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn due(&mut self) -> Result<Vec<Lease>, String> {
         self.locked(Store::stage_due)
     }
@@ -628,7 +628,7 @@ impl Store {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn finish(&mut self, job: &Sentinel) -> Result<bool, String> {
         self.locked(|store| store.stage_finish(job))
     }
@@ -775,7 +775,7 @@ impl Store {
         Ok(true)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn activate(
         &mut self,
         source: &Sentinel,
@@ -922,7 +922,7 @@ impl Sentinel {
     pub fn pipeline(&self) -> Option<&codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec> {
         self.source.pipeline()
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_probe(&mut self, probe: String) {
         self.source = super::stage_source::StageSource::Probe(probe);
     }
@@ -947,7 +947,7 @@ impl Sentinel {
             };
         }
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_terminal(
         &mut self,
         config: Option<codeterm_blueprint_types::blueprint_terminal::Config>,

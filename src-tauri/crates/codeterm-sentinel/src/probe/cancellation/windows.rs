@@ -60,14 +60,14 @@ pub(in crate::probe) struct Events {
 }
 
 impl Events {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(in crate::probe) fn fixture_argv(&self) -> Option<Arc<[String]>> {
         self.registration
             .as_ref()
             .and_then(Registration::fixture_argv)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(in crate::probe) fn waiting(&self, phase: super::WaitPhase) {
         if let Some(registration) = &self.registration {
             registration.waiting(phase);

@@ -1144,7 +1144,7 @@ fn map_process_completion(
     failure.processes_confirmed = parent_exited && (!assigned || job_empty);
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[test]
 fn capture_wait_failure_requires_both_process_and_job_completion() {
     let mut failure = ProbeFailure::new("probe_capture_or_completion_failed");

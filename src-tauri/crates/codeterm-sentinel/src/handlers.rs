@@ -415,7 +415,7 @@ impl Store {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn stage_accept_transition(
         &mut self,
         job: &Sentinel,
@@ -504,7 +504,7 @@ impl Store {
         self.stage_finish_with(&accepted, Some(transition))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn accept_transition(
         &mut self,
         job: &Sentinel,
@@ -652,7 +652,7 @@ impl Store {
         Staged::ready(Ok(Some(claim)))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn claim_handler(
         &mut self,
         job: &Sentinel,
@@ -666,7 +666,7 @@ impl Store {
         self.batch_live(job, transition)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn finish_handler(
         &mut self,
         source: &str,
@@ -677,7 +677,7 @@ impl Store {
         self.finish_handler_result(source, transition_id, claim, status.into())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn finish_handler_result(
         &mut self,
         source: &str,

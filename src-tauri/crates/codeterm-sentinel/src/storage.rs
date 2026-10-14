@@ -7,9 +7,9 @@ mod ops;
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use std::path::PathBuf;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -18,7 +18,7 @@ use parking_lot::Mutex;
 use super::amend::DefinitionVersion;
 use super::store::{scope_revisions, validate, ScopeKey, Sentinel, Store};
 use codeterm_cron::clock::SharedClock;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use codeterm_util::persisted_state::StateFile;
 use codeterm_storage::{
     Committed, Completion, Revision, SentinelCommit, SentinelImport, SentinelRepository, Storage,
@@ -46,7 +46,7 @@ pub enum LoadFailure {
 }
 
 impl LoadFailure {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn from_raw(raw: &str) -> Self {
         let unsupported = serde_json::from_str::<serde_json::Value>(raw)
             .ok()
@@ -80,14 +80,14 @@ impl LoadFailure {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn decode(raw: &str) -> Result<Vec<Sentinel>, String> {
     validate(serde_json::from_str(raw).map_err(|e| e.to_string())?)
 }
 
 /// The legacy JSON file backend; it stays the live authority until the cutover.
 impl Store {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(path: PathBuf, clock: SharedClock) -> Self {
         let file = StateFile::new(path);
         let (jobs, unavailable) = match std::fs::read_to_string(file.path()) {
@@ -124,7 +124,7 @@ impl Store {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn save(&mut self) -> Result<(), String> {
         self.ensure_available()?;
         self.check_existing_file()?;
@@ -171,7 +171,7 @@ impl Store {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn check_existing_file(&mut self) -> Result<(), String> {
         let Backend::Json(file) = &self.backend else {
             return Ok(());
@@ -310,7 +310,7 @@ impl<T: Send + 'static> Staged<T> {
     }
 
     /// Legacy lock-held result; the JSON backend never stages a pending commit.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn into_ready(self) -> Result<T, String> {
         match self.0 {
             Stage::Ready(result) => result,
@@ -607,7 +607,7 @@ impl Store {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Store {
     /// Lock-held legacy entry point; the typed backend refuses before staging anything.
     pub fn locked<T: Send + 'static>(

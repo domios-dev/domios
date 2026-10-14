@@ -88,7 +88,7 @@ pub(in crate::probe) enum ParentEvent {
 }
 
 impl Events {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(in crate::probe) fn waiting(&self, phase: super::WaitPhase) {
         if let Some(registration) = &self.registration {
             registration.waiting(phase);
