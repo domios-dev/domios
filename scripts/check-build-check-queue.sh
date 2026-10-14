@@ -37,4 +37,34 @@ for failure in 'sccache: error: failed to start server (os error 10048)' 'cargo 
 done
 report="$(printf '' | ./build.sh check-queue-probe errors 2 0 | grep -Ev '^MSVC env')"
 [ "$report" = 'errors=0 shown=0' ] || { echo "successful empty log reported failure: $report" >&2; exit 1; }
+warning_log="$(printf '%s\n' \
+  'src-tauri/crates/codeterm-util/src/a.rs:1:5: warning: unused import: `x`' \
+  'src-tauri/crates/codeterm-util/src/a.rs:1:5: warning: unused import: `x`' \
+  'src/main.rs:3:9: warning: variable does not need to be mutable' \
+  'warning: `codeterm-util` (lib) generated 1 warning' \
+  'warning: `codeterm-util` (lib test) generated 1 warning (1 duplicate)' \
+  'error: could not compile `codeterm` (lib) due to 1 previous error; 2 warnings emitted' \
+  'warning: `codeterm-cli` (bin "codeterm") generated 1 warning (run `cargo clippy --fix --bin "codeterm"` to apply 1 suggestion)')"
+
+report="$(printf '%s\n' "$warning_log" | { ./build.sh check-queue-probe warnings 1 "codeterm-plan codeterm-util" || true; } | grep -Ev '^MSVC env')"
+[ "$(printf '%s\n' "$report" | sed -n 1p)" = 'src-tauri/crates/codeterm-util/src/a.rs:1:5: warning: unused import: `x`' ] || { echo "first warning missing: $report" >&2; exit 1; }
+printf '%s\n' "$report" | grep -qx 'warnings crate=codeterm-util count=1' || { echo "duplicate not subtracted: $report" >&2; exit 1; }
+printf '%s\n' "$report" | grep -qx 'warnings crate=codeterm count=2' || { echo "failed-unit warnings not counted: $report" >&2; exit 1; }
+[ "$(printf '%s\n' "$report" | tail -n 1)" = 'warnings=2 shown=1 failing=codeterm-util' ] || { echo "warning summary wrong: $report" >&2; exit 1; }
+if printf '%s\n' "$warning_log" | ./build.sh check-queue-probe warnings 1 "codeterm-plan codeterm-util" >/dev/null; then
+  echo "touched crate warnings did not fail the run" >&2; exit 1
+fi
+
+printf '%s\n' "$warning_log" | ./build.sh check-queue-probe warnings 5 "codeterm-plan" >/dev/null || { echo "untouched crate warnings failed the run" >&2; exit 1; }
+if printf '%s\n' "$warning_log" | ./build.sh check-queue-probe warnings 5 "codeterm-cli" >/dev/null; then
+  echo "touched cli warnings did not fail the run" >&2; exit 1
+fi
+if printf '%s\n' "$warning_log" | ./build.sh check-queue-probe warnings 5 "*" >/dev/null; then
+  echo "--all warnings did not fail the run" >&2; exit 1
+fi
+printf 'warning: `codeterm-util` (lib) generated 1 warning (1 duplicate)\n' | ./build.sh check-queue-probe warnings 5 "*" >/dev/null || { echo "fully duplicated warnings failed the run" >&2; exit 1; }
+
+summary="$(printf '%s\n' "$warning_log" | ./build.sh check-queue-probe summary | grep -Ev '^MSVC env')"
+[ "$(printf '%s\n' "$summary" | tail -n 1)" = 'check: warnings=4 crates_with_warnings=3' ] || { echo "check summary wrong: $summary" >&2; exit 1; }
+[ "$(printf '' | ./build.sh check-queue-probe summary | grep -Ev '^MSVC env')" = 'check: warnings=0 crates_with_warnings=0' ] || { echo "clean check summary wrong" >&2; exit 1; }
 echo "check-queue helpers: PASS"

@@ -5,7 +5,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 gate="scripts/clippy-gate.sh"
 for lint in dead-code unused-imports unused-mut unused-variables; do
-    if grep -Eq -- "-A[[:space:]]+${lint}" "$gate"; then
+    if grep -Eq -- "-A[[:space:]]+${lint}" "$gate" scripts/clippy-allow.sh; then
         echo "clippy gate still suppresses ${lint}" >&2
         exit 1
     fi

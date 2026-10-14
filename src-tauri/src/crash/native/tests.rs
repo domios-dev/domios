@@ -133,7 +133,7 @@ fn unmapped_exception_address_keeps_supplied_thread_and_unknown_module() {
 
 #[test]
 fn unreadable_or_missing_exception_records_are_unknown() {
-    for pointer in [std::ptr::null(), 1usize as *const _] {
+    for pointer in [std::ptr::null(), std::ptr::dangling()] {
         let ctx = crash_context::CrashContext {
             exception_pointers: pointer,
             exception_code: ILLEGAL,

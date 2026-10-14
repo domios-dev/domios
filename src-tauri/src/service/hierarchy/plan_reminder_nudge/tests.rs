@@ -931,3 +931,20 @@ fn project_for_tab_reads_the_scheduler_targets() {
     .is_empty());
     assert!(super::projection::project_for_tab(&[], "", 60, 100, None, &[], true).is_empty());
 }
+
+fn send_due_plan_time_reminders_with(
+    plans: &[Plan],
+    counter: &TurnCounter,
+    now: u64,
+    interval_secs: u64,
+    deliver: impl Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
+) {
+    send_due_plan_time_reminders_noting(
+        plans,
+        counter,
+        now,
+        interval_secs,
+        deliver,
+        |_, _, _: TickFact| {},
+    );
+}
