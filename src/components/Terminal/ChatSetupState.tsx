@@ -61,13 +61,14 @@ export function ChatSetupState({
   );
 }
 
-export function ChatStatusBanner({ title, reason, action, testId, loading = false, icon }: {
+export function ChatStatusBanner({ title, reason, action, testId, loading = false, icon, details }: {
   title: string;
   reason: string | null;
   action?: ReactNode;
   testId?: string;
   loading?: boolean;
   icon?: ReactNode;
+  details?: string | null;
 }) {
   const Icon = levelIcon("failure");
   return (
@@ -80,6 +81,10 @@ export function ChatStatusBanner({ title, reason, action, testId, loading = fals
         <div className="truncate text-sm font-medium" style={{ color: "var(--ct-fg, #c9d1d9)" }}>{title}</div>
         {reason && <div className="line-clamp-2 break-words text-xs" title={reason}
           style={{ color: "var(--ct-muted-fg, #8b949e)" }}>{reason}</div>}
+        {details && <details className="mt-1 text-xs text-[var(--ct-muted-fg)]">
+          <summary className="cursor-pointer">Details</summary>
+          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words">{details}</pre>
+        </details>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>
