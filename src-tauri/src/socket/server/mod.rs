@@ -113,13 +113,7 @@ struct JsonRpcResponse {
     after_response: Option<PostResponseAction>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct JsonRpcError {
-    pub(crate) code: i32,
-    pub(crate) message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) data: Option<serde_json::Value>,
-}
+pub(crate) use crate::rpc_bridge::RpcError as JsonRpcError;
 
 impl JsonRpcResponse {
     fn success(id: Option<serde_json::Value>, result: serde_json::Value) -> Self {
@@ -144,44 +138,6 @@ impl JsonRpcResponse {
             }),
             after_response: None,
         }
-    }
-}
-
-// ── Socket path ─────────────────────────────────────────────────────
-
-/// Get the namespaced socket name for the current process.
-///
-/// `GenericNamespaced` on Unix prepends `/tmp/` automatically,
-/// so we only provide the bare name here.
-pub fn socket_path() -> String {
-    // time. Prod builds include PID to allow multiple instances.
-    #[cfg(debug_assertions)]
-    {
-        format!("{}.sock", crate::paths::socket_prefix())
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let pid = std::process::id();
-        format!("{}-{}.sock", crate::paths::socket_prefix(), pid)
-    }
-}
-
-/// Get the full display path (for env var / user display).
-///
-/// On Unix, `GenericNamespaced` places the socket at `/tmp/<name>`,
-/// so the display path is `/tmp/{prefix}-{pid}.sock`.
-/// On Windows, it's `\\.\pipe\{prefix}-{pid}`.
-pub fn socket_display_path() -> String {
-    let bare = socket_path();
-
-    #[cfg(target_os = "windows")]
-    {
-        format!("\\\\.\\pipe\\{}", bare)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        format!("/tmp/{}", bare)
     }
 }
 
@@ -238,7 +194,7 @@ impl SocketServer {
 
         #[cfg(all(debug_assertions, not(target_os = "windows")))]
         {
-            let display = socket_display_path();
+            let display = crate::paths::socket_display_path();
             let path = std::path::Path::new(&display);
             if path.exists() {
                 let _ = std::fs::remove_file(path);
@@ -246,7 +202,7 @@ impl SocketServer {
             }
         }
 
-        let name = socket_path();
+        let name = crate::paths::socket_path();
 
         let name = name
             .to_ns_name::<GenericNamespaced>()
@@ -261,7 +217,10 @@ impl SocketServer {
             .create_sync()
             .map_err(|e| format!("Failed to create socket listener: {}", e))?;
 
-        log::info!("Socket server listening at {}", socket_display_path());
+        log::info!(
+            "Socket server listening at {}",
+            crate::paths::socket_display_path()
+        );
 
         codeterm_util::named_thread::spawn("socket-listener", move || {
             for conn in listener.incoming() {

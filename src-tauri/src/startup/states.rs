@@ -206,7 +206,7 @@ pub(crate) fn scrub_inherited_api_env(config_state: &ConfigState) {
     std::env::set_var("CODETERM_API_PORT", &port);
     std::env::set_var(
         "CODETERM_SOCKET_PATH",
-        crate::socket::server::socket_display_path(),
+        crate::paths::socket_display_path(),
     );
     match api.token {
         Some(ref tok) if !tok.is_empty() => std::env::set_var("CODETERM_API_TOKEN", tok),
@@ -689,7 +689,7 @@ mod tests {
             Some("dev-token"),
             "inherited prod token must be replaced by the running instance token"
         );
-        let expected_socket_path = crate::socket::server::socket_display_path();
+        let expected_socket_path = crate::paths::socket_display_path();
         assert_eq!(
             std::env::var("CODETERM_SOCKET_PATH").ok().as_deref(),
             Some(expected_socket_path.as_str())

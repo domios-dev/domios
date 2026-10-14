@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::secrets::{
+use crate::{
     CollectionRef, ListFilter, OrganizationRef, SaveRequest, SecretError, SecretRef, SecretStore,
     SecretString, SecretValue, StoreCapabilities, StoreStatus, UnlockCredentials,
 };
