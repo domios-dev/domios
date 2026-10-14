@@ -248,13 +248,13 @@ use serde::Serialize;
 use tauri::Emitter;
 
 use crate::agent::registry::AgentRegistry;
-use crate::api::events::EventBroadcaster;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::AgentRole;
 use crate::{
     AgentTrackerState, NotifState, OutputBufferState, PromptDetectorState, PtyState,
     ReportStoreState, ScreenStateHandle,
 };
+use codeterm_events::EventBroadcaster;
 
 // Re-export public types used by callers.
 pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
@@ -704,7 +704,7 @@ impl ServiceContext {
     /// hook, inbound report) so the sidebar refreshes consistently.
     pub(crate) fn emit_remote_workers_changed(&self, orchestrator_tab: &str) {
         // SSE bus, so the web mirror updates live too — not only on next remount.
-        crate::api::events::emit_everywhere(
+        codeterm_events::emit_everywhere(
             &self.app_handle,
             "remote-workers-changed",
             serde_json::json!({
@@ -826,7 +826,7 @@ impl ServiceContext {
 
     pub(crate) fn emit_tab_title_pinned(&self, tab_id: &str, title: &str) {
         self.events
-            .publish(crate::api::events::SystemEvent::TabTitlePinned {
+            .publish(codeterm_events::SystemEvent::TabTitlePinned {
                 tab_id: tab_id.to_string(),
                 title: title.to_string(),
             });
@@ -844,7 +844,7 @@ impl ServiceContext {
     /// short retry as defense-in-depth.
     pub(crate) fn emit_tab_focus_changed(&self, tab_id: &str) {
         self.events
-            .publish(crate::api::events::SystemEvent::TabFocused {
+            .publish(codeterm_events::SystemEvent::TabFocused {
                 tab_id: tab_id.to_string(),
             });
         let handle = self.app_handle.clone();
@@ -918,7 +918,7 @@ impl ServiceContext {
     /// OS notifications are NOT sent here — use in-app toasts only.
     pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
         // 1. Native webview + SSE bus (web mirror) through the single seam.
-        crate::api::events::emit_everywhere(&self.app_handle, event_type, &payload);
+        codeterm_events::emit_everywhere(&self.app_handle, event_type, &payload);
         // 2. External webhooks + websockets (Telegram, Discord, etc.)
         self.events.broadcast(event_type, payload);
     }
@@ -951,8 +951,8 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn publish_mux_state_changed(events: &crate::api::events::EventBroadcaster) {
-    events.publish(crate::api::events::SystemEvent::MuxStateChanged);
+pub(crate) fn publish_mux_state_changed(events: &codeterm_events::EventBroadcaster) {
+    events.publish(codeterm_events::SystemEvent::MuxStateChanged);
 }
 
 // ── Shared data types ───────────────────────────────────────────────

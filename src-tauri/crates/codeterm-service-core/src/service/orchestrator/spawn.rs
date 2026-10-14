@@ -1059,7 +1059,7 @@ impl ServiceContext {
             }),
             now_ms,
         ) {
-            Ok(()) => crate::api::events::emit_everywhere(
+            Ok(()) => codeterm_events::emit_everywhere(
                 &self.app_handle,
                 "plan-changed",
                 serde_json::json!({ "plan_id": plan_id }),

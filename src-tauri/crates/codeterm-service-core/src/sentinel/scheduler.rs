@@ -167,7 +167,7 @@ pub(crate) fn fixture_handle(store: Store, app: crate::app_runtime::AppHandle) -
 pub(super) fn emit_changes(store: &Arc<Mutex<Store>>, app: &crate::app_runtime::AppHandle) {
     let changes = store.lock().take_changes();
     for change in changes {
-        crate::api::events::emit_everywhere(app, "automation-graph-changed", change);
+        codeterm_events::emit_everywhere(app, "automation-graph-changed", change);
     }
 }
 

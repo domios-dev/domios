@@ -8,15 +8,11 @@ pub struct AppMeshEventSink<'a> {
 
 impl MeshEventSink for AppMeshEventSink<'_> {
     fn emit_mesh_state_changed(&self) {
-        crate::api::events::emit_everywhere(
-            self.app,
-            "mesh-state-changed",
-            serde_json::Value::Null,
-        );
+        codeterm_events::emit_everywhere(self.app, "mesh-state-changed", serde_json::Value::Null);
     }
 
     fn emit_config_changed(&self, snapshot: serde_json::Value) {
-        crate::api::events::emit_everywhere(self.app, "config-changed", snapshot);
+        codeterm_events::emit_everywhere(self.app, "config-changed", snapshot);
     }
 }
 

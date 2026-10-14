@@ -405,7 +405,7 @@ impl super::ServiceContext {
             .chat_send_ledger
             .set_user_pending_reason(&record.send_id, Some(reason))
         {
-            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         }
         UserDrain::Idle
     }
@@ -415,7 +415,7 @@ impl super::ServiceContext {
             .chat_send_ledger
             .set_user_pending_reason(&record.send_id, None)
         {
-            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         }
     }
 
@@ -716,7 +716,7 @@ impl super::ServiceContext {
             .chat_send_ledger
             .finish(send_id, outcome.map_err(|error| error.ledger_message()))
         {
-            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         }
     }
 
@@ -929,7 +929,7 @@ impl super::ServiceContext {
 
     fn mark_user_send_written(&self, record: &UserSendRecord) {
         if let Some(status) = self.chat_send_ledger.mark_user_written(&record.send_id) {
-            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         }
     }
 }
