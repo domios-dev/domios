@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Diff, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
+import { Mic, Diff, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
 import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
 import { LocalArtifactBlock } from "./LocalArtifactBlock";
@@ -12,6 +12,7 @@ import { useLocalImage, type LocalImage } from "./localImage";
 import { useLocalTextPreview } from "./localText";
 
 export const CAPSULE_ICONS: Record<AttachmentKind, LucideIcon> = {
+  voice: Mic,
   image: ImageIcon,
   text: ScrollText,
   file: FileIcon,
@@ -23,7 +24,7 @@ export const CAPSULE_ICONS: Record<AttachmentKind, LucideIcon> = {
 };
 
 const KIND_NAMES: Record<AttachmentKind, string> = {
-  image: "Image", text: "Pasted text", file: "File", folder: "Folder", quote: "Quote", message: "Messages", diff: "Diff", document: "Document",
+  voice: "Voice", image: "Image", text: "Pasted text", file: "File", folder: "Folder", quote: "Quote", message: "Messages", diff: "Diff", document: "Document",
 };
 /** Kinds whose file is stored context, so the card names the capsule, not its temp file. */
 const STORED_CONTEXT: ReadonlySet<AttachmentKind> = new Set(["quote", "message", "diff"]);

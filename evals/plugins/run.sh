@@ -25,7 +25,7 @@ FAKE_PORT=7891
 if curl -fsS "http://127.0.0.1:${FAKE_PORT}/healthz" >/dev/null 2>&1; then
   body=$(dev_post "/api/transcribe-voice" '{"path":"/tmp/nonexistent.oga"}' 2>/dev/null || true)
   # We can't supply real audio here; we assert the endpoint is wired and returns a marker.
-  if echo "$body" | grep -q "codeterm:voice"; then
+  if python3 -c 'import json,sys; body=json.load(sys.stdin); line=body["line"]; assert line.startswith("<domios type=\"attachment\" kind=\"voice\"")' <<<"$body"; then
     ok "/api/transcribe-voice returns a voice marker"
   else
     bad "/api/transcribe-voice did not return a voice marker (got: ${body:0:120})"

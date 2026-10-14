@@ -125,7 +125,7 @@ fn decode_attribute(value: &str) -> Option<String> {
     Some(decoded)
 }
 
-fn parse_attributes(source: &str) -> Option<BTreeMap<String, String>> {
+pub(crate) fn parse_attributes(source: &str) -> Option<BTreeMap<String, String>> {
     let mut attrs = BTreeMap::new();
     let mut rest = source.trim_start();
     while !rest.is_empty() {

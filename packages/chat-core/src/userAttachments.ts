@@ -1,3 +1,4 @@
+import { parseMarker } from "./markers";
 import { attachmentMarkerSegments, imageMimeType, parseAttachmentMarkers, splitReplyAttachment, type AttachmentMarker, type AttachmentSegment } from "./attachmentMarker";
 import type { ChatAttachment } from "./types";
 
@@ -36,6 +37,9 @@ function inlineSegments(content: string): AttachmentSegment[] | null {
 /** What a user bubble renders: clean text, inline capsules, one image strip from provider-native and marker images, and file chips. */
 export function userMessageAttachments(source: string, attachments: ChatAttachment[] = []): UserMessageAttachments {
   const { reply, text: content } = splitReplyAttachment(source);
+  if (parseMarker(content)?.kind === "voice") {
+    return { text: content, images: attachments, files: [], inline: null, reply };
+  }
   const parsed = parseAttachmentMarkers(content);
   const images = [...attachments];
   const seen = new Set(attachments.flatMap((attachment) => (attachment.path ? [pathKey(attachment.path)] : [])));
@@ -67,6 +71,7 @@ export type PlacedAttachmentSegment = { text: string } | { attachment: Attachmen
 
 export function placedAttachmentSegments(source: string, attachments: ChatAttachment[] = []): PlacedAttachmentSegment[] {
   const content = userVisibleText(splitReplyAttachment(source).text, attachments);
+  if (parseMarker(content)?.kind === "voice") return [{ text: content }];
   const segments = attachmentMarkerSegments(content);
   const paths = new Set(segments.flatMap((segment) => "attachment" in segment ? [pathKey(segment.attachment.path)] : []));
   const placed: PlacedAttachmentSegment[] = segments.map((segment) => "text" in segment ? segment : {
