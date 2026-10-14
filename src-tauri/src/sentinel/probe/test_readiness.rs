@@ -72,12 +72,34 @@ impl Readiness {
     }
 
     pub(in crate::sentinel) fn finite_command(&self, code: i32) -> String {
+        #[cfg(unix)]
+        let command = format!("printf out; printf err >&2; exit {code}");
+        #[cfg(windows)]
+        let command =
+            format!("[Console]::Out.Write('out'); [Console]::Error.Write('err'); exit {code}");
+        self.command_after_ready(&command)
+    }
+
+    pub(in crate::sentinel) fn command_after_ready(&self, command: &str) -> String {
         let exe = std::env::current_exe().unwrap();
         let selector = "sentinel::probe::test_readiness::finite_ready_child";
         #[cfg(unix)]
-        return format!("SENTINEL_FIXTURE_READY={} {} --exact --ignored --nocapture {selector} >/dev/null 2>&1 && {{ printf out; printf err >&2; exit {code}; }}", self.address, quote(&exe));
+        return format!("SENTINEL_FIXTURE_READY={} {} --exact --ignored --nocapture {selector} >/dev/null 2>&1 && {{ {command}; }}", self.address, quote(&exe));
         #[cfg(windows)]
-        return format!("$env:SENTINEL_FIXTURE_READY='{}'; & {} --exact --ignored --nocapture {selector} *> $null; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}; [Console]::Out.Write('out'); [Console]::Error.Write('err'); exit {code}", self.address, quote(&exe));
+        return format!("$env:SENTINEL_FIXTURE_READY='{}'; & {} --exact --ignored --nocapture {selector} *> $null; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}; {command}", self.address, quote(&exe));
+    }
+
+    pub(in crate::sentinel) fn output_command(&self) -> String {
+        let exe = std::env::current_exe().unwrap();
+        let selector = "sentinel::probe::test_readiness::large_output_ready_child";
+        #[cfg(unix)]
+        return format!(
+            "SENTINEL_FIXTURE_READY={} exec {} --exact --ignored --nocapture {selector}",
+            self.address,
+            quote(&exe)
+        );
+        #[cfg(windows)]
+        return format!("$env:SENTINEL_FIXTURE_READY='{}'; & {} --exact --ignored --nocapture {selector}; exit $LASTEXITCODE", self.address, quote(&exe));
     }
 }
 
@@ -104,6 +126,16 @@ pub(in crate::sentinel) fn child_ready(address: &str) {
 #[ignore = "Owned readiness helper for native finite command fixtures"]
 fn finite_ready_child() {
     child_ready(&std::env::var("SENTINEL_FIXTURE_READY").unwrap());
+}
+
+#[test]
+#[ignore = "Owned readiness helper for bounded output fixtures"]
+fn large_output_ready_child() {
+    child_ready(&std::env::var("SENTINEL_FIXTURE_READY").unwrap());
+    std::io::stdout()
+        .lock()
+        .write_all(&vec![b'x'; 1_000_000])
+        .unwrap();
 }
 
 fn quote(path: &std::path::Path) -> String {
