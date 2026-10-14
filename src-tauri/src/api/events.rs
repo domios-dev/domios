@@ -835,7 +835,7 @@ mod tests {
     fn event_seam_covers_all_frontend_listeners() {
         use std::collections::BTreeSet;
         use std::path::Path;
-        let manifest = env!("CARGO_MANIFEST_DIR");
+        let manifest = crate::test_support::fixture_manifest_dir();
         let frontend = Path::new(manifest).join("../src");
         let backend = Path::new(manifest).join("src");
 

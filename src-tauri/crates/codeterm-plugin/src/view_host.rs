@@ -59,7 +59,11 @@ pub fn plugin_ui_dir(plugin_id: &str) -> Option<std::path::PathBuf> {
 
 // This crate sits at src-tauri/crates/codeterm-plugin; the repository root owns `plugins/`.
 fn workspace_root() -> std::path::PathBuf {
-    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."))
+    #[cfg(test)]
+    let root = crate::test_support::fixture_manifest_dir().join("../../..");
+    #[cfg(not(test))]
+    let root = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.."));
+    root
 }
 
 #[cfg(test)]

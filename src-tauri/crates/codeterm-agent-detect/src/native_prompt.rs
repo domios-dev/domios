@@ -493,9 +493,6 @@ mod tests {
     }
 
     fn snapshots_root() -> PathBuf {
-        PathBuf::from(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../testbench/snapshots"
-        ))
+        crate::test_support::fixture_manifest_dir().join("../../../testbench/snapshots")
     }
 }

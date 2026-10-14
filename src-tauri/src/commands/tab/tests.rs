@@ -88,7 +88,9 @@ fn chat_start_removed_plugin_reports_state_without_rebinding_restored_tab() {
 }
 
 fn workspace_plugins_root() -> std::path::PathBuf {
-    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("plugins")
+    crate::test_support::fixture_manifest_dir()
+        .join("..")
+        .join("plugins")
 }
 
 fn claude_registry() -> Arc<crate::agent::registry::AgentRegistry> {

@@ -20,8 +20,8 @@ struct Shell {
 fn bundled_runtime_registry_selects_chat_and_preserves_declared_controls() {
     use crate::agent::provider::AgentProvider;
     let agents = Arc::new(AgentRegistry::new());
-    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../plugins/provider-codex/plugin.json");
+    let manifest =
+        crate::test_support::fixture_manifest_dir().join("../plugins/provider-codex/plugin.json");
     let provider = codeterm_plugin::js_runtime::load_one(&manifest).unwrap();
     let runtime = provider
         .agent_runtime()

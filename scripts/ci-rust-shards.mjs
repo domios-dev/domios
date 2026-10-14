@@ -44,6 +44,7 @@ export function verifyCoverage(receipts, shards = 12) {
   }
   const workers = receipts.filter((r) => r.mode === 'shared');
   if (workers.length !== shards || new Set(workers.map((r) => r.shard)).size !== shards || workers.some((r) => r.shard < 1 || r.shard > shards)) throw new Error('Duplicate or invalid shard');
+  if (workers.some((r) => r.os !== 'macOS' || r.arch !== 'ARM64')) throw new Error('Shared shards require macOS ARM64');
   const actual = workers.flatMap((r) => r.selected).sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Shared tests omitted, duplicated, or misclassified');
   const ignored = platforms.flatMap((r) => r.all.filter((t) => t.ignored).map((t) => `- ${r.os}: ${t.id}: ${t.reason}`));

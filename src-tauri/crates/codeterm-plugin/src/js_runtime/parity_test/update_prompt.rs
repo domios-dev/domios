@@ -47,7 +47,7 @@ fn parity_update_prompt_safe_choice() {
 
 #[test]
 fn parity_update_prompt_safe_choice_captured_menu() {
-    let screen = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+    let screen = std::fs::read_to_string(crate::test_support::fixture_manifest_dir().join(
         "../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
     ))
     .unwrap();
