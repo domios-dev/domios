@@ -4,10 +4,15 @@
 .ct-chat-surface {
   padding-left: 5.5rem;
   overflow-x: hidden;
+  overflow-y: auto;
   overflow-wrap: anywhere;
 }
 :where(.ct-chat-surface) :where(div, pre, blockquote, button, a, figure, details, header) {
   min-width: 0;
+}
+/* Nested message scrollports must hand vertical movement back to the transcript at their edges. */
+.ct-chat-surface * {
+  overscroll-behavior-y: auto !important;
 }
 .ct-chat-surface :is(.ct-user-bubble, .ct-card__body, .ct-chat-message-row--agent .ct-chat-message-column > div, [data-testid="chat-tool-inline"]) {
   overflow-x: auto;

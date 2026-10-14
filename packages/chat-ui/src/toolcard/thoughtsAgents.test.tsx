@@ -165,7 +165,7 @@ describe("concise thoughts", () => {
     expect(line.querySelector('[data-testid="chat-thought-text"]')?.textContent).toBe(full);
     const body = line.querySelector<HTMLElement>('[data-testid="chat-thought-body"]');
     expect(body?.style.maxHeight).toBe("200px");
-    expect(body?.style.overflowY).toBe("auto");
+    expect(body?.style.overflowY).toBe("hidden");
   });
 
   it("shows the entire available single-line summary without an expand control", async () => {
