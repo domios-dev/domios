@@ -208,6 +208,9 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   /** Source-provided command outcome facts. Missing facts stay absent. */
   toolExitCode?: number;
   toolDurationMs?: number;
+  toolStatus?: "running" | "completed" | "failed" | "interrupted" | "abandoned";
+  toolStartedAtMs?: number;
+  toolCompletedAtMs?: number;
   toolInterrupted?: boolean;
   toolBackgroundTaskId?: string;
   /** Per-file diffs from the provider's own edit record; absent when none was supplied or it was malformed. */

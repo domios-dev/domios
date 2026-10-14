@@ -273,6 +273,35 @@
     },
     {
       "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "account/rateLimits/read",
+          "params": {}
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "rateLimits": {
+            "limitId": "codex",
+            "primary": {
+              "usedPercent": 40,
+              "windowDurationMins": 10080,
+              "resetsAt": 1792472484
+            },
+            "secondary": null
+          }
+        }
+      }
+    },
+    {
+      "direction": "outbound",
       "operation": 1,
       "action": {
         "kind": "request",
@@ -1727,7 +1756,19 @@
           "events": [
             {
               "kind": "auth",
-              "state": "signedIn"
+              "state": "signedIn",
+              "billingMode": "subscription"
+            },
+            {
+              "kind": "rateLimits",
+              "rateLimits": [
+                {
+                  "window": "primary",
+                  "usedPercent": 40,
+                  "resetsAt": 1792472484000,
+                  "windowMinutes": 10080
+                }
+              ]
             }
           ]
         }
@@ -1772,7 +1813,19 @@
     "events": [
       {
         "kind": "auth",
-        "state": "signedIn"
+        "state": "signedIn",
+        "billingMode": "subscription"
+      },
+      {
+        "kind": "rateLimits",
+        "rateLimits": [
+          {
+            "window": "primary",
+            "usedPercent": 40,
+            "resetsAt": 1792472484000,
+            "windowMinutes": 10080
+          }
+        ]
       },
       {
         "kind": "turnState",
@@ -1859,8 +1912,17 @@
           "toolArgs": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
           "collapsed": true,
           "timestamp": "2026-10-13T14:42:45.487Z",
-          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "toolStatus": "running",
+          "toolStartedAtMs": 1791902565487
         }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+        "state": "working",
+        "statusLine": "Running /bin/zsh -lc \"printf 'capture' > capture-proof.txt\""
       },
       {
         "kind": "prompt",
@@ -1937,14 +1999,23 @@
           "collapsed": true,
           "toolError": true,
           "timestamp": "2026-10-13T14:42:45.487Z",
-          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+          "toolFlowId": "01a135b7-379a-7b01-8492-552ce17f2cea",
+          "toolStatus": "failed",
+          "toolStartedAtMs": 1791902565487,
+          "toolCompletedAtMs": 1791902565487
         }
       },
       {
         "kind": "turnState",
         "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
         "state": "working",
-        "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea"
+        "statusLine": ""
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
+        "state": "working"
       },
       {
         "kind": "usage",

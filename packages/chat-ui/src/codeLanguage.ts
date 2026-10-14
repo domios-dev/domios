@@ -1,7 +1,11 @@
 const EXT_MAP: Record<string, string> = {
   js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
   jsx: "jsx",
   ts: "typescript",
+  mts: "typescript",
+  cts: "typescript",
   tsx: "tsx",
   json: "json",
   css: "css",
@@ -72,4 +76,9 @@ export function languageForEdits(
 ): string {
   const combined = edits.map((e) => `${e.old}\n${e.new}`).join("\n");
   return inferCodeLanguage(path, combined);
+}
+
+export function languageFromInfoString(info: string): string {
+  const name = info.trim().split(/\s+/)[0].toLowerCase();
+  return (EXT_MAP[name] ?? name) || "text";
 }

@@ -34,6 +34,12 @@ assert.deepEqual(splitExactSendTexts("firstsecond trailing", payloads), [
   { ...text("first"), correlationId: "one" }, { ...text("second"), correlationId: "two" }, text(" trailing"),
 ]);
 assert.deepEqual(splitExactSendTexts("FIRST second", [{ content: "first" }]), [text("FIRST second")]);
+{
+  const voice = "-=-codeterm:voice file=/u/v.ogg-=-\nspoken words";
+  const pasted = `\n\n<pasted_content id="e731">\n\n\n${voice}\n</pasted_content id="e731">\n`;
+  assert.deepEqual(messageRowParts(splitExactSendTexts(pasted, [{ content: voice, correlationId: "send" }])),
+    [{ ...text(voice), correlationId: "send" }]);
+}
 assert.deepEqual(splitExactSendTexts("secondfirst", payloads), [text("second"), { ...text("first"), correlationId: "one" }]);
 assert.deepEqual(splitExactSendTexts(`${frame}firstsecond`, payloads), [
   routed(frame), { ...text("first"), correlationId: "one" }, { ...text("second"), correlationId: "two" },

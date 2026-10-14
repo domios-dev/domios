@@ -1,5 +1,6 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import type { ReactNode } from "react";
+import { ToolCallProgress } from "./ToolCallProgress";
 
 function durationLabel(durationMs: number): string {
   if (durationMs < 1000) return `${durationMs}ms`;
@@ -9,6 +10,7 @@ function durationLabel(durationMs: number): string {
 
 export function ToolOutcomeFacts({ event }: { event: ToolEvent }) {
   const facts: ReactNode[] = [];
+  if (event.message.toolStatus) facts.push(<ToolCallProgress key="progress" message={event.message} />);
   if (event.exitCode !== undefined) {
     facts.push(
       <span key="exit" data-testid="toolcard-exit-code" aria-label={`Exit code ${event.exitCode}`} title={`Exit code ${event.exitCode}`}>
@@ -23,7 +25,7 @@ export function ToolOutcomeFacts({ event }: { event: ToolEvent }) {
       </span>,
     );
   }
-  if (event.interrupted === true) {
+  if (event.interrupted === true && event.message.toolStatus !== "abandoned") {
     facts.push(<span key="interrupted" data-testid="toolcard-interrupted">interrupted</span>);
   }
   if (event.backgroundTaskId) {

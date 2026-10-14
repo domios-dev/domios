@@ -451,7 +451,14 @@ impl ServiceContext {
                 "the provider has no live effort command".into(),
             ));
         }
-        let readiness = readiness::CommandReadiness::from_declaration(&commands, &target)?;
+        let provider = self
+            .agent_registry
+            .provider_arc(&target.provider)
+            .ok_or_else(|| {
+                ModelSwitchError::LiveCommandFailed("the command provider is unavailable".into())
+            })?;
+        let readiness =
+            readiness::CommandReadiness::from_declaration(&commands, &target, provider)?;
         let sequence =
             sequence::CommandSequence::new(self, &target, deadline, &commands.transcript);
         if after_turn {

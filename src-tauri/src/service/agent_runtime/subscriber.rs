@@ -399,7 +399,12 @@ fn apply(
     let owned = |thread: &str| context.thread_id.as_deref() == Some(thread);
     match event {
         AgentRuntimeEvent::AuthLogin { login } => super::login::apply(svc, session, epoch, login),
-        AgentRuntimeEvent::Auth { state, detail } => {
+        AgentRuntimeEvent::Auth {
+            state,
+            detail,
+            billing_mode,
+        } => {
+            super::projections::billing(svc, session, billing_mode.unwrap_or_default(), at);
             let previous = std::mem::replace(&mut *session.auth.lock(), state.clone());
             if matches!(state, RuntimeAuthState::SignedIn)
                 && matches!(previous, RuntimeAuthState::SignedOut)
@@ -428,7 +433,7 @@ fn apply(
             }
         }
         AgentRuntimeEvent::ChatItem { thread_id, item } if owned(&thread_id) => {
-            let item = session.cache.lock().reconcile(item);
+            let item = session.cache.lock().reconcile_live(item, at);
             crate::service::tab_chat::structured_sink::emit_chat_msgs(
                 &svc.app_handle,
                 &context.tab_id,

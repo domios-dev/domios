@@ -110,7 +110,9 @@ CI builds macOS and Linux arm64 independently; `build-all.sh` remains a manual h
 Linux arm64 receives an auth-free source bundle and runs in the baked native arm64 container.
 Each artifact job clears only its own incomplete upload slots and emits its own updater fragment.
 Builds use checkout-local targets; the verify-only cache setting prohibits CI cache reconfiguration.
-Docker uses its isolated clean target and does not provision a shared cache server.
+Docker uses an isolated clean target and owns its container-local S3 cache server.
+The host passes vault credentials only through process environment; host cache statistics
+do not describe container compilations. Native CI only verifies its prestarted server.
 
 ### Runner routing and retries
 
@@ -338,4 +340,36 @@ No SSH between machines; each runner signs and uploads its platform assets, and 
 job publishes the verified release. Keep the repo private / gate fork PRs — self-hosted runners
 execute repo workflow code.
 
-<!-- revision: 6 -->
+## Measured shared-cache reuse
+
+Source fix `872e5793fd331cd28b039f5ee32be300dad961da` wires native release
+wrappers and Docker cache setup, routes Windows archive builds through pwsh,
+and rejects synthetic offline sccache statistics. Sccache 0.16 can print zero
+counters and a configured S3 location without a reachable server; use
+`build.sh cache-verify` and `cache-stats` for a live endpoint check.
+
+Air ran two clean-target `release-inputs` builds at that exact SHA, using Rust
+1.95.0, sccache 0.16.0, identical checkout/compiler/Cargo paths and the same
+S3 prefix. Both exited 0; no suite, packaging or publication ran.
+
+| Phase | Wall seconds | Hits / misses | Rust hits / misses | Hit rate |
+|---|---:|---:|---:|---:|
+| Producer | 770.687 | 355 / 2027 | 0 / 913 | 14.90% |
+| Consumer | 396.604 | 2380 / 2 | 912 / 1 | 99.92% |
+
+Both recorded 2618 compile requests and zero cache errors/timeouts. The shared
+cache already contained some native objects before the producer; this was a
+clean target, not an empty S3 bucket. Consumer wall time fell 48.54% on air.
+The separate Windows app-test measurement reused 784 Rust entries from ROG on
+green (87.79% Rust hits), but green took longer overall; compiler installation
+paths differed and no Windows wall-time speedup was established.
+
+Backlog qualification: rebuild the existing Linux arm64 Docker image and verify
+S3 support inside it; then run two sequential nonpublishing dry runs of the
+same merged SHA for all six release variants. Full signed-job cache statistics,
+eight-to-air clean app-test reuse, BLACKSTAR WSL runner-context provisioning,
+and common Linux physical paths remain separate follow-ups. The historical
+air server shutdown/endpoint anomaly is not uniquely explained by its retained
+logs; the fixed same-SHA measurement establishes current wrapper usage.
+
+<!-- revision: 7 -->

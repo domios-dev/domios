@@ -56,6 +56,7 @@ pub(crate) mod provider_cli_routes;
 pub mod pty_routes;
 pub mod services_routes;
 pub(crate) mod session_binding_routes;
+pub(crate) mod session_exchange;
 pub mod session_routes;
 pub mod snapshot_bound;
 pub(crate) mod stream_census;

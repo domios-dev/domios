@@ -72,6 +72,9 @@ test('release CI actions are immutable and every executable job has a deadline',
 
 test('Mac jobs provision secret material before building and always clean up', () => {
   for (const job of [macos.jobs.build, linuxArm64.jobs.build, workflow('release-credentials').jobs.macos]) {
+    for (const name of ['APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID']) {
+      assert.equal(job.env[name], '${{ secrets.' + name + ' }}');
+    }
     const steps = job.steps;
     const setup = steps.findIndex(step => step.run === 'python3 scripts/release-signing-material.py macos');
     const cleanup = steps.findIndex(step => step.run === 'python3 scripts/release-signing-material.py cleanup');

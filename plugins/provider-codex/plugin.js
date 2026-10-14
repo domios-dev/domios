@@ -509,7 +509,7 @@ function runtimeItem(raw, seq, previous) {
   row2.toolId = id;
   row2.toolName ?? (row2.toolName = String(item.type));
   row2.toolInput ?? (row2.toolInput = item);
-  row2.toolArgs = row2.toolSummary;
+  if (row2.toolSummary !== void 0) row2.toolArgs = row2.toolSummary;
   row2.collapsed = true;
   if (typeof item.durationMs === "number") row2.toolDurationMs = item.durationMs;
   if (row2.toolError == null) {
@@ -561,18 +561,35 @@ function loginCompleted(value) {
   return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
 }
 
+// plugins/provider-codex/src/runtimeUsage.ts
+function rateLimitEvents(raw) {
+  const limits = object(raw);
+  if (limits.limitId && limits.limitId !== "codex") return [];
+  const windows = ["primary", "secondary"].flatMap((window) => {
+    const value = object(limits[window]);
+    if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
+    return [{
+      window,
+      usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
+      ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
+      ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
+    }];
+  });
+  return windows.length ? [{ kind: "rateLimits", rateLimits: windows }] : [];
+}
+
 // plugins/provider-codex/src/runtimeAuth.ts
 function accountAuth(value) {
   const response = object(value);
   if (response.account === null && response.requiresOpenaiAuth === true) return { kind: "auth", state: "signedOut" };
   const account = object(response.account);
-  if (text(account.type)) return { kind: "auth", state: "signedIn" };
+  if (text(account.type)) return { kind: "auth", state: "signedIn", billingMode: account.type === "apiKey" ? "api" : account.type === "chatgpt" || account.type === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 function notificationAuth(value) {
   const params = object(value);
   if (params.authMode === null) return { kind: "auth", state: "signedOut" };
-  if (text(params.authMode)) return { kind: "auth", state: "signedIn" };
+  if (text(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 
@@ -756,6 +773,54 @@ function runtimeError(value, willRetry = false) {
   return { message, metadata: { ...code ? { code } : {}, class: category, retryable: willRetry } };
 }
 
+// plugins/provider-codex/src/runtimeAbandonedTurns.ts
+function pendingCall(state) {
+  return Object.values(state.items).find((row2) => row2.toolFlowId === state.activeTurnId && row2.toolStatus === "running");
+}
+function runningCallStatus(state) {
+  const row2 = pendingCall(state);
+  return row2 ? Array.from(`Running ${row2.toolTitle || row2.toolSummary || row2.toolName || "tool call"}`).slice(0, 160).join("") : void 0;
+}
+function abandonOpenTurn(state, threadId, nextTurnId) {
+  const previous = state.activeTurnId;
+  if (!previous || previous === nextTurnId || state.completed.includes(previous)) return [];
+  state.completed.push(previous);
+  (state.abandoned ?? (state.abandoned = [])).push(previous);
+  const events = [];
+  for (const row3 of Object.values(state.items)) {
+    if (row3.toolFlowId !== previous || row3.toolStatus !== "running") continue;
+    const abandoned = { ...row3, toolStatus: "abandoned", toolInterrupted: true };
+    state.items[row3.id] = abandoned;
+    events.push({ kind: "chatItem", threadId, item: abandoned });
+  }
+  const row2 = { id: `${previous}:abandoned`, seq: ++state.seq, type: "system", content: "Turn interrupted by a new turn", systemSubtype: "turn_abandoned", toolFlowId: previous };
+  state.items[row2.id] = row2;
+  events.push({ kind: "chatItem", threadId, item: row2 }, { kind: "turnState", threadId, turnId: previous, state: "idle", ...{ detail: "interrupted" } });
+  return events;
+}
+function stampToolLifecycle(row2, previous, method, params) {
+  if (row2.type !== "tool_call") return row2;
+  if (previous?.toolStatus === "abandoned") return previous;
+  const raw = params.item;
+  const suppliedStart = params.startedAtMs;
+  const suppliedEnd = params.completedAtMs;
+  row2.toolStartedAtMs = previous?.toolStartedAtMs ?? (typeof suppliedStart === "number" ? suppliedStart : void 0);
+  row2.toolStatus = previous?.toolStatus ?? "running";
+  if (method === "item/completed") {
+    row2.toolStatus = raw?.status === "interrupted" ? "interrupted" : row2.toolError ? "failed" : "completed";
+    row2.toolCompletedAtMs = typeof suppliedEnd === "number" ? suppliedEnd : void 0;
+  }
+  return row2;
+}
+function interruptPendingCalls(state, threadId, turnId) {
+  return Object.values(state.items).flatMap((row2) => {
+    if (row2.toolFlowId !== turnId || row2.toolStatus !== "running") return [];
+    const interrupted = { ...row2, toolStatus: "interrupted", toolInterrupted: true };
+    state.items[row2.id] = interrupted;
+    return [{ kind: "chatItem", threadId, item: interrupted }];
+  });
+}
+
 // plugins/provider-codex/src/runtimeAgents.ts
 var TERMINAL_STATES = ["completed", "failed", "interrupted", "closed"];
 function update(previous, activity) {
@@ -835,6 +900,7 @@ function usage(params) {
   const total = object(token.total);
   if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return void 0;
   return {
+    ...typeof total.costUsd === "number" && Number.isFinite(total.costUsd) && total.costUsd >= 0 ? { cost_micros: Math.round(total.costUsd * 1e6) } : {},
     input_tokens: total.inputTokens,
     output_tokens: total.outputTokens,
     ...typeof total.cacheWriteInputTokens === "number" ? { cache_write_tokens: total.cacheWriteInputTokens } : {},
@@ -879,7 +945,7 @@ function mapItem(state, method, params) {
   const previous = state.items[id];
   if (method === "item/started" || method === "item/completed") {
     const row3 = runtimeItem(raw, state.seq + 1, previous);
-    return row3 ? stamp(state, row3, params) : void 0;
+    return row3 ? stamp(state, stampToolLifecycle(row3, previous, method, params), params) : void 0;
   }
   const delta = text(params.delta) ?? text(params.message);
   if (!delta) return void 0;
@@ -912,7 +978,7 @@ function mapItem(state, method, params) {
     default:
       return void 0;
   }
-  return stamp(state, row2, params);
+  return stamp(state, stampToolLifecycle(row2, previous, method, params), params);
 }
 function runtimeReduce(ctx, raw, frames) {
   var _a;
@@ -957,17 +1023,7 @@ function runtimeReduce(ctx, raw, frames) {
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
-      const windows = ["primary", "secondary"].flatMap((window) => {
-        const value = object(state.rateLimitSnapshot?.[window]);
-        if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
-        return [{
-          window,
-          usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
-          ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
-          ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
-        }];
-      });
-      if (windows.length) events.push({ kind: "rateLimits", rateLimits: windows });
+      events.push(...rateLimitEvents(state.rateLimitSnapshot));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
@@ -985,9 +1041,11 @@ function runtimeReduce(ctx, raw, frames) {
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
     const turnId = text(params.turnId) ?? text(object(params.turn).id);
+    if (turnId && state.abandoned?.includes(turnId)) continue;
     switch (frame.method) {
       case "turn/started": {
         if (!turnId || state.completed.includes(turnId)) break;
+        events.push(...abandonOpenTurn(state, threadId, turnId));
         state.activeTurnId = turnId;
         delete state.compacting;
         const settings = codexReportedSettings({ ...params, ...object(params.turn) });
@@ -999,6 +1057,7 @@ function runtimeReduce(ctx, raw, frames) {
         if (!turnId || state.completed.includes(turnId)) break;
         state.completed.push(turnId);
         if (state.activeTurnId && state.activeTurnId !== turnId) break;
+        events.push(...interruptPendingCalls(state, threadId, turnId));
         delete state.activeTurnId;
         delete state.compacting;
         const failure = object(object(params.turn).error);
@@ -1014,7 +1073,7 @@ function runtimeReduce(ctx, raw, frames) {
         const status = threadStatus(params.status);
         if (!status) break;
         if (status.state === "idle") delete state.compacting;
-        events.push({ kind: "turnState", threadId, ...withDetail(status, !!state.compacting), ...state.activeTurnId && status.state !== "idle" ? { turnId: state.activeTurnId } : {} });
+        events.push(status.state !== "needs_input" && pendingStatus(state, threadId) || { kind: "turnState", threadId, ...withDetail(status, !!state.compacting), ...state.activeTurnId && status.state !== "idle" ? { turnId: state.activeTurnId } : {} });
         break;
       }
       case "item/fileChange/patchUpdated": {
@@ -1121,7 +1180,10 @@ function runtimeReduce(ctx, raw, frames) {
           }
           row2 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"), collapsed: true }, params);
         } else row2 = mapItem(state, frame.method, params);
-        if (row2) events.push({ kind: "chatItem", threadId, item: row2 });
+        if (row2) {
+          events.push({ kind: "chatItem", threadId, item: row2 });
+          if (row2.type === "tool_call") events.push({ kind: "turnState", threadId, ...state.activeTurnId ? { turnId: state.activeTurnId } : {}, state: "working", ...{ statusLine: runningCallStatus(state) ?? "" } });
+        }
         if (frame.method === "item/started" || frame.method === "item/completed") {
           const evidence = sendEvidence(ctx, object(params.item), turnId);
           if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
@@ -1139,6 +1201,10 @@ function runtimeReduce(ctx, raw, frames) {
     }
   }
   return { state: json(state), events };
+}
+function pendingStatus(state, threadId) {
+  const statusLine = runningCallStatus(state);
+  return statusLine ? { kind: "turnState", threadId, turnId: state.activeTurnId, state: "working", ...{ statusLine } } : void 0;
 }
 
 // plugins/provider-codex/src/runtime.ts
@@ -1242,6 +1308,7 @@ function runtimeResponse(ctx, op, raw, reply) {
   validateBinding(ctx, op);
   const state = object(raw);
   if (reply.kind === "error") {
+    if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: { kind: "initialized" }, events: [state.auth] };
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
     if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
@@ -1257,7 +1324,12 @@ function runtimeResponse(ctx, op, raw, reply) {
     case "initialize":
       if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: { stage: "initializedNotification" } });
       if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
-      return { kind: "complete", result: { kind: "initialized" }, events: [accountAuth(value)] };
+      if (state.stage === "initializeAccount") {
+        const auth = accountAuth(value);
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", {}, { stage: "initializeLimits", auth }));
+        return { kind: "complete", result: { kind: "initialized" }, events: [auth] };
+      }
+      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits)] };
     case "openThread": {
       if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: state.settings } };
       const threadId = userThread(value);

@@ -1,4 +1,4 @@
-import { usageTrackingEnabled, usageTrackingOverrides } from "./usageTracking";
+import { usageTrackingEnabled, usageTrackingOverrides, tabUsageProvider } from "./usageTracking";
 import type { SettingField } from "../../lib/types";
 
 const usageSection: SettingField[] = [{
@@ -32,3 +32,7 @@ if (overrides.defaultOn !== undefined || overrides.enabled !== true || overrides
 }
 
 console.log("usageTracking tests: 4/4 passed");
+
+if (tabUsageProvider("fixture",true,true) !== "fixture" || tabUsageProvider("fixture",true,false) !== null || tabUsageProvider("fixture",false,false) !== "fixture") {
+  throw new Error("headers select runtime usage by capability and retain terminal usage");
+}

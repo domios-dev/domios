@@ -133,7 +133,33 @@ account service selector and bash scripts/clippy-gate.sh in warm canonical.
 fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
 
-<!-- revision: 5 -->
+An app release also requires the [upgrade restore bench](../../../evals/upgrade-restore/README.md)
+before pushing `release/X.Y.Z`. In canonical, capture a sanitized real desk through
+`node scripts/capture-upgrade-desk.mjs`, replay it and the generated worst cases
+against the exact release build, and retain `replay-result.json` plus provider
+traces. Follow the bench's prepare → stage → named DEV restart → verify sequence;
+all bench CLI calls use `dc`, and all readiness waits have failure deadlines.
+Missing backing, unsupported provider, unready tab or missing receipt blocks the
+push. Node fixture tests and import acknowledgement do not replace live proof.
+For the runtime migration, retain pre-fix failures naming desk leaf bound,
+SizeLimit and binding incomplete, plus post-fix passes. Only canonical may build
+or start those versions. Frontend-only and plugin-only releases do not run this
+app startup gate.
+
+The [core-journeys suite](../../../evals/core-journeys/README.md) is a required
+pre-push gate for every app release and every owner hotfix build (any build
+handed to the owner to install, such as `X.Y.Z-bs.N`). On that exact SHA, in
+canonical, with DEV running that build and its window open, run
+`bash evals/core-journeys/run.sh all` once in a Team-bound QA shell. Only a zero
+exit with `Verdict: PASS` in `results.md` clears the push; record its wall time
+and keep `results.json` with the release evidence. A failed journey blocks the
+push until it is fixed and the suite rerun green on the new SHA. An app release
+also runs `run.sh upgrade` from the previous release on a disposable named
+instance. Offline node tests do not replace the live run. Frontend-only and
+plugin-only releases are outside this gate.
+
+
+<!-- revision: 7 -->
 
 ## Rust warning inventory and cleanup
 
