@@ -1,4 +1,5 @@
 use super::terminal::*;
+use crate::sentinel::store::Sentinel;
 use crate::sentinel::{
     machine::Route,
     source::TabBinding,
@@ -107,13 +108,13 @@ fn blueprint_terminal_shell_scope_and_send_scope_are_team_bound() {
     let shell = mux.create_tab(&job.workspace_id).unwrap();
     mux.get_tab_mut(&shell).unwrap().team_id = job.team_id.clone();
     job.set_observe(Some(TabBinding::Tab(shell.clone())));
-    assert!(crate::source::validate_tab_scope(&mux, &job, &shell).is_ok());
+    assert!(crate::sentinel::source::validate_tab_scope(&mux, &job, &shell).is_ok());
     assert_eq!(
         crate::sentinel::routes::resolve_send(&mux, &job, &shell).unwrap(),
         Route::Send(shell.clone())
     );
     mux.get_tab_mut(&shell).unwrap().team_id = Some("foreign".into());
-    assert!(crate::source::validate_tab_scope(&mux, &job, &shell).is_err());
+    assert!(crate::sentinel::source::validate_tab_scope(&mux, &job, &shell).is_err());
     assert!(crate::sentinel::routes::resolve_send(&mux, &job, &shell).is_err());
 }
 
@@ -177,14 +178,14 @@ fn blueprint_text_input_admission_wakes_only_live_stage_and_routes_queued_body()
     crate::sentinel::scheduler::advance(
         &handle.store,
         &lease,
-        &crate::probe::Output {
+        &crate::sentinel::probe::Output {
             success: true,
             bytes: received.as_bytes().to_vec(),
             text: received.clone(),
             ..Default::default()
         },
         || {
-            crate::provenance::Classification::regex(crate::machine::Verdict {
+            crate::sentinel::provenance::Classification::regex(crate::sentinel::machine::Verdict {
                 bucket: "reply".into(),
                 confidence: 1.0,
             })
@@ -201,7 +202,7 @@ fn blueprint_text_input_admission_wakes_only_live_stage_and_routes_queued_body()
                 },
                 |_| panic!("shell must use typed-input send"),
             )?;
-            Ok(crate::handlers::Status::Completed.into())
+            Ok(crate::sentinel::handlers::Status::Completed.into())
         },
         |_, _, _| Ok(()),
     );

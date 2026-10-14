@@ -88,7 +88,7 @@ fn storage_sentinel_graph_projects_one_committed_scope_with_configured_and_obser
     );
 
     let (jobs, leases) =
-        super::super::committed_scope(&store, &workspace, None).expect("committed scope");
+        crate::sentinel::storage::committed_scope(&store, &workspace, None).expect("committed scope");
     let project = |jobs: &[Sentinel]| {
         let connected = connected_crons(&crons, jobs, &workspace, None);
         graph::project(

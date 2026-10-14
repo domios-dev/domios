@@ -105,7 +105,7 @@ fn storage_sentinel_commit_failure_refuses_claim_and_closes_admission() {
     let store = typed(&storage, &MockClock::starting_at(1000));
     let job = create(&store, Some("team"), false, two_handlers());
     let lease = due(&store).remove(0);
-    super::super::super::scheduler::advance(
+    super::super::crate::sentinel::scheduler::advance(
         &store,
         &lease,
         &output("done"),
@@ -160,7 +160,7 @@ fn storage_sentinel_unconfirmed_commit_stays_closed_until_reconciled() {
     assert!(commit(&store, Store::stage_due).is_err());
     hold.release();
 
-    assert_eq!(super::super::reconcile(&store), Ok(true));
+    assert_eq!(crate::sentinel::storage::reconcile(&store), Ok(true));
     store
         .lock()
         .ensure_available()
@@ -195,7 +195,7 @@ fn storage_sentinel_held_writer_serves_committed_scope_and_holds_events() {
 
     let hold = held(&storage);
     let (scoped, leases) =
-        super::super::committed_scope(&store, "workspace", None).expect("committed read");
+        crate::sentinel::storage::committed_scope(&store, "workspace", None).expect("committed read");
     assert_eq!(scoped.len(), 2, "the exact null-Team scope only");
     assert!(leases.is_empty());
     let staged = store.lock().stage_stop(&first.id, "explicit");
@@ -225,7 +225,7 @@ fn storage_sentinel_held_writer_serves_committed_scope_and_holds_events() {
         .committed_revision("workspace", None)
         .map(str::to_owned);
     assert_eq!(changes[0]["revision"].as_str(), committed.as_deref());
-    let (scoped, _) = super::super::committed_scope(&store, "workspace", None).unwrap();
+    let (scoped, _) = crate::sentinel::storage::committed_scope(&store, "workspace", None).unwrap();
     assert!(scoped
         .iter()
         .any(|job| job.id == first.id && job.machine.stopped));

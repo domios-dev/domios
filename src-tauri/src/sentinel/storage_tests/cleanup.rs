@@ -24,10 +24,10 @@ fn storage_completion_watch_routes_before_retirement_and_stays_deleted_after_rel
     });
     assert_eq!(effects.get(), 1);
     assert!(store.lock().get(&watch.id).unwrap().machine.stopped);
-    crate::cleanup::remove_terminal(&store).unwrap();
+    crate::sentinel::cleanup::remove_terminal(&store).unwrap();
     assert!(store.lock().get(&watch.id).is_some());
     store.lock().release(&watch.id);
-    crate::cleanup::remove_terminal(&store).unwrap();
+    crate::sentinel::cleanup::remove_terminal(&store).unwrap();
     assert!(store.lock().get(&watch.id).is_none());
     assert!(done(storage.sentinels().inventory()).value.is_empty());
     assert!(typed(&storage, &clock).lock().list().is_empty());
