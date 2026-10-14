@@ -47,6 +47,32 @@ pub fn requested(svc: &ServiceContext, provider: &str) -> bool {
 pub fn for_tab(tab: &str) -> Option<Arc<Session>> {
     SESSIONS.lock().get(tab).cloned()
 }
+pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bool {
+    let Some(session) = for_tab(&tab.id) else {
+        return false;
+    };
+    let context = session.context.lock().clone();
+    let ready = matches!(session.state.lock().phase, RuntimePhase::Ready);
+    let process_live = session
+        .process
+        .lock()
+        .as_ref()
+        .is_some_and(|process| process.ended.borrow().is_none());
+    session.provider == tab.agent_type.as_deref().unwrap_or_default()
+        && context.tab_id == tab.id
+        && Some(context.binding_nonce.as_str()) == tab.session_binding_nonce.as_deref()
+        && context.thread_id == tab.agent_session_id
+        && session
+            .thread_loaded
+            .load(std::sync::atomic::Ordering::Acquire)
+        && ready
+        && process_live
+}
+
+#[cfg(test)]
+#[path = "engine/test_support.rs"]
+pub(crate) mod test_support;
+
 pub fn stop(tab: &str) {
     super::authority::revoke(tab);
     super::environment::revoke(tab);

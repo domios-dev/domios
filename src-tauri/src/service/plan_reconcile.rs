@@ -7,7 +7,15 @@ use super::ServiceContext;
 pub(crate) fn tab_has_live_agent(tab: &crate::multiplexer::types::Tab) -> bool {
     let delivery_target = tab.chat_view
         && match &tab.backing {
-            crate::multiplexer::types::TabBacking::ChatBackend { .. } => true,
+            crate::multiplexer::types::TabBacking::ChatBackend {
+                plugin_id,
+                session_id,
+            } => {
+                tab.agent_type.as_deref() == Some(plugin_id.as_str())
+                    && tab.agent_session_id.as_deref() == Some(session_id.as_str())
+                    && (tab.agent_runtime_state.is_none()
+                        || super::agent_runtime::engine::has_live_bound_session(tab))
+            }
             crate::multiplexer::types::TabBacking::Pty => tab.pty_id.is_some(),
             crate::multiplexer::types::TabBacking::Surface(_) => false,
         };
@@ -504,7 +512,7 @@ mod tests {
 
         tab.pty_id = None;
         tab.backing = TabBacking::ChatBackend {
-            plugin_id: "plugin".into(),
+            plugin_id: "provider-neutral".into(),
             session_id: "session-1".into(),
         };
         assert!(tab_has_live_agent(tab));
