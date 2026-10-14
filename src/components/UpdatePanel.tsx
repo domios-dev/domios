@@ -28,11 +28,14 @@ export function UpdatePanelContents() {
             </div>)}
           </section>
         ))}
-        {update.error && <div role="alert" className="text-xs text-[var(--ct-red)]">{update.error}</div>}
+        {update.error && <div className="text-xs text-[var(--ct-red)]">
+          <div role="alert">{update.error}</div>
+          <details><summary>Details</summary><pre className="whitespace-pre-wrap break-words">{update.errorDetails}</pre></details>
+        </div>}
         {update.information.map(message => <div role="status" aria-label="Installed plugin ahead of channel" key={message} className="text-xs text-[var(--ct-muted)]">{message}</div>)}
         <div className="flex gap-2">
           <Button size="sm" variant="accent" disabled={update.busy || !update.items.length} onClick={() => void update.updateAll()} loading={update.busy}>Update all</Button>
-          {update.error && <Button size="sm" onClick={() => void update.retry()}>Retry</Button>}
+          <Button size="sm" disabled={update.busy && !update.error} onClick={() => void update.retry()}>Check again</Button>
         </div>
       </div>
   );

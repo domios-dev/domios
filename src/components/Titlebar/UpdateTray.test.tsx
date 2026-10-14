@@ -22,7 +22,7 @@ vi.mock("../../lib/bridge", () => ({ listen: async (_event: string, handler: typ
 import { UpdatePanelProvider } from "../../hooks/useUpdatePanel";
 import { UpdateTray } from "./UpdateTray";
 import { UpdatePanelContents } from "../UpdatePanel";
-import { classifyUpdateStatus } from "../../lib/updateStatusModel";
+import { classifyUpdateFailure, classifyUpdateStatus } from "../../lib/updateStatusModel";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const snapshot: UpdateAvailabilitySnapshot = { errors: {}, items: [
@@ -34,7 +34,7 @@ const snapshot: UpdateAvailabilitySnapshot = { errors: {}, items: [
 afterEach(() => { localStorage.clear(); fake.offer = null; vi.clearAllMocks(); });
 
 for (const failure of [null, "channel download failed"]) {
-  it(`wires local-ahead information and ${failure ? "a genuine failure badge" : "no failure badge"}`, async () => {
+  it(`wires local-ahead information and ${failure ? "a hidden background failure" : "no failure badge"}`, async () => {
     const ahead: UpdateAvailabilitySnapshot = { items: [{ ...snapshot.items[3], id: "codex", installed: "2.0.0", latest: "1.0.0", reason: "local_ahead" }],
       errors: { core: `system plugin 'codex' is not installable: local_ahead${failure ? `; ${failure}` : ""}` } };
     fake.check.mockResolvedValue(ahead);
@@ -45,15 +45,21 @@ for (const failure of [null, "channel download failed"]) {
       expect(host.querySelector('[role="status"][aria-label="Installed plugin ahead of channel"]')?.textContent)
         .toBe(classifyUpdateStatus(ahead).information[0]);
       const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]');
+      expect(trigger).toBeNull();
+      expect(host.querySelector('[role="alert"]')).toBeNull();
       if (failure) {
-        expect(trigger).not.toBeNull();
-        expect(host.querySelector('[role="alert"]')?.textContent).toBe(failure);
-        await act(async () => trigger!.click());
-        expect(document.querySelector('[role="dialog"][aria-label="Updates"]')).not.toBeNull();
-      } else {
-        expect(trigger).toBeNull();
-        expect(host.querySelector('[role="alert"]')).toBeNull();
-        expect([...host.querySelectorAll("button")].find(button => button.textContent === "Retry")).toBeUndefined();
+        const check = [...host.querySelectorAll("button")].find(button => button.textContent === "Check again")!;
+        await act(async () => check.click());
+        const expected = classifyUpdateFailure("check", failure)!;
+        expect(fake.check).toHaveBeenLastCalledWith(true);
+        expect(host.querySelector('[role="alert"]')?.textContent).toBe(expected.message);
+        await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!.click());
+        const dialog = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
+        expect(dialog).not.toBeNull();
+        const details = dialog.querySelector("details")!;
+        expect(details.open).toBe(false);
+        expect(details.querySelector("summary")?.textContent).toBe("Details");
+        expect(details.querySelector("pre")?.textContent).toContain(failure);
       }
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
@@ -157,3 +163,72 @@ it("resumes the next plugin from availability values and ignores equivalent snap
     expect(fake.install).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+for (const origin of ["startup", "event"] as const) {
+  it(`keeps ${origin} check failures invisible and recovers on subsequent availability`, async () => {
+    if (origin === "startup") fake.check.mockRejectedValue(new Error("invalid daemon JSON"));
+    else fake.check.mockResolvedValue({ items: [], errors: {} });
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<UpdatePanelProvider><UpdateTray /><UpdatePanelContents /></UpdatePanelProvider>));
+      if (origin === "event") await act(async () => fake.availabilityChanged!({ payload: { items: [], errors: { app: "offline" } } }));
+      expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+      expect(host.querySelector("details")).toBeNull();
+      await act(async () => fake.availabilityChanged!({ payload: snapshot }));
+      expect(host.querySelector('button[aria-label="Update"]')).not.toBeNull();
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+}
+
+it("shows explicit transport and update failures through the model with collapsed diagnostics", async () => {
+  fake.check.mockResolvedValue(snapshot);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTray /></UpdatePanelProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!.click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
+    const button = (name: string) => [...dialog.querySelectorAll("button")].find(button => button.textContent === name)!;
+    const failure = new Error("InvalidJsonResponseError: /api/update/availability");
+    fake.check.mockRejectedValue(failure);
+    await act(async () => button("Check again").click());
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(classifyUpdateFailure("check", failure)?.message);
+    expect(dialog.querySelector("details")?.open).toBe(false);
+    expect(dialog.querySelector("pre")?.textContent).toBe(String(failure));
+    fake.check.mockResolvedValue(snapshot);
+    await act(async () => button("Check again").click());
+    expect(dialog.querySelector('[role="alert"]')).toBeNull();
+    fake.check.mockRejectedValue(failure);
+    await act(async () => button("Update all").click());
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(classifyUpdateFailure("update", failure)?.message);
+    expect(dialog.querySelector("details")?.open).toBe(false);
+    expect(dialog.querySelector("pre")?.textContent).toBe(String(failure));
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+for (const kind of ["app", "plugin"] as const) {
+  it(`keeps a clicked ${kind} update failure visible through the model`, async () => {
+    const item = snapshot.items.find(item => item.kind === kind)!;
+    fake.check.mockResolvedValue({ items: kind === "app" ? [item] : [item, { ...snapshot.items[0], latest: "1.0.0", state: "up_to_date" }], errors: {} });
+    const failure = new Error("opaque action refusal");
+    if (kind === "app") fake.install.mockRejectedValueOnce(failure);
+    else fake.plugin.mockRejectedValueOnce(failure);
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<UpdatePanelProvider><UpdateTray /></UpdatePanelProvider>));
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!.click());
+      const dialog = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
+      const apply = dialog.querySelector<HTMLButtonElement>(`button[aria-label="Apply ${kind === "app" ? "Domios" : "plugin"} update"]`)!;
+      expect(apply).not.toBeNull();
+      await act(async () => apply.click());
+      expect(kind === "app" ? fake.install : fake.plugin).toHaveBeenCalledTimes(1);
+      expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(classifyUpdateFailure("update", failure)?.message);
+      expect(dialog.querySelector("details")?.open).toBe(false);
+      expect(dialog.querySelector("pre")?.textContent).toBe(String(failure));
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+}
