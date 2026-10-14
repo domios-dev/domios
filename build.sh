@@ -663,6 +663,7 @@ build_gateway_logging_on_exit() {
   local summary_status reader_status finish_status
   trap - EXIT INT TERM
   set +e
+  release_stable_build_path
   if [ "${CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN:-0}" = "1" ] && [ "${CT_GATEWAY_CANCELLED:-0}" != "1" ]; then
     command_status="$captured_status"
     command_status_text="$captured_status"
@@ -721,8 +722,16 @@ enter_stable_build_path() {
     echo "[cache-policy] stable build path unavailable; building from $CT_REAL_WORKTREE" >&2
     return 0
   fi
+  CT_STABLE_BUILD_DRIVE_MAPPED="$drive"
   cd "/$lower"
   echo "[cache-policy] stable build path $drive:\ -> $CT_REAL_WORKTREE"
+}
+
+release_stable_build_path() {
+  [ -n "${CT_STABLE_BUILD_DRIVE_MAPPED:-}" ] || return 0
+  cd "${CT_REAL_WORKTREE:-/}" 2>/dev/null || cd /
+  MSYS2_ARG_CONV_EXCL='*' subst "$CT_STABLE_BUILD_DRIVE_MAPPED:" /D >/dev/null 2>&1 || true
+  CT_STABLE_BUILD_DRIVE_MAPPED=""
 }
 
 enter_build_gateway() {
