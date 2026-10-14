@@ -390,6 +390,9 @@ impl ServiceContext {
         super::boot_wait::notify_boot_changed();
         crate::service::general_agent::binding_wait::notify_binding_state_changed();
         self.emit_session_binding_state(tab_id);
+        if stage.carries_reason() {
+            self.wake_user_owner_on_state_change(tab_id);
+        }
         if matches!(stage, BootStage::ProviderReady | BootStage::AgentReady) {
             let pty_id = self
                 .mux

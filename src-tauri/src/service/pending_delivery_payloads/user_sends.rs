@@ -616,57 +616,6 @@ impl UserSendStore {
         Ok(())
     }
 
-    pub(crate) fn discard_queued_from_ended_launch(
-        &self,
-        record: &UserSendRecord,
-    ) -> Result<bool, String> {
-        let tab = self.tab(&record.authority.tab_id);
-        if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
-            return Ok(false);
-        }
-        let mut data = tab.data.lock();
-        let loaded = self.load(&tab, &mut data)?;
-        let Some(current) = loaded
-            .index
-            .records
-            .iter()
-            .find(|item| item.send_id == record.send_id)
-        else {
-            return Ok(false);
-        };
-        if current.authority != record.authority
-            || current.state != UserSendState::Queued
-            || current.owner_epoch != record.owner_epoch
-        {
-            return Ok(false);
-        }
-        let mut next = loaded.index.clone();
-        next.records.retain(|item| item.send_id != record.send_id);
-        continuity::retain_receipt(&mut next, record, continuity::ReceiptState::Failed);
-        self.persist(&tab, &next)?;
-        loaded.index = next;
-        tab.unsettled
-            .store(unsettled_count(&loaded.index), Ordering::Release);
-        let cleanup = (|| {
-            for suffix in ["original", "prepared", "body"] {
-                let path = tab.payload_path(&record.send_id, suffix)?;
-                match fs::remove_file(path) {
-                    Ok(()) => (),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-                    Err(error) => return Err(io_error(error)),
-                }
-            }
-            sync_directory(&tab.dir)
-        })();
-        if let Err(error) = cleanup {
-            log::warn!(
-                "[chat-send] expired user send {} payload cleanup failed: {error}",
-                record.send_id
-            );
-        }
-        Ok(true)
-    }
-
     #[cfg(test)]
     pub(crate) fn settle_cycle(
         &self,

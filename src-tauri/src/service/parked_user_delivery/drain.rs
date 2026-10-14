@@ -48,6 +48,9 @@ impl super::super::ServiceContext {
             if let Some(carried) = self.carry_held_user_send(&head)? {
                 head = carried;
             }
+            if self.settle_degraded_user_send(&head)? {
+                continue;
+            }
             if !self.user_authority_is_ready(&head.authority)
                 && self.held_user_identity_is_unresolved(&head)
             {
