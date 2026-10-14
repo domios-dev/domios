@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { reduceToolEvents, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../../../packages/chat-ui/src/ToolCallBubble";
 import { MessageBubble } from "../../../packages/chat-ui/src/MessageBubble";
-import fixture from "../../../src-tauri/src/service/codex_rpc/normalize/fixtures/mixed-turn.json";
+import fixture from "../../../src-tauri/crates/codeterm-service-core/src/service/codex_rpc/normalize/fixtures/mixed-turn.json";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
