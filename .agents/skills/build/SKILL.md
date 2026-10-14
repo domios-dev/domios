@@ -340,6 +340,10 @@ the total are reported in GiB. Fixtures: `node --test scripts/cargo-build-gc.tes
 For an explicitly blocking cleanup use `.\build.ps1 gc --wait-build` in a Team
 build shell; capture `Get-PSDrive C` before and after, and preview first.
 
+If GC exits 2 on a live lane's malformed Cargo manifest, no orphan deletion is
+allowed: its build directory cannot yet be mapped. Ask that lane's owner to fix
+the manifest, then rerun the preview. Never skip the checkout or guess its hash.
+
 Every candidate is physically resolved using `pwd -P` and must be a direct child of the exceptional target root, or the checkout's exact target directory for sweep. Empty, root, parent, symlink/junction, redirected ancestor, and nested-link paths are refused. Deletion does not follow links. If retention reports an unsafe path, inspect and remove the redirection separately; never relax the boundary to make GC pass. Retention and marker updates use an exclusive gateway metadata lock and refuse concurrent modification. Automatic failures print a hint and let builds continue; explicit GC returns failure for invalid configuration or an unavailable lock.
 
 Canonical shell policy verification: `bash scripts/check-build-gateway-policy.sh`. Its retention fixture suite checks marker persistence, removed checkouts, configurable expiry, legacy grace, LRU cap order, live-owner/current-checkout protection, hourly throttle, dry-run, and unsafe paths including real Windows junctions. It requires no Rust compilation.
