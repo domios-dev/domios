@@ -12,6 +12,9 @@ pub trait CommandPort: Send + Sync {
         Ok(())
     }
     fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad;
+    fn utility_deadline(&self, _tab_id: &str) -> Option<serde_json::Value> {
+        None
+    }
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
     /// The status-bearing snapshot, waiting for the state locks no later than
     /// `deadline`. `None` means a writer held them past the deadline.
@@ -479,6 +482,13 @@ fn cmd_tab_inspect(
         .collect::<Vec<_>>();
     if tabs.len() != requested.len() {
         return Err("one or more requested Tabs were not found".into());
+    }
+    for tab in &mut tabs {
+        if let Some(id) = tab["id"].as_str() {
+            if let Some(deadline) = ctx.utility_deadline(id) {
+                tab["utility_deadline"] = deadline;
+            }
+        }
     }
     if lifecycle {
         let tab = snapshot
