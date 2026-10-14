@@ -112,8 +112,7 @@ export async function finishEvidence(record, directory) {
   if (!record.sccache?.start) return;
   record.sccache.end = record.sccache.start.reason === 'fixture' ? { available: false, reason: 'fixture' } : await snapshot();
   record.sccache.delta = record.sccache.start.available && record.sccache.end.available ? cacheDelta(record.sccache.start, record.sccache.end, record.sccache.reset_during_job) : null;
-  const fingerprint = await selectedLines(record.log_path, line => line.includes('cargo::core::compiler::fingerprint'));
-  fs.writeFileSync(record.fingerprint_log_path, fingerprint.length ? `${fingerprint.join('\n')}\n` : '');
+  const fingerprint = await selectedLines(record.fingerprint_log_path, line => line.includes('cargo::core::compiler::fingerprint'));
   const cursor = record.sccache_log_cursor;
   const current = logCursor(cursor.file);
   const offset = current.ino === cursor.ino && current.offset >= cursor.offset ? cursor.offset : 0;
