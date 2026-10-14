@@ -50,7 +50,7 @@ pub struct Request {
 }
 
 #[derive(Default)]
-pub(crate) struct Broker {
+pub struct Broker {
     requests: HashMap<String, VecDeque<Request>>,
 }
 
@@ -121,7 +121,7 @@ impl Broker {
     }
 }
 
-pub(crate) static BROKER: LazyLock<Mutex<Broker>> = LazyLock::new(|| Mutex::new(Broker::default()));
+pub static BROKER: LazyLock<Mutex<Broker>> = LazyLock::new(|| Mutex::new(Broker::default()));
 
 pub fn decision(answer: Option<Answer>) -> Value {
     match answer {

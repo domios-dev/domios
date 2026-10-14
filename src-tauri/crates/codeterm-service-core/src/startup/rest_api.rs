@@ -12,7 +12,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 pub(crate) mod listeners;
 mod restart;
 mod streams;
-pub(crate) use restart::RestartAcceptance;
+pub use restart::RestartAcceptance;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -71,7 +71,7 @@ struct RestApiLifecycle {
 
 #[derive(Clone)]
 pub struct RestApiControl {
-    pub(crate) listeners: listeners::ListenerPublication,
+    pub listeners: listeners::ListenerPublication,
     transition: Arc<Mutex<()>>,
     sender: Arc<Mutex<Option<mpsc::UnboundedSender<RestApiCommand>>>>,
     lifecycle: Arc<Mutex<RestApiLifecycle>>,

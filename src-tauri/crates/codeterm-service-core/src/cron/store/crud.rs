@@ -63,7 +63,7 @@ impl CronScope {
 }
 
 /// An authorized change and the value its caller receives once the change is committed.
-pub(crate) struct Prepared<T> {
+pub struct Prepared<T> {
     pub(crate) changes: Vec<CronChange>,
     pub(crate) value: T,
 }

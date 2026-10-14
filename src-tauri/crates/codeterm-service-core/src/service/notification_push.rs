@@ -160,7 +160,7 @@ pub(crate) fn deliver_plan(
 }
 
 /// One channel's standing in the settings surface.
-pub(crate) struct ChannelStanding {
+pub struct ChannelStanding {
     pub id: &'static str,
     pub label: &'static str,
     pub control_available: bool,

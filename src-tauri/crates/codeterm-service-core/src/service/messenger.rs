@@ -199,7 +199,7 @@ impl MessageEnvelope {
         }
     }
 
-    pub(crate) fn plugin(plugin_id: impl Into<String>, icon_svg: Option<String>) -> Self {
+    pub fn plugin(plugin_id: impl Into<String>, icon_svg: Option<String>) -> Self {
         Self {
             kind: MessageKind::Pebble,
             from_label: "Pebble".into(),
