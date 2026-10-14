@@ -2,7 +2,7 @@ use super::*;
 use crate::mem::decision::rerank::{
     run_stage, FallbackReason, RerankCandidate, StageConfig, StageOutcome,
 };
-use codeterm_types::decision::{DecisionPrimitives, DecisionQuestion};
+use codeterm_decision::{DecisionPrimitives, DecisionQuestion};
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -28,7 +28,7 @@ impl DecisionModel for Model {
         }
     }
     fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
-        codeterm_types::decision::physical::before_request()?;
+        codeterm_decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(DecisionAnswer::Noul { p: 0.8 })
     }

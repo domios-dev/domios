@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionQuestionsRequest, DecisionRequest,
     DecisionUsage, NamedDecisionQuestion, TokenMode,
 };

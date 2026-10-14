@@ -21,7 +21,7 @@ pub use reply_relay::{
     ReplyRelayUnavailable,
 };
 pub(crate) mod update_prompt;
-pub use codeterm_types::agent::provider_signals::{AuthStatus, SessionObservations};
+pub use codeterm_provider_signals::{AuthStatus, SessionObservations};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

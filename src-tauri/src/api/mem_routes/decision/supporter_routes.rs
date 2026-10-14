@@ -196,7 +196,7 @@ where
 fn spend_snapshot(
     runtime: &crate::service::supporter::SupporterRuntime,
     adapter: &str,
-    price: Option<&codeterm_types::decision::DecisionPricing>,
+    price: Option<&codeterm_decision::DecisionPricing>,
 ) -> Value {
     let mut spend = runtime.spend_status(adapter);
     if price.is_none() {

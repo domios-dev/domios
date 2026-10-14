@@ -5,7 +5,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionRequest, TokenMode,
 };
 use serde_json::Value;

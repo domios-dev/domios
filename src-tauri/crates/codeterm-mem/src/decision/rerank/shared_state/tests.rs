@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionPrimitives, DecisionRequest, DecisionResponse, TokenMode,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};

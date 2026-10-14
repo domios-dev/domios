@@ -6,10 +6,10 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use super::supporter::{self, Action, ActionRecord, SupporterRuntime, TokenSnapshot, VerdictKind};
-use codeterm_types::config::SupporterConfig;
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionModel, DecisionQuestionsRequest, DecisionResponse,
 };
+use codeterm_types::config::SupporterConfig;
 use serde_json::Value;
 
 #[cfg(test)]
@@ -244,7 +244,7 @@ pub(crate) trait ShadowHost: Clone + Send + 'static {
     }
     fn connection_is_current(&self, adapter: &str) -> bool {
         self.supporter_models().get(adapter).is_some_and(|model| {
-            model.token_mode() != codeterm_types::decision::TokenMode::Required
+            model.token_mode() != codeterm_decision::TokenMode::Required
                 || self.token_available(adapter)
         })
     }

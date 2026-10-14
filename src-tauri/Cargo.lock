@@ -1103,6 +1103,7 @@ dependencies = [
  "codeterm-billing",
  "codeterm-bridge",
  "codeterm-browser",
+ "codeterm-decision",
  "codeterm-frontend-bundle",
  "codeterm-input-macos",
  "codeterm-input-windows",
@@ -1114,6 +1115,7 @@ dependencies = [
  "codeterm-plan",
  "codeterm-plugin",
  "codeterm-plugins",
+ "codeterm-provider-signals",
  "codeterm-pty",
  "codeterm-repowatch",
  "codeterm-storage",
@@ -1296,6 +1298,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-decision"
+version = "1.6.2"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codeterm-frontend-bundle"
 version = "0.1.0"
 dependencies = [
@@ -1336,6 +1346,7 @@ dependencies = [
  "annembed",
  "async-trait",
  "chrono",
+ "codeterm-decision",
  "codeterm-mem-store",
  "codeterm-paths",
  "codeterm-types",
@@ -1450,7 +1461,9 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "codeterm-decision",
  "codeterm-paths",
+ "codeterm-provider-signals",
  "codeterm-types",
  "codeterm-util",
  "codeterm-wire",
@@ -1497,11 +1510,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-provider-signals"
+version = "1.6.2"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codeterm-pty"
 version = "1.6.2"
 dependencies = [
  "base64 0.22.1",
  "codeterm-paths",
+ "codeterm-provider-signals",
  "codeterm-storage",
  "codeterm-types",
  "codeterm-util",
@@ -1554,6 +1576,7 @@ dependencies = [
 name = "codeterm-types"
 version = "1.6.2"
 dependencies = [
+ "codeterm-provider-signals",
  "serde",
  "serde_json",
  "toml 0.8.2",

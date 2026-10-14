@@ -281,6 +281,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-decision"
+version = "1.6.2"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codeterm-mem-store"
 version = "0.1.0"
 dependencies = [
@@ -306,7 +314,9 @@ dependencies = [
  "async-trait",
  "base64",
  "chrono",
+ "codeterm-decision",
  "codeterm-paths",
+ "codeterm-provider-signals",
  "codeterm-types",
  "codeterm-util",
  "codeterm-wire",
@@ -351,9 +361,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-provider-signals"
+version = "1.6.2"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codeterm-types"
 version = "1.6.2"
 dependencies = [
+ "codeterm-provider-signals",
  "serde",
  "serde_json",
  "toml",

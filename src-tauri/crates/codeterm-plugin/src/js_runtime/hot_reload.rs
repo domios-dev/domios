@@ -46,7 +46,7 @@ pub struct PluginLoadError {
 #[derive(Clone)]
 pub struct CapabilityRegistries {
     pub decision_model:
-        Arc<crate::capability::CapabilityRegistry<dyn codeterm_types::decision::DecisionModel>>,
+        Arc<crate::capability::CapabilityRegistry<dyn codeterm_decision::DecisionModel>>,
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
     pub converter: Arc<crate::converter::ConverterRegistry>,
     pub graph_nodes: Arc<crate::graph_nodes::GraphNodeRegistry>,

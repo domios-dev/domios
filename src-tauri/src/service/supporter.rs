@@ -1,12 +1,12 @@
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use codeterm_types::config::SupporterConfig;
-use codeterm_types::decision::{
+use codeterm_decision::{
     deadline, DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPricing,
     DecisionPrimitives, DecisionQuestionsRequest, DecisionRequest, DecisionResponse,
     NamedDecisionQuestion, TokenMode,
 };
+use codeterm_types::config::SupporterConfig;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -212,7 +212,7 @@ impl DecisionModel for BudgetedModel {
     fn pricing(&self) -> Option<DecisionPricing> {
         self.model.pricing()
     }
-    fn metadata(&self) -> codeterm_types::decision::DecisionMetadata {
+    fn metadata(&self) -> codeterm_decision::DecisionMetadata {
         self.model.metadata()
     }
     fn primitives(&self) -> DecisionPrimitives {
@@ -269,7 +269,7 @@ impl DecisionModel for BudgetedModel {
             self.physical_limit,
         );
         let _active = physical::ActiveMeter(meter.clone());
-        let _scope = codeterm_types::decision::physical::RequestScope::enter(meter.clone());
+        let _scope = codeterm_decision::physical::RequestScope::enter(meter.clone());
         let price = self.model.pricing();
         let model_id = self.model.model_id();
         let response = self
