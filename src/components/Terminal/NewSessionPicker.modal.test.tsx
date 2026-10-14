@@ -9,7 +9,8 @@ const fixture = vi.hoisted(() => {
   };
   return {
     workspace,
-    state: { workspaces: [workspace], active_workspace_id: workspace.id },
+    state: { workspaces: [workspace], active_workspace_id: workspace.id, focused_tab_id: "manager",
+      tabs: { manager: { id: "manager", role: "Manager", agent_type: "opencode", session_binding_nonce: "manager-nonce" } } },
     actions: {
       spawnAgentTab: vi.fn(async () => null),
       createOrchestrationPair: vi.fn(async () => ({ orchestrator_tab_id: "lead-tab" })),
