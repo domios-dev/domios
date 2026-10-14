@@ -324,7 +324,7 @@ ct_cache_retention() {
     return 2
   fi
   CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" \
-    node "$(ct_repo_root)/scripts/cache-retention.mjs" "$1" "$dir" "$(pwd -P)" "${2:-}" || result=$?
+    node "$(ct_repo_root)/scripts/cache-retention.mjs" "$1" "$dir" "${CT_REAL_WORKTREE:-$(pwd -P)}" "${2:-}" || result=$?
   ct_gateway_mutex_release "$dir"
   return "$result"
 }
