@@ -221,110 +221,108 @@ fn cleanup_inventory(plan: &Plan) -> Vec<TeamCloseLane> {
     lanes
 }
 
-impl ServiceContext {
-    pub(crate) fn clean_plan_lanes(
-        &self,
-        plan: &Plan,
-        confirm: bool,
-        fetch: bool,
-    ) -> Result<Vec<LaneCleanRow>, String> {
-        let project = if plan.canonical_project_path.trim().is_empty() {
-            &plan.project_path
-        } else {
-            &plan.canonical_project_path
-        };
-        if fetch {
-            git(project, &["fetch", "--all", "--prune"])?;
-        }
-        let mut rows = Vec::new();
-        let lanes = cleanup_inventory(plan);
-        for lane in lanes {
-            let current = self
-                .plan_store
-                .get(&plan.id)
-                .ok_or_else(|| "plan disappeared during cleanup".to_string())?;
-            let task = current
-                .tasks
-                .iter()
-                .find(|task| task.id == lane.task_id)
-                .ok_or_else(|| "task disappeared during cleanup".to_string())?;
-            let mut row = run_lane_with(&lane, confirm, || {
-                let live = self
-                    .mux
-                    .read()
-                    .all_tabs()
-                    .map(|tab| tab.id.clone())
-                    .collect();
-                let refusal = match self.plan_store.get(&plan.id) {
-                    None => Some("plan disappeared during cleanup".into()),
-                    Some(current) if !current.tasks.iter().any(|task| task.id == lane.task_id) => {
-                        Some("task disappeared during cleanup".into())
-                    }
-                    Some(current) => current
-                        .tasks
-                        .iter()
-                        .filter(|task| {
-                            task.id == lane.task_id
-                                || task
-                                    .lane
-                                    .worktree_path
-                                    .as_ref()
-                                    .zip(lane.worktree_path.as_ref())
-                                    .is_some_and(|(a, b)| super::worker_lane::same_path(a, b))
-                                || task
-                                    .lane
-                                    .branch
-                                    .as_ref()
-                                    .zip(lane.branch.as_ref())
-                                    .is_some_and(|(a, b)| a == b)
-                        })
-                        .find_map(|task| task_refusal(task, &lane, &live)),
-                };
-                (self.live_tab_cwds(), refusal)
-            });
-            if row.action == "removed" {
-                let finalized = if let Some(path) = lane.worktree_path.as_deref() {
-                    super::lane_removal::finalize_lane_removal(
-                        &self.plan_store,
-                        self.ext::<crate::repowatch::RepoWatchRegistryHandle>(),
-                        &super::lane_removal::LaneRemovalOutcome {
-                            canonical_cwd: project.clone(),
-                            worktree_path: path.into(),
-                            branch: lane.branch.clone(),
-                            worktree_already_removed: false,
-                            branch_already_removed: false,
-                        },
-                    )
-                } else if task.lane.worktree_path.is_none() && task.lane.branch == lane.branch {
-                    self.plan_store
-                        .update_task_lane(
-                            &plan.id,
-                            &task.id,
-                            TaskLaneUpdate {
-                                tab_id: Some(None),
-                                workspace_id: Some(None),
-                                workspace_name: Some(None),
-                                branch: Some(None),
-                                cleanup_status: Some(Some("done".into())),
-                                ..Default::default()
-                            },
-                            now_ms(),
-                        )
-                        .map(|_| ())
-                        .map_err(|error| error.to_string())
-                } else {
-                    Ok(())
-                };
-                if let Err(reason) = finalized {
-                    row.action = "failed";
-                    row.reason =
-                        format!("lane removed but cleanup bookkeeping is incomplete: {reason}");
-                }
-            }
-            rows.push(row);
-        }
-        Ok(rows)
+pub(crate) fn clean_plan_lanes(
+    svc: &ServiceContext,
+    plan: &Plan,
+    confirm: bool,
+    fetch: bool,
+) -> Result<Vec<LaneCleanRow>, String> {
+    let project = if plan.canonical_project_path.trim().is_empty() {
+        &plan.project_path
+    } else {
+        &plan.canonical_project_path
+    };
+    if fetch {
+        git(project, &["fetch", "--all", "--prune"])?;
     }
+    let mut rows = Vec::new();
+    let lanes = cleanup_inventory(plan);
+    for lane in lanes {
+        let current = svc
+            .plan_store
+            .get(&plan.id)
+            .ok_or_else(|| "plan disappeared during cleanup".to_string())?;
+        let task = current
+            .tasks
+            .iter()
+            .find(|task| task.id == lane.task_id)
+            .ok_or_else(|| "task disappeared during cleanup".to_string())?;
+        let mut row = run_lane_with(&lane, confirm, || {
+            let live = svc
+                .mux
+                .read()
+                .all_tabs()
+                .map(|tab| tab.id.clone())
+                .collect();
+            let refusal = match svc.plan_store.get(&plan.id) {
+                None => Some("plan disappeared during cleanup".into()),
+                Some(current) if !current.tasks.iter().any(|task| task.id == lane.task_id) => {
+                    Some("task disappeared during cleanup".into())
+                }
+                Some(current) => current
+                    .tasks
+                    .iter()
+                    .filter(|task| {
+                        task.id == lane.task_id
+                            || task
+                                .lane
+                                .worktree_path
+                                .as_ref()
+                                .zip(lane.worktree_path.as_ref())
+                                .is_some_and(|(a, b)| super::worker_lane::same_path(a, b))
+                            || task
+                                .lane
+                                .branch
+                                .as_ref()
+                                .zip(lane.branch.as_ref())
+                                .is_some_and(|(a, b)| a == b)
+                    })
+                    .find_map(|task| task_refusal(task, &lane, &live)),
+            };
+            (svc.live_tab_cwds(), refusal)
+        });
+        if row.action == "removed" {
+            let finalized = if let Some(path) = lane.worktree_path.as_deref() {
+                super::lane_removal::finalize_lane_removal(
+                    &svc.plan_store,
+                    svc.ext::<crate::repowatch::RepoWatchRegistryHandle>(),
+                    &super::lane_removal::LaneRemovalOutcome {
+                        canonical_cwd: project.clone(),
+                        worktree_path: path.into(),
+                        branch: lane.branch.clone(),
+                        worktree_already_removed: false,
+                        branch_already_removed: false,
+                    },
+                )
+            } else if task.lane.worktree_path.is_none() && task.lane.branch == lane.branch {
+                svc.plan_store
+                    .update_task_lane(
+                        &plan.id,
+                        &task.id,
+                        TaskLaneUpdate {
+                            tab_id: Some(None),
+                            workspace_id: Some(None),
+                            workspace_name: Some(None),
+                            branch: Some(None),
+                            cleanup_status: Some(Some("done".into())),
+                            ..Default::default()
+                        },
+                        now_ms(),
+                    )
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            } else {
+                Ok(())
+            };
+            if let Err(reason) = finalized {
+                row.action = "failed";
+                row.reason =
+                    format!("lane removed but cleanup bookkeeping is incomplete: {reason}");
+            }
+        }
+        rows.push(row);
+    }
+    Ok(rows)
 }
 
 fn now_ms() -> u64 {

@@ -1,3 +1,4 @@
+use crate::service::TeamExt;
 use serde_json::Value;
 
 use crate::multiplexer::commands::MuxState;
@@ -107,14 +108,14 @@ pub(super) fn dispatch(
             let team_id = get_string_param(params, "team_id")?;
             let plan_id = get_string_param(params, "plan_id")?;
             let caller_tab_id = adopt_plan_caller(params)?;
-            let plan = svc
-                .adopt_plan_for_team(
-                    &team_id,
-                    &plan_id,
-                    crate::service::TeamMutationCaller::AgentTab(caller_tab_id),
-                    super::plan_time::epoch_ms(),
-                )
-                .map_err(team_plan_rpc_err)?;
+            let plan = crate::service::adopt_plan_for_team(
+                svc,
+                &team_id,
+                &plan_id,
+                crate::service::TeamMutationCaller::AgentTab(caller_tab_id),
+                super::plan_time::epoch_ms(),
+            )
+            .map_err(team_plan_rpc_err)?;
             Ok(serde_json::json!({ "team_id": team_id, "plan": plan }))
         }
         "team.add_member" => {
@@ -133,27 +134,26 @@ pub(super) fn dispatch(
             let caller_tab_id = opt_string_param(params, "caller_tab_id")
                 .filter(|tab_id| !tab_id.trim().is_empty());
             let svc_ref = &**svc;
-            let result = tauri::async_runtime::block_on(
-                svc_ref.add_team_member(
-                    &team_id,
-                    caller_tab_id.as_deref(),
-                    crate::service::AddTeamMemberParams {
-                        provider,
-                        role,
-                        title: opt_string_param(params, "title"),
-                        task: crate::service::team_member_brief(
-                            opt_string_param(params, "task"),
-                            opt_string_param(params, "brief"),
-                        )
-                        .map_err(|message| JsonRpcError {
-                            code: -32602,
-                            message,
-                            data: None,
-                        })?,
-                        model,
-                    },
-                ),
-            )
+            let result = tauri::async_runtime::block_on(crate::service::add_team_member(
+                svc_ref,
+                &team_id,
+                caller_tab_id.as_deref(),
+                crate::service::AddTeamMemberParams {
+                    provider,
+                    role,
+                    title: opt_string_param(params, "title"),
+                    task: crate::service::team_member_brief(
+                        opt_string_param(params, "task"),
+                        opt_string_param(params, "brief"),
+                    )
+                    .map_err(|message| JsonRpcError {
+                        code: -32602,
+                        message,
+                        data: None,
+                    })?,
+                    model,
+                },
+            ))
             .map_err(|message| JsonRpcError {
                 code: -32602,
                 message,
@@ -169,8 +169,7 @@ pub(super) fn dispatch(
             let team_id = get_string_param(params, "team_id")?;
             let tab_id = get_string_param(params, "tab_id")?;
             let caller_tab_id = required_caller_tab(params, "Team agent adoption")?;
-            let team = svc
-                .adopt_agent_for_team(&team_id, &tab_id, &caller_tab_id)
+            let team = crate::service::adopt_agent_for_team(svc, &team_id, &tab_id, &caller_tab_id)
                 .map_err(|message| JsonRpcError {
                     code: -32602,
                     message,

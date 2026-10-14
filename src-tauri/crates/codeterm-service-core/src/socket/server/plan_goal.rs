@@ -83,7 +83,7 @@ pub(super) fn dispatch(
                 Ok(id) => id,
                 Err(_err)
                     if caller_tab
-                        .map(|tab| svc.tab_has_pending_paired_planner(tab))
+                        .map(|tab| crate::service::tab_has_pending_paired_planner(svc, tab))
                         .unwrap_or(false) =>
                 {
                     // A plan minted here has no goal to keep fields from, so the vector is mandatory — refused BEFORE the plan is created, never after, or the refusal leaves a plan behind.
@@ -136,7 +136,12 @@ pub(super) fn dispatch(
                         })?;
                     let plan = outcome.plan.clone();
                     created_team = Some(outcome);
-                    let _ = svc.bind_pending_paired_planner(&plan.id, &plan.owner, epoch_ms());
+                    let _ = crate::service::bind_pending_paired_planner(
+                        svc,
+                        &plan.id,
+                        &plan.owner,
+                        epoch_ms(),
+                    );
                     plan.id
                 }
                 Err(err) => return Err(err),

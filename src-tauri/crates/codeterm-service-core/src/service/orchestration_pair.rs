@@ -480,364 +480,376 @@ fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> 
     cleanup_errors
 }
 
-impl ServiceContext {
-    /// Bind a pending pair-spawned Planner when an Orchestrator creates its
-    /// first plan. Returns true only when a pending tab was consumed.
-    pub(crate) fn bind_pending_paired_planner(
+pub(crate) trait OrchestrationPairExt {
+    fn create_orchestration_pair(
         &self,
-        plan_id: &str,
-        owner: &OrchestratorRef,
-        now_ms: u64,
-    ) -> Result<bool, String> {
-        let Some(orch_tab_id) = owner.tab_id.as_deref().filter(|p| !p.is_empty()) else {
-            return Ok(false);
-        };
-        let planner_tab_id = {
-            let mut mux = self.mux.write();
-            let Some(orch) = mux.get_tab_mut(orch_tab_id) else {
-                return Ok(false);
-            };
-            orch.pending_paired_planner_tab_id.take()
-        };
-        let Some(planner_tab_id) = planner_tab_id else {
-            return Ok(false);
-        };
-        let (session_id, title) = self
-            .mux
-            .read()
-            .get_tab(&planner_tab_id)
-            .map(|planner| {
-                let binding_is_current =
-                    planner
-                        .session_binding_nonce
-                        .as_deref()
-                        .is_some_and(|nonce| {
-                            planner.reported_session_binding_nonce.as_deref() == Some(nonce)
-                        });
-                (
-                    binding_is_current
-                        .then(|| planner.agent_session_id.clone())
-                        .flatten(),
-                    Some(planner.title.clone()),
-                )
-            })
-            .unwrap_or_default();
-        self.plan_store
-            .set_planner_ref(
-                plan_id,
-                Some(PlannerRef::Tab {
-                    tab_id: planner_tab_id.clone(),
-                    session_id,
-                    title,
-                }),
-                now_ms,
-            )
-            .map_err(|e| e.to_string())?;
-        log::info!(
-            "[orchestration-pair] bound pending planner {planner_tab_id} to first plan {plan_id} for orchestrator {orch_tab_id}"
-        );
-        Ok(true)
-    }
+        params: OrchestrationPairParams,
+    ) -> impl std::future::Future<Output = Result<OrchestrationPairResult, String>> + Send;
+}
 
-    pub(crate) fn tab_has_pending_paired_planner(&self, tab_id: &str) -> bool {
-        self.mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|p| p.pending_paired_planner_tab_id.as_deref())
-            .map(|p| !p.is_empty())
-            .unwrap_or(false)
-    }
-
+impl OrchestrationPairExt for ServiceContext {
     /// Create an Orchestrator + Planner pair in one action. No plan is created
     /// at spawn time; the Orchestrator's first goal/plan create claims a new
     /// plan and binds the already-parented Planner. If the Planner spawn fails,
     /// no pending planner is recorded and the error names the exact recovery
     /// command — never a silent half-pair.
-    pub async fn create_orchestration_pair(
+    fn create_orchestration_pair(
         &self,
         params: OrchestrationPairParams,
-    ) -> Result<OrchestrationPairResult, String> {
-        if params.orchestrator_agent.trim().is_empty() {
-            return Err("orchestrator_agent is required".into());
-        }
-        if params.planner_agent.trim().is_empty() {
-            return Err("planner_agent is required".into());
-        }
+    ) -> impl std::future::Future<Output = Result<OrchestrationPairResult, String>> + Send {
+        async move {
+            if params.orchestrator_agent.trim().is_empty() {
+                return Err("orchestrator_agent is required".into());
+            }
+            if params.planner_agent.trim().is_empty() {
+                return Err("planner_agent is required".into());
+            }
 
-        let startup_supervisor = params.spawned_by_tab_id.as_ref().and_then(|tab_id| {
-            self.mux
-                .read()
-                .get_tab(tab_id)
-                .filter(|tab| crate::service::worker_ack::is_agent_spawner(tab))
-                .map(|_| tab_id.clone())
-        });
+            let startup_supervisor = params.spawned_by_tab_id.as_ref().and_then(|tab_id| {
+                self.mux
+                    .read()
+                    .get_tab(tab_id)
+                    .filter(|tab| crate::service::worker_ack::is_agent_spawner(tab))
+                    .map(|_| tab_id.clone())
+            });
 
-        // The General Agent is a machine coordinator represented by Manager storage, not a Team leaf, so it is exempt regardless of the flag.
-        validate_pair_creator(
-            &self.mux.read(),
-            params.spawned_by_tab_id.as_deref(),
-            params.leaf_creation_acknowledged,
-        )?;
-
-        let workspace_id = {
-            let mux = self.mux.write();
-            params
-                .workspace_id
-                .clone()
-                .or_else(|| mux.get_active_workspace().map(|w| w.id.clone()))
-                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or_else(|| "No workspace found".to_string())?
-        };
-        let svc = self.clone();
-        let cwd_workspace = workspace_id.clone();
-        let cwd_caller = params.spawned_by_tab_id.clone();
-        super::blocking::run(move || {
-            svc.validate_request_cwd(Some(&cwd_workspace), cwd_caller.as_deref(), None)
-                .map_err(String::from)
-        })
-        .await?;
-        let project = self
-            .mux
-            .read()
-            .get_workspace(&workspace_id)
-            .map(|workspace| workspace.name.clone())
-            .unwrap_or_else(|| workspace_id.clone());
-
-        let orchestrator_model = explicit_pair_model(params.orchestrator_model.clone());
-        let planner_model = explicit_pair_model(params.planner_model.clone());
-        validate_pair_provider(
-            self,
-            &params.orchestrator_agent,
-            "Orchestrator",
-            None,
-            orchestrator_model.as_deref(),
-            params.orchestrator_reasoning_effort.as_deref(),
-        )?;
-        validate_pair_provider(
-            self,
-            &params.planner_agent,
-            "Manager",
-            Some("planner"),
-            planner_model.as_deref(),
-            params.planner_reasoning_effort.as_deref(),
-        )?;
-        let claimed_orchestrator_pad_existed = if let Some(tab_id) = params.existing_tab_id.clone()
-        {
-            tokio::task::spawn_blocking(move || {
-                crate::service::agent_pad::AgentPad::open(&crate::paths::data_dir(), &tab_id)
-                    .is_ok()
-            })
-            .await
-            .map_err(|error| format!("failed to inspect claimed Tab AgentPad: {error}"))?
-        } else {
-            false
-        };
-        let pair_fix_command = pair_retry_command(
-            &workspace_id,
-            &params.orchestrator_agent,
-            orchestrator_model.as_deref(),
-            &params.planner_agent,
-            planner_model.as_deref(),
-        );
-
-        let membership_shape = CorrectiveShape::in_workspace(Some(&workspace_id)).with_agents(
-            Some(&params.orchestrator_agent),
-            Some(&params.planner_agent),
-        );
-        let reserved = {
-            let mut mux = self.mux.write();
-            let reserved = reserve_pair_tabs(
-                &mut mux,
-                &workspace_id,
-                params.existing_tab_id.as_deref(),
-                claimed_orchestrator_pad_existed,
-                &membership_shape,
+            // The General Agent is a machine coordinator represented by Manager storage, not a Team leaf, so it is exempt regardless of the flag.
+            validate_pair_creator(
+                &self.mux.read(),
+                params.spawned_by_tab_id.as_deref(),
+                params.leaf_creation_acknowledged,
             )?;
-            if let Some(title) = params
-                .title
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
+
+            let workspace_id = {
+                let mux = self.mux.write();
+                params
+                    .workspace_id
+                    .clone()
+                    .or_else(|| mux.get_active_workspace().map(|w| w.id.clone()))
+                    .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
+                    .ok_or_else(|| "No workspace found".to_string())?
+            };
+            let svc = self.clone();
+            let cwd_workspace = workspace_id.clone();
+            let cwd_caller = params.spawned_by_tab_id.clone();
+            super::blocking::run(move || {
+                svc.validate_request_cwd(Some(&cwd_workspace), cwd_caller.as_deref(), None)
+                    .map_err(String::from)
+            })
+            .await?;
+            let project = self
+                .mux
+                .read()
+                .get_workspace(&workspace_id)
+                .map(|workspace| workspace.name.clone())
+                .unwrap_or_else(|| workspace_id.clone());
+
+            let orchestrator_model = explicit_pair_model(params.orchestrator_model.clone());
+            let planner_model = explicit_pair_model(params.planner_model.clone());
+            validate_pair_provider(
+                self,
+                &params.orchestrator_agent,
+                "Orchestrator",
+                None,
+                orchestrator_model.as_deref(),
+                params.orchestrator_reasoning_effort.as_deref(),
+            )?;
+            validate_pair_provider(
+                self,
+                &params.planner_agent,
+                "Manager",
+                Some("planner"),
+                planner_model.as_deref(),
+                params.planner_reasoning_effort.as_deref(),
+            )?;
+            let claimed_orchestrator_pad_existed = if let Some(tab_id) =
+                params.existing_tab_id.clone()
             {
-                apply_team_title(&mut mux, &reserved.team.id, Some(title))?;
-            }
-            reserved
-        };
-        let orchestrator_label = self
-            .mux
-            .read()
-            .display_label_for_tab(&reserved.orchestrator_tab_id);
-        let pair_lease = startup_supervisor
-            .as_deref()
-            .and_then(|creator_tab_id| pair_startup_lease(creator_tab_id, &reserved));
-        if let Some(lease) = pair_lease {
-            self.register_pair_startup_lease(
-                lease,
-                &[
-                    (
-                        reserved.orchestrator_tab_id.as_str(),
-                        orchestrator_label.as_str(),
-                    ),
-                    (
-                        reserved.planner_tab_id.as_str(),
-                        reserved.planner_name.as_str(),
-                    ),
-                ],
-            );
-        } else if let Some(supervisor_tab_id) = startup_supervisor.as_deref() {
-            self.register_agent_startup_supervision(
-                supervisor_tab_id,
-                &reserved.orchestrator_tab_id,
-                &orchestrator_label,
-            );
-            self.register_agent_startup_supervision(
-                supervisor_tab_id,
-                &reserved.planner_tab_id,
-                &reserved.planner_name,
-            );
-        }
-        let orch_counterpart = crate::service::spawn_factory::Counterpart::new(
-            "Orchestrator",
-            &orchestrator_label,
-            &reserved.orchestrator_tab_id,
-        );
-        let planner_counterpart = crate::service::spawn_factory::Counterpart::new(
-            "Planner",
-            &reserved.planner_name,
-            &reserved.planner_tab_id,
-        );
-        let mut orchestrator_bootstrap = crate::service::spawn_factory::forming_identity_in_team(
-            "Orchestrator",
-            ORCHESTRATOR,
-            project.clone(),
-            &reserved.team,
-        );
-        orchestrator_bootstrap.coordination =
-            Some(crate::service::spawn_factory::introduction_body(
-                &orch_counterpart,
-                &planner_counterpart,
-            ));
-        let orch_params = SpawnAgentParams {
-            agent: Some(params.orchestrator_agent.clone()),
-            model: orchestrator_model.clone(),
-            reasoning_effort: params
-                .orchestrator_reasoning_effort
-                .clone()
-                .filter(|e| !e.trim().is_empty()),
-            role: Some("Orchestrator".into()),
-            can_spawn: Some(true),
-            workspace_id: Some(workspace_id.clone()),
-            spawned_by_tab_id: params.spawned_by_tab_id.clone(),
-            task: None,
-            manager_bootstrap: Some(orchestrator_bootstrap),
-            existing_tab_id: Some(reserved.orchestrator_tab_id.clone()),
-            skip_orchestrator_onboarding: Some(true),
-            ..Default::default()
-        };
-        let orch_result = match self.spawn_agent(orch_params, None).await {
-            Ok(result) => result,
-            Err(error) => {
-                let cleanup_errors = rollback_pair_tabs(self, &reserved);
-                let cleanup = if cleanup_errors.is_empty() {
-                    "Both reserved Tabs were rolled back.".to_string()
-                } else {
-                    format!(
-                        "Pair rollback was incomplete: {}.",
-                        cleanup_errors.join("; ")
-                    )
-                };
-                return Err(format!(
-                    "Failed to spawn Orchestrator ({error}). {cleanup} Retry with: {pair_fix_command}"
-                ));
-            }
-        };
-        let orch_tab_id = orch_result.tab_id.clone();
-
-        let mut planner_bootstrap = crate::service::spawn_factory::forming_identity_in_team(
-            "Planner",
-            PLANNER,
-            project,
-            &reserved.team,
-        );
-        planner_bootstrap.coordination = Some(crate::service::spawn_factory::introduction_body(
-            &planner_counterpart,
-            &orch_counterpart,
-        ));
-        let planner_params = SpawnAgentParams {
-            agent: Some(params.planner_agent.clone()),
-            model: planner_model.clone(),
-            reasoning_effort: params
-                .planner_reasoning_effort
-                .clone()
-                .filter(|e| !e.trim().is_empty()),
-            title: Some(reserved.planner_name.clone()),
-            role: Some("Manager".into()),
-            role_profile: Some("planner".into()),
-            parent_tab_id: Some(orch_tab_id.clone()),
-            plan_id: None,
-            workspace_id: Some(workspace_id.clone()),
-            spawned_by_tab_id: Some(orch_tab_id.clone()),
-            task: None,
-            manager_bootstrap: Some(planner_bootstrap),
-            existing_tab_id: Some(reserved.planner_tab_id.clone()),
-            ..Default::default()
-        };
-
-        match self.spawn_agent(planner_params, None).await {
-            Ok(planner_result) => {
-                let planner_tab_id = planner_result.tab_id.clone();
-                if let Some(tab) = self.mux.write().get_tab_mut(&orch_tab_id) {
-                    tab.pending_paired_planner_tab_id = Some(planner_tab_id.clone());
-                }
-                // Activate server-side: the client continuation may be gone by
-                // the time the pair lands (page reload); the daemon owns focus.
-                {
-                    let mut mux = self.mux.write();
-                    let orch_tab = mux
-                        .get_workspace(&workspace_id)
-                        .and_then(|ws| ws.tabs.iter().find(|tab_id| *tab_id == &orch_tab_id))
-                        .cloned();
-                    let _ = mux.set_active_workspace(&workspace_id);
-                    if let Some(tab_id) = orch_tab {
-                        let _ = mux.set_active_tab(&workspace_id, &tab_id);
-                    }
-                }
-                let _ = self.focus_tab(&orch_tab_id);
-                self.emit_state_changed();
-                // final count is the authoritative one for the nudge.
-                let budget_notice = self.workspace_tab_budget_notice(&workspace_id);
-                if reserved.team_minted {
-                    self.record_product_feature(codeterm_analytics::Feature::TeamCreated);
-                }
-                Ok(OrchestrationPairResult {
-                    plan_id: None,
-                    orchestrator_tab_id: orch_tab_id,
-                    orchestrator_model,
-                    planner_tab_id,
-                    planner_model,
-                    warning: crate::service::spawn::merge_spawn_warnings(
-                        orch_result.warning,
-                        planner_result.warning,
-                    ),
-                    budget_notice,
+                tokio::task::spawn_blocking(move || {
+                    crate::service::agent_pad::AgentPad::open(&crate::paths::data_dir(), &tab_id)
+                        .is_ok()
                 })
+                .await
+                .map_err(|error| format!("failed to inspect claimed Tab AgentPad: {error}"))?
+            } else {
+                false
+            };
+            let pair_fix_command = pair_retry_command(
+                &workspace_id,
+                &params.orchestrator_agent,
+                orchestrator_model.as_deref(),
+                &params.planner_agent,
+                planner_model.as_deref(),
+            );
+
+            let membership_shape = CorrectiveShape::in_workspace(Some(&workspace_id)).with_agents(
+                Some(&params.orchestrator_agent),
+                Some(&params.planner_agent),
+            );
+            let reserved = {
+                let mut mux = self.mux.write();
+                let reserved = reserve_pair_tabs(
+                    &mut mux,
+                    &workspace_id,
+                    params.existing_tab_id.as_deref(),
+                    claimed_orchestrator_pad_existed,
+                    &membership_shape,
+                )?;
+                if let Some(title) = params
+                    .title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                {
+                    apply_team_title(&mut mux, &reserved.team.id, Some(title))?;
+                }
+                reserved
+            };
+            let orchestrator_label = self
+                .mux
+                .read()
+                .display_label_for_tab(&reserved.orchestrator_tab_id);
+            let pair_lease = startup_supervisor
+                .as_deref()
+                .and_then(|creator_tab_id| pair_startup_lease(creator_tab_id, &reserved));
+            if let Some(lease) = pair_lease {
+                self.register_pair_startup_lease(
+                    lease,
+                    &[
+                        (
+                            reserved.orchestrator_tab_id.as_str(),
+                            orchestrator_label.as_str(),
+                        ),
+                        (
+                            reserved.planner_tab_id.as_str(),
+                            reserved.planner_name.as_str(),
+                        ),
+                    ],
+                );
+            } else if let Some(supervisor_tab_id) = startup_supervisor.as_deref() {
+                self.register_agent_startup_supervision(
+                    supervisor_tab_id,
+                    &reserved.orchestrator_tab_id,
+                    &orchestrator_label,
+                );
+                self.register_agent_startup_supervision(
+                    supervisor_tab_id,
+                    &reserved.planner_tab_id,
+                    &reserved.planner_name,
+                );
             }
-            Err(error) => {
-                let cleanup_errors = rollback_pair_tabs(self, &reserved);
-                let cleanup = if cleanup_errors.is_empty() {
-                    "Both reserved Tabs were rolled back.".to_string()
-                } else {
-                    format!(
-                        "Pair rollback was incomplete: {}.",
-                        cleanup_errors.join("; ")
-                    )
-                };
-                Err(format!(
-                    "Failed to spawn Planner ({error}). {cleanup} Retry with: {pair_fix_command}"
-                ))
+            let orch_counterpart = crate::service::spawn_factory::Counterpart::new(
+                "Orchestrator",
+                &orchestrator_label,
+                &reserved.orchestrator_tab_id,
+            );
+            let planner_counterpart = crate::service::spawn_factory::Counterpart::new(
+                "Planner",
+                &reserved.planner_name,
+                &reserved.planner_tab_id,
+            );
+            let mut orchestrator_bootstrap =
+                crate::service::spawn_factory::forming_identity_in_team(
+                    "Orchestrator",
+                    ORCHESTRATOR,
+                    project.clone(),
+                    &reserved.team,
+                );
+            orchestrator_bootstrap.coordination =
+                Some(crate::service::spawn_factory::introduction_body(
+                    &orch_counterpart,
+                    &planner_counterpart,
+                ));
+            let orch_params = SpawnAgentParams {
+                agent: Some(params.orchestrator_agent.clone()),
+                model: orchestrator_model.clone(),
+                reasoning_effort: params
+                    .orchestrator_reasoning_effort
+                    .clone()
+                    .filter(|e| !e.trim().is_empty()),
+                role: Some("Orchestrator".into()),
+                can_spawn: Some(true),
+                workspace_id: Some(workspace_id.clone()),
+                spawned_by_tab_id: params.spawned_by_tab_id.clone(),
+                task: None,
+                manager_bootstrap: Some(orchestrator_bootstrap),
+                existing_tab_id: Some(reserved.orchestrator_tab_id.clone()),
+                skip_orchestrator_onboarding: Some(true),
+                ..Default::default()
+            };
+            let orch_result = match self.spawn_agent(orch_params, None).await {
+                Ok(result) => result,
+                Err(error) => {
+                    let cleanup_errors = rollback_pair_tabs(self, &reserved);
+                    let cleanup = if cleanup_errors.is_empty() {
+                        "Both reserved Tabs were rolled back.".to_string()
+                    } else {
+                        format!(
+                            "Pair rollback was incomplete: {}.",
+                            cleanup_errors.join("; ")
+                        )
+                    };
+                    return Err(format!(
+                        "Failed to spawn Orchestrator ({error}). {cleanup} Retry with: {pair_fix_command}"
+                    ));
+                }
+            };
+            let orch_tab_id = orch_result.tab_id.clone();
+
+            let mut planner_bootstrap = crate::service::spawn_factory::forming_identity_in_team(
+                "Planner",
+                PLANNER,
+                project,
+                &reserved.team,
+            );
+            planner_bootstrap.coordination =
+                Some(crate::service::spawn_factory::introduction_body(
+                    &planner_counterpart,
+                    &orch_counterpart,
+                ));
+            let planner_params = SpawnAgentParams {
+                agent: Some(params.planner_agent.clone()),
+                model: planner_model.clone(),
+                reasoning_effort: params
+                    .planner_reasoning_effort
+                    .clone()
+                    .filter(|e| !e.trim().is_empty()),
+                title: Some(reserved.planner_name.clone()),
+                role: Some("Manager".into()),
+                role_profile: Some("planner".into()),
+                parent_tab_id: Some(orch_tab_id.clone()),
+                plan_id: None,
+                workspace_id: Some(workspace_id.clone()),
+                spawned_by_tab_id: Some(orch_tab_id.clone()),
+                task: None,
+                manager_bootstrap: Some(planner_bootstrap),
+                existing_tab_id: Some(reserved.planner_tab_id.clone()),
+                ..Default::default()
+            };
+
+            match self.spawn_agent(planner_params, None).await {
+                Ok(planner_result) => {
+                    let planner_tab_id = planner_result.tab_id.clone();
+                    if let Some(tab) = self.mux.write().get_tab_mut(&orch_tab_id) {
+                        tab.pending_paired_planner_tab_id = Some(planner_tab_id.clone());
+                    }
+                    // Activate server-side: the client continuation may be gone by
+                    // the time the pair lands (page reload); the daemon owns focus.
+                    {
+                        let mut mux = self.mux.write();
+                        let orch_tab = mux
+                            .get_workspace(&workspace_id)
+                            .and_then(|ws| ws.tabs.iter().find(|tab_id| *tab_id == &orch_tab_id))
+                            .cloned();
+                        let _ = mux.set_active_workspace(&workspace_id);
+                        if let Some(tab_id) = orch_tab {
+                            let _ = mux.set_active_tab(&workspace_id, &tab_id);
+                        }
+                    }
+                    let _ = self.focus_tab(&orch_tab_id);
+                    self.emit_state_changed();
+                    // final count is the authoritative one for the nudge.
+                    let budget_notice = self.workspace_tab_budget_notice(&workspace_id);
+                    if reserved.team_minted {
+                        self.record_product_feature(codeterm_analytics::Feature::TeamCreated);
+                    }
+                    Ok(OrchestrationPairResult {
+                        plan_id: None,
+                        orchestrator_tab_id: orch_tab_id,
+                        orchestrator_model,
+                        planner_tab_id,
+                        planner_model,
+                        warning: crate::service::spawn::merge_spawn_warnings(
+                            orch_result.warning,
+                            planner_result.warning,
+                        ),
+                        budget_notice,
+                    })
+                }
+                Err(error) => {
+                    let cleanup_errors = rollback_pair_tabs(self, &reserved);
+                    let cleanup = if cleanup_errors.is_empty() {
+                        "Both reserved Tabs were rolled back.".to_string()
+                    } else {
+                        format!(
+                            "Pair rollback was incomplete: {}.",
+                            cleanup_errors.join("; ")
+                        )
+                    };
+                    Err(format!(
+                        "Failed to spawn Planner ({error}). {cleanup} Retry with: {pair_fix_command}"
+                    ))
+                }
             }
         }
     }
+}
+
+/// Bind a pending pair-spawned Planner when an Orchestrator creates its
+/// first plan. Returns true only when a pending tab was consumed.
+pub(crate) fn bind_pending_paired_planner(
+    svc: &ServiceContext,
+    plan_id: &str,
+    owner: &OrchestratorRef,
+    now_ms: u64,
+) -> Result<bool, String> {
+    let Some(orch_tab_id) = owner.tab_id.as_deref().filter(|p| !p.is_empty()) else {
+        return Ok(false);
+    };
+    let planner_tab_id = {
+        let mut mux = svc.mux.write();
+        let Some(orch) = mux.get_tab_mut(orch_tab_id) else {
+            return Ok(false);
+        };
+        orch.pending_paired_planner_tab_id.take()
+    };
+    let Some(planner_tab_id) = planner_tab_id else {
+        return Ok(false);
+    };
+    let (session_id, title) = svc
+        .mux
+        .read()
+        .get_tab(&planner_tab_id)
+        .map(|planner| {
+            let binding_is_current =
+                planner
+                    .session_binding_nonce
+                    .as_deref()
+                    .is_some_and(|nonce| {
+                        planner.reported_session_binding_nonce.as_deref() == Some(nonce)
+                    });
+            (
+                binding_is_current
+                    .then(|| planner.agent_session_id.clone())
+                    .flatten(),
+                Some(planner.title.clone()),
+            )
+        })
+        .unwrap_or_default();
+    svc.plan_store
+        .set_planner_ref(
+            plan_id,
+            Some(PlannerRef::Tab {
+                tab_id: planner_tab_id.clone(),
+                session_id,
+                title,
+            }),
+            now_ms,
+        )
+        .map_err(|e| e.to_string())?;
+    log::info!(
+        "[orchestration-pair] bound pending planner {planner_tab_id} to first plan {plan_id} for orchestrator {orch_tab_id}"
+    );
+    Ok(true)
+}
+
+pub(crate) fn tab_has_pending_paired_planner(svc: &ServiceContext, tab_id: &str) -> bool {
+    svc.mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|p| p.pending_paired_planner_tab_id.as_deref())
+        .map(|p| !p.is_empty())
+        .unwrap_or(false)
 }
 
 fn apply_team_title(

@@ -34,7 +34,7 @@ pub(super) fn dispatch(
                 plan_id,
                 RefreshTrigger::Manual,
             );
-            let outcome = svc.orchestrator_refresh(req);
+            let outcome = crate::service::orchestrator::refresh::orchestrator_refresh(svc, req);
             let status = match outcome {
                 RefreshOutcome::Started => "started",
                 RefreshOutcome::Coalesced => "coalesced",

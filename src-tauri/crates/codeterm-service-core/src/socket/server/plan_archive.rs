@@ -81,8 +81,7 @@ pub(super) fn unarchive(
     now: u64,
 ) -> Result<Value, JsonRpcError> {
     let id = plan_refs::resolve_plan(store, params)?;
-    svc.unarchive_team_plan(&id, now)
-        .map_err(super::team::team_plan_rpc_err)?;
+    crate::service::unarchive_team_plan(svc, &id, now).map_err(super::team::team_plan_rpc_err)?;
     Ok(json!({ "ok": true }))
 }
 

@@ -3,6 +3,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{OrchestratorRef, PlanMode, PlanningState, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
+use crate::service::TeamExt;
 use crate::service::{SpawnAgentParams, TeamMutationCaller};
 use serde_json::{json, Value};
 

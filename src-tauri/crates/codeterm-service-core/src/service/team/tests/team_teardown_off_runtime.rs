@@ -77,7 +77,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
             .build()
             .unwrap();
         runtime.block_on(async move {
-            let mut teardown = Box::pin(service.finish_team_teardown(&runtime_team_id));
+            let mut teardown = Box::pin(super::finish_team_teardown(&service, &runtime_team_id));
             let waiting_on_storage =
                 std::future::poll_fn(|cx| Poll::Ready(teardown.as_mut().poll(cx).is_pending()))
                     .await;

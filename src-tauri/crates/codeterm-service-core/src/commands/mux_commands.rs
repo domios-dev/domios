@@ -1,3 +1,4 @@
+use crate::service::TeamExt;
 use crate::service::{ServiceState, TeamMutationCaller};
 use codeterm_types::team::Team;
 #[cfg(test)]
@@ -40,7 +41,8 @@ pub(crate) async fn mux_add_team_member_service_core(
 ) -> Result<crate::service::AddTeamMemberResult, String> {
     // No caller is the bootstrap door: a human placing the first manager into a Team
     // whose members cannot spawn. The service refuses it for any non-anchoring role.
-    svc.add_team_member(
+    crate::service::add_team_member(
+        svc,
         &team_id,
         caller_tab_id.as_deref(),
         crate::service::AddTeamMemberParams {

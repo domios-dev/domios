@@ -545,7 +545,7 @@ pub async fn batch_commands(
             id: c.id,
         })
         .collect();
-    let results = state.svc.batch(ops).await;
+    let results = crate::service::orchestrator::batch(&state.svc, ops).await;
     Ok(Json(serde_json::json!({"results": results})))
 }
 
@@ -655,9 +655,11 @@ pub async fn set_tab_role(
         })
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     if becomes_anchor {
-        state
-            .svc
-            .maybe_deliver_orchestrator_promotion_onboarding(&id, was_orchestrator);
+        crate::service::maybe_deliver_orchestrator_promotion_onboarding(
+            &state.svc,
+            &id,
+            was_orchestrator,
+        );
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -681,10 +683,7 @@ pub async fn make_orchestrator(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    state
-        .svc
-        .make_orchestrator(&id)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    crate::service::make_orchestrator(&state.svc, &id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

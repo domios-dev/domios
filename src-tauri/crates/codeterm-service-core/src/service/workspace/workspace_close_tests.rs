@@ -6,6 +6,7 @@ use crate::service::plan::NewTask;
 use crate::service::tab::{normalize_tab_description, validate_tab_title, MAX_TAB_TITLE_CHARS};
 use crate::service::test_fixture::ServiceFixture;
 use crate::service::workspace::{validate_workspace_name, MAX_WORKSPACE_NAME_CHARS};
+use crate::service::TeamExt;
 
 #[test]
 fn names_and_titles_validated() {
