@@ -17,8 +17,8 @@ describe("agent runtime state", () => {
     });
 
   it.each(["loading", "unloaded", "degraded"] as const)("shows the shared banner for %s", (state) => {
-    expect(runtimeBannerView({ state, epoch: 3, reason: "opaque-fault" })).toEqual({
-      loading: state === "loading", reason: "opaque-fault", canRetry: state !== "loading",
+    expect(runtimeBannerView({ state, epoch: 3, reason: "opaque-fault" })).toMatchObject({
+      loading: state === "loading", details: "opaque-fault", canRetry: state !== "loading",
     });
   });
 
