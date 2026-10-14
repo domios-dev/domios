@@ -1,3 +1,4 @@
+import { quoteNativeArgument } from "../../provider-shared/nativeArgument";
 import { writeClaudeLaunchPrompt } from "./launchPrompt";
 import { isImageDisplayMetadata } from "./imageMetadata";
 import { checkClaudeUpdate } from "./update";
@@ -385,7 +386,7 @@ const plugin: PluginModule = {
       if (prompt) {
         parts.push("--");
         const framed = p.starterPromptPrefix ? p.starterPromptPrefix + prompt + "</domios>" : prompt;
-        parts.push(host.shell.quoteFor(framed, host.platform()));
+        parts.push(quoteNativeArgument(framed, host.platform(), host.shell.quoteFor));
       }
     }
     return parts.join(" ");
