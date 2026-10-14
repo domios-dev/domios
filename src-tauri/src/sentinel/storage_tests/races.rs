@@ -105,7 +105,7 @@ fn storage_sentinel_commit_failure_refuses_claim_and_closes_admission() {
     let store = typed(&storage, &MockClock::starting_at(1000));
     let job = create(&store, Some("team"), false, two_handlers());
     let lease = due(&store).remove(0);
-    super::super::crate::sentinel::scheduler::advance(
+    crate::sentinel::scheduler::advance(
         &store,
         &lease,
         &output("done"),

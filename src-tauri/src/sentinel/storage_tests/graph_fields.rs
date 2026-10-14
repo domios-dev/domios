@@ -281,7 +281,7 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     assert_eq!(live.terminal().cloned(), job.terminal().cloned());
     assert!(live.session);
     assert_eq!(live.transitions.len(), 3);
-    assert!(!super::super::crate::sentinel::store::transition_budget_spent(&live));
+    assert!(!crate::sentinel::store::transition_budget_spent(&live));
     drop(store);
     close(storage);
 }
