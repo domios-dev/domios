@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { publicationGuard } from './build-gateway-guard.mjs';
+import { mutexTimeoutEvidence } from './build-gateway-mutex-evidence.mjs';
 
 const [operation, directory, pid, startToken, timeout = '30000', scope = 'production'] = process.argv.slice(2);
 const mutex = path.join(directory, 'state.lock');
@@ -60,7 +61,7 @@ try {
     candidate = fs.mkdtempSync(path.join(directory, 'state.lock.pending.'));
     fs.writeFileSync(path.join(candidate, 'pid'), `${pid}\n`);
     fs.writeFileSync(path.join(candidate, 'start_token'), `${startToken}\n`);
-    fs.writeFileSync(path.join(candidate, 'metadata.json'), JSON.stringify({ pid, startToken }));
+    fs.writeFileSync(path.join(candidate, 'job_id'), `${process.env.CT_BUILD_JOB_ID || 'unknown'}\n`);
   }
   while (true) {
     if (Date.now() >= deadline) throw new Error(publisher.identityUnavailable
@@ -100,6 +101,7 @@ try {
         // Publication and reclamation share this guard so stale observations cannot remove a new owner.
         if (inspectedGone) fs.rmSync(mutex, { recursive: true });
         if (!fs.existsSync(mutex)) {
+          fs.writeFileSync(path.join(candidate, 'metadata.json'), JSON.stringify({ pid, startToken, acquiredAt: Date.now() }));
           fs.renameSync(candidate, mutex);
           candidate = undefined;
           completed = true;
@@ -112,6 +114,7 @@ try {
   }
 } catch (error) {
   console.error(error.message);
+  console.error(`[build-gateway] mutex refusal caller_job=${process.env.CT_BUILD_JOB_ID || 'unknown'} evidence=${JSON.stringify(mutexTimeoutEvidence(directory))}`);
   const blockedPath = fs.existsSync(guard) ? guard : mutex;
   const quotedPath = `'${blockedPath.replaceAll("'", "'\\''")}'`;
   console.error(`If ownership is unreadable, stop gateway callers and verify no owner remains, ask the owner to resolve ${quotedPath}; do not delete unknown shared ownership`);
