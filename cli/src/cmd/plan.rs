@@ -9,6 +9,7 @@ use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::CliError;
 
 mod adopt_search;
+mod attempt_rebind;
 pub(crate) mod caller_context;
 mod gate_cmd;
 mod mesh_dispatch;
@@ -177,6 +178,17 @@ fn targeted_rebind_response(
 
 pub fn handle_plan(client: &mut dyn RpcClient, json: bool, action: PlanAction) {
     let action = match action {
+        PlanAction::Rebind {
+            plan_id,
+            task_id,
+            attempt_id,
+        } => {
+            match attempt_rebind::run(client, plan_id, task_id, attempt_id) {
+                Ok(value) => print_plan_result(json, &value),
+                Err(error) => crate::cmd::print::exit_with_cli_error(json, &error),
+            }
+            return;
+        }
         PlanAction::Task {
             action: task @ PlanTaskAction::Dispatch { .. },
         } => {
@@ -706,47 +718,9 @@ fn run_plan(
             plan_id,
             task_id,
             attempt_id,
-        } => match (task_id, attempt_id) {
-            (Some(task_id), Some(attempt_id)) => {
-                let plan_id = plan_id.ok_or(
-                    "targeted plan rebind requires an explicit plan id before --task and --attempt",
-                )?;
-                let shown = call(client, "task.show", json!({ "task_id": &task_id }))?;
-                if shown.get("plan_id").and_then(Value::as_str) != Some(plan_id.as_str()) {
-                    return Err("the exact task does not belong to the requested plan".into());
-                }
-                let task = shown.get("task").unwrap_or(&shown);
-                let owner_epoch = task
-                    .get("interruption")
-                    .and_then(|value| value.get("owner_epoch"))
-                    .and_then(Value::as_u64)
-                    .filter(|epoch| *epoch > 0)
-                    .ok_or("task detail did not include a current owner epoch")?;
-                let exact_task_id = task
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .filter(|value| !value.trim().is_empty())
-                    .ok_or("task detail did not include the exact task id")?;
-                let mut params = json!({
-                    "plan_id": &plan_id,
-                    "task_id": exact_task_id,
-                    "attempt_id": &attempt_id,
-                    "owner_epoch": owner_epoch,
-                });
-                inject_trusted_session(&mut params);
-                let response = call(client, "plan.session.rebind", params)?;
-                targeted_rebind_response(response, &plan_id, exact_task_id, &attempt_id)
-            }
-            (None, None) => {
-                let mut params = json!({});
-                if let Some(plan_id) = plan_id {
-                    params["plan_id"] = json!(plan_id);
-                }
-                inject_trusted_session(&mut params);
-                call(client, "plan.session.rebind", params)
-            }
-            _ => Err("targeted plan rebind requires both --task and --attempt".into()),
-        },
+        } => {
+            attempt_rebind::run(client, plan_id, task_id, attempt_id).map_err(|error| error.message)
+        }
 
         PlanAction::PlanningState {
             plan_id,

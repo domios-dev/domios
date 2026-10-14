@@ -14,7 +14,7 @@ const CURRENT_NONCE: &str = "current-session-nonce";
 const SESSION_ID: &str = "same-provider-session";
 
 #[test]
-fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real_skill_read() {
+fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_authority() {
     let (mut mux, parent_tab_id) = MultiplexerState::new();
     mux.set_orchestrator_role(&parent_tab_id).unwrap();
     let workspace_id = mux.list_workspaces()[0].id.clone();
@@ -31,6 +31,7 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
         tab.pty_id = Some("pty-worker".into());
         tab.agent_session_id = Some(SESSION_ID.into());
         tab.chat_view = true;
+        tab.lifecycle_epoch = Some(5);
         tab.session_binding_nonce = Some(OLD_NONCE.into());
         tab.reported_session_binding_nonce = Some(OLD_NONCE.into());
     }
@@ -117,10 +118,24 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
         )
         .unwrap();
 
+    store
+        .with_plan(&plan.id, 5, |plan| {
+            let attempt = &mut plan.tasks[0].execution_attempts[0];
+            attempt.report = Some(crate::plan::TaskExecutionReportSnapshot {
+                id: "partial-report".into(),
+                status: Some("partial".into()),
+                reporter_tab_id: Some(tab_id.clone()),
+                ..Default::default()
+            });
+            attempt.reported_at = Some(5);
+            Ok(())
+        })
+        .unwrap();
     {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.remember_superseded_binding_nonce();
+        tab.lifecycle_epoch = Some(6);
         tab.session_binding_nonce = Some(CURRENT_NONCE.into());
         tab.reported_session_binding_nonce = Some(CURRENT_NONCE.into());
     }
@@ -136,11 +151,40 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
         "attempt_id": attempt_id,
         "owner_epoch": owner_epoch,
         "caller_tab_id": tab_id,
-        "session_id": SESSION_ID,
         "session_binding_nonce": CURRENT_NONCE,
     });
     let service = Arc::new(fixture.service.clone());
+    let ack_params = Some(json!({
+        "tab_id": tab_id,
+        "plan_id": plan.id,
+        "task_id": task_id,
+        "session_binding_nonce": CURRENT_NONCE,
+    }));
+    let failed_ack = crate::socket::server::agent::dispatch(
+        "agent.ack",
+        &ack_params,
+        &fixture.service.app_handle,
+        &service,
+    )
+    .expect_err("ACK cannot use the attempt's superseded nonce");
+    assert_eq!(failed_ack.code, -32603);
+    assert!(failed_ack
+        .message
+        .contains("does not identify exactly one current attempt"));
     let before_role_and_team_refusals = store.show_task(&task_id).unwrap().task;
+    assert_eq!(before_role_and_team_refusals.interruption.owner_epoch, 1);
+    assert_eq!(
+        before_role_and_team_refusals.execution_attempts[0]
+            .interruption
+            .owner_epoch,
+        1
+    );
+    assert_eq!(
+        before_role_and_team_refusals.execution_attempts[0]
+            .session_binding_nonce
+            .as_deref(),
+        Some(OLD_NONCE)
+    );
     for refusal_cause in ["role", "role_profile", "missing_team", "unknown_team"] {
         {
             let mut mux = fixture.service.mux.write();
@@ -174,6 +218,16 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
             refusal.data.as_ref().unwrap()["type"],
             "attempt_binding_restore_refused"
         );
+        assert_eq!(
+            refusal.data.as_ref().unwrap()["kind"],
+            match refusal_cause {
+                "role" | "role_profile" => "worker_role_required",
+                _ => "team_missing",
+            }
+        );
+        assert!(refusal.data.as_ref().unwrap()["reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty()));
         assert_eq!(
             store.show_task(&task_id).unwrap().task,
             before_role_and_team_refusals
@@ -228,6 +282,42 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
             Ok(())
         })
         .unwrap();
+    let mut stale_epoch = caller.clone();
+    stale_epoch["owner_epoch"] = json!(owner_epoch + 1);
+    let stale = super::super::dispatch(
+        "plan.session.rebind",
+        &Some(stale_epoch),
+        &fixture.service.app_handle,
+        &service,
+    )
+    .expect_err("a stale owner epoch cannot restore an attempt");
+    assert_eq!(stale.data.as_ref().unwrap()["kind"], "stale_task_epoch");
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task,
+        before_role_and_team_refusals
+    );
+    store
+        .with_plan(&plan.id, 5, |plan| {
+            plan.tasks[0].execution_attempts[0].retired_at = Some(5);
+            Ok(())
+        })
+        .unwrap();
+    let retired_task = store.show_task(&task_id).unwrap().task;
+    let retired = super::super::dispatch(
+        "plan.session.rebind",
+        &Some(caller.clone()),
+        &fixture.service.app_handle,
+        &service,
+    )
+    .expect_err("retired attempts cannot regain authority");
+    assert_eq!(retired.data.as_ref().unwrap()["kind"], "attempt_not_unique");
+    assert_eq!(store.show_task(&task_id).unwrap().task, retired_task);
+    store
+        .with_plan(&plan.id, 5, |plan| {
+            plan.tasks[0].execution_attempts[0].retired_at = None;
+            Ok(())
+        })
+        .unwrap();
     let rebound = super::super::dispatch(
         "plan.session.rebind",
         &Some(caller.clone()),
@@ -235,6 +325,23 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
         &service,
     )
     .expect("the existing rebind RPC should restore the exact acknowledged attempt");
+
+    let restored_task = store.show_task(&task_id).unwrap().task;
+    let mut expected = before_role_and_team_refusals.clone();
+    expected.execution_attempts[0].session_binding_nonce = Some(CURRENT_NONCE.into());
+    expected.execution_attempts[0].binding_restorations = restored_task.execution_attempts[0]
+        .binding_restorations
+        .clone();
+    assert_eq!(restored_task, expected);
+    let ack = crate::socket::server::agent::dispatch(
+        "agent.ack",
+        &ack_params,
+        &fixture.service.app_handle,
+        &service,
+    )
+    .expect("same-session restored attempt must ACK without session env injection");
+    assert_eq!(ack["attempt_id"], attempt_id);
+    assert_eq!(store.show_task(&task_id).unwrap().task, restored_task);
 
     let read = crate::socket::server::plan_skills_rpc::dispatch(
         "plan.skills.show",
@@ -257,6 +364,23 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
     let read = read.unwrap();
     assert_eq!(read["skill"]["slug"], skill.slug);
     let before_refusal = store.show_task(&task_id).unwrap().task;
+    for invalid_session in [json!(null), json!(""), json!(42)] {
+        let mut invalid_caller = caller.clone();
+        invalid_caller["session_id"] = invalid_session;
+        let refusal = super::super::dispatch(
+            "plan.session.rebind",
+            &Some(invalid_caller),
+            &fixture.service.app_handle,
+            &service,
+        )
+        .expect_err("a supplied session claim must be valid even when omission is supported");
+        assert_eq!(
+            refusal.data.as_ref().unwrap()["kind"],
+            "caller_session_mismatch"
+        );
+        assert_eq!(store.show_task(&task_id).unwrap().task, before_refusal);
+    }
+
     for (field, invalid) in [
         ("caller_tab_id", "unrelated-tab"),
         ("session_id", "unrelated-session"),
