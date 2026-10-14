@@ -1,5 +1,6 @@
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { runtimeBannerView } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
@@ -309,9 +310,8 @@ export function TabSessionChat({
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
-  const runtimeUnavailable = runtime.state != null && runtime.state.state !== "loaded";
-  const runtimeDegraded = runtime.state?.state === "degraded";
-  const runtimeReplacement = runtimeDegraded
+  const runtimeUnavailable = runtimeBannerView(runtime.state) !== null;
+  const runtimeReplacement = runtimeUnavailable
     ? <AgentRuntimeBanner tabId={tabId} state={runtime.state} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} /> : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
@@ -1003,7 +1003,7 @@ export function TabSessionChat({
         tabProvider={tabProvider}
         currentPtyId={currentPtyId}
         chatBackend={effectiveChatBackend}
-        isActive={isActive && !runtimeDegraded}
+        isActive={isActive && !runtimeUnavailable}
         replacement={runtimeReplacement}
         pendingPrompt={pendingPrompt}
         attachments={attachments}

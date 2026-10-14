@@ -1,6 +1,7 @@
 import { act } from "react";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
+import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { Tab } from "../../lib/types";
 import {
   MultiplexerActionsContext,
@@ -56,9 +57,10 @@ function setupDom() {
   return window;
 }
 
-function tabState(tabId: string): ExtendedState {
+function tabState(tabId: string, runtimeState?: AgentRuntimeState): ExtendedState {
   const tab = {
     id: tabId,
+    agent_runtime_state: runtimeState,
     pty_id: null,
     tab_type: "Terminal",
     title: "Delivery test",
@@ -125,14 +127,18 @@ function muxActions(): MultiplexerActionsContextType {
 
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
-async function renderChat(tabId = "delivery-tab"): Promise<{
+async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
+  calls: string[];
 }> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { TabSessionChat } = await import("./TabSessionChat");
+  const calls: string[] = [];
   __setInvokeForTest((async (command: string) => {
+    calls.push(command);
+    if (command === "agent_runtime_retry") return { state: "loaded", epoch: 3 };
     if (command === "chat_start") {
       return {
         text: "",
@@ -159,7 +165,7 @@ async function renderChat(tabId = "delivery-tab"): Promise<{
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const store = createMuxStateStore(() => tabState(tabId));
+  const store = createMuxStateStore(() => tabState(tabId, runtimeState));
   await act(async () => {
     root.render(
       <MuxStateStoreContext.Provider value={store}>
@@ -176,11 +182,99 @@ async function renderChat(tabId = "delivery-tab"): Promise<{
   return {
     host,
     root,
+    calls,
     dispatch: (event, payload) => {
       for (const handler of listeners.get(event) ?? []) handler({ payload });
     },
   };
 }
+
+
+for (const touch of [false, true]) {
+  for (const state of ["degraded", "unloaded", "loading"] as const) {
+    test(`runtime ${state} uses the shared recovery surface (touch: ${touch})`, async () => {
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = (query) => ({
+        media: query, matches: touch && (query === "(pointer: coarse)" || query === "(hover: none)"), onchange: null,
+        addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => true,
+      });
+      const tabId = `runtime-${state}-${touch}`;
+      const { host, root, calls, dispatch } = await renderChat(tabId, { state, epoch: 2, reason: "opaque-overflow" });
+      try {
+        const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]');
+        assert(retry, "runtime recovery action is mounted");
+        assert(!host.querySelector('textarea'), "runtime recovery replaces the composer");
+        assert(retry.disabled === (state === "loading"), "only pending recovery disables Retry");
+        if (state !== "loading") {
+          await act(async () => { retry.click(); });
+          assert(calls.filter(command => command === "agent_runtime_retry").length === 1, "Retry reaches the runtime once");
+        } else {
+          await act(async () => dispatch("agent-runtime-state", {
+            tab_id: tabId, session_binding_nonce: "nonce-1", state: { state: "loaded", epoch: 3 },
+          }));
+        }
+        assert(!host.querySelector('button[aria-label="Retry"]'), "loaded runtime removes recovery");
+        assert(host.querySelector('textarea'), "loaded runtime restores the shared composer");
+      } finally {
+        await act(async () => root.unmount()); host.remove();
+        window.matchMedia = originalMatchMedia;
+      }
+    });
+  }
+}
+
+test("mobile held and written sends retain one bubble beside runtime recovery", async () => {
+  const originalMatchMedia = window.matchMedia;
+  window.matchMedia = (query) => ({
+    media: query, matches: true, onchange: null,
+    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => true,
+  });
+  const tabId = "mobile-held-send";
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  const { host, root, dispatch } = await renderChat(tabId, { state: "degraded", epoch: 2, reason: "opaque-fault" });
+  try {
+    await act(async () => addChatSend(tabId, { id: "mobile-send", correlationId: "mobile-send", content: "opaque-input", sentAtMs: Date.now() }));
+    const bubble = () => host.querySelectorAll('[data-message-role="user"]');
+    for (const [state, sequence, label] of [["held", 1, "Queued until the agent is ready"], ["written", 2, "Sending"]] as const) {
+      const status = {
+        tab_id: tabId, send_id: "mobile-tx", correlationId: "mobile-send", state, sequence,
+        ledger_id: "ledger", retained_from: 1, error: null,
+      };
+      __setInvokeForTest(async <T,>(command: string) => (command === "chat_send_status" ? [status] : []) as T);
+      await act(async () => dispatch("chat-send-status", status));
+      assert(bubble().length === 1, "mobile delivery updates one row");
+      assert(bubble()[0]?.querySelector('[role="status"]')?.textContent === label, "shared delivery model reaches the bubble");
+      assert(!bubble()[0]?.querySelector("button"), "held and written sends never offer replay");
+      assert(host.querySelector('button[aria-label="Retry"]'), "runtime recovery remains available");
+    }
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    window.matchMedia = originalMatchMedia;
+  }
+});
+
+test("mobile runtime sign-in uses the shared account card", async () => {
+  const originalMatchMedia = window.matchMedia;
+  window.matchMedia = (query) => ({
+    media: query, matches: true, onchange: null,
+    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => true,
+  });
+  const { host, root } = await renderChat("mobile-login", {
+    state: "unloaded", epoch: 2, auth: "signedOut", loginMethods: ["apiKey"], loginProviderName: "Fixture",
+  });
+  try {
+    const card = host.querySelector('[role="group"][aria-label="Sign in to Fixture"]');
+    assert(card, "provider account card is mounted");
+    assert(!host.querySelector('textarea'), "signed-out runtime replaces composer");
+    const keyButton = Array.from(card.querySelectorAll("button")).find(button => button.textContent?.includes("API key"));
+    assert(keyButton, "provider method is available");
+    await act(async () => keyButton.click());
+    assert(card.querySelector('input[type="password"][aria-label="API key"]'), "API key stays masked");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    window.matchMedia = originalMatchMedia;
+  }
+});
 
 function assertNoDeliveryUi(host: ParentNode): void {
   const text = host.textContent ?? "";
