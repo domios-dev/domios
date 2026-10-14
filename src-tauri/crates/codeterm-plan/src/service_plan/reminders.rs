@@ -4,6 +4,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::plan::Plan;
 
+pub mod composition;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NudgeKind {
     Worker,

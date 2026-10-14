@@ -2,6 +2,26 @@ use super::*;
 use codeterm_decision::{deadline, DecisionPrimitives, DecisionRequest, TokenMode};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[test]
+fn heartbeat_popup_body_round_trips_the_scoped_emission() {
+    let gate = Gate::default();
+    assert_eq!(gate.last_body("tab-a", "plan-a"), None);
+    let body = "opaque-delivery\nsecond-line\n界";
+    gate.remember_body("tab-a", "plan-a", body);
+    gate.remember_body("tab-b", "plan-a", "other-tab");
+    gate.remember_body("tab-a", "plan-b", "other-plan");
+    assert_eq!(gate.last_body("tab-a", "plan-a").as_deref(), Some(body));
+    gate.remember_body("tab-a", "plan-a", "updated-body");
+    assert_eq!(
+        gate.last_body("tab-a", "plan-a").as_deref(),
+        Some("updated-body")
+    );
+    for index in 0..256 {
+        gate.remember_body(&format!("tab-{index}"), "plan-x", "bounded");
+    }
+    assert_eq!(gate.last_body("tab-b", "plan-a"), None);
+}
+
 struct FixtureModel {
     calls: AtomicUsize,
     tick: &'static str,
