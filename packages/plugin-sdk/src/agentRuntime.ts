@@ -84,7 +84,7 @@ export type RuntimeStep =
   | {kind:"refused"; reason:RuntimeFailure; beforeAcceptance:boolean};
 export type AgentEvent =
   | {kind:"chatItem"; threadId:string; item:ChatMsg}
-  | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; startedAt?:number; completedAt?:number; parentThreadId?:string}
+  | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; detail?:RuntimeTurnDetail; statusLine?:string; startedAt?:number; completedAt?:number; parentThreadId?:string}
   | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string}
   | {kind:"usage"; threadId:string; usage:TokenUsage}
   | {kind:"prompt"; threadId:string; requestId:RpcId; prompt:PendingPrompt}
@@ -123,6 +123,9 @@ export type HostAgentRuntimeEvent = HostAgentEvent;
 
 export interface RuntimeQuestion {id:string; text:string; options:readonly {value:string;label:string}[]; multiSelect?:boolean; allowFreeText?:boolean}
 export interface RuntimeQuestionAnswer {questionId:string; values:readonly string[]; text?:string}
+
+/** working: compacting; needs_input: awaitingApproval | awaitingInput | systemError; idle: interrupted | failed. */
+export type RuntimeTurnDetail = "compacting" | "awaitingApproval" | "awaitingInput" | "systemError" | "interrupted" | "failed";
 
 export interface RuntimeActiveTurn {threadId:string; turnId:string; parentThreadId?:string}
 

@@ -339,6 +339,30 @@ pub enum RuntimeTurnState {
     NeedsInput,
 }
 
+/// Why a turn is in its state; each value pairs with one [`RuntimeTurnState`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeTurnDetail {
+    Compacting,
+    AwaitingApproval,
+    AwaitingInput,
+    SystemError,
+    Interrupted,
+    Failed,
+}
+
+impl RuntimeTurnDetail {
+    pub fn state(self) -> RuntimeTurnState {
+        match self {
+            Self::Compacting => RuntimeTurnState::Working,
+            Self::AwaitingApproval | Self::AwaitingInput | Self::SystemError => {
+                RuntimeTurnState::NeedsInput
+            }
+            Self::Interrupted | Self::Failed => RuntimeTurnState::Idle,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -381,6 +405,10 @@ pub enum AgentRuntimeEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent_thread_id: Option<String>,
         state: RuntimeTurnState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<RuntimeTurnDetail>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status_line: Option<String>,
     },
     SendEvidence {
         thread_id: String,

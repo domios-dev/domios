@@ -245,6 +245,8 @@ fn tab_stop_interrupts_a_working_runtime_and_keeps_the_tab_open() {
                     state: codeterm_plugin::agent_runtime::RuntimeTurnState::Working,
                     started_at: None,
                     completed_at: None,
+                    detail: None,
+                    status_line: None,
                 },
             ],
             1,

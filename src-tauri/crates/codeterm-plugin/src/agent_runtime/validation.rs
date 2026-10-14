@@ -516,11 +516,19 @@ pub fn validate_runtime_reduction(
             parent_thread_id,
             turn_id,
             state,
+            detail,
+            status_line,
             ..
         } = event
         {
             if !identifier(thread_id) || turn_id.as_ref().is_some_and(|id| !identifier(id)) {
                 return Err(invalid("invalid turn state identifiers"));
+            }
+            if detail.is_some_and(|detail| detail.state() != *state) {
+                return Err(invalid("turn detail does not match its state"));
+            }
+            if status_line.as_ref().is_some_and(|line| line.len() > 4096) {
+                return Err(invalid("turn status line exceeds bound"));
             }
             if ctx.thread_id.as_ref() == Some(thread_id) {
                 if parent_thread_id.is_some() {
