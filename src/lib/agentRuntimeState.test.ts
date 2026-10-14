@@ -83,7 +83,7 @@ it("retains durable questions across runtime exit and rejects stale or foreign q
 describe("runtime banner failure reasons", () => {
   const rawDetail = 'Exception { stack: "at <anonymous> (eval_script:16:66)" }';
   const cases = [
-    ["SizeLimit", "Runtime hook state size limit", "The conversation history is too large to load."],
+    ["SizeLimit", "Runtime hook state size limit", "The agent runtime exceeded its size limit."],
     ["SpawnFailed", "Runtime could not start:", "The agent runtime could not start."],
     ["ProcessExited", "Runtime exited (code 1):", "The agent runtime stopped."],
     ["PipeEof", "Runtime connection closed", "The connection to the agent runtime closed."],
@@ -107,7 +107,7 @@ describe("runtime banner failure reasons", () => {
   it("recognizes the nested runtime size limit from a provider hook exception", () => {
     const reason = `Provider operation failed: HookFailed: runtimeResponse: Exception { message: Some("runtime size limit"), stack: ${rawDetail} }`;
     expect(runtimeBannerView({ state: "unloaded", epoch: 1, reason })?.reason)
-      .toBe("The conversation history is too large to load.");
+      .toBe("The agent runtime exceeded its size limit.");
   });
 
   it.each([null, undefined, "", "   ", rawDetail])("keeps unknown or absent faults out of the human reason: %s", (reason) => {

@@ -1022,8 +1022,8 @@ export function TabSessionChat({
         tabProvider={tabProvider}
         currentPtyId={currentPtyId}
         chatBackend={effectiveChatBackend}
-        isActive={isActive && !runtimeUnavailable}
-        replacement={runtimeReplacement}
+        isActive={isActive}
+        promptDock={runtimeReplacement}
         pendingPrompt={pendingPrompt}
         attachments={attachments}
         addAttachments={addAttachments}
