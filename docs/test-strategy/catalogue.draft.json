@@ -1,0 +1,2287 @@
+{
+  "$schema": "./catalogue.schema.json",
+  "version": 1,
+  "runners": [
+    {
+      "status": "active",
+      "id": "ts-unit",
+      "kind": "unit",
+      "lang": "ts",
+      "runner": "pnpm test:unit",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "src/**/*.test.ts",
+          "src/**/*.test.tsx",
+          "packages/**/*.test.ts",
+          "packages/**/*.test.tsx"
+        ],
+        "exclude": [
+          "**/node_modules/**",
+          "**/dist/**",
+          "every path listed in scripts/vitest-owned-tests.json"
+        ]
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 300,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:ts-unit"
+      ],
+      "notes": "scripts/run-ts-unit-tests.mjs collectTests/discoverTests; 711 files at 4d81f892d. CI 124s in run 38525117769."
+    },
+    {
+      "status": "active",
+      "id": "ts-vitest",
+      "kind": "unit",
+      "lang": "ts",
+      "runner": "pnpm test:vitest --maxWorkers=4",
+      "discovery": {
+        "method": "list-file",
+        "list_file": "scripts/vitest-owned-tests.json"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 180,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:ts-vitest"
+      ],
+      "notes": "vitest.config.ts includes exactly this list (D2: stays authoritative, checked for agreement). 214 files. CI 70s in run 38525117769."
+    },
+    {
+      "status": "active",
+      "id": "ts-perf-bench",
+      "kind": "eval",
+      "lang": "ts",
+      "runner": "npx tsx tests/perf/transcript-churn.bench.ts && npx tsx tests/perf/pty-write-slicing.bench.ts",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "tests/perf/*.bench.ts"
+        ]
+      },
+      "tier": "manual",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": "tests/perf/README.md",
+      "notes": "Diagnostic, run on demand (tests/perf/README.md). Duration unmeasured."
+    },
+    {
+      "status": "active",
+      "id": "node-script-tests",
+      "kind": "contract",
+      "lang": "js",
+      "runner": "node --test scripts/tests/*.test.mjs scripts/*.test.mjs",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "scripts/tests/*.test.mjs",
+          "scripts/*.test.mjs"
+        ]
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 300,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:release-contracts",
+        "tests.yml:plugin-metadata",
+        "file-sizes.yml:check",
+        "script-catalog.yml:check"
+      ],
+      "notes": "D1 glob replacing the hand lists at tests.yml:156, tests.yml:818-834 and build.sh:2388. 37 files; today 17 are named by some gate. Linux duration unmeasured; see PROPOSAL.md D7 evidence."
+    },
+    {
+      "status": "active",
+      "id": "python-script-tests",
+      "kind": "contract",
+      "lang": "python",
+      "runner": "python3 -m unittest discover -s scripts/tests -t . -p '*test*.py'",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "scripts/tests/test_*.py",
+          "scripts/tests/*_test.py"
+        ]
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:release-contracts"
+      ],
+      "notes": "Today only test_release_issue_contract and test_release_workflow_contract run (tests.yml:822,825; build.sh:2167-2168). Owner decision 4."
+    },
+    {
+      "status": "active",
+      "id": "frontend-release-producer-tests",
+      "kind": "contract",
+      "lang": "js",
+      "runner": "node --test scripts/frontend-release/*.test.mjs",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "scripts/frontend-release/*.test.mjs"
+        ]
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": ".agents/skills/github-release/SKILL.md",
+      "ci": [
+        "frontend-release.yml:build"
+      ],
+      "notes": "frontend-release.yml:92, path-filtered pull_request plus workflow_call/workflow_dispatch."
+    },
+    {
+      "status": "active",
+      "id": "plugin-tests",
+      "kind": "unit",
+      "lang": "ts",
+      "runner": "pnpm test:plugins",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "plugins/**/*.test.ts"
+        ],
+        "exclude": [
+          "**/node_modules/**"
+        ]
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:ts-plugins"
+      ],
+      "notes": "scripts/run-plugin-tests.mjs -> scripts/plugin-tests.sh, which hand-lists 62 of the 76 discovered files today. CI job (bundles + tests) 41s in run 38525117769."
+    },
+    {
+      "status": "active",
+      "id": "plugin-bundles",
+      "kind": "guard",
+      "lang": "js",
+      "runner": "pnpm check:plugin-bundles",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:ts-plugins"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "plugin-check",
+      "kind": "contract",
+      "lang": "js",
+      "runner": "node scripts/check-plugin.mjs <plugin-id>",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "plugins/channel.json"
+        ]
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": "plugins/channel.json",
+      "ci": [
+        "tests.yml:plugins"
+      ],
+      "notes": "Matrix over plugins/channel.json entries selected by scripts/ci-scope.mjs; 17-26s per plugin in run 38215187464."
+    },
+    {
+      "status": "active",
+      "id": "plugin-release-contracts",
+      "kind": "contract",
+      "lang": "js",
+      "runner": "node scripts/release-plugin.mjs check",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": ".agents/skills/github-release/SKILL.md",
+      "ci": [
+        "tests.yml:plugin-metadata",
+        "plugin-release.yml:publish"
+      ],
+      "notes": "Job 11s in run 38525117769 (with its two node tests)."
+    },
+    {
+      "status": "active",
+      "id": "ts-typecheck",
+      "kind": "guard",
+      "lang": "ts",
+      "runner": "pnpm exec tsc --noEmit",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:ts-static"
+      ],
+      "notes": "ts-static job 52s in run 38525117769 for all five steps."
+    },
+    {
+      "status": "active",
+      "id": "ts-unused-exports",
+      "kind": "guard",
+      "lang": "ts",
+      "runner": "pnpm check:unused-exports",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:ts-static"
+      ],
+      "notes": "ts-static job 52s in run 38525117769 for all five steps."
+    },
+    {
+      "status": "active",
+      "id": "ts-knip-report",
+      "kind": "guard",
+      "lang": "ts",
+      "runner": "pnpm knip:report",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:ts-static"
+      ],
+      "notes": "ts-static job 52s in run 38525117769 for all five steps."
+    },
+    {
+      "status": "active",
+      "id": "ts-api-effects",
+      "kind": "guard",
+      "lang": "ts",
+      "runner": "pnpm check:api-effects",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:ts-static"
+      ],
+      "notes": "ts-static job 52s in run 38525117769 for all five steps."
+    },
+    {
+      "status": "active",
+      "id": "ts-biome",
+      "kind": "guard",
+      "lang": "ts",
+      "runner": "pnpm lint",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "ci": [
+        "tests.yml:ts-static"
+      ],
+      "notes": "ts-static job 52s in run 38525117769 for all five steps."
+    },
+    {
+      "status": "active",
+      "id": "ts-generated-types",
+      "kind": "guard",
+      "lang": "mixed",
+      "runner": "pnpm types:check",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": ".agents/skills/build/SKILL.md",
+      "ci": [
+        "tests.yml:ts-types"
+      ],
+      "notes": "Compiles Rust to export types (types:export). Job 34s in run 38525117769 on a warm runner."
+    },
+    {
+      "status": "active",
+      "id": "rust-fmt",
+      "kind": "guard",
+      "lang": "rust",
+      "package": "codeterm",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo fmt --manifest-path cli/Cargo.toml --check",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:fmt"
+      ],
+      "notes": "Job 15s in run 38525117769. Covers both manifests."
+    },
+    {
+      "status": "active",
+      "id": "rust-clippy",
+      "kind": "guard",
+      "lang": "rust",
+      "package": "codeterm",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "bash scripts/clippy-gate.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:clippy-linux"
+      ],
+      "notes": "heavy=false on pull_request, so it runs on push to master, workflow_dispatch and workflow_call. 372s in run 38548176704. Also inside ./build.sh check-queue since 4d81f892d."
+    },
+    {
+      "status": "active",
+      "id": "rust-check-queue",
+      "kind": "guard",
+      "lang": "rust",
+      "package": "codeterm",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh check-queue",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "notes": "Warm per-machine incremental cargo check of a lane SHA (build.sh:2098, check_queue_run at build.sh:1433). Worker lane gate, not CI."
+    },
+    {
+      "status": "active",
+      "id": "rust-warnings-baseline",
+      "kind": "guard",
+      "lang": "js",
+      "runner": "node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash scripts/clippy-gate.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-warnings",
+        "rust-warnings-summary.yml:report"
+      ],
+      "notes": "Ratchet against scripts/rust-warnings-baseline.json (initialized, 0 warnings). Report job 17-19s in run 38548176704."
+    },
+    {
+      "status": "active",
+      "id": "file-sizes",
+      "kind": "guard",
+      "lang": "bash",
+      "runner": "bash scripts/check-file-sizes.sh --fail",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": "AGENTS.md",
+      "ci": [
+        "file-sizes.yml:check"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "provider-boundary",
+      "kind": "guard",
+      "lang": "js",
+      "runner": "node scripts/check-provider-boundary.mjs",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": "essences/core.md",
+      "ci": [
+        "file-sizes.yml:check"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "comment-length",
+      "kind": "guard",
+      "lang": "bash",
+      "runner": "bash scripts/check-comment-length.sh --fail --changed",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": ".agents/skills/style/SKILL.md",
+      "ci": [
+        "comment-length.yml:check"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "docs-source-of-truth",
+      "kind": "guard",
+      "lang": "bash",
+      "runner": "bash scripts/check-api-docs.sh && bash scripts/check-prompts-doc.sh && bash scripts/check-evals-list.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": "essences/begin_here.md",
+      "ci": [
+        "docs-source-of-truth.yml:source-of-truth"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "script-guards",
+      "kind": "guard",
+      "lang": "bash",
+      "runner": "./build.sh script-guards",
+      "discovery": {
+        "method": "script-catalog"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": ".agents/skills/build/SKILL.md",
+      "ci": [
+        "script-catalog.yml:check"
+      ],
+      "notes": "build.sh:2377-2392: check-script-catalog.sh, eleven fixture scripts, three Linux-only checks. Job 30-31s in runs 38620662032 and 38622431539."
+    },
+    {
+      "status": "active",
+      "id": "script-catalog",
+      "kind": "guard",
+      "lang": "bash",
+      "runner": "bash scripts/check-script-catalog.sh",
+      "discovery": {
+        "method": "script-catalog"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": "scripts/README.md",
+      "ci": [
+        "script-catalog.yml:check"
+      ],
+      "notes": "Linked, never replaced (D2). Inputs scripts/catalog-extra.txt and scripts/catalog-removed.md. Also run by build.sh verify and release-preflight."
+    },
+    {
+      "status": "active",
+      "id": "rust-app",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest app",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 3600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "src-tauri lib, 6614 static #[test] attributes. CI archives --workspace --lib (scripts/ci-rust-archives.mjs:69), so src-tauri/tests/main.rs (15 attributes) runs in no CI job. Budget = TEST_CAP_SECS default for test/verify (build.sh:345)."
+    },
+    {
+      "status": "active",
+      "id": "rust-account",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-account",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest account",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-billing",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-billing",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest billing",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-analytics",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-analytics",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest analytics",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-frontend-bundle",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-frontend-bundle",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest frontend-bundle",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-types",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-types",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest types",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-wire",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-wire",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest wire",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-sentinel",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-sentinel",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest sentinel",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-sentinel-ports",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-sentinel-ports",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-sentinel-ports",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-decision",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-decision",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest decision",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-provider-signals",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-provider-signals",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest provider-signals",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-util",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-util",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest util",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-browser",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-browser",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest browser",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-mesh",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-mesh",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest mesh",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-mem",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-mem",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest mem",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-plan",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-plan",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest plan",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-bridge",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-bridge",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-bridge",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-pty",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-pty",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest pty",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-plugin",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-plugin",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest plugin",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-plugins",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-plugins",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest plugins",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-storage",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-storage",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-storage",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-agent-detect",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-agent-detect",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest agent-detect",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-notification-core",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-notification-core",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest notification-core",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-repowatch",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-repowatch",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest repowatch",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-usage",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-usage",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest usage",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ]
+    },
+    {
+      "status": "active",
+      "id": "rust-blueprint-types",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-blueprint-types",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-blueprint-types",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-local-recording",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-local-recording",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-local-recording",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-notify-types",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-notify-types",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-notify-types",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-events",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-events",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-events",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-config",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-config",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-config",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-secrets",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-secrets",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-secrets",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-keepawake",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-keepawake",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-keepawake",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-cron",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-cron",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-cron",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-shutdown",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-shutdown",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest codeterm-shutdown",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "No named nextest scope; resolves through the codeterm-* fallback (--lib) in run_nextest_scope."
+    },
+    {
+      "status": "active",
+      "id": "rust-input-platform",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-input-macos",
+      "manifest": "src-tauri/Cargo.toml",
+      "runner": "./build.sh nextest input-platform",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 900,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "ci": [
+        "tests.yml:rust-input-platform"
+      ],
+      "notes": "codeterm-input-macos and codeterm-input-windows, excluded from the shared archive (scripts/ci-rust-archives.mjs:69). Job timeout 15 min (tests.yml:394); no completed run sampled."
+    },
+    {
+      "status": "active",
+      "id": "rust-cli",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-cli",
+      "manifest": "cli/Cargo.toml",
+      "runner": "./build.sh nextest cli",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "release",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 3600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "ci": [
+        "tests.yml:rust-shards",
+        "tests.yml:rust-platform"
+      ],
+      "notes": "All targets (--workspace on cli/Cargo.toml). 1423 static attributes. cli-source-of-truth.yml also runs two cargo test filters on path-filtered pull requests."
+    },
+    {
+      "status": "active",
+      "id": "rust-cli-manifest-contract",
+      "kind": "contract",
+      "lang": "rust",
+      "package": "codeterm-cli",
+      "manifest": "cli/Cargo.toml",
+      "runner": "cargo test -p codeterm-cli cmd::manifest && cargo test -p codeterm-cli plugin_subcommands_parse",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "pr",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 480,
+      "owner_doc": "generated/cli/cli.md",
+      "ci": [
+        "cli-source-of-truth.yml:cli-doctor"
+      ],
+      "notes": "Path-filtered pull_request (cli/**, generated/cli/**). The only Rust compile on the PR path today. Duration unmeasured."
+    },
+    {
+      "status": "active",
+      "id": "rust-pty-fork",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "portable-pty",
+      "manifest": "src-tauri/pty-fork/Cargo.toml",
+      "runner": "./build.sh nextest pty-fork",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "manual",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "notes": "Excluded from the workspace (src-tauri/Cargo.toml:9); 16 static attributes; no CI job runs it. Owner decision 5."
+    },
+    {
+      "status": "active",
+      "id": "rust-mem-store",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-mem-store",
+      "manifest": "crates/mem-store/Cargo.toml",
+      "runner": "cargo nextest run --manifest-path crates/mem-store/Cargo.toml",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "manual",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "notes": "Path dependency, not a workspace member; 38 static attributes; no build.sh verb or CI job runs it. Owner decision 5."
+    },
+    {
+      "status": "active",
+      "id": "rust-paths",
+      "kind": "unit",
+      "lang": "rust",
+      "package": "codeterm-paths",
+      "manifest": "crates/codeterm-paths/Cargo.toml",
+      "runner": "cargo nextest run --manifest-path crates/codeterm-paths/Cargo.toml",
+      "discovery": {
+        "method": "nextest-list",
+        "fallback": "static-scan"
+      },
+      "tier": "manual",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 600,
+      "owner_doc": ".agents/skills/gates/SKILL.md",
+      "notes": "Path dependency, not a workspace member; 7 static attributes; no build.sh verb or CI job runs it. Owner decision 5."
+    },
+    {
+      "status": "active",
+      "id": "rust-qualification",
+      "kind": "contract",
+      "lang": "mixed",
+      "runner": "gh workflow run qualification.yml -f evaluator_scope=<scope> -f expected_source_sha=<sha>",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 3600,
+      "owner_doc": ".github/workflows/qualification.yml",
+      "ci": [
+        "qualification.yml:storage-foundation-linux",
+        "qualification.yml:storage-domains-linux",
+        "qualification.yml:sentinel-linux-task-local",
+        "qualification.yml:sentinel-command-linux",
+        "qualification.yml:rust-windows-task-local",
+        "qualification.yml:jev-linux"
+      ],
+      "notes": "workflow_dispatch only (qualification.yml:3-7). Hand-lists 102 exact Rust test names over ./build.sh test-one app selectors. Not a tier gate."
+    },
+    {
+      "status": "active",
+      "id": "e2e-api",
+      "kind": "e2e-plain",
+      "lang": "python",
+      "runner": "./build.sh e2e",
+      "discovery": {
+        "method": "pytest-collect"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 900,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "notes": "pytest -m 'not llm' against DEV 7686 (build.sh:2755-2761). 119 test functions in 26 test_*.py files. Not in CI. Duration unmeasured (needs a running DEV)."
+    },
+    {
+      "status": "active",
+      "id": "e2e-api-llm",
+      "kind": "e2e-plain",
+      "lang": "python",
+      "runner": "./build.sh e2e:llm",
+      "discovery": {
+        "method": "pytest-collect"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "notes": "pytest -m llm (build.sh:2762-2767); 3 files carry the llm marker."
+    },
+    {
+      "status": "suspended",
+      "id": "playwright",
+      "kind": "e2e-plain",
+      "lang": "ts",
+      "runner": "pnpm test:pw:smoke",
+      "discovery": {
+        "method": "playwright-list"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": ".agents/skills/testing/SKILL.md",
+      "notes": "Suspended (.agents/skills/testing/SKILL.md:23-26, 610-615). D6: never on PR. needs_live_agent because the golden and live-pair projects spend provider tokens."
+    },
+    {
+      "status": "active",
+      "id": "core-journeys",
+      "kind": "e2e-curated",
+      "lang": "mixed",
+      "runner": "bash evals/core-journeys/run.sh all",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "evals/core-journeys/journeys/*.mjs"
+        ]
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 900,
+      "owner_doc": "evals/core-journeys/README.md",
+      "notes": "D5. J1-J5; README:1 calls it a release blocker; budget about 15 minutes (README:28-29). Owner decision 6."
+    },
+    {
+      "status": "active",
+      "id": "core-journeys-offline",
+      "kind": "unit",
+      "lang": "js",
+      "runner": "node --test evals/core-journeys/*.test.mjs evals/core-journeys/lib/*.test.mjs",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "evals/core-journeys/*.test.mjs",
+          "evals/core-journeys/lib/*.test.mjs"
+        ]
+      },
+      "tier": "manual",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 30,
+      "owner_doc": "evals/core-journeys/README.md",
+      "notes": "25 tests, 241 ms locally. Not run by any gate today; the curated task places it."
+    },
+    {
+      "status": "active",
+      "id": "evals-offline-tests",
+      "kind": "unit",
+      "lang": "mixed",
+      "runner": "node --test evals/**/*.test.mjs",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "evals/**/*.test.mjs",
+          "evals/**/test_*.py"
+        ],
+        "exclude": [
+          "evals/core-journeys/**"
+        ]
+      },
+      "tier": "manual",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 120,
+      "owner_doc": "evals/README.md",
+      "notes": "Offline self-tests inside benches (mesh-webui, restart-endurance, tab-state-jev, ...). tab-state-jev's Python tests run only in qualification.yml:jev-linux."
+    },
+    {
+      "status": "active",
+      "id": "evals-lib-guards",
+      "kind": "guard",
+      "lang": "mixed",
+      "runner": "bash evals/_lib/test-dc-cli-resolution.sh && bash evals/_lib/test-source-purity.sh && python3 evals/_lib/test_bench_infrastructure.py",
+      "discovery": {
+        "method": "glob",
+        "patterns": [
+          "evals/_lib/test-*.sh",
+          "evals/_lib/test_*.py"
+        ]
+      },
+      "tier": "manual",
+      "needs_instance": false,
+      "needs_live_agent": false,
+      "budget_secs": 60,
+      "owner_doc": "AGENTS.md",
+      "notes": "Protect the dc dev-lock (AGENTS.md bench safety). No gate references them today."
+    },
+    {
+      "status": "active",
+      "id": "eval-agent-state",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/agent-state/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/agent-state/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-api-liveness-mesh-load",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/api-liveness-mesh-load/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/api-liveness-mesh-load/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-binding-matrix",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/binding-matrix/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/binding-matrix/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-browser-discovery",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/browser-discovery/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/browser-discovery/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-chat-resume-latency",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "python3 evals/chat-resume-latency/run.py",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/chat-resume-latency/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-chat-roundtrip",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/chat-roundtrip/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/chat-roundtrip/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-codex-directory-trust",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/codex-directory-trust/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/codex-directory-trust/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-delivery-confirmation",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/delivery-confirmation/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/delivery-confirmation/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-dreamer-repair",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/dreamer-repair/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/dreamer-repair/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-heartbeat-replay",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "python3 evals/heartbeat-replay/run.py",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/heartbeat-replay/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-lifecycle-recovery",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/lifecycle-recovery/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/lifecycle-recovery/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-long-paste-submit",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/long-paste-submit/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/long-paste-submit/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-loop-deviation",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/loop-deviation/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/loop-deviation/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-manager-bootstrap",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/manager-bootstrap/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/manager-bootstrap/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-mem-recall",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/mem-recall/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/mem-recall/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-mem-rerank-live",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "python3 evals/mem-rerank-live/run.py",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/mem-rerank-live/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-mesh-two-dev",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/mesh-two-dev/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/mesh-two-dev/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-mesh-webui",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "node evals/mesh-webui/run.mjs",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/mesh-webui/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-orchestration-golden",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/orchestration-golden/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/orchestration-golden/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-orchestrator-creation-matrix",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/orchestrator-creation-matrix/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/orchestrator-creation-matrix/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-plan-authorized-reporting",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/plan-authorized-reporting/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/plan-authorized-reporting/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-plan-lifecycle",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/plan-lifecycle/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/plan-lifecycle/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-plugins",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/plugins/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/plugins/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-prompt-contract",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "python3 evals/prompt-contract/run.py",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/prompt-contract/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-prompt-matrix",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/prompt-matrix/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/prompt-matrix/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-provider-setup-lifecycle",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/provider-setup-lifecycle/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/provider-setup-lifecycle/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-pty-paste-trace",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/pty-paste-trace/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/pty-paste-trace/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-restart-endurance",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/restart-endurance/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/restart-endurance/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-restore-lifecycle",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/restore-lifecycle/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/restore-lifecycle/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-restore-matrix",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/restore-matrix/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/restore-matrix/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-runtime-provider-matrix",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/runtime-provider-matrix/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/runtime-provider-matrix/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-session-rename-durability",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/session-rename-durability/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/session-rename-durability/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-session-restore",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/session-restore/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/session-restore/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-tab-state-jev",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "python3 evals/tab-state-jev/run.py",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/tab-state-jev/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-upgrade-restore",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/upgrade-restore/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/upgrade-restore/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-watcher-health",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/watcher-health/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": true,
+      "budget_secs": 1800,
+      "owner_doc": "evals/watcher-health/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    },
+    {
+      "status": "active",
+      "id": "eval-web-mirror-switch-sync",
+      "kind": "eval",
+      "lang": "mixed",
+      "runner": "bash evals/web-mirror-switch-sync/run.sh",
+      "discovery": {
+        "method": "single"
+      },
+      "tier": "manual",
+      "needs_instance": true,
+      "needs_live_agent": false,
+      "budget_secs": 1800,
+      "owner_doc": "evals/web-mirror-switch-sync/README.md",
+      "notes": "needs_live_agent from a static grep of the bench for agent spawn / provider-token wording; the catalogue task confirms per bench. Budget is a placeholder cap, not a measurement."
+    }
+  ],
+  "overlay": {
+    "stale": [
+      {
+        "runner": "playwright",
+        "target": {
+          "spec": "tests/playwright/suites/20-new-session/picker.spec.ts",
+          "title": "@golden WORKSPACE ROW: preselected to current, help tooltip is instant"
+        },
+        "reason": "Drives data-testid picker-workspace, which ddfca8ee7 removed from the new-session picker (no workspace row).",
+        "source": {
+          "commit": "ddfca8ee7"
+        },
+        "fix_task": "task_3md5uc"
+      },
+      {
+        "runner": "playwright",
+        "target": {
+          "spec": "tests/playwright/suites/20-new-session/picker.spec.ts",
+          "title": "@golden PREVIEW LINE: reflects mode + destination, updates live on workspace change"
+        },
+        "reason": "Drives data-testid picker-workspace (removed by ddfca8ee7) and picker-preview (removed earlier by fe22dea1f5).",
+        "source": {
+          "commit": "ddfca8ee7"
+        },
+        "fix_task": "task_3md5uc"
+      },
+      {
+        "runner": "playwright",
+        "target": {
+          "spec": "tests/playwright/suites/20-new-session/picker.spec.ts",
+          "title": "@golden PERSISTENCE: mode + model persist, workspace resets to current"
+        },
+        "reason": "Drives data-testid picker-workspace, which ddfca8ee7 removed from the new-session picker (no workspace row).",
+        "source": {
+          "commit": "ddfca8ee7"
+        },
+        "fix_task": "task_3md5uc"
+      },
+      {
+        "runner": "playwright",
+        "target": {
+          "spec": "tests/playwright/suites/20-new-session/picker.spec.ts",
+          "title": "@golden CROSS-WORKSPACE: spawning into workspace B leaves NO husk in A"
+        },
+        "reason": "Drives data-testid picker-workspace, which ddfca8ee7 removed from the new-session picker (no workspace row).",
+        "source": {
+          "commit": "ddfca8ee7"
+        },
+        "fix_task": "task_3md5uc"
+      },
+      {
+        "runner": "playwright",
+        "target": {
+          "spec": "tests/playwright/suites/20-new-session/picker.spec.ts",
+          "title": "@golden CROSS-WORKSPACE SELECT: Start switches the active workspace to B and selects its orchestrator"
+        },
+        "reason": "Drives data-testid picker-workspace, which ddfca8ee7 removed from the new-session picker (no workspace row).",
+        "source": {
+          "commit": "ddfca8ee7"
+        },
+        "fix_task": "task_3md5uc"
+      },
+      {
+        "runner": "playwright",
+        "target": {
+          "spec": "tests/playwright/suites/12-web/mobile-overflow.spec.ts",
+          "title": "@golden mobile web primary surfaces stay inside the viewport 320x568",
+          "step": "picker workspace dropdown audit"
+        },
+        "reason": "The audit at mobile-overflow.spec.ts:1073-1079 sits behind isVisible() on picker-workspace, which ddfca8ee7 removed, so it is skipped and the test passes silently.",
+        "source": {
+          "commit": "ddfca8ee7"
+        },
+        "fix_task": "task_3md5uc"
+      },
+      {
+        "runner": "playwright",
+        "target": {
+          "spec": "tests/playwright/suites/12-web/mobile-overflow.spec.ts",
+          "title": "@golden mobile web primary surfaces stay inside the viewport 390x844",
+          "step": "picker workspace dropdown audit"
+        },
+        "reason": "The audit at mobile-overflow.spec.ts:1073-1079 sits behind isVisible() on picker-workspace, which ddfca8ee7 removed, so it is skipped and the test passes silently.",
+        "source": {
+          "commit": "ddfca8ee7"
+        },
+        "fix_task": "task_3md5uc"
+      },
+      {
+        "runner": "playwright",
+        "target": {
+          "spec": "tests/playwright/suites/12-web/mobile-overflow.spec.ts",
+          "title": "@golden mobile web primary surfaces stay inside the viewport 430x932",
+          "step": "picker workspace dropdown audit"
+        },
+        "reason": "The audit at mobile-overflow.spec.ts:1073-1079 sits behind isVisible() on picker-workspace, which ddfca8ee7 removed, so it is skipped and the test passes silently.",
+        "source": {
+          "commit": "ddfca8ee7"
+        },
+        "fix_task": "task_3md5uc"
+      }
+    ],
+    "flaky": [
+      {
+        "runner": "rust-app",
+        "target": {
+          "binary": "codeterm",
+          "test": "sentinel::tests::sentinel_probe_bounded_runtime_and_output"
+        },
+        "reason": "Passes alone, fails among roughly 208 parallel tests (task_k0ywli brief); load-sensitive deadline at src-tauri/src/sentinel/tests.rs:481.",
+        "source": {
+          "task": "task_k0ywli"
+        },
+        "fix_task": "task_k0ywli"
+      }
+    ]
+  }
+}
