@@ -1,7 +1,7 @@
 use super::batch::{drain_ready, handle, Drained, Poll};
 use super::bookkeeping::{self, Step};
 use super::*;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::io::BufReader;
@@ -21,12 +21,19 @@ fn request(id: &str) -> RuntimeFrame {
     }
 }
 
-async fn answer_resync(peer: &mut BufReader<tokio::io::DuplexStream>) {
+async fn answer_resync(peer: &mut BufReader<tokio::io::DuplexStream>) -> Vec<Value> {
+    let mut other = Vec::new();
     for method in ["thread/resume", "thread/read"] {
-        let call = fixtures::read(peer).await;
-        assert_eq!(call["method"], method);
-        fixtures::write(peer, json!({"id": call["id"], "result": {}})).await;
+        loop {
+            let line = fixtures::read(peer).await;
+            if line["method"] == method {
+                fixtures::write(peer, json!({"id": line["id"], "result": {}})).await;
+                break;
+            }
+            other.push(line);
+        }
     }
+    other
 }
 
 async fn run(
@@ -34,17 +41,16 @@ async fn run(
     frames: Vec<RuntimeFrame>,
     lagged: bool,
     resync: bool,
-) -> Step {
+) -> (Step, Vec<Value>) {
     let process = scene.session.process.lock().clone().unwrap();
     let epoch = scene.session.context.lock().epoch;
     let svc = scene.fixture.service.clone();
     let session = scene.session.clone();
     let work = handle(&svc, &session, &process, epoch, frames, lagged);
     if resync {
-        let (step, ()) = tokio::join!(work, answer_resync(&mut scene.peer));
-        step
+        tokio::join!(work, answer_resync(&mut scene.peer))
     } else {
-        work.await
+        (work.await, Vec::new())
     }
 }
 
@@ -94,7 +100,7 @@ fn drain_respects_the_batch_cap_and_reports_lag_and_close() {
 async fn one_drained_batch_is_one_reduce_with_frames_in_order() {
     let mut scene = fixtures::scene();
     let frames: Vec<_> = (0..40).map(delta).collect();
-    let step = run(&mut scene, frames.clone(), false, false).await;
+    let (step, _) = run(&mut scene, frames.clone(), false, false).await;
     assert!(matches!(step, Step::Continue));
     let calls = scene.probe.reduces.lock();
     assert_eq!(calls.len(), 1);
@@ -105,7 +111,7 @@ async fn one_drained_batch_is_one_reduce_with_frames_in_order() {
 async fn unmapped_server_requests_reply_in_arrival_order() {
     let mut scene = fixtures::scene();
     let frames = vec![request("a"), delta(0), request("b"), request("c")];
-    let step = run(&mut scene, frames, false, false).await;
+    let (step, _) = run(&mut scene, frames, false, false).await;
     assert!(matches!(step, Step::Continue));
     assert_eq!(scene.probe.reduces.lock().len(), 1);
     for expected in ["a", "b", "c"] {
@@ -121,9 +127,9 @@ async fn reducer_failure_warns_resyncs_and_keeps_hook_state() {
     let mut scene = fixtures::scene();
     *scene.session.hook_state.lock() = json!({"keep": 1});
     scene.probe.fail_next.store(1, Ordering::SeqCst);
-    let step = run(&mut scene, vec![request("r"), delta(0)], false, true).await;
+    let (step, replies) = run(&mut scene, vec![request("r"), delta(0)], false, true).await;
     assert!(matches!(step, Step::Continue));
-    let reply = fixtures::read(&mut scene.peer).await;
+    let reply = &replies[0];
     assert_eq!(reply["id"], "r");
     assert_eq!(reply["error"]["code"], -32602);
     assert_eq!(*scene.session.hook_state.lock(), json!({"keep": 1}));
@@ -143,7 +149,7 @@ async fn a_successful_batch_resets_the_failure_run() {
         scene.session.bookkeeping_failures.load(Ordering::Relaxed),
         1
     );
-    let step = run(&mut scene, vec![delta(1)], false, false).await;
+    let (step, _) = run(&mut scene, vec![delta(1)], false, false).await;
     assert!(matches!(step, Step::Continue));
     assert_eq!(
         scene.session.bookkeeping_failures.load(Ordering::Relaxed),
@@ -156,10 +162,10 @@ async fn eight_consecutive_failures_close_without_an_eighth_resync() {
     let mut scene = fixtures::scene();
     scene.probe.fail_next.store(8, Ordering::SeqCst);
     for seq in 0..bookkeeping::CONSECUTIVE_CLOSE - 1 {
-        let step = run(&mut scene, vec![delta(seq as usize)], false, true).await;
+        let (step, _) = run(&mut scene, vec![delta(seq as usize)], false, true).await;
         assert!(matches!(step, Step::Continue));
     }
-    let step = tokio::time::timeout(
+    let (step, _) = tokio::time::timeout(
         Duration::from_secs(2),
         run(&mut scene, vec![delta(7)], false, false),
     )
@@ -172,7 +178,7 @@ async fn eight_consecutive_failures_close_without_an_eighth_resync() {
 #[tokio::test]
 async fn lag_is_bookkeeping_not_a_close() {
     let mut scene = fixtures::scene();
-    let step = run(&mut scene, Vec::new(), true, true).await;
+    let (step, _) = run(&mut scene, Vec::new(), true, true).await;
     assert!(matches!(step, Step::Continue));
     assert!(scene.probe.reduces.lock().is_empty());
     assert_eq!(
