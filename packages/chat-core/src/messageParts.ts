@@ -79,12 +79,12 @@ export function splitExactSendTexts(content: string, payloads: readonly ExactSen
     if (!payload.content) continue;
     const start = content.indexOf(payload.content, offset);
     if (start < 0) continue;
-    if (start > offset) segments.push(...(offset === 0 ? parseMessageParts(content.slice(offset, start)) : [{ kind: "text" as const, content: content.slice(offset, start) }]));
+    if (start > offset) segments.push(...parseMessageParts(content.slice(offset, start)));
     segments.push(...parseMessageParts(payload.content).map((part) => ({ ...part, correlationId: payload.correlationId })));
     offset = start + payload.content.length;
   }
   if (offset === 0) return parseMessageParts(content);
-  if (offset < content.length) segments.push(...parseAttachmentParts(content.slice(offset)));
+  if (offset < content.length) segments.push(...parseMessageParts(content.slice(offset)));
   return segments;
 }
 

@@ -71,3 +71,26 @@ assert.deepEqual(parseMessageParts(formatAttachmentMarker("/tmp/file.pdf")), [{ 
 assert.deepEqual(messageRowParts(parseMessageParts(`${image} ${secondImage}caption`)).map((part) => part.content), [`${image} ${secondImage}caption`]);
 assert.deepEqual(messageRowParts(splitExactSendTexts(`${image}captionnext`, [{ content: `${image}caption`, correlationId: "one" }, { content: "next", correlationId: "two" }])).map((part) => [part.content, part.correlationId]), [[`${image}caption`, "one"], ["next", "two"]]);
 assert.deepEqual(messageRowParts([text("first"), text("second")]), [text("first"), text("second")]);
+
+{
+  const route = '<domios from="tab" label="Sender" tab="abc"> <tip>opaque hint</tip></domios>';
+  const own = "opaque owner input";
+  const ledger = [{ content: route, correlationId: "route" }, { content: own, correlationId: "owner" }];
+  const combined = { id: "combined", type: "user" as const, content: `${route}${own}`, correlationId: "route" };
+  assert.deepEqual(projectMessageParts([combined], ledger, "distinct-sends")[0].messageParts, [
+    { kind: "frame", content: route, correlationId: "route" },
+    { kind: "text", content: own, correlationId: "owner" },
+  ]);
+}
+
+{
+  const owner = "opaque owner payload";
+  const report = '<domios from="report" label="Worker" tab="abc">opaque report <tip>opaque instruction</tip></domios>';
+  const combined = { id: "owner-then-report", type: "user" as const, content: `${owner}${report}`, correlationId: "owner-send" };
+  const parts = projectMessageParts([combined], [{ content: owner, correlationId: "owner-send" }], "owner-report")[0].messageParts;
+  assert.deepEqual(parts, [
+    { kind: "text", content: owner, correlationId: "owner-send" },
+    { kind: "frame", content: report },
+  ]);
+  assert.deepEqual(parseMessageParts(`${owner}${report}`), [{ kind: "text", content: `${owner}${report}` }]);
+}

@@ -28,14 +28,14 @@ fn restore_frame_and_payload(
     let mut body = original.strip_suffix(DOMIOS_CLOSE_TAG)?.to_string();
     if typed_instruction {
         body = body
-            .strip_suffix(&format!(" {DOMIOS_TYPED_INSTRUCTION}"))
+            .strip_suffix(&format!(" <tip>{DOMIOS_TYPED_INSTRUCTION}</tip>"))
             .unwrap_or(&body)
             .to_string();
     }
     let payload = format!(
         "{body}{}{DOMIOS_CLOSE_TAG}",
         if typed_instruction {
-            format!(" {DOMIOS_TYPED_INSTRUCTION}")
+            format!(" <tip>{DOMIOS_TYPED_INSTRUCTION}</tip>")
         } else {
             String::new()
         }
