@@ -420,6 +420,7 @@ async fn ensure_locked(
         .map_err(RuntimeFailure::HookFailed)?;
     let mut cursor = None;
     let mut cursors = std::collections::HashSet::new();
+    let mut history_questions = RuntimeHistory::default();
     loop {
         let RuntimeResult::HistoryPage {
             thread_id: read_thread,
@@ -446,7 +447,9 @@ async fn ensure_locked(
         if read_thread != thread_id {
             return Err(RuntimeFailure::Superseded);
         }
-        if let Some(questions) = questions {
+        history_questions.reconcile_questions(&items, questions);
+        if !history_questions.questions().is_empty() {
+            let questions = history_questions.questions();
             let owner = svc.clone();
             let target = tab.to_string();
             let thread = thread_id.clone();
@@ -470,7 +473,7 @@ async fn ensure_locked(
             session.context.lock().active_turn_id = Some(open.turn_id);
         }
         let Some(next) = next_cursor else { break };
-        if !cursors.insert(next.clone()) || cursors.len() > 256 {
+        if !cursors.insert(next.clone()) {
             return Err(RuntimeFailure::HookFailed("History cursor limit".into()));
         }
         cursor = Some(next);
@@ -552,7 +555,14 @@ async fn run_inner(
     validate_runtime_operation(&context, &operation)
         .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
     let mut next = plan(session, &context, &operation).await?;
-    for _ in 0..MAX_RUNTIME_STEPS {
+    let mut history = RuntimeHistory::default();
+    let mut history_calls = std::collections::HashSet::new();
+    let mut steps = 0;
+    loop {
+        steps += 1;
+        if steps > MAX_RUNTIME_STEPS {
+            return Err(RuntimeFailure::HookFailed("Operation step limit".into()));
+        }
         validate_binding(svc, session)?;
         if session.context.lock().epoch != context.epoch {
             return Err(RuntimeFailure::Superseded);
@@ -573,6 +583,13 @@ async fn run_inner(
                 ))
             }
             RuntimeAction::Request { call } => {
+                if matches!(operation, RuntimeOperation::ReadHistory { .. })
+                    && !history_calls.insert((call.method.clone(), call.params.to_string()))
+                {
+                    return Err(RuntimeFailure::HookFailed(
+                        "Repeated history request".into(),
+                    ));
+                }
                 if !super::model::permits(&capability, &operation, &call.method) {
                     return Err(RuntimeFailure::Refused(
                         "RPC method outside declared contract".into(),
@@ -649,6 +666,7 @@ async fn run_inner(
         }
         match step {
             RuntimeStep::Continue {
+                history: chunk,
                 plan,
                 before_acceptance,
             } => {
@@ -658,6 +676,10 @@ async fn run_inner(
                     return Err(RuntimeFailure::Refused(
                         "Turn handoff cannot be replayed".into(),
                     ));
+                }
+                if let Some(chunk) = chunk {
+                    history.append(chunk);
+                    steps = 0;
                 }
                 next = plan;
             }
@@ -682,11 +704,21 @@ async fn run_inner(
                     super::subscriber::publish_events(svc, session, context.epoch, events, at)
                         .await?;
                 }
+                if let RuntimeResult::HistoryPage {
+                    ref thread_id,
+                    ref next_cursor,
+                    ..
+                } = result
+                {
+                    let thread = thread_id.clone();
+                    let cursor = next_cursor.clone();
+                    history.append(result);
+                    return Ok(history.finish(thread, cursor));
+                }
                 return Ok(result);
             }
         }
     }
-    Err(RuntimeFailure::HookFailed("Operation step limit".into()))
 }
 
 pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Option<&str>) {
