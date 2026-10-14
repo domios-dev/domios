@@ -1149,3 +1149,6 @@ mod launch_marker_tests;
 #[cfg(test)]
 #[path = "spawn_tests/pty_ownership.rs"]
 mod pty_ownership_tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use spawn_tab_identity::prepare_tab_identity as prepare_tab_identity_for_test;

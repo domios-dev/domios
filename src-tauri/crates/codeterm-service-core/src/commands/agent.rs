@@ -35,7 +35,7 @@ pub fn install_provider_in_tab_core(
 }
 
 #[cfg(debug_assertions)]
-pub(crate) fn install_provider_in_tab_with_fixture_failure(
+pub fn install_provider_in_tab_with_fixture_failure(
     svc: &ServiceState,
     provider_id: String,
     failure: String,

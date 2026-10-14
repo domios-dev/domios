@@ -185,7 +185,7 @@ pub(crate) struct PreparedUserBody {
     pub(crate) bytes: Vec<u8>,
 }
 
-pub(crate) struct UserSendStore {
+pub struct UserSendStore {
     root: PathBuf,
     root_initialized: Mutex<bool>,
     epoch: String,
