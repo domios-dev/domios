@@ -687,3 +687,81 @@ check("turn metadata and cursors have a fixed worst-case state bound",()=> {
   }
 });
 console.log(`runtime metadata bound regressions: ${count} checks passed`);
+
+check("multi-MiB history emits bounded hook outputs and explicit attachment markers",()=> {
+  const sizes=JSON.parse(fs.readFileSync(new URL("./fixtures/history-bounds.json",import.meta.url),"utf8"));
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const data=[
+    {item:{id:"image",type:"userMessage",content:[{type:"image",url:`data:image/png;base64,${"A".repeat(sizes.imageBytes)}`}]}},
+    {item:{id:"tool",type:"commandExecution",command:"cat",aggregatedOutput:"x".repeat(sizes.toolBytes),status:"completed"}},
+    ...Array.from({length:98},(_,index)=>({item:{id:`item-${index}`,type:"agentMessage",text:"\u0001雪🙂".repeat(2000)}})),
+  ];
+  let step=hooks.runtimeResponse(ctx,op,hooks.runtimePlan(ctx,op).state,{kind:"success",value:{data:[{id:"turn",status:"inProgress",startedAt:1}]}});
+  const chunks:OperationResult[]=[];
+  let outputs=0;
+  while(step.kind === "continue" && step.plan.action.kind === "request" && step.plan.action.call.method === "thread/items/list") {
+    assert.ok(++outputs <= 100,"History makes bounded progress");
+    step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{data}});
+    const wire=JSON.stringify(step);
+    assert.ok(Buffer.byteLength(wire) < sizes.chunkBytes,"Entire hook output stays below 1 MiB");
+    assert.ok(!wire.includes("data:image/"));
+    if(step.kind === "continue" && step.history)chunks.push(step.history);
+  }
+  assert.ok(outputs > 1,"A provider item page splits by serialized bytes");
+  if(step.kind !== "continue")throw new Error("Expected goal probe");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}});
+  if(step.kind !== "complete")throw new Error("Expected completed history");
+  assert.ok(Buffer.byteLength(JSON.stringify(step)) < sizes.chunkBytes);
+  const history=collectHistory([...chunks,step.result]);
+  assert.equal(history.items.length,100);
+  assert.equal(new Set(history.items.map(item=>item.id)).size,100);
+  assert.equal(history.items.at(-1)?.seq,100);
+  assert.equal(history.openItems.length,99);
+  assert.ok(history.items[0].content.includes(`[image omitted: ${sizes.imageBytes+22} bytes]`));
+  assert.equal(history.items[0].attachments?.[0].data,undefined);
+  assert.equal(history.items[0].attachments?.[0].url,undefined);
+  assert.ok(String(history.items[1].toolResult).includes(`[content truncated: ${sizes.toolBytes} bytes total]`));
+  assert.ok(history.items.slice(2).every(item=>item.content === "\u0001雪🙂".repeat(2000)));
+});
+console.log(`runtime byte budget regressions: ${count} checks passed`);
+
+check("snapshot fallback splits by bytes without losing turns or rows",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const first=hooks.runtimePlan(ctx,op);
+  let step=hooks.runtimeResponse(ctx,op,first.state,{kind:"error",error:{code:-32601,message:"unsupported"}});
+  const turns=Array.from({length:3},(_,turn)=>({id:`turn-${turn}`,status:"completed",items:Array.from({length:30},(_,index)=>({id:`${turn}-${index}`,type:"agentMessage",text:"x".repeat(16000)}))}));
+  const chunks:OperationResult[]=[];
+  let reads=0;
+  while(step.kind === "continue" && step.plan.action.kind === "request" && step.plan.action.call.method === "thread/read") {
+    assert.ok(++reads < 100);
+    step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread:{id:op.threadId,source:"cli",turns}}});
+    assert.ok(Buffer.byteLength(JSON.stringify(step)) < 1024*1024);
+    if(step.kind === "continue" && step.history)chunks.push(step.history);
+  }
+  assert.ok(reads > 1);
+  if(step.kind !== "continue")throw new Error("Expected goal");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{goal:null}});
+  if(step.kind !== "complete")throw new Error("Expected completion");
+  const history=collectHistory([...chunks,step.result]);
+  assert.deepEqual(history.items.map(item=>item.id),turns.flatMap(turn=>turn.items.map(item=>item.id)));
+  assert.ok(history.items.every(item=>item.content.length === 16000));
+});
+check("all historical tool image shapes retain byte markers without inline payloads",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const first=hooks.runtimePlan(ctx,op);
+  let step=hooks.runtimeResponse(ctx,op,first.state,{kind:"success",value:{data:[{id:"turn",status:"completed"}]}});
+  if(step.kind !== "continue")throw new Error("Expected items");
+  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{data:[
+    {id:"mcp",type:"mcpToolCall",tool:"image",arguments:{},result:{content:[{type:"image",mimeType:"image/png",data:"A".repeat(100)}]}},
+    {id:"generated",type:"imageGeneration",result:"B".repeat(200)},
+    {id:"embedded",type:"functionCallOutput",output:`before data:image/png;base64,${"C".repeat(300)} after`},
+  ]}});
+  if(step.kind !== "continue" || !step.history)throw new Error("Expected history chunk");
+  const wire=JSON.stringify(step);
+  assert.ok(!wire.includes("data:image/"));
+  assert.ok(wire.includes("[image omitted: 100 bytes]"));
+  assert.ok(wire.includes("[image omitted: 200 bytes]"));
+  assert.ok(wire.includes("[image omitted: 322 bytes]"));
+  assert.equal(step.history.items.length,3);
+});
+console.log(`runtime history image and snapshot regressions: ${count} checks passed`);

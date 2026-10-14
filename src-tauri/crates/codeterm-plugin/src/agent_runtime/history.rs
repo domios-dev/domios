@@ -1,5 +1,7 @@
+mod input;
 use super::*;
 use codeterm_types::agent::chat_types::ChatMsg;
+pub use input::sanitize_history_input;
 use serde::Deserialize;
 
 #[derive(Default)]

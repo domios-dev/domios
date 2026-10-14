@@ -14,7 +14,8 @@ function toolOutput(value:unknown): string {
   const parts=Array.isArray(result) ? result : list(object(result).content);
   const mapped=parts.map(part=>{
     const item=object(part);
-    if(item.type === "image") return {type:"image_url",image_url:{url:`data:${item.mimeType};base64,${item.data}`}};
+    if(item.type === "image") return typeof item.data === "string" && item.data.startsWith("[image omitted:")
+      ? {type:"text",text:item.data} : {type:"image_url",image_url:{url:`data:${item.mimeType};base64,${item.data}`}};
     if(item.type === "inputImage") return {type:"image_url",image_url:{url:item.imageUrl}};
     return part;
   });
@@ -100,7 +101,7 @@ export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): Chat
     case "imageView": case "imageGeneration":
       row.toolKind = "image"; row.toolSummary = String(item.savedPath ?? item.path ?? item.revisedPrompt ?? "");
       row.toolRichResult = json({kind:"image",origin:item.type === "imageGeneration" ? "generated" : "viewed",path:item.savedPath ?? item.path,prompt:item.revisedPrompt,status:item.status});
-      if (text(item.result)) row.toolResult = String(item.result).startsWith("data:") || item.type === "imageView"
+      if (text(item.result)) row.toolResult = String(item.result).startsWith("data:") || String(item.result).startsWith("[image omitted:") || item.type === "imageView"
         ? String(item.result) : `data:image/png;base64,${item.result}`;
       break;
     case "collabAgentToolCall": case "subAgentActivity": {
