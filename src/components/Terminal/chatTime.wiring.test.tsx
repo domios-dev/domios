@@ -11,13 +11,14 @@ it("shows supplied time and full date in the message menu", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  const metadata = { time: "time-token", date: "date-token", dateTime: "2026-10-14T12:00:00.000Z", sender: "sender-token", deliveryState: "state-token" };
+  const metadata = { time: "time-token", date: "date-token", shortDate: "short-token", dateTime: "2026-10-14T12:00:00.000Z", sender: "sender-token", deliveryState: "state-token" };
   try {
     await act(async () => root.render(<MessageActionsDot clip={{ id: "m", role: "user", author: metadata.sender, source: "payload" }} metadata={metadata} side="end" open onOpenChange={() => {}} actions={{ quote: () => {}, ask: () => {}, select: () => {} }} />));
     const menu = host.querySelector("[role='menu']")!;
     expect(menu.querySelector("time")?.dateTime).toBe(metadata.dateTime);
     expect(menu.querySelector("time")?.textContent).toContain(metadata.time);
-    expect(menu.querySelector("time")?.textContent).toContain(metadata.date);
+    expect(menu.querySelector("time")?.textContent).toContain(metadata.shortDate);
+    expect(menu.querySelector("time")?.getAttribute("title")).toBe(metadata.date);
     expect(menu.querySelector("[role='note']")?.textContent).toContain(metadata.sender);
     expect(menu.querySelector("[role='note']")?.textContent).toContain(metadata.deliveryState);
   } finally { await act(async () => root.unmount()); host.remove(); }

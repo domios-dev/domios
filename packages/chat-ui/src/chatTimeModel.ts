@@ -35,11 +35,14 @@ export function chatLocalDay(timestamp: number, timeZone: string): number | null
   return Date.UTC(part("year"), part("month") - 1, part("day"));
 }
 
-export function messageTimeLabels(timestamp: number, context: Pick<ChatTimeContext, "timeZone" | "locale">) {
+export function messageTimeLabels(timestamp: number, context: Pick<ChatTimeContext, "timeZone" | "locale"> & { now?: number }) {
   if (!Number.isFinite(new Date(timestamp).getTime())) return null;
+  const year = (value: number) => formatter(context.locale, context.timeZone, { year: "numeric" }).format(value);
+  const sameYear = context.now != null && year(context.now) === year(timestamp);
   return {
     time: formatter(context.locale, context.timeZone, { hour: "numeric", minute: "2-digit" }).format(timestamp),
     date: formatter(context.locale, context.timeZone, { dateStyle: "full" }).format(timestamp),
+    shortDate: formatter(context.locale, context.timeZone, sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" }).format(timestamp),
     dateTime: new Date(timestamp).toISOString(),
   };
 }
