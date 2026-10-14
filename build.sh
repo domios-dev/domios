@@ -663,6 +663,7 @@ build_gateway_logging_on_exit() {
   local summary_status reader_status finish_status
   trap - EXIT INT TERM
   set +e
+  release_stable_build_path
   if [ "${CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN:-0}" = "1" ] && [ "${CT_GATEWAY_CANCELLED:-0}" != "1" ]; then
     command_status="$captured_status"
     command_status_text="$captured_status"
@@ -707,6 +708,32 @@ run_build_gateway_log_reader() {
   exec tee -a "$1"
 }
 
+# Rust cache keys hash the absolute cwd, so each worktree misses another's entries.
+# Windows-only: Unix getcwd resolves symlinks, so no fixed alias can give rustc a stable cwd.
+enter_stable_build_path() {
+  CT_REAL_WORKTREE="$(cd "${1:-.}" && pwd -P)"
+  export CT_REAL_WORKTREE
+  [ "${CODETERM_STABLE_BUILD_PATH:-1}" = 1 ] || return 0
+  case "$OSTYPE" in msys*|cygwin*|win32) ;; *) return 0 ;; esac
+  local drive="${CODETERM_STABLE_BUILD_DRIVE:-X}" lower
+  lower="$(printf '%s' "$drive" | tr 'A-Z' 'a-z')"
+  MSYS2_ARG_CONV_EXCL='*' subst "$drive:" /D >/dev/null 2>&1 || true
+  if ! MSYS2_ARG_CONV_EXCL='*' subst "$drive:" "$(cygpath -w "$CT_REAL_WORKTREE")" >/dev/null 2>&1; then
+    echo "[cache-policy] stable build path unavailable; building from $CT_REAL_WORKTREE" >&2
+    return 0
+  fi
+  CT_STABLE_BUILD_DRIVE_MAPPED="$drive"
+  cd "/$lower"
+  echo "[cache-policy] stable build path $drive:\ -> $CT_REAL_WORKTREE"
+}
+
+release_stable_build_path() {
+  [ -n "${CT_STABLE_BUILD_DRIVE_MAPPED:-}" ] || return 0
+  cd "${CT_REAL_WORKTREE:-/}" 2>/dev/null || cd /
+  MSYS2_ARG_CONV_EXCL='*' subst "$CT_STABLE_BUILD_DRIVE_MAPPED:" /D >/dev/null 2>&1 || true
+  CT_STABLE_BUILD_DRIVE_MAPPED=""
+}
+
 enter_build_gateway() {
   ct_gateway_acquire "$*"
   if [ "$CMD" != gc ]; then
@@ -715,6 +742,7 @@ enter_build_gateway() {
   local gateway_log
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
+  [ "$CMD" = check-queue ] || enter_stable_build_path
   if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ]; then
     echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
     return
@@ -895,8 +923,8 @@ JS
 prepare_exceptional_worktree_target() {
   local dir identity
   dir="$(ct_gateway_dir)"
-  identity="$(printf '%s' "$(pwd -P)" | git hash-object --stdin)"
-  export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "$(pwd -P)" "$dir" "$identity")"
+  identity="$(printf '%s' "${CT_REAL_WORKTREE:-$(pwd -P)}" | git hash-object --stdin)"
+  export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "${CT_REAL_WORKTREE:-$(pwd -P)}" "$dir" "$identity")"
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
@@ -1365,12 +1393,18 @@ check_queue_targets() {
 
 # Reads cargo --message-format=short output on stdin; prints at most $1 diagnostics.
 check_queue_errors() {
-  awk -v max="$1" '
-    /^[^ ].*:[0-9]+:[0-9]+: error(\[E[0-9]+\])?:/ || /^error(\[E[0-9]+\])?:/ && !/could not compile/ {
+  awk -v max="$1" -v status="${2:-0}" '
+    /^[^ ].*:[0-9]+:[0-9]+: error(\[E[0-9]+\])?:/ || /^(sccache: )?error(\[E[0-9]+\])?:/ && !/could not compile/ {
       total++
       if (total <= max) print
     }
-    END { printf "errors=%d shown=%d\n", total, (total < max ? total : max) }
+    END {
+      if (status != 0 && total == 0) {
+        total=1
+        if (max > 0) printf "error: cargo check failed (exit %d); see full log\n", status
+      }
+      printf "errors=%d shown=%d\n", total, (total < max ? total : max)
+    }
   '
 }
 
@@ -1482,6 +1516,7 @@ check_queue_run() {
   cw="$(check_queue_worktree "$sha")"
   git -C "$cw" checkout -q --detach --force "$sha" >&2
   cd "$cw"
+  enter_stable_build_path "$cw"
   prepare_dev_frontend_dist "$cw"
   prepare_bundle_stubs
   ct_configure_sccache
@@ -1499,7 +1534,7 @@ check_queue_run() {
       --all-targets --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" >> "$out" 2>&1 || status=$?
   fi
   grep 'cargo::core::compiler::fingerprint' "$out" || true
-  check_queue_errors "$max_errors" < "$out"
+  check_queue_errors "$max_errors" "$status" < "$out"
   check_queue_warnings "$max_warnings" "$touched" < "$out" || [ "$status" != 0 ] || status=1
   echo "check-queue: sha=$sha packages=${pkg_args[*]:-} cli=$cli exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
   return "$status"
@@ -1929,7 +1964,7 @@ CodeTerm build commands
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
-  check-queue [sha]           Warm incremental cargo check (all targets) of a lane SHA in the per-machine check worktree
+  check-queue [sha] [--all] Warm incremental cargo check (all targets) of a lane SHA in the per-machine check worktree
   runner-pause MACHINE        Park MACHINE-* GitHub runners (labels -> paused; unique labels lent to a same-OS runner)
   runner-resume MACHINE       Restore MACHINE-* runner labels and return lent labels
   runner-status               List runners with labels and paused machines
@@ -2110,7 +2145,7 @@ EOF
   check-queue-probe)
     case "${2:-}" in
       targets) check_queue_targets ;;
-      errors) check_queue_errors "${3:?errors requires a max}" ;;
+      errors) check_queue_errors "${3:?errors requires a max}" "${4:-0}" ;;
       warnings) check_queue_warnings "${3:?warnings requires a max}" "${4:-}" ;;
       summary) check_warning_summary ;;
       *) echo "Unknown check-queue probe: ${2:-}" >&2; exit 2 ;;
@@ -2274,6 +2309,7 @@ EOF
     bash scripts/check-script-catalog.sh
     ;;
   worktree-check)
+    enter_build_gateway "$CMD ${*:2}"
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
@@ -2379,7 +2415,12 @@ EOF
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run bash scripts/check-script-catalog.sh
-    for sg in check-build-check-queue.sh check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
+    sg_run node --test --test-concurrency=1 scripts/build-gateway-mutex.test.mjs scripts/build-gateway-slot.test.mjs scripts/build-gateway-record.test.mjs scripts/build-gateway-cache.test.mjs scripts/build-history.test.mjs scripts/build-gateway-evidence.test.mjs
+    sg_run bash scripts/check-build-gateway-owner-reap.sh
+    sg_run bash scripts/check-build-check-queue.sh
+    sg_run bash scripts/check-shared-sccache.sh
+    sg_run node --test scripts/runner-toggle.test.mjs
+    for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
     done
     if [ "$(uname -s)" = Linux ]; then
