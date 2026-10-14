@@ -340,6 +340,37 @@ At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tau
 
 Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `.\build.ps1 gc --dry-run` / `.\build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
 
+Manual GC also maps every existing Git worktree of this repository and the sibling
+`codeterm-plugins` repository, plus the gateway's stable `X:` checkout, through
+`cargo metadata --format-version 1 --offline --no-deps`. Cargo 1.95 exposes
+`build_directory`; no hash approximation is used. Set `CODETERM_PLUGINS_CHECKOUT`
+when the plugin repository is elsewhere. Missing repositories, failed metadata,
+or a missing gateway mapping refuse deletion. Each workspace mapping is printed.
+The configured two-level `{workspace-path-hash}` cache roots are discovered from
+these paths, rather than hardcoding BLACKSTAR's RustCaches location.
+
+Only unmapped build directories are removed, regardless of age. A live checkout's
+old build directory remains protected; `CODETERM_CACHE_MAX_AGE_DAYS` continues to
+govern exceptional targets and cargo-sweep, not deletion of live build directories.
+`codeterm plan lanes --clean` removes worktrees upstream: their build directories
+become orphans on the next manual GC. Automatic hourly retention keeps its existing
+scope because the stable drive may not yet be mapped when that hook runs.
+
+GC takes nonblocking exclusive locks on every `.cargo-lock` below each orphan and
+holds them through removal; a busy or unreadable lock protects the entire directory.
+The lock protocol follows Cargo 1.95's
+[layout](https://github.com/rust-lang/cargo/blob/rust-1.95.0/src/cargo/core/compiler/layout.rs)
+and [flock](https://github.com/rust-lang/cargo/blob/rust-1.95.0/src/cargo/util/flock.rs):
+Windows `LockFileEx`, Unix `flock`. Python 3.12+ is required on Windows for junction
+validation. Links and unexpected hash layouts refuse collection. Each orphan and
+the total are reported in GiB. Fixtures: `node --test scripts/cargo-build-gc.test.mjs`.
+For an explicitly blocking cleanup use `.\build.ps1 gc --wait-build` in a Team
+build shell; capture `Get-PSDrive C` before and after, and preview first.
+
+If GC exits 2 on a live lane's malformed Cargo manifest, no orphan deletion is
+allowed: its build directory cannot yet be mapped. Ask that lane's owner to fix
+the manifest, then rerun the preview. Never skip the checkout or guess its hash.
+
 Every candidate is physically resolved using `pwd -P` and must be a direct child of the exceptional target root, or the checkout's exact target directory for sweep. Empty, root, parent, symlink/junction, redirected ancestor, and nested-link paths are refused. Deletion does not follow links. If retention reports an unsafe path, inspect and remove the redirection separately; never relax the boundary to make GC pass. Retention and marker updates use an exclusive gateway metadata lock and refuse concurrent modification. Automatic failures print a hint and let builds continue; explicit GC returns failure for invalid configuration or an unavailable lock.
 
 Canonical shell policy verification: `bash scripts/check-build-gateway-policy.sh`. Its retention fixture suite checks marker persistence, removed checkouts, configurable expiry, legacy grace, LRU cap order, live-owner/current-checkout protection, hourly throttle, dry-run, and unsafe paths including real Windows junctions. It requires no Rust compilation.
