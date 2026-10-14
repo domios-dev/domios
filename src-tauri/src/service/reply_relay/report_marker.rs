@@ -36,7 +36,7 @@ fn parse_report_marker(answer: &str) -> Option<(ReportStatus, &str)> {
         return None;
     }
     let tagged = format!("{}{}</domios>", "<domios from=\"report\"", &line[7..]);
-    let parsed = codeterm_types::domios::parse_message(&tagged)?;
+    let parsed = codeterm_wire::domios::parse_message(&tagged)?;
     if parsed.attr("type") != Some("report") || !parsed.content.is_empty() {
         return None;
     }

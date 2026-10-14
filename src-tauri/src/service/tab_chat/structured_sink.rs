@@ -1016,8 +1016,8 @@ mod tests {
 
         let inner = Arc::new(CountingSink::default());
         let sink = ChatBackendStructuredSink::new(inner.clone(), plugin, session, None);
-        let inbound = codeterm_types::domios::DomiosFrame {
-            opening_tag: codeterm_types::domios::build_opening_tag(&[
+        let inbound = codeterm_wire::domios::DomiosFrame {
+            opening_tag: codeterm_wire::domios::build_opening_tag(&[
                 ("from", "tab"),
                 ("label", "Alice"),
                 ("tab", "tab-a"),

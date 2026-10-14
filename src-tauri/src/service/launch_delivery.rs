@@ -337,7 +337,7 @@ pub(crate) fn mark_starter_prompt(
     text: String,
 ) -> String {
     match prompt.system_prefix() {
-        Some(prefix) => format!("{prefix}{text}{}", codeterm_types::domios::DOMIOS_CLOSE_TAG),
+        Some(prefix) => format!("{prefix}{text}{}", codeterm_wire::domios::DOMIOS_CLOSE_TAG),
         None => text,
     }
 }
@@ -770,7 +770,7 @@ mod tests {
         );
         assert!(marked.ends_with(&format!(
             "{provider_text}{}",
-            codeterm_types::domios::DOMIOS_CLOSE_TAG
+            codeterm_wire::domios::DOMIOS_CLOSE_TAG
         )));
         assert_ne!(marked, provider_text);
     }

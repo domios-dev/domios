@@ -25,8 +25,8 @@ impl TurnEvidenceNormalization {
             .then(|| unwrap_pasted_content_wrapper(text))
             .flatten();
         let text = unwrapped.as_deref().unwrap_or(text);
-        let text = if codeterm_types::domios::parse_message(text).is_some() {
-            text.strip_suffix(codeterm_types::domios::DOMIOS_CLOSE_TAG)
+        let text = if codeterm_wire::domios::parse_message(text).is_some() {
+            text.strip_suffix(codeterm_wire::domios::DOMIOS_CLOSE_TAG)
                 .unwrap_or(text)
         } else {
             text
@@ -60,8 +60,8 @@ mod tests {
 
     #[test]
     fn codex_complete_pasted_frame_preserves_opening_tag_in_exact_evidence() {
-        let frame = codeterm_types::domios::DomiosFrame {
-            opening_tag: codeterm_types::domios::build_opening_tag(&[
+        let frame = codeterm_wire::domios::DomiosFrame {
+            opening_tag: codeterm_wire::domios::build_opening_tag(&[
                 ("from", "tab"),
                 ("label", "sender"),
                 ("tab", "abc12345"),
@@ -74,7 +74,7 @@ mod tests {
             "{}{}{}",
             frame.body,
             frame.suffix,
-            codeterm_types::domios::DOMIOS_CLOSE_TAG
+            codeterm_wire::domios::DOMIOS_CLOSE_TAG
         );
         for unwrap in [false, true] {
             let normalization = TurnEvidenceNormalization {
@@ -104,7 +104,7 @@ mod tests {
         };
         let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
         let body = "routed body";
-        let suffix = format!(" [reply]{}", codeterm_types::domios::DOMIOS_CLOSE_TAG);
+        let suffix = format!(" [reply]{}", codeterm_wire::domios::DOMIOS_CLOSE_TAG);
         let expected = format!("{open}{body}{suffix}");
         let observed = format!(
             "{open}<pasted_content id=\"opaque\">\n{body}\n</pasted_content id=\"opaque\">{suffix}"
@@ -112,7 +112,7 @@ mod tests {
 
         let normalized = normalization.normalize(&observed);
         assert_eq!(normalized, normalization.normalize(&expected));
-        assert!(!normalized.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+        assert!(!normalized.contains(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
     }
 }
 
@@ -286,7 +286,7 @@ impl StarterPrompt {
             Self::StartupHandshake => "startup-handshake",
             Self::NoStarter => return None,
         };
-        Some(codeterm_types::domios::build_opening_tag(&[
+        Some(codeterm_wire::domios::build_opening_tag(&[
             ("from", "system"),
             ("context", context),
         ]))

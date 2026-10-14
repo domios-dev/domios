@@ -72,7 +72,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
                 .map(|prefix| {
                     format!(
                         "{prefix}{prompt}{}",
-                        codeterm_types::domios::DOMIOS_CLOSE_TAG
+                        codeterm_wire::domios::DOMIOS_CLOSE_TAG
                     )
                 })
                 .unwrap_or_else(|| prompt.to_string());
@@ -183,7 +183,7 @@ mod tests {
         assert!(!cmd.contains("<location>") && !cmd.contains("whoami") && !cmd.contains("юникод"));
         assert!(cmd.contains(ASSIGNED_TASK_START_PROMPT));
         assert!(cmd.contains("<domios from=\"system\" context=\"assigned-task\">"));
-        assert!(cmd.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+        assert!(cmd.contains(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
     }
 
     #[test]
@@ -222,7 +222,7 @@ mod tests {
             ..Default::default()
         });
         assert!(command.contains("<domios from=\"system\" context=\"team-bootstrap\">"));
-        assert!(command.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+        assert!(command.contains(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
         assert!(command.contains(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()));
     }
 

@@ -697,7 +697,7 @@ fn external_idle_manager_bootstrap_keeps_the_team_starter_turn() {
     assert_eq!(params.task.as_deref(), Some(bootstrap.as_str()));
     let fallback = team_bootstrap_payload(false, bootstrap);
     assert_eq!(
-        codeterm_types::message_markers::parse_host_injected(&fallback).map(|frame| frame.kind),
+        codeterm_wire::message_markers::parse_host_injected(&fallback).map(|frame| frame.kind),
         Some("system".to_string())
     );
 }
@@ -783,7 +783,7 @@ fn native_planner_startup_keeps_manager_contract_and_onboarding() {
 
     assert!(payload.starts_with("system contract"));
     assert!(payload.ends_with("planner startup"));
-    assert!(!payload.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+    assert!(!payload.contains(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
 }
 
 #[test]
@@ -792,7 +792,7 @@ fn team_bootstrap_marks_only_the_fallback_transport() {
     assert_eq!(system_prompt, "system contract");
 
     let fallback = team_bootstrap_payload(false, "fallback contract".into());
-    let frame = codeterm_types::domios::parse_message(&fallback).expect("fallback is one frame");
+    let frame = codeterm_wire::domios::parse_message(&fallback).expect("fallback is one frame");
     assert_eq!(frame.attr("from"), Some("system"));
     assert_eq!(frame.attr("context"), Some("team-bootstrap"));
     assert_eq!(frame.attr("tab"), None);

@@ -753,7 +753,7 @@ async fn apply_hook(
         text_hooks::HookDecision::Forward => HookOutcome::Forward,
         text_hooks::HookDecision::ForwardWithMetadata { metadata } => {
             let json = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".into());
-            let marker = codeterm_types::message_markers::hook(&json);
+            let marker = codeterm_wire::message_markers::hook(&json);
             HookOutcome::Annotated(format!("{}\n\n{}", body, marker))
         }
         text_hooks::HookDecision::Replace { respond } => {
@@ -831,7 +831,7 @@ async fn inject_message(
     let prefixed = match msg.service.as_str() {
         "telegram" => {
             let thread = thread_id.map(|id| id.to_string());
-            codeterm_types::message_markers::telegram_routed(
+            codeterm_wire::message_markers::telegram_routed(
                 &msg.user_id.to_string(),
                 msg_id.as_deref(),
                 thread.as_deref(),
@@ -839,7 +839,7 @@ async fn inject_message(
                 &body,
             )
         }
-        service => codeterm_types::message_markers::Marker::new(service)
+        service => codeterm_wire::message_markers::Marker::new(service)
             .attr("user", &msg.user_id.to_string())
             .attr_opt("msg", msg_id.as_deref())
             .payload(&body)
