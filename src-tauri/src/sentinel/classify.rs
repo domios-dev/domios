@@ -262,3 +262,4 @@ mod tests {
         }
     }
 }
+const _SPLIT_METRIC_PROBE: u8 = 0;
