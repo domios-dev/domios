@@ -125,7 +125,7 @@ fn the_retained_symbols_dir_is_keyed_by_identity_not_by_a_commit() {
         );
         assert_ne!(
             name,
-            env!("BUILD_HASH"),
+            codeterm_build_info::BUILD_HASH,
             "a commit is not a symbol identity"
         );
     }
