@@ -145,3 +145,28 @@ test('gateway helpers stay pinned to the launching scripts after checkout cwd ch
     assert.equal(JSON.parse(result.output).state, 'idle');
   } finally { await cleanup(directory, [client]); }
 });
+
+test('cache reset metadata failure stops server restart before compile', { timeout: 15000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-cache-evidence-'));
+  const client = shell(directory, `
+    source scripts/cache-policy.sh
+    source scripts/build-gateway.sh
+    ct_gateway_set_fixture_dir "$1/state"
+    CT_GATEWAY_ACTIVE=1
+    CT_BUILD_JOB_ID=reset-failure
+    CT_SCCACHE_STORAGE=local
+    pgrep() { return 1; }
+    powershell.exe() { return 1; }
+    ct_gateway_state_tool() { return 1; }
+    sccache() { echo STOPPED; }
+    ct_sccache_start_with_evidence() { echo STARTED; }
+    if ct_sccache_restart; then echo COMPILE_STARTED; else exit "$?"; fi
+  `);
+  try {
+    const result = await client.exited;
+    assert.equal(result.code, 74, result.errors);
+    assert.doesNotMatch(result.output, /STOPPED|STARTED/);
+    assert.match(result.errors, /metadata write failed before compilation: cache reset evidence/);
+    assert.equal(fs.existsSync(path.join(directory, 'state', 'sccache-start-state', 'state.lock')), false);
+  } finally { await cleanup(directory, [client]); }
+});

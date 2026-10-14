@@ -68,6 +68,7 @@ for (const failure of ['create', 'running', 'evidence-start']) {
       assert.doesNotMatch(result.stdout, /COMPILE_STARTED/);
       assert.match(result.stderr, /metadata write failed before compilation/);
       assert.equal(fs.existsSync(path.join(directory, 'state.lock')), false);
+      if (failure === 'create') assert.equal(fs.readdirSync(path.join(directory, 'queue')).length, 0);
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   });
 }
@@ -85,7 +86,8 @@ test('gateway status skips a partial JSON record and keeps a valid job', () => {
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('dead queued owner is reaped without removing the live caller ticket', { timeout: 30000 }, () => {
+for (const identity of ['readable', 'unreadable']) {
+test(identity === 'readable' ? 'dead queued owner is reaped without removing the live caller ticket' : 'unreadable start identity never reaps a live queued owner', { timeout: 30000 }, () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-queued-owner-'));
   const result = spawnSync(bash, ['-c', `
     set -e
@@ -103,10 +105,11 @@ test('dead queued owner is reaped without removing the live caller ticket', { ti
       ct_gateway_state_tool create --dir "$1" --job-id "$job" --job check-queue --command fixture \
         --owner "$job" --owner-pid "$pid" --owner-start-token "$token" --queue-key "$job" --queued-at fixture
     done
+    if [ "$2" = unreadable ]; then ct_gateway_process_start_token() { return 2; }; fi
     ct_gateway_reap_stale_queue_locked "$1"
     ct_gateway_state_tool status --dir "$1"
     ct_gateway_mutex_release "$1"
-  `, 'fixture', directory], { cwd: root, env, encoding: 'utf8', timeout: 25000 });
+  `, 'fixture', directory, identity], { cwd: root, env, encoding: 'utf8', timeout: 25000 });
   try {
     assert.equal(result.status, 0, result.stderr);
     const status = JSON.parse(result.stdout);
@@ -117,3 +120,5 @@ test('dead queued owner is reaped without removing the live caller ticket', { ti
     assert.equal(fs.existsSync(path.join(directory, 'queue', 'live')), true);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+}

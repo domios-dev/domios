@@ -24,6 +24,10 @@ const alive = (owner, token) => spawnSync(bash, [
   '-c', 'source "$1"; ct_gateway_identity_alive "$2" "$3"', 'gateway', script, owner, token,
 ], { stdio: 'ignore' }).status === 0;
 
+const gone = (owner, token) => spawnSync(bash, [
+  '-c', 'source "$1"; ct_gateway_owner_gone "$2" "$3"', 'gateway', script, owner, token,
+], { stdio: 'ignore' }).status === 0;
+
 let pending;
 const watcher = fs.watch(directory, () => pending?.());
 let ownershipWatcher;
@@ -83,7 +87,7 @@ try {
         const owner = read('pid');
         const token = read('start_token');
         // Publication and reclamation share this guard so stale observations cannot remove a new owner.
-        if (owner && token && !alive(owner, token)) fs.rmSync(mutex, { recursive: true });
+        if (owner && token && gone(owner, token)) fs.rmSync(mutex, { recursive: true });
         if (!fs.existsSync(mutex)) {
           fs.renameSync(candidate, mutex);
           candidate = undefined;
@@ -99,7 +103,7 @@ try {
   console.error(error.message);
   const blockedPath = fs.existsSync(guard) ? guard : mutex;
   const quotedPath = `'${blockedPath.replaceAll("'", "'\\''")}'`;
-  console.error(`If ownership is unreadable, stop gateway callers and verify no owner remains, then run: rm -rf -- ${quotedPath}`);
+  console.error(`If ownership is unreadable, stop gateway callers and verify no owner remains, ask the owner to resolve ${quotedPath}; do not delete unknown shared ownership`);
   process.exitCode = 75;
 } finally {
   watcher.close();
