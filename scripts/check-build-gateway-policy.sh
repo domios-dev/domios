@@ -81,8 +81,13 @@ expect_log "/targets/release/release-policy" "$TEST_ROOT/release-policy.log"
 FAKE_BIN="$TEST_ROOT/fake-bin"
 mkdir -p "$FAKE_BIN"
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$SCCACHE_CACHE_SIZE" > "$CODETERM_SCCACHE_CAP_RECEIPT"\ncase "${1:-}" in --show-stats) echo fake-stats;; --version) echo sccache-fixture;; esac\n' > "$FAKE_BIN/sccache"
-chmod +x "$FAKE_BIN/sccache"
-env -u SCCACHE_CACHE_SIZE CT_BUILD_JOB_ID=worktree-policy CODETERM_SCCACHE_CAP_RECEIPT="$TEST_ROOT/sccache-cap" PATH="$FAKE_BIN:$PATH" \
+cat > "$FAKE_BIN/node" <<'NODE'
+#!/usr/bin/env bash
+case "$1" in */sccache-server-probe.mjs) exit 0 ;; esac
+exec "$FIXTURE_REAL_NODE" "$@"
+NODE
+chmod +x "$FAKE_BIN/sccache" "$FAKE_BIN/node"
+env -u SCCACHE_CACHE_SIZE FIXTURE_REAL_NODE="$(command -v node)" CT_BUILD_JOB_ID=worktree-policy CODETERM_SCCACHE_CAP_RECEIPT="$TEST_ROOT/sccache-cap" PATH="$FAKE_BIN:$PATH" \
   ./build.sh gateway-policy-probe worktree-target > "$TEST_ROOT/worktree-policy.log"
 expect_log "incremental=0" "$TEST_ROOT/worktree-policy.log"
 expect_log "/targets/exceptional/" "$TEST_ROOT/worktree-policy.log"
