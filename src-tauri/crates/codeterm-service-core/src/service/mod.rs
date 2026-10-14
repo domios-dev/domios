@@ -1045,3 +1045,15 @@ pub(crate) fn resolve_refs(
 
 pub(crate) mod context_bundle;
 pub(crate) mod tool_less_instructions;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use plan_authority::test_fixture::fixture as plan_authority_fixture;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use workspace::test_fixture::workspace_with_agent_tab as workspace_agent_fixture;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use spawn_tab_identity::prepare_tab_identity as prepare_tab_identity_for_test;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use plan_pause::{PlanPausePorts, ServicePlanPausePorts};

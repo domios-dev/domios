@@ -17,7 +17,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab};
 
 /// Side effects a plan pause or resume performs outside the plan record.
-pub(crate) trait PlanPausePorts {
+pub trait PlanPausePorts {
     fn send_notice(&self, tab_id: &str, text: &str) -> Result<(), String>;
     fn schedule_enabled(&self, job_id: &str) -> Option<bool>;
     fn set_schedule_enabled(&self, job_id: &str, enabled: bool) -> Result<(), String>;
@@ -453,8 +453,8 @@ pub(crate) fn execute_plan_resume(
     Ok(outcome(true, restored_mode, Some(operation)))
 }
 
-struct ServicePlanPausePorts<'a> {
-    svc: &'a ServiceContext,
+pub struct ServicePlanPausePorts<'a> {
+    pub svc: &'a ServiceContext,
 }
 
 impl PlanPausePorts for ServicePlanPausePorts<'_> {
@@ -613,7 +613,5 @@ impl ServiceContext {
     }
 }
 
-#[cfg(test)]
-mod off_runtime_tests;
 #[cfg(test)]
 mod tests;
