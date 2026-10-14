@@ -30,6 +30,7 @@ pub type SnapshotPermit = OwnedSemaphorePermit;
 #[derive(Clone)]
 pub struct SnapshotBound {
     permits: Arc<Semaphore>,
+    #[cfg(test)]
     limit: usize,
 }
 
@@ -41,6 +42,7 @@ impl SnapshotBound {
     pub fn with_limit(limit: usize) -> Self {
         Self {
             permits: Arc::new(Semaphore::new(limit)),
+            #[cfg(test)]
             limit,
         }
     }
@@ -50,10 +52,12 @@ impl SnapshotBound {
         self.permits.clone().try_acquire_owned().ok()
     }
 
+    #[cfg(test)]
     pub fn limit(&self) -> usize {
         self.limit
     }
 
+    #[cfg(test)]
     pub fn in_flight(&self) -> usize {
         self.limit()
             .saturating_sub(self.permits.available_permits())
