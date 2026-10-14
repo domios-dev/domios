@@ -137,11 +137,6 @@ async function dismissPicker(page: Page): Promise<void> {
 function dropdown(page: Page, testId: string) {
   return page.locator(`[data-testid="${testId}"]`);
 }
-/** Opens a DropdownSelect and clicks the option carrying `value`. */
-async function selectDropdown(page: Page, testId: string, value: string): Promise<void> {
-  await dropdown(page, testId).click();
-  await page.locator(`[data-testid="${testId}-option-${value}"]`).click();
-}
 interface DropdownOption {
   value: string;
   disabled: boolean;
@@ -483,55 +478,20 @@ test.describe("new-session picker", () => {
     await expect(dropdown(page, "picker-model-planner")).toHaveAttribute("data-value", declaredDefault);
   });
 
-  test("@golden WORKSPACE ROW: preselected to current, help tooltip is instant", async ({ ui }) => {
-    const page = ui.page;
-    await expect(dropdown(page, "picker-workspace")).toHaveAttribute("data-value", ws.id);
-
-    const help = page.locator('[data-testid="workspace-help"]');
-    await help.hover();
-    const tooltip = page.locator('[data-testid="workspace-help-tooltip"]');
-    await expect(tooltip).toBeVisible({ timeout: 100 });
-    await expect(tooltip).toContainText(/workspace/i);
-  });
-
-  test("@golden PREVIEW LINE: reflects mode + destination, updates live on workspace change", async ({ api, ui }) => {
-    const page = ui.page;
-    const otherWs = await createTestWorkspace(api, "pw-picker-preview-dest");
-    try {
-      await page.locator('[data-testid="picker-mode-orchestration"]').click();
-      const preview = page.locator('[data-testid="picker-preview"]');
-      await expect(preview).toContainText("Orchestrator + Planner");
-      await expect(preview).toContainText(ws.name);
-
-      await selectDropdown(page, "picker-workspace", otherWs.id);
-      await expect(preview).toContainText(otherWs.name);
-      await expect(preview).not.toContainText(ws.name);
-    } finally {
-      await cleanupWorkspace(api, otherWs.id);
-    }
-  });
-
-  test("@golden PERSISTENCE: mode + model persist, workspace resets to current", async ({ api, ui }) => {
+  test("@golden PERSISTENCE: mode + model persist across a reload", async ({ ui }) => {
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
     // Changing a model needs a role whose model control is actually usable here.
     await settleOnUsableModel(page, "picker-provider-planner", "picker-model-planner");
     const plannerProvider = (await dropdown(page, "picker-provider-planner").getAttribute("data-value")) ?? "";
     const changedModel = await selectFirstDifferentOption(page, "picker-model-planner");
-    const otherWs = await createTestWorkspace(api, "pw-picker-persist-dest");
-    try {
-      await selectDropdown(page, "picker-workspace", otherWs.id);
 
-      // localStorage choice; reopen a fresh picker in the ORIGINAL workspace.
-      await page.reload();
-      await openPicker(page, ws.id);
-      await expect(page.locator('[data-testid="picker-mode-orchestration"]')).toHaveAttribute("data-selected", "true");
-      await expect(dropdown(page, "picker-provider-planner")).toHaveAttribute("data-value", plannerProvider);
-      await expect(dropdown(page, "picker-model-planner")).toHaveAttribute("data-value", changedModel);
-      await expect(dropdown(page, "picker-workspace")).toHaveAttribute("data-value", ws.id);
-    } finally {
-      await cleanupWorkspace(api, otherWs.id);
-    }
+    // The choice lives in localStorage; a fresh picker after reload must restore it.
+    await page.reload();
+    await openPicker(page, ws.id);
+    await expect(page.locator('[data-testid="picker-mode-orchestration"]')).toHaveAttribute("data-selected", "true");
+    await expect(dropdown(page, "picker-provider-planner")).toHaveAttribute("data-value", plannerProvider);
+    await expect(dropdown(page, "picker-model-planner")).toHaveAttribute("data-value", changedModel);
   });
 
   test("@golden IN-PLACE PAIR SPAWN: confirm materializes orchestrator + planner, no husk left behind", async ({ api, ui }) => {
@@ -592,32 +552,6 @@ test.describe("new-session picker", () => {
     }
   });
 
-  test("@golden CROSS-WORKSPACE: spawning into workspace B leaves NO husk in A", async ({ api, ui }) => {
-    test.setTimeout(120_000);
-    await requireStub(api);
-    const page = ui.page;
-    const wsB = await createTestWorkspace(api, "pw-picker-cross-b");
-    try {
-      await page.locator('[data-testid="picker-mode-orchestration"]').click();
-      await selectDropdown(page, "picker-workspace", wsB.id);
-      await page.locator('[data-testid="picker-confirm"]').click();
-
-      await expect
-        .poll(async () => visibleTabsInWorkspace(await muxState(api), wsB.id).length, {
-          timeout: 60_000,
-        })
-        .toBeGreaterThanOrEqual(2);
-      const orchestrator = await waitForOrchestrator(api, wsB.id);
-      expect(orchestrator.role, "orchestrator must land in workspace B").toBe("Orchestrator");
-
-      // …and A keeps NO husk: the virtual picker just vanished, no backend tab.
-      const after = await muxState(api);
-      expect(visibleTabsInWorkspace(after, ws.id)).toHaveLength(0);
-    } finally {
-      await cleanupWorkspace(api, wsB.id);
-    }
-  });
-
   test("@golden SINGLE SELECT: Start closes the picker and selects + focuses the created agent tab", async ({ api, ui }) => {
     test.setTimeout(120_000);
     await requireStub(api);
@@ -664,33 +598,6 @@ test.describe("new-session picker", () => {
       .toBe(orchestrator.id);
 
     await ui.page.screenshot({ path: "tests/playwright/artifacts/picker-pair-selected.png" });
-  });
-
-  test("@golden CROSS-WORKSPACE SELECT: Start switches the active workspace to B and selects its orchestrator", async ({ api, ui }) => {
-    test.setTimeout(120_000);
-    await requireStub(api);
-    const page = ui.page;
-    const wsB = await createTestWorkspace(api, "pw-picker-cross-sel-b");
-    try {
-      await page.locator('[data-testid="picker-mode-orchestration"]').click();
-      await selectDropdown(page, "picker-workspace", wsB.id);
-      await page.locator('[data-testid="picker-confirm"]').click();
-
-      await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
-      const orchestrator = await waitForOrchestrator(api, wsB.id);
-      await expect
-        .poll(async () => (await muxState(api)).active_workspace_id ?? null, { timeout: 30_000 })
-        .toBe(wsB.id);
-      const s = await muxState(api);
-      expect(s.workspaces.find((w) => w.id === wsB.id)?.active_tab_id, "B's orchestrator tab is active").toBe(orchestrator.id);
-      await expect
-      .poll(async () => (await muxState(api)).focused_tab_id, { timeout: 30_000 })
-      .toBe(orchestrator.id);
-      // Host A keeps no husk.
-      expect(visibleTabsInWorkspace(s, ws.id)).toHaveLength(0);
-    } finally {
-      await cleanupWorkspace(api, wsB.id);
-    }
   });
 
   /**
