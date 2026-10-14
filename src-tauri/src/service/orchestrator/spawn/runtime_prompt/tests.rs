@@ -210,12 +210,35 @@ fn restored_runtime_identity_is_persisted_once_without_fabricating_kickoff() {
     let prompt = first.agent_runtime_config.as_ref().unwrap()["systemPrompt"]
         .as_str()
         .unwrap();
-    assert_eq!(prompt.matches("opaque-saved-identity").count(), 1);
-    assert!(prompt.contains(crate::prompts::PLANNER_DOC.trim()));
+    assert_eq!(prompt.matches("opaque-saved-identity").count(), 0);
+    assert_eq!(
+        prompt.matches(crate::prompts::PLANNER_DOC.trim()).count(),
+        1
+    );
     assert!(first.pending_delivery.is_none());
     assert_eq!(first.agent_session_id.as_deref(), Some("opaque-thread"));
     ensure_tab_runtime_prompt(&fixture.service, &tab_id).unwrap();
     let second = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
     assert_eq!(first.agent_runtime_config, second.agent_runtime_config);
     assert!(second.pending_delivery.is_none());
+}
+
+#[test]
+fn restored_runtime_worker_keeps_its_saved_persona_once() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.create_workspace("opaque-workspace".into(), None);
+    let tab_id = mux.create_tab(&workspace.id).unwrap();
+    let target = mux.get_tab_mut(&tab_id).unwrap();
+    target.agent_type = Some("runtime-fixture".into());
+    target.role = Some(AgentRole::Worker);
+    target.session_binding_nonce = Some("opaque-nonce".into());
+    target.restorable_launch.identity_instructions = Some("opaque-worker-persona".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    ensure_tab_runtime_prompt(&fixture.service, &tab_id).unwrap();
+    let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
+    let prompt = tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"]
+        .as_str()
+        .unwrap();
+    assert_eq!(prompt.matches("opaque-worker-persona").count(), 1);
+    assert_eq!(prompt.matches(ROLE_AUTHORITY).count(), 1);
 }
