@@ -88,7 +88,7 @@ async fn fetch_peer_services(
                 return TryNext::Stop(format!("HTTP {}", resp.status()));
             }
             match resp
-                .json::<crate::api::mesh_inventory::MeshInventoryView>()
+                .json::<crate::mesh_host::MeshInventoryView>()
                 .await
             {
                 Ok(view) => TryNext::Success(

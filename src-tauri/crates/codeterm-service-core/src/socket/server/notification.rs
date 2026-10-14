@@ -42,9 +42,9 @@ pub(super) fn dispatch(
                 data: None,
             };
             let title =
-                crate::api::notification_routes::vet_title(&get_string_param(params, "title")?)
+                crate::notification::vet::vet_title(&get_string_param(params, "title")?)
                     .map_err(invalid)?;
-            crate::api::notification_routes::vet_target_tab(
+            crate::notification::vet::vet_target_tab(
                 string_at(params, "target_tab_id").as_deref(),
                 |tab| svc.mux.read().resolve_tab_id(tab).is_some(),
             )
@@ -78,7 +78,7 @@ pub(super) fn dispatch(
                     ),
                 };
             let actions =
-                crate::api::notification_routes::vet_actions(actions).map_err(|message| {
+                crate::notification::vet::vet_actions(actions).map_err(|message| {
                     JsonRpcError {
                         code: -32602,
                         message,
@@ -86,7 +86,7 @@ pub(super) fn dispatch(
                     }
                 })?;
             let level = string_param("level");
-            let intent = crate::api::notification_routes::parse_push_intent(
+            let intent = crate::notification::vet::parse_push_intent(
                 level.as_deref(),
                 string_param("event_key"),
             )
@@ -96,7 +96,7 @@ pub(super) fn dispatch(
                 data: None,
             })?;
             // The offer rides the same seam as the choices, because the offer IS one of them: the surface applies on the label that was tapped, for the level this notification carries.
-            let offer = crate::api::notification_routes::vet_offer(
+            let offer = crate::notification::vet::vet_offer(
                 svc,
                 string_param("offer"),
                 string_param("offer_accept"),
@@ -121,7 +121,7 @@ pub(super) fn dispatch(
                 )
                 .map_err(invalid)?;
 
-            Ok(crate::api::notification_routes::created_result(&id, unseen))
+            Ok(crate::notification::vet::created_result(&id, unseen))
         }
 
         "notification.list" => {

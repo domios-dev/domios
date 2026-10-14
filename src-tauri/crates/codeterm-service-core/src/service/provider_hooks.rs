@@ -514,7 +514,7 @@ fn repair_integration_on_startup(
 }
 
 #[cfg(test)]
-#[path = "hooks/owner_notice_tests.rs"]
+#[path = "provider_hooks/owner_notice_tests.rs"]
 mod owner_notice_tests;
 #[cfg(test)]
 mod tests;

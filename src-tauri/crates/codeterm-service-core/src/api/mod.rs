@@ -1,4 +1,3 @@
-pub(crate) mod access_policy;
 pub mod account_routes;
 pub mod analytics_routes;
 pub mod auth;
@@ -44,8 +43,8 @@ pub mod mesh_routes;
 pub(crate) mod model_provider_routes;
 pub mod network_routes;
 pub mod notification_routes;
-pub(crate) mod optional_json;
-pub mod os_notify;
+#[cfg(test)]
+mod optional_json_contract_tests;
 pub mod output_stream;
 pub mod pasteboard_routes;
 pub(crate) mod peer_redaction;
@@ -58,7 +57,6 @@ pub mod services_routes;
 pub(crate) mod session_binding_routes;
 pub(crate) mod session_exchange;
 pub mod session_routes;
-pub mod snapshot_bound;
 pub(crate) mod stream_census;
 pub(crate) mod stream_diagnostics;
 pub(crate) mod surface_routes;

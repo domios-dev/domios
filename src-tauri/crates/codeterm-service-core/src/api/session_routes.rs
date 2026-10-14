@@ -7,9 +7,9 @@ use serde::Deserialize;
 use tauri::Manager;
 
 use crate::api::{
-    optional_json::OptionalJson,
     routes::{check_auth, AppState},
 };
+use crate::api_support::optional_json::OptionalJson;
 
 #[derive(Deserialize)]
 pub struct SaveSessionBody {

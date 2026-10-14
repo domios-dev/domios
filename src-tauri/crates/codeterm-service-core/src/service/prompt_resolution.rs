@@ -235,12 +235,12 @@ mod tests {
             )),
             cron_wake: Arc::new(std::sync::Condvar::new()),
             api_port: 0,
-            update_state: Arc::new(parking_lot::Mutex::new(crate::update::UpdateState {
-                install_method: crate::update::InstallMethod::Unknown,
+            update_state: Arc::new(parking_lot::Mutex::new(crate::update_state::UpdateState {
+                install_method: crate::update_state::InstallMethod::Unknown,
                 last_check: None,
                 last_check_time: None,
                 channel: config.updater.channel,
-                phase: crate::update::UpdatePhase::Idle,
+                phase: crate::update_state::UpdatePhase::Idle,
                 last_error: None,
                 phase_changed_at: None,
                 downloaded_bytes: 0,
@@ -259,7 +259,7 @@ mod tests {
             test_clock: None,
             events: fixture.service.events.clone(),
             web_dist: None,
-            snapshot_bound: crate::api::snapshot_bound::SnapshotBound::default(),
+            snapshot_bound: crate::startup::snapshot_bound::SnapshotBound::default(),
         }
     }
 
@@ -304,7 +304,7 @@ mod tests {
             axum::extract::State(state),
             axum::extract::Path(tab_id.clone()),
             axum::http::HeaderMap::new(),
-            crate::api::optional_json::OptionalJson(None),
+            crate::api_support::optional_json::OptionalJson(None),
         )
         .await
         .expect("stop hook accepted");

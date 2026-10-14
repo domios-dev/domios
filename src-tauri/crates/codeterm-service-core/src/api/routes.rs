@@ -89,7 +89,7 @@ pub struct AppState {
     pub web_dist: Option<std::path::PathBuf>,
     /// Caps concurrent full-state snapshots so a request storm cannot take the
     /// daemon down. See `api::snapshot_bound`.
-    pub snapshot_bound: crate::api::snapshot_bound::SnapshotBound,
+    pub snapshot_bound: crate::startup::snapshot_bound::SnapshotBound,
 }
 
 #[derive(Clone)]
@@ -928,7 +928,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
         .route(
-            inbound_webhook::PEBBLE_WEBHOOK_PATH,
+            crate::service::web_access::PEBBLE_WEBHOOK_PATH,
             post(inbound_webhook::receive_pebble_webhook).layer(
                 axum::extract::DefaultBodyLimit::max(inbound_webhook::MAX_WEBHOOK_REQUEST_BYTES),
             ),

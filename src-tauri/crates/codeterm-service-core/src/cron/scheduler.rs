@@ -250,7 +250,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
     crate::flow_trace::record(&run_id, "cron.started", "", "", "fired", None);
 
     // Spawn agent via the unified spawn_tab surface.
-    let skill_block = spec.skill.as_deref().map(crate::commands::cron_skill_block);
+    let skill_block = spec.skill.as_deref().map(crate::cron::skill_block::cron_skill_block);
     let task_text = crate::cron::task_text::build_cron_task_text(
         task,
         skill_block.as_deref(),

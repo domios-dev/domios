@@ -101,7 +101,7 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
         test_clock: None,
         events: fixture.service.events.clone(),
         web_dist: None,
-        snapshot_bound: crate::api::snapshot_bound::SnapshotBound::default(),
+        snapshot_bound: crate::startup::snapshot_bound::SnapshotBound::default(),
     }
 }
 
@@ -135,7 +135,7 @@ impl Fixture {
             .service
             .agent_registry
             .register_provider(Box::new(TranscriptProvider(rows.clone())));
-        let root = crate::commands::html_preview::preview_test_root(service.temp.path());
+        let root = crate::service::local_preview::html_preview::preview_test_root(service.temp.path());
         let state = app_state(&service);
         let app = crate::api::routes::create_router_with_preview_admission(
             state.clone(),

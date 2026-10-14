@@ -24,7 +24,7 @@ fn authenticated_launch_identity(
     })
 }
 
-pub(super) fn acknowledge_authenticated_launch(
+pub(crate) fn acknowledge_authenticated_launch(
     mux: &crate::multiplexer::commands::MuxState,
     tab_id: &str,
     claim: &SessionStartClaim,
@@ -41,7 +41,7 @@ pub(super) fn acknowledge_authenticated_launch(
     })
 }
 
-pub(super) fn acknowledge_and_reconcile_session_binding(
+pub(crate) fn acknowledge_and_reconcile_session_binding(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
     claim: &SessionStartClaim,
@@ -56,7 +56,7 @@ pub(super) fn acknowledge_and_reconcile_session_binding(
     launch_identity
 }
 
-pub(super) fn unchanged_acknowledged_hook_report(
+pub(crate) fn unchanged_acknowledged_hook_report(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
     provider_id: &str,

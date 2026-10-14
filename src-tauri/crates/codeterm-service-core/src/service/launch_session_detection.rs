@@ -1001,7 +1001,7 @@ impl ServiceContext {
         } = detected;
         let source = binding_source(detection.source);
         let session_id = detection.session_id;
-        let claim = match crate::api::hook_routes::bind_detected_session(
+        let claim = match crate::service::hook_session_binding::bind_detected_session(
             &self.mux,
             self.agent_registry.as_ref(),
             tab_id,
@@ -1022,7 +1022,7 @@ impl ServiceContext {
             "[launch-session-detection] Tab {tab_id} bound {provider_id} session {session_id} from {}",
             source_label(source),
         );
-        if let Err((status, message)) = crate::api::hook_routes::finish_session_binding(
+        if let Err((status, message)) = crate::service::hook_session_binding::finish_session_binding(
             self,
             tab_id,
             &provider_id,

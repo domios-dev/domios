@@ -107,7 +107,7 @@ struct SystemBrowser;
 impl Browser for SystemBrowser {
     async fn open(&self, url: &url::Url) -> codeterm_account::Result<()> {
         let url = url.to_string();
-        tokio::task::spawn_blocking(move || crate::commands::open_url(url))
+        tokio::task::spawn_blocking(move || crate::service::open_url::open_url(url))
             .await
             .map_err(|_| Error::Browser)?
             .map_err(|_| Error::Browser)
