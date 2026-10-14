@@ -86,7 +86,7 @@ pub fn socket_display_path() -> String {
 
     #[cfg(target_os = "windows")]
     {
-        format!("\\.\pipe\{}", bare)
+        format!("\\\\.\\pipe\\{}", bare)
     }
 
     #[cfg(not(target_os = "windows"))]
