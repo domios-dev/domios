@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::schema::{SupporterConfig, SupporterSources};
+use codeterm_types::config::{SupporterConfig, SupporterSources};
 
 fn docs_cfg(docs: usize) -> SupporterConfig {
     SupporterConfig {
@@ -27,7 +27,7 @@ fn applied_query(query: &str, limit: usize) -> SearchParams {
 fn doc_only_candidate_can_win_without_changing_mem_access_counts() {
     let backend = seeded();
     let query = "Bitwarden vault master password auto unlock";
-    let section = crate::mem::docs_source::search(query, 1)
+    let section = codeterm_mem::docs_source::search(query, 1)
         .into_iter()
         .next()
         .expect("doc source match");
@@ -62,7 +62,7 @@ fn doc_only_candidate_can_win_without_changing_mem_access_counts() {
 fn cli_command_candidate_points_to_its_help_command() {
     let backend = seeded();
     let query = "codeterm sessions search";
-    let section = crate::mem::docs_source::search(query, 1)
+    let section = codeterm_mem::docs_source::search(query, 1)
         .into_iter()
         .next()
         .expect("CLI command source match");
