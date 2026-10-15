@@ -328,3 +328,5 @@ pub mod privacy;
 pub mod process_tree;
 
 pub mod provider_update;
+
+pub mod capability_probe;
