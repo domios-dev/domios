@@ -28,7 +28,7 @@ pub(crate) fn fail_run_on_pty_death(
         );
         if let Some((job_id, run_id)) = settled {
             log::info!("[pty-death] cron Tab exited: job={job_id}, run={run_id}");
-            codeterm_events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+            crate::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
         }
     }))
 }

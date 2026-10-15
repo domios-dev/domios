@@ -12,7 +12,7 @@ impl crate::service::ServiceContext {
             .chat_send_ledger
             .set_user_pending_reason(send_id, Some("awaiting_model_command"));
         if let Some(status) = &changed {
-            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", status);
+            crate::events::emit_everywhere(&self.app_handle, "chat-send-status", status);
         }
         let status = changed.or_else(|| self.chat_send_ledger.status(send_id))?;
         if status.state != crate::service::chat_send_transaction::ChatSendState::Pending
@@ -30,7 +30,7 @@ impl crate::service::ServiceContext {
                 .chat_send_ledger
                 .set_user_pending_reason(&send_id, Some("model_command_completion_unconfirmed"))
             {
-                codeterm_events::emit_everywhere(&service.app_handle, "chat-send-status", &status);
+                crate::events::emit_everywhere(&service.app_handle, "chat-send-status", &status);
             }
         });
         Some(status)

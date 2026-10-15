@@ -263,7 +263,7 @@ impl ServiceContext {
 
     pub fn emit_plan_changed(&self, plan_id: &str) {
         self.provider_update_task_state_changed();
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",
             serde_json::json!({ "plan_id": plan_id }),

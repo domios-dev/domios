@@ -361,7 +361,7 @@ impl ServiceContext {
         ) {
             log::warn!("[permission-auto-confirm] persist after toggle failed: {error}");
         }
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app_handle,
             "permission-auto-confirm-changed",
             serde_json::json!({ "tab_id": tab_id, "enabled": enabled }),
@@ -612,7 +612,7 @@ impl ServiceContext {
         if let Some(tab) = self.mux.write().get_tab_mut(&binding.tab_id) {
             record_auto_confirmation(&mut tab.permission_auto_confirmations, audit.clone());
         }
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app_handle,
             "permission-auto-confirmed",
             serde_json::json!({ "tab_id": binding.tab_id, "confirmation": audit }),
@@ -666,7 +666,7 @@ impl ServiceContext {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
         if retracted {
-            codeterm_events::emit_everywhere(
+            crate::events::emit_everywhere(
                 &self.app_handle,
                 "prompt-state-changed",
                 serde_json::json!({ "tab_id": tab_id, "prompt": null }),
@@ -685,7 +685,7 @@ impl ServiceContext {
             None => false,
         };
         if surfaced {
-            codeterm_events::emit_everywhere(
+            crate::events::emit_everywhere(
                 &self.app_handle,
                 "prompt-state-changed",
                 serde_json::json!({ "tab_id": tab_id, "prompt": prompt }),

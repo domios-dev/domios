@@ -77,7 +77,7 @@ impl ServiceContext {
             if !finalized {
                 return;
             }
-            codeterm_events::emit_everywhere(
+            crate::events::emit_everywhere(
                 &service.app_handle,
                 "plan-changed",
                 json!({"plan_id": plan_id}),

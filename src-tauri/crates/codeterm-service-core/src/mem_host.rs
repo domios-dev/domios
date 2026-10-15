@@ -139,7 +139,7 @@ struct AppMemEventSink(crate::app_runtime::AppHandle);
 
 impl MemEventSink for AppMemEventSink {
     fn emit_graph_worker_spawned(&self, info: &GraphWorkerInfo) {
-        codeterm_events::emit_everywhere(&self.0, "graph-worker-spawned", info);
+        crate::events::emit_everywhere(&self.0, "graph-worker-spawned", info);
     }
 }
 
@@ -703,6 +703,6 @@ pub fn cancel_worker(
             log::warn!("[graph-workers] cancel Tab {}: {}", info.tab_id, e);
         }
     }
-    codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
+    crate::events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
     Some(info)
 }

@@ -86,7 +86,7 @@ impl UpdateFailureSink for AppFailureSink {
 
         self.update_state.lock().set_error(abort.cause.clone());
 
-        codeterm_events::emit_everywhere(
+        codeterm_service_core::events::emit_everywhere(
             &self.app,
             "update-failed",
             serde_json::json!({

@@ -703,7 +703,7 @@ pub fn run(
                             files.len(),
                             dir.display()
                         );
-                        codeterm_events::emit_everywhere(
+                        codeterm_service_core::events::emit_everywhere(
                             &app_handle,
                             "crash_report_available",
                             serde_json::json!({
