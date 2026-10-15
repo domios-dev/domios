@@ -192,7 +192,7 @@ impl CaptureClips {
 }
 
 impl crate::service::ServiceContext {
-    pub(crate) async fn local_recording_save_clip(
+    pub async fn local_recording_save_clip(
         &self,
         lease: &str,
         data: String,
@@ -241,7 +241,7 @@ impl crate::service::ServiceContext {
         })
     }
 
-    pub(crate) fn local_recording_discard_clip(&self, lease: &str, handle: &str) {
+    pub fn local_recording_discard_clip(&self, lease: &str, handle: &str) {
         self.local_recordings.discard_clip(lease, handle);
     }
 }

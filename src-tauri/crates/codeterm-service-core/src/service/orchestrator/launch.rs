@@ -1084,10 +1084,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     });
 }
 
-pub(crate) fn mark_tab_agent_launch_started(
-    mux: &crate::multiplexer::commands::MuxState,
-    tab_id: &str,
-) {
+pub fn mark_tab_agent_launch_started(mux: &crate::multiplexer::commands::MuxState, tab_id: &str) {
     if let Some(tab) = mux.write().get_tab_mut(tab_id) {
         tab.restored_from_snapshot = false;
         tab.agent_booting = true;

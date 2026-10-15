@@ -393,12 +393,7 @@ fn chat_start_inner(
     let read_ms = read_started.elapsed().as_millis();
     if let Some(nonce) = session_binding_nonce.as_deref() {
         if snap.truncated() {
-            codeterm_service_core::service::background_work::incomplete_snapshot(
-                svc,
-                &tab_id,
-                &session_id,
-                nonce,
-            );
+            codeterm_service_core::service::incomplete_snapshot(svc, &tab_id, &session_id, nonce);
         }
         codeterm_service_core::service::provider_signals::apply(
             svc,

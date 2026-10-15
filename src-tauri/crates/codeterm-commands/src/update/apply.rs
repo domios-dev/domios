@@ -263,9 +263,7 @@ async fn check_and_apply_plugin(
         move |verified_bytes| async move {
             log::info!("[updater] starting verified installer after PTY shutdown");
             tokio::task::spawn_blocking(move || {
-                codeterm_service_core::service::analytics::update_confirm::stage_app(
-                    &update.version,
-                );
+                codeterm_service_core::service::analytics::stage_app(&update.version);
                 update
                     .install(verified_bytes)
                     .map_err(|e| format!("installer launch failed: {}", e))
@@ -414,7 +412,7 @@ pub(super) async fn install_staged_deb_and_restart(
 ) -> Result<(), String> {
     let target = version.clone();
     tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::analytics::update_confirm::stage_app(&target)
+        codeterm_service_core::service::analytics::stage_app(&target)
     })
     .await
     .map_err(|e| e.to_string())?;

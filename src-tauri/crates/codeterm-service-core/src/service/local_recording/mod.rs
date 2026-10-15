@@ -8,8 +8,8 @@ pub(crate) mod platform;
 mod receiver_status;
 mod selections;
 
-pub(crate) use admission::LocalRecordingCommitOutcome;
-pub(crate) use clip::CaptureClipDescriptor;
+pub use admission::LocalRecordingCommitOutcome;
+pub use clip::CaptureClipDescriptor;
 pub(crate) use leases::{CaptureLeaseView, RecordingLeases};
 pub(crate) use selections::RecordingSelectionStore;
 
@@ -270,11 +270,11 @@ impl ServiceContext {
         )
     }
 
-    pub(crate) fn local_recording_capture_stopped(&self, lease: &str) -> Result<(), String> {
+    pub fn local_recording_capture_stopped(&self, lease: &str) -> Result<(), String> {
         self.local_recordings.stopped(lease)
     }
 
-    pub(crate) fn local_recording_cancel(&self, lease: &str) {
+    pub fn local_recording_cancel(&self, lease: &str) {
         self.local_recordings.cancel(lease);
     }
 

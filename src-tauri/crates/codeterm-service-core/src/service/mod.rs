@@ -106,10 +106,8 @@ pub(crate) mod startup_turn;
 pub(crate) mod task_files;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
-pub(crate) use orchestrator::tab_relink_signal::await_relink;
-pub(crate) use orchestrator::{
-    build_agent_command_for_service, mark_tab_agent_launch_started, provider_launch_task,
-};
+pub use orchestrator::tab_relink_signal::await_relink;
+pub(crate) use orchestrator::{build_agent_command_for_service, provider_launch_task};
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
 mod folder_trust_carryover;
@@ -252,7 +250,7 @@ mod worker_identity;
 pub(crate) mod worker_interruption;
 pub mod worker_lane;
 pub(crate) mod worker_loss;
-pub(crate) use worker_lane::is_linked_worktree;
+pub use worker_lane::is_linked_worktree;
 pub(crate) use worker_lane::provision_isolated_lane;
 #[cfg(any(test, feature = "test-support"))]
 pub use worker_lane::provision_lane_for_test;
@@ -1057,3 +1055,8 @@ pub use spawn::prepare_tab_identity_for_test;
 pub use plan_pause::{PlanPausePorts, ServicePlanPausePorts};
 
 pub use worker_ack::STARTUP_BINDING_DEADLINE;
+
+pub use background_work::incomplete_snapshot;
+pub use local_recording::{CaptureClipDescriptor, LocalRecordingCommitOutcome};
+pub use orchestrator::mark_tab_agent_launch_started;
+pub use pty_ownership::{LinkOutcome, PtyOwnership, PtySelection, TabPtyClaim};

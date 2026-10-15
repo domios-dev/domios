@@ -193,3 +193,5 @@ pub(crate) fn subscription_event(
 }
 #[cfg(test)]
 mod tests;
+
+pub use update_confirm::stage_app;

@@ -184,7 +184,7 @@ fn require_restored_launch_command(command: &str, session_id: Option<&str>) -> R
     })
 }
 
-pub(crate) fn claim_restored_pty_boot(
+pub fn claim_restored_pty_boot(
     mux: &MuxState,
     tab_id: &str,
 ) -> Result<Option<RestoredLaunch>, String> {

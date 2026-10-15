@@ -164,7 +164,7 @@ mod tests {
     }
 }
 
-pub(crate) fn incomplete_snapshot(svc: &ServiceContext, tab_id: &str, session: &str, nonce: &str) {
+pub fn incomplete_snapshot(svc: &ServiceContext, tab_id: &str, session: &str, nonce: &str) {
     let mut mux = svc.mux.write();
     let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| {
         tab.agent_session_id.as_deref() == Some(session)
