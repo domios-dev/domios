@@ -155,6 +155,7 @@ jobs:
         run: bash build.sh cache-verify
 
       - name: Build release bundle inputs
+        id: compile
         shell: bash
         run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh release-inputs
 
@@ -310,8 +311,9 @@ jobs:
           platform: release-Linux
           target: x86_64-unknown-linux-gnu
 
+      # Without a compile step no sccache server ever started, so there is nothing to report.
       - name: Shared compile cache statistics
-        if: always()
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
         run: bash build.sh cache-stats
       - name: Remove this job's Rust targets and archives
         if: always()
