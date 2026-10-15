@@ -922,7 +922,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 32 -->
+<!-- revision: 33 -->
 
 ### Lane and batch scopes
 
@@ -971,4 +971,4 @@ Build setup (`source build.sh env`, also used by `lane-check`) exports `CARGO_BU
 
 GC maps the shared directory through Cargo metadata and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
 
-| Dedicated CI mode fails at catalogue inventory with ENOENT on the Windows stable drive root | Inventory fallback could not scan the subst drive root before Cargo started. | Preserve the gateway job receipt. For a temporary-worktree proof use `CODETERM_STABLE_BUILD_PATH=0 ./build.sh ci-tests embeddings --wait-build`; the gateway remains held and Cargo uses the shared build-dir. This proves the physical-path configuration only; stable-drive inventory remains a separate defect. |
+| Dedicated CI mode fails at catalogue inventory with ENOENT on the Windows stable drive root | Git reports the physical checkout while discovery compared it to a subst alias, then tried walking the drive root. | Catalogue discovery resolves the root with `realpathSync.native` before Git identity and file enumeration. Verify the temporary-subst regression with `node --test scripts/tests/test-catalogue.test.mjs`, then run the dedicated CI mode under the normal gateway alias. |
