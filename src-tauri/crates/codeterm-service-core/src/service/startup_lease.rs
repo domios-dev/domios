@@ -123,12 +123,7 @@ impl StartupHoldRefusal {
         }
     }
 
-    pub fn message(
-        &self,
-        caller_tab_id: &str,
-        child_tab_id: &str,
-        attempt_id: &str,
-    ) -> String {
+    pub fn message(&self, caller_tab_id: &str, child_tab_id: &str, attempt_id: &str) -> String {
         let detail = match self {
             Self::UnknownChild => format!("Tab {child_tab_id} does not exist"),
             Self::NoSupervisedAttempt => {
@@ -260,7 +255,7 @@ pub(crate) fn reap_owned_forming_team(
 
 /// Roll back a failed launch: detach the reserved tabs, then apply the same
 /// predicate. A tab that has since joined another Team keeps its membership.
-pub(crate) fn release_owned_reservation(
+pub fn release_owned_reservation(
     mux: &mut MultiplexerState,
     team_id: &str,
     member_tab_ids: &[String],
@@ -291,5 +286,7 @@ pub(crate) fn reap_orphaned_leases<'a>(
         .collect()
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod pair_fixture;
 #[cfg(test)]
 mod tests;

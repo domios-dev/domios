@@ -122,8 +122,7 @@ pub fn build_service_context(
     extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(
         parking_lot::Mutex::new(std::collections::HashMap::new()),
     )));
-    extensions.insert(crate::service::CartographerAttachLocks(Default::default()));
-    extensions.insert(crate::service::OrchestratorAttachLocks(Default::default()));
+    crate::ports::orchestration::register_extensions(&mut extensions);
     extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
     extensions.insert::<crate::ShellCapabilityState>(Arc::new(parking_lot::Mutex::new(
         Default::default(),

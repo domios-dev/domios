@@ -709,7 +709,7 @@ pub fn create_message(
         .unwrap_or_else(|| resolved.clone());
     let team_id = svc
         .mux
-        .write()
+        .read()
         .get_tab(&team_source)
         .and_then(|tab| tab.team_id.clone());
     let creator = resolve_creator(svc, created_by_tab);
@@ -738,7 +738,7 @@ fn resolve_creator(
     let Some(raw) = created_by_tab.filter(|p| !p.trim().is_empty()) else {
         return ReminderCreator::default();
     };
-    let mux = svc.mux.write();
+    let mux = svc.mux.read();
     let tab = mux.resolve_tab_id(&raw).unwrap_or(raw);
     let label = mux.display_label_for_tab(&tab);
     let model = mux
@@ -1087,7 +1087,7 @@ fn resolve_tab_id(
     id_or_alias: &str,
 ) -> Result<String, String> {
     svc.mux
-        .write()
+        .read()
         .resolve_tab_id(id_or_alias)
         .ok_or_else(|| "Tab not found".to_string())
 }
@@ -1096,7 +1096,7 @@ fn tab_context(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
 ) -> (Option<String>, Option<String>) {
-    let mux = svc.mux.write();
+    let mux = svc.mux.read();
     let workspace_id = mux.find_workspace_for_tab(tab_id);
     let session_id = mux
         .get_tab(tab_id)
@@ -1107,7 +1107,7 @@ fn tab_context(
 fn to_view(svc: &crate::service::ServiceContext, msg: DelayedMessage) -> DelayedMessageView {
     let current_session_id = svc
         .mux
-        .write()
+        .read()
         .get_tab(&msg.tab_id)
         .and_then(|tab| tab.agent_session_id.clone());
     let session_changed = match (&msg.session_id_at_create, &current_session_id) {

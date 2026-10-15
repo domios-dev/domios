@@ -29,9 +29,9 @@ pub(crate) fn restore(service: &ServiceContext) {
     if let Err(error) = service.recover_close_inventories() {
         log::error!("[closed-history] interrupted close recovery failed: {error}");
     }
-    let live_team_ids = codeterm_service_core::service::live_team_ids(service);
+    let live_team_ids = codeterm_service_core::service::team_core::live_team_ids(service);
     if let Err(error) =
-        codeterm_service_core::service::reconcile_dangling_team_plan_bindings_and_emit(
+        codeterm_service_core::service::team_core::reconcile_dangling_team_plan_bindings_and_emit(
             service,
             &live_team_ids,
             std::time::SystemTime::now()

@@ -1100,6 +1100,7 @@ dependencies = [
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-mem",
+ "codeterm-orchestration",
  "codeterm-plan",
  "codeterm-plugin",
  "codeterm-sentinel-host",
@@ -1201,6 +1202,7 @@ dependencies = [
  "codeterm-mem",
  "codeterm-mesh",
  "codeterm-notification-core",
+ "codeterm-orchestration",
  "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",
@@ -1319,6 +1321,7 @@ dependencies = [
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-mesh",
+ "codeterm-orchestration",
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-service-core",
@@ -1545,6 +1548,25 @@ name = "codeterm-notify-types"
 version = "1.6.2"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "codeterm-orchestration"
+version = "1.14.9-dev.6"
+dependencies = [
+ "codeterm-analytics",
+ "codeterm-events",
+ "codeterm-paths",
+ "codeterm-sentinel",
+ "codeterm-service-core",
+ "codeterm-types",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1907,6 +1929,7 @@ dependencies = [
  "codeterm-events",
  "codeterm-mem",
  "codeterm-notification-core",
+ "codeterm-orchestration",
  "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",

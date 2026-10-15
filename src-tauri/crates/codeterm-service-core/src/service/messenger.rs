@@ -471,7 +471,7 @@ impl Messenger {
         }
 
         let (resolved_target, should_prefix, pty_agent_target) = {
-            let mux = svc.mux.write();
+            let mux = svc.mux.read();
             let resolved_target = mux
                 .resolve_tab_id(to_tab)
                 .unwrap_or_else(|| to_tab.to_string());

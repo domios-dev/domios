@@ -58,8 +58,8 @@ fn required() -> Vec<(TypeId, &'static str)> {
         account::AccountCell, analytics::AnalyticsCell, billing::BillingCell,
         receiver_target::LocalRecordingTargets, receiver_target::ReceiverTargets,
         task_files::LaunchTaskFiles, workspace_cwd::WorkspaceRelocationLock, BridgeOutboundRx,
-        CartographerAttachLocks, LoadedPlanProjects, MuxEmitPending, OrchestratorAttachLocks,
-        PlanStartupLoaded, PlanWatchers, PublishedTabStatuses, WorkerIdentityAllocator,
+        LoadedPlanProjects, MuxEmitPending, PlanStartupLoaded, PlanWatchers, PublishedTabStatuses,
+        WorkerIdentityAllocator,
     };
     vec![
         key::<LaunchTaskFiles>(),
@@ -67,8 +67,6 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<AccountCell>(),
         key::<BillingCell>(),
         key::<AnalyticsCell>(),
-        key::<CartographerAttachLocks>(),
-        key::<OrchestratorAttachLocks>(),
         key::<crate::ports::orchestration::InstalledOrchestration>(),
         key::<crate::ShellCapabilityState>(),
         key::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(),

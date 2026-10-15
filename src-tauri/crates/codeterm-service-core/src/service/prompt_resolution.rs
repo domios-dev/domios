@@ -1,7 +1,7 @@
 use crate::notification::store::NotificationStore;
 use codeterm_types::pty::PromptIdentity;
 
-pub(crate) fn clear_tab_prompt(
+pub fn clear_tab_prompt(
     tab: Option<&mut crate::multiplexer::types::Tab>,
 ) -> Option<PromptIdentity> {
     let identity = tab.map(|tab| {

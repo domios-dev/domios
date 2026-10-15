@@ -289,7 +289,7 @@ impl super::ServiceContext {
         })
     }
 
-    pub(crate) fn revoke_agent_pad(&self, tab_id: &str) -> Result<(), String> {
+    pub fn revoke_agent_pad(&self, tab_id: &str) -> Result<(), String> {
         revoke(
             &self.agent_pad_data_dir.join("runtime").join("agent-pads"),
             tab_id,

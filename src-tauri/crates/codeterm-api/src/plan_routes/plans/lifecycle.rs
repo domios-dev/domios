@@ -45,7 +45,7 @@ pub async fn unarchive(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::unarchive_team_plan(&state.svc, &id, epoch_ms())
+        codeterm_orchestration::unarchive_team_plan(&state.svc, &id, epoch_ms())
             .map_err(team_plan_err)?;
         Ok(Json(serde_json::json!({ "ok": true })))
     })
@@ -213,7 +213,7 @@ pub async fn transfer(
     tokio::task::spawn_blocking(move || {
         check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         let caller = transfer_caller(&headers)?;
-        codeterm_service_core::service::transfer_team_plan(
+        codeterm_orchestration::transfer_team_plan(
             &state.svc,
             &id,
             body.to,

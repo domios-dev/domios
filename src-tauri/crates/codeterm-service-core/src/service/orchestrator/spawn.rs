@@ -289,7 +289,7 @@ impl ServiceContext {
         .await
     }
 
-    pub(crate) async fn spawn_agent_with_state_change(
+    pub async fn spawn_agent_with_state_change(
         &self,
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
@@ -448,7 +448,7 @@ impl ServiceContext {
         )?;
         // 1. Find workspace — explicit workspace_id wins over the parent's workspace.
         let (ws_id, ws_cwd, ws_provisioned_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let id = crate::service::spawn::resolve_spawn_workspace_id(
                 params.workspace_id.clone(),
                 params.parent_tab_id.as_deref(),

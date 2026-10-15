@@ -11,7 +11,7 @@ pub fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::St
     }
 }
 
-pub(crate) fn starter_prompt_for_creation(
+pub fn starter_prompt_for_creation(
     role: Option<&str>,
     task: Option<&str>,
 ) -> crate::agent::provider::StarterPrompt {
@@ -211,7 +211,7 @@ impl SpawnTabSpec {
         Ok(params)
     }
 
-    pub(crate) fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
+    pub fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
         let agent = match &self.command {
             TabCommand::Agent(a) => a,
             TabCommand::Shell => {
@@ -392,7 +392,7 @@ impl ServiceContext {
     /// the ChatBackend tab path (a spawnable shell), `Ok(false)` for an ordinary
     /// agent provider, and a clean `Err` for a registered-but-not-spawnable
     /// chatBackend (e.g. the NPC backend) or an unknown id.
-    pub(crate) fn classify_spawn_target_for_params(
+    pub fn classify_spawn_target_for_params(
         &self,
         agent_cmd: &str,
         params: &SpawnAgentParams,

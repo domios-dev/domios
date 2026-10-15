@@ -91,10 +91,6 @@ pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
-pub fn register_orchestration() {
-    service::register_orchestration();
-}
-
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
 #[cfg(test)]

@@ -47,7 +47,7 @@ impl BridgeTabPort for ServiceBridgeTabPort {
     fn resolve_general_tab(&self) -> Result<String, String> {
         self.0
             .mux
-            .write()
+            .read()
             .resolve_tab_id(general_agent::GENERAL_ALIAS)
             .ok_or_else(|| "General Agent not found".to_string())
     }
@@ -55,7 +55,7 @@ impl BridgeTabPort for ServiceBridgeTabPort {
     fn tab_agent_type(&self, tab_id: &str) -> Option<String> {
         self.0
             .mux
-            .write()
+            .read()
             .get_tab(tab_id)
             .and_then(|p| p.agent_type.clone())
     }
