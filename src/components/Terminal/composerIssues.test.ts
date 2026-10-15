@@ -27,7 +27,7 @@ test("oversized recording names its size and the shared limit, and only offers a
 });
 
 test("HTTP 413 is humanized and keeps the route in details", () => {
-  const message = "/api/attachments/temp-file → HTTP 413: length limit exceeded";
+  const message = "/api/attachments/upload → HTTP 413: length limit exceeded";
   const [issue] = composerIssues([], [failed(Object.assign(new Error(message), { status: 413 }))]);
   assert.equal(issue.kind, "too-large");
   assert.ok(!issue.title.includes("/api/"));
@@ -36,7 +36,7 @@ test("HTTP 413 is humanized and keeps the route in details", () => {
 });
 
 test("network and server failures expose retry and removal with human reasons", () => {
-  for (const [error, reason] of [[new TypeError("Failed to fetch"), "connection interrupted"], [Object.assign(new Error("/api/upload HTTP 503"), { status: 503 }), "server unavailable"]] as const) {
+  for (const [error, reason] of [[new TypeError("Failed to fetch"), "connection interrupted"], [Object.assign(new Error("/api/attachments/upload HTTP 503"), { status: 503 }), "server unavailable"]] as const) {
     const [issue] = composerIssues([], [failed(error)]);
     assert.equal(issue.title, `Upload failed: ${reason}`);
     assert.deepEqual(issue.actions, ["retry", "remove"]);

@@ -1,4 +1,4 @@
-use base64::Engine as _;
+use codeterm_service_core::attachments::CHAT_UPLOAD_CACHE_BYTES;
 
 pub fn save_clipboard_image_core(bytes: Vec<u8>, ext: String) -> Result<String, String> {
     let path = codeterm_service_core::attachments::save_with_uuid(
@@ -36,30 +36,6 @@ pub async fn materialize_dropped_files(paths: Vec<String>) -> Result<Vec<String>
     })
     .await
     .map_err(|e| format!("materialize dropped files task failed: {}", e))?
-}
-
-const CHAT_UPLOAD_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
-
-#[tauri::command]
-pub fn save_temp_file(
-    data: String,
-    extension: String,
-    name: Option<String>,
-) -> Result<String, String> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(&data)
-        .map_err(|e| format!("Base64 decode failed: {}", e))?;
-    let fallback = format!("codeterm-paste.{}", extension);
-    let name = name.filter(|s| !s.is_empty()).unwrap_or(fallback);
-    let path = codeterm_service_core::attachments::save_with_prefixed_name(
-        "chat",
-        &name,
-        &bytes,
-        codeterm_service_core::attachments::EvictionPolicy::MaxBytes(
-            codeterm_service_core::attachments::DEFAULT_MAX_BYTES,
-        ),
-    )?;
-    Ok(path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
