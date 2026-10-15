@@ -10,6 +10,7 @@ import { focusedPaneScript } from '../core-journeys/lib/cdp.mjs';
 import { retainedSendReceipt } from '../restart-endurance/send-receipt.mjs';
 import { chatMessages, replyVerdict, newAssistantText } from '../core-journeys/lib/oracle.mjs';
 import { inventory, matrix, lockSites, render, evaluateSla, replyWindow, remainingDeadline } from './model.mjs';
+import { healthPreflight, assertDevHealth } from './preflight.mjs';
 
 const args = process.argv.slice(2);
 const option = (flag, fallback) => args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
@@ -27,7 +28,7 @@ const dev = { url: 'http://127.0.0.1:7686', port: 7686, token: process.env.CODET
 const { api } = client(dev);
 const logPath = join(process.env.CODETERM_DEV_DATA_DIR, 'logs/codeterm.log');
 mkdirSync(join(out, 'screenshots'), { recursive: true });
-const result = { schema: 1, build: expected, started_at: Date.now(), tabs: [], coverage: [], health: [], failures: [] };
+const result = { schema: 1, phase: 'preflight', build: expected, started_at: Date.now(), tabs: [], coverage: [], health: [], preflights: [], failures: [] };
 const saveJson = (name, value) => writeFileSync(join(out, name), JSON.stringify(value, null, 2) + '\n');
 const save = () => { saveJson('results.json', result); writeFileSync(join(out, 'results.md'), render(result)); };
 const bus = new EventEmitter(); bus.setMaxListeners(100);
@@ -35,6 +36,7 @@ const captured = [];
 let browser, page, events;
 let logOffset = statSync(logPath).size;
 const runLog = [];
+writeFileSync(join(out, 'dev.log'), '');
 const logWatcher = watch(dirname(logPath), (_event, file) => {
   if (file && String(file) !== 'codeterm.log') return;
   try {
@@ -46,14 +48,17 @@ const logWatcher = watch(dirname(logPath), (_event, file) => {
   } catch (error) { result.log_error = error.message; }
 });
 const sampling = new AbortController();
-const sampler = (async () => {
+let sampler = Promise.resolve();
+function startSampling() {
+  sampler = (async () => {
   // Cadence samples latency only; it never establishes readiness or advances a test.
   for await (const _ of sampleEvery(3000, null, { signal: sampling.signal })) {
     const at = Date.now();
     try { await api('/api/health', { signal: AbortSignal.timeout(5000) }); result.health.push({ at, ms: Date.now() - at, ok: true }); }
     catch (error) { result.health.push({ at, ms: Date.now() - at, ok: false, error: error.message }); }
   }
-})().catch(error => { if (error.name !== 'AbortError') result.health_error = error.message; });
+  })().catch(error => { if (error.name !== 'AbortError') result.health_error = error.message; });
+}
 
 class ReplayEvents extends Events {
   async open(boot) {
@@ -179,8 +184,15 @@ async function reply(t, signal, send, baseline) {
   t.completed_ms = Date.now() - at; t.reply_ms = t.first_reply_ms; t.reply_ok = true; t.reply_evidence = file;
 }
 async function main() {
-  const before = attach ? await api('/api/health') : previous?.before_health ?? await api('/api/health');
+  const preflight = await healthPreflight({ read: signal => api('/api/health', { signal }) });
+  result.preflights.push(preflight);
+  saveJson('preflight-entry.json', preflight); save();
+  if (!preflight.responded) throw new Error(`api_unresponsive: no health response within 30000 ms (${preflight.ms} ms): ${preflight.error}`);
+  assertDevHealth(preflight.health);
+  const before = attach ? preflight.health : previous?.before_health ?? preflight.health;
   if (!resume && !before.build_sha?.startsWith(expected) && !before.build?.startsWith(expected)) throw new Error(`Wrong build ${before.build}`);
+  result.phase = 'matrix';
+  startSampling();
   result.build = before.build_sha ?? before.build;
   result.before_health = before;
   result.before_listener = attach ? previous.restart.after : previous?.before_listener ?? listenerIdentity(7686);
@@ -201,6 +213,7 @@ async function main() {
   const newHealth = attach ? before : await waitFor(() => api('/api/health', { signal: AbortSignal.timeout(5000) }).catch(() => null),
     h => h?.boot_id && h.boot_id !== before.boot_id, AbortSignal.timeout(deadlineMs), 'new boot', 'log');
   result.restart = { before: result.before_listener, after: listenerIdentity(7686), health: newHealth };
+  assertDevHealth(newHealth);
   result.restart.verified = result.restart.before.pid !== result.restart.after.pid &&
     result.restart.before.started_us !== result.restart.after.started_us;
   if (!result.restart.verified) throw new Error('Restart identity proof failed');
@@ -347,5 +360,5 @@ finally {
     '\n\n```text\n' + result.lock_sites.flatMap(s => s.lines).join('\n') + '\n```\n');
   save(); await browser?.close().catch(() => {});
   console.log(`RESULTS ${out}`);
-  process.exitCode = result.failures.length || result.tabs.some(t => !t.reply_ok || t.notes.length) ? 3 : 0;
+  process.exitCode = result.failures.length || result.preflights.some(p => p.verdict === 'fail') || result.tabs.some(t => !t.reply_ok || t.notes.length) ? 3 : 0;
 }
