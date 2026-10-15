@@ -24,6 +24,15 @@ class AsyncBlockingGateTests(unittest.TestCase):
                 f"async fn auth() {{ spawn_blocking(move || state.{field}.lock()); }}",
                 check_auth_locks=True), [])
 
+    def test_logging_composition_rejects_synchronous_fern_writers(self):
+        for chain in (".chain(Box::new(LossyStderr) as Box<dyn Write + Send>)",
+                      ".chain(std::io::stderr())", ".chain(io::stdout())",
+                      '.chain(fern::Output::writer(writer, "\\n"))'):
+            with self.subTest(chain=chain):
+                self.assertEqual(len(gate.logging_sink_findings(chain)), 1)
+        self.assertEqual(gate.logging_sink_findings(
+            ".chain(fern::Output::call(move |record| sink.submit(record)))"), [])
+
     def test_every_ordered_lock_is_rejected(self):
         for field, methods in gate.LOCKS.items():
             for method in methods:

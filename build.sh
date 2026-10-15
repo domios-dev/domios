@@ -453,7 +453,9 @@ run_nextest_scope() {
     run_exit=$?
   fi
   node "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/build-gateway-output.mjs" test-summary "$timing_dir/parallel.log" "$run_exit"
-  if [ "${SLOW_UNIT_TESTS_MEASUREMENT:-}" = "alone" ]; then
+  if [ "${SLOW_UNIT_TESTS_MEASUREMENT:-}" = "off" ]; then
+    echo "slow-unit measurement skipped (SLOW_UNIT_TESTS_MEASUREMENT=off)"
+  elif [ "${SLOW_UNIT_TESTS_MEASUREMENT:-}" = "alone" ]; then
     if [ "${NEXTEST_TEST_THREADS:-}" != "1" ]; then
       echo "alone measurement requires NEXTEST_TEST_THREADS=1" >&2
       guard_exit=2
@@ -1005,7 +1007,7 @@ JS
 
 prepare_exceptional_worktree_target() {
   local dir identity
-  dir="$(ct_gateway_dir)"
+  dir="$(ct_cache_home)"
   identity="$(printf '%s' "${CT_REAL_WORKTREE:-$(pwd -P)}" | git hash-object --stdin)"
   export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "${CT_REAL_WORKTREE:-$(pwd -P)}" "$dir" "$identity")"
   export CARGO_INCREMENTAL=0
@@ -1023,7 +1025,7 @@ prepare_exceptional_worktree_target() {
 
 prepare_release_target() {
   local dir
-  dir="$(ct_gateway_dir)/targets/release/$CT_BUILD_JOB_ID"
+  dir="$(ct_cache_home)/targets/release/$CT_BUILD_JOB_ID"
   if [ -e "$dir" ]; then
     echo "ERROR: release target is not fresh: $dir" >&2
     exit 2
@@ -1045,7 +1047,7 @@ prepare_local_install_target() {
     exit 2
   fi
   identity="$(printf '%s' "$canonical" | git hash-object --stdin)"
-  dir="$(ct_gateway_dir)/targets/local-install/$identity"
+  dir="$(ct_cache_home)/targets/local-install/$identity"
   node scripts/local-install-cache.mjs "$dir"
   export CARGO_TARGET_DIR="$dir"
   export CARGO_INCREMENTAL=0
@@ -2398,7 +2400,6 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
-    bash scripts/check-script-catalog.sh
     node scripts/check-plugin-bundles.mjs
     node scripts/sync-plugin-versions.mjs --check
     cargo check --manifest-path src-tauri/Cargo.toml
@@ -2539,7 +2540,6 @@ EOF
     bash scripts/check-service-core-boundary.sh
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
-    bash scripts/check-script-catalog.sh
     ;;
   worktree-check)
     prepare_exceptional_worktree_target
@@ -2643,7 +2643,6 @@ EOF
     # Cheap fixture guards for build/dev/QA scripts; Linux-only ones need a POSIX-clean runner (CI linux-ci).
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
-    sg_run bash scripts/check-script-catalog.sh
     sg_run node scripts/test-catalogue.mjs validate
     sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
     sg_run node --test scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs

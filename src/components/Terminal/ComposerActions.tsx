@@ -5,6 +5,8 @@ import { ComposerInputShell } from "./ComposerInputShell";
 import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
+import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
 
@@ -24,7 +26,15 @@ interface Props {
   uploadFiles?: (files: File[]) => Promise<void>;
 }
 
-export function ComposerActions({
+export function ComposerActions(props: Props) {
+  const provided = useHasComposerIssuesProvider();
+  return provided ? <ComposerActionsBody {...props} /> : <ComposerIssuesProvider>
+    <AgentRuntimeBanner state={null} onRetry={() => {}} />
+    <ComposerActionsBody {...props} />
+  </ComposerIssuesProvider>;
+}
+
+function ComposerActionsBody({
   tabId,
   onAttach,
   onSend,

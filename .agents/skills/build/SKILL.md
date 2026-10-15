@@ -299,7 +299,7 @@ calls; a successful build alone is not cache-hit proof.
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
 
-The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in script-catalog CI.
+The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in the script-catalog CI workflow.
 
 ## Warm check queue for lanes
 
@@ -676,7 +676,9 @@ does not cancel the remaining timing inventory.
 For an explicitly authorized bootstrap measurement, use `NEXTEST_TEST_THREADS=1
 SLOW_UNIT_TESTS_MEASUREMENT=alone` on the exact candidate selector; the runner
 refuses that mode without serial execution. Ordinary suites retain default
-parallelism.
+parallelism. Integration batch checks that only need pass/fail set
+`SLOW_UNIT_TESTS_MEASUREMENT=off`, which skips the serial re-measurement of
+candidates (it can take longer than the tests themselves).
 The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
 crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
 may only shrink after its first landing. Baseline entries are

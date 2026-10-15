@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./shared/ErrorNotice";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { nativeBridge } from "../lib/nativeBridge";
 import { clearStateSnapshot } from "../lib/stateCache";
@@ -128,31 +129,14 @@ export class FrontendCrashBoundary extends Component<Props, State> {
     return (
       <div className="frontend-crash__shell">
         <CrashWindowChrome />
-        <main className="frontend-crash" role="alert" aria-labelledby="frontend-crash-title">
+        <main className="frontend-crash" aria-labelledby="frontend-crash-title">
           <section className="frontend-crash__panel">
             <p className="frontend-crash__eyebrow">Domios UI error</p>
             <h1 id="frontend-crash-title">The interface could not render</h1>
-            <p>The daemon and terminals may still be running. Reload the interface after reviewing the error.</p>
-            <section className="frontend-crash__detail" aria-labelledby="frontend-crash-message-label">
-              <h2 id="frontend-crash-message-label">Error message</h2>
-              <p className="frontend-crash__message" id="frontend-crash-message" data-testid="frontend-crash-message">
-                {details.message}
-              </p>
-            </section>
-            <section className="frontend-crash__detail" aria-labelledby="frontend-crash-stack-label">
-              <h2 id="frontend-crash-stack-label">Stack trace</h2>
-              <pre className="frontend-crash__stack" id="frontend-crash-stack" data-testid="frontend-crash-stack">
-                {details.stack}
-              </pre>
-            </section>
-            <div className="frontend-crash__actions">
-              <button type="button" onClick={this.leaveCrashedLocation}>
-                Leave this location
-              </button>
-              <button type="button" className="frontend-crash__secondary" onClick={() => window.location.reload()}>
-                Reload interface
-              </button>
-            </div>
+            <ErrorNotice error={{ code: "frontend_crash", raw: `${details.message}\n${details.stack}` }} blocking actions={[
+              { label: "Leave this location", onClick: this.leaveCrashedLocation },
+              { label: "Reload interface", onClick: () => window.location.reload() },
+            ]} />
           </section>
         </main>
       </div>

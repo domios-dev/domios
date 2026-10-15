@@ -206,7 +206,7 @@ export async function webUpload(
   window.addEventListener("pagehide", interrupt);
   document.addEventListener("visibilitychange", visibilityChanged);
   try {
-    return await baseDaemonTransport().upload("/api/upload", form, { signal: controller.signal });
+    return await baseDaemonTransport().upload("/api/attachments/upload", form, { signal: controller.signal });
   } finally {
     window.removeEventListener("pagehide", interrupt);
     document.removeEventListener("visibilitychange", visibilityChanged);

@@ -41,7 +41,7 @@ PROTECTED_WEB_ROUTES = [
     ),
     RouteCase(
         "POST",
-        "/api/upload",
+        "/api/attachments/upload",
         files={"file": ("web-gate.txt", b"web gate", "text/plain")},
     ),
     RouteCase("GET", "/api/pty/pty_missing/read"),

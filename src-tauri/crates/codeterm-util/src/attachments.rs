@@ -9,6 +9,7 @@ use std::time::SystemTime;
 
 /// Default eviction: keep total bucket size under 100 MB.
 pub const DEFAULT_MAX_BYTES: u64 = 100 * 1024 * 1024;
+pub const CHAT_UPLOAD_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Inbound chat files land here as short safe ASCII paths: `codeterm-chat/<id>.<ext>`.
 const CHAT_BUCKET: &str = "chat";

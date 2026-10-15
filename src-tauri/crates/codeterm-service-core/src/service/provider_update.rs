@@ -25,6 +25,10 @@ struct Update {
 }
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn revision() -> u64 {
+    storage::revision()
+}
 static WAITING: LazyLock<Mutex<HashMap<String, Update>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 

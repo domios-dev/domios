@@ -181,6 +181,7 @@ pub fn launch_with_dispatch(
     tauri::async_runtime::spawn(async move {
         let completion = waiter.wait(std::time::Duration::from_secs(1800)).await;
         let _ = tokio::task::spawn_blocking(move || {
+            crate::agent::model_catalog::invalidate(&provider);
             let status = super::provider_cli::provider_cli_status(&service.provider_registry, &provider, platform).ok();
             let summary = completion_summary(&provider, operation, completion, status.as_ref());
             let _ = service

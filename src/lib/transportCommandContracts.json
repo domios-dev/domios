@@ -825,12 +825,6 @@
         "/api/attachments/clipboard-image"
       ]
     ],
-    "save_temp_file": [
-      [
-        "POST",
-        "/api/attachments/temp-file"
-      ]
-    ],
     "services_create": [
       [
         "POST",

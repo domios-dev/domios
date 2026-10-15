@@ -78,7 +78,7 @@ describe("transportClient", () => {
     const { client, fetch } = clientWith(Response.json({ path: "/saved", size: 3 }));
     const form = new FormData();
     form.append("file", new Blob(["abc"]), "a.txt");
-    expect(await client.upload("/api/upload", form)).toEqual({ path: "/saved", size: 3 });
+    expect(await client.upload("/api/attachments/upload", form)).toEqual({ path: "/saved", size: 3 });
     expect(fetch.mock.calls[0][1]?.body).toBe(form);
     expect(new Headers(fetch.mock.calls[0][1]?.headers).has("Content-Type")).toBe(false);
   });

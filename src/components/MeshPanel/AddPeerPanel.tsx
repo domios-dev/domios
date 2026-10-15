@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { invoke } from "../../lib/bridge";
@@ -179,9 +180,7 @@ export default function AddPeerPanel() {
         </div>
       )}
       {error && (
-        <div role="alert" data-testid="mesh-connect-error" className={`text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all ${UI_TEXT.meta}`}>
-          {error}
-        </div>
+        <div data-testid="mesh-connect-error"><InlineErrorNotice error={error} operation="connecting this machine" blocking /></div>
       )}
 
       {incoming.length > 0 && (

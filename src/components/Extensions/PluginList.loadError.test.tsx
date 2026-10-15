@@ -46,9 +46,10 @@ it("shows the load error on the failing plugin row only", async () => {
   const row = (id: string) => host!.querySelector(`[data-testid="extensions-plugin-row"][data-plugin-id="${id}"]`)!;
   expect(row("claude").getAttribute("data-plugin-load-error")).toBe("true");
   expect(row("claude").querySelector('[data-testid="extensions-plugin-badge-error"]')).not.toBeNull();
-  const line = row("claude").querySelector('[role="alert"][data-testid="extensions-plugin-load-error"]');
-  expect(line?.textContent).toBe(message);
-  expect(line?.getAttribute("title")).toContain("/plugins/provider-claude/plugin.json");
+  const line = row("claude").parentElement?.querySelector('[data-testid="extensions-plugin-load-error"]');
+  expect(line?.querySelector("details")?.open).toBe(false);
+  expect(line?.querySelector("pre")?.textContent).toContain(message);
+  expect(line?.querySelector("pre")?.textContent).toContain("/plugins/provider-claude/plugin.json");
   expect(row("healthy").getAttribute("data-plugin-load-error")).toBe("false");
   expect(row("healthy").querySelector('[data-testid="extensions-plugin-load-error"]')).toBeNull();
 });

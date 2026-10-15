@@ -53,7 +53,7 @@ async function main() {
     assert.deepEqual(requests, [{ command: "restart_agent_tab", args: { tabId: "restored-tab", fresh: true } }]);
     await act(async () => { rejectRequest(new Error("opaque-refusal")); });
     assert.equal(start.disabled, false);
-    assert([...host.querySelectorAll('[role="alert"]')].some((element) => element.textContent === "opaque-refusal"));
+    assert([...host.querySelectorAll("details pre")].some((element) => element.textContent === "opaque-refusal"));
     await act(async () => {
       root.render(<Card currentTab={{ ...tab, boot_failure_reason: "restored_session_unavailable: opaque-existing-session" }} />);
     });

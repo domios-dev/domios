@@ -77,6 +77,22 @@ ct_effective_cache_key_scope() {
   ct_abs_path "$(ct_repo_root)"
 }
 
+# Machine Rust cache root (CODETERM_RUST_CACHE_ROOT) holds gateway targets beside build-dir and sccache.
+ct_cache_home() {
+  local root="${CODETERM_RUST_CACHE_ROOT:-}"
+  if [ -z "$root" ] || [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ]; then
+    ct_gateway_dir
+    return
+  fi
+  if command -v cygpath >/dev/null 2>&1; then root="$(cygpath -u "$root")"; fi
+  root="${root%/}"
+  case "$root" in
+    /?*) ;;
+    *) echo "ERROR: CODETERM_RUST_CACHE_ROOT must be an absolute directory: $root" >&2; return 2 ;;
+  esac
+  printf '%s\n' "$root"
+}
+
 ct_exceptional_target_dir() {
   case "$1" in
     /Users/Shared/domios-ci/work/codeterm|/home/rollacode/domios-ci/work/codeterm|/home/ci/domios-ci/work/codeterm|/c/domios-ci/work/codeterm)
@@ -100,6 +116,13 @@ ct_sccache_secret() (
 ct_sccache_storage() {
   local trace_enabled=0 access_key secret_key
   case "$-" in *x*) trace_enabled=1; set +x ;; esac
+  # A machine pinned to its local disk cache never flips to S3 because credentials happen to exist.
+  if [ "${CODETERM_SCCACHE_STORAGE:-}" = local ]; then
+    unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
+    export CT_SCCACHE_STORAGE=local CT_SCCACHE_REASON="pinned by CODETERM_SCCACHE_STORAGE"
+    [ "$trace_enabled" = 0 ] || set -x
+    return 0
+  fi
   if [ "${CODETERM_SCCACHE_CREDENTIAL_SOURCE:-vault}" = runner ]; then
     access_key="${AWS_ACCESS_KEY_ID:-}"
     secret_key="${AWS_SECRET_ACCESS_KEY:-}"
@@ -206,6 +229,11 @@ ct_sccache_storage_matches() {
       "s3, name: $SCCACHE_BUCKET, prefix: "*) return 0 ;;
       *) return 1 ;;
     esac
+  elif [ "${CODETERM_SCCACHE_STORAGE:-}" = local ]; then
+    case "$1" in
+      'Local disk:'*) return 0 ;;
+      *) return 1 ;;
+    esac
   else
     case "$1" in
       'Local disk:'*|'s3, name: '*) return 0 ;;
@@ -297,7 +325,7 @@ ct_configure_sccache_locked() {
   if ct_sccache_server_live; then stats="$(sccache --show-stats 2>/dev/null)" || stats=""; fi
   location="$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"
   ct_sccache_storage
-  if [ "$CT_SCCACHE_STORAGE" = local ] && [[ "$location" == 's3, name: '* ]]; then
+  if [ "$CT_SCCACHE_STORAGE" = local ] && [ "${CODETERM_SCCACHE_STORAGE:-}" != local ] && [[ "$location" == 's3, name: '* ]]; then
     local running_bucket="${location#s3, name: }"
     running_bucket="${running_bucket%%, prefix:*}"
     printf 'sccache: shared S3 cache at http://100.88.47.88:9000/%s (using running server credentials)\n' "$running_bucket"
@@ -371,7 +399,7 @@ ct_cache_retention() {
   mkdir -p "$retention_dir" || return 74
   ct_gateway_mutex_acquire "$retention_dir" || return $?
   CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" \
-    node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-retention.mjs" "$1" "$dir" "${CT_REAL_WORKTREE:-$(pwd -P)}" "${2:-}" || result=$?
+    node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-retention.mjs" "$1" "$dir" "${CT_REAL_WORKTREE:-$(pwd -P)}" "${2:-}" "$(ct_cache_home)" || result=$?
   ct_gateway_mutex_release "$retention_dir" || result=$?
   return "$result"
 }

@@ -7,7 +7,7 @@ pub(super) async fn wake(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, &'static str)> {
     local_target(&caller, &raw)?;
     drop(enqueue(move || {
-        if let Err(reason) = state.svc.wake_frozen_tab(&raw) {
+        if let Err(reason) = state.svc.wake_tab_on_request(&raw) {
             log::warn!("[tab-wake] tab={raw}: {reason}");
         }
     }));

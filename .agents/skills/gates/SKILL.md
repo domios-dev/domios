@@ -62,6 +62,10 @@ Orchestrator's canonical wave batch.
 
 ## Check before tests
 
+If a focused startup selector reports zero tests in `app`, use `shell` for
+`src-tauri/src/` modules. `app` selects service-core; `shell` selects the Tauri
+root library and main test target. The affected-tests mapper enforces this split.
+
 Canonical QA always starts with `./build.sh check`; tests (`check-tests`,
 `test-one`) run only after it is green, so a name or type error costs seconds
 instead of a multi-minute test-profile rebuild.
