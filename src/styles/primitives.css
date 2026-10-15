@@ -134,7 +134,7 @@
 }
 
 .ct-deferred-loader[data-transition-state="present"] {
-  animation: ct-deferred-loader-reveal var(--ct-duration-fast) var(--ct-ease-liquid-settle) var(--ct-loader-reveal-delay, var(--ct-duration-normal)) both;
+  animation: ct-deferred-loader-reveal var(--ct-duration-fast) var(--ct-ease-liquid-settle) var(--ct-duration-normal) both;
 }
 
 .ct-deferred-loader[data-transition-state="exiting"] {
