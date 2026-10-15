@@ -1,4 +1,4 @@
-pub(crate) use codeterm_sentinel::{
+pub use codeterm_sentinel::{
     agent_stage, amend, classification_policy, cleanup, command, delete, escalation, handlers,
     input, machine, portable, probe, progress, provenance, public_definition, session,
     stage_source, storage, store, terminal,

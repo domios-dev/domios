@@ -16,7 +16,7 @@ use crate::service::plan::{PlanError, PlanStore};
 
 /// Machine-readable discriminant for the one refusal class, carried as
 /// `data.type` on the socket and `plan_error.type` over HTTP.
-pub(crate) const STALE_TASK_BINDING_TYPE: &str = "stale_task_binding";
+pub const STALE_TASK_BINDING_TYPE: &str = "stale_task_binding";
 
 /// Why this caller may write. Every entrance states one; there is no default.
 pub enum BatchAuthority<'a> {
@@ -30,14 +30,14 @@ pub enum BatchAuthority<'a> {
 /// The refused attempt, named on both sides so "who set this task done?" stays
 /// answerable from the caller's own error and from the daemon log alike.
 pub struct BatchRefusal {
-    pub(crate) message: String,
+    pub message: String,
     pub(crate) attempting_tab: Option<String>,
     pub(crate) plan_id: String,
     pub(crate) task_id: String,
 }
 
 impl BatchRefusal {
-    pub(crate) fn to_json(&self) -> Value {
+    pub fn to_json(&self) -> Value {
         json!({
             "type": STALE_TASK_BINDING_TYPE,
             "attempted_by_tab": self.attempting_tab,
@@ -91,7 +91,7 @@ pub(crate) fn apply_batch_from_http(
     )
 }
 
-pub(crate) fn apply_batch_with_authority(
+pub fn apply_batch_with_authority(
     store: &PlanStore,
     plan_id: &str,
     request: BatchRequest,

@@ -29,7 +29,7 @@ mod recovery;
 pub(super) mod remote;
 pub(crate) mod remote_recovery;
 mod routing;
-mod startup;
+pub(crate) mod startup;
 mod tab_reservation;
 mod unplanned;
 mod workspace_admission;
@@ -1106,7 +1106,7 @@ where
         lane_protection,
         spawn_command: format!("codeterm plan task dispatch {plan_id} {task_id}"),
     };
-    std::thread::spawn(move || startup.run(ready_rx));
+    std::thread::spawn(move || self::startup::run_startup(startup, ready_rx));
 
     let model_fallback = spawn.model_fallback.clone();
     let mut result = json!({

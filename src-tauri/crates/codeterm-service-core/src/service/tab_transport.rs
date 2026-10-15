@@ -127,7 +127,7 @@ impl TabTransport for PtyTransport<'_> {
 impl ServiceContext {
     /// `(plugin_id, session_id)` if `tab_id` is a chatBackend tab, else `None` —
     /// the guard PTY entry methods use to short-circuit to the plugin transport.
-    pub(crate) fn tab_chat_backing(&self, tab_id: &str) -> Option<(String, String)> {
+    pub fn tab_chat_backing(&self, tab_id: &str) -> Option<(String, String)> {
         let mux = self.mux.write();
         let resolved = mux.resolve_tab_id(tab_id)?;
         match mux.get_tab(&resolved)?.backing.clone() {

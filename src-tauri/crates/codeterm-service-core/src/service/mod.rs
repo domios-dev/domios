@@ -18,7 +18,7 @@ pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
-pub(crate) mod agent_runtime;
+pub mod agent_runtime;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub mod analytics;
@@ -57,7 +57,7 @@ pub mod lane_clean;
 pub mod lane_removal;
 pub mod lane_stats;
 pub(crate) mod launch_artifacts;
-pub(crate) mod launch_delivery;
+pub mod launch_delivery;
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub(crate) mod launch_readiness;
@@ -81,8 +81,8 @@ pub mod post_update;
 pub(crate) mod process_tree;
 pub(crate) mod prompt_resolution;
 pub(crate) mod protocol_recorder;
-pub(crate) mod provider_cli;
-pub(crate) mod provider_cli_actions;
+pub mod provider_cli;
+pub mod provider_cli_actions;
 pub(crate) mod provider_hooks;
 pub(crate) mod provider_signals;
 mod provider_signals_probe;
@@ -133,7 +133,7 @@ pub mod pty_lifecycle;
 pub(crate) mod pty_ownership;
 pub mod push;
 mod reasoning_effort;
-pub(crate) mod receiver_target;
+pub mod receiver_target;
 pub mod remote_tabs;
 pub mod remote_workers;
 pub mod reply_relay;
@@ -154,13 +154,13 @@ pub mod spawn;
 pub(crate) mod spawn_capability;
 mod spawn_chatbackend;
 mod spawn_cli;
-pub(crate) mod spawn_cwd;
+pub mod spawn_cwd;
 mod spawn_factory;
 mod spawn_hidden_launch;
-pub(crate) mod spawn_launch_verdict;
+pub mod spawn_launch_verdict;
 mod spawn_params;
 pub mod spawn_plan_task;
-pub(crate) mod task_assignment;
+pub mod task_assignment;
 pub(crate) mod unattended_launch;
 pub use spawn_plan_task::planned_task_title;
 mod spawn_rollback;
@@ -213,7 +213,7 @@ pub use task_lane_guard::{
 };
 // The value-only verdict has no production caller; the routes go through the
 // ServiceContext wrapper instead.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
 #[cfg(test)]
 mod persistence_roundtrip_tests;
@@ -232,7 +232,7 @@ pub mod worker_identity;
 pub(crate) mod worker_interruption;
 pub mod worker_lane;
 pub(crate) mod worker_loss;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use worker_lane::provision_lane_for_test;
 pub use worker_lane::{
     is_linked_worktree, provision_isolated_lane, same_path, verify_worker_lane, LaneProtection,
@@ -269,7 +269,7 @@ use codeterm_events::EventBroadcaster;
 pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
 pub use hierarchy::TabStatusInfo;
 pub(crate) use hierarchy::WorkerTurnSignal;
-pub(crate) use hierarchy::{TeamPlanCaller, TeamPlanCreationError};
+pub use hierarchy::{TeamPlanCaller, TeamPlanCreationError};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
@@ -372,10 +372,10 @@ pub struct ServiceContext {
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
     pub(crate) deferred_session_bindings:
         Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
-    pub(crate) worker_ack: Arc<worker_ack::WorkerAckRegistry>,
+    pub worker_ack: Arc<worker_ack::WorkerAckRegistry>,
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
-    pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
+    pub gateway: Arc<crate::service::message_gateway::MessageGateway>,
     pub(crate) extensions: Arc<Extensions>,
 }
 

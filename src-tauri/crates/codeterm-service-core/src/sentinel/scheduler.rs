@@ -151,8 +151,8 @@ impl Handle {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn fixture_handle(store: Store, app: crate::app_runtime::AppHandle) -> Handle {
+#[cfg(any(test, feature = "test-support"))]
+pub fn fixture_handle(store: Store, app: crate::app_runtime::AppHandle) -> Handle {
     Handle {
         store: Arc::new(Mutex::new(store)),
         inbox: Arc::new(Mutex::new(super::terminal::Inbox::default())),

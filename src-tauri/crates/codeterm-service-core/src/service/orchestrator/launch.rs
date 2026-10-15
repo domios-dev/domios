@@ -92,7 +92,7 @@ pub fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -
     }
     recorded
 }
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn arm_provider_session_for_test(
     tab_id: &str,
     pty_id: &str,

@@ -773,7 +773,7 @@ pub fn verify_worker_lane(
     })
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn provision_lane_for_test(
     project_cwd: &str,
     lane_label: &str,

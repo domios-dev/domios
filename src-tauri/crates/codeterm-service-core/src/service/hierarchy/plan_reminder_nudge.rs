@@ -642,7 +642,7 @@ impl ServiceContext {
     /// Lifecycle mutations use this to clear only deadlines that became
     /// ineligible (paused, complete, parked/closed with no open work, or
     /// archived). Active execution owners keep their original deadline.
-    pub(crate) fn reconcile_time_reminder_eligibility(&self) {
+    pub fn reconcile_time_reminder_eligibility(&self) {
         let plans = self.plan_store.list_full_reminder_candidates();
         let counter = &self.plan_turn_counter;
         counter.retain_time_reminders(&deadline_tabs(&plans, counter));

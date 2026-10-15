@@ -483,7 +483,7 @@ fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> 
 impl ServiceContext {
     /// Bind a pending pair-spawned Planner when an Orchestrator creates its
     /// first plan. Returns true only when a pending tab was consumed.
-    pub(crate) fn bind_pending_paired_planner(
+    pub fn bind_pending_paired_planner(
         &self,
         plan_id: &str,
         owner: &OrchestratorRef,

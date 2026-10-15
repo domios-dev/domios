@@ -54,7 +54,7 @@ pub(crate) enum TaskUpdateSeam {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct TaskUpdateInputError {
-    pub(crate) unknown_key: Option<String>,
+    pub unknown_key: Option<String>,
     accepted_keys: Vec<&'static str>,
     message: Option<String>,
 }
@@ -133,7 +133,7 @@ fn accepted_keys(seam: TaskUpdateSeam) -> Vec<&'static str> {
     keys
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn valid_task_update_payloads(
     parent_task_id: &str,
     dependency_task_id: &str,

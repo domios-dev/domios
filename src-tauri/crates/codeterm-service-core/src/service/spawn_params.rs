@@ -346,7 +346,7 @@ fn watcher_spec_from_params(params: &SpawnAgentParams) -> Option<WatcherSpec> {
 }
 
 impl ServiceContext {
-    pub(crate) fn require_agent_provider_ready(&self, provider_id: &str) -> Result<(), String> {
+    pub fn require_agent_provider_ready(&self, provider_id: &str) -> Result<(), String> {
         match self.agent_registry.wait_for_provider_startup(provider_id) {
             crate::agent::registry::ProviderStartupStatus::Ready => {
                 super::spawn_cli::provider_launch_preflight(

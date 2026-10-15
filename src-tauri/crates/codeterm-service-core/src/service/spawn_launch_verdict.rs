@@ -136,7 +136,7 @@ pub(crate) fn output_tail(screen: &str) -> Option<String> {
 impl ServiceContext {
     /// Wait on boot-stage transitions for this tab's launch verdict. The
     /// deadline bounds only the wait; reaching it reports `Starting`, never ready.
-    pub(crate) fn await_spawn_launch_verdict(
+    pub fn await_spawn_launch_verdict(
         &self,
         tab_id: &str,
         deadline: Duration,
@@ -166,7 +166,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn launch_output_tail(&self, tab_id: &str) -> Option<String> {
+    pub fn launch_output_tail(&self, tab_id: &str) -> Option<String> {
         let pty_id = self.mux.read().get_tab(tab_id)?.pty_id.clone()?;
         let screen = self.screen_state.lock().get_screen_text(&pty_id)?;
         output_tail(&screen)

@@ -23,7 +23,7 @@ pub mod registry;
 pub mod remote_deadline;
 #[cfg(test)]
 use plan_deadline::worker_ack_reminder_message;
-pub(crate) use registry::WorkerAckIdentity;
+pub use registry::WorkerAckIdentity;
 use registry::WorkerAckState;
 
 const MEASURED_CLAUDE_COLD_START_SECS: u64 = 34;
@@ -31,9 +31,9 @@ const MEASURED_CODEX_COLD_START_SECS: u64 = 38;
 const COLD_START_DEADLINE_SECS: u64 = 120;
 const COLD_START_MEASUREMENT_METHOD: &str =
     "visible-spawn launch to first session binding in lifecycle logs";
-pub(crate) const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
-pub(crate) const ATTEMPT_STATE_FINALIZED: &str = "finalized";
-pub(crate) const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
+pub const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
+pub const ATTEMPT_STATE_FINALIZED: &str = "finalized";
+pub const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
 pub const REMOTE_WORKER_ACK_DEADLINE: Duration =
     Duration::from_secs(COLD_START_DEADLINE_SECS * 2);
 const WORKER_ACK_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
@@ -223,7 +223,7 @@ fn startup_authority_matches_binding(
         && authority.binding_nonce.as_deref() == Some(binding_nonce)
 }
 
-pub(crate) fn startup_task_identity_from_env(
+pub fn startup_task_identity_from_env(
     env: &HashMap<String, String>,
 ) -> Option<StartupTaskIdentity> {
     Some(StartupTaskIdentity {
@@ -716,7 +716,7 @@ impl WorkerAckRegistry {
     }
 }
 
-pub(crate) fn worker_ack_timeout_event(
+pub fn worker_ack_timeout_event(
     plan_id: &str,
     task_id: &str,
     tab_id: &str,

@@ -18,7 +18,9 @@ pub fn register_socket() {
             dispatch_mesh_rpc: server::dispatch_mesh_rpc,
             recover_remote_attempts: remote_recovery::recover_remote_attempts,
             respawn_remote: remote_recovery::respawn_remote,
-            run_dispatch_startup: |startup, ready_rx| startup.run(ready_rx),
+            run_dispatch_startup: |startup, ready_rx| {
+                server::plan_task_dispatch::startup::run_startup(startup, ready_rx)
+            },
             start_server: server::SocketServer::start,
         },
     );

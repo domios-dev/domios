@@ -27,11 +27,11 @@ pub struct LaneRemovalRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LaneRemovalOutcome {
-    pub(crate) canonical_cwd: String,
-    pub(crate) worktree_path: String,
-    pub(crate) branch: Option<String>,
-    pub(crate) worktree_already_removed: bool,
-    pub(crate) branch_already_removed: bool,
+    pub canonical_cwd: String,
+    pub worktree_path: String,
+    pub branch: Option<String>,
+    pub worktree_already_removed: bool,
+    pub branch_already_removed: bool,
 }
 
 #[derive(Debug)]
@@ -338,7 +338,7 @@ pub(crate) fn remove_lane_worktree(
     remove_lane_residue(path)
 }
 
-pub(crate) fn recorded_lane_remnant(
+pub fn recorded_lane_remnant(
     worktree_path: Option<&str>,
     branch: Option<&str>,
     canonical_cwd: &str,
@@ -707,7 +707,7 @@ pub(crate) fn lane_remove_command(
     command
 }
 
-pub(crate) fn lane_release_command(
+pub fn lane_release_command(
     worktree_path: Option<&str>,
     branch: Option<&str>,
     canonical_cwd: &str,
@@ -826,7 +826,7 @@ pub fn finalize_lane_removal(
     clear_removed_task_lane_references(store, outcome)
 }
 
-pub(crate) fn clear_vanished_lane_on_cleanup_done(
+pub fn clear_vanished_lane_on_cleanup_done(
     store: &PlanStore,
     plan_id: &str,
     task_id: &str,

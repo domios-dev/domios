@@ -1125,7 +1125,9 @@ pub(super) fn dispatch(
                     draft.source_attempt.id
                 ),
             };
-            std::thread::spawn(move || startup.run(ready_rx));
+            std::thread::spawn(move || {
+                super::plan_task_dispatch::startup::run_startup(startup, ready_rx)
+            });
             Ok(json!({
                 "ok": true,
                 "accepted": true,
