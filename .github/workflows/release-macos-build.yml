@@ -16,6 +16,10 @@ on:
         required: false
         default: false
         type: boolean
+      arch:
+        description: arm64 or x86_64; each architecture is its own caller job and graph node
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -34,19 +38,16 @@ env:
 
 jobs:
   build:
-    name: build (${{ matrix.arch }})
+    name: build
     runs-on: [self-hosted, "${{ matrix.runner_label }}"]
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
-            artifact_arch: aarch64
-            runner_label: ${{ vars.RELEASE_MACOS_ARM64_LABEL || 'codeterm-builder' }}
-          - arch: x86_64
-            artifact_arch: x64
-            runner_label: ${{ vars.RELEASE_MACOS_X64_LABEL || 'codeterm-builder' }}
+          - arch: ${{ inputs.arch }}
+            artifact_arch: ${{ inputs.arch == 'arm64' && 'aarch64' || 'x64' }}
+            runner_label: ${{ inputs.arch == 'arm64' && (vars.RELEASE_MACOS_ARM64_LABEL || 'codeterm-builder') || (vars.RELEASE_MACOS_X64_LABEL || 'codeterm-builder') }}
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}

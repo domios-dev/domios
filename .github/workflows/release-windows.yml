@@ -39,6 +39,10 @@ name: Release Windows platforms
         required: false
         default: false
         type: boolean
+      arch:
+        description: x64 or arm64; each architecture is its own caller job and graph node
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -65,18 +69,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-pc-windows-msvc
-            platform_key: windows-x86_64
-            vsarch: x64
-            sdkarch: x64
-            label: x64
-            runner_label: ${{ vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build' }}
-          - target: aarch64-pc-windows-msvc
-            platform_key: windows-aarch64
-            vsarch: x64_arm64
-            sdkarch: arm64
-            label: arm64
-            runner_label: ${{ vars.RELEASE_WINDOWS_ARM64_LABEL || 'windows-build' }}
+          - target: ${{ inputs.arch == 'x64' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
+            platform_key: ${{ inputs.arch == 'x64' && 'windows-x86_64' || 'windows-aarch64' }}
+            vsarch: ${{ inputs.arch == 'x64' && 'x64' || 'x64_arm64' }}
+            sdkarch: ${{ inputs.arch }}
+            label: ${{ inputs.arch }}
+            runner_label: ${{ inputs.arch == 'x64' && (vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build') || (vars.RELEASE_WINDOWS_ARM64_LABEL || 'windows-build') }}
     timeout-minutes: 120
     env:
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
