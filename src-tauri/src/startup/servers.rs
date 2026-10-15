@@ -48,6 +48,14 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
         let results = super::restored_backends::run_wave(
             &queued,
             4,
+            || {
+                let focused = service_state
+                    .mux
+                    .read()
+                    .get_focused_tab_id()
+                    .map(str::to_owned);
+                focused.and_then(|id| queued.iter().position(|tab_id| *tab_id == id))
+            },
             |tab_id| {
                 let cwd = service_state
                     .mux

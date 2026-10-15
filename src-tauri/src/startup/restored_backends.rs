@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 pub(super) fn ordered_ids(mut tabs: Vec<(String, bool, Option<u64>)>) -> Vec<String> {
@@ -15,6 +14,7 @@ pub(super) fn ordered_ids(mut tabs: Vec<(String, bool, Option<u64>)>) -> Vec<Str
 pub(super) fn run_wave<T: Sync>(
     items: &[T],
     limit: usize,
+    preferred: impl Fn() -> Option<usize> + Sync,
     mut validate: impl FnMut(&T) -> Result<(), String>,
     materialize: impl Fn(&T) -> Result<(), String> + Sync,
 ) -> Vec<Result<(), String>> {
@@ -31,12 +31,13 @@ pub(super) fn run_wave<T: Sync>(
             .map(|result| result.err().map(Err))
             .collect::<Vec<_>>(),
     );
-    let cursor = AtomicUsize::new(0);
+    let pending = Mutex::new(ready.clone());
     std::thread::scope(|scope| {
         for _ in 0..limit.min(ready.len()) {
             scope.spawn(|| loop {
-                let slot = cursor.fetch_add(1, Ordering::Relaxed);
-                let Some(&index) = ready.get(slot) else {
+                let preferred = preferred();
+                let index = take_next(&mut pending.lock().unwrap(), preferred);
+                let Some(index) = index else {
                     break;
                 };
                 let result = materialize(&items[index]);
@@ -50,6 +51,16 @@ pub(super) fn run_wave<T: Sync>(
         .into_iter()
         .map(|result| result.expect("every validated tab was materialized"))
         .collect()
+}
+
+fn take_next(pending: &mut Vec<usize>, preferred: Option<usize>) -> Option<usize> {
+    if pending.is_empty() {
+        return None;
+    }
+    let position = preferred
+        .and_then(|preferred| pending.iter().position(|index| *index == preferred))
+        .unwrap_or(0);
+    Some(pending.remove(position))
 }
 
 #[cfg(test)]
