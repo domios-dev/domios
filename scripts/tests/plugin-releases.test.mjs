@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { bumpPlugin, channelPlugins, checkPluginTag, compareVersions } from "../plugin-release-metadata.mjs";
+import { APP_VERSIONED_CRATES, bumpPlugin, channelPlugins, checkPluginTag, compareVersions } from "../plugin-release-metadata.mjs";
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-plugin-release-"));
@@ -15,7 +15,7 @@ function fixture(t) {
   };
   write("package.json", { version: "4.0.0" });
   write("src-tauri/tauri.conf.json", { version: "4.0.0" });
-  for (const directory of ["src-tauri", "cli"]) write(`${directory}/Cargo.toml`, '[package]\nversion = "4.0.0"\n');
+  for (const directory of ["src-tauri", "cli", ...APP_VERSIONED_CRATES.map((crate) => `src-tauri/crates/${crate}`)]) write(`${directory}/Cargo.toml`, '[package]\nversion = "4.0.0"\n');
   for (const directory of ["chat-core", "chat-ui", "chat-engine", "plugin-sdk"]) write(`packages/${directory}/package.json`, { version: "4.0.0" });
   const plugins = ["claude", "codex", "opencode"].map((id) => ({ id, path: `provider-${id}`, version: "7.1.0", minCodeterm: "3.2.0" }));
   write("plugins/channel.json", { plugins });
@@ -37,6 +37,9 @@ test("an app bump preserves independent provider versions and host requirements"
   execFileSync(process.execPath, [path.join(root, "scripts/sync-plugin-versions.mjs"), "--check"]);
   assert.equal(read("package.json").version, "4.1.0");
   assert.equal(read("packages/chat-ui/package.json").version, "4.1.0");
+  for (const crate of APP_VERSIONED_CRATES) {
+    assert.match(fs.readFileSync(path.join(root, `src-tauri/crates/${crate}/Cargo.toml`), "utf8"), /^version = "4\.1\.0"$/m);
+  }
   assert.deepEqual(channelPlugins(root), before);
 });
 
