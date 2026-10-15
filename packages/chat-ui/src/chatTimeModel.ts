@@ -4,9 +4,9 @@ export function showChatTimeGutter(width: number): boolean {
   return Number.isFinite(width) && width >= CHAT_TIME_GUTTER_BREAKPOINT;
 }
 
-export function chatHorizontalInsets(width: number, composerInset: number, timestampWidth: number) {
+export function chatHorizontalInsets(width: number, _composerInset: number, timestampWidth: number) {
   const timeGutter = showChatTimeGutter(width) ? timestampWidth + 8 : 0;
-  return { composerInset, contentInset: composerInset + timeGutter, timeGutter };
+  return { composerInset: 20, contentInset: 20, timeGutter };
 }
 
 export interface ChatTimeLabels { today: string; yesterday: string }
