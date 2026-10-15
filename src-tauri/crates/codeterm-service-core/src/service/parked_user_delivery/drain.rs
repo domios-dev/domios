@@ -31,7 +31,7 @@ impl super::super::ServiceContext {
         })
     }
 
-    fn drain_user_owner_with(
+    pub(super) fn drain_user_owner_with(
         &self,
         tab_id: &str,
         mut submit: impl FnMut(
