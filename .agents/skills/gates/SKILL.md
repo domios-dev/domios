@@ -49,6 +49,7 @@ node --import tsx --import ./scripts/ts-test-asset-hook.mjs <file>.test.tsx
 bash scripts/check-file-sizes.sh --fail
 node scripts/check-provider-boundary.mjs
 node --test scripts/tests/check-provider-boundary.test.mjs
+node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a moved nextest archive
 ```
 
 Run these from the PowerShell tool directly. They are short enough to read.

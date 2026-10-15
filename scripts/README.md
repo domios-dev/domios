@@ -55,6 +55,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-analytics-catalog.test.mjs` | build.sh script-guards |
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
 | `check-api-effect-dependencies.mjs` | build.sh release-preflight/test:all; package.json script |
+| `check-archive-portable-test-paths.mjs` | CI tests.yml; scripts tests/check-archive-portable-test-paths.test.mjs; skill gates, github-release |
 | `check-blocking-in-async.sh` | scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh |
 | `check-build-check-queue.sh` | build.sh script-guards; skill build |
 | `check-build-dev-port-overrides.sh` | build.sh script-guards |

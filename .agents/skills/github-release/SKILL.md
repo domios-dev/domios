@@ -246,6 +246,12 @@ No Rust archive, shard, native test or coverage job belongs to this gate.
 `tests` (`tests.yml`, `phase: long`) needs only `prepare` and queues Rust archives
 at preparation completion, independently of `quick-checks`. Shards and native tests
 queue when the archives finish; the coverage summary requires their receipts.
+Shards run tests from an archive extracted on another runner, so compile-time
+`env!("CARGO_MANIFEST_DIR")` and `env!("CARGO_BIN_EXE_*")` paths name the archive
+builder's checkout and fail with NotFound. Test code resolves them at runtime through
+its crate's `test_support::fixture_manifest_dir()` or `cli/tests/support/codeterm_bin.rs`
+(`NEXTEST_BIN_EXE_codeterm`); `include_str!`/`include_bytes!` embedding stays portable.
+`scripts/check-archive-portable-test-paths.mjs` enforces this in the fast `release contract tests` job.
 Every platform build needs only `prepare` and `quick-checks`: it queues after the fast
 gate and takes any matching idle runner, without waiting for an archive to finish.
 The test jobs get an earlier queue position on shared runners. GitHub queue order is
