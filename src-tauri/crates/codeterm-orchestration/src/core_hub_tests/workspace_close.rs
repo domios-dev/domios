@@ -11,7 +11,6 @@ async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
     use codeterm_service_core::service::plan::NewTask;
     use parking_lot::Mutex;
     use std::sync::Arc;
-    use tauri::Manager;
 
     let (mut mux, orchestrator) = MultiplexerState::new();
     let team_id = mux
@@ -102,8 +101,8 @@ async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
             timeout_seconds: None,
         })
         .unwrap();
-    fixture._app.manage(cron.clone());
-    fixture._app.manage(cron_wake);
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
+    assert!(fixture.service.set_ext(cron_wake).is_ok());
 
     fixture
         .service

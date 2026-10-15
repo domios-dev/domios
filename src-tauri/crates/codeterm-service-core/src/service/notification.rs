@@ -649,8 +649,8 @@ impl ServiceContext {
             log::error!("[notify-offer] accepted offer on {id} could not be saved: {reason}");
             return;
         }
-        use tauri::Manager;
-        *self.app_handle.state::<crate::config::ConfigState>().lock() = cfg.clone();
+
+        *self.ext::<crate::config::ConfigState>().lock() = cfg.clone();
         self.ui.emit(
             "config-changed",
             serde_json::to_value(serde_json::to_value(&cfg).unwrap_or_default())

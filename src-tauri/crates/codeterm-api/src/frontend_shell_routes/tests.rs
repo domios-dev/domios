@@ -27,7 +27,7 @@ async fn transport_bootstrap_contract_auth_status_and_stale_readiness() {
     };
     use tower::ServiceExt;
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
     let state = fixture::app_state(&fixture);
     let router = crate::routes::create_router(state.clone());
     for (method, path) in [

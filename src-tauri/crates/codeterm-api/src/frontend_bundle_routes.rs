@@ -21,7 +21,8 @@ pub struct FrontendRouteState {
 pub fn router(app: AppState, bundles: Arc<FrontendBundles>) -> Router<AppState> {
     let service = app.svc.clone();
     let weak_bundles = Arc::downgrade(&bundles);
-    let availability_app = service.app_handle.clone();
+    let availability_app = service.ui.clone();
+    let installation_app = service.ui.clone();
     let availability_bundles = weak_bundles.clone();
     bundles.bind_availability_observer(Arc::new(move || {
         if let Some(bundles) = availability_bundles.upgrade() {
@@ -38,7 +39,7 @@ pub fn router(app: AppState, bundles: Arc<FrontendBundles>) -> Router<AppState> 
         if let Some(bundles) = weak_bundles.upgrade() {
             if let Some(version) = bundles.status()["active"]["version"].as_str() {
                 codeterm_commands::update::discovery::frontend_installed(
-                    &service.app_handle,
+                    &installation_app,
                     version,
                 );
             }

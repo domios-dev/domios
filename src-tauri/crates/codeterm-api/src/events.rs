@@ -1,5 +1,4 @@
 pub use codeterm_events::*;
-pub use codeterm_service_core::events::emit_everywhere;
 
 #[cfg(test)]
 mod tests {
@@ -50,7 +49,7 @@ mod tests {
     }
 
     /// CI guard: no frontend-listened event may be delivered ONLY via a raw
-    /// `app.emit()` — it must go through `emit_everywhere` (native + SSE bus) or
+    /// `app.emit()` — it must go through `UiEvents::emit` (native + SSE bus) or
     /// carry a typed `SystemEvent` whose `type_name()` reaches the bus via
     /// `publish()`. A new raw emit of a listened event fails this test.
     #[test]
@@ -186,7 +185,7 @@ mod tests {
         assert!(
             offenders.is_empty(),
             "Frontend-listened events raw-emitted, bypassing the publish seam \
-             (route through emit_everywhere or add a typed SystemEvent):\n{}",
+             (route through UiEvents::emit or add a typed SystemEvent):\n{}",
             offenders.join("\n")
         );
     }

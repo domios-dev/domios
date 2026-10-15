@@ -1,4 +1,3 @@
-
 use super::*;
 #[test]
 fn restart_guard_refuses_named_work_and_allows_explicit_force() {

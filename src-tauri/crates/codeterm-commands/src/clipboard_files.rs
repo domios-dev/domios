@@ -14,7 +14,7 @@
 
 #[tauri::command]
 pub async fn read_clipboard_files(
-    app: codeterm_service_core::app_runtime::AppHandle,
+    app: codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<Vec<String>, String> {
     // parameter itself — Tauri's generate_handler! expands to a fixed arity and rejects a parameter that disappears under #[cfg].
     let _ = &app;
@@ -35,7 +35,7 @@ pub async fn read_clipboard_files(
 /// `navigator.clipboard.readText()` outside paste-event handlers.
 #[tauri::command]
 pub async fn read_clipboard_text(
-    app: codeterm_service_core::app_runtime::AppHandle,
+    app: codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<Option<String>, String> {
     let _ = &app;
 
@@ -51,7 +51,7 @@ pub async fn read_clipboard_text(
 
 #[cfg(target_os = "macos")]
 fn read_macos_text_on_main(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<Option<String>, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     app.run_on_main_thread(move || {
@@ -93,7 +93,7 @@ fn read_windows_text() -> Option<String> {
 /// type cache (`__NSArrayM insertObject:atIndex:` → SIGABRT). See issue #34.
 #[cfg(target_os = "macos")]
 fn read_macos_on_main(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<Vec<String>, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     app.run_on_main_thread(move || {

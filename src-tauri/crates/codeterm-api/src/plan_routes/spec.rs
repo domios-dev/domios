@@ -43,19 +43,17 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
 }
 
 fn emit_plan_changed(state: &AppState, plan_id: &str) {
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "plan-changed",
-        serde_json::json!({ "plan_id": plan_id }),
-    );
+    state
+        .svc
+        .ui
+        .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
 }
 
 fn emit_spec_changed(state: &AppState, spec_id: &str) {
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "spec-changed",
-        serde_json::json!({ "spec_id": spec_id }),
-    );
+    state
+        .svc
+        .ui
+        .emit("spec-changed", serde_json::json!({ "spec_id": spec_id }));
 }
 
 fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {

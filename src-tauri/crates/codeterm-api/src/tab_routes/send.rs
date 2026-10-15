@@ -430,8 +430,7 @@ fn record_push_activity(state: &AppState, svc_id: &Option<String>, tab_id: &str,
     let _ = writer.record(
         codeterm_service_core::service::activity::ActivityEvent::push(svc_id, tab_id, &preview),
     );
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
+    state.svc.ui.emit(
         "service-pushed",
         serde_json::json!({"source_id": svc_id, "target": tab_id}),
     );

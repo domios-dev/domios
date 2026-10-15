@@ -1,6 +1,5 @@
 //! `workspace.*` JSON-RPC handlers.
 
-use codeterm_service_core::app_runtime::AppHandle;
 use serde_json::Value;
 
 use codeterm_service_core::multiplexer::commands::MuxState;
@@ -20,7 +19,6 @@ pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
     _mux: &MuxState,
-    _app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
@@ -161,7 +159,7 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|params| params.get("confirm"))
                 .and_then(|value| value.as_str());
-            let result = tauri::async_runtime::block_on(async {
+            let result = codeterm_service_core::async_runtime::block_on(async {
                 match caller_tab_id {
                     Some(caller_tab_id) => {
                         svc.close_workspace_guarded_async(

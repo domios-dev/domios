@@ -1,6 +1,5 @@
 use super::*;
 use std::sync::Arc;
-use tauri::Manager;
 
 impl ServiceContext {
     pub fn acknowledge_remote_worker_ack(
@@ -48,8 +47,7 @@ impl ServiceContext {
                 return;
             }
             let peer_online = service
-                .app_handle
-                .state::<crate::MeshStateHandle>()
+                .ext::<crate::MeshStateHandle>()
                 .lock()
                 .paired_peers
                 .get(&peer_id)

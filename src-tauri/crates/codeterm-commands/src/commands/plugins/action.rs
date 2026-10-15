@@ -212,7 +212,7 @@ pub fn run_action(action: PluginManagerAction, svc: &ServiceContext) -> Result<V
             super::snapshot::refresh_channel_diff_now();
         }
         let snapshot = build_snapshot(Some(output), Some(svc.chatbackend_registry.as_ref()))?;
-        crate::update::discovery::publish_plugin_snapshot(&svc.app_handle, &snapshot);
+        crate::update::discovery::publish_plugin_snapshot(&svc.ui, &snapshot);
         Ok(snapshot)
     })();
 
