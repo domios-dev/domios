@@ -881,11 +881,8 @@ pub async fn task_adopt_checkpoint(
     let session_id = tokio::task::spawn_blocking(move || {
         let state = owner;
         let tab_id = target.as_str();
-        state
-            .svc
-            .mux
-            .read()
-            .get_tab(tab_id)
+        let mux = state.svc.mux.read();
+        mux.get_tab(tab_id)
             .and_then(|tab| tab.agent_session_id.clone())
             .ok_or_else(|| {
                 text_err(

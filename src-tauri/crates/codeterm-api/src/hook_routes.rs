@@ -752,7 +752,7 @@ async fn complete_deferred_session_binding(
     let claim = tokio::task::spawn_blocking(move || {
         bind_reported_session(
             &owner.svc.mux,
-            state.svc.agent_registry.as_ref(),
+            owner.svc.agent_registry.as_ref(),
             &target,
             &provider,
             &session,

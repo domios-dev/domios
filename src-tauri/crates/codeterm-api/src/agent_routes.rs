@@ -188,16 +188,14 @@ pub async fn forget_remote_worker(
     if body.remote_tab.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "remote_tab required".into()));
     }
-    let orchestrator = body
-        .orchestrator_tab
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(|p| {
-            crate::routes::resolve_tab_async(&state, p)
+    let orchestrator = match body.orchestrator_tab.as_deref().filter(|s| !s.is_empty()) {
+        Some(tab) => Some(
+            crate::routes::resolve_tab_async(&state, tab)
                 .await
-                .map_err(|(s, m)| (s, m.to_string()))
-        })
-        .transpose()?;
+                .map_err(|(s, m)| (s, m.to_string()))?,
+        ),
+        None => None,
+    };
     let touched = state.svc.remote_workers.forget_by_remote_tab(
         body.remote_tab.trim(),
         body.peer.as_deref().filter(|s| !s.is_empty()),

@@ -36,7 +36,7 @@ LOCKING_HELPERS = {
     "write_raw", "deliver_with_pad_file", "deliver_agent_payload", "bridge_is_general_tab",
     "rename_team", "update_tab_cwd", "verify_task_owner_session", "emit_session_binding_state",
     "start_chat_send", "bridge_action", "bridge_target", "attributed_body",
-    "drain_tab_output", "clear_tab_role",
+    "drain_tab_output", "clear_tab_role", "chat_read_target",
 
     "set_and_lock_tab_agent_type_from", "rename_tab", "link_pty",
 

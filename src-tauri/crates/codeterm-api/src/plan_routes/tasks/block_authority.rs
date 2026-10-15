@@ -221,7 +221,8 @@ pub(super) async fn verify_task_mutation_owner(
         let tab_id = target.as_str();
         let session_id = session.as_str();
         let nonce = binding.as_str();
-        svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        let mux = svc.mux.read();
+        mux.get_tab(tab_id).is_some_and(|tab| {
             tab.agent_session_id.as_deref() == Some(session_id)
                 && tab.session_binding_nonce.as_deref() == Some(nonce)
                 && tab.reported_session_binding_nonce.as_deref() == Some(nonce)

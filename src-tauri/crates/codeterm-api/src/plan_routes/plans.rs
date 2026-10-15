@@ -926,8 +926,10 @@ pub async fn delete_plan(
 }
 
 mod lifecycle;
-use lifecycle::authorize_plan_mutation_http;
+#[cfg(test)]
+use lifecycle::transfer_caller;
 pub use lifecycle::{archive, pause, pause_preview, resume, resume_preview, transfer, unarchive};
+use lifecycle::{authorize_plan_mutation_http, team_plan_err};
 
 pub async fn disown(
     AxumState(state): AxumState<AppState>,
