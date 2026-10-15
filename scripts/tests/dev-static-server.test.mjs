@@ -79,8 +79,25 @@ child.stderr.on("data", (chunk) => {
   stderr += chunk;
 });
 
+function waitForOutput(marker) {
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      if (!stdout.includes(marker)) return false;
+      clearTimeout(deadline);
+      child.stdout.off("data", check);
+      resolve();
+      return true;
+    };
+    const deadline = setTimeout(() => {
+      child.stdout.off("data", check);
+      reject(new Error(`server never logged ${marker}: ${stdout}${stderr}`));
+    }, 5000);
+    if (!check()) child.stdout.on("data", check);
+  });
+}
+
 try {
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await waitForOutput("[dev-static] waiting for");
   let connectedEarly = false;
   try {
     await httpGet(port);
