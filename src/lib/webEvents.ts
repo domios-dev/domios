@@ -18,6 +18,7 @@ import { fireResync } from "./resync";
 import { createSeqGapTracker } from "./eventSeqGaps";
 import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
+import { signalEventStreamReady } from "./eventStreamReady";
 
 let eventClient: TransportClient | undefined;
 export function bindWebEventsTransport(client: TransportClient): void {
@@ -216,7 +217,8 @@ async function runStream(): Promise<void> {
         if (abort.signal.aborted || generation !== streamGeneration) return;
         const frame = data as EventFrame;
         if (!frame || typeof frame.event_type !== "string") return;
-        if (!connected) {
+        const firstFrame = !connected;
+        if (firstFrame) {
           connected = true;
           backoffMs = RECONNECT_FIRST_MS;
           reconnectState = transitionWebReconnect(reconnectState, "connected").state;
@@ -227,6 +229,7 @@ async function runStream(): Promise<void> {
           }
         }
         handleFrame(frame);
+        if (firstFrame || frame.event_type === "overflow") signalEventStreamReady();
       }, {
         signal: abort.signal, raw: true,
         onActivity() { lastFrameAt = Date.now(); armReceiveDeadline(abort); },

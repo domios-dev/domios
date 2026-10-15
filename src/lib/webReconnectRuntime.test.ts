@@ -57,6 +57,8 @@ async function main(): Promise<void> {
   const { TERMINAL_VIEWER_RECONNECTED_EVENT } = await import("./terminalViewerEvents");
   let reconnects = 0;
   browser.addEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, () => reconnects++);
+  let catalogueReadySignals = 0;
+  browser.addEventListener("codeterm-event-stream-ready", () => catalogueReadySignals++);
   let frameArrived: (() => void) | undefined;
   const received = () => new Promise<void>((resolve) => { frameArrived = resolve; });
   const unlisten = events.webListen("fixture-frame", () => frameArrived?.());
@@ -66,6 +68,7 @@ async function main(): Promise<void> {
     let delivery = received();
     streams[0].enqueue(frame);
     await delivery;
+    assert.equal(catalogueReadySignals, 1, "first frame makes the catalogue connection ready");
     const failure = waiting();
     streams[0].error(new Error("offline"));
     await failure;
@@ -73,10 +76,16 @@ async function main(): Promise<void> {
     browser.dispatchEvent(new Event("online"));
     await connection;
     assert.equal(reconnects, 0, "opening HTTP is not readiness");
+    assert.equal(catalogueReadySignals, 1);
     delivery = received();
     streams[1].enqueue(frame);
     await delivery;
     assert.equal(reconnects, 1);
+    assert.equal(catalogueReadySignals, 2, "one catalogue refresh per reconnect");
+    delivery = received();
+    streams[1].enqueue(frame);
+    await delivery;
+    assert.equal(catalogueReadySignals, 2, "ordinary frames do not refresh catalogues");
     const secondFailure = waiting();
     streams[1].error(new Error("server restarted"));
     await secondFailure;
