@@ -5,8 +5,8 @@ use image::{Rgba, RgbaImage};
 use serde_json::json;
 
 use super::*;
-use crate::service::browser::BrowserHostConfig;
-use crate::service::surface::runtime::{SurfaceEffect, SurfaceResume};
+use crate::surface::runtime::{SurfaceEffect, SurfaceResume};
+use codeterm_browser::BrowserHostConfig;
 
 const PNG_420X180: &str = "iVBORw0KGgoAAAANSUhEUgAAAaQAAAC0CAYAAAA=";
 
@@ -44,6 +44,7 @@ fn runtime(data_dir: &Path) -> BrowserRuntime {
 
 fn ctx(data_dir: &Path) -> SurfaceCallCtx {
     SurfaceCallCtx {
+        host: Arc::new(crate::test_support::RecordingSurfaceHost::default()),
         owner_tab_id: None,
         data_dir: data_dir.to_path_buf(),
         actor: None,

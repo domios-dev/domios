@@ -6,10 +6,10 @@ use tokio::sync::{broadcast, watch};
 
 use super::heuristics::{needs_human, IDLE, NEEDS_NONE};
 use super::resume::{resumable_profile, resumable_url};
-use crate::service::browser::cdp_wire::CdpEvent;
-use crate::service::browser::snapshot::Snapshot;
-use crate::service::browser::{EventStream, PageChannel};
-use crate::service::surface::runtime::{SurfaceNotice, SurfaceResume, SurfaceState};
+use crate::surface::runtime::{SurfaceNotice, SurfaceResume, SurfaceState};
+use codeterm_browser::cdp_wire::CdpEvent;
+use codeterm_browser::snapshot::Snapshot;
+use codeterm_browser::{EventStream, PageChannel};
 
 const ATTACHED_PROFILE: &str = "attached";
 
@@ -164,7 +164,7 @@ impl PageShared {
     /// `actor` names a non-owner agent driving this activity; it clears with the activity.
     pub(super) fn set_activity(&self, activity: &str, actor: Option<&str>) {
         let actor = actor
-            .and_then(crate::service::surface::sanitize_actor)
+            .and_then(crate::surface::model::sanitize_actor)
             .unwrap_or_default();
         self.update(|state| {
             state.activity = activity.to_string();
@@ -313,7 +313,7 @@ mod tests {
             .await;
             assert_eq!(
                 notices.try_recv().unwrap().tone,
-                Some(crate::service::surface::runtime::NoticeTone::Error)
+                Some(crate::surface::runtime::NoticeTone::Error)
             );
             assert_eq!(shared.state().target_id, "");
             assert_eq!(shared.state().owner, owner);

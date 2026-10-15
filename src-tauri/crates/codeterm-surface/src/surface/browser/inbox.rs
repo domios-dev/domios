@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 
 const INBOX_CAPACITY: usize = 64;
-pub(crate) const EMPTY_INBOX: &str = "(no new annotations)";
+pub const EMPTY_INBOX: &str = "(no new annotations)";
 const SEPARATOR: &str = "\n\n---\n\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,12 +17,12 @@ struct InboxEntry {
 
 /// Annotations kept for `inbox`, the fallback when chat delivery to the owner did not happen.
 #[derive(Debug, Default)]
-pub(crate) struct AnnotationInbox {
+pub struct AnnotationInbox {
     entries: VecDeque<InboxEntry>,
 }
 
 impl AnnotationInbox {
-    pub(crate) fn push(&mut self, id: &str, markdown: &str) {
+    pub fn push(&mut self, id: &str, markdown: &str) {
         self.entries.push_back(InboxEntry {
             id: id.to_string(),
             markdown: markdown.to_string(),
@@ -34,14 +34,14 @@ impl AnnotationInbox {
         }
     }
 
-    pub(crate) fn mark_delivered(&mut self, id: &str) {
+    pub fn mark_delivered(&mut self, id: &str) {
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
             entry.delivered = true;
         }
     }
 
     /// Unread undelivered annotations (`all`: every kept one), joined; all are read afterwards.
-    pub(crate) fn take(&mut self, all: bool) -> String {
+    pub fn take(&mut self, all: bool) -> String {
         let picked: Vec<&str> = self
             .entries
             .iter()
@@ -61,7 +61,7 @@ impl AnnotationInbox {
 }
 
 /// One path component safe on every OS; `fallback` when nothing usable remains.
-pub(crate) fn evidence_file_name(raw: &str, fallback: &str) -> String {
+pub fn evidence_file_name(raw: &str, fallback: &str) -> String {
     let base = raw.rsplit(['/', '\\']).next().unwrap_or("");
     let name: String = base
         .chars()
@@ -88,7 +88,7 @@ pub(crate) fn evidence_file_name(raw: &str, fallback: &str) -> String {
 }
 
 /// Blocking: decode and write one PNG under `dir`.
-pub(crate) fn write_evidence(dir: &Path, name: &str, base64: &str) -> Result<PathBuf, String> {
+pub fn write_evidence(dir: &Path, name: &str, base64: &str) -> Result<PathBuf, String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(base64.as_bytes())
         .map_err(|error| format!("screenshot is not base64: {error}"))?;

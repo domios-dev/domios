@@ -1,8 +1,8 @@
-pub(crate) const NEEDS_NONE: &str = "none";
-pub(crate) const IDLE: &str = "idle";
+pub const NEEDS_NONE: &str = "none";
+pub const IDLE: &str = "idle";
 
 /// Whether the page needs a human before an agent can continue; ids match the frontend capsule.
-pub(crate) fn needs_human(url: &str, title: &str, dialog_open: bool) -> &'static str {
+pub fn needs_human(url: &str, title: &str, dialog_open: bool) -> &'static str {
     let url = url.to_ascii_lowercase();
     let title = title.to_ascii_lowercase();
     let url_has = |needles: &[&str]| needles.iter().any(|needle| url.contains(needle));
@@ -23,11 +23,11 @@ pub(crate) fn needs_human(url: &str, title: &str, dialog_open: bool) -> &'static
 }
 
 /// Verbs that only read core state leave the capsule's activity alone.
-pub(crate) fn is_quiet_verb(verb: &str) -> bool {
+pub fn is_quiet_verb(verb: &str) -> bool {
     matches!(verb, "status" | "profiles" | "inbox" | "endpoint" | "help")
 }
 
-pub(crate) fn activity_label(verb: &str, args: &[String]) -> String {
+pub fn activity_label(verb: &str, args: &[String]) -> String {
     let first = args.first().map(String::as_str).unwrap_or("");
     let target = if first.starts_with('@') {
         first.to_string()

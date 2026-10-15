@@ -11,6 +11,7 @@ name = "codeterm_service_core"
 
 [dependencies]
 codeterm-crash = { path = "../codeterm-crash" }
+codeterm-surface = { path = "../codeterm-surface" }
 codeterm-provider-ops = { path = "../codeterm-provider-ops" }
 codeterm-recall = { path = "../codeterm-recall" }
 codeterm-supporter = { path = "../codeterm-supporter" }
