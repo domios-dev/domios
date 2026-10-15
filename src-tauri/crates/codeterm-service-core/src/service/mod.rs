@@ -477,7 +477,7 @@ fn wall_now_ms() -> u64 {
         .as_millis() as u64
 }
 
-pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
+pub fn start_plan_reminder_scheduler(svc: ServiceState) {
     hierarchy::start_plan_reminder_scheduler(svc);
 }
 
@@ -1089,3 +1089,9 @@ pub use structured_endpoint::sse as structured_endpoint_sse;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use pty_ownership::OwnershipEvent;
+
+pub use model_defaults::start as start_model_defaults;
+pub use provider_update::check_available as check_provider_update_available;
+pub use restore_exited_member::{apply_restore_decisions, mark_legacy_role_shell_failures};
+pub use skill_mirror::{mirror_skills_to_providers, seed_bundled_skills};
+pub use utility_deadline::restore as restore_utility_deadlines;

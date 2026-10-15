@@ -17,7 +17,7 @@ pub(crate) fn notify(
 }
 
 fn sweep(service: &codeterm_service_core::service::ServiceContext) {
-    codeterm_service_core::service::utility_deadline::restore(service);
+    codeterm_service_core::service::restore_utility_deadlines(service);
     codeterm_service_core::service::launch_artifacts::sweep_after_restore(service);
 }
 

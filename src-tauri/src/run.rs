@@ -56,8 +56,8 @@ pub fn run(
     let states = startup::init_states();
 
     // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
-    codeterm_service_core::service::skill_mirror::seed_bundled_skills();
-    codeterm_service_core::service::skill_mirror::mirror_skills_to_providers();
+    codeterm_service_core::service::seed_bundled_skills();
+    codeterm_service_core::service::mirror_skills_to_providers();
 
     let mut builder = codeterm_service_core::app_runtime::builder()
         .plugin(tauri_plugin_shell::init())
@@ -230,7 +230,7 @@ pub fn run(
                                 codeterm_service_core::service::sync_watcher::install_bridge_rules_for_all(
                                     &bridge_registry,
                                 );
-                                codeterm_service_core::service::skill_mirror::mirror_skills_to_providers();
+                                codeterm_service_core::service::mirror_skills_to_providers();
                                 for provider in bridge_registry.all_provider_arcs() {
                                     codeterm_service_core::agent::model_binary_watch::install(provider);
                                 }
@@ -645,7 +645,7 @@ pub fn run(
                     config.updater.allow_provider_updates_in_non_prod,
                 )
             };
-            service::provider_update::check_available(
+            service::check_provider_update_available(
                 service_state.clone(),
                 api_port,
                 allow_non_prod_updates,

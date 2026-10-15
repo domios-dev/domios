@@ -294,7 +294,7 @@ pub fn arm(
     Ok(())
 }
 
-pub(crate) fn restore(service: &ServiceContext) {
+pub fn restore(service: &ServiceContext) {
     let directory = service.agent_pad_data_dir.join("utility-deadlines");
     let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries,

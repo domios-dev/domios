@@ -28,9 +28,7 @@ pub(crate) fn legacy_role_shell_failure(tab: &Tab) -> Option<&'static str> {
     .then_some(RESTORED_ROLE_WITHOUT_PROVIDER_REASON)
 }
 
-pub(crate) fn mark_legacy_role_shell_failures(
-    mux: &mut MultiplexerState,
-) -> Vec<(String, &'static str)> {
+pub fn mark_legacy_role_shell_failures(mux: &mut MultiplexerState) -> Vec<(String, &'static str)> {
     let failures = mux
         .all_tabs()
         .filter_map(|tab| legacy_role_shell_failure(tab).map(|reason| (tab.id.clone(), reason)))
@@ -107,7 +105,7 @@ pub(crate) fn exited_members(mux: &MultiplexerState) -> Vec<(String, String)> {
 
 /// Flags the report panes from the restored state and journals each decision
 /// unless the member's newest record already holds it.
-pub(crate) fn apply_restore_decisions(
+pub fn apply_restore_decisions(
     journal: &TabLifecycleJournal,
     mux: &MultiplexerState,
     panes: &mut [RestorePane],

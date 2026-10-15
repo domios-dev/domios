@@ -318,9 +318,7 @@ pub(crate) fn init_states() -> AppStates {
     #[allow(unused_mut)]
     let mut mux_state_inner = mux_state_inner;
     if storage.storage().is_some() {
-        for (tab_id, reason) in
-            service::restore_exited_member::mark_legacy_role_shell_failures(&mut mux_state_inner)
-        {
+        for (tab_id, reason) in service::mark_legacy_role_shell_failures(&mut mux_state_inner) {
             log::warn!("[restore] Tab {tab_id} remains a role shell: {reason}");
         }
     }
@@ -415,7 +413,7 @@ pub(crate) fn init_states() -> AppStates {
     // Nothing is observable yet — no PTY has materialized — so the wave is
     // armed here and settles on real launch transitions.
     if storage.storage().is_some() {
-        service::restore_exited_member::apply_restore_decisions(
+        service::apply_restore_decisions(
             codeterm_service_core::session::lifecycle::TabLifecycleJournal::shared(),
             &mux_state_inner,
             &mut agent_panes_at_shutdown,
@@ -463,12 +461,10 @@ pub(crate) fn init_states() -> AppStates {
     }
 
     if storage.storage().is_some() {
-        for (tab_id, reason) in
-            codeterm_service_core::session::scrollback_restore::load_restored_scrollback_tails(
-                &mut mux_state_inner,
-                &session_state,
-            )
-        {
+        for (tab_id, reason) in codeterm_service_core::session::load_restored_scrollback_tails(
+            &mut mux_state_inner,
+            &session_state,
+        ) {
             log::debug!("[restore-scrollback] tab={tab_id} skipped reason={reason}");
         }
     }
@@ -598,7 +594,7 @@ mod tests {
                 serde_json::from_str(&raw).unwrap();
             let mut panes = snapshot_agent_panes(&snapshot);
             let restored = MultiplexerState::from_session_snapshot(&snapshot);
-            codeterm_service_core::service::restore_exited_member::apply_restore_decisions(
+            codeterm_service_core::service::apply_restore_decisions(
                 &journal, &restored, &mut panes,
             );
             let liveness: std::collections::BTreeMap<_, _> =

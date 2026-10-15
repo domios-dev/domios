@@ -32,8 +32,8 @@ pub use rest_api::{
     RestApiControl, RestApiControlState, RestApiPhase, RestApiRecovery, RestApiRuntimePolicy,
     RestApiStatus,
 };
-mod states;
-pub use states::AppStates;
+mod state_types;
+pub use state_types::AppStates;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use storage::open_instance_storage_at;
 pub use storage::shutdown_bounded;

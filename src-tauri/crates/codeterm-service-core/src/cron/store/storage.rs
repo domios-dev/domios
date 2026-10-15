@@ -198,7 +198,7 @@ struct Plan {
 }
 
 impl CronStore {
-    pub(crate) fn unavailable(reason: String, logs_root: PathBuf, clock: SharedClock) -> CronStore {
+    pub fn unavailable(reason: String, logs_root: PathBuf, clock: SharedClock) -> CronStore {
         CronStore {
             file: CronFile::default(),
             backend: Backend::Unavailable(reason),
@@ -268,7 +268,7 @@ impl CronStore {
         }
     }
 
-    pub(crate) fn set_fence_notifier(&mut self, notifier: impl Fn() + Send + Sync + 'static) {
+    pub fn set_fence_notifier(&mut self, notifier: impl Fn() + Send + Sync + 'static) {
         if let Some(storage) = self.storage_mut() {
             storage.settle_notify = Some(Arc::new(notifier));
         }

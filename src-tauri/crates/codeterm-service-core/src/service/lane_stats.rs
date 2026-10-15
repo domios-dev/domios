@@ -38,7 +38,7 @@ pub enum CheckpointResult {
 }
 
 impl ServiceContext {
-    pub(crate) fn restore_lane_watches(&self) {
+    pub fn restore_lane_watches(&self) {
         for plan in self.plan_store.list_full() {
             let canonical_path = if plan.canonical_project_path.trim().is_empty() {
                 &plan.project_path

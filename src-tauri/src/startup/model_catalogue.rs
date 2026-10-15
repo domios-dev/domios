@@ -34,5 +34,5 @@ pub(crate) fn refresh_providers(registry: &agent::registry::AgentRegistry) {
 }
 
 pub(crate) fn reconcile_defaults(service: &codeterm_service_core::service::ServiceState) {
-    codeterm_service_core::service::model_defaults::start(service.clone());
+    codeterm_service_core::service::start_model_defaults(service.clone());
 }
