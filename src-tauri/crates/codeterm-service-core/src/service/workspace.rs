@@ -268,7 +268,7 @@ impl ServiceContext {
             .await
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn close_workspace_as_human(
         &self,
         workspace_id: &str,
