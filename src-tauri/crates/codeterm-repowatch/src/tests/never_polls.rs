@@ -15,10 +15,15 @@ const TIMER_IMPORTS: [&str; 2] = ["use std::thread", "use tokio::time"];
 #[test]
 fn repository_watch_never_polls() {
     let manifest = PathBuf::from(crate::test_support::fixture_manifest_dir());
-    let app = manifest.join("../..");
+    let crates = manifest.join("..");
+    let service_watch = collect(&crates.join("codeterm-service-core/src/repowatch"));
+    assert!(
+        !service_watch.is_empty(),
+        "service-core repowatch sources moved"
+    );
     let mut sources = collect(&manifest.join("src"));
-    sources.extend(collect(&app.join("src/repowatch")));
-    sources.push(app.join("src/commands/repo_watch.rs"));
+    sources.extend(service_watch);
+    sources.push(crates.join("codeterm-commands/src/commands/repo_watch.rs"));
     assert!(
         sources.len() > 5,
         "expected the repository-watch sources, found {}",
