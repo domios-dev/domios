@@ -1,9 +1,10 @@
 use arc_swap::ArcSwap;
+use codeterm_util::lock_hold::TimedMutex;
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 mod read_index;
 use read_index::JournalReadIndex;
@@ -75,7 +76,7 @@ struct WriteCursor {
 /// Append-only tab lifecycle journal. One file, one monotonic sequence.
 pub struct TabLifecycleJournal {
     path: PathBuf,
-    cursor: Mutex<WriteCursor>,
+    cursor: TimedMutex<WriteCursor>,
     read_index: ArcSwap<JournalReadIndex>,
 }
 
@@ -113,12 +114,15 @@ impl TabLifecycleJournal {
         Self {
             path,
             read_index: ArcSwap::from_pointee(JournalReadIndex::from_records(&load.records)),
-            cursor: Mutex::new(WriteCursor {
-                last_seq: load.last_seq(),
-                records: load.records.len(),
-                compact_at_records: load.records.len().saturating_add(COMPACT_AT_RECORDS),
-                last_epoch_by_tab,
-            }),
+            cursor: TimedMutex::new(
+                "lifecycle_journal",
+                WriteCursor {
+                    last_seq: load.last_seq(),
+                    records: load.records.len(),
+                    compact_at_records: load.records.len().saturating_add(COMPACT_AT_RECORDS),
+                    last_epoch_by_tab,
+                },
+            ),
         }
     }
 
@@ -129,7 +133,6 @@ impl TabLifecycleJournal {
     pub fn next_epoch_for_tab(&self, tab_id: &str) -> LifecycleEpoch {
         self.cursor
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
             .last_epoch_by_tab
             .get(tab_id)
             .copied()
@@ -144,10 +147,7 @@ impl TabLifecycleJournal {
         key: LifecycleKey,
         transition: LifecycleTransition,
     ) -> Result<JournalSeq, String> {
-        let mut cursor = self
-            .cursor
-            .lock()
-            .map_err(|_| "lifecycle journal lock poisoned".to_string())?;
+        let mut cursor = self.cursor.lock();
         let seq = cursor.last_seq.saturating_add(1);
         let tab_id = key.tab_id.clone();
         let epoch = key.epoch;
@@ -204,10 +204,7 @@ impl TabLifecycleJournal {
         {
             return Ok(());
         }
-        let mut cursor = self
-            .cursor
-            .lock()
-            .map_err(|_| "lifecycle journal lock poisoned")?;
+        let mut cursor = self.cursor.lock();
         if self
             .read_index
             .load()
@@ -244,10 +241,7 @@ impl TabLifecycleJournal {
     }
 
     fn compact_inner(&self, force: bool) -> Result<usize, String> {
-        let mut cursor = self
-            .cursor
-            .lock()
-            .map_err(|_| "lifecycle journal lock poisoned".to_string())?;
+        let mut cursor = self.cursor.lock();
         if !force && cursor.records < cursor.compact_at_records {
             return Ok(cursor.records);
         }
