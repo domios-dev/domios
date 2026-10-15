@@ -2,8 +2,6 @@
 //! inside the repository size gate; the module contract is unchanged.
 
 mod notify_rules;
-mod plan_task_flags;
-mod prompt_diet;
 mod task_sequencing;
 
 use super::*;
@@ -682,7 +680,7 @@ fn planner_suffix_embeds_the_canonical_manual() {
 
 #[test]
 fn reflection_block_fills_the_supplied_window() {
-    use crate::service::plan::reflection::ReflectionWindow;
+    use codeterm_plan::service_plan::reflection::ReflectionWindow;
     let filled = reflection_block(
         "group Wave 1 closed",
         &ReflectionWindow {
@@ -739,7 +737,7 @@ fn plan_nudges_teach_only_commands_the_manifest_has() {
 
 #[test]
 fn retrospective_nudge_reaches_the_wrapup_with_its_plan_substituted() {
-    let message = crate::service::plan::complete_wrapup::complete_wrapup_message("pl_probe");
+    let message = codeterm_plan::service_plan::complete_wrapup::complete_wrapup_message("pl_probe");
 
     assert!(message.contains(&PLAN_RETROSPECTIVE_NUDGE.replace("<plan>", "pl_probe")));
     assert!(!message.contains("<plan>"));
@@ -986,7 +984,7 @@ fn role_guidance_contract_authoring_duty_stays_off_execution_surfaces() {
 
 #[test]
 fn role_guidance_contract_worker_composition_accepts_short_unimaginative_guidance() {
-    let guidance = crate::service::plan::worker_identity::compose_worker_identity(
+    let guidance = codeterm_plan::service_plan::worker_identity::compose_worker_identity(
         None,
         Some("x"),
         Some("Task"),
@@ -1021,14 +1019,14 @@ fn executor_role_prompt_stays_off_the_surfaces_that_only_execute() {
         );
     }
 
-    let worker = crate::service::role_preset::builtin_guidance(builtins::WORKER)
+    let worker = crate::role_preset::builtin_guidance(builtins::WORKER)
         .expect("the Worker kind has bundled guidance");
     assert!(!worker.contains(PLANNER_TASK_EXECUTOR_ROLE_FIELD));
     assert!(!worker.contains(ORCH_ROLELESS_DRAFT_REJECTION));
 
     assert_eq!(
-        crate::service::role_preset::builtin_guidance(builtins::WATCHER),
-        crate::service::role_preset::builtin_guidance(builtins::PLANNER),
+        crate::role_preset::builtin_guidance(builtins::WATCHER),
+        crate::role_preset::builtin_guidance(builtins::PLANNER),
         "the Watcher has no surface of its own; it is handed the Planner's"
     );
 }
