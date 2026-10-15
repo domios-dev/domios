@@ -654,6 +654,8 @@ mod tests {
         mux.set_tab_role(&worker_tab_id, AgentRole::Worker, Some(&parent_tab_id))
             .unwrap();
         let fixture = ServiceFixture::new(mux);
+        let parent =
+            fixture.bind_recorded_agent_recipient(&parent_tab_id, "parent-session", "parent-nonce");
         let plan = fixture
             .service
             .plan_store
@@ -706,6 +708,7 @@ mod tests {
         assert_eq!(response["kind"], "report_refused");
         assert_eq!(response["refused_report_diagnostic_sent"], true);
         assert_eq!(response["diagnostic_target_tab_id"], parent_tab_id);
+        assert_eq!(parent.texts.lock().len(), 1);
         let after = fixture.service.plan_store.show_task(&task_id).unwrap().task;
         assert_eq!(after.status, before.status);
         assert_eq!(
