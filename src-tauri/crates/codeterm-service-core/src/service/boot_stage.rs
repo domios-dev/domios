@@ -105,7 +105,7 @@ pub(crate) fn honest_boot_stage(
 
 /// A latched failure that the tab's own nonce-verified session binding
 /// contradicts. The binding is the agent naming itself on its own launch.
-pub(crate) fn binding_disproves_latched_failure(tab: &Tab) -> bool {
+pub fn binding_disproves_latched_failure(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::SpawnFailed) && tab.launch_session_authenticated()
 }
 

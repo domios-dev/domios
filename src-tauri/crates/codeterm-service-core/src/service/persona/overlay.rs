@@ -85,7 +85,7 @@ pub enum RejectionReason {
 }
 
 impl RejectionReason {
-    pub(crate) fn code(&self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             Self::Unreadable(_) => "unreadable",
             Self::Malformed(_) => "malformed",
@@ -97,7 +97,7 @@ impl RejectionReason {
         }
     }
 
-    pub(crate) fn detail(&self) -> String {
+    pub fn detail(&self) -> String {
         match self {
             Self::Unreadable(error) | Self::Malformed(error) => error.clone(),
             Self::BuiltinOverride { kind_id } => format!("`{kind_id}` is a builtin role kind"),
@@ -130,7 +130,7 @@ impl OverlayCatalog {
         self.kinds.values()
     }
 
-    pub(crate) fn rejected(&self) -> &[OverlayRejection] {
+    pub fn rejected(&self) -> &[OverlayRejection] {
         &self.rejected
     }
 

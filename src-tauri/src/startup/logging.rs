@@ -1,6 +1,6 @@
 //! File + stderr logging setup with rotation.
 
-use crate::paths;
+use codeterm_service_core::paths;
 
 /// Four generations at 50 MB each. Rotation is checked on every write, not only
 /// at startup, because a daemon that runs for days otherwise grows one
@@ -84,7 +84,7 @@ impl std::io::Write for RotatingLog {
 
 /// Initialize file + stderr logging with rotation.
 pub(crate) fn setup_logging() {
-    crate::flow_trace::init();
+    codeterm_service_core::flow_trace::init();
     use std::fs;
 
     let log_dir = paths::data_dir().join("logs");
