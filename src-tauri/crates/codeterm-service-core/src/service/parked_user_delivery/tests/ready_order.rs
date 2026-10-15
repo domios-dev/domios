@@ -30,6 +30,12 @@ fn concurrent_drain_cannot_skip_the_admission_owners_claimed_head() {
         .service
         .start_chat_send(&tab, "second".into(), None, None)
         .unwrap();
+    let owner = fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .tab(&tab);
+    let drain_is_owned = owner.pty_drain.try_lock().is_none();
     let outcome = fixture
         .service
         .drain_user_owner_with(&tab, |_, text, _, _| {
@@ -39,6 +45,7 @@ fn concurrent_drain_cannot_skip_the_admission_owners_claimed_head() {
     let overtaking_write = writes_rx.try_recv();
     release_tx.send(()).unwrap();
     assert!(matches!(outcome.unwrap(), UserDrain::Idle));
+    assert!(drain_is_owned);
     assert!(matches!(overtaking_write, Err(mpsc::TryRecvError::Empty)));
     assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), "first");
     assert_eq!(
