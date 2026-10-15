@@ -3,8 +3,8 @@
 
 use codeterm_types::agent::role_kind::builtins;
 
-use crate::multiplexer::types::AgentRole;
-use crate::service::role_preset::RolePreset;
+use crate::role_preset::RolePreset;
+use codeterm_types::agent::AgentRole;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Occasion {
@@ -241,7 +241,7 @@ impl Emission {
 
 /// The text declared for unmatched pairs. `None` means the occasion emits only
 /// its own payload, which is itself the declared fallback.
-pub(crate) fn declared_fallback(occasion: Occasion) -> Option<String> {
+pub fn declared_fallback(occasion: Occasion) -> Option<String> {
     match rules(occasion).fallback {
         Fallback::PayloadOnly => None,
         Fallback::Declared(text) => Some(text()),
@@ -272,7 +272,7 @@ pub fn guidance(occasion: Occasion, preset: Option<&RolePreset>) -> (String, Emi
 
 /// Compose one delivery: the occasion's payload plus the guidance the table
 /// assigns to this preset. `None` means the occasion emits nothing at all.
-pub(crate) fn compose(
+pub fn compose(
     occasion: Occasion,
     preset: Option<&RolePreset>,
     payload: Option<&str>,
