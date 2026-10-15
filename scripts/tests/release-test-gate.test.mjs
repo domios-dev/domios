@@ -16,7 +16,7 @@ const tests = workflow("tests");
 const builds = ["macos", "linux-arm64", "linux-x86_64", "windows"];
 const dependencies = job => [job.needs].flat();
 
-const fastJobs = ["plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
+const fastJobs = ["file-sizes", "plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
 const longJobs = ["rust-tests", "rust-platform", "rust-receipts"];
 
 test("fast checks gate the Rust tests and every build, which then run in parallel", () => {
@@ -40,7 +40,7 @@ test("fast checks gate the Rust tests and every build, which then run in paralle
   assert.doesNotMatch(release.jobs.tests.if, /always\(\)|failure\(\)|cancelled\(\)/, "tests keep the implicit success() over the fast gate");
   assert.equal(release.jobs.tests.with.phase, "long");
   assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "quick-checks", "tests", ...builds]));
-  assert.equal(release.jobs["release-manifest"].if, "needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'");
+  assert.equal(release.jobs["release-manifest"].if, "vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'");
 });
 
 test("dry runs use both test stages by default; bundle-only diagnostics explicitly bypass them", () => {
@@ -56,11 +56,11 @@ test("dry runs use both test stages by default; bundle-only diagnostics explicit
   assert.equal(draft.if, "steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'");
 });
 
-test("test phases partition every check without a serial chain in the fast gate", () => {
+test("file sizes gate every other fast check, and test phases partition every check", () => {
   assert.deepEqual(Object.keys(tests.jobs).sort(), ["changed", "rust-warnings", ...fastJobs, ...longJobs].sort());
   const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, fmt: { result: "success" }, "rust-tests": { result: "success" }, "rust-platform": { result: "success" } };
   for (const id of fastJobs) {
-    assert.deepEqual(dependencies(tests.jobs[id]), ["changed"], id);
+    assert.deepEqual(dependencies(tests.jobs[id]), id === "file-sizes" ? ["changed"] : ["changed", "file-sizes"], id);
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "fast"].includes(phase), `${id}/${phase}`);
   }
   for (const id of longJobs) {
@@ -166,7 +166,7 @@ test("a frontend-only release builds and publishes only the frontend after the f
   const frontend = release.jobs.frontend;
   assert.equal(frontend.uses, "./.github/workflows/frontend-release.yml");
   assert.deepEqual(new Set(dependencies(frontend)), new Set(["prepare", "quick-checks", "tests"]));
-  assert.equal(frontend.if, "needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'");
+  assert.equal(frontend.if, "vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'");
   assert.deepEqual(frontend.with, { tag: "${{ needs.prepare.outputs.tag }}", source_sha: "${{ needs.prepare.outputs.source_sha }}" });
   const resolve = release.jobs.prepare.steps.find(step => step.id === "release").run;
   assert.match(resolve, /kind=\$\(node scripts\/ci-scope\.mjs --release-kind "\$previous" "\$sha"\)/);

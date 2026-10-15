@@ -127,7 +127,7 @@ jobs:
 
   plugin-metadata:
     name: plugin release contracts
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.result == 'success') }}
     runs-on: [self-hosted, linux-ci]
     permissions:
@@ -147,7 +147,7 @@ jobs:
 
   plugins:
     name: plugin (${{ matrix.plugin.id }})
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}
     runs-on: [self-hosted, linux-ci]
     permissions:
@@ -178,9 +178,24 @@ jobs:
   # lane: gating that lane off silences the check with it, which is how 22 files
   # drifted unseen. Its own job on any free light runner, seconds long.
 
+  file-sizes:
+    name: file sizes
+    needs: changed
+    if: ${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}
+    runs-on: [self-hosted, light]
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+      - name: Source file size discipline
+        run: bash scripts/check-file-sizes.sh --fail
+
   fmt:
     name: fmt
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -202,8 +217,8 @@ jobs:
           exit 1
       - name: cargo fmt --check
         run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --check
-          cargo fmt --manifest-path cli/Cargo.toml --check
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
+          cargo fmt --manifest-path cli/Cargo.toml --all --check
 
   # The whole suite compiles and runs once, in place, on any free runner in the
   # rust-tests pool: shipping a nextest archive between runners cost more than the tests.
@@ -368,7 +383,7 @@ jobs:
 
   clippy-linux:
     name: clippy (linux)
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.heavy == 'true') }}
     runs-on: [self-hosted, linux-ci]
     permissions:
@@ -416,7 +431,7 @@ jobs:
 
   ts-static:
     name: ts static checks
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -462,7 +477,7 @@ jobs:
 
   ts-types:
     name: ts generated types
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -514,7 +529,7 @@ jobs:
 
   ts-unit:
     name: ts unit
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -546,7 +561,7 @@ jobs:
 
   ts-vitest:
     name: ts vitest
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -581,7 +596,7 @@ jobs:
 
   ts-plugins:
     name: plugin bundles + tests
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -616,7 +631,7 @@ jobs:
 
   release-contracts:
     name: release contract tests
-    needs: changed
+    needs: [changed, file-sizes]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
