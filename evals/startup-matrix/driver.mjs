@@ -19,6 +19,7 @@ const expected = option('--expect-build', '3b7bf7ea2');
 const deadlineMs = 120_000;
 const resume = option('--resume', null);
 const attach = option('--attach', null);
+const preservedInputIds = new Set(option('--preserve-input', '').split(',').filter(Boolean));
 const priorDir = attach ?? resume;
 const previous = priorDir ? JSON.parse(readFileSync(join(resolve(priorDir), 'results.json'))) : null;
 if (!attach && previous?.tabs.some(t => t.send_at != null)) throw new Error('Resume refused: the prior run already attempted prompts');
@@ -244,7 +245,8 @@ async function main() {
   });
   const frozen = result.tabs.filter(t => t.boot?.frozen);
   const attempted = new Map(attach ? previous.tabs.filter(t => t.send_at != null).map(t => [t.id, t]) : []);
-  const agentWake = [...frozen].sort((a, b) => a.title.localeCompare(b.title)).find(t => t.backing !== 'chat_backend' && !attempted.has(t.id)) ?? frozen.find(t => !attempted.has(t.id));
+  const wakeEligible = frozen.filter(t => !attempted.has(t.id) && !preservedInputIds.has(t.id));
+  const agentWake = [...wakeEligible].sort((a, b) => a.title.localeCompare(b.title)).find(t => t.backing !== 'chat_backend') ?? wakeEligible[0];
   const pending = [...bootPending];
   const ordered = [...result.tabs].sort((a, b) => Number(b.backing === 'chat_backend') - Number(a.backing === 'chat_backend') || a.title.localeCompare(b.title));
   for (const t of ordered) {
@@ -253,6 +255,13 @@ async function main() {
     console.log(`PROBE ${t.title} ${t.id} ${t.observed}`);
     t.wake_method = t === agentWake ? 'agent-send' : t.boot?.frozen ? 'sidebar-open' : 'already-awake';
     try {
+      if (preservedInputIds.has(t.id)) {
+        t.notes.push('Existing input preserved by operator; no new payload or replay');
+        t.input_preserved = true;
+        t.click = await select(t);
+        t.screenshot = await screenshot(t.id);
+        continue;
+      }
       if (attempted.has(t.id)) {
         t.carried_send = attempted.get(t.id).send;
         t.notes.push('Prior attempted send preserved across crash; no new payload or replay');
