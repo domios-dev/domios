@@ -250,9 +250,10 @@ function runJob(argv) {
     log.end(() => {
       const parsed = parseJobLog(fs.readFileSync(logPath, 'utf8'));
       const exitCode = code ?? 1;
+      // The event is the caller's cue to dispatch again, and send --require-agent can block, so free the checkout first.
+      releaseLock();
       sendEvent(opts, jobEvent({ jobId: opts.id, peer: opts['peer-name'], verb: opts.verb, sha: opts.sha,
         outcome: outcomeOf(exitCode, timedOut), exitCode, wallSecs: Math.round((Date.now() - started) / 1000), parsed, logPath }));
-      releaseLock();
       process.exitCode = exitCode;
     });
   });
@@ -283,9 +284,9 @@ function setupLocal(argv) {
   const parsed = parseJobLog(output);
   parsed.summary.push(`peer-setup: checkout=${process.cwd()} head=${git(['rev-parse', 'HEAD'])} push=disabled status-tab=${statusTab ?? 'missing'}`);
   const exitCode = toolchain.status === 0 && statusTab ? 0 : 1;
+  releaseLock();
   sendEvent(opts, jobEvent({ jobId: opts.id, peer: opts['peer-name'], verb: 'setup', sha: opts.sha,
     outcome: outcomeOf(exitCode, Boolean(toolchain.error)), exitCode, wallSecs: Math.round((Date.now() - started) / 1000), parsed, logPath }));
-  releaseLock();
   process.exitCode = exitCode;
 }
 

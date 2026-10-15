@@ -3,7 +3,8 @@ import fs from 'node:fs';
 
 const args = process.argv.slice(2);
 const stdin = args.includes('--stdin') ? fs.readFileSync(0, 'utf8') : null;
-fs.appendFileSync(process.env.FAKE_CODETERM_LOG, `${JSON.stringify({ args, stdin })}\n`);
+const lockHeld = fs.existsSync('.git/codeterm-peer-job.lock');
+fs.appendFileSync(process.env.FAKE_CODETERM_LOG, `${JSON.stringify({ args, stdin, lockHeld })}\n`);
 const statuses = JSON.parse(process.env.FAKE_PEER_STATUS ?? '{}');
 const mesh = args.includes('--mesh') ? args[args.indexOf('--mesh') + 1] : null;
 const out = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
