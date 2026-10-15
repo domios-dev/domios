@@ -64,6 +64,7 @@ export function TabContent({
 
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
+  if (tab.frozen) return <div role="status" aria-label="Sleeping tab">Sleeping</div>;
   if (tab.remote_peer_id) configureRemoteTabTransport(api);
 
   if (isFirstRunGeneralTab(tab)) {

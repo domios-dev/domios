@@ -16,8 +16,13 @@ fn should_materialize_restored_backend(
     protected: bool,
     backing: &TabBacking,
     pty_id: Option<&str>,
+    frozen: bool,
 ) -> bool {
-    restored_from_snapshot && !protected && matches!(backing, TabBacking::Pty) && pty_id.is_none()
+    restored_from_snapshot
+        && !protected
+        && !frozen
+        && !matches!(backing, TabBacking::Surface(_))
+        && pty_id.is_none()
 }
 
 use codeterm_service_core::startup::FRONTEND_READINESS_DEADLINE_ELAPSED;
@@ -29,7 +34,15 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
             || super::wait_for_frontend_ready_until(frontend_readiness_generation, deadline),
             || note_frontend_deadline(&service_state),
             || restored_backend_tab_ids(&service_state),
-            |tab_id| service_state.ensure_tab_pty_for_send(tab_id),
+            |tab_id| {
+                if service_state.tab_chat_backing(tab_id).is_some() {
+                    service_state
+                        .chatbackend_reopen_if_restored(tab_id)
+                        .map(|_| ())
+                } else {
+                    service_state.ensure_tab_pty_for_send(tab_id)
+                }
+            },
         );
     });
 }
@@ -76,6 +89,7 @@ fn restored_backend_tab_ids(service_state: &ServiceState) -> Vec<String> {
                 tab.protected,
                 &tab.backing,
                 tab.pty_id.as_deref(),
+                tab.frozen,
             )
         })
         .map(|tab| tab.id)
@@ -667,25 +681,35 @@ mod tests {
 
     #[test]
     fn startup_materializes_only_unprotected_restored_pty_backends() {
+        assert!(!should_materialize_restored_backend(
+            true,
+            false,
+            &TabBacking::Pty,
+            None,
+            true
+        ));
         assert!(should_materialize_restored_backend(
             true,
             false,
             &TabBacking::Pty,
             None,
+            false,
         ));
         assert!(!should_materialize_restored_backend(
             false,
             false,
             &TabBacking::Pty,
             None,
+            false,
         ));
         assert!(!should_materialize_restored_backend(
             true,
             true,
             &TabBacking::Pty,
             None,
+            false,
         ));
-        assert!(!should_materialize_restored_backend(
+        assert!(should_materialize_restored_backend(
             true,
             false,
             &TabBacking::ChatBackend {
@@ -693,12 +717,14 @@ mod tests {
                 session_id: "session".into(),
             },
             None,
+            false,
         ));
         assert!(!should_materialize_restored_backend(
             true,
             false,
             &TabBacking::Pty,
             Some("live"),
+            false,
         ));
     }
 }

@@ -254,6 +254,8 @@ export interface Tab {
   show_in_tabbar?: boolean;
   worker_id?: string | null;
   agent_booting?: boolean;
+  frozen?: boolean;
+  last_active_at_ms?: number | null;
   /** True only when this visible session explicitly bypasses provider permissions/sandbox. */
   auto_approve?: boolean;
   /** Opt-in: provider-recognized permission prompts are answered with their affirmative option. */

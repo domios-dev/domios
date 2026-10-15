@@ -93,6 +93,16 @@ pub fn stop(tab: &str) {
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
+    if svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|target| target.frozen)
+    {
+        return Err(RuntimeFailure::Refused(
+            "Tab is sleeping; open or address it to wake".into(),
+        ));
+    }
     super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
     let prompt_service = svc.clone();
     let prompt_tab = tab.to_string();

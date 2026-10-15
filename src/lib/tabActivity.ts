@@ -37,6 +37,10 @@ const startingStages = new Set<Tab["boot_stage"]>([
 ]);
 
 export function tabActivity(tab: TabActivityInput | null | undefined, status?: TabStatus | null): TabActivity {
+  if (tab?.frozen) return {
+    kind: "idle", label: "Sleeping", status: "Idle", state: "idle",
+    active: false, canStop: false, quiet: false, launching: false, phase: "work", shellSucceeded: null,
+  };
   const live = tab?.agent_state;
   const shell = tab?.shell_command_state;
   const declaresAgent = Boolean(tab?.agent_type) || tab?.backing?.kind === "chat_backend";
