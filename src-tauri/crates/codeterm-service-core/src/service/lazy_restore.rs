@@ -1,6 +1,32 @@
+use crate::multiplexer::types::{Tab, TabBacking};
 use crate::service::ServiceContext;
 use codeterm_pty::multiplexer::restore_policy::{restore_on_boot, RestoreDecision};
 use codeterm_types::pty::BootStage;
+use std::collections::HashSet;
+use std::sync::LazyLock;
+
+static WAKING: LazyLock<parking_lot::Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+struct WakeRequest(String);
+
+impl Drop for WakeRequest {
+    fn drop(&mut self) {
+        WAKING.lock().remove(&self.0);
+    }
+}
+
+fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
+    tab.frozen
+        || explicit
+            && !tab.protected
+            && (tab.boot_stage == Some(BootStage::SpawnFailed)
+                || matches!(tab.backing, TabBacking::Pty)
+                    && tab.pty_id.is_none()
+                    && !tab
+                        .close_restore
+                        .as_ref()
+                        .is_some_and(|closed| closed.stopped))
+}
 
 pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
     let now_ms = std::time::SystemTime::now()
@@ -54,6 +80,9 @@ impl ServiceContext {
             if self.tab_chat_backing(id).is_some() {
                 self.chatbackend_reopen_if_restored(id).map(|_| ())
             } else {
+                let cwd = self.mux.read().get_tab(id).and_then(|tab| tab.cwd.clone());
+                self.validate_request_cwd(None, Some(id), cwd.as_deref())
+                    .map_err(|error| error.data().to_string())?;
                 self.ensure_tab_pty_for_send(id)
             }
         })
@@ -71,26 +100,28 @@ fn wake_with(
         let id = mux
             .resolve_tab_id(tab_id)
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
-        if !mux.get_tab(&id).is_some_and(|tab| {
-            tab.frozen
-                || (allow_failed
-                    && !tab.protected
-                    && tab.boot_stage == Some(BootStage::SpawnFailed))
-        }) {
+        if !mux
+            .get_tab(&id)
+            .is_some_and(|tab| wake_eligible(tab, allow_failed))
+        {
             return Ok(());
         }
         id
     };
+    if !WAKING.lock().insert(id.clone()) {
+        return Ok(());
+    }
+    let _request = WakeRequest(id.clone());
     let retry_started_agent = {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(&id).ok_or("Sleeping tab closed")?;
-        if !tab.frozen
-            && (!allow_failed || tab.protected || tab.boot_stage != Some(BootStage::SpawnFailed))
-        {
+        if !wake_eligible(tab, allow_failed) {
             return Ok(());
         }
-        let retry_started_agent =
-            !tab.frozen && !tab.restored_from_snapshot && tab.agent_type.is_some();
+        let retry_started_agent = !tab.frozen
+            && tab.boot_stage == Some(BootStage::SpawnFailed)
+            && !tab.restored_from_snapshot
+            && tab.agent_type.is_some();
         tab.frozen = false;
         tab.record_activity();
         let stage = if matches!(
@@ -179,6 +210,13 @@ mod tests {
                 wake_with(&fixture.service, resolved, true, |_, _| {
                     panic!("wake duplicated while materializing")
                 })?;
+                fixture
+                    .service
+                    .mux
+                    .write()
+                    .get_tab_mut(resolved)
+                    .unwrap()
+                    .pty_id = Some("materialized".into());
                 Ok(())
             },
         )
@@ -204,6 +242,56 @@ mod tests {
             .unwrap();
         }
         assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn missing_backend_wake_eligibility_excludes_owned_stopped_and_protected_tabs() {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.protected = false;
+        tab.frozen = false;
+        tab.pty_id = None;
+        assert!(!wake_eligible(tab, false));
+        assert!(wake_eligible(tab, true));
+        tab.protected = true;
+        assert!(!wake_eligible(tab, true));
+        tab.protected = false;
+        tab.pty_id = Some("owned".into());
+        assert!(!wake_eligible(tab, true));
+        tab.pty_id = None;
+        tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+            stopped: true,
+            ..Default::default()
+        });
+        assert!(!wake_eligible(tab, true));
+    }
+
+    #[test]
+    fn awake_missing_backend_materializes_without_restart_and_publishes_failure() {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.protected = false;
+        tab.frozen = false;
+        tab.pty_id = None;
+        tab.agent_session_id = Some("exact-session".into());
+        let fixture = ServiceFixture::new(mux);
+        let reason = r#"{"code":"workspace_cwd_missing","path":"/deleted"}"#;
+        assert_eq!(
+            wake_with(&fixture.service, &id, true, |resolved, restart| {
+                assert_eq!(resolved, id);
+                assert!(!restart);
+                wake_with(&fixture.service, resolved, true, |_, _| {
+                    panic!("duplicate wake")
+                })?;
+                Err(reason.into())
+            }),
+            Err(reason.into())
+        );
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        assert_eq!(tab.agent_session_id.as_deref(), Some("exact-session"));
+        assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
+        assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason));
     }
 
     #[test]
