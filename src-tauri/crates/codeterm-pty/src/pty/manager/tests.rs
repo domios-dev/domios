@@ -429,11 +429,10 @@ fn shutdown_reaps_every_owned_pty_and_conpty_host() {
     let reapers = manager.begin_shutdown().expect("begin PTY shutdown");
     assert_eq!(reapers.len(), 2);
     assert!(manager.sessions.is_empty());
-    let spawn_error = match {
-        let gate = manager.spawn_gate();
-        crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
-            .map(|built| manager.register_session(None, built))
-    } {
+    let gate = manager.spawn_gate();
+    let spawn_result = crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+        .map(|built| manager.register_session(None, built));
+    let spawn_error = match spawn_result {
         Ok(_) => panic!("shutdown manager accepted a new PTY"),
         Err(error) => error,
     };
