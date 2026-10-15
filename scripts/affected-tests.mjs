@@ -384,7 +384,7 @@ function printSelection(options, files) {
   };
 
   for (const file of files.filter((candidate) => candidate.startsWith("src-tauri/prompts/"))) {
-    contract("codeterm", "test(/^prompts::tests::/)", `${file} changes the prompt contract suite`);
+    contract("codeterm-service-core", "test(/^prompts::tests::/)", `${file} changes the prompt contract suite`);
   }
   for (const file of files.filter((candidate) => candidate.startsWith("prod-docs/"))) {
     contract(

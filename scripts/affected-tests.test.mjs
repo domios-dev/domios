@@ -30,7 +30,7 @@ async function makeDiffFixture(t, changedPath) {
   await mkdir(path.join(directory, "packages"), { recursive: true });
 
   await writeFile(path.join(directory, "src-tauri", "Cargo.toml"), `[workspace]
-members = [".", "crates/codeterm-plugin", "crates/codeterm-frontend-bundle"]
+members = [".", "crates/codeterm-plugin", "crates/codeterm-frontend-bundle", "crates/codeterm-service-core"]
 resolver = "2"
 
 [package]
@@ -43,6 +43,9 @@ path = "src/lib.rs"
 `);
   await writeFile(path.join(directory, "src-tauri", "src", "lib.rs"), "pub mod service;\n");
   await writeFile(path.join(directory, "src-tauri", "src", "service.rs"), "pub fn current() {}\n");
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "src"), { recursive: true });
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "Cargo.toml"), '[package]\nname = "codeterm-service-core"\nversion = "0.1.0"\nedition = "2021"\n');
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "src", "lib.rs"), 'pub fn core() {}\n');
   await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-plugin", "Cargo.toml"), `[package]
 name = "codeterm-plugin"
 version = "0.1.0"
@@ -115,7 +118,7 @@ test("maps a provider plugin diff to plugin and native parity coverage", async (
 test("maps a prompt diff to the prompt contract suite", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/prompts/launch.md");
   const output = mapFixture(fixture.directory, fixture.base);
-  assert.match(output, /\.\/build\.sh nextest shell 'test\(\/\^prompts::tests::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest codeterm-service-core 'test\(\/\^prompts::tests::\/\)'/);
 });
 
 test("maps bundle crate changes to its supported scope and reverse dependents", async (t) => {
