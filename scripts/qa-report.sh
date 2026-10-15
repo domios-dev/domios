@@ -72,13 +72,21 @@ qa_zero_tests() {
       if ($4 + 0 > 0 || $6 + 0 > 0) cargo_executed=1
     }
     tolower($0) ~ /no test files found/ { other_zero=1 }
-    /^# tests[[:space:]]+0[[:space:]]*$/ { other_zero=1 }
-    tolower($0) ~ /(^|[^0-9.])0 tests?([^0-9]|$)/ {
-      if ($0 ~ /^running 0 tests?[[:space:]]*$/) cargo_empty_target=1
-      else other_zero=1
+    /^# (pass|fail)[[:space:]]+[0-9]+[[:space:]]*$/ {
+      node_seen=1
+      if ($3 + 0 > 0) node_executed=1
     }
+    /^[[:space:]]*Summary[[:space:]]+\[[^]]+\][[:space:]]+[0-9]+ tests? run:/ {
+      nextest_seen=1
+      count=$0
+      sub(/^[[:space:]]*Summary[[:space:]]+\[[^]]+\][[:space:]]+/, "", count)
+      if (count + 0 > 0) nextest_executed=1
+    }
+    /^running 0 tests?[[:space:]]*$/ { cargo_empty_target=1 }
     END {
       exit !((cargo_seen && !cargo_executed) || other_zero ||
+             (node_seen && !node_executed) ||
+             (nextest_seen && !nextest_executed) ||
              (!cargo_seen && cargo_empty_target))
     }
   ' "$file"

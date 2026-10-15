@@ -156,6 +156,10 @@ ignored-only runs and independent empty test runners as failures. Verify the
 counter with `node --test --test-name-pattern=qa_report scripts/tests/utility-shell-reports.test.mjs`;
 retain the original receipt instead of rerunning successful Rust tests.
 
+Zero-test detection reads libtest `test result:`, nextest `Summary [...] N tests run:`,
+and Node `# pass N` / `# fail N` summaries. Inventory rows containing `0 tests`
+are not runner results and must never turn a successful validation into a failure.
+
 ## Event waits
 
 The foreground reader consumes pipe lines as events and validates health on each
