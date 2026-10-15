@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { allowlistPath, checkBoundary, detectOccurrences, isCoreSource, readBaseline, scanWorkingTree, seedAllowlist, validateAllowlist } from '../check-provider-boundary.mjs';
+import { allowlistPath, baselineRevision, checkBoundary, detectOccurrences, isCoreSource, readBaseline, scanWorkingTree, seedAllowlist, validateAllowlist } from '../check-provider-boundary.mjs';
 
 const checker = fileURLToPath(new URL('../check-provider-boundary.mjs', import.meta.url));
 const file = 'src-tauri/src/runtime.rs';
@@ -43,6 +43,19 @@ test('detects literal ids, casing, identifier and environment variants', () => {
   assert.deepEqual(detectOccurrences(file, source).map(hit => hit.token), tokens);
   assert.equal(detectOccurrences(file, 'let agent_runtime = "chat_backend";').length, 0);
 });
+
+test('migration anchor replaces only an older ancestor baseline and retains the ratchet', () => repository(({ root, git, commit, seedBase }) => {
+  const anchor = commit();
+  assert.equal(baselineRevision(root, seedBase, anchor), anchor);
+  source(root, file, 'fn codex_runtime() {}\nfn codex_runtime() {}\n');
+  const later = commit();
+  assert.equal(baselineRevision(root, later, anchor), later);
+  const baseline = readBaseline(root, anchor);
+  assert.ok(checkBoundary(scanWorkingTree(root), seedAllowlist(scanWorkingTree(root)), baseline)
+    .some(error => error.includes('increased baseline')));
+  git('checkout', '--quiet', seedBase);
+  assert.equal(baselineRevision(root, seedBase, anchor), seedBase);
+}));
 
 test('source-backed production and test tokens are included', () => repository(({ root }) => {
   source(root, 'src-tauri/crates/example/tests/provider.rs', 'let token = "CLAUDE_CONFIG_DIR";');
