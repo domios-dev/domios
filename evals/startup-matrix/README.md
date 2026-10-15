@@ -101,3 +101,38 @@ passing evidence; 3 means complete evidence with observed failures; 1 means an
 incomplete evidence contract. The driver uses 3 for observed failures. Offline
 checks: `node --test evals/startup-matrix/*.test.mjs`. An unresponsive entry with
 complete request evidence also exits 3; it does not imply tabs were exercised.
+
+### Independent Windows terminal baseline (manual, on request)
+
+Use this only to compare installed providers outside Domios launch admission.
+It is not a CI gate. Start a visible system PowerShell without its profile:
+
+    Start-Process powershell.exe -WindowStyle Normal -ArgumentList '-NoLogo','-NoProfile','-NoExit','-File','C:/Developer/codeterm/codeterm/evals/startup-matrix/native-baseline.ps1','-Provider','claude','-OutputDirectory','C:/Developer/codeterm/codeterm/target-check/evals/native-baseline/UNIQUE-RUN/claude'
+
+Repeat sequentially for grok, aider, opencode and codex. The script removes
+Domios routing variables, writes launch.json and uses an independent workspace
+under C:/Developer/codeterm-native-baseline, outside repository ancestry.
+Keep existing authentication and user plugins/configuration; do not label this
+a factory-reset profile or an idle-machine measurement. Codex uses --no-daemon
+and measures its CLI, which differs from the app's Codex Chat transport.
+
+Use native-console.ps1 with the exact shell PID and an output file to capture
+the native console viewport. Capture and actually view the same window with
+native-window.ps1 using its verified native window handle. It brings that window
+forward and fits it to the primary display. Record each action, UTC, process,
+token, image path and observation in steps.jsonl.
+
+For a provider whose actual composer has been inspected and is ready, a fresh
+probe may be written with native-input.ps1 using -ShellProcessId, -InputFile
+(a body in the caller's pad) and -ReceiptFile. Never answer a login, trust or
+permission prompt this way. OS input acceptance is not delivery; require the
+exact new reply in this console/session. Aider requires a separately configured
+model/key; a credential prompt is an uncovered case, not a slow launch.
+
+Separate first frame, setup completion, actual editable-input readiness,
+first engine turn and reply completion. Use timestamped provider signals or
+own-session records; screenshots captured later do not establish startup time.
+Retain blocked attempts and configuration differences. OpenCode --print-logs
+can overlap its TUI; note this instrumentation interference. Compare matched
+fresh/resumed commands and current machine load before attributing a delta
+to Domios.
