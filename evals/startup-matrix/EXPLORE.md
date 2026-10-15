@@ -1,5 +1,34 @@
 # Owner-style exploratory startup pass
 
+## Large-history reconnect census (local, on request)
+
+- [ ] Match DEV health to the diagnostic commit before the before-run. Open one
+  large-history tab on desktop and in the owned Browser through the approved
+  DEV ingress. Keep each client's network trace and client ID separate.
+- [ ] Source evals/_lib/lib.sh and capture `dev_get /api/debug/events/stats`
+  before and after each action. Its DEV-only `requests.entries` groups counts,
+  request bytes and response body data bytes by matched route, client ID and
+  epoch minute. These are consumed HTTP body bytes, excluding headers/TCP/TLS;
+  streaming bytes belong to the minute consumed. Keep the raw snapshots.
+- [ ] Record cold attach, real hidden/visible events, offline/online, an actual
+  event-fetch abort, tab switch away/back, and explicit reconnect separately.
+  Freeze/activate without an observed visibility event is not a background test.
+  Retain starts/stops, parsed and transferred bytes, cursor/session authority,
+  active streams, first useful history and viewed screenshots per action.
+- [ ] Valid cursor reconnect must issue zero session restarts/history rereads;
+  idle wake must transfer zero transcript payload. A collection script exit 0
+  does not imply product acceptance. Distinguish deliberate triggers from a
+  spontaneous loop and reconcile overlapping responses individually.
+- [ ] Compare the same actions after repair on a matched build. Record DEV-only
+  TIME_WAIT through the assigned socket observer; never sample or mutate prod
+  as part of this bench. Remove only owned synthetic lookup junctions at cleanup.
+
+Client census attribution is locked by
+`transportClient > uses one page client identity for JSON, local JSON, uploads and streams`.
+Server counting/stream forwarding is locked by `request_census::tests::`; keep
+the live round for attribution and visible behavior, not for re-testing counters.
+Focused proof: `./build.sh nextest codeterm-api 'test(/^request_census::/) | test(/^stream_census::/)'`.
+
 For a launch serialization diagnosis, compare the bare-shell wait's own elapsed
 log with source-clock phase timestamps. A zero prompt wait means the missing
 time precedes that wait. Capture `[launch-gate]` wait/hold microseconds per tab,
@@ -272,3 +301,13 @@ external CLI's startup or prove native UI wiring.
 Run the existing tests in each changed area alongside its regression test.
 A new defect adds its fast oracle here and in the run report; retain any executed
 red-before/green-after evidence instead of claiming it from source inspection.
+Global launch lock visibility is locked by test
+launch_registry_uses_shared_hold_instrumentation plus
+named_mutex_reports_through_guard_hold_seam_without_waiting and the
+qa-lock-storm histogram fixture. When green, skip a deliberate long lock storm
+solely to check logging. Keep sampling real startup logs for new contention.
+On owner request, compare installed provider startup in an independent native
+system PowerShell using README.md's Independent Windows terminal baseline.
+Record actual first-frame/setup/turn signals separately from input readiness
+and model response time; keep blocked authentication/configuration cases.
+This diagnostic remains local-only and is never a CI gate.
