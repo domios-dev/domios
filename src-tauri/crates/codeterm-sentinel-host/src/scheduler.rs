@@ -170,7 +170,7 @@ pub(super) fn emit_changes(
 ) {
     let changes = store.lock().take_changes();
     for change in changes {
-        codeterm_events::emit_everywhere(app, "automation-graph-changed", change);
+        codeterm_service_core::events::emit_everywhere(app, "automation-graph-changed", change);
     }
 }
 

@@ -31,7 +31,11 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 }
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+    codeterm_service_core::events::emit_everywhere(
+        app,
+        "plan-changed",
+        json!({ "plan_id": plan_id }),
+    );
 }
 
 pub(super) fn dispatch(

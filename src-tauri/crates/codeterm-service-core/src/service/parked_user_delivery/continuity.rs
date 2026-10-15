@@ -30,7 +30,7 @@ impl super::super::ServiceContext {
                 .chat_send_ledger
                 .expire_owned_before_write(&record.send_id, "launch_ended_before_write")
             {
-                codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+                crate::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
             }
         }
         Ok(())

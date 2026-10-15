@@ -51,7 +51,7 @@ impl ServiceContext {
             &mut published,
             &statuses,
             |event, payload| {
-                codeterm_events::emit_everywhere(&self.app_handle, event, payload);
+                crate::events::emit_everywhere(&self.app_handle, event, payload);
             },
             |tab_id| {
                 self.pending_delivery_payloads

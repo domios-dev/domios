@@ -76,7 +76,7 @@ pub(super) fn send(
             chrono::Utc::now().timestamp_millis().max(0) as u64,
         )
         .unwrap_or(status);
-    codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
+    crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
     drop(reservation);
     super::user_delivery::drain(svc, tab)?;
     let status = svc

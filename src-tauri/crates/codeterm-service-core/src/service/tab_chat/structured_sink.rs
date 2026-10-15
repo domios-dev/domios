@@ -54,7 +54,7 @@ pub fn emit_chat_msgs(
         source_session_id,
         session_binding_nonce,
     };
-    codeterm_events::emit_everywhere(
+    crate::events::emit_everywhere(
         app,
         &event,
         serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
@@ -339,7 +339,7 @@ impl FlattenDeltaSink {
             source_session_id: self.source_session_id.as_deref(),
             session_binding_nonce: self.session_binding_nonce.as_deref(),
         };
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app,
             &event,
             serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
@@ -396,7 +396,7 @@ fn reconcile_current_session_turns(
         messages,
         provenance,
     ) {
-        codeterm_events::emit_everywhere(app, "chat-send-status", &status);
+        crate::events::emit_everywhere(app, "chat-send-status", &status);
     }
 }
 

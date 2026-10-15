@@ -120,11 +120,7 @@ impl ServiceContext {
                 }
                 log::debug!("[local-recording] selected input unavailable: {reason:?}");
                 let status = self.local_recording_status(plugin_id)?;
-                codeterm_events::emit_everywhere(
-                    &self.app_handle,
-                    "local-recording-status",
-                    status,
-                );
+                crate::events::emit_everywhere(&self.app_handle, "local-recording-status", status);
                 Ok(())
             }
         }
@@ -158,7 +154,7 @@ impl ServiceContext {
                 serde_json::json!({ "kind": "start", "capture": lease })
             }
         };
-        codeterm_events::emit_everywhere(&self.app_handle, "local-recording-capture", event);
+        crate::events::emit_everywhere(&self.app_handle, "local-recording-capture", event);
         Ok(())
     }
     pub fn local_recording_status(&self, plugin_id: &str) -> Result<RecordingStatus, String> {
@@ -193,7 +189,7 @@ impl ServiceContext {
             .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .set_enabled(plugin_id, enabled)
             .map_err(str::to_string)?;
-        codeterm_events::emit_everywhere(&self.app_handle, "local-recording-status", &status);
+        crate::events::emit_everywhere(&self.app_handle, "local-recording-status", &status);
         let completion =
             (enabled && status.granted && status.devices_selected && !status.available)
                 .then(|| self.schedule_local_recording_subscription(plugin_id.into(), adapter));
@@ -291,7 +287,7 @@ impl ServiceContext {
                 Some(service) => {
                     let result = service.local_recording_subscribe(&plugin_id, adapter).await;
                     if let Ok(status) = service.local_recording_status(&plugin_id) {
-                        codeterm_events::emit_everywhere(
+                        crate::events::emit_everywhere(
                             &service.app_handle,
                             "local-recording-status",
                             status,

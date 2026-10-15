@@ -519,7 +519,7 @@ impl ServiceContext {
             });
         }
         self.persist_current_attempt_session_model(tab_id);
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",
             serde_json::json!({

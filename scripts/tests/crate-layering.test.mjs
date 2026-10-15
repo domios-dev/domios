@@ -15,7 +15,7 @@ function fixture(t) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, text);
   };
-  for (const name of ["codeterm-events", "codeterm-keepawake"]) write(name, "Cargo.toml", 'tauri = "2"');
+  for (const name of ["codeterm-events", "codeterm-keepawake"]) write(name, "Cargo.toml", '[package]\nname = "' + name + '"');
   write("codeterm-prompts", "Cargo.toml", '[package]\nname = "codeterm-prompts"');
   return { write, run: () => spawnSync(bash, [script, root], { encoding: "utf8" }) };
 }
@@ -43,11 +43,11 @@ for (const [name, file, text] of [
   });
 }
 for (const name of ["codeterm-events", "codeterm-keepawake"]) {
-  test(`rejects stale exception for ${name}`, (t) => {
+  test(`rejects framework dependency in ${name}`, (t) => {
     const { write, run } = fixture(t);
-    write(name, "Cargo.toml", '[package]');
+    write(name, "Cargo.toml", 'tauri = "2"');
     const result = run();
     assert.equal(result.status, 1);
-    assert.match(result.stderr, new RegExp(`${name}: stale known tauri violation.*task_kfzm58`));
+    assert.match(result.stderr, /leaf crate names tauri/);
   });
 }

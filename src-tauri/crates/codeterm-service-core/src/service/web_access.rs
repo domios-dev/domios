@@ -37,7 +37,7 @@ async fn mutate(
 
     if changed {
         let report = mesh::broadcast_announce(&mesh_state, None).await;
-        codeterm_events::emit_everywhere(&app, "mesh-state-changed", serde_json::Value::Null);
+        crate::events::emit_everywhere(&app, "mesh-state-changed", serde_json::Value::Null);
         if !report.errors.is_empty() {
             let publication_warning = format!(
                 "Web Access changed locally, but {} Mesh peer announcement(s) failed",
