@@ -676,7 +676,9 @@ does not cancel the remaining timing inventory.
 For an explicitly authorized bootstrap measurement, use `NEXTEST_TEST_THREADS=1
 SLOW_UNIT_TESTS_MEASUREMENT=alone` on the exact candidate selector; the runner
 refuses that mode without serial execution. Ordinary suites retain default
-parallelism.
+parallelism. Integration batch checks that only need pass/fail set
+`SLOW_UNIT_TESTS_MEASUREMENT=off`, which skips the serial re-measurement of
+candidates (it can take longer than the tests themselves).
 The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
 crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
 may only shrink after its first landing. Baseline entries are
