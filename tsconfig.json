@@ -15,7 +15,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@codeterm/plugin-sdk": ["./packages/plugin-sdk/src/index.ts"]
+    }
   },
   "include": [
     "src",
