@@ -4,10 +4,7 @@ use codeterm_service_core::service::ServiceState;
 pub async fn local_recording_input_devices(
     svc: tauri::State<'_, ServiceState>,
     plugin_id: String,
-) -> Result<
-    Vec<codeterm_service_core::service::local_recording::platform::RecordingInputDevice>,
-    String,
-> {
+) -> Result<Vec<codeterm_plugin::local_recording::RecordingInputDevice>, String> {
     svc.local_recording_input_devices(&plugin_id).await
 }
 
@@ -78,7 +75,7 @@ pub async fn local_recording_save_clip(
     lease: String,
     data: String,
     extension: String,
-) -> Result<codeterm_service_core::service::local_recording::CaptureClipDescriptor, String> {
+) -> Result<codeterm_service_core::service::CaptureClipDescriptor, String> {
     svc.local_recording_save_clip(&lease, data, extension).await
 }
 
@@ -97,7 +94,7 @@ pub async fn local_recording_commit(
     lease: String,
     clip_handle: String,
     client_token: String,
-) -> Result<codeterm_service_core::service::local_recording::LocalRecordingCommitOutcome, String> {
+) -> Result<codeterm_service_core::service::LocalRecordingCommitOutcome, String> {
     Ok(svc
         .local_recording_commit(&lease, &clip_handle, client_token)
         .await)

@@ -61,7 +61,7 @@ pub fn open_url(url: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn get_autostart_enabled() -> Result<bool, String> {
-    tokio::task::spawn_blocking(codeterm_service_core::autostart::is_enabled)
+    tokio::task::spawn_blocking(codeterm_service_core::autostart_is_enabled)
         .await
         .map_err(|error| error.to_string())
 }
@@ -70,9 +70,9 @@ pub async fn get_autostart_enabled() -> Result<bool, String> {
 pub async fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         if enabled {
-            codeterm_service_core::autostart::enable()
+            codeterm_service_core::enable_autostart()
         } else {
-            codeterm_service_core::autostart::disable()
+            codeterm_service_core::disable_autostart()
         }
     })
     .await

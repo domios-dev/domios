@@ -4,6 +4,9 @@ pub mod api_support;
 pub mod app_runtime;
 pub use codeterm_util::attachments;
 mod autostart;
+pub use autostart::{
+    disable as disable_autostart, enable as enable_autostart, is_enabled as autostart_is_enabled,
+};
 pub mod bridge;
 pub mod bridge_host;
 pub mod bubble;

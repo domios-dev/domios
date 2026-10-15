@@ -169,7 +169,7 @@ pub(crate) fn submit_session_snapshot_with_intent(
     worker.submit_current(mux, intent, false).map(|_| ())
 }
 
-pub(crate) fn write_captured_snapshot_with_live_identities(
+pub fn write_captured_snapshot_with_live_identities(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     captured: &crate::session::SessionSnapshot,

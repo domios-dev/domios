@@ -38,7 +38,8 @@ pub(crate) use window_events::handle_window_event;
 
 pub(crate) use background::start_background_tasks;
 pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_tab_connected_service};
-pub(crate) use cli_install::{install_bundled_cli, refresh_bundled_cli};
+pub(crate) use cli_install::install_bundled_cli;
+pub use cli_install::refresh_bundled_cli;
 pub(crate) use cli_shim::forward_to_cli_if_invoked;
 pub(crate) use conpty_host::setup_conpty_host;
 pub(crate) use frontend_ready::arm_frontend_readiness;
@@ -61,7 +62,7 @@ pub(crate) use servers::start_servers;
 #[cfg(test)]
 pub(crate) use servers::FRONTEND_READINESS_DEADLINE_ELAPSED;
 pub(crate) use states::init_states;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) use storage::open_instance_storage_at;
 pub(crate) use storage::shutdown_bounded;
 pub use storage::StorageAuthority;
