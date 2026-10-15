@@ -237,6 +237,10 @@ impl MultiplexerState {
                             .unwrap_or(false)
                     })
                     .map(|tab_id| TabSnapshot {
+                        last_active_at_ms: self
+                            .tabs
+                            .get(tab_id)
+                            .and_then(|tab| tab.last_active_at_ms),
                         id: tab_id.clone(),
                         title: self.display_label_for_tab(tab_id),
                         description: self
@@ -305,6 +309,7 @@ impl MultiplexerState {
                 tabs: ws.tabs.iter().filter_map(|tab| {
                     let leaf = first_leaf(&tab.split_tree)?;
                     let tab_id = install_leaf(leaf, &tab.title, &mut tabs)?;
+                    tabs.get_mut(&tab_id)?.last_active_at_ms = tab.last_active_at_ms;
                     if matches!(&tab.split_tree, SplitNodeSnapshot::Split { .. }) {
                         log::warn!(
                             "[restore] tab {} had a multi-tab split — kept the first leaf, dropped the rest",
@@ -372,6 +377,9 @@ impl MultiplexerState {
                 let Some(new_id) = install_leaf(leaf, &tab_snap.title, &mut self.tabs) else {
                     continue;
                 };
+                if let Some(tab) = self.tabs.get_mut(&new_id) {
+                    tab.last_active_at_ms = tab_snap.last_active_at_ms;
+                }
                 if let Some(tab) = self.tabs.get_mut(&new_id) {
                     tab.sort_order = tab_snap.sort_order;
                     if tab.description.is_none() {
@@ -731,6 +739,7 @@ fn install_leaf(
             skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
+            last_active_at_ms: None,
             restored_from_snapshot: true,
             scrollback_seed_pending,
             pending_scrollback_tail: None,

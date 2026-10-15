@@ -535,6 +535,8 @@ pub struct PendingModelSelection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
+    #[serde(default)]
+    pub last_active_at_ms: Option<u64>,
     #[serde(default, skip_deserializing)]
     pub provider_signals: codeterm_types::agent::provider_signals::ProviderSignals,
     #[serde(default, skip_deserializing)]

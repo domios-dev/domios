@@ -818,6 +818,7 @@ export interface UiConfig {
 }
 
 export interface AppConfig {
+  restore?: { active_window_hours: number };
   updater?: {
     channel?: string;
     allow_provider_updates_in_non_prod?: boolean;

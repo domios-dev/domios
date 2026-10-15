@@ -324,7 +324,7 @@ fn to_desk_snapshot(
                         title: tab.title.clone(),
                         description: tab.description.clone(),
                         sort_order: tab.sort_order,
-                        layout: to_layout(&tab.split_tree)?,
+                        layout: to_tab_layout(tab)?,
                     })
                 })
                 .collect::<Result<Vec<_>, String>>()?;
@@ -443,6 +443,7 @@ fn from_desk_snapshot(snapshot: DeskSnapshot) -> Result<SessionSnapshot, String>
                     .into_iter()
                     .map(|tab| {
                         Ok(TabSnapshot {
+                            last_active_at_ms: layout_activity(&tab.layout),
                             id: tab.id,
                             title: tab.title,
                             description: tab.description,
@@ -520,5 +521,35 @@ fn from_layout(node: DeskLayoutNode) -> Result<SplitNodeSnapshot, String> {
                 .collect::<Result<Vec<_>, _>>()?,
             extra_fields: fields,
         }),
+    }
+}
+
+fn to_tab_layout(tab: &TabSnapshot) -> Result<DeskLayoutNode, String> {
+    let mut layout = to_layout(&tab.split_tree)?;
+    fn set(node: &mut DeskLayoutNode, activity: Option<u64>) {
+        match node {
+            DeskLayoutNode::Leaf { fields, .. } => {
+                if let Some(object) = fields.values.as_object_mut() {
+                    object.insert("last_active_at_ms".into(), serde_json::json!(activity));
+                }
+            }
+            DeskLayoutNode::Split { children, .. } => {
+                for child in children {
+                    set(child, activity);
+                }
+            }
+        }
+    }
+    set(&mut layout, tab.last_active_at_ms);
+    Ok(layout)
+}
+
+fn layout_activity(node: &DeskLayoutNode) -> Option<u64> {
+    match node {
+        DeskLayoutNode::Leaf { fields, .. } => fields
+            .values
+            .get("last_active_at_ms")
+            .and_then(serde_json::Value::as_u64),
+        DeskLayoutNode::Split { children, .. } => children.iter().find_map(layout_activity),
     }
 }
