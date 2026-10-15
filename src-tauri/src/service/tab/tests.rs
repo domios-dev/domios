@@ -552,8 +552,18 @@ fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
         b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D\x07",
     );
 
-    assert!(launch_readiness::take_published_failure(&attempt)
-        .is_some_and(|reason| reason.contains("exit_code=unknown")));
+    // A marker without an exit code cannot tell this launch from an earlier shell cycle.
+    assert!(launch_readiness::take_published_failure(&attempt).is_none());
+    let settlement = fixture
+        .service
+        .observe_launch_readiness(attempt, std::time::Duration::ZERO, false)
+        .recv()
+        .expect("the startup deadline settles the deferred exit");
+    assert!(matches!(
+        settlement,
+        launch_readiness::LaunchSettlement::Failed { ref reason, exit_code: None }
+            if reason.contains("exit_code=unknown")
+    ));
     assert!(fixture
         .service
         .mux
