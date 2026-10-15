@@ -214,7 +214,7 @@ instance. Offline node tests do not replace the live run. Frontend-only and
 plugin-only releases are outside this gate.
 
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
 
 ## Rust warning inventory and cleanup
 
@@ -242,3 +242,5 @@ Workflow validation: `actionlint .github/workflows/*.yml`. No release or test di
 of collector verification; the next real release proves the six-platform delivery and PR comment.
 
 Lane verification runs touched libraries with Clippy, root bins only when touched, and touched leaf test targets; service-core tests stay at the batch. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` with default embeddings. Root dev/default, core default and app test features must agree; divergence refuses compilation. A batch failure in a lane's files is a bounce naming the integration SHA.
+
+Product DEV and check-queue library Clippy retain embeddings. Ordinary test profiles disable default features, including archives and CI. The required `rust-embeddings` CI job alone runs memory tests with embeddings enabled (`./build.sh ci-tests embeddings`). Full check-queue checks the ordinary service-core test profile and no longer repeats a dev-lib cargo check.

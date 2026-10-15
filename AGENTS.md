@@ -109,7 +109,7 @@ On gateway acquisition, at most hourly, cache retention removes exceptional targ
 
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
 - Worktrees share cargo intermediates only through the stable gateway path (`X:`, mapped and released inside a gateway job); never point two unserialized builds at one build-dir. `scripts/check-build-check-queue.sh` fails when the mapping is used outside the gateway.
-- Do not remove the tuned Cargo profiles.
+- Do not remove the tuned Cargo profiles. DEV and product library Clippy retain default features, including embeddings. Ordinary test profiles disable defaults; the required `rust-embeddings` CI job runs memory tests with embeddings once.
 - Canonical runs Rust tests through `scripts/test-capped.sh`: focused `test-one` invocations default to 600 seconds; each Cargo invocation in `test` and `verify` defaults to 3600 seconds. Cargo compiles targets with `--no-run` before the deadline starts. Workers run one `./build.sh check-queue --lane <sha>` after local rustfmt, size and service-core boundary guards; require errors=0 and warnings=0, list test-one selectors, and never poll a busy gateway. Batch failures bounce with the integration SHA.
 - `TEST_CAP_SECS` overrides the execution deadline; set it to `0` to disable. A cap kills the process group, exits 124, and reports any named libtest cases still running.
 

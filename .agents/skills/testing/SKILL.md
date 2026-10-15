@@ -685,3 +685,5 @@ If the emulator reports `Unable to locate a Java Runtime`, an installed Homebrew
 JDK may be absent from `PATH`. Discover its installed path before running the
 same focused test with `JAVA_HOME` pointing to its JDK home and that JDK's `bin`
 prepended to `PATH`; no system Java registration or emulator bypass is needed.
+
+Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
