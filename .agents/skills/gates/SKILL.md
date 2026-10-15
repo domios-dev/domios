@@ -54,7 +54,7 @@ node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
-In a Worker lane, type-check each touched Rust library before committing with `CARGO_BUILD_JOBS=4 cargo check --manifest-path src-tauri/Cargo.toml -p <crate> --lib`; add `--tests` for changed tests. On Windows use `./build.sh lane-check <crate> [--tests]` to load MSVC and stage resources. Build setup shares `$CODETERM_RUST_CACHE_ROOT/lanes` per machine (fallback `{cargo-cache-home}/codeterm-lanes`); Cargo's build-dir lock serializes checks without a gateway slot. Keep target directories separate. Run affected non-Rust checks, rustfmt and boundary guards, then commit and run one `./build.sh check-queue --lane <sha>` for integration Clippy. Defer Rust execution tests, app builds and broad gates to the Orchestrator's canonical batch.
+In a Worker lane, type-check each touched Rust library before committing with `./build.sh lane-check <crate> [--tests]` on every platform; add `--tests` for changed tests. The helper loads the toolchain, stages resources and selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. Run affected non-Rust checks, rustfmt and boundary guards, then commit and run one `./build.sh check-queue --lane <sha>` for integration Clippy. Defer Rust execution tests, app builds and broad gates to the Orchestrator's canonical batch.
 
 ## Check before tests
 
@@ -210,7 +210,7 @@ instance. Offline node tests do not replace the live run. Frontend-only and
 plugin-only releases are outside this gate.
 
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
 
 ## Rust warning inventory and cleanup
 
