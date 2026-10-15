@@ -15,6 +15,7 @@ dev-updater-allowlocal = []
 
 [dependencies]
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-orchestration = { path = "../codeterm-orchestration" }
 codeterm-analytics = { path = "../codeterm-analytics" }
 codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
 tempfile = "3"

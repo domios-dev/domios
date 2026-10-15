@@ -1,4 +1,4 @@
-use codeterm_service_core::service::TeamExt;
+use codeterm_orchestration::TeamExt;
 use codeterm_service_core::service::{ServiceState, TeamMutationCaller};
 use codeterm_types::team::Team;
 #[cfg(test)]
@@ -8,7 +8,7 @@ pub fn mux_rename_team_core(
     name: String,
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    codeterm_service_core::service::rename_team_core(
+    codeterm_orchestration::team::rename_team_core(
         mux,
         &team_id,
         name,
@@ -38,14 +38,14 @@ pub async fn mux_add_team_member_service_core(
     title: Option<String>,
     task: Option<String>,
     model: Option<String>,
-) -> Result<codeterm_service_core::service::AddTeamMemberResult, String> {
+) -> Result<codeterm_orchestration::AddTeamMemberResult, String> {
     // No caller is the bootstrap door: a human placing the first manager into a Team
     // whose members cannot spawn. The service refuses it for any non-anchoring role.
-    codeterm_service_core::service::add_team_member(
+    codeterm_orchestration::add_team_member(
         svc,
         &team_id,
         caller_tab_id.as_deref(),
-        codeterm_service_core::service::AddTeamMemberParams {
+        codeterm_orchestration::AddTeamMemberParams {
             provider,
             role,
             title,
@@ -156,7 +156,7 @@ mod tests {
         let events = codeterm_events::EventBroadcaster::new();
         let mut receiver = events.subscribe();
 
-        codeterm_service_core::service::rename_team_with_state_change(
+        codeterm_orchestration::team::rename_team_with_state_change(
             &mut mux,
             &events,
             &team_id,

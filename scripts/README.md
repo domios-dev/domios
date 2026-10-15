@@ -52,11 +52,12 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `certificates` | scripts release-signing-material.py, tests/release_signing_material_test.py |
 | `chat-scroll-trace` | build.sh chat-scroll-trace; skill dev-testing |
 | `check-analytics-catalog.mjs` | scripts check-analytics-catalog.test.mjs |
-| `check-analytics-catalog.test.mjs` | build.sh script-guards |
+| `check-analytics-catalog.test.mjs` | build.sh script-guards via tests/catalogue.json node-script-tests-cargo |
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
 | `check-api-effect-dependencies.mjs` | build.sh release-preflight/test:all; package.json script |
 | `check-archive-portable-test-paths.mjs` | CI tests.yml; scripts tests/check-archive-portable-test-paths.test.mjs; skill gates, github-release |
-| `check-blocking-in-async.sh` | scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh |
+| `check-blocking-in-async.py` | scripts/check-blocking-in-async.sh, scripts/tests/test_check_blocking_in_async.py |
+| `check-blocking-in-async.sh` | qa-gates.lib.sh, pre-push |
 | `check-build-check-queue.sh` | build.sh script-guards; skill build |
 | `check-build-dev-port-overrides.sh` | build.sh script-guards |
 | `check-build-gateway-mutex-cleanup.sh` | CI build-gateway.yml; skill build |
@@ -80,7 +81,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-local-install-continuation.sh` | build.sh script-guards |
 | `check-msvc-cross-env.sh` | scripts qa-gates.lib.sh |
 | `check-msvc-discovery.sh` | skill build |
-| `check-mux-write.sh` | scripts qa-gates.lib.sh |
+| `check-mux-write.mjs` |  |
+| `check-mux-write.sh` |  |
 | `check-no-raw-graph-sql.sh` | build.sh script-guards |
 | `check-playwright-spec-headers.mjs` | package.json script |
 | `check-plugin-bundles.mjs` | build.sh release-preflight; package.json script |
@@ -106,7 +108,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-worktree.mjs` | build.sh check-queue; scripts/check-worktree.test.mjs |
 | `check-worktree.test.mjs` | build.sh script-guards |
 | `ci-runner-paths.mjs` | CI tests.yml; scripts tests/ci-runner-paths.test.mjs; skill build-machine |
-| `ci-rust-classification.mjs` | scripts ci-rust-tests.mjs, tests/ci-rust-tests.test.mjs |
+| `ci-rust-archives.mjs` | build.sh release-rust; scripts ci-rust-tests.mjs, tests/ci-rust-archives.test.mjs |
+| `ci-rust-classification.mjs` | scripts ci-rust-archives.mjs, ci-rust-tests.mjs, tests/ci-rust-tests.test.mjs |
 | `ci-rust-prepare.mjs` | CI tests.yml |
 | `ci-rust-tests.mjs` | build.sh ci-tests; scripts tests/ci-rust-tests.test.mjs |
 | `ci-scope.mjs` | CI release.yml, tests.yml; scripts tests/ci-scope.test.mjs; skill github-release |
@@ -114,11 +117,12 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `ci-workspace-cleanup.mjs` | CI tests.yml, release-macos-build.yml, release-linux.yml, release-linux-arm64.yml, release-windows.yml; scripts tests/ci-workspace-cleanup.test.mjs; skill github-release |
 | `clippy-allow.sh` | scripts clippy-gate.sh; build.sh check-queue |
 | `clippy-gate.sh` | build.sh release-preflight|ci-clippy; scripts test-clippy-gate.sh; skill build, gates, testing |
-| `collect-rust-warnings.mjs` | build.sh ci-archives; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs |
+| `collect-rust-warnings.mjs` | build.sh ci-tests; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs |
 | `comment-length-allowlist.txt` | CI comment-length.yml; scripts check-comment-length.sh |
 | `confirm-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs |
 | `convert-legacy-parked-tasks.py` | scripts tests/test_convert_legacy_parked_tasks.py |
 | `convert-plan-storage.rs` | scripts dev-prep.mjs |
+| `dev-app-process.mjs` | dev-prep.mjs; tests/dev-app-process.test.mjs |
 | `dev-build-configuration.mjs` | build.sh dev/check-queue; scripts/dev-build-configuration.test.mjs |
 | `dev-build-configuration.test.mjs` | build.sh script-guards |
 | `dev-frontend-ready.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts tests/dev-frontend-ready.test.mjs |
@@ -128,6 +132,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `dev-screenshot.mjs` | skill dev-testing |
 | `dev-sidecar-ownership.mjs` | scripts reap-dev-sidecars.mjs, tests/dev-sidecar-ownership.test.mjs |
 | `dev-static-server.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1, dev-prep.mjs, tests/dev-static-api.test.mjs |
+| `dev-wheel-probe.mjs` | skill dev-testing |
 | `export-chat-types.mjs` | package.json script |
 | `fixtures` | CI tests.yml, build-gateway.yml; fixture data for scripts/tests and check-*.sh |
 | `frontend-release` | CI frontend-release.yml, release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs, tests/release-job-graph.test.mjs; skill github-release |
@@ -173,7 +178,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `run-ts-unit-tests.mjs` | build.sh release-preflight; CI frontend-release.yml, tests.yml; package.json script; scripts affected-tests.mjs, aiderrun/RECIPE.md, aiderrun/lane-check.test.ts; skill build |
 | `run-ts-unit-tests.test.mjs` | CI frontend-release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs |
 | `runner-toggle.mjs` | build.sh runner-pause, runner-resume, runner-status |
-| `runner-toggle.test.mjs` | build.sh script-guards (node --test) |
+| `runner-toggle.test.mjs` | CI tests.yml release-contracts via tests/catalogue.json node-script-tests |
 | `rust-test-inventory.mjs` | crate-split QA (static vs nextest test-count oracle); scripts tests/rust-test-inventory.test.mjs |
 | `rust-warnings-baseline.json` | scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs; skill gates, github-release |
 | `rust-warnings-comment.mjs` | CI rust-warnings-summary.yml |
@@ -191,6 +196,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `task.mjs` | package.json script |
 | `test-capped.sh` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check/release-preflight/test-one/verify/test:all; CI qualification.yml; scripts check-build-gateway-policy.sh, check-sccache-basedir-isolation.sh, check-slow-unit-tests.test.mjs; skill build-machine, build-reference, build |
 | `test-capped.test.sh` | skill build, testing |
+| `test-catalogue.mjs` | build.sh script-guards; CI tests.yml; scripts ci-rust-archives.mjs, plugin-tests.sh, tests/test-catalogue.test.mjs; skill testing |
 | `test-cli-target-dir-paths.sh` | skill build |
 | `test-clippy-gate.sh` | build.sh script-guards |
 | `test-descendant-cleanup.sh` | build.sh script-guards |
@@ -209,6 +215,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `verify-updater-manifest.mjs` | CI release-linux.yml, release-manifest-validate.yml, release-windows.yml; scripts release-publish-platform.mjs, release-verify-windows.mjs, tests/release_signing_material_test.py; skill github-release |
 | `vitest-owned-tests.json` | CI frontend-release.yml; scripts affected-tests.mjs, affected-tests.test.mjs, check-plugin.mjs; skill github-release |
 | `web-memory-probe.mjs` | scripts fixtures/web-memory-probe.md |
+| `windows-dev-app.cs` | scripts/windows-dev-app.ps1 |
+| `windows-dev-app.ps1` | scripts/dev-app-process.mjs |
 | `windows-dev-cleanup.ps1` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1 |
 | `windows-runner-bootstrap.ps1` | skill build-machine |
 | `windows-sccache-archive.ps1` | scripts windows-sccache-session.ps1 |

@@ -448,6 +448,7 @@ impl Messenger {
             return Err(refusal);
         }
         if svc.tab_chat_backing(to_tab).is_some() {
+            svc.wake_frozen_tab(to_tab)?;
             svc.chatbackend_reopen_if_restored(to_tab)?;
             let (plugin_id, session_id) = svc
                 .tab_chat_backing(to_tab)
@@ -470,7 +471,7 @@ impl Messenger {
         }
 
         let (resolved_target, should_prefix, pty_agent_target) = {
-            let mux = svc.mux.write();
+            let mux = svc.mux.read();
             let resolved_target = mux
                 .resolve_tab_id(to_tab)
                 .unwrap_or_else(|| to_tab.to_string());
@@ -610,6 +611,7 @@ impl Messenger {
             )
         };
         if is_chatbackend {
+            svc.wake_frozen_tab(to_tab)?;
             svc.chatbackend_reopen_if_restored(to_tab)?;
         }
         let backing = {
@@ -1024,6 +1026,7 @@ fn build_chatbackend_inbound(
         id: message_id,
         kind: "user".into(),
         content: body.to_string(),
+        segments: Some(codeterm_wire::envelope::parse_envelope(&marked)),
         timestamp: Some(chrono::Utc::now().to_rfc3339()),
         from_label: Some(clean_name(&envelope.from_label)).filter(|s| !s.is_empty()),
         from_tab: Some(short_id(&envelope.from_tab).to_string()).filter(|s| !s.is_empty()),

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
 import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
@@ -152,7 +152,7 @@ export function AttachmentCapsule({ attachment, image: nativeImage, labelContent
 }
 
 /** User text with its capsules rendered where they were typed; a copy keeps capsules as tags for a composer. */
-export function InlineAttachmentText({ segments }: { segments: PlacedAttachmentSegment[] }) {
+export function InlineAttachmentText({ segments, renderText }: { segments: PlacedAttachmentSegment[]; renderText?: (text: string) => ReactNode }) {
   const copy = (event: ClipboardEvent<HTMLDivElement>) => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return;
@@ -169,7 +169,7 @@ export function InlineAttachmentText({ segments }: { segments: PlacedAttachmentS
       {inlineArtifactParts(segments).map((segment, index) => ("directive" in segment
         ? <LocalArtifactBlock key={index} directive={segment.directive} renderMarkdown={(text) => <RichMarkdown text={text} localArtifacts={false} />} />
         : "text" in segment
-        ? segment.text
+        ? <Fragment key={index}>{renderText ? renderText(segment.text) : segment.text}</Fragment>
         : <AttachmentCapsule key={`${index}:${segment.attachment.path}`} attachment={segment.attachment} image={segments.flatMap((part) => "attachment" in part && part.attachment === segment.attachment && part.image ? [part.image] : [])[0]} />))}
     </div>
   );

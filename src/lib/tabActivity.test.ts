@@ -15,6 +15,7 @@ const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivi
   ["unbound provider working", { ...agent, agent_session_id: null, agent_state: { state: "working" } }, "Working", "starting", false, false],
   ["provider work during launch", { ...agent, boot_stage: "launch_written", agent_state: { state: "working" } }, "Working", "starting", false, false],
   ["provider question", { ...agent, agent_state: { state: "question" } }, null, "waiting-on-user", false, false],
+  ["agent_ready beats agent_booting", { ...agent, agent_booting: true, boot_stage: "agent_ready" }, "Idle", "idle", false, false],
   ["booting", { ...agent, agent_booting: true }, "Working", "starting", false, false],
   ["launch written", { ...agent, boot_stage: "launch_written" }, null, "starting", false, false],
   ["lazy composer ready before session creation", { ...agent, agent_session_id: null, boot_stage: "agent_ready" }, "Idle", "idle", false, false],
@@ -75,3 +76,6 @@ assert.equal(tabActivity({ ...agent, provider_signals: providerSignals }).label,
 assert.equal(tabActivity({ ...agent, pending_prompt: pending, provider_signals: providerSignals }, "Waiting").label, pending.question);
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working" }, provider_signals: providerSignals }).label, "Working");
 console.log(`tab activity: ${cases.length} table cases, ${startingStages.length} boot stages and working-count checks passed`);
+
+assert.equal(tabActivity({ ...agent, frozen: true }, "Working").active, false);
+assert.equal(tabActivity({ ...agent, frozen: true }, "Working").launching, false);

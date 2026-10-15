@@ -12,21 +12,21 @@
 use crate::service::role_identity::ManagerBootstrapInputs;
 
 /// Placeholder ids carried by a forming manager before a team/plan is bound.
-pub(crate) const UNBOUND_TEAM: &str = "not yet established";
-pub(crate) const UNBOUND_PLAN: &str = "no plan bound yet";
+pub const UNBOUND_TEAM: &str = "not yet established";
+pub const UNBOUND_PLAN: &str = "no plan bound yet";
 /// Display name for a reserved Team nobody has named yet.
-pub(crate) const UNNAMED_TEAM: &str = "Unnamed Team";
+pub const UNNAMED_TEAM: &str = "Unnamed Team";
 
 /// The durable Team a forming manager is launched into: the exact id its tab
 /// record carries, plus the name its startup contract renders.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TeamIdentity {
+pub struct TeamIdentity {
     pub id: String,
     pub name: String,
 }
 
 impl TeamIdentity {
-    pub(crate) fn new(id: impl Into<String>, name: Option<&str>) -> Self {
+    pub fn new(id: impl Into<String>, name: Option<&str>) -> Self {
         Self {
             id: id.into(),
             name: name
@@ -57,7 +57,7 @@ pub(crate) fn forming_identity(
 
 /// Role-identity inputs for a manager launched into a Team that already exists,
 /// while its plan is still created lazily on the first goal.
-pub(crate) fn forming_identity_in_team(
+pub fn forming_identity_in_team(
     role: &str,
     role_kind: &str,
     project: String,
@@ -73,14 +73,14 @@ pub(crate) fn forming_identity_in_team(
 /// A member of a freshly-formed pairing — the minimal identity another member
 /// needs to reach it: display name (tab title), tab id, and human role.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Counterpart {
+pub struct Counterpart {
     pub label: String,
     pub tab_id: String,
     pub role: String,
 }
 
 impl Counterpart {
-    pub(crate) fn new(role: &str, label: impl Into<String>, tab_id: impl Into<String>) -> Self {
+    pub fn new(role: &str, label: impl Into<String>, tab_id: impl Into<String>) -> Self {
         Self {
             label: label.into(),
             tab_id: tab_id.into(),
@@ -97,7 +97,7 @@ pub(crate) fn reach_command(tab_id: &str) -> String {
 
 /// The body one member reads about its counterpart: names it, its tab id, and
 /// the reach command, and forbids spawning a duplicate of an already-live pair.
-pub(crate) fn introduction_body(me: &Counterpart, other: &Counterpart) -> String {
+pub fn introduction_body(me: &Counterpart, other: &Counterpart) -> String {
     format!(
         "You are the {my_role} of this team. Your {other_role} counterpart is {other_label} (tab {other_tab}) — reach it with `{reach}`. It already exists: coordinate through it, never spawn a duplicate.",
         my_role = me.role,

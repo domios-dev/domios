@@ -1,3 +1,4 @@
+import { useTeamClose } from "./useTeamClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
@@ -611,31 +612,17 @@ export function Sidebar({
     });
   }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
 
-  const confirmTeamClose = useCallback(async () => {
+  const { closingTeamIds, closeTeam: finishTeamClose } = useTeamClose(teamActions?.onCloseTeam, addNotification);
+  const confirmTeamClose = useCallback(() => {
     const pending = pendingTeamClose;
-    const closeTeam = teamActions?.onCloseTeam;
-    if (!pending || !closeTeam) return;
-    try {
-      await closeTeam(pending.teamId);
-    } catch (error) {
-      addNotification({
-        tab_id: null,
-        workspace_id: pending.workspaceId,
-        title: "Team close failed",
-        body: error instanceof Error ? error.message : String(error),
-        severity: "Error",
-        level: "failure",
-        sticky: true,
-      });
-    } finally {
-      setPendingTeamClose(null);
-    }
-  }, [addNotification, pendingTeamClose, teamActions?.onCloseTeam]);
+    if (!pending) return;
+    void finishTeamClose(pending.teamId, pending.workspaceId, () => setPendingTeamClose(null));
+  }, [pendingTeamClose, finishTeamClose]);
   useEffect(() => {
-    const kb = config?.keybindings ?? {};
+    const kb = config?.keybindings;
     const handleKeyDown = (e: KeyboardEvent) => {
-      const forward = matchesBinding(e, kb.next_tab ?? "Ctrl+Tab");
-      const backward = !forward && matchesBinding(e, kb.prev_tab ?? "Ctrl+Shift+Tab");
+      const forward = matchesBinding(e, kb?.next_tab ?? "Ctrl+Tab");
+      const backward = !forward && matchesBinding(e, kb?.prev_tab ?? "Ctrl+Shift+Tab");
       if (!forward && !backward) return;
 
       const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
@@ -802,6 +789,7 @@ export function Sidebar({
                       newSessionDisabled={firstRunActive}
                       onRenameTeam={teamActions?.onRenameTeam}
                       onAddTeamMember={teamActions?.onAddTeamMember}
+                      closingTeamIds={closingTeamIds}
                       onCloseTeam={teamActions?.onCloseTeam
                         ? (teamId) => requestTeamClose(generalWorkspace.id, teamId)
                         : undefined}
@@ -909,6 +897,7 @@ export function Sidebar({
                             newSessionDisabled={firstRunActive}
                             onRenameTeam={teamActions?.onRenameTeam}
                             onAddTeamMember={teamActions?.onAddTeamMember}
+                            closingTeamIds={closingTeamIds}
                             onCloseTeam={teamActions?.onCloseTeam
                               ? (teamId) => requestTeamClose(ws.id, teamId)
                               : undefined}
@@ -1097,8 +1086,9 @@ export function Sidebar({
           teams={pendingWorkspaceClose.teams}
           onCancel={() => setPendingWorkspaceClose(null)}
           onConfirm={() => {
-            closeWorkspace(pendingWorkspaceClose.id, true);
+            const pending = pendingWorkspaceClose;
             setPendingWorkspaceClose(null);
+            closeWorkspace(pending.id, true);
           }}
         />
       )}

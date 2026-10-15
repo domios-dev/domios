@@ -149,7 +149,7 @@ function modulePathForRust(repoRoot, file, pkg) {
 
 function rustInputs(files) {
   return files.filter((file) =>
-    file.endsWith(".rs") ||
+    file.endsWith(".rs") && !file.startsWith("scripts/tests/fixtures/") ||
     (file.startsWith("src-tauri/") || file.startsWith("cli/")) &&
       ["Cargo.toml", "Cargo.lock"].includes(path.posix.basename(file)),
   );

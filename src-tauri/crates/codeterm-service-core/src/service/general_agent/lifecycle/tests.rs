@@ -600,11 +600,18 @@ fn general_agent_existing_live_authenticated_binding_seals_agent_ready() {
     service
         .agent_registry
         .register_provider(Box::new(MockProvider::new(provider_id)));
-    service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("spawn live PTY");
+    {
+        let gate = service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("spawn live PTY");
     service
         .screen_state
         .lock()
@@ -697,12 +704,19 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
     fixture.service.agent_registry.register_provider(Box::new(
         MockProvider::new("codex").with_launch_binary("codex"),
     ));
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("spawn the General Agent PTY");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("spawn the General Agent PTY");
     let attempt = LaunchAttempt {
         tab_id: general_id.clone(),
         pty_id: pty_id.into(),
@@ -869,17 +883,22 @@ fn lifecycle_subscriber_drop_keeps_concurrent_waiter_live() {
 #[test]
 fn agent_output_teardown_closes_armed_waiter() {
     let pty = Arc::new(TimedMutex::new("pty", PtyManager::new()));
-    let (_, session) = pty
-        .lock()
-        .spawn_with_id(
-            Some("pty-1".to_string()),
+    let (_, session) = {
+        let gate = pty.lock().spawn_gate();
+        crate::pty::manager::build_session(
+            gate,
             None,
             None,
             80,
             24,
             std::collections::HashMap::new(),
         )
-        .expect("spawn PTY");
+        .map(|built| {
+            pty.lock()
+                .register_session(Some("pty-1".to_string()), built)
+        })
+    }
+    .expect("spawn PTY");
     let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
     assert!(screen_state
         .lock()

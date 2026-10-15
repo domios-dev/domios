@@ -19,10 +19,15 @@ the `github-release` skill. Do not use `dev` output as an installer artifact.
 ./build.sh dev
 ```
 
-That's it. Hot-reloads Vite on every TSX edit, rebuilds Rust on `src-tauri/` edits, opens the Tauri window. Auto-builds CLI into the active `~/.codeterm-dev*/bin/` and routes dev PTYs to that binary.
-All Cargo work, including named `dev --wait` startup, owns the shared build gateway
-and initializes sccache through its common entry. Named startup releases its job
-when readiness ends the launcher; interactive dev retains ownership through its monitor.
+Builds the CLI and app, then launches the window through `dev-prebuilt`.
+Vite `build --watch` refreshes the frontend bundle; Rust edits need another `dev`.
+All build logic lives in `build.sh`; `build.ps1` forwards to it.
+All Cargo work, including named `dev --wait`, owns the shared build gateway and
+initializes sccache through its common entry. The build writes the existing dev
+provenance record, closes gateway logging and releases the job before invoking
+`dev-prebuilt`, which validates that record and owns launch, READY and cleanup.
+A running app holds no gateway job; `kill` stops it through the existing dev-only
+process cleanup. Re-running `dev` acquires the gateway for its build again.
 
 Run it in the **background** so you can keep working:
 
@@ -205,6 +210,15 @@ Changes to prompt markdown files (`src-tauri/prompts/*.md`, `.md` under `src-tau
 | `src-tauri/Cargo.toml` deps | `./build.sh clean && ./build.sh dev` |
 | `package.json` deps | `bun install` (or npm), then dev restart |
 
+## Restart an existing build safely
+
+Run `./build.sh dev-prebuilt --wait` (PowerShell: `.\build.ps1 dev-prebuilt --wait`)
+directly, without a preceding `kill`. This command validates provenance and runtime
+prerequisites while the current app remains running, then stops and launches dev.
+A failed preflight preserves the running app. There is no separate `restart` verb.
+Use `dev` when HEAD or build inputs changed; stale provenance is a refusal to reuse
+the artifact. Do not reset HEAD or edit the provenance record to bypass it.
+
 ## Process hygiene — NEVER kill prod
 
 Before killing anything, check the port. Prod listens on 7685, dev on 7686.
@@ -322,3 +336,36 @@ Don't preemptively run `./build.sh dev` on every edit — only when the user ask
 ### REST listener bind recovery
 
 When the local socket works but HTTP is down, run `codeterm rest-api status` on the owning instance. A `bind_ownership_failed` diagnostic includes the address and OS error. Release the foreign port owner, then run `codeterm rest-api restart`; it waits for health proof and fails if binding still fails. These commands never fall back to HTTP or cross mesh. Confirm the actual Browser surface renders after Retry surface lookup. Never kill production to repair a listener collision.
+
+Fixed: checks queue silently behind a running DEV. The former Tauri launcher held
+the gateway for the app lifetime; update and rebuild with `dev`. Confirm
+`./build.sh gateway-status` is idle while DEV runs, then run `check-queue`.
+
+Fixed: standalone `dev-prebuilt` refused an app artifact path after a gateway build
+recorded its Windows mapped-drive alias. The existing provenance writer and
+validator now use physical artifact paths, including the embed and frontend, so
+the record survives gateway mapping release. Restart directly with `dev-prebuilt`;
+its preflight runs before stopping the app.
+
+## DEV standard handles
+
+Both foreground DEV and detached `--wait` use `scripts/dev-app-process.mjs`.
+On Windows, `windows-dev-app.ps1` hosts the small .NET process boundary in
+`windows-dev-app.cs`: .NET Framework redirects app stdout/stderr through
+synchronous anonymous `CreatePipe` handles. Dedicated readers drain both streams;
+only the wrapper connects to Node/libuv pipes. On Unix, the app writes directly
+to a launcher-opened regular file, observed through file-change events.
+The shared reader keeps the log and forwards READY signals in either mode.
+Windows open-file notifications can be deferred until writer close, so they
+cannot serve as the live READY signal there. `build.ps1` still only forwards.
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| Windows DEV aborts with `fatal runtime error: I/O error: operation failed to complete synchronously` (event 1000, `0xc0000409`) | The former launch path gave Rust stdio an overlapped pipe. A synchronous write can return `ERROR_IO_PENDING` under reader load. | Rebuild with the corrected launcher and restart DEV. Keep Windows app stdout/stderr on the .NET synchronous-pipe boundary in foreground and `--wait`. Never attach app stdio directly to libuv or PowerShell pipeline pipes. |
+
+Fixed: DEV recompiled crates from the physical `C:` checkout despite an active
+`X:` gateway mapping. The old `dev-prep --no-server` calls duplicated CLI/embed
+Cargo builds with a physical cwd, including one call after gateway release.
+DEV now stages the CLI already built by `build.sh`; prebuilt launch performs no
+Cargo preparation. Main app and sidecar compilation stay at `X:` until build
+completion, then the mapping is released before launching the app.

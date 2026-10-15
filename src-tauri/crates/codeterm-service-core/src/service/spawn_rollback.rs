@@ -32,7 +32,7 @@ impl super::ServiceContext {
         super::session_persist::persist_session_after_close(self);
     }
 
-    pub(crate) fn rollback_failed_agent_spawn(&self, tab_id: &str, failure: &str) -> String {
+    pub fn rollback_failed_agent_spawn(&self, tab_id: &str, failure: &str) -> String {
         self.cancel_agent_startup_supervision(tab_id);
         super::launch_session_detection::clear_launch_marker(tab_id);
         let Err(close_error) = self.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback)

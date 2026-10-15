@@ -993,9 +993,10 @@ export function TabSessionChat({
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
+          activeTool={allMessages.find((message) => message.type === "tool_call" && message.toolStatus === "running")}
           runtimeState={runtime.state}
-          showActivity={setupView.kind === "none" && !chatChannelLoading}
-          channelLoadingLabel={chatChannelLoadingRow(chatChannelLoading, setupView) === "model"
+          showActivity={setupView.kind === "none" && !chatLoading}
+          channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}

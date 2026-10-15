@@ -149,52 +149,61 @@ pub async fn list(
     headers: HeaderMap,
     Query(q): Query<ListPlansQuery>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    codeterm_service_core::service::validate_active_team_plan_bindings(&state.svc)
-        .map_err(team_plan_err)?;
-    let want = if let Some(project) = &q.project {
-        Some(
-            state
-                .svc
-                .ensure_plan_project_loaded(std::path::Path::new(project))
-                .map_err(plan_err)?
-                .display()
-                .to_string(),
-        )
-    } else {
-        if !state.svc.plans_startup_loaded() {
-            return Err(text_err(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "plans are still loading; retry shortly",
-            ));
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+        codeterm_orchestration::validate_active_team_plan_bindings(&state.svc)
+            .map_err(team_plan_err)?;
+        let want = if let Some(project) = &q.project {
+            Some(
+                state
+                    .svc
+                    .ensure_plan_project_loaded(std::path::Path::new(project))
+                    .map_err(plan_err)?
+                    .display()
+                    .to_string(),
+            )
+        } else {
+            if !state.svc.plans_startup_loaded() {
+                return Err(text_err(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "plans are still loading; retry shortly",
+                ));
+            }
+            None
+        };
+        let mut entries = state.svc.plan_store.list_index();
+        filter_plan_project(&mut entries, want.as_deref(), |id| {
+            state.svc.plan_store.get(id)
+        });
+        if let Some(status) = &q.status {
+            entries.retain(|e| match status.as_str() {
+                "active" => e.status == PlanStatus::Active,
+                "archived" => e.status == PlanStatus::Archived,
+                _ => true,
+            });
         }
-        None
-    };
-    let mut entries = state.svc.plan_store.list_index();
-    filter_plan_project(&mut entries, want.as_deref(), |id| {
-        state.svc.plan_store.get(id)
-    });
-    if let Some(status) = &q.status {
-        entries.retain(|e| match status.as_str() {
-            "active" => e.status == PlanStatus::Active,
-            "archived" => e.status == PlanStatus::Archived,
-            _ => true,
-        });
-    }
-    if q.unowned == Some(true) {
-        entries.retain(|e| e.owner.tab_id.is_none() && e.owner.session_id.is_none());
-    }
-    if let Some(orch) = &q.orchestrator {
-        entries.retain(|e| {
-            e.owner.tab_id.as_deref() == Some(orch.as_str())
-                || e.owner.session_id.as_deref() == Some(orch.as_str())
-        });
-    }
-    Ok(Json(plan_list_response(
-        &entries,
-        q.full == Some(true),
-        |id| state.svc.plan_store.get(id),
-    )))
+        if q.unowned == Some(true) {
+            entries.retain(|e| e.owner.tab_id.is_none() && e.owner.session_id.is_none());
+        }
+        if let Some(orch) = &q.orchestrator {
+            entries.retain(|e| {
+                e.owner.tab_id.as_deref() == Some(orch.as_str())
+                    || e.owner.session_id.as_deref() == Some(orch.as_str())
+            });
+        }
+        Ok(Json(plan_list_response(
+            &entries,
+            q.full == Some(true),
+            |id| state.svc.plan_store.get(id),
+        )))
+    })
+    .await
+    .map_err(|_| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed",
+        )
+    })?
 }
 
 pub(crate) fn filter_plan_project(
@@ -687,15 +696,24 @@ pub async fn get(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    codeterm_service_core::service::validate_plan_team_binding(&state.svc, &id)
-        .map_err(team_plan_err)?;
-    let plan = state
-        .svc
-        .plan_store
-        .get(&id)
-        .ok_or_else(|| plan_err(PlanError::NotFound))?;
-    Ok(Json(serde_json::to_value(plan).unwrap_or_default()))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+        codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
+            .map_err(team_plan_err)?;
+        let plan = state
+            .svc
+            .plan_store
+            .get(&id)
+            .ok_or_else(|| plan_err(PlanError::NotFound))?;
+        Ok(Json(serde_json::to_value(plan).unwrap_or_default()))
+    })
+    .await
+    .map_err(|_| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed",
+        )
+    })?
 }
 
 pub async fn state(
@@ -772,35 +790,44 @@ pub async fn update(
     Path(id): Path<String>,
     Json(body): Json<UpdatePlanBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let status = body
-        .status
-        .as_deref()
-        .map(|s| serde_json::from_value::<PlanStatus>(serde_json::Value::String(s.into())))
-        .transpose()
-        .map_err(|_| plan_err(PlanError::BadStatus))?;
-    let now = epoch_ms();
-    state
-        .svc
-        .plan_store
-        .update_plan(
-            &id,
-            body.title.as_deref(),
-            status,
-            body.mode.as_deref(),
-            now,
-        )
-        .map_err(plan_err)?;
-    if let Some(planner_val) = body.planner {
-        let planner_ref: Option<PlannerRef> = serde_json::from_value(planner_val)
-            .map_err(|e| text_err(StatusCode::UNPROCESSABLE_ENTITY, e))?;
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+        let status = body
+            .status
+            .as_deref()
+            .map(|s| serde_json::from_value::<PlanStatus>(serde_json::Value::String(s.into())))
+            .transpose()
+            .map_err(|_| plan_err(PlanError::BadStatus))?;
+        let now = epoch_ms();
         state
             .svc
-            .transition_plan_planner(&id, planner_ref)
-            .map_err(|error| text_err(StatusCode::CONFLICT, error))?;
-    }
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+            .plan_store
+            .update_plan(
+                &id,
+                body.title.as_deref(),
+                status,
+                body.mode.as_deref(),
+                now,
+            )
+            .map_err(plan_err)?;
+        if let Some(planner_val) = body.planner {
+            let planner_ref: Option<PlannerRef> = serde_json::from_value(planner_val)
+                .map_err(|e| text_err(StatusCode::UNPROCESSABLE_ENTITY, e))?;
+            state
+                .svc
+                .transition_plan_planner(&id, planner_ref)
+                .map_err(|error| text_err(StatusCode::CONFLICT, error))?;
+        }
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
+    .map_err(|_| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed",
+        )
+    })?
 }
 
 #[derive(Deserialize)]
@@ -898,188 +925,11 @@ pub async fn delete_plan(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-pub async fn archive(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
-    state
-        .svc
-        .plan_store
-        .archive(&id, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    let mut resp = serde_json::json!({ "ok": true });
-    if let Some(plan) = state.svc.plan_store.get(&id) {
-        let cleanup = codeterm_service_core::service::plan::cleanup_debt::detect_plan_cleanup_debt(
-            &plan,
-            |tab| state.svc.tab_probe(tab).exists,
-        );
-        push_hints(
-            &mut resp,
-            codeterm_service_core::service::plan::cleanup_debt::cleanup_debt_hints(&cleanup),
-        );
-    }
-    Ok(Json(resp))
-}
-
-pub async fn unarchive(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
-    codeterm_service_core::service::unarchive_team_plan(&state.svc, &id, epoch_ms())
-        .map_err(team_plan_err)?;
-    Ok(Json(serde_json::json!({ "ok": true })))
-}
-
-#[derive(Deserialize)]
-pub struct PauseBody {
-    reason: String,
-    #[serde(default)]
-    from: OrchestratorRef,
-}
-
-pub async fn pause(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Json(body): Json<PauseBody>,
-) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
-    let outcome = state
-        .svc
-        .pause_plan_operation(&id, &body.reason, body.from, epoch_ms())
-        .map_err(team_plan_err)?;
-    let mut response = serde_json::to_value(&outcome).unwrap_or_default();
-    response["ok"] = serde_json::json!(true);
-    response["stride_id"] = serde_json::json!(outcome.stride_id.unwrap_or_default());
-    Ok(Json(response))
-}
-
-pub async fn resume(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
-    let outcome = state
-        .svc
-        .resume_plan_operation(&id, epoch_ms())
-        .map_err(team_plan_err)?;
-    let mut response = serde_json::to_value(&outcome).unwrap_or_default();
-    response["ok"] = serde_json::json!(true);
-    Ok(Json(response))
-}
-
-async fn authorize_plan_mutation_http(
-    svc: &codeterm_service_core::service::ServiceState,
-    headers: &HeaderMap,
-    plan_id: &str,
-) -> Result<(), (StatusCode, Json<Value>)> {
-    let caller = crate::tab_routes::authenticated_plan_caller(headers);
-    let confirmed_human = headers
-        .get("X-CodeTerm-Plan-Confirmation")
-        .and_then(|value| value.to_str().ok())
-        == Some(plan_id);
-    if caller.tab_id.as_deref().is_none_or(str::is_empty) && !confirmed_human {
-        return Err(text_err(
-            StatusCode::FORBIDDEN,
-            "plan mutation requires a Plan role or explicit human confirmation",
-        ));
-    }
-    if !confirmed_human
-        && !matches!(
-            svc.classify_planning_caller_async(plan_id, &caller).await,
-            Ok(codeterm_service_core::plan::PlanningAuthor::User
-                | codeterm_service_core::plan::PlanningAuthor::Planner { .. })
-        )
-    {
-        return Err(text_err(
-            StatusCode::FORBIDDEN,
-            "the caller is not the Plan Orchestrator or Planner",
-        ));
-    }
-    Ok(())
-}
-
-pub async fn pause_preview(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let preview = state.svc.plan_pause_preview(&id).map_err(team_plan_err)?;
-    Ok(Json(serde_json::to_value(preview).unwrap_or_default()))
-}
-
-pub async fn resume_preview(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let preview = state.svc.plan_resume_preview(&id).map_err(team_plan_err)?;
-    Ok(Json(serde_json::to_value(preview).unwrap_or_default()))
-}
-
-#[derive(Deserialize)]
-pub struct TransferBody {
-    to: OrchestratorRef,
-    #[serde(default)]
-    reason: String,
-}
-
-fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, Json<Value>)> {
-    crate::tab_routes::caller_tab_header(headers)
-        .filter(|tab_id| !tab_id.trim().is_empty())
-        .ok_or_else(|| {
-            text_err(
-                StatusCode::FORBIDDEN,
-                "X-CodeTerm-Tab-Id is required for plan transfer",
-            )
-        })
-}
-
-pub async fn transfer(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Json(body): Json<TransferBody>,
-) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let caller = transfer_caller(&headers)?;
-    codeterm_service_core::service::transfer_team_plan(
-        &state.svc,
-        &id,
-        body.to,
-        &body.reason,
-        caller,
-        epoch_ms(),
-    )
-    .map_err(team_plan_err)?;
-    Ok(Json(serde_json::json!({ "ok": true })))
-}
-
-fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
-    match error {
-        TeamPlanError::Plan(error) => plan_err(error),
-        TeamPlanError::Team(message)
-            if message.contains("not authorized")
-                || message.contains("not a member")
-                || message.contains("authority") =>
-        {
-            text_err(StatusCode::FORBIDDEN, message)
-        }
-        TeamPlanError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
-    }
-}
+mod lifecycle;
+#[cfg(test)]
+use lifecycle::transfer_caller;
+pub use lifecycle::{archive, pause, pause_preview, resume, resume_preview, transfer, unarchive};
+use lifecycle::{authorize_plan_mutation_http, team_plan_err};
 
 pub async fn disown(
     AxumState(state): AxumState<AppState>,

@@ -22,7 +22,7 @@ interface TestChatMessage {
   provider?: string;
   attachments?: TestChatAttachment[];
   toolName?: string;
-  toolInput?: unknown;
+  toolInput?: Record<string, unknown>;
   toolKind?: "command";
   toolSummary?: string;
   toolDetail?: string;
@@ -31,14 +31,14 @@ interface TestChatMessage {
   toolError?: boolean;
 }
 
-declare global {
-  interface Window {
-    __codetermTestChat?: {
-      pushMessages: (tabId: string, messages: TestChatMessage[]) => void;
-      resetClock: () => void;
-    };
-  }
-}
+
+
+
+
+
+
+
+
 
 const PNG_1X1_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";

@@ -76,7 +76,7 @@ fn validate_saved_blueprints(resources: &Resources) -> Result<(), String> {
 }
 
 impl ServiceContext {
-    pub(crate) fn recover_close_inventories(&self) -> Result<(), String> {
+    pub fn recover_close_inventories(&self) -> Result<(), String> {
         let records = self.mux.read().closed_structure_records()?;
         for record in records
             .into_iter()
@@ -87,7 +87,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(super) fn capture_close_inventory(
+    pub fn capture_close_inventory(
         &self,
         workspace: &str,
         team: Option<&str>,
@@ -163,7 +163,7 @@ impl ServiceContext {
         Ok(Some(id))
     }
 
-    pub(super) fn settle_close_inventory(&self, id: Option<&str>) -> Result<(), String> {
+    pub fn settle_close_inventory(&self, id: Option<&str>) -> Result<(), String> {
         let Some(id) = id else {
             return Ok(());
         };

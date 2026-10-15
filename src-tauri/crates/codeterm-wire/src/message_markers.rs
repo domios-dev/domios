@@ -40,21 +40,24 @@ fn encode(value: &str) -> String {
 }
 
 fn decode(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    let bytes = value.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&value[i + 1..i + 3], 16) {
-                out.push(byte as char);
-                i += 3;
+    let mut out = Vec::with_capacity(value.len());
+    let mut rest = value;
+    while !rest.is_empty() {
+        if rest.starts_with('%') {
+            if let Some(byte) = rest
+                .get(1..3)
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+            {
+                out.push(byte);
+                rest = &rest[3..];
                 continue;
             }
         }
-        out.push(bytes[i] as char);
-        i += 1;
+        let character = rest.chars().next().unwrap_or_default();
+        out.extend_from_slice(&rest.as_bytes()[..character.len_utf8()]);
+        rest = &rest[character.len_utf8()..];
     }
-    out
+    String::from_utf8(out).unwrap_or_else(|_| value.to_string())
 }
 
 /// Builder for a marker.

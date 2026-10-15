@@ -88,6 +88,17 @@ describe("transportClient", () => {
     await expect(client.json("GET", "/api/config")).rejects.toThrow("Daemon bearer token required");
     expect(fetch).not.toHaveBeenCalled();
   });
+  it("signals readiness for an accepted quiet stream before any event arrives", async () => {
+    let connected!: () => void;
+    const ready = new Promise<void>((resolve) => { connected = resolve; });
+    const { client } = clientWith(new Response(new ReadableStream<Uint8Array>()));
+    const handler = vi.fn();
+    const stop = client.subscribe("/api/events/stream", handler, { onReady: connected });
+    try {
+      await ready;
+      expect(handler).not.toHaveBeenCalled();
+    } finally { stop(); }
+  });
   it("reads fragmented CRLF SSE and unsubscribe cancels the reader", async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     let delivered!: () => void;

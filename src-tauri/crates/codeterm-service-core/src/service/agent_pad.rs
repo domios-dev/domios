@@ -237,11 +237,7 @@ impl AgentPad {
     }
 }
 
-pub(crate) fn restore(
-    data_dir: &Path,
-    tab_id: &str,
-    role: AgentPadRole,
-) -> Result<AgentPad, String> {
+pub fn restore(data_dir: &Path, tab_id: &str, role: AgentPadRole) -> Result<AgentPad, String> {
     AgentPad::open(data_dir, tab_id).or_else(|_| AgentPad::create(data_dir, tab_id, role))
 }
 
@@ -293,7 +289,7 @@ impl super::ServiceContext {
         })
     }
 
-    pub(crate) fn revoke_agent_pad(&self, tab_id: &str) -> Result<(), String> {
+    pub fn revoke_agent_pad(&self, tab_id: &str) -> Result<(), String> {
         revoke(
             &self.agent_pad_data_dir.join("runtime").join("agent-pads"),
             tab_id,

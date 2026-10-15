@@ -35,50 +35,59 @@ pub async fn create_notification(
     headers: HeaderMap,
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
-    let title = vet_title(&body.title).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    // A relayed peer's jump target names a tab on its own machine and is dropped, so it is not vetted here.
-    if body.source_peer.is_none() {
-        vet_target_tab(body.target_tab_id.as_deref(), |tab| {
-            state.svc.mux.read().resolve_tab_id(tab).is_some()
-        })
-        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    }
-    let origin = codeterm_service_core::service::notification::NotificationOrigin {
-        caller_tab_id: crate::tab_routes::caller_tab_header(&headers),
-        claimed_tab_id: body.tab_id,
-        peer_name: body.source_peer,
-        target: codeterm_service_core::notification::deep_link::NotificationTarget::from_hints(
-            body.target_tab_id.as_deref(),
-            body.chat_message_id.as_deref(),
-        ),
-    };
-    let intent = parse_push_intent(body.level.as_deref(), body.event_key)
-        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    let actions =
-        vet_actions(body.actions).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    let offer = vet_offer(
-        &state.svc,
-        body.offer,
-        body.offer_accept,
-        actions.as_deref(),
-        intent.level,
-    )
-    .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    let (id, unseen) = state
-        .svc
-        .create_agent_notification_reported(
-            title,
-            body.body,
-            body.severity.as_deref(),
-            actions,
-            body.sticky,
-            origin,
-            intent,
-            offer,
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
+        let title = vet_title(&body.title).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        // A relayed peer's jump target names a tab on its own machine and is dropped, so it is not vetted here.
+        if body.source_peer.is_none() {
+            vet_target_tab(body.target_tab_id.as_deref(), |tab| {
+                state.svc.mux.read().resolve_tab_id(tab).is_some()
+            })
+            .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        }
+        let origin = codeterm_service_core::service::notification::NotificationOrigin {
+            caller_tab_id: crate::tab_routes::caller_tab_header(&headers),
+            claimed_tab_id: body.tab_id,
+            peer_name: body.source_peer,
+            target: codeterm_service_core::notification::deep_link::NotificationTarget::from_hints(
+                body.target_tab_id.as_deref(),
+                body.chat_message_id.as_deref(),
+            ),
+        };
+        let intent = parse_push_intent(body.level.as_deref(), body.event_key)
+            .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        let actions =
+            vet_actions(body.actions).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        let offer = vet_offer(
+            &state.svc,
+            body.offer,
+            body.offer_accept,
+            actions.as_deref(),
+            intent.level,
         )
         .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    Ok(Json(created_result(&id, unseen)))
+        let (id, unseen) = state
+            .svc
+            .create_agent_notification_reported(
+                title,
+                body.body,
+                body.severity.as_deref(),
+                actions,
+                body.sticky,
+                origin,
+                intent,
+                offer,
+            )
+            .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        Ok(Json(created_result(&id, unseen)))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 /// One row per registered push channel: its service id, its column caption,

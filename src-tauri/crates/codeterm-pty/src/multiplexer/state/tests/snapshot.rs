@@ -98,6 +98,7 @@ fn test_session_snapshot_never_derives_agent_type_from_title() {
                 protected: false,
                 sort_order: 0,
                 tabs: vec![TabSnapshot {
+                    last_active_at_ms: None,
                     id: "tab-1".to_string(),
                     title: "Tab".to_string(),
                     description: None,
@@ -177,6 +178,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
             protected: false,
             sort_order: 0,
             tabs: vec![TabSnapshot {
+                last_active_at_ms: None,
                 id: "tab-1".to_string(),
                 title: "Tab".to_string(),
                 description: None,
@@ -264,6 +266,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
             protected: false,
             sort_order: 0,
             tabs: vec![TabSnapshot {
+                last_active_at_ms: None,
                 id: "tab-1".to_string(),
                 title: "Tab".to_string(),
                 description: None,

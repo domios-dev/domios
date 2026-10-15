@@ -13,7 +13,10 @@ Usage: bash evals/core-journeys/run.sh MODE [--out DIR] [driver flags]
   cleanup   remove the fixtures recorded in --out
   upgrade   J5: --from-checkout N-1_CHECKOUT on a named disposable CODETERM_INSTANCE
 Driver flags: --providers a,b  --history-kb N  --deadline-secs N  --all-tabs  --keep
-Release gate: see evals/core-journeys/README.md. Spends real provider tokens.
+--plan prints the journeys, steps and evidence paths without contacting an instance.
+Needs CODETERM_INSTANCE (a named instance) and its own CODETERM_API_PORT; ports 7685 and 7686 are refused.
+Check a finished run: node evals/core-journeys/lib/evidence-contract.mjs OUT
+Spends real provider tokens. See evals/core-journeys/README.md.
 EOF
 }
 
@@ -29,33 +32,50 @@ case "${1:-}" in
   *) echo "Unknown mode: $1" >&2; usage >&2; exit 2 ;;
 esac
 
-OUT="" FROM="" PASS=() VERIFY_EXTRA=()
+OUT="" FROM="" PLAN=0 PASS=() VERIFY_EXTRA=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --plan) PLAN=1; shift ;;
     --out) OUT="${2:?--out needs a directory}"; shift 2 ;;
     --from-checkout) FROM="${2:?--from-checkout needs a path}"; shift 2 ;;
     *) PASS+=("$1"); shift ;;
   esac
 done
 
+unset CODETERM_CLI_PATH
+source "$ROOT/evals/_lib/lib.sh"
+REQUESTED_INSTANCE="$(printf '%s' "$EVAL_LIB_REQUESTED_INSTANCE" | tr -d '[:space:]')"
+[ -n "$REQUESTED_INSTANCE" ] || { echo "FAIL CODETERM_INSTANCE is unset: core journeys run only on a named isolated instance" >&2; exit 7; }
+case "$EVAL_LIB_REQUESTED_API_PORT" in
+  7685) echo "FAIL refusing production port 7685" >&2; exit 7 ;;
+  7686) echo "FAIL refusing the shared DEV port 7686; use the named instance's own port" >&2; exit 7 ;;
+esac
+
+OUT="${OUT:-$ROOT/target-check/evals/core-journeys/$(date +%Y%m%d-%H%M%S)-$$}"
+if [ "$PLAN" = 1 ]; then
+  command -v node >/dev/null || { echo "FAIL missing prerequisite: node" >&2; exit 7; }
+  exec node "$HERE/lib/plan.mjs" "$MODE" --out "$OUT" --instance "$REQUESTED_INSTANCE" \
+    ${EVAL_LIB_REQUESTED_API_PORT:+--port "$EVAL_LIB_REQUESTED_API_PORT"} ${FROM:+--from "$FROM"}
+fi
+
 for prerequisite in node python3 git; do
   command -v "$prerequisite" >/dev/null || { echo "FAIL missing prerequisite: $prerequisite" >&2; exit 7; }
 done
 if [ "$MODE" = upgrade ]; then
   case "${CODETERM_INSTANCE:-}:${CODETERM_API_PORT:-}" in
-    :*|*:|*:7685|*:7686) echo "FAIL upgrade needs a named disposable CODETERM_INSTANCE and its own CODETERM_API_PORT" >&2; exit 2 ;;
+    *:) echo "FAIL upgrade needs the named instance's own CODETERM_API_PORT" >&2; exit 2 ;;
   esac
   [ -n "$FROM" ] && [ -x "$FROM/build.sh" ] || { echo "FAIL --from-checkout must name the build N-1 checkout" >&2; exit 2; }
   FROM="$(cd "$FROM" && pwd)"
   # The disposable instance has no CLI before its first build, so build N-1 starts before the lib resolves it.
   (cd "$FROM" && bash ./build.sh dev --wait --wait-build) || { echo "FAIL build N-1 did not start" >&2; exit 1; }
 fi
-unset CODETERM_CLI_PATH
-source "$ROOT/evals/_lib/lib.sh"
 dev_resolve || { echo "FAIL dev connection unresolved" >&2; exit 7; }
-[ "$EVAL_LIB_DEV_API_PORT" != 7685 ] || { echo "FAIL refusing production port 7685" >&2; exit 7; }
+case "$EVAL_LIB_DEV_API_PORT" in
+  7685|7686) echo "FAIL instance resolved to shared port $EVAL_LIB_DEV_API_PORT" >&2; exit 7 ;;
+esac
+[ -n "$EVAL_LIB_RESOLVED_INSTANCE" ] || { echo "FAIL resolved target has no instance name" >&2; exit 7; }
 
-OUT="${OUT:-$ROOT/target-check/evals/core-journeys/$(date +%Y%m%d-%H%M%S)-$$}"
 mkdir -p "$OUT" && OUT="$(cd "$OUT" && pwd)"
 STARTED=$SECONDS
 

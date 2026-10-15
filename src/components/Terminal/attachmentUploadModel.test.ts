@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canRetryUpload, classifyUploadFailure, createAttachmentUploads, type AttachmentUpload } from "./attachmentUploadModel";
+import { canRetryUpload, classifyUploadFailure, createAttachmentUploads, uploadCardPresence, type AttachmentUpload } from "./attachmentUploadModel";
 
 test("interrupted and malformed multipart uploads allow retry, permanent rejection does not", () => {
   for (const error of [new TypeError("network"), Object.assign(new Error("interrupted"), { name: "AbortError" }), Object.assign(new Error("Error parsing multipart/form-data request"), { status: 400 }), Object.assign(new Error("busy"), { status: 503 })]) {
@@ -109,4 +109,11 @@ test("upload remains pending until its attachment is committed to the draft", as
   finishAttach();
   await pending;
   assert.deepEqual(uploads, []);
+});
+
+test("a failed upload always shows its card, hover reveals only the others", () => {
+  assert.equal(uploadCardPresence({ state: "failed" }, false), "persistent");
+  assert.equal(uploadCardPresence({ state: "failed" }, true), "persistent");
+  assert.equal(uploadCardPresence({ state: "uploading" }, true), "hover");
+  assert.equal(uploadCardPresence({ state: "uploading" }, false), "announce");
 });

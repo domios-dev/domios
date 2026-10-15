@@ -94,15 +94,24 @@ async fn thread_state(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, RouteError> {
-    let target = bridge_target(&state, &headers, &id)?;
-    let caller = authority::validate_claim(&state, &headers, &authority::CallerClaim::default())?;
-    let thread_caller = caller
-        .as_deref()
-        .map_or(ThreadCaller::Owner, |tab_id| ThreadCaller::Tab {
-            tab_id,
-            is_general: state.svc.bridge_is_general_tab(tab_id),
-        });
-    authorize_open(thread_caller, &target).map_err(thread_error)?;
+    let owner = state.clone();
+    let target = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let target = bridge_target(&state, &headers, &id)?;
+        let caller =
+            authority::validate_claim(&state, &headers, &authority::CallerClaim::default())?;
+        let thread_caller =
+            caller
+                .as_deref()
+                .map_or(ThreadCaller::Owner, |tab_id| ThreadCaller::Tab {
+                    tab_id,
+                    is_general: state.svc.bridge_is_general_tab(tab_id),
+                });
+        authorize_open(thread_caller, &target).map_err(thread_error)?;
+        Ok::<_, RouteError>(target)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
     serde_json::to_value(state.svc.bridge_thread_menu_state(&target).await)
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -114,7 +123,11 @@ async fn thread_open(
     Path(id): Path<String>,
     Json(body): Json<ThreadAction>,
 ) -> Result<Json<Value>, RouteError> {
-    let (target, caller) = bridge_action(&state, &headers, &id, &body)?;
+    let owner = state.clone();
+    let (target, caller) =
+        tokio::task::spawn_blocking(move || bridge_action(&owner, &headers, &id, &body))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
     let opened = state
         .svc
         .open_bridge_thread(caller.as_deref(), &target, None)
@@ -131,7 +144,11 @@ async fn thread_close(
     Path(id): Path<String>,
     Json(body): Json<ThreadAction>,
 ) -> Result<Json<Value>, RouteError> {
-    let (target, _) = bridge_action(&state, &headers, &id, &body)?;
+    let owner = state.clone();
+    let (target, _) =
+        tokio::task::spawn_blocking(move || bridge_action(&owner, &headers, &id, &body))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
     Ok(Json(
         json!({ "outcomes": state.svc.close_bridge_thread(&target).await }),
     ))

@@ -79,7 +79,7 @@ pub struct AppState {
     pub keepawake: codeterm_service_core::KeepAwakeStateHandle,
     pub resize_owner: codeterm_service_core::ResizeOwnerState,
     /// Lets the config apply path compare a persisted bind against the live socket.
-    pub(crate) rest_api: codeterm_service_core::startup::RestApiControlState,
+    pub rest_api: codeterm_service_core::startup::RestApiControlState,
     /// Some only in debug builds started with CODETERM_TEST_CLOCK=1 —
     /// powers /api/debug/clock time travel for the cron e2e suite.
     pub test_clock: Option<std::sync::Arc<codeterm_service_core::cron::clock::MockClock>>,
@@ -90,30 +90,6 @@ pub struct AppState {
     /// Caps concurrent full-state snapshots so a request storm cannot take the
     /// daemon down. See `api::snapshot_bound`.
     pub snapshot_bound: codeterm_service_core::startup::snapshot_bound::SnapshotBound,
-}
-
-pub fn register_rest_hooks() {
-    codeterm_service_core::ports::rest::register(codeterm_service_core::ports::rest::RestHooks {
-        build_router: |inputs| {
-            let state = AppState {
-                svc: inputs.svc,
-                cron: inputs.cron,
-                cron_wake: inputs.cron_wake,
-                api_port: inputs.api_port,
-                update_state: inputs.update_state,
-                config: inputs.config,
-                mesh: inputs.mesh,
-                keepawake: inputs.keepawake,
-                resize_owner: inputs.resize_owner,
-                rest_api: inputs.rest_api,
-                test_clock: inputs.test_clock,
-                events: inputs.events,
-                web_dist: inputs.web_dist,
-                snapshot_bound: inputs.snapshot_bound,
-            };
-            create_router_with_frontend(state, inputs.bundles)
-        },
-    });
 }
 
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
@@ -1082,6 +1058,10 @@ pub(super) fn create_router_with_preview_admission(
         router
     };
 
+    apply_middleware(router, state)
+}
+
+pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Router {
     let frontend_origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
         &state.config.lock().api,
         state.svc.app_handle.config().build.dev_url.as_ref(),
@@ -1163,11 +1143,27 @@ fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {
 mod tests;
 
 /// Resolve a tab ID path parameter: supports both direct IDs and aliases.
+pub(crate) async fn resolve_tab_async(
+    state: &AppState,
+    raw_id: &str,
+) -> Result<String, (StatusCode, &'static str)> {
+    let state = state.clone();
+    let raw_id = raw_id.to_owned();
+    tokio::task::spawn_blocking(move || resolve_tab(&state, &raw_id))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Tab resolution task failed",
+            )
+        })?
+}
+
 pub(crate) fn resolve_tab(
     state: &AppState,
     raw_id: &str,
 ) -> Result<String, (StatusCode, &'static str)> {
-    let mux = state.svc.mux.write();
+    let mux = state.svc.mux.read();
     mux.resolve_tab_id(raw_id)
         .ok_or((StatusCode::NOT_FOUND, "Tab not found"))
 }

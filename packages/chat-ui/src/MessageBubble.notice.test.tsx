@@ -54,13 +54,13 @@ async function run() {
     fileCard?.querySelector<HTMLButtonElement>("button")?.click();
   });
 
-  assert(snipCard?.querySelector('[data-testid="chat-inline-attachment"][data-attachment-kind="image"]'), "a notice's image marker renders as an image control");
+  assert(snipCard?.querySelector('button[aria-label="Open image snip-s1.png"]'), "a notice exposes its image by accessible name");
   assert(!snipCard.textContent?.includes("<domios"), "the attachment marker never shows as raw text");
   const bold = Array.from(snipCard.querySelectorAll("strong")).map((node) => node.textContent);
   assert(bold.includes("Page:") && bold.includes("User says:"), "markdown bold renders after the marker line");
   assert(!snipCard.textContent?.includes("**Page:**"), "no raw markdown asterisks remain");
   assert(snipCard.querySelector("code")?.textContent === "https://developer.apple.com/", "inline code renders");
-  assert(fileCard?.querySelector('[data-testid="chat-inline-attachment"][data-attachment-kind="file"]'), "a notice's file marker renders as a file control");
+  assert(fileCard?.querySelector('button[aria-label="Reveal file run.log"]'), "a notice's file marker renders as a file chip");
 
   await act(async () => root.unmount());
   host.remove();

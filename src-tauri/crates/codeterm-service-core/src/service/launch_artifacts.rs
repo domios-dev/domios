@@ -71,7 +71,7 @@ fn has_live_provider_process_evidence(
     crate::service::process_tree::may_have_named_process(root_pid, &binary_name)
 }
 
-pub(crate) fn sweep_after_restore(service: &ServiceContext) {
+pub fn sweep_after_restore(service: &ServiceContext) {
     for error in super::codex_rpc::process::sweep(
         &crate::paths::data_dir().join("codex-rpc"),
         crate::paths::codeterm_instance_id(),
@@ -166,7 +166,7 @@ fn startup_provider_sweep(service: &ServiceContext, provider_id: &str) -> Result
     Ok(())
 }
 
-pub(crate) fn release_closed_tabs(registry: &AgentRegistry, agent_providers: &[(String, String)]) {
+pub fn release_closed_tabs(registry: &AgentRegistry, agent_providers: &[(String, String)]) {
     if authorize_profile_cleanup(
         true,
         codeterm_plugin::global_writes::machine_global_write_allowed(),

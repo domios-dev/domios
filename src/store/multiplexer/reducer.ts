@@ -49,7 +49,7 @@ export type Action =
   | { type: "SET_TAB_TITLE"; tabId: string; title: string; level?: TitleLevel }
   | { type: "SET_AGENT_TYPE"; tabId: string; agentType: string | null }
   | { type: "UPDATE_TAB_STATUS"; tabId: string; status: TabStatus }
-  | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null }
+  | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null; agent_booting?: boolean; session_bound?: boolean }
   | { type: "REMOVE_PENDING_CLOSE"; tabIds: string[] }
   | { type: "RESET_PEER_CONTEXT" }
   | { type: "STORAGE_UNAVAILABLE" }
@@ -642,6 +642,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           [action.tabId]: {
             ...tab,
             boot_stage: action.stage,
+            agent_booting: action.agent_booting ?? tab.agent_booting,
+            session_bound: action.session_bound ?? tab.session_bound,
             boot_failure_reason: STAGES_CARRYING_REASON.has(action.stage)
               ? (action.reason ?? null)
               : null,

@@ -128,9 +128,18 @@ impl MultiplexerState {
     /// Record an orchestrator + its subtree as one group (parent links preserved).
     /// Falls back to `Single` with no children. Built before the tabs are removed.
     pub(super) fn record_cascade_close(&mut self, root_tab_id: &str) {
+        let team_id = self
+            .tabs
+            .get(root_tab_id)
+            .and_then(|tab| tab.team_id.clone());
         let subtree = self.collect_subtree(root_tab_id);
         let records: Vec<ClosedTab> = subtree
             .iter()
+            .filter(|pid| {
+                self.tabs
+                    .get(*pid)
+                    .is_some_and(|tab| tab.team_id == team_id)
+            })
             .filter_map(|pid| self.build_closed_tab(pid, TabCloseReason::User))
             .collect();
         if records.is_empty() {

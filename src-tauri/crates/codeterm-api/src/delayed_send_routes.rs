@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, resolve_tab, AppState};
+use crate::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,7 +43,9 @@ pub async fn list(
 ) -> Result<Json<Vec<codeterm_service_core::delayed_send::DelayedMessageView>>, (StatusCode, String)>
 {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|(s, m)| (s, m.to_string()))?;
     let messages = codeterm_service_core::delayed_send::list_views(&state.svc, Some(tab_id))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(messages))
@@ -56,7 +58,9 @@ pub async fn create(
     Json(body): Json<CreateDelayedMessageBody>,
 ) -> Result<Json<codeterm_service_core::delayed_send::DelayedMessageView>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|(s, m)| (s, m.to_string()))?;
     let msg = codeterm_service_core::delayed_send::create_message(
         &state.svc,
         tab_id,

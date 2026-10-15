@@ -198,7 +198,7 @@ struct Plan {
 }
 
 impl CronStore {
-    pub(crate) fn unavailable(reason: String, logs_root: PathBuf, clock: SharedClock) -> CronStore {
+    pub fn unavailable(reason: String, logs_root: PathBuf, clock: SharedClock) -> CronStore {
         CronStore {
             file: CronFile::default(),
             backend: Backend::Unavailable(reason),
@@ -209,7 +209,7 @@ impl CronStore {
         }
     }
 
-    pub(crate) fn unavailable_reason(&self) -> Option<&str> {
+    pub fn unavailable_reason(&self) -> Option<&str> {
         match &self.backend {
             Backend::Unavailable(reason) => Some(reason),
             Backend::Storage(storage) => storage.unavailable.as_deref(),
@@ -268,7 +268,7 @@ impl CronStore {
         }
     }
 
-    pub(crate) fn set_fence_notifier(&mut self, notifier: impl Fn() + Send + Sync + 'static) {
+    pub fn set_fence_notifier(&mut self, notifier: impl Fn() + Send + Sync + 'static) {
         if let Some(storage) = self.storage_mut() {
             storage.settle_notify = Some(Arc::new(notifier));
         }
@@ -289,7 +289,7 @@ impl CronStore {
         })
     }
 
-    pub(crate) fn mark_scheduler_unavailable(&mut self, reason: String) {
+    pub fn mark_scheduler_unavailable(&mut self, reason: String) {
         match &mut self.backend {
             Backend::Storage(storage) => {
                 storage.unavailable.get_or_insert(reason);
@@ -342,7 +342,7 @@ impl CronStore {
             .and_then(|storage| storage.revisions.get(id).copied())
     }
 
-    pub(crate) fn team_teardown_revisions(
+    pub fn team_teardown_revisions(
         &self,
         team_id: &str,
     ) -> Result<Vec<(String, Revision)>, String> {
@@ -588,7 +588,7 @@ impl CronStore {
         consistent
     }
 
-    pub(crate) fn publish_external(
+    pub fn publish_external(
         &mut self,
         changes: &[CronChange],
         applied: &CronApplied,

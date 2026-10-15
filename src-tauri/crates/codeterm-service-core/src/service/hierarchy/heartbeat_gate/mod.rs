@@ -1,14 +1,9 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::time::{Duration, Instant};
 
-use codeterm_decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionQuestionsRequest, DecisionResponse,
-};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-mod admission;
 mod decision;
 mod delivery_log;
 #[cfg(test)]
@@ -23,11 +18,9 @@ mod tests;
 
 pub(crate) use decision::cadence;
 pub(crate) use decision::criteria_version;
-use decision::{bounded_questions, classify, error_reason, suppressed};
-#[cfg(test)]
-use decision::{questions, selected_learnings};
+use decision::suppressed;
 pub(crate) use delivery_log::{delivery_tick, DeliveryTick, TickFact};
-pub(crate) use runtime::{journal, Supporter};
+pub(crate) use runtime::journal;
 pub(crate) use snapshot::{
     actionable_pending, binding_digest, collect, collect_owner_messages, collect_worker_scope,
 };
@@ -36,8 +29,6 @@ pub(crate) use state::Telemetry;
 pub(crate) use state::{Claim, Gate, Observation};
 
 pub(crate) const IDLE_NO_REPORT_SECS: u64 = 30 * 60;
-const MIN_CONFIDENCE: f64 = 0.80;
-const MAX_OBSERVATION_BYTES: usize = 32 * 1024;
 const MAX_OBSERVATION_ROWS: usize = 32;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -91,8 +82,7 @@ impl Worker {
         }
     }
 
-    /// The only Worker evidence that reaches the model or the identity hash:
-    /// derived health, never session keys, turn ids or commit hashes.
+    /// Identity uses derived health, never session keys, turn ids or commit hashes.
     fn health(&self) -> Value {
         json!({
             "task": self.task_id, "tab": self.tab_id, "ack": self.ack_received,
@@ -180,7 +170,7 @@ impl HardWake {
     }
 }
 
-/// Automatic plan reminder producers; each one needs its own Choice approval.
+/// Automatic plan reminder producers with independent observation caches.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
 )]
@@ -231,6 +221,7 @@ pub(crate) struct Scope {
 #[serde(default)]
 pub(crate) struct Snapshot {
     pub plan_id: String,
+    pub actionable_tasks: Vec<String>,
     pub projection: BTreeMap<String, String>,
     pub delta: BTreeMap<String, String>,
     pub context: BTreeMap<String, Value>,
@@ -246,7 +237,7 @@ impl Snapshot {
         let health: Vec<_> = self.workers.iter().map(Worker::health).collect();
         let state = json!({ "plan": self.plan_id, "projection": self.projection,
             "delta": self.delta, "hard": self.hard, "health": health, "learnings": self.learnings,
-            "scope": self.scope, "truncated": self.truncated });
+            "scope": self.scope, "actionable_tasks": self.actionable_tasks, "truncated": self.truncated });
         crate::service::supporter::criteria_hash(&serde_json::to_vec(&state).unwrap_or_default())
     }
 
@@ -255,7 +246,7 @@ impl Snapshot {
         let health: Vec<_> = self.workers.iter().map(Worker::health).collect();
         let state = json!({ "plan": self.plan_id, "projection": self.projection,
             "health": health, "learnings": self.learnings, "scope": self.scope,
-            "truncated": self.truncated });
+            "actionable_tasks": self.actionable_tasks, "truncated": self.truncated });
         crate::service::supporter::criteria_hash(&serde_json::to_vec(&state).unwrap_or_default())
     }
 

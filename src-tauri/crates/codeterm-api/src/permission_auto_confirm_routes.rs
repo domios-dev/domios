@@ -7,7 +7,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, resolve_tab, AppState};
+use crate::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]
 pub(crate) struct PermissionAutoConfirmBody {
@@ -21,7 +21,9 @@ pub async fn set_permission_auto_confirm(
     Json(body): Json<PermissionAutoConfirmBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|(s, m)| (s, m.to_string()))?;
     let svc = state.svc.clone();
     let target = tab_id.clone();
     let enabled =
@@ -47,14 +49,25 @@ pub async fn get_permission_auto_confirm(
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
-    let (enabled, recent) = state
-        .svc
-        .permission_auto_confirm_state(&tab_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Tab not found: {tab_id}")))?;
-    Ok(Json(serde_json::json!({
-        "tab_id": tab_id,
-        "enabled": enabled,
-        "recent": recent,
-    })))
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|(s, m)| (s, m.to_string()))?;
+    tokio::task::spawn_blocking(move || {
+        let (enabled, recent) = state
+            .svc
+            .permission_auto_confirm_state(&tab_id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Tab not found: {tab_id}")))?;
+        Ok(Json(serde_json::json!({
+            "tab_id": tab_id,
+            "enabled": enabled,
+            "recent": recent,
+        })))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }

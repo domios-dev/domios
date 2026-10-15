@@ -6,7 +6,7 @@ import type { Tab, Team, Workspace } from "../../lib/types";
 const workspace = { id: "workspace-a", name: "Workspace A", tabs: ["member-a", "other-tab"], active_tab_id: null, cwd: null } satisfies Workspace;
 const tabs = {
   "member-a": { id: "member-a", title: "Team member", team_id: "team-a" } as Tab,
-  "other-tab": { id: "other-tab", title: "Other tab", team_id: null } as Tab,
+  "other-tab": { id: "other-tab", title: "Other tab", team_id: "team-b", parent_tab_id: "member-a" } as Tab,
 };
 const teams: Team[] = [{ id: "team-a", name: "Team A", lifecycle: "active", created_at: 0, workspace_id: workspace.id }];
 const blueprints: BlueprintSnapshot[] = [
@@ -17,6 +17,7 @@ const blueprints: BlueprintSnapshot[] = [
 ];
 
 const [team] = teamCloseResourcesForWorkspace(workspace, tabs, teams, [], [], blueprints);
+assert.deepEqual(team.members.map(member => member.tabId), ["member-a"]);
 assert.deepEqual(team.blueprints, ["Team pipeline", "Member pipeline"]);
 
 console.log("Team close Blueprint inventory cases passed");

@@ -9,10 +9,10 @@ use tauri::{Emitter, Manager};
 use crate::multiplexer::commands::MuxState;
 use crate::session::store::{SaveIntent, SaveOutcome};
 
-const PERSISTENCE_DEADLINE: Duration = Duration::from_secs(30);
+pub const PERSISTENCE_DEADLINE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SessionPersistUrgency {
+pub enum SessionPersistUrgency {
     Prompt,
     Debounced,
 }
@@ -35,7 +35,7 @@ enum WorkerMessage {
     Persist(PersistRequest),
     InstallStorage(crate::session::store::StorageDeskAdapter),
     Unavailable(String),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Flush(Sender<Result<(), String>>),
     Stop(Sender<()>),
 }
@@ -66,7 +66,7 @@ impl PersistenceMailbox {
                 WorkerMessage::Stop(response) => {
                     let _ = response.send(());
                 }
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 WorkerMessage::Flush(response) => {
                     let _ = response.send(Err(error.to_string()));
                 }
@@ -136,7 +136,7 @@ enum PersistenceBackend {
         revision: codeterm_storage::Revision,
     },
     Unavailable(String),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Test(Box<dyn FnMut(u64) -> Result<SaveOutcome, String> + Send>),
 }
 
@@ -149,7 +149,7 @@ pub fn write_session_snapshot(
     write_session_snapshot_with_intent(app, mux, SaveIntent::PreserveDesk)
 }
 
-pub(crate) fn write_session_snapshot_with_intent(
+pub fn write_session_snapshot_with_intent(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     intent: SaveIntent,
@@ -160,7 +160,7 @@ pub(crate) fn write_session_snapshot_with_intent(
         .ok_or_else(|| "desk persistence barrier returned no outcome".to_string())
 }
 
-pub(crate) fn submit_session_snapshot_with_intent(
+pub fn submit_session_snapshot_with_intent(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     intent: SaveIntent,
@@ -192,7 +192,7 @@ pub fn install_storage_desk_adapter(
     worker.configure(WorkerMessage::InstallStorage(adapter))
 }
 
-pub(crate) fn set_storage_unavailable(
+pub fn set_storage_unavailable(
     app: &crate::app_runtime::AppHandle,
     reason: String,
 ) -> Result<(), String> {
@@ -200,7 +200,7 @@ pub(crate) fn set_storage_unavailable(
     worker.configure(WorkerMessage::Unavailable(reason))
 }
 
-pub(crate) fn start_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
+pub fn start_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     ensure_worker(app).map(|_| ())
 }
 
@@ -213,8 +213,8 @@ pub fn stop_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
         .map_err(|error| format!("desk persistence worker shutdown was not confirmed: {error}"))
 }
 
-#[cfg(test)]
-pub(crate) fn flush_session_persistence(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
+#[cfg(any(test, feature = "test-support"))]
+pub fn flush_session_persistence(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     ensure_worker(app)?.flush()
 }
 
@@ -304,7 +304,7 @@ impl SessionPersistenceWorker {
         self.mailbox.push(message)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn flush(&self) -> Result<(), String> {
         let (response, completion) = mpsc::channel();
         self.configure(WorkerMessage::Flush(response))?;
@@ -444,7 +444,7 @@ fn run_worker(
                 committed_desk = None;
                 mailbox.replay_before_pending(std::mem::take(&mut deferred));
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             WorkerMessage::Flush(response) => {
                 if matches!(&backend, PersistenceBackend::Pending) {
                     deferred.push_back(WorkerMessage::Flush(response));
@@ -463,7 +463,7 @@ fn run_worker(
                                 let _ = response.send(Err(reason.to_string()));
                             }
                         }
-                        #[cfg(test)]
+                        #[cfg(any(test, feature = "test-support"))]
                         WorkerMessage::Flush(response) => {
                             let _ = response.send(Err(reason.to_string()));
                         }
@@ -520,7 +520,7 @@ fn commit_request(
         }
         PersistenceBackend::Pending => Err("Storage desk backend is not initialized".to_string()),
         PersistenceBackend::Unavailable(reason) => Err(reason.clone()),
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         PersistenceBackend::Test(writer) => writer(request.revision),
     }
 }
@@ -674,7 +674,7 @@ fn desk_agent_session_identities(
     identities.into_values().collect()
 }
 
-pub(crate) fn persist_session_after_close(svc: &super::ServiceContext) {
+pub fn persist_session_after_close(svc: &super::ServiceContext) {
     if let Err(error) = submit_session_snapshot_with_intent(
         &svc.app_handle,
         &svc.mux,
@@ -684,7 +684,7 @@ pub(crate) fn persist_session_after_close(svc: &super::ServiceContext) {
     }
 }
 
-pub(crate) fn persist_session_after_mutation(
+pub fn persist_session_after_mutation(
     svc: &super::ServiceContext,
     urgency: SessionPersistUrgency,
 ) -> Result<(), String> {
@@ -710,3 +710,6 @@ impl super::ServiceContext {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod persistence_test_support;

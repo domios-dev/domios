@@ -4,9 +4,12 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { classifyInventory } from './ci-rust-classification.mjs';
+import { archiveTargets, loadReleaseRust } from './ci-rust-archives.mjs';
 
-const WORKSPACE = { lane: 'workspace', manifest: 'src-tauri/Cargo.toml', targets: ['--workspace', '--lib', '--exclude', 'codeterm-input-macos', '--exclude', 'codeterm-input-windows'] };
-const CLI = { lane: 'cli', manifest: 'cli/Cargo.toml', targets: ['--workspace'] };
+// The catalogue's release tier names every package and target, including path dependencies outside the workspace.
+const { runners: RELEASE_RUST } = loadReleaseRust(path.resolve(import.meta.dirname, '..'));
+const WORKSPACE = { lane: 'workspace', manifest: 'src-tauri/Cargo.toml', targets: archiveTargets('workspace', RELEASE_RUST) };
+const CLI = { lane: 'cli', manifest: 'cli/Cargo.toml', targets: archiveTargets('cli', RELEASE_RUST) };
 const INPUT = { lane: 'input', manifest: 'src-tauri/Cargo.toml', targets: ['--lib', '-p', 'codeterm-input-macos', '-p', 'codeterm-input-windows'], whole: true };
 // The full suite runs once on one runner; each OS runs only its cfg-gated tests and the native input crates.
 export const MODES = { full: [WORKSPACE, CLI], platform: [WORKSPACE, CLI, INPUT] };

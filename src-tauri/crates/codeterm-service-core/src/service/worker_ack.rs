@@ -197,7 +197,7 @@ pub struct PendingAgentStartupSupervisor {
     task_identity: Option<StartupTaskIdentity>,
 }
 
-pub(crate) fn is_agent_spawner(tab: &crate::multiplexer::types::Tab) -> bool {
+pub fn is_agent_spawner(tab: &crate::multiplexer::types::Tab) -> bool {
     tab.agent_type.is_some()
 }
 

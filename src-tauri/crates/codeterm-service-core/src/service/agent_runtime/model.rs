@@ -233,6 +233,7 @@ impl ItemCache {
         self.reconcile(item)
     }
     pub fn reconcile(&mut self, mut item: ChatMsg) -> ChatMsg {
+        item.refresh_segments();
         if let Some(index) = self.positions.get(&item.id).copied() {
             item.seq = self.items[index].seq;
             self.items[index] = item.clone();

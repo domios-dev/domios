@@ -13,45 +13,49 @@ pub(crate) async fn ingest(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let provider = state
-        .svc
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.agent_type.clone());
-    let context = provider.as_deref().and_then(|provider| {
-        state
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
+        let provider = state
             .svc
-            .agent_registry
-            .with_provider(provider, |provider| provider.parse_context_usage(&body))
-            .flatten()
-    });
-    let changed = if body
-        .pointer("/context_window/current_usage")
-        .is_some_and(Value::is_null)
-    {
-        update(
-            &state.svc,
-            &tab_id,
-            body.get("session_id")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
-            super::header_str(&headers, "x-codeterm-binding-nonce").unwrap_or_default(),
-            None,
-        )
-    } else {
-        context.is_some_and(|context| {
-            apply(
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.agent_type.clone());
+        let context = provider.as_deref().and_then(|provider| {
+            state
+                .svc
+                .agent_registry
+                .with_provider(provider, |provider| provider.parse_context_usage(&body))
+                .flatten()
+        });
+        let changed = if body
+            .pointer("/context_window/current_usage")
+            .is_some_and(Value::is_null)
+        {
+            update(
                 &state.svc,
                 &tab_id,
                 body.get("session_id")
                     .and_then(Value::as_str)
                     .unwrap_or_default(),
                 super::header_str(&headers, "x-codeterm-binding-nonce").unwrap_or_default(),
-                context,
+                None,
             )
-        })
-    };
-    Ok(Json(json!({"ok":true,"changed":changed})))
+        } else {
+            context.is_some_and(|context| {
+                apply(
+                    &state.svc,
+                    &tab_id,
+                    body.get("session_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                    super::header_str(&headers, "x-codeterm-binding-nonce").unwrap_or_default(),
+                    context,
+                )
+            })
+        };
+        Ok(Json(json!({"ok":true,"changed":changed})))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }

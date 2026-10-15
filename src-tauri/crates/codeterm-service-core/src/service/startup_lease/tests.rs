@@ -1,37 +1,9 @@
+use super::pair_fixture::PairFixture;
 use super::*;
 
 use codeterm_types::team::Team;
 
-struct PairFixture {
-    mux: MultiplexerState,
-    workspace_id: String,
-    team_id: String,
-    creator: String,
-    orchestrator: String,
-    planner: String,
-}
-
 impl PairFixture {
-    fn new() -> Self {
-        let (mut mux, creator) = MultiplexerState::new();
-        let workspace_id = mux.find_workspace_for_tab(&creator).unwrap();
-        let orchestrator = mux.create_tab(&workspace_id).unwrap();
-        let planner = mux.create_tab(&workspace_id).unwrap();
-        let team_id = mux
-            .resolve_or_mint_team_for_parent(&orchestrator)
-            .unwrap()
-            .team_id;
-        mux.get_tab_mut(&planner).unwrap().team_id = Some(team_id.clone());
-        Self {
-            mux,
-            workspace_id,
-            team_id,
-            creator,
-            orchestrator,
-            planner,
-        }
-    }
-
     fn lease(&self) -> StartupTeamLease {
         StartupTeamLease {
             team_id: self.team_id.clone(),
@@ -307,32 +279,4 @@ fn release_owned_reservation_detaches_only_its_own_members() {
         Some("team_other"),
         "a tab outside the reservation keeps its Team"
     );
-}
-
-#[test]
-fn normal_team_close_is_unchanged() {
-    let dir = tempfile::tempdir().unwrap();
-    let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
-    let events = codeterm_events::EventBroadcaster::new();
-    let mut fixture = PairFixture::new();
-    fixture
-        .mux
-        .set_orchestrator_role(&fixture.orchestrator)
-        .unwrap();
-    let team_id = fixture.team_id.clone();
-
-    let (closed, _cleanup, _) = crate::service::close_team_with_state_change(
-        &mut fixture.mux,
-        &events,
-        &plan_store,
-        &team_id,
-        &crate::service::TeamMutationCaller::AgentTab(fixture.orchestrator.clone()),
-        1,
-    )
-    .expect("an ordinary team close still cascades a forming, leased Team");
-
-    assert_eq!(closed.id, team_id);
-    assert!(fixture.mux.get_team(&team_id).is_none());
-    assert!(fixture.mux.get_tab(&fixture.orchestrator).is_none());
-    assert!(fixture.mux.get_tab(&fixture.planner).is_none());
 }

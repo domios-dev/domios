@@ -301,7 +301,7 @@ pub(super) fn dispatch(
                 .unwrap_or(true);
             // Resolve target via alias-aware lookup so short ids (`--tab ce9bce56`) and labels work.
             let resolved_target = {
-                let m = mux.write();
+                let m = mux.read();
                 require_send_target(&raw_tab_id, m.resolve_tab_id(&raw_tab_id))?
             };
             let source_tab = params
@@ -356,7 +356,7 @@ pub(super) fn dispatch(
             }
             let response = if let Some(src) = source_tab.as_deref() {
                 let (from_label, model, from_agent) = {
-                    let m = mux.write();
+                    let m = mux.read();
                     let source = m.get_tab(src);
                     (
                         m.display_label_for_tab(src),

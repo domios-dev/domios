@@ -233,7 +233,7 @@ async fn publish_api_recovery(
     );
 }
 
-pub(crate) fn start_api_liveness_watchdog(
+pub fn start_api_liveness_watchdog(
     app: crate::app_runtime::AppHandle,
     mesh: crate::MeshStateHandle,
     rest_api: crate::startup::RestApiControlState,

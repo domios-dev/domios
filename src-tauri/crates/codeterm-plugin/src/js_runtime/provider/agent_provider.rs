@@ -777,7 +777,11 @@ impl AgentProvider for JsProvider {
         session_id: &str,
         cursor: Option<&str>,
     ) -> codeterm_types::agent::chat_types::StructuredChat {
-        self.js_read_structured_chat(cwd, session_id, cursor)
+        let mut chat = self.js_read_structured_chat(cwd, session_id, cursor);
+        for message in &mut chat.messages {
+            message.refresh_segments();
+        }
+        chat
     }
 
     fn supports_chat_ui(&self) -> bool {

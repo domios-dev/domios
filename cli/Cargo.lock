@@ -494,6 +494,7 @@ version = "1.6.2"
 dependencies = [
  "codeterm-notify-types",
  "codeterm-provider-signals",
+ "codeterm-wire",
  "serde",
  "serde_json",
  "toml",
@@ -536,6 +537,10 @@ dependencies = [
 [[package]]
 name = "codeterm-wire"
 version = "1.6.2"
+dependencies = [
+ "serde",
+ "ts-rs",
+]
 
 [[package]]
 name = "colorchoice"

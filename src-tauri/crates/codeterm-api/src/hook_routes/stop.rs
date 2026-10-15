@@ -8,6 +8,7 @@ pub async fn hook_stop(
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || {
     let started = std::time::Instant::now();
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "stop")?;
     if let Some(response) = hook_authority::telemetry_response(&tab_id, "stop") {
@@ -105,4 +106,7 @@ pub async fn hook_stop(
         started.elapsed().as_millis()
     );
     Ok(response)
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed".to_string()))?
 }
