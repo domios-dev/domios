@@ -13,7 +13,7 @@ it("hosts the accessible waiting icon in the existing model row without an extra
   const root = createRoot(host);
   const label = "Fixture channel pending";
   const render = async (loading: boolean) => {
-    const row = chatChannelLoadingRow(loading, { kind: "none" });
+    const row = chatChannelLoadingRow(loading, { kind: "none" }, false);
     await act(async () => root.render(
       <AgentStateIndicator
         activity={tabActivity({ agent_state: { state: "idle" } })}

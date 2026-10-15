@@ -5,7 +5,7 @@
 .restore-progress-labels > span {
   grid-area: 1 / 1;
   opacity: 0;
-  transition: opacity 220ms ease;
+  transition: opacity var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
 }
 
 .restore-progress-labels > span[data-current="true"] {
@@ -26,7 +26,7 @@
   inset: 0;
   background: var(--ct-accent);
   opacity: 0;
-  transition: opacity 220ms ease;
+  transition: opacity var(--ct-duration-liquid-segmented) var(--ct-ease-liquid-settle);
 }
 
 .restore-progress-segment[data-state="complete"] > span {
@@ -36,7 +36,7 @@
 .restore-progress-segment[data-state="current"] > span {
   opacity: 1;
   background: linear-gradient(90deg, transparent, var(--ct-accent), transparent);
-  animation: restore-progress-flow 1.6s ease-in-out infinite;
+  animation: restore-progress-flow calc(var(--ct-duration-liquid-sweep) * 3) var(--ct-ease-liquid-settle) infinite;
 }
 
 @keyframes restore-progress-flow {

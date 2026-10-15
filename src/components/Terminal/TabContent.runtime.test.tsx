@@ -92,7 +92,7 @@ it("keeps the composer draft and attachment through runtime status changes", asy
 
 it("requests one wake when a sleeping tab becomes visible without awaiting materialization", async () => {
   const tab: Tab = {
-    id: "wake-visible-fixture", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, frozen: true,
+    id: "wake-visible-fixture", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, frozen: true, agent_type: "fixture",
   };
   const state: ExtendedState = {
     workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
@@ -123,10 +123,10 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
   try {
     await render(false);
     expect(calls).toEqual([]);
-    expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).not.toBeNull();
-    expect(host.querySelector('[role="img"][aria-label="Session provider icon"]')).not.toBeNull();
+    expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).toBeNull();
     await render(true);
     expect(calls).toEqual([tab.id]);
+    expect(host.querySelector('[role="img"][aria-label="Session provider icon"]')).not.toBeNull();
     expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
     await render(false);
     await render(true);

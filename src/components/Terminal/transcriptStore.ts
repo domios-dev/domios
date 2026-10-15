@@ -14,6 +14,7 @@ import { frameNotifications } from "./frameNotifications";
 export interface TranscriptWindow {
   transcript: TranscriptState;
   anchorKey: string | null;
+  snapshotBinding?: string;
 }
 
 /** The only committed-history store. It outlives the hook so a Terminal <-> Chat
@@ -37,6 +38,12 @@ export function transcriptWindowKey(tabId: string, agentSessionId: string | null
 
 export function readTranscriptWindow(key: string): TranscriptWindow {
   return windows.get(key) ?? EMPTY_WINDOW;
+}
+
+export function markTranscriptSnapshotReady(key: string, nonce: string | null | undefined): void {
+  const current = readTranscriptWindow(key);
+  const snapshotBinding = `${key}|${nonce ?? ""}`;
+  if (current.snapshotBinding !== snapshotBinding) publish(key, { ...current, snapshotBinding });
 }
 
 function evictUnsubscribedWindows(protectedKey?: string): void {
@@ -131,6 +138,7 @@ export function reconcileTranscriptWindow(
   const current = readTranscriptWindow(key);
   const { state, outcome } = reduceTranscript(current.transcript, batch);
   publish(key, {
+    ...current,
     transcript: state,
     anchorKey: outcome === "rotated" ? null : current.anchorKey,
   });
