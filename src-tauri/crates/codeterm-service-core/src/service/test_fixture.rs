@@ -11,7 +11,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanStore;
 
 pub fn install_test_runtime() {
-    crate::async_runtime::install(tauri::async_runtime::handle().inner().clone());
+    let _ = crate::async_runtime::handle();
 }
 
 pub struct ServiceFixture {
@@ -688,6 +688,22 @@ impl ServiceFixture {
 mod tests {
     use super::*;
     use tauri::{Emitter, Listener};
+
+    #[test]
+    fn fixture_configuration_and_weak_owner_are_initialized() {
+        let fixture = ServiceFixture::new(MultiplexerState::new().0);
+        fixture.set_agent_full_access(true);
+        assert_eq!(
+            fixture.service.configuration().agent.full_access,
+            Some(true)
+        );
+        let owner = fixture
+            .service
+            .ext::<std::sync::Weak<ServiceContext>>()
+            .upgrade()
+            .unwrap();
+        assert!(Arc::ptr_eq(&owner, &fixture._owner));
+    }
 
     #[test]
     fn recorded_ui_preserves_event_payloads_in_order() {

@@ -11,7 +11,7 @@ const SPAWN_QUIESCE_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// happen in the NEW process via `lib.rs::init_states` (snapshot reload) and
 /// `commands::spawn_pty` (auto-resume by `agent_session_id`).
 pub async fn graceful_shutdown(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     _initiating_tab_id: Option<&str>,
 ) -> Result<Vec<String>, String> {
     log::info!("[updater] graceful_shutdown: starting");
@@ -67,7 +67,7 @@ pub async fn graceful_shutdown(
 }
 
 async fn shutdown_storage_off_runtime(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), String> {
     let svc = app.state::<ServiceState>().inner().clone();
     let app = app.clone();

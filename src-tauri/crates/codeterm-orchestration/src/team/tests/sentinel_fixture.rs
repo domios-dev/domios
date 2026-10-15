@@ -10,7 +10,7 @@ use tauri::Manager;
 struct FixtureSentinels(Arc<Mutex<Store>>);
 
 pub(super) fn manage(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     store: &Arc<Mutex<Store>>,
 ) {
     let adapter = Arc::new(FixtureSentinels(store.clone()));
