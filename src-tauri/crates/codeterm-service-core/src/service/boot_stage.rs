@@ -177,6 +177,7 @@ pub(crate) fn provisional_launch_for(
         pty_id: pty_id.to_string(),
         binding_nonce: binding_nonce.to_string(),
         reason: reason.to_string(),
+        awaiting_binding_ack: false,
     })
 }
 
@@ -311,10 +312,11 @@ impl ServiceContext {
                     })
             };
             if let Some(attempt) = pending_binding {
-                self.record_provisional_launch(
+                self.record_provisional_launch_with_binding_wait(
                     &attempt,
                     BootStage::LaunchBindingUnconfirmed,
                     "current launch session binding has not been authenticated",
+                    true,
                 );
                 let binding = {
                     let mux = self.mux.read();
@@ -489,16 +491,32 @@ impl ServiceContext {
         stage: BootStage,
         reason: &str,
     ) {
+        self.record_provisional_launch_with_binding_wait(attempt, stage, reason, false);
+    }
+
+    fn record_provisional_launch_with_binding_wait(
+        &self,
+        attempt: &crate::service::launch_readiness::LaunchAttempt,
+        stage: BootStage,
+        reason: &str,
+        awaiting_binding_ack: bool,
+    ) {
         debug_assert!(stage.is_provisional());
         let recorded =
             self.record_boot_stage_transition(&attempt.tab_id, stage, Some(reason), |tab| {
-                apply_provisional_launch(
+                if !apply_provisional_launch(
                     tab,
                     &attempt.pty_id,
                     &attempt.binding_nonce,
                     stage,
                     reason,
-                )
+                ) {
+                    return false;
+                }
+                if let Some(launch) = tab.provisional_launch.as_mut() {
+                    launch.awaiting_binding_ack = awaiting_binding_ack;
+                }
+                true
             });
         if !recorded {
             log::info!(
