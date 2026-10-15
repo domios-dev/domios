@@ -6,7 +6,7 @@ use super::*;
 use crate::machine::regex_verdict;
 use codeterm_service_core::multiplexer::types::{PendingPrompt, PromptOption};
 
-const RECIPES_DOC: &str = include_str!("../../../../../prod-docs/BLUEPRINT-RECIPES.md");
+const RECIPES_DOC: &str = include_str!("../../../../prod-docs/BLUEPRINT-RECIPES.md");
 
 fn recipe_matches() -> BTreeMap<String, String> {
     let (_, block) = RECIPES_DOC
