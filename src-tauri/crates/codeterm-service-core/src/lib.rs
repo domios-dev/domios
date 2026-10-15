@@ -93,6 +93,10 @@ pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
+pub fn register_orchestration() {
+    service::register_orchestration();
+}
+
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
 pub fn run(
@@ -617,6 +621,7 @@ pub fn run(
             extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new()))));
             extensions.insert(crate::service::CartographerAttachLocks(Default::default()));
             extensions.insert(crate::service::OrchestratorAttachLocks(Default::default()));
+            extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
             extensions.insert::<crate::ShellCapabilityState>(Arc::new(parking_lot::Mutex::new(Default::default())));
             extensions.insert::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(Arc::new(crate::service::protocol_recorder::ProtocolRecorder::new(
                     crate::paths::data_dir().join("logs/protocol"),
@@ -728,6 +733,7 @@ pub fn run(
             };
             crate::service::supporter::runtime_with_notifications(&svc_ctx);
             let service_state: ServiceState = Arc::new(svc_ctx);
+            crate::ports::orchestration::install(&service_state);
             service_state.chat_send_ledger.bind_settlement_owner(&service_state);
             {
                 let service = service_state.clone();

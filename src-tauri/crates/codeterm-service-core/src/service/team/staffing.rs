@@ -81,19 +81,17 @@ where
     Ok(attachment)
 }
 
-impl ServiceContext {
-    pub(crate) async fn reuse_cartographer_with_brief(
-        &self,
-        attachment: AddTeamMemberResult,
-        brief: Option<String>,
-    ) -> Result<AddTeamMemberResult, String> {
-        deliver_reused_cartographer(attachment, brief, |tab: String, brief: String| async move {
-            self.send_text_when_ready(&tab, &brief)
-                .await
-                .map_err(|error| error.to_string())
-        })
-        .await
-    }
+pub(crate) async fn reuse_cartographer_with_brief(
+    svc: &ServiceContext,
+    attachment: AddTeamMemberResult,
+    brief: Option<String>,
+) -> Result<AddTeamMemberResult, String> {
+    deliver_reused_cartographer(attachment, brief, |tab: String, brief: String| async move {
+        svc.send_text_when_ready(&tab, &brief)
+            .await
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 /// Where the Team's plan landed when an added anchor took it over.

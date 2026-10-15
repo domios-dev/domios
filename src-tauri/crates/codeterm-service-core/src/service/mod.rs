@@ -79,6 +79,8 @@ pub(crate) mod notification_push;
 pub(crate) mod open_url;
 pub use open_url::open_url as open_url_open_url;
 pub mod orchestration_pair;
+mod orchestration_port;
+pub(crate) use orchestration_port::register_orchestration;
 pub(crate) mod orchestrator;
 pub mod ordered_actions;
 pub mod parked_user_delivery;
@@ -155,6 +157,7 @@ mod restored_binding;
 mod role_identity;
 pub mod role_preset;
 pub mod role_profile;
+mod role_target;
 mod session_backup;
 pub mod session_binding_deferral;
 mod session_binding_state;
@@ -218,6 +221,7 @@ pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 pub mod team;
+mod team_core;
 #[cfg(any(test, feature = "test-support"))]
 pub use team::close_team_with_state_change;
 #[cfg(any(test, feature = "test-support"))]
@@ -294,11 +298,16 @@ pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
 };
+pub use orchestration_pair::{
+    bind_pending_paired_planner, tab_has_pending_paired_planner, OrchestrationPairExt,
+};
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::arm_provider_session_for_test;
+pub use orchestrator::batch;
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::launch_waits_for_first_turn_binding;
+pub use orchestrator::refresh::{maybe_refresh_after_reflection, orchestrator_refresh};
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::spawn_onboarding_task;
 pub use orchestrator::{
@@ -309,6 +318,11 @@ pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,
 };
+#[cfg(test)]
+pub(crate) use orchestrator_onboard::deliver_orchestrator_onboarding;
+pub use orchestrator_onboard::{
+    make_orchestrator, maybe_deliver_orchestrator_promotion_onboarding,
+};
 pub use plan_authority::{
     ensure_planner_task_fields_are_structural, launch_binding_is_pending,
     planner_forbidden_task_field, AuthenticatedPlanCaller, OrchestratorLearningError,
@@ -318,10 +332,16 @@ pub use session_binding_state::SessionBindingState;
 pub use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
-pub use team::TeamMutationCaller;
-pub use team::TeamPlanError;
+pub use team::{
+    add_team_member, adopt_agent_for_team, adopt_plan_for_team, resume_team_plan,
+    transfer_team_plan, unarchive_team_plan, validate_active_team_plan_bindings,
+    validate_plan_team_binding, TeamExt,
+};
+pub(crate) use team::{live_team_ids, reconcile_dangling_team_plan_bindings_and_emit};
 pub use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
 pub use team::{CartographerAttachLocks, OrchestratorAttachLocks};
+pub use team_core::TeamMutationCaller;
+pub use team_core::TeamPlanError;
 pub use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
     respawn_title_provenance, restore_attempt_binding_for_caller, restore_attempt_binding_for_mux,
@@ -849,8 +869,9 @@ impl ServiceContext {
                 .0
                 .lock()
                 .insert(project_root.clone());
-            let live_team_ids = self.live_team_ids();
-            self.reconcile_dangling_team_plan_bindings(
+            let orchestration = crate::ports::orchestration::installed(&self.extensions);
+            let live_team_ids = orchestration.live_team_ids();
+            orchestration.reconcile_dangling_team_plan_bindings(
                 &live_team_ids,
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

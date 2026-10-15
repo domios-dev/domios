@@ -1,3 +1,4 @@
+use codeterm_service_core::service::TeamExt;
 use codeterm_service_core::service::{ServiceState, TeamMutationCaller};
 use codeterm_types::team::Team;
 #[cfg(test)]
@@ -40,7 +41,8 @@ pub async fn mux_add_team_member_service_core(
 ) -> Result<codeterm_service_core::service::AddTeamMemberResult, String> {
     // No caller is the bootstrap door: a human placing the first manager into a Team
     // whose members cannot spawn. The service refuses it for any non-anchoring role.
-    svc.add_team_member(
+    codeterm_service_core::service::add_team_member(
+        svc,
         &team_id,
         caller_tab_id.as_deref(),
         codeterm_service_core::service::AddTeamMemberParams {

@@ -1,5 +1,6 @@
 use super::{close, started};
 use crate::multiplexer::state::MultiplexerState;
+use crate::service::TeamExt;
 use crate::service::{TeamMutationCaller, TeamPlanCaller};
 use crate::session::store::StorageDeskAdapter;
 
@@ -498,10 +499,7 @@ fn team_create_round_trip_expected_red() {
     }
     mux.set_orchestrator_role(&tab_id).unwrap();
     let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
-    instance
-        .fixture
-        .service
-        .deliver_orchestrator_onboarding(&tab_id);
+    crate::service::deliver_orchestrator_onboarding(&instance.fixture.service, &tab_id);
     let team_id = instance
         .fixture
         .service

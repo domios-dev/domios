@@ -1,3 +1,4 @@
+use codeterm_service_core::service::TeamExt;
 use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},

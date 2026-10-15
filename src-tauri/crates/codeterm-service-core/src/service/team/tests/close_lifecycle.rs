@@ -2,6 +2,7 @@ use super::*;
 use crate::multiplexer::types::TabBacking;
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
+use crate::service::TeamExt;
 use std::fs;
 use std::path::Path;
 use std::process::Command;

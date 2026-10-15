@@ -108,7 +108,7 @@ impl ServiceContext {
             workspace,
             team,
             id.clone(),
-            super::team::now_ms(),
+            super::team_core::now_ms(),
         )?;
         let team_ids: HashSet<_> = record.teams.iter().map(|team| team.id.as_str()).collect();
         let plans = self
@@ -305,7 +305,7 @@ impl ServiceContext {
     fn restore_history_plans(&self, resources: &Resources) -> Result<(), String> {
         for saved in &resources.plans {
             self.plan_store
-                .with_plan(&saved.id, super::team::now_ms(), |current| {
+                .with_plan(&saved.id, super::team_core::now_ms(), |current| {
                     restore_plan_metadata(current, saved);
                     Ok(())
                 })

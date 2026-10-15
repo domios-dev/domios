@@ -1,9 +1,10 @@
 //! `orchestration.*` JSON-RPC handlers — paired Orchestrator+Planner creation
 //! (task_7e5f9354), the CLI/socket twin of the REST + Tauri pair-creation
 //! endpoints. All three transports call the same
-//! `ServiceContext::create_orchestration_pair`.
+//! `OrchestrationPairExt::create_orchestration_pair`.
 
 use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_service_core::service::OrchestrationPairExt;
 use serde_json::Value;
 
 use codeterm_service_core::service::{OrchestrationPairParams, ServiceState};

@@ -10,7 +10,7 @@ use tauri::Manager;
 
 use super::plan::pause_operation::{open_pause_operation, PlanPauseBegin, PlanResumeBegin};
 use super::plan::{PlanError, PlanStore};
-use super::team::TeamPlanError;
+use super::team_core::TeamPlanError;
 use super::ServiceContext;
 use crate::cron::store::CronJob;
 use crate::multiplexer::state::MultiplexerState;
@@ -593,10 +593,7 @@ impl ServiceContext {
         plan_id: &str,
         now_ms: u64,
     ) -> Result<PlanLifecycleOutcome, TeamPlanError> {
-        {
-            let mux = self.mux.read();
-            self.valid_live_plan_team(&mux, plan_id)?;
-        }
+        crate::ports::orchestration::installed(&self.extensions).valid_live_plan_team(plan_id)?;
         let plan = self.lifecycle_plan(plan_id)?;
         let live = self.live_recorded_agents(&plan);
         let outcome = execute_plan_resume(
