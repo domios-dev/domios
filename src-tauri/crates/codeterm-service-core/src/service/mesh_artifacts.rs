@@ -103,7 +103,7 @@ fn rewrite(
     Ok(output)
 }
 
-pub(crate) async fn transfer(
+pub async fn transfer(
     client: &PeerClient,
     method: &str,
     path: &str,

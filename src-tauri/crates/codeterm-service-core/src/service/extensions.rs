@@ -69,6 +69,7 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<AnalyticsCell>(),
         key::<CartographerAttachLocks>(),
         key::<OrchestratorAttachLocks>(),
+        key::<crate::ports::orchestration::InstalledOrchestration>(),
         key::<crate::ShellCapabilityState>(),
         key::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(),
         key::<Arc<crate::mem::supervisor::Supervisor>>(),

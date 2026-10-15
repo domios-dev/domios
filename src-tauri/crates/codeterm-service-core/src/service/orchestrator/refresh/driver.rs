@@ -94,94 +94,97 @@ struct TabCtx {
     session_id: Option<String>,
 }
 
-impl ServiceContext {
-    /// Kick off the verified-ordered refresh cycle for `tab_id`. Returns
-    /// immediately; the S1..S5 machine runs on a background thread. Idempotent:
-    /// a second call for a tab already refreshing coalesces.
-    pub fn orchestrator_refresh(&self, req: RefreshRequest) -> RefreshOutcome {
-        let Some(ctx) = self.resolve_refresh_tab(&req.tab_id) else {
-            return RefreshOutcome::NotEligible;
-        };
-        if !active().lock().insert(ctx.tab_id.clone()) {
-            return RefreshOutcome::Coalesced;
-        }
-        let svc = self.clone();
-        std::thread::spawn(move || {
-            run_cycle(&svc, &req, &ctx);
-            active().lock().remove(&ctx.tab_id);
-        });
-        RefreshOutcome::Started
+/// Kick off the verified-ordered refresh cycle for `tab_id`. Returns
+/// immediately; the S1..S5 machine runs on a background thread. Idempotent:
+/// a second call for a tab already refreshing coalesces.
+pub fn orchestrator_refresh(service_ctx: &ServiceContext, req: RefreshRequest) -> RefreshOutcome {
+    let Some(ctx) = resolve_refresh_tab(service_ctx, &req.tab_id) else {
+        return RefreshOutcome::NotEligible;
+    };
+    if !active().lock().insert(ctx.tab_id.clone()) {
+        return RefreshOutcome::Coalesced;
     }
+    let svc = service_ctx.clone();
+    std::thread::spawn(move || {
+        run_cycle(&svc, &req, &ctx);
+        active().lock().remove(&ctx.tab_id);
+    });
+    RefreshOutcome::Started
+}
 
-    /// Post-reflection trigger (config-gated OFF). Fires a refresh only after a
-    /// reflection block's learning is recorded — keyed on the `reflection` tag so
-    /// ordinary `orchestrator learn` calls never trip it.
-    pub fn maybe_refresh_after_reflection(&self, tab_id: &str, plan_id: &str, tag: Option<&str>) {
-        if tag != Some("reflection") {
-            return;
-        }
-        if !self.configuration().orchestration.refresh.after_reflection {
-            return;
-        }
-        let req = RefreshRequest::from_config(
-            &self.configuration(),
-            tab_id.to_string(),
-            plan_id.to_string(),
-            RefreshTrigger::AfterReflection,
-        );
-        self.orchestrator_refresh(req);
+/// Post-reflection trigger (config-gated OFF). Fires a refresh only after a
+/// reflection block's learning is recorded — keyed on the `reflection` tag so
+/// ordinary `orchestrator learn` calls never trip it.
+pub fn maybe_refresh_after_reflection(
+    svc: &ServiceContext,
+    tab_id: &str,
+    plan_id: &str,
+    tag: Option<&str>,
+) {
+    if tag != Some("reflection") {
+        return;
     }
-
-    fn resolve_refresh_tab(&self, tab_id: &str) -> Option<TabCtx> {
-        let mux = self.mux.read();
-        let resolved = mux
-            .resolve_tab_id(tab_id)
-            .unwrap_or_else(|| tab_id.to_string());
-        let tab = mux.get_tab(&resolved)?;
-        let pty_id = tab.pty_id.clone()?;
-        let agent_type = tab.agent_type.clone()?;
-        Some(TabCtx {
-            tab_id: resolved,
-            pty_id,
-            agent_type,
-            session_id: tab.agent_session_id.clone(),
-        })
+    if !svc.configuration().orchestration.refresh.after_reflection {
+        return;
     }
+    let req = RefreshRequest::from_config(
+        &svc.configuration(),
+        tab_id.to_string(),
+        plan_id.to_string(),
+        RefreshTrigger::AfterReflection,
+    );
+    orchestrator_refresh(svc, req);
+}
 
-    fn tab_status(&self, pty_id: &str) -> TabStatus {
-        self.agent_tracker.lock().get_status(pty_id)
-    }
+fn resolve_refresh_tab(svc: &ServiceContext, tab_id: &str) -> Option<TabCtx> {
+    let mux = svc.mux.read();
+    let resolved = mux
+        .resolve_tab_id(tab_id)
+        .unwrap_or_else(|| tab_id.to_string());
+    let tab = mux.get_tab(&resolved)?;
+    let pty_id = tab.pty_id.clone()?;
+    let agent_type = tab.agent_type.clone()?;
+    Some(TabCtx {
+        tab_id: resolved,
+        pty_id,
+        agent_type,
+        session_id: tab.agent_session_id.clone(),
+    })
+}
 
-    fn screen_tail(&self, pty_id: &str) -> String {
-        self.screen_state
-            .lock()
-            .tail_text(pty_id, TAIL_ROWS)
-            .unwrap_or_default()
-    }
+fn tab_status(svc: &ServiceContext, pty_id: &str) -> TabStatus {
+    svc.agent_tracker.lock().get_status(pty_id)
+}
 
-    /// Max handoff element seq currently on the plan — the S1 readback baseline.
-    fn max_handoff_seq(&self, plan_id: &str) -> u64 {
-        self.plan_store
-            .list_handoffs(plan_id)
-            .ok()
-            .and_then(|items| items.iter().map(|h| h.seq).max())
-            .unwrap_or(0)
-    }
+fn screen_tail(svc: &ServiceContext, pty_id: &str) -> String {
+    svc.screen_state
+        .lock()
+        .tail_text(pty_id, TAIL_ROWS)
+        .unwrap_or_default()
+}
 
-    fn inject(&self, tab_id: &str, body: &str, marked: bool) {
-        let envelope = if marked {
-            MessageEnvelope::reminder("Domios Refresh", "")
-        } else {
-            MessageEnvelope::tab("", "")
-        };
-        if let Err(e) = self.gateway_deliver(
-            tab_id,
-            envelope,
-            body,
-            crate::service::message_gateway::DeliveryClass::SystemNotice,
-        ) {
-            log::warn!("[refresh] inject failed tab={} err={}", short(tab_id), e);
-        }
+/// Max handoff element seq currently on the plan — the S1 readback baseline.
+fn max_handoff_seq(svc: &ServiceContext, plan_id: &str) -> u64 {
+    svc.plan_store
+        .list_handoffs(plan_id)
+        .ok()
+        .and_then(|items| items.iter().map(|h| h.seq).max())
+        .unwrap_or(0)
+}
+
+fn inject(svc: &ServiceContext, tab_id: &str, body: &str, marked: bool) {
+    let envelope = if marked {
+        MessageEnvelope::reminder("Domios Refresh", "")
+    } else {
+        MessageEnvelope::tab("", "")
+    };
+    if let Err(e) = svc.gateway_deliver(
+        tab_id,
+        envelope,
+        body,
+        crate::service::message_gateway::DeliveryClass::SystemNotice,
+    ) {
+        log::warn!("[refresh] inject failed tab={} err={}", short(tab_id), e);
     }
 }
 
@@ -200,7 +203,7 @@ fn log_phase(ctx: &TabCtx, trigger: RefreshTrigger, phase: RefreshPhase) {
 }
 
 fn run_cycle(svc: &ServiceContext, req: &RefreshRequest, ctx: &TabCtx) {
-    let baseline_seq = svc.max_handoff_seq(&req.plan_id);
+    let baseline_seq = max_handoff_seq(svc, &req.plan_id);
     let mut phase = RefreshPhase::HandoffSnapshot;
     let mut phase_started = Instant::now();
     let cycle_started = Instant::now();
@@ -209,7 +212,8 @@ fn run_cycle(svc: &ServiceContext, req: &RefreshRequest, ctx: &TabCtx) {
 
     // S1 entry: request the pre-compaction snapshot.
     log_phase(ctx, req.trigger, phase);
-    svc.inject(
+    inject(
+        svc,
         &ctx.tab_id,
         &template::render(HANDOFF_REQUEST, &req.plan_id),
         true,
@@ -246,7 +250,7 @@ fn run_cycle(svc: &ServiceContext, req: &RefreshRequest, ctx: &TabCtx) {
                     "[refresh] tab={} resumption not observed — single re-nudge",
                     short(&ctx.tab_id)
                 );
-                svc.inject(&ctx.tab_id, &reorient_needle, true);
+                inject(svc, &ctx.tab_id, &reorient_needle, true);
                 renudged = true;
                 phase_started = Instant::now();
             }
@@ -285,23 +289,23 @@ fn build_observation(
     };
     match phase {
         RefreshPhase::HandoffSnapshot => {
-            obs.handoff_landed = svc.max_handoff_seq(&req.plan_id) > baseline_seq;
+            obs.handoff_landed = max_handoff_seq(svc, &req.plan_id) > baseline_seq;
         }
         RefreshPhase::CompactSettle => {
             let parked = matches!(
-                svc.tab_status(&ctx.pty_id),
+                tab_status(svc, &ctx.pty_id),
                 TabStatus::Idle | TabStatus::Waiting
             );
-            obs.settle_detected = parked && compaction_signature(&svc.screen_tail(&ctx.pty_id));
+            obs.settle_detected = parked && compaction_signature(&screen_tail(svc, &ctx.pty_id));
         }
         RefreshPhase::Reorient => {
             // Delivered == the injected body drained from the composer (submitted).
-            let tail = svc.screen_tail(&ctx.pty_id);
+            let tail = screen_tail(svc, &ctx.pty_id);
             obs.reorient_delivered =
                 !reorient_needle.is_empty() && !screen_contains_echo(&tail, reorient_needle);
         }
         RefreshPhase::VerifyResumption => {
-            obs.resumption_observed = matches!(svc.tab_status(&ctx.pty_id), TabStatus::Working);
+            obs.resumption_observed = matches!(tab_status(svc, &ctx.pty_id), TabStatus::Working);
         }
         RefreshPhase::Compact => {}
     }
@@ -322,7 +326,7 @@ fn enter_phase(
                 &req.plan_id,
                 &template::render(REORIENT, &req.plan_id),
             );
-            svc.inject(&ctx.tab_id, &body, true);
+            inject(svc, &ctx.tab_id, &body, true);
             *reorient_needle = body;
         }
         // Settle / Verify only start a timer; no entry side-effect.
@@ -337,7 +341,7 @@ fn send_compact(svc: &ServiceContext, _req: &RefreshRequest, ctx: &TabCtx) {
     let provider = svc.agent_registry.provider_arc(&ctx.agent_type);
     let compact = provider.as_ref().and_then(|p| p.compact_command());
     if let Some(cmd) = compact {
-        svc.inject(&ctx.tab_id, cmd, false);
+        inject(svc, &ctx.tab_id, cmd, false);
         log::info!(
             "[refresh] tab={} compact mode=A cmd={}",
             short(&ctx.tab_id),

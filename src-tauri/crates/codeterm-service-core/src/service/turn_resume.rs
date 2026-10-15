@@ -20,12 +20,12 @@ use super::ServiceContext;
 #[cfg(test)]
 mod tests;
 
-pub(crate) const DEFAULT_CONTINUE: &str =
+pub const DEFAULT_CONTINUE: &str =
     "Domios restarted while you were working. Continue the work you were doing.";
 /// Bounded failure deadline for owed tabs to come back agent-ready; never readiness.
 const READY_DEADLINE: Duration = Duration::from_secs(300);
 
-pub(crate) const DISABLED: &str = "disabled";
+pub const DISABLED: &str = "disabled";
 pub(crate) const NO_PTY_AGENT_SESSION: &str = "no_pty_agent_session";
 pub(crate) const NO_AGENT_SESSION: &str = "no_agent_session";
 pub(crate) const SPAWN_FAILED: &str = "spawn_failed";
@@ -35,8 +35,8 @@ pub(crate) const AGENT_NOT_READY: &str = "agent_not_ready";
 pub(crate) const CLAIM_NOT_PERSISTED: &str = "claim_not_persisted";
 pub(crate) const SESSION_CHANGED: &str = "session_changed_before_send";
 pub(crate) const SEND_REFUSED: &str = "send_refused";
-pub(crate) const CALLER_TAB_REQUIRED: &str = "caller_tab_required";
-pub(crate) const NOT_CALLER_TAB: &str = "not_caller_tab";
+pub const CALLER_TAB_REQUIRED: &str = "caller_tab_required";
+pub const NOT_CALLER_TAB: &str = "not_caller_tab";
 pub(crate) const AFTER_UPDATE_NOT_PERSISTED: &str = "after_update_not_persisted";
 pub(crate) const AFTER_UPDATE_NOT_CONSUMED: &str = "after_update_not_consumed";
 
@@ -241,7 +241,7 @@ impl Wave {
         }
     }
 
-    pub(crate) fn is_pending(&self, tab_id: &str) -> bool {
+    pub fn is_pending(&self, tab_id: &str) -> bool {
         self.pending.lock().contains(tab_id)
     }
 
@@ -249,7 +249,7 @@ impl Wave {
         self.pending.lock().iter().cloned().collect()
     }
 
-    pub(crate) fn finish(&self, tab_id: &str) {
+    pub fn finish(&self, tab_id: &str) {
         let mut pending = self.pending.lock();
         if pending.remove(tab_id) && pending.is_empty() {
             self.drained.notify_all();
@@ -307,7 +307,7 @@ fn settle_deadline(
 static WAVE: std::sync::OnceLock<Wave> = std::sync::OnceLock::new();
 
 /// Arm this start's wave after unconditional tab restore.
-pub(crate) fn arm(svc: &ServiceContext) {
+pub fn arm(svc: &ServiceContext) {
     let Some(start_epoch) = crate::crash::lifecycle::current_start_epoch() else {
         return;
     };
@@ -460,7 +460,7 @@ impl ServiceContext {
     }
 
     /// Ask the next start to continue the authenticated caller's own session.
-    pub(crate) fn request_turn_resume_for_caller(
+    pub fn request_turn_resume_for_caller(
         &self,
         caller_tab_id: &str,
         tab_id: &str,
@@ -497,10 +497,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn suppress_turn_resume_for_caller(
-        &self,
-        caller_tab_id: &str,
-    ) -> Result<bool, String> {
+    pub fn suppress_turn_resume_for_caller(&self, caller_tab_id: &str) -> Result<bool, String> {
         let start_epoch =
             crate::crash::lifecycle::current_start_epoch().ok_or("start epoch is not recorded")?;
         let changed = {
@@ -530,7 +527,7 @@ impl ServiceContext {
         Ok(changed)
     }
 
-    pub(crate) fn withdraw_turn_resume_request(
+    pub fn withdraw_turn_resume_request(
         &self,
         caller_tab_id: &str,
         tab_id: &str,

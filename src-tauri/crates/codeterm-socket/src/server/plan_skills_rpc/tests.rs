@@ -1,0 +1,614 @@
+use super::*;
+use codeterm_service_core::multiplexer::state::MultiplexerState;
+use codeterm_service_core::plan::{OrchestratorRef, PlanSkillManifestEntry, PlannerRef};
+use codeterm_service_core::service::plan::paths::{plan_dir, plan_sidecar_root};
+use codeterm_service_core::service::plan::PlanStore;
+use codeterm_service_core::service::test_fixture::ServiceFixture;
+use codeterm_service_core::service::ServiceState;
+use std::sync::Arc;
+
+fn add_task(store: &PlanStore, plan_id: &str, name: &str) -> String {
+    store
+        .add_task(
+            plan_id,
+            codeterm_service_core::service::plan::NewTask {
+                name: name.into(),
+                kind: "task".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap()
+}
+
+fn rpc(store: &PlanStore, method: &str, params: Value) -> Result<Value, JsonRpcError> {
+    dispatch_store(method, &Some(params), store)
+}
+
+#[test]
+fn plan_skills_rpc_uses_daemon_plan_project_outside_caller_cwd() {
+    let daemon_root = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let caller = tempfile::tempdir().unwrap();
+    codeterm_service_core::service::plan::paths::mark_test_project_root(project.path());
+    let store = PlanStore::new_for_test(daemon_root.path());
+    let plan = store
+        .create_plan_for_team(
+            "Skills".into(),
+            project.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            "team-skills".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+
+    let created = rpc(
+        &store,
+        "plan.skills.new",
+        json!({
+            "plan_id": plan.id,
+            "slug": "Deploy Safely",
+            "title": "Safe Deploy",
+            "area": "release",
+            "check": "./scripts/check.sh",
+            "rationale": "accepted fixture"
+        }),
+    )
+    .unwrap();
+    assert_eq!(created["plan_id"], plan.id);
+    assert_eq!(created["skill"]["slug"], "deploy-safely");
+    assert_eq!(created["skill"]["title"], "Safe Deploy");
+    assert_eq!(created["skill"]["check"], "./scripts/check.sh");
+    assert_eq!(created["skill"]["verdict"], "keep");
+    assert_eq!(created["skill"]["ledger_seq"], 1);
+
+    let listed = rpc(&store, "plan.skills.list", json!({ "plan_id": plan.id })).unwrap();
+    assert_eq!(listed["plan_id"], plan.id);
+    assert_eq!(listed["skills"][0]["slug"], "deploy-safely");
+    assert_eq!(listed["skills"][0]["title"], "Safe Deploy");
+    assert_eq!(listed["skills"][0]["check"], "./scripts/check.sh");
+    assert_eq!(listed["skills"][0]["verdict"], "keep");
+
+    let shown = rpc(
+        &store,
+        "plan.skills.show",
+        json!({ "plan_id": plan.id, "slug": "Deploy Safely" }),
+    )
+    .unwrap();
+    assert_eq!(shown["plan_id"], plan.id);
+    assert_eq!(shown["skill"]["title"], "Safe Deploy");
+    assert!(shown["skill"]["body"]
+        .as_str()
+        .unwrap()
+        .contains("check: ./scripts/check.sh"));
+    assert_eq!(shown["skill"]["ledger"][0]["seq"], 1);
+    assert_eq!(shown["skill"]["ledger"][0]["verdict"], "keep");
+    assert_eq!(shown["skill"]["ledger"][0]["rationale"], "accepted fixture");
+
+    let plan_dir = plan_dir(plan_sidecar_root(&plan), &plan.status, &plan.id).unwrap();
+    assert_eq!(
+        std::fs::read_dir(plan_dir.join("skills"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().is_dir())
+            .count(),
+        1
+    );
+    assert_eq!(std::fs::read_dir(caller.path()).unwrap().count(), 0);
+}
+
+/// codeterm#396: the heartbeat's own skill registry — the exact structure
+/// `render_heartbeat` reads from, not rendered prose — must contain a
+/// skill written through the daemon-side write path. Asserted by slug.
+#[test]
+fn plan_skill_write_is_visible_to_the_heartbeat_registry_by_slug() {
+    let daemon_root = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    codeterm_service_core::service::plan::paths::mark_test_project_root(project.path());
+    let store = PlanStore::new_for_test(daemon_root.path());
+    let plan = store
+        .create_plan_for_team(
+            "Skills".into(),
+            project.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            "team-heartbeat-visibility".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+
+    rpc(
+        &store,
+        "plan.skills.new",
+        json!({
+            "plan_id": plan.id,
+            "slug": "issue-verdict-evidence",
+            "rationale": "written for heartbeat visibility regression"
+        }),
+    )
+    .unwrap();
+
+    let refreshed = store.get(&plan.id).unwrap();
+    let summaries =
+        codeterm_service_core::service::plan::skill_registry::list_plan_skill_summaries(&refreshed);
+    assert!(
+        summaries.iter().any(|s| s.slug == "issue-verdict-evidence"),
+        "a just-written plan skill must be visible to the heartbeat's skill registry: {summaries:?}"
+    );
+}
+
+#[test]
+fn plan_skills_rpc_failures_are_structured_and_atomic() {
+    let daemon_root = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    codeterm_service_core::service::plan::paths::mark_test_project_root(project.path());
+    let store = PlanStore::new_for_test(daemon_root.path());
+    let plan = store
+        .create_plan_for_team(
+            "Skills".into(),
+            project.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            "team-skills-failures".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+
+    let invalid = rpc(
+        &store,
+        "plan.skills.new",
+        json!({ "plan_id": plan.id, "slug": "!!!" }),
+    )
+    .unwrap_err();
+    assert_eq!(
+        invalid.data.unwrap()["type"],
+        serde_json::json!("invalid_plan_skill_slug")
+    );
+
+    rpc(
+        &store,
+        "plan.skills.new",
+        json!({ "plan_id": plan.id, "slug": "deploy" }),
+    )
+    .unwrap();
+    let duplicate = rpc(
+        &store,
+        "plan.skills.new",
+        json!({ "plan_id": plan.id, "slug": "deploy" }),
+    )
+    .unwrap_err();
+    assert_eq!(
+        duplicate.data.unwrap()["type"],
+        serde_json::json!("plan_skill_already_exists")
+    );
+    let shown = rpc(
+        &store,
+        "plan.skills.show",
+        json!({ "plan_id": plan.id, "slug": "deploy" }),
+    )
+    .unwrap();
+    assert_eq!(shown["skill"]["ledger"].as_array().unwrap().len(), 1);
+
+    // Plan-skill refusals must retain the machine-readable exit signal used by other plan RPCs.
+    let unknown = rpc(
+        &store,
+        "plan.skills.list",
+        json!({ "plan_id": "plan_missing" }),
+    )
+    .unwrap_err();
+    assert_eq!(unknown.code, crate::server::error_codes::NOT_FOUND);
+    let unknown_data = unknown.data.unwrap();
+    assert_eq!(unknown_data["type"], "ref_not_found");
+    assert_eq!(unknown_data["kind"], "plan");
+
+    let unknown_show = rpc(
+        &store,
+        "plan.skills.show",
+        json!({ "plan_id": "plan_missing", "slug": "deploy" }),
+    )
+    .unwrap_err();
+    assert_eq!(unknown_show.code, crate::server::error_codes::NOT_FOUND);
+    assert_eq!(unknown_show.data.unwrap()["type"], "ref_not_found");
+
+    let failing_plan = store
+        .create_plan_for_team(
+            "Write failure".into(),
+            project.path().display().to_string(),
+            OrchestratorRef::from_tab("orch-failure"),
+            "team-skills-write-failure".into(),
+            vec![],
+            2,
+        )
+        .unwrap();
+    let failing_dir = plan_dir(
+        plan_sidecar_root(&failing_plan),
+        &failing_plan.status,
+        &failing_plan.id,
+    )
+    .unwrap();
+    std::fs::write(failing_dir.join("skills"), "blocked").unwrap();
+    let write_error = rpc(
+        &store,
+        "plan.skills.new",
+        json!({ "plan_id": failing_plan.id, "slug": "blocked" }),
+    )
+    .unwrap_err();
+    assert_eq!(write_error.data.unwrap()["type"], serde_json::json!("io"));
+    assert!(failing_dir.join("skills").is_file());
+    assert!(!failing_dir.join("skills").join("blocked").exists());
+    assert!(!failing_dir.join("skills").join("ledger.jsonl").exists());
+}
+
+const CALLER_NONCE: &str = "nonce-live-5upl98";
+const CALLER_SESSION: &str = "session-live-5upl98";
+const CALLER_SKILL: &str = "verify-before-claim";
+
+/// A task-bound Worker as production leaves it: the tab holds the issued and
+/// echoed nonce, and the session id exists only there, never in the env.
+struct LiveCaller {
+    svc: ServiceState,
+    plan_id: String,
+    task_id: String,
+    attempt_id: String,
+    _fixture: ServiceFixture,
+    _project: tempfile::TempDir,
+}
+
+impl LiveCaller {
+    fn new() -> Self {
+        let project = tempfile::tempdir().unwrap();
+        codeterm_service_core::service::plan::paths::mark_test_project_root(project.path());
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace = mux.list_workspaces()[0].id.clone();
+        let tab_id = mux.create_tab(&workspace).unwrap();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("claude".into());
+        tab.agent_session_id = Some(CALLER_SESSION.into());
+        tab.session_binding_nonce = Some(CALLER_NONCE.into());
+        tab.reported_session_binding_nonce = Some(CALLER_NONCE.into());
+
+        let fixture = ServiceFixture::new(mux);
+        let store = fixture.service.plan_store.clone();
+        let plan = store
+            .create_plan_for_team(
+                "Skills".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_tab("orch"),
+                "team-live-identity".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+        store
+            .set_mode(
+                &plan.id,
+                codeterm_service_core::plan::PlanMode::Execution,
+                2,
+            )
+            .unwrap();
+        create_plan_skill(
+            &store,
+            &plan.id,
+            NewPlanSkill {
+                slug: CALLER_SKILL.into(),
+                title: Some("Startup transition claim audit".into()),
+                area: Some("startup-team-recovery".into()),
+                check: None,
+                rationale: Some("mandatory".into()),
+            },
+        )
+        .unwrap();
+        let task_id = add_task(&store, &plan.id, "nonce-proven identity");
+        store
+            .assign_task(&plan.id, &task_id, &tab_id, None, 4)
+            .unwrap();
+        store
+            .update_attempt_executor_identity(
+                &plan.id,
+                &task_id,
+                &tab_id,
+                Some("Worker"),
+                Some(CALLER_SESSION),
+                Some(CALLER_NONCE),
+                5,
+            )
+            .unwrap();
+        let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+            .id
+            .clone();
+        let shown = rpc(
+            &store,
+            "plan.skills.show",
+            json!({ "plan_id": plan.id, "slug": CALLER_SKILL }),
+        )
+        .unwrap();
+        let body = shown["skill"]["body"].as_str().unwrap().to_string();
+        store
+            .set_attempt_plan_skill_manifest(
+                &plan.id,
+                &task_id,
+                &attempt_id,
+                vec![PlanSkillManifestEntry {
+                    slug: CALLER_SKILL.into(),
+                    title: "Startup transition claim audit".into(),
+                    purpose: "Startup transition claim audit".into(),
+                    content_digest: format!("sha256:{:x}", sha2::Sha256::digest(body.as_bytes())),
+                }],
+                6,
+            )
+            .unwrap();
+        let svc: ServiceState = Arc::new(fixture.service.clone());
+        Self {
+            svc,
+            plan_id: plan.id,
+            task_id,
+            attempt_id,
+            _fixture: fixture,
+            _project: project,
+        }
+    }
+
+    fn tab_id(&self) -> String {
+        self.svc
+            .plan_store
+            .show_task(&self.task_id)
+            .unwrap()
+            .task
+            .assigned_tab_id
+            .unwrap()
+    }
+
+    /// The exact envelope production can export: tab, nonce, task, attempt.
+    fn production_params(&self) -> Value {
+        json!({
+            "plan_id": self.plan_id,
+            "slug": CALLER_SKILL,
+            "caller_tab_id": self.tab_id(),
+            "session_binding_nonce": CALLER_NONCE,
+            "task_id": self.task_id,
+            "attempt_id": self.attempt_id,
+        })
+    }
+
+    fn show(&self, params: Value) -> Result<Value, JsonRpcError> {
+        dispatch("plan.skills.show", &Some(params), &self.svc, 7)
+    }
+
+    fn loaded_skills(&self) -> Vec<String> {
+        self.svc
+            .plan_store
+            .show_task(&self.task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .loaded_plan_skills
+            .iter()
+            .map(|evidence| evidence.slug.clone())
+            .collect()
+    }
+}
+
+#[test]
+fn plan_skill_show_backfills_nonce_proven_live_session() {
+    let caller = LiveCaller::new();
+    let mut params = caller.production_params();
+    assert!(params.get("caller_session_id").is_none());
+
+    let shown = caller.show(params.clone()).unwrap();
+
+    assert_eq!(shown["skill"]["slug"], CALLER_SKILL);
+    assert_eq!(caller.loaded_skills(), vec![CALLER_SKILL.to_string()]);
+
+    // A caller that can supply the tab's own session id stays acceptable.
+    params["caller_session_id"] = json!(CALLER_SESSION);
+    caller.show(params).unwrap();
+    assert_eq!(caller.loaded_skills(), vec![CALLER_SKILL.to_string()]);
+}
+
+#[test]
+fn plan_skill_show_refuses_stale_or_mismatched_nonce() {
+    let caller = LiveCaller::new();
+    let mut mismatched = caller.production_params();
+    mismatched["session_binding_nonce"] = json!("nonce-foreign");
+    assert!(caller.show(mismatched).is_err());
+
+    let mut unrelated = caller.production_params();
+    unrelated["caller_tab_id"] = json!("some-other-tab");
+    assert!(caller.show(unrelated).is_err());
+
+    let mut foreign_session = caller.production_params();
+    foreign_session["caller_session_id"] = json!("session-foreign");
+    assert!(caller.show(foreign_session).is_err());
+    assert!(caller.loaded_skills().is_empty());
+
+    // A session transition clears the echoed nonce; the configured nonce
+    // alone must never prove that the current agent owns the tab.
+    let tab_id = caller.tab_id();
+    {
+        let mut mux = caller.svc.mux.write();
+        mux.get_tab_mut(&tab_id)
+            .unwrap()
+            .reported_session_binding_nonce = None;
+    }
+    assert!(caller.show(caller.production_params()).is_err());
+
+    // A nonce-proven tab with no session yet is unbound, not backfillable.
+    {
+        let mut mux = caller.svc.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.reported_session_binding_nonce = Some(CALLER_NONCE.into());
+        tab.agent_session_id = None;
+    }
+    assert!(caller.show(caller.production_params()).is_err());
+    assert!(caller.loaded_skills().is_empty());
+}
+
+#[test]
+fn plan_skill_show_refuses_partial_identity_without_live_backfill() {
+    let caller = LiveCaller::new();
+    for partial in [
+        json!({ "caller_tab_id": caller.tab_id() }),
+        json!({ "session_binding_nonce": CALLER_NONCE }),
+        json!({ "caller_session_id": CALLER_SESSION }),
+        json!({ "task_id": caller.task_id }),
+        json!({ "attempt_id": caller.attempt_id }),
+    ] {
+        let mut params = json!({ "plan_id": caller.plan_id, "slug": CALLER_SKILL });
+        for (key, value) in partial.as_object().unwrap() {
+            params[key] = value.clone();
+        }
+        let error = caller.show(params).unwrap_err();
+        assert!(
+            error.message.contains("incomplete"),
+            "{partial} must be refused as incomplete: {error:?}"
+        );
+    }
+
+    // No identity at all stays a plain read: the skill is returned and no
+    // attempt evidence is invented for a caller that claimed nothing.
+    let shown = caller
+        .show(json!({ "plan_id": caller.plan_id, "slug": CALLER_SKILL }))
+        .unwrap();
+    assert_eq!(shown["skill"]["slug"], CALLER_SKILL);
+    assert!(caller.loaded_skills().is_empty());
+}
+
+const OWNER_SKILL: &str = "verify-before-claim";
+const OWNER_NONCE: &str = "nonce-owner-5upl98";
+const OWNER_SESSION: &str = "session-owner-5upl98";
+
+/// A plan with a live, nonce-proven owner tab, a live Planner tab, a
+/// live tab bound to neither, and one skill to read.
+struct OwnerFixture {
+    svc: ServiceState,
+    plan_id: String,
+    owner_tab: String,
+    planner_tab: String,
+    stranger_tab: String,
+    _fixture: ServiceFixture,
+    _project: tempfile::TempDir,
+}
+
+impl OwnerFixture {
+    fn new() -> Self {
+        let project = tempfile::tempdir().unwrap();
+        codeterm_service_core::service::plan::paths::mark_test_project_root(project.path());
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace = mux.list_workspaces()[0].id.clone();
+        let owner_tab = mux.create_tab(&workspace).unwrap();
+        let planner_tab = mux.create_tab(&workspace).unwrap();
+        let stranger_tab = mux.create_tab(&workspace).unwrap();
+        for (tab, session, nonce) in [
+            (&owner_tab, OWNER_SESSION, OWNER_NONCE),
+            (&planner_tab, "session-planner", "nonce-planner"),
+            (&stranger_tab, "session-stranger", "nonce-stranger"),
+        ] {
+            let tab = mux.get_tab_mut(tab).unwrap();
+            tab.agent_type = Some("claude".into());
+            tab.agent_session_id = Some(session.into());
+            tab.session_binding_nonce = Some(nonce.into());
+            tab.reported_session_binding_nonce = Some(nonce.into());
+        }
+
+        let fixture = ServiceFixture::new(mux);
+        let store = fixture.service.plan_store.clone();
+        let plan = store
+            .create_plan_for_team(
+                "Skills".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_tab(&owner_tab),
+                "team-owner-read".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+        store
+            .set_planner_ref(
+                &plan.id,
+                Some(PlannerRef::Tab {
+                    tab_id: planner_tab.clone(),
+                    session_id: None,
+                    title: None,
+                }),
+                2,
+            )
+            .unwrap();
+        create_plan_skill(
+            &store,
+            &plan.id,
+            NewPlanSkill {
+                slug: OWNER_SKILL.into(),
+                title: Some("Verify Before Claim".into()),
+                area: None,
+                check: None,
+                rationale: Some("mandatory".into()),
+            },
+        )
+        .unwrap();
+        let svc: ServiceState = Arc::new(fixture.service.clone());
+        Self {
+            svc,
+            plan_id: plan.id,
+            owner_tab,
+            planner_tab,
+            stranger_tab,
+            _fixture: fixture,
+            _project: project,
+        }
+    }
+
+    fn show(&self, tab_id: &str, nonce: &str) -> Result<Value, JsonRpcError> {
+        dispatch(
+            "plan.skills.show",
+            &Some(json!({
+                "plan_id": self.plan_id,
+                "slug": OWNER_SKILL,
+                "caller_tab_id": tab_id,
+                "session_binding_nonce": nonce,
+            })),
+            &self.svc,
+            7,
+        )
+    }
+}
+
+/// Neither tab is ever assigned a task, so success here proves the
+/// owner/Planner path never reaches `resolve_skill_task_id`.
+#[test]
+fn plan_skill_show_serves_the_plan_owner_and_planner() {
+    let f = OwnerFixture::new();
+
+    let shown = f
+        .show(&f.owner_tab, OWNER_NONCE)
+        .expect("the plan owner must read its own plan's skill");
+    assert_eq!(shown["skill"]["slug"], OWNER_SKILL);
+
+    let shown = f
+        .show(&f.planner_tab, "nonce-planner")
+        .expect("the Planner must read the plan's skill");
+    assert_eq!(shown["skill"]["slug"], OWNER_SKILL);
+}
+
+/// Spoofed identities refuse; a verified unassigned reader records no receipt.
+#[test]
+fn plan_skill_show_authenticates_owner_and_unassigned_readers() {
+    let f = OwnerFixture::new();
+
+    // Spoofed: the real owner's tab id, a nonce that tab never issued.
+    assert!(f.show(&f.owner_tab, "nonce-guessed").is_err());
+    // Stale: a nonce the owner tab held before it rotated.
+    assert!(f.show(&f.owner_tab, "nonce-owner-previous").is_err());
+    // Missing reported nonce: issued but never echoed back live.
+    {
+        let mut mux = f.svc.mux.write();
+        mux.get_tab_mut(&f.owner_tab)
+            .unwrap()
+            .reported_session_binding_nonce = None;
+    }
+    assert!(f.show(&f.owner_tab, OWNER_NONCE).is_err());
+    assert!(f.show(&f.stranger_tab, "nonce-stranger").is_ok());
+}
+
+mod current_attempt;
+mod late_binding;

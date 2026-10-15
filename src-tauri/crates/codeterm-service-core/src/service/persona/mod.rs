@@ -1,9 +1,9 @@
 //! Delivery-time composition of role presets: which occasion carries which
 //! fragment, which leaf kinds disk overlays may add, and how both are inspected.
 
-pub(crate) mod inspect;
-pub(crate) mod occasion;
-pub(crate) mod overlay;
+pub mod inspect;
+pub mod occasion;
+pub mod overlay;
 
 #[cfg(test)]
 mod tests;

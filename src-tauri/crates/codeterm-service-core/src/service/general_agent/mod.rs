@@ -11,7 +11,7 @@
 //! `service::general_agent::ensure_directories`, `start_general_agent`,
 //! `GENERAL_ALIAS`, etc., unchanged.
 
-pub(crate) mod binding_wait;
+pub mod binding_wait;
 pub mod blocker;
 pub(crate) mod capability_hints;
 mod first_run;
@@ -123,3 +123,5 @@ mod tests {
 pub(crate) use lifecycle::restart_general_agent_with_force;
 
 mod restart_guard;
+
+pub use binding_wait::notify_binding_state_changed;

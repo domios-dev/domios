@@ -5,7 +5,7 @@ use crate::mesh::types::{AccessLevel, Permission};
 /// Decision-model tokens are machine-local credentials, like secrets.
 const SUPPORTER_TOKEN_PATH: &str = "/api/supporter/token";
 
-pub(crate) fn request_path(path: &str) -> &str {
+pub fn request_path(path: &str) -> &str {
     path.split(['?', '#']).next().unwrap_or(path)
 }
 
@@ -17,7 +17,7 @@ fn tab_id_from_scoped_path(path: &str) -> Option<&str> {
 
 /// The one peer authorization decision for direct and relayed requests alike.
 /// `tab_owner` resolves a tab's stored owner peer id; it runs only for AgentIsolated.
-pub(crate) fn peer_access_allowed(
+pub fn peer_access_allowed(
     access: &AccessLevel,
     peer_id: &str,
     method: &Method,
@@ -33,7 +33,7 @@ pub(crate) fn peer_access_allowed(
             .is_none_or(|tab_id| tab_owner(tab_id).as_deref() == Some(peer_id))
 }
 
-pub(crate) fn is_preview_read(method: &Method, path: &str) -> bool {
+pub fn is_preview_read(method: &Method, path: &str) -> bool {
     if *method != Method::POST {
         return false;
     }
@@ -46,7 +46,7 @@ pub(crate) fn is_preview_read(method: &Method, path: &str) -> bool {
     !tab.is_empty() && matches!(suffix, "preview/read" | "preview/check")
 }
 
-pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
+pub fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
     let path = request_path(path);
     if path.starts_with("/api/analytics/")
         || path.starts_with("/api/secrets/")

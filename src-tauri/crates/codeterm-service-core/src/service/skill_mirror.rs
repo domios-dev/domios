@@ -1,4 +1,4 @@
-pub(crate) fn extract_revision(content: &str) -> u32 {
+pub fn extract_revision(content: &str) -> u32 {
     content
         .lines()
         .find_map(|l| {

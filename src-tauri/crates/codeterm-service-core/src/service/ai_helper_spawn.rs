@@ -4,14 +4,14 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::general_agent::{general_dir, general_workspace_id};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AiHelperRequest {
+pub struct AiHelperRequest {
     pub title: String,
     pub description: String,
     pub task: String,
 }
 
 impl AiHelperRequest {
-    pub(crate) fn new(title: String, description: String, task: String) -> Result<Self, String> {
+    pub fn new(title: String, description: String, task: String) -> Result<Self, String> {
         let title = title.trim().to_string();
         if title.is_empty() {
             return Err("AI helper spawn requires a title".into());
@@ -36,7 +36,7 @@ pub(crate) struct AiHelperPlacement {
     pub cwd: String,
 }
 
-pub(crate) struct AiHelperLaunch {
+pub struct AiHelperLaunch {
     pub tab_id: String,
     pub workspace_id: String,
     pub ready: Option<tokio::sync::oneshot::Receiver<Result<(), String>>>,
@@ -75,7 +75,7 @@ pub(crate) fn ai_helper_params(
 }
 
 impl ServiceContext {
-    pub(crate) async fn spawn_ai_helper(
+    pub async fn spawn_ai_helper(
         &self,
         request: AiHelperRequest,
     ) -> Result<AiHelperLaunch, String> {

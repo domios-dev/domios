@@ -1,7 +1,7 @@
 use crate::plan::{DecisionGate, PlannerRef};
 
 impl crate::service::ServiceContext {
-    pub(crate) fn planner_gate_owner_answerer(
+    pub fn planner_gate_owner_answerer(
         &self,
         plan_id: &str,
         asked_by_tab_id: Option<&str>,
@@ -10,7 +10,7 @@ impl crate::service::ServiceContext {
         planner_owner_for_gate(&plan, asked_by_tab_id).map(str::to_string)
     }
 
-    pub(crate) fn deliver_planner_gate_to_owner(
+    pub fn deliver_planner_gate_to_owner(
         &self,
         plan_id: &str,
         requested_owner: &str,
@@ -38,7 +38,7 @@ impl crate::service::ServiceContext {
                 plan_id: plan_id.to_string(),
                 role: "owner-decision-gate".into(),
             });
-        crate::service::orchestrator_digests::deliver_exact_role_target(
+        crate::service::role_target::deliver_exact_role_target(
             "owner-decision-gate",
             plan_id,
             intended_owner,

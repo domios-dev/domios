@@ -36,11 +36,7 @@ mod no_inference {
     /// System and automation events may not reach the desktop sink.
     const SINK_CALLERS: [&str; 2] = ["notification/os_notify.rs", "service/notification.rs"];
 
-    const EXPLICIT_CREATORS: [&str; 3] = [
-        "api/notification_routes.rs",
-        "service/notification.rs",
-        "socket/server/notification.rs",
-    ];
+    const EXPLICIT_CREATORS: [&str; 1] = ["service/notification.rs"];
 
     fn src_root() -> PathBuf {
         PathBuf::from(crate::test_support::fixture_manifest_dir()).join("src")
@@ -120,6 +116,16 @@ mod no_inference {
             callers_of("create_agent_notification_reported"),
             allowed,
             "an explicit notification is opened by the notify verb's transports only"
+        );
+        assert!(
+            include_str!("../../../codeterm-socket/src/server/notification.rs")
+                .contains("create_agent_notification_reported"),
+            "the socket transport of the notify verb stays an explicit creator"
+        );
+        assert!(
+            include_str!("../../../codeterm-api/src/notification_routes.rs")
+                .contains("create_agent_notification_reported"),
+            "the HTTP transport of the notify verb stays an explicit creator"
         );
     }
 

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DeferredSessionBinding {
+pub struct DeferredSessionBinding {
     pub generation: u64,
     pub tab_id: String,
     pub provider_id: String,
@@ -28,14 +28,14 @@ struct WatchedBinding {
 }
 
 #[derive(Default)]
-pub(crate) struct DeferredSessionBindingRegistry {
+pub struct DeferredSessionBindingRegistry {
     next_generation: AtomicU64,
     entries: Mutex<HashMap<String, WatchedBinding>>,
     refusals: Mutex<HashMap<String, RefusedSessionBinding>>,
 }
 
 impl DeferredSessionBindingRegistry {
-    pub(crate) fn defer(
+    pub fn defer(
         &self,
         tab_id: &str,
         provider_id: &str,
@@ -85,7 +85,7 @@ impl DeferredSessionBindingRegistry {
         Ok(binding)
     }
 
-    pub(crate) fn get(&self, tab_id: &str, generation: u64) -> Option<DeferredSessionBinding> {
+    pub fn get(&self, tab_id: &str, generation: u64) -> Option<DeferredSessionBinding> {
         self.entries
             .lock()
             .get(tab_id)
@@ -115,7 +115,7 @@ impl DeferredSessionBindingRegistry {
         }
     }
 
-    pub(crate) fn clear_generation(&self, tab_id: &str, generation: u64) {
+    pub fn clear_generation(&self, tab_id: &str, generation: u64) {
         let mut entries = self.entries.lock();
         if entries
             .get(tab_id)
@@ -138,14 +138,14 @@ impl DeferredSessionBindingRegistry {
         resolved
     }
 
-    pub(crate) fn pending(&self, tab_id: &str) -> Option<DeferredSessionBinding> {
+    pub fn pending(&self, tab_id: &str) -> Option<DeferredSessionBinding> {
         self.entries
             .lock()
             .get(tab_id)
             .map(|entry| entry.binding.clone())
     }
 
-    pub(crate) fn refuse(
+    pub fn refuse(
         &self,
         tab_id: &str,
         session_id: &str,

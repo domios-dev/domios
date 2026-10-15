@@ -19,7 +19,7 @@ pub use codeterm_agent_detect::permission_request;
 pub mod plugin_registrar;
 pub use codeterm_agent_detect::prompt;
 pub mod provider;
-pub(crate) mod provider_identity;
+pub mod provider_identity;
 #[cfg(test)]
 mod question_removal_tests;
 pub mod recovered_seat_auth;
@@ -37,7 +37,7 @@ pub mod status;
 pub mod structured_prompt;
 pub mod stub_launch;
 pub mod tab_state;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_provider;
 pub mod usage_parser;
 

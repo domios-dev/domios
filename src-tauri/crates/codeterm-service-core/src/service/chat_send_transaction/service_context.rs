@@ -2,7 +2,7 @@ use super::*;
 use tauri::Manager;
 
 impl crate::service::ServiceContext {
-    pub(crate) fn start_chat_send(
+    pub fn start_chat_send(
         &self,
         tab_id: &str,
         text: String,
@@ -137,7 +137,7 @@ impl crate::service::ServiceContext {
         self.reserve_user_send_with_replay_only(tab_id, client_token, false)
     }
 
-    pub(crate) fn reserve_user_send_with_replay_only(
+    pub fn reserve_user_send_with_replay_only(
         &self,
         tab_id: &str,
         client_token: Option<String>,
@@ -172,7 +172,7 @@ impl crate::service::ServiceContext {
             })
     }
 
-    pub(crate) fn prepare_and_admit_user_send(
+    pub fn prepare_and_admit_user_send(
         &self,
         reservation: UserReservation,
         original: String,

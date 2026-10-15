@@ -1,7 +1,7 @@
 use super::*;
 
 #[derive(Serialize)]
-pub(crate) struct UserAdmissionEvidence {
+pub struct UserAdmissionEvidence {
     #[serde(rename = "correlationId")]
     client_token: String,
     evidence: &'static str,
@@ -18,7 +18,7 @@ fn admission_evidence(present: bool, history_complete: bool, owner_failed: bool)
 }
 
 impl UserSendStore {
-    pub(crate) fn admission_evidence(
+    pub fn admission_evidence(
         &self,
         tab_id: &str,
         tokens: &[String],
