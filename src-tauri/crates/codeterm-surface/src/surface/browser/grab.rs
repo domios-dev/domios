@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// Runs on the picked node via `Runtime.callFunctionOn`; returns the element facts as JSON text.
-pub(crate) const COLLECT_IN_PAGE: &str = r##"function () {
+pub const COLLECT_IN_PAGE: &str = r##"function () {
   const el = this.nodeType === 1 ? this : this.parentElement;
   const esc = (s) => (window.CSS && CSS.escape ? CSS.escape(s) : s);
   const parts = [];
@@ -46,7 +46,7 @@ pub(crate) const COLLECT_IN_PAGE: &str = r##"function () {
   });
 }"##;
 
-pub(crate) fn highlight_config() -> Value {
+pub fn highlight_config() -> Value {
     json!({
         "showInfo": true,
         "showAccessibilityInfo": true,
@@ -57,7 +57,7 @@ pub(crate) fn highlight_config() -> Value {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Rect {
+pub struct Rect {
     pub x: f64,
     pub y: f64,
     pub width: f64,
@@ -65,7 +65,7 @@ pub(crate) struct Rect {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-pub(crate) struct PageFacts {
+pub struct PageFacts {
     #[serde(default)]
     pub url: String,
     #[serde(default)]
@@ -75,14 +75,14 @@ pub(crate) struct PageFacts {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-pub(crate) struct Accessibility {
+pub struct Accessibility {
     pub role: Option<String>,
     pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GrabTarget {
+pub struct GrabTarget {
     pub tag_name: String,
     #[serde(default)]
     pub selector: String,
@@ -139,7 +139,7 @@ impl GrabTarget {
 }
 
 /// `Accessibility.getPartialAXTree` → the first non-ignored node's role and name.
-pub(crate) fn accessibility_of(tree: &Value) -> Accessibility {
+pub fn accessibility_of(tree: &Value) -> Accessibility {
     let nodes = tree.get("nodes").and_then(Value::as_array);
     let node = nodes.and_then(|nodes| {
         nodes
@@ -164,7 +164,7 @@ pub(crate) fn accessibility_of(tree: &Value) -> Accessibility {
     }
 }
 
-pub(crate) fn element_label(target: &GrabTarget) -> String {
+pub fn element_label(target: &GrabTarget) -> String {
     let a11y = &target.accessibility;
     let base = match (&a11y.role, &a11y.name) {
         (Some(role), Some(name)) if !role.is_empty() && !name.is_empty() => {
@@ -187,9 +187,9 @@ pub(crate) fn element_label(target: &GrabTarget) -> String {
     }
 }
 
-pub(crate) const INTENTS: &[&str] = &["question", "change", "bug"];
+pub const INTENTS: &[&str] = &["question", "change", "bug"];
 
-pub(crate) fn parse_intent(raw: Option<&str>) -> Result<&'static str, String> {
+pub fn parse_intent(raw: Option<&str>) -> Result<&'static str, String> {
     let raw = raw.unwrap_or("question");
     INTENTS
         .iter()
@@ -199,17 +199,17 @@ pub(crate) fn parse_intent(raw: Option<&str>) -> Result<&'static str, String> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AnnotateRequest {
+pub struct AnnotateRequest {
     pub locator: Vec<String>,
     pub comment: String,
     pub intent: &'static str,
 }
 
-pub(crate) const ANNOTATE_USAGE: &str =
+pub const ANNOTATE_USAGE: &str =
     "usage: annotate @eN|<role> <name> <comment> [--intent question|change|bug] [--of <agent>]";
 
 /// `annotate <@eN | role name> <comment> [--intent I]`: the locator follows `click`'s rules.
-pub(crate) fn parse_annotate(args: &[String]) -> Result<AnnotateRequest, String> {
+pub fn parse_annotate(args: &[String]) -> Result<AnnotateRequest, String> {
     let mut words = Vec::new();
     let mut intent = None;
     let mut rest = args.iter();
@@ -232,7 +232,7 @@ pub(crate) fn parse_annotate(args: &[String]) -> Result<AnnotateRequest, String>
     })
 }
 
-pub(crate) struct Annotation<'a> {
+pub struct Annotation<'a> {
     pub target: &'a GrabTarget,
     pub intent: &'a str,
     pub comment: &'a str,
@@ -242,7 +242,7 @@ pub(crate) struct Annotation<'a> {
 }
 
 /// The markdown the owner agent receives, in the shape of the POC's `annotationMarkdown`.
-pub(crate) fn annotation_markdown(annotation: &Annotation<'_>) -> String {
+pub fn annotation_markdown(annotation: &Annotation<'_>) -> String {
     let t = annotation.target;
     let comment = if annotation.comment.trim().is_empty() {
         "(no comment)"
@@ -325,7 +325,7 @@ pub(crate) fn annotation_markdown(annotation: &Annotation<'_>) -> String {
 }
 
 /// The clip for the element screenshot, capped like the POC; `None` for a zero-size box.
-pub(crate) fn screenshot_clip(rect: &Rect) -> Option<Value> {
+pub fn screenshot_clip(rect: &Rect) -> Option<Value> {
     (rect.width > 0.0 && rect.height > 0.0).then(|| {
         json!({
             "x": rect.x,

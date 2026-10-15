@@ -3,9 +3,9 @@ use std::sync::Arc;
 use tokio::sync::broadcast::error::RecvError;
 
 use super::BrowserRuntime;
-use crate::service::browser::screencast::{HubNotice, HubNoticeKind};
-use crate::service::browser::viewport::ViewportRequest;
-use crate::service::surface::runtime::{SurfaceEvent, SurfaceEvents, SurfaceNotice};
+use crate::surface::runtime::{SurfaceEvent, SurfaceEvents, SurfaceNotice};
+use codeterm_browser::screencast::{HubNotice, HubNoticeKind};
+use codeterm_browser::viewport::ViewportRequest;
 
 fn host_notice(notice: HubNotice) -> SurfaceNotice {
     match notice.kind {
@@ -72,7 +72,7 @@ pub async fn connect(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service::surface::runtime::NoticeKind;
+    use crate::surface::runtime::NoticeKind;
 
     #[test]
     fn browser_stream_maps_still_failures_to_preview_paused_and_keeps_other_host_notices() {

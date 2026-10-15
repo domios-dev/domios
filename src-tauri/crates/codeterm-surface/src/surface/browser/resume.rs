@@ -1,4 +1,4 @@
-use crate::service::browser::profile::sanitize_profile_name;
+use codeterm_browser::profile::sanitize_profile_name;
 
 pub(super) const MAX_RESUME_URL: usize = 2048;
 const NOT_A_PROFILE: &[&str] = &["", "clean", "attached"];

@@ -2029,6 +2029,7 @@ dependencies = [
  "codeterm-shutdown",
  "codeterm-storage",
  "codeterm-supporter",
+ "codeterm-surface",
  "codeterm-types",
  "codeterm-usage",
  "codeterm-util",
@@ -2174,6 +2175,33 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml 0.8.2",
+ "uuid",
+]
+
+[[package]]
+name = "codeterm-surface"
+version = "0.0.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "base64 0.22.1",
+ "codeterm-browser",
+ "codeterm-input-macos",
+ "codeterm-input-windows",
+ "codeterm-local-recording",
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-util",
+ "futures-core",
+ "futures-util",
+ "image",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
  "uuid",
 ]
 

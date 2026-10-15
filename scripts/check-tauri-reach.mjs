@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const scope = 'src-tauri/crates/codeterm-service-core/src/';
+export const extractedLeaves = ['codeterm-crash', 'codeterm-notifications', 'codeterm-surface'];
 export const baselinePath = 'scripts/tauri-reach-baseline.json';
 
 export function countReach(source) {
@@ -23,8 +24,10 @@ export function scan(root) {
     }
   }
   visit(scope);
-  const crashScope = 'src-tauri/crates/codeterm-crash/src/';
-  if (existsSync(join(root, crashScope))) visit(crashScope);
+  for (const leaf of extractedLeaves) {
+    const leafScope = `src-tauri/crates/${leaf}/src/`;
+    if (existsSync(join(root, leafScope))) visit(leafScope);
+  }
   return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
 }
 

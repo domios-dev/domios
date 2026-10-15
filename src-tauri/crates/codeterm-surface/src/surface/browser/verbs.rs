@@ -3,13 +3,13 @@ use serde_json::{json, Value};
 use super::heuristics::{activity_label, is_quiet_verb, IDLE};
 use super::input::{self, InputArgs, NavAction};
 use super::{cdp_error, BrowserRuntime, WAIT_DEADLINE};
-use crate::service::browser::snapshot::{
+use crate::surface::runtime::SurfaceCallCtx;
+use codeterm_browser::snapshot::{
     build_snapshot, parse_full_ax_tree, resolve_target, DEFAULT_MAX_LINES,
 };
-use crate::service::browser::PageChannel;
-use crate::service::surface::runtime::SurfaceCallCtx;
+use codeterm_browser::PageChannel;
 
-pub(crate) const VERBS: &[&str] = &[
+pub const VERBS: &[&str] = &[
     "help",
     "open",
     "status",
@@ -36,7 +36,7 @@ const DEFAULT_TEXT_LIMIT: usize = 4000;
 const DEFAULT_SCROLL: f64 = 800.0;
 
 /// `open [url] [--profile NAME]`: the url and the requested profile, if any.
-pub(crate) fn parse_open(args: &[String]) -> (Option<String>, Option<String>) {
+pub fn parse_open(args: &[String]) -> (Option<String>, Option<String>) {
     let mut url = None;
     let mut profile = None;
     let mut rest = args.iter();
@@ -52,13 +52,13 @@ pub(crate) fn parse_open(args: &[String]) -> (Option<String>, Option<String>) {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum WaitFor {
+pub enum WaitFor {
     Text(String),
     Url(String),
     Selector(String),
 }
 
-pub(crate) fn parse_wait(args: &[String]) -> Result<WaitFor, String> {
+pub fn parse_wait(args: &[String]) -> Result<WaitFor, String> {
     const USAGE: &str = "usage: wait --text T | --url U | --selector S";
     let value = args.get(1..).map(|rest| rest.join(" ")).unwrap_or_default();
     if value.is_empty() {
@@ -73,7 +73,7 @@ pub(crate) fn parse_wait(args: &[String]) -> Result<WaitFor, String> {
 }
 
 /// An in-page MutationObserver resolves the moment the condition holds; its timer only means failure.
-pub(crate) fn wait_expression(wait: &WaitFor) -> Option<String> {
+pub fn wait_expression(wait: &WaitFor) -> Option<String> {
     let check = match wait {
         WaitFor::Text(text) => format!(
             "document.body && document.body.innerText.includes({})",
@@ -139,7 +139,7 @@ impl BrowserRuntime {
         &self,
         ctx: &SurfaceCallCtx,
         args: &[String],
-    ) -> Result<crate::service::surface::runtime::SurfaceCallOutcome, String> {
+    ) -> Result<crate::surface::runtime::SurfaceCallOutcome, String> {
         self.shared
             .set_activity(&activity_label("annotate", args), ctx.actor.as_deref());
         let outcome = self.annotate_verb(ctx, args).await;
@@ -316,7 +316,7 @@ impl BrowserRuntime {
     pub(super) fn resolve(
         &self,
         locator: &[String],
-    ) -> Result<crate::service::browser::snapshot::ResolvedTarget, String> {
+    ) -> Result<codeterm_browser::snapshot::ResolvedTarget, String> {
         let snapshot = self.shared.snapshot();
         let parts: Vec<&str> = locator.iter().map(String::as_str).collect();
         resolve_target(snapshot.as_ref(), &parts).map_err(|error| error.to_string())

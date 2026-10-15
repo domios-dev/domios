@@ -65,6 +65,10 @@ test('CLI fixture ratchets committed budgets and rejects restoring removed reach
     baseline({ [file]: 1 });
     assert.match(run().stderr, /increased baseline/);
     assert.equal(run('missing-ref').status, 1);
+    baseline({});
+    source(file, 'crate::async_runtime::spawn(task);');
+    source('src-tauri/crates/codeterm-surface/src/runtime.rs', 'tauri::async_runtime::spawn(task);');
+    assert.match(run().stderr, /codeterm-surface.*reach grew/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
