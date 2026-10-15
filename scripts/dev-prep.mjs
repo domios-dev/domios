@@ -12,6 +12,7 @@ import {
   readFileSync,
   readdirSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -23,7 +24,7 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repo = realpathSync.native(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
 const require = createRequire(import.meta.url);
 const { gitOutput } = require("./build-identity.cjs");
 const isWin = process.platform === "win32";
@@ -135,8 +136,12 @@ function listTree(root) {
   return files;
 }
 
+function artifactPath(requested) {
+  return realpathSync.native(resolve(requested));
+}
+
 function hashPath(requested, expectedType, requireExecutable = false) {
-  const path = resolve(requested);
+  const path = artifactPath(requested);
   if (!existsSync(path)) throw new Error(`artifact is absent: ${path}`);
   const stat = lstatSync(path);
   if (expectedType === "file" && !stat.isFile()) throw new Error(`artifact is not a file: ${path}`);
@@ -263,8 +268,8 @@ function assertKeys(value, keys, label) {
 
 function validateArtifact(recorded, expectedPath, expectedType, label, requireExecutable = false) {
   assertKeys(recorded, ["path", "type", "sha256", "bytes", "mode"], `${label} artifact`);
-  const expected = resolve(expectedPath);
-  if (resolve(recorded.path) !== expected) throw new Error(`${label} artifact path mismatch`);
+  const expected = artifactPath(expectedPath);
+  if (artifactPath(recorded.path) !== expected) throw new Error(`${label} artifact path mismatch`);
   if (recorded.type !== expectedType) throw new Error(`${label} artifact type mismatch`);
   const current = hashPath(expected, expectedType, requireExecutable);
   if (recorded.sha256 !== current.sha256 || recorded.bytes !== current.bytes || recorded.mode !== current.mode) {
@@ -274,8 +279,8 @@ function validateArtifact(recorded, expectedPath, expectedType, label, requireEx
 
 function validateEmbedArtifact(recorded) {
   assertKeys(recorded, ["path", "type", "sha256", "bytes", "mode"], "embed artifact");
-  const expectedRoot = resolve(repo, "src-tauri", "bundled-embed");
-  const path = resolve(recorded.path);
+  const expectedRoot = artifactPath(join(repo, "src-tauri", "bundled-embed"));
+  const path = artifactPath(recorded.path);
   const withinRoot = path.startsWith(`${expectedRoot}${sep}`);
   if (!withinRoot || dirname(path) !== expectedRoot) throw new Error("embed artifact path is outside bundled-embed");
   if (!/^codeterm-embed-[a-zA-Z0-9_.-]+(?:\.exe)?$/.test(path.slice(expectedRoot.length + 1))) {

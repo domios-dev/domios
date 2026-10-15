@@ -210,6 +210,15 @@ Changes to prompt markdown files (`src-tauri/prompts/*.md`, `.md` under `src-tau
 | `src-tauri/Cargo.toml` deps | `./build.sh clean && ./build.sh dev` |
 | `package.json` deps | `bun install` (or npm), then dev restart |
 
+## Restart an existing build safely
+
+Run `./build.sh dev-prebuilt --wait` (PowerShell: `.\build.ps1 dev-prebuilt --wait`)
+directly, without a preceding `kill`. This command validates provenance and runtime
+prerequisites while the current app remains running, then stops and launches dev.
+A failed preflight preserves the running app. There is no separate `restart` verb.
+Use `dev` when HEAD or build inputs changed; stale provenance is a refusal to reuse
+the artifact. Do not reset HEAD or edit the provenance record to bypass it.
+
 ## Process hygiene — NEVER kill prod
 
 Before killing anything, check the port. Prod listens on 7685, dev on 7686.
@@ -331,3 +340,9 @@ When the local socket works but HTTP is down, run `codeterm rest-api status` on 
 Fixed: checks queue silently behind a running DEV. The former Tauri launcher held
 the gateway for the app lifetime; update and rebuild with `dev`. Confirm
 `./build.sh gateway-status` is idle while DEV runs, then run `check-queue`.
+
+Fixed: standalone `dev-prebuilt` refused an app artifact path after a gateway build
+recorded its Windows mapped-drive alias. The existing provenance writer and
+validator now use physical artifact paths, including the embed and frontend, so
+the record survives gateway mapping release. Restart directly with `dev-prebuilt`;
+its preflight runs before stopping the app.
