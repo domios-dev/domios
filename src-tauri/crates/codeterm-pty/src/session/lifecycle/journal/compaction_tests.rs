@@ -28,7 +28,7 @@ fn opening_retained_history_allows_growth_before_automatic_compaction() {
         .append(key(), LifecycleTransition::LaunchReady)
         .unwrap();
     assert_eq!(seq, records.len() as JournalSeq + 1);
-    let cursor = journal.cursor.lock().unwrap();
+    let cursor = journal.cursor.lock();
     assert_eq!(
         cursor.compact_at_records,
         records.len() + COMPACT_AT_RECORDS
@@ -46,12 +46,12 @@ fn automatic_compaction_rechecks_growth_and_preserves_uncovered_records() {
     let records = retained_history(COMPACT_AT_RECORDS + 1);
     write_all_records(&path, &records).unwrap();
     let journal = TabLifecycleJournal::for_dir(dir.path().into());
-    journal.cursor.lock().unwrap().compact_at_records = records.len();
+    journal.cursor.lock().compact_at_records = records.len();
     assert_eq!(journal.compact_if_due().unwrap(), records.len());
     assert_eq!(journal.load().records.len(), records.len());
     assert_eq!(journal.load().last_seq(), records.len() as JournalSeq);
     assert_eq!(
-        journal.cursor.lock().unwrap().compact_at_records,
+        journal.cursor.lock().compact_at_records,
         records.len() + COMPACT_AT_RECORDS
     );
     // A queued request must skip without touching the journal after the first rewrite.
@@ -69,7 +69,7 @@ fn explicit_compaction_runs_below_the_automatic_budget() {
         .unwrap();
     assert_eq!(journal.compact().unwrap(), 1);
     assert_eq!(
-        journal.cursor.lock().unwrap().compact_at_records,
+        journal.cursor.lock().compact_at_records,
         COMPACT_AT_RECORDS + 1
     );
 }

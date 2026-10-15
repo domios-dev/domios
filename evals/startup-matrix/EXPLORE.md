@@ -272,3 +272,13 @@ external CLI's startup or prove native UI wiring.
 Run the existing tests in each changed area alongside its regression test.
 A new defect adds its fast oracle here and in the run report; retain any executed
 red-before/green-after evidence instead of claiming it from source inspection.
+Global launch lock visibility is locked by test
+launch_registry_uses_shared_hold_instrumentation plus
+named_mutex_reports_through_guard_hold_seam_without_waiting and the
+qa-lock-storm histogram fixture. When green, skip a deliberate long lock storm
+solely to check logging. Keep sampling real startup logs for new contention.
+On owner request, compare installed provider startup in an independent native
+system PowerShell using README.md's Independent Windows terminal baseline.
+Record actual first-frame/setup/turn signals separately from input readiness
+and model response time; keep blocked authentication/configuration cases.
+This diagnostic remains local-only and is never a CI gate.
