@@ -10,7 +10,8 @@ mod selections;
 
 pub use admission::LocalRecordingCommitOutcome;
 pub use clip::CaptureClipDescriptor;
-pub(crate) use leases::{CaptureLeaseView, RecordingLeases};
+pub(crate) use leases::CaptureLeaseView;
+pub use leases::RecordingLeases;
 pub(crate) use selections::RecordingSelectionStore;
 
 use crate::service::ServiceContext;

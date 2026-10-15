@@ -12,7 +12,7 @@ mod empty_session;
 pub(super) mod restore_payload;
 
 #[derive(Clone)]
-pub(crate) struct RestoredLaunch {
+pub struct RestoredLaunch {
     pub provider_id: String,
     pub session_id: Option<String>,
     pub cwd: Option<String>,
