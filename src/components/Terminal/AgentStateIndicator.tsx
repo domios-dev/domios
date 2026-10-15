@@ -1,4 +1,5 @@
 import { runtimeActivityLabel } from "../../lib/agentRuntimeTiming";
+import { activityCommand, activityLabel, type ActivityTool } from "../../../packages/plugin-sdk/src/activityLabel";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import { tabStartingLabel } from "../Sidebar/tabAttention";
 import type { ReactNode } from "react";
@@ -34,6 +35,7 @@ export function AgentStateIndicator({
   renderIdentity,
   showActivity = true,
   channelLoadingLabel,
+  activeTool,
 }: {
   activity: TabActivity;
   runtimeState?: AgentRuntimeState | null;
@@ -49,12 +51,15 @@ export function AgentStateIndicator({
   renderIdentity?: (label: string) => ReactNode;
   showActivity?: boolean;
   channelLoadingLabel?: string;
+  activeTool?: ActivityTool;
 }) {
   const isWorking = activity.canStop;
   const isQuiet = activity.quiet;
   const isQuestion = activity.kind === "waiting-on-user";
   const phase = activity.phase;
-  const status = runtimeActivityLabel(activity.label, activity.kind, runtimeState, Date.now());
+  const runningTool = activity.kind === "working" ? activeTool : undefined;
+  const status = runtimeActivityLabel(runningTool ? activityLabel(runningTool) : activity.label, activity.kind, runtimeState, Date.now());
+  const detail = runningTool ? activityCommand(runningTool) : undefined;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
@@ -94,7 +99,7 @@ export function AgentStateIndicator({
           <span
             className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
             style={{ fontFamily: "var(--ct-font-mono)" }}
-            title={status || undefined}
+            title={detail || status || undefined}
           >
             {status ? compactStatusMessage(status) : ""}
           </span>
@@ -105,7 +110,7 @@ export function AgentStateIndicator({
           <span
             className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
             style={{ fontFamily: "var(--ct-font-mono)" }}
-            title={text || undefined}
+            title={detail || text || undefined}
           >
             {compactStatusMessage(text)}
           </span>

@@ -172,7 +172,7 @@
         "threadId": "thread-fixture",
         "turnId": "turn-a",
         "state": "working",
-        "statusLine": "Running python check.py"
+        "statusLine": "python check.py"
       },
       {
         "kind": "chatItem",

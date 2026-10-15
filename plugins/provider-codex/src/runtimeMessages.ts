@@ -1,5 +1,5 @@
 import { canonicalJson } from "./canonicalJson";
-import { commandLabel } from "./commandLabel";
+import { activityCommand, activityLabel } from "@codeterm/plugin-sdk";
 import type { ChatMsg } from "@codeterm/plugin-sdk";
 import { object, text, list } from "./runtimeProtocol";
 import { runtimeFileDiffs } from "./runtimeDiffs";
@@ -68,8 +68,8 @@ export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): Chat
       return {...row, type:"system", systemSubtype:String(item.type), content:item.type === "hookPrompt"
         ? list(item.fragments).map(object).map(p => p.text ?? "").join("\n") : String(item.review ?? "")};
     case "commandExecution":
-      row.toolKind = "command"; row.toolDetail = String(item.command ?? "");
-      row.toolSummary = commandLabel(item.command) || row.toolDetail;
+      row.toolKind = "command"; row.toolDetail = activityCommand({toolInput:item});
+      row.toolSummary = activityLabel(row);
       if (typeof item.aggregatedOutput === "string") row.toolResult = item.aggregatedOutput;
       else if (previous?.toolResult !== undefined) row.toolResult = previous.toolResult;
       if (typeof item.exitCode === "number") row.toolExitCode = item.exitCode;
