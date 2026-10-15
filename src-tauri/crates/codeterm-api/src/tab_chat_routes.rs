@@ -58,20 +58,26 @@ pub async fn snapshot(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    tokio::task::spawn_blocking(move || snapshot_blocking(state, raw_tab_id, query))
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "chat snapshot cancelled"))?
+}
+
+fn snapshot_blocking(
+    state: AppState,
+    raw_tab_id: String,
+    query: ChatQuery,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     let tab_id = resolve_tab(&state, &raw_tab_id)?;
     if chat_read_target(&state.svc.mux, &tab_id)? == ChatReadTarget::Unbound {
         let since = query.since;
         let journal = state.svc.lifecycle_journal.clone();
-        let (messages, count) = tokio::task::spawn_blocking(move || {
-            codeterm_service_core::service::tab_chat::restore_notice_snapshot(
-                &journal,
-                &tab_id,
-                Vec::new(),
-                since,
-            )
-        })
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "chat snapshot cancelled"))?;
+        let (messages, count) = codeterm_service_core::service::tab_chat::restore_notice_snapshot(
+            &journal,
+            &tab_id,
+            Vec::new(),
+            since,
+        );
         return Ok(Json(
             serde_json::json!({ "messages": messages, "count": count, "pending": true }),
         ));
@@ -101,14 +107,9 @@ pub async fn snapshot(
         session_id,
         since,
     );
-    let svc = state.svc.clone();
-    let target = tab_id.clone();
-    let (messages, count) = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::tab_chat::tab_chat_snapshot(&svc, &target, since)
-    })
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "chat snapshot cancelled"))?
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "chat snapshot failed"))?;
+    let (messages, count) =
+        codeterm_service_core::service::tab_chat::tab_chat_snapshot(&state.svc, &tab_id, since)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "chat snapshot failed"))?;
 
     Ok(Json(
         serde_json::json!({ "messages": messages, "count": count, "pending": false }),
@@ -125,6 +126,51 @@ mod tests {
     fn shared_mux() -> (MuxState, String) {
         let (state, tab_id) = MultiplexerState::new();
         (Arc::new(TimedRwLock::new("mux-test", state)), tab_id)
+    }
+
+    #[test]
+    fn transcript_contention_leaves_the_runtime_available() {
+        use codeterm_service_core::service::test_fixture::ServiceFixture;
+        use std::{future::Future, sync::mpsc, task::Poll, time::Duration};
+
+        let (mux, tab_id) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let state = crate::transport_tabs::fixture::app_state(&fixture);
+        let mux = state.svc.mux.clone();
+        let (held_tx, held_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let guard = mux.write();
+            held_tx.send(()).unwrap();
+            let released = release_rx.recv_timeout(Duration::from_secs(2)).is_ok();
+            drop(guard);
+            released
+        });
+        held_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let response = runtime.block_on(async {
+            let mut request = Box::pin(snapshot(
+                AxumState(state),
+                Path(tab_id),
+                Query(ChatQuery { since: 0 }),
+                HeaderMap::new(),
+            ));
+            std::future::poll_fn(|cx| {
+                assert!(request.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            release_tx.send(()).unwrap();
+            request.await.unwrap()
+        });
+        assert!(holder.join().unwrap());
+        assert_eq!(
+            response.0,
+            serde_json::json!({ "messages": [], "count": 0, "pending": true })
+        );
     }
 
     #[test]
