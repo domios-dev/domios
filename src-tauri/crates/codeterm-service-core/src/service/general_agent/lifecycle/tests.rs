@@ -627,7 +627,6 @@ fn general_agent_existing_live_authenticated_binding_seals_agent_ready() {
         &service.pty,
         &service.screen_state,
         &config,
-        fixture._app.handle(),
     );
 
     assert_eq!(

@@ -10,7 +10,6 @@ use codeterm_events::{EventBroadcaster, SystemEvent};
 pub(crate) const SURFACE_ACTIVITY_EVENT: &str = "surface-activity";
 const WINDOW: Duration = Duration::from_millis(250);
 const MAX_VERB: usize = 32;
-const MAX_ACTOR: usize = 48;
 const PRUNE_ABOVE: usize = 256;
 const STALE_AFTER: Duration = Duration::from_secs(10);
 /// View plumbing, not agent work: these never pulse the owner.
@@ -32,20 +31,7 @@ pub(crate) fn sanitize_verb(raw: &str) -> String {
 }
 
 /// A display name on one line, capped; `None` when nothing printable remains.
-pub(crate) fn sanitize_actor(raw: &str) -> Option<String> {
-    let line: String = raw
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-    let name: String = line
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(MAX_ACTOR)
-        .collect();
-    (!name.is_empty()).then_some(name)
-}
+pub(crate) use codeterm_surface::surface::model::sanitize_actor;
 
 /// One agent verb and, when it is not the owner, who ran it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +162,7 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codeterm_surface::surface::model::MAX_ACTOR;
 
     fn verb(verb: &str) -> Activity {
         Activity {

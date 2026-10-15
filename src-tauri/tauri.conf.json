@@ -51,9 +51,6 @@
       "conpty/x64/*": "conpty/x64/",
       "conpty/arm64/*": "conpty/arm64/"
     },
-    "externalBin": [
-      "bundled-embed/codeterm-embed"
-    ],
     "macOS": {
       "infoPlist": "Info.plist",
       "entitlements": "Entitlements.plist",

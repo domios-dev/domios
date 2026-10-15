@@ -2,7 +2,6 @@ pub use codeterm_sentinel::source::*;
 
 use codeterm_pty::multiplexer::types::PendingPrompt;
 use serde_json::{json, Value};
-use tauri::Manager;
 
 use codeterm_service_core::service::{supporter_tab_state, ServiceContext};
 
@@ -19,8 +18,7 @@ pub fn resolve_binding(
         TabBinding::Tab(_) => Ok(binding.clone()),
         TabBinding::CronRun(target) => {
             let cron = svc
-                .app_handle
-                .try_state::<codeterm_service_core::CronState>()
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or("cron not initialized")?;
             let cron_id = routes::resolve_cron_target(&cron.lock(), job, target)?;
             Ok(TabBinding::CronRun(cron_id))

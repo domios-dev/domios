@@ -93,6 +93,7 @@ impl ExtensionsBuilder {
         self.insert_late::<std::sync::Weak<crate::service::ServiceContext>>();
         self.insert_late::<crate::service::cron::OwnerPromptRequests>();
         self.insert_late::<crate::service::session_persist::SessionPersistenceWorker>();
+        self.insert_late::<crate::agent::live_state::RestoreReportWorker>();
     }
 
     pub fn finish(self) -> Extensions {
@@ -119,6 +120,8 @@ fn required() -> Vec<(TypeId, &'static str)> {
         WorkerIdentityAllocator,
     };
     vec![
+        key::<crate::config::ConfigState>(),
+        key::<crate::MeshStateHandle>(),
         key::<LaunchTaskFiles>(),
         key::<WorkspaceRelocationLock>(),
         key::<AccountCell>(),

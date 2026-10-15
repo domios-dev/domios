@@ -459,7 +459,6 @@ jobs:
         run: |
           mkdir -p dist src-tauri/bundled-cli
           [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
-          node scripts/prepare-embed-stub.js
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
@@ -474,7 +473,7 @@ jobs:
           target: x86_64-unknown-linux-gnu
       - name: Clean 0-byte stubs
         if: always()
-        run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
+        run: find src-tauri/bundled-cli -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
       - *clean-job-outputs
 
   ts-static:

@@ -174,8 +174,7 @@ loads `vcvarsall x64_arm64`), node 22 + pnpm 10.32.1, git, LLVM. Windows signing
 publishing to the mirror uses `PACKAGE_REPOS_TOKEN`. No SSH, no remote-build env — the old
 Mac→Windows SSH/QEMU path is gone.
 
-**x86_64 Linux runner (the ROG's WSL2), one-time:** install WSL2 with **Ubuntu 24.04** (glibc 2.39 —
-required by the onnxruntime static lib), register a **self-hosted GitHub Actions runner** with label
+**x86_64 Linux runner (the ROG's WSL2), one-time:** install WSL2 with **Ubuntu 24.04**, register a **self-hosted GitHub Actions runner** with label
 `linux-build`, and install rustup on the repo-pinned channel (1.95.0), node 22 + pnpm 10.32.1, `gh`,
 and the apt deps listed in `release-linux.yml` (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`,
 `libayatana-appindicator3-dev`, `librsvg2-dev`, `libssl-dev`, `patchelf`). Same signing/mirror
@@ -256,13 +255,12 @@ claim cross-machine reuse.
   runner (`release-linux.yml`). The historical Mac approach (cross `.deb` only, via
   `Dockerfile.linux-x64` with multiarch amd64 libs — no sysroot) is retired from the release path;
   the Docker x64 image is kept only for ad-hoc local use.
-- **Cross builds need embed/cli stubs pre-created** or `tauri-build` glob validation fails
-  (`resource path bundled-embed/codeterm-embed-<triple> doesn't exist`). Handled in the scripts and
-  in `release-windows.yml` (the aarch64 cross build pre-creates the target-triple sidecar stubs).
+- **Cross builds need CLI resource stubs pre-created** for `tauri-build` glob validation.
+  The build scripts and `release-windows.yml` stage the target-correct CLI.
 - **Release compilation uses one target contract.** Each platform job sets `CARGO_TARGET_DIR` to the
   checkout's `src-tauri/target`; cross-target lanes carry their target in `CARGO_BUILD_TARGET`,
-  and all jobs pin the `embeddings` features with `CARGO_INCREMENTAL=0`. `release-inputs` builds both application bins
-  before Tauri bundles them, so the dependency graph is not compiled a second time. The three
+  and all jobs pin the `embeddings` features with `CARGO_INCREMENTAL=0`. `release-inputs` builds the application bin
+  before Tauri bundles it, so the dependency graph is not compiled a second time. The three
   platform workflows intentionally have no Rust target-cache action or target upload.
 - **macOS architectures rerun independently.** Matrix siblings each build, notarize, staple and
   pack their own bundle. `mac-overlap.sh` is used only by the manual combined helper.

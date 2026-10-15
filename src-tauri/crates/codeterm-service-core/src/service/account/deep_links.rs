@@ -1,9 +1,9 @@
-pub(super) enum DeepLinkAction {
+pub enum DeepLinkAction {
     BillingReturn { status: Option<String> },
     AccountCallback(codeterm_account::Callback),
 }
 
-pub(super) fn deep_link_action(url: &url::Url) -> Option<DeepLinkAction> {
+pub fn deep_link_action(url: &url::Url) -> Option<DeepLinkAction> {
     if url.scheme() == "domios" && url.host_str() == Some("billing") {
         if url.path() != "/return"
             || !url.username().is_empty()

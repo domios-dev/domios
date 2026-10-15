@@ -1,6 +1,5 @@
 pub mod delete;
 pub mod graph;
-use tauri::Manager;
 
 use crate::blueprint_pipeline::BlueprintExt;
 use crate::{
@@ -201,8 +200,7 @@ impl SentinelExt for ServiceContext {
             );
         }
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         {
             let mux = self.mux.read();
@@ -235,8 +233,7 @@ impl SentinelExt for ServiceContext {
         let prepared =
             self.prepare_history_update(caller, id, expect_version, snapshot, history)?;
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let authored_at = handle.store.lock().clock.now_ms();
         let staged = {
@@ -284,8 +281,7 @@ impl SentinelExt for ServiceContext {
         history: &serde_json::Value,
     ) -> Result<PreparedUpdate, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let current = {
             let store = handle.store.lock();
@@ -399,8 +395,7 @@ impl SentinelExt for ServiceContext {
         let mut job = self.prepare_sentinel_create(caller, create)?;
         job.machine.stopped = imported_stopped.unwrap_or(false);
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();
@@ -436,8 +431,7 @@ impl SentinelExt for ServiceContext {
         create: Create,
     ) -> Result<Sentinel, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let connected = create.model_classification
             && create.matches.is_empty()
@@ -502,8 +496,7 @@ impl SentinelExt for ServiceContext {
     ) -> Result<Sentinel, String> {
         let (current, update) = self.prepare_sentinel_update(caller, id, expect_version, update)?;
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let note = update.note.clone();
         let cause = update.cause_transition_id.clone();
@@ -568,8 +561,7 @@ impl SentinelExt for ServiceContext {
         update: Update,
     ) -> Result<(Sentinel, amend::PreparedUpdate), String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let current = {
             let store = handle.store.lock();
@@ -626,8 +618,7 @@ impl SentinelExt for ServiceContext {
         id: &str,
     ) -> Result<amend::History, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         if !caller_is_live(&self.mux.read(), caller) {
             return Err("blueprint caller scope changed".into());
@@ -666,8 +657,7 @@ impl SentinelExt for ServiceContext {
         transition_id: &str,
     ) -> Result<Sentinel, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();
@@ -725,8 +715,7 @@ impl SentinelExt for ServiceContext {
                 .is_some_and(|tab| tab.has_team_orchestrator_authority())
         };
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let store = handle.store.lock();
         store.ensure_available()?;
@@ -741,8 +730,7 @@ impl SentinelExt for ServiceContext {
 
     fn sentinel_show(&self, caller: &SentinelCaller, id: &str) -> Result<Sentinel, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let store = handle.store.lock();
         store.ensure_available()?;
@@ -756,8 +744,7 @@ impl SentinelExt for ServiceContext {
 
     fn sentinel_stop(&self, caller: &SentinelCaller, id: &str) -> Result<Sentinel, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();

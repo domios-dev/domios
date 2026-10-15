@@ -1,4 +1,3 @@
-use codeterm_service_core::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::service::plan::{PlanError, PlanIncident, PlanStore};
@@ -52,13 +51,12 @@ pub(super) fn archive_with_evidence(
 pub(super) fn archive(
     store: &PlanStore,
     svc: &ServiceState,
-    app: &AppHandle,
     params: &Option<Value>,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
     let id = plan_refs::resolve_plan(store, params)?;
     let nudge = archive_with_evidence(store, &id, now).map_err(plan_rpc_err)?;
-    emit_plan_changed(app, &id);
+    emit_plan_changed(svc, &id);
     let mut resp = json!({ "ok": true });
     if let Some(plan) = store.get(&id) {
         let cleanup = codeterm_service_core::service::plan::cleanup_debt::detect_plan_cleanup_debt(
@@ -97,12 +95,8 @@ fn push_hints(value: &mut Value, hints: Vec<String>) {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_service_core::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {
