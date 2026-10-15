@@ -16,9 +16,23 @@ pub fn install(handle: Handle) {
 }
 
 pub fn handle() -> &'static Handle {
-    RUNTIME.get().expect(
-        "service runtime is not installed; install the host runtime before starting services",
-    )
+    if let Some(handle) = RUNTIME.get() {
+        return handle;
+    }
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        static TEST_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+        TEST_RUNTIME
+            .get_or_init(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .expect("test runtime initialization failed")
+            })
+            .handle()
+    }
+    #[cfg(not(any(test, feature = "test-support")))]
+    panic!("service runtime is not installed; install the host runtime before starting services")
 }
 
 pub fn spawn<F>(task: F) -> JoinHandle<F::Output>
@@ -40,3 +54,6 @@ where
 pub fn block_on<F: Future>(task: F) -> F::Output {
     handle().block_on(task)
 }
+
+#[cfg(test)]
+mod tests;

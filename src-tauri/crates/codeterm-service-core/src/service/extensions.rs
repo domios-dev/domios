@@ -37,14 +37,18 @@ impl Extensions {
     }
 
     pub fn set<T: Any + Send + Sync>(&self, value: T) -> Result<(), T> {
-        match self
+        let result = match self
             .map
             .get(&TypeId::of::<T>())
             .and_then(|slot| slot.downcast_ref::<OnceLock<T>>())
         {
             Some(slot) => slot.set(value),
             None => Err(value),
+        };
+        if result.is_err() {
+            log::error!("extension {} could not be set", std::any::type_name::<T>());
         }
+        result
     }
 }
 
