@@ -16,6 +16,7 @@ warnings = "deny"
 workspace = true
 
 [dependencies]
+include_dir = "0.7"
 codeterm-commands = { path = "crates/codeterm-commands" }
 codeterm-api = { path = "crates/codeterm-api" }
 codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false }

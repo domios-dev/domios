@@ -1,4 +1,5 @@
 mod command_registration;
+mod plugin_bundle;
 mod run;
 mod startup;
 
@@ -6,6 +7,7 @@ mod startup;
 pub fn run() {
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
+    plugin_bundle::install();
     codeterm_socket::register_socket();
     codeterm_orchestration::register_orchestration();
     run::run(
