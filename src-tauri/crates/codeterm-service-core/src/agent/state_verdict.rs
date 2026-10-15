@@ -91,6 +91,7 @@ pub fn apply_live(mux: &MuxState, tab_id: &str, session_id: &str, next: AgentLiv
                 && tab.agent_session_id.as_deref() == Some(session_id)
                 && tab.agent_state.as_ref() != Some(&next) =>
         {
+            tab.record_activity();
             tab.agent_state = Some(next);
             true
         }

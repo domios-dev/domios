@@ -872,6 +872,18 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
         {
             return;
         }
+        if ["active_turn_started_at_ms", "last_turn_duration_ms"]
+            .iter()
+            .any(|field| {
+                target
+                    .agent_runtime_state
+                    .as_ref()
+                    .and_then(|saved| saved.get(*field))
+                    != value.get(*field)
+            })
+        {
+            target.record_activity();
+        }
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = matches!(state.phase, RuntimePhase::Loading);
     }

@@ -74,6 +74,7 @@ fn store_agent_state_and_record_turn_resume_edge(
     if tab.structured_control_active || tab.agent_state.as_ref() == Some(&new_state) {
         return (false, false);
     }
+    tab.record_activity();
     tab.agent_state = Some(new_state);
     let mark_changed = start_epoch.is_some_and(|start_epoch| {
         crate::service::turn_resume::record_turn_resume_edge_if_active(
