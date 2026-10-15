@@ -666,14 +666,14 @@ finish_build_gateway_logging() {
   return "$reader_status"
 }
 
-complete_build_gateway_before_install_handoff() {
+complete_build_gateway_before_handoff() {
   local reader_status=0 finish_status=0 outcome=""
   trap - EXIT INT TERM
   if [ -n "${CT_BUILD_GATEWAY_LOG_PATH:-}" ]; then
     printf 'Build gateway job %s build exit: 0\n' "$CT_BUILD_JOB_ID"
     finish_build_gateway_logging || reader_status=$?
     if [ "$reader_status" -ne 0 ]; then
-      printf 'WARNING: build gateway logging path broke before installer handoff (reader exit %s); build exit remains 0; log: %s\n' \
+      printf 'WARNING: build gateway logging path broke before launch handoff (reader exit %s); build exit remains 0; log: %s\n' \
         "$reader_status" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
       outcome=logging_degraded
     fi
@@ -1737,6 +1737,27 @@ dev_conf_path() {
   echo "$out"
 }
 
+build_and_launch_dev() {
+  local conf build_sha
+  export CODETERM_DEV=1
+  export CODETERM_WEB_DIST="$(pwd -P)/dist"
+  configure_dev_cargo
+  conf="$(dev_conf_path)"
+  node scripts/dev-prep.mjs --no-server
+  local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
+    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
+  if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
+    build_args+=(--features "$CT_DEV_CARGO_FEATURES")
+  fi
+  TAURI_CONFIG="$(cat "$conf")" cargo build "${build_args[@]}"
+  build_sha="$(git rev-parse HEAD)"
+  write_dev_provenance "$build_sha"
+  retain_dev_pdb "$build_sha"
+  complete_build_gateway_before_handoff
+  echo "Build gateway released; launching validated dev artifact."
+  exec bash ./build.sh dev-prebuilt "$@"
+}
+
 ensure_real_embed_bundle() {
   local host exe_ext embed_size
   host=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
@@ -1753,89 +1774,6 @@ ensure_real_embed_bundle() {
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
     CODETERM_DEV=1 node scripts/bundle-embed.js
   fi
-}
-
-start_dev_wait_process() {
-  local log="$1"
-  local conf
-  conf="$(dev_conf_path)"
-  configure_dev_cargo
-  local cmd=(pnpm tauri dev --no-watch --config "$conf" "${CT_DEV_TAURI_ARGS[@]}")
-  if [[ "$OSTYPE" == darwin* ]] && command -v screen >/dev/null 2>&1; then
-    local session="codeterm-dev${CT_SUFFIX}-$$"
-    local root_q log_q conf_q args_q
-    printf -v root_q "%q" "$(pwd)"
-    printf -v log_q "%q" "$log"
-    printf -v conf_q "%q" "$conf"
-    printf -v args_q "%q " "${CT_DEV_TAURI_ARGS[@]}"
-    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config $conf_q $args_q >> $log_q 2>&1"
-    echo "screen:$session"
-    return
-  fi
-  local pid spawn_status
-  set +e
-  case "$OSTYPE" in
-    msys*|cygwin*|win32)
-      "${cmd[@]}" </dev/null >> "$log" 2>&1 &
-      ;;
-    *)
-      nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
-      ;;
-  esac
-  pid=$!
-  spawn_status=$?
-  set -e
-  if [ -z "$pid" ]; then
-    echo "Failed to spawn dev process (status=$spawn_status)" >&2
-    return "${spawn_status:-1}"
-  fi
-  echo "$pid"
-}
-
-dev_wait_process_alive() {
-  local pid="$1"
-  case "$pid" in
-    screen:*)
-      local session="${pid#screen:}"
-      screen -ls 2>/dev/null | grep -q "[.]$session[[:space:]]"
-      ;;
-    *)
-      kill -0 "$pid" 2>/dev/null
-      ;;
-  esac
-}
-
-dev_wait_stage() {
-  local log="$1" stage
-  stage="$(tail -80 "$log" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n1 || true)"
-  if [ -n "$stage" ]; then
-    printf '%s\n' "$stage"
-  else
-    printf '%s\n' 'launcher spawned; waiting for compiler or daemon output'
-  fi
-}
-
-handoff_gateway_to_dev() {
-  local dev_pid="$1" monitor_pid monitor_start lock
-  lock="$(ct_gateway_dir)/lock"
-  mkdir -p "$lock"
-  (
-    trap - EXIT INT TERM
-    CT_GATEWAY_MUTEX_PID="$BASHPID"
-    CT_GATEWAY_PROCESS_START="$(ct_gateway_process_start_token "$BASHPID")"
-    sleep 1
-    while dev_wait_process_alive "$dev_pid"; do
-      sleep 2
-    done
-    CT_GATEWAY_ACTIVE=1
-    ct_gateway_finish 0
-  ) >/dev/null 2>&1 &
-  monitor_pid=$!
-  monitor_start="$(ct_gateway_process_start_token "$monitor_pid")"
-  printf '%s\n' "$monitor_pid" > "$lock/pid"
-  printf '%s\n' "$monitor_start" > "$lock/start_token"
-  CT_GATEWAY_ACTIVE=0
-  echo "Build gateway remains owned by dev monitor $monitor_pid until launcher $dev_pid exits."
 }
 
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
@@ -2311,7 +2249,7 @@ EOF
         kill -TERM "$$"
         ;;
       handoff-success)
-        complete_build_gateway_before_install_handoff
+        complete_build_gateway_before_handoff
         printf 'HANDOFF_AFTER_GATEWAY\n'
         ;;
     esac
@@ -2630,7 +2568,7 @@ EOF
       echo "Post-install continuation: disabled (no calling CodeTerm Tab)"
       INSTALL_ARGS+=(--no-continue)
     fi
-    complete_build_gateway_before_install_handoff
+    complete_build_gateway_before_handoff
     echo "Build gateway released; starting detached installer handoff."
     env \
       -u CODETERM_INSTANCE \
@@ -3069,141 +3007,8 @@ LOCK_STORM_PY
     fi
     ensure_real_embed_bundle
     record_dev_target "$(tauri_debug_dir)"
-    echo "Starting dev..."
-    # Mark the daemon as dev: bundle hashes are bypassed (live edits
-    # to <repo>/plugins/<id>/ don't trip the verifier) and the
-    # first-launch embedded extract is skipped so ~/.codeterm/plugins/
-    # doesn't shadow the workspace.
-    export CODETERM_DEV=1
-    configure_dev_cargo
-    export CODETERM_WEB_DIST="$(pwd -P)/dist"
-    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
-    start_web_watch
-    start_dev_static_server
+    build_and_launch_dev "${@:2}"
 
-    if [ "$CT_DEV_WAIT" -eq 1 ]; then
-      LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
-      DEV_NOTIFY_LOG="$LOG"
-      : > "$LOG"
-      EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
-      PID_FILE="/tmp/codeterm-dev${CT_SUFFIX}.pid.$$"
-      if ! start_dev_wait_process "$LOG" > "$PID_FILE"; then
-        DEV_NOTIFY_STAGE=launcher-start
-        echo "Dev startup failed before the explicit health signal. Last log lines:"
-        tail -25 "$LOG"
-        exit 1
-      fi
-      DEV_PID="$(cat "$PID_FILE")"
-      rm -f "$PID_FILE"
-      echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
-      DEV_NOTIFY_STAGE=launch
-      DEADLINE=$(( $(date +%s) + 600 ))
-      LAST_STAGE=""
-      while : ; do
-        STAGE="$(dev_wait_stage "$LOG")"
-        if [ "$STAGE" != "$LAST_STAGE" ]; then
-          echo "Dev startup stage: $STAGE"
-          LAST_STAGE="$STAGE"
-        fi
-        echo "Dev startup heartbeat: stage=$LAST_STAGE"
-        if [ "$(date +%s)" -gt "$DEADLINE" ]; then
-          DEV_NOTIFY_STAGE=deadline
-          echo "Timeout after 600s during stage: $LAST_STAGE. Last log lines:"
-          tail -25 "$LOG"
-          if [ -f "/tmp/codeterm-web-watch${CT_SUFFIX}.log" ]; then
-            echo "Last web-watch log lines:"
-            tail -25 "/tmp/codeterm-web-watch${CT_SUFFIX}.log"
-          fi
-          exit 1
-        fi
-        if ! dev_wait_process_alive "$DEV_PID"; then
-          DEV_NOTIFY_STAGE=exited
-          echo "Dev process exited before reporting ready during stage: $LAST_STAGE. Last log lines:"
-          tail -25 "$LOG"
-          exit 1
-        fi
-        HEALTH=$(dev_health_status)
-        if [ -n "$HEALTH" ]; then
-          STATUS=$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null | head -n1 || true)
-          if [ "$STATUS" = "ok" ]; then
-            if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH"); then
-              DEV_NOTIFY_STAGE=health
-              echo "$HEALTH"
-              exit 1
-            fi
-            STABLE=1
-            for _ in 1 2 3 4; do
-              sleep 2
-              HEALTH=$(dev_health_status)
-              if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null); then
-                STABLE=0
-                break
-              fi
-            done
-            if [ "$STABLE" != "1" ]; then
-              DEV_NOTIFY_STAGE=unhealthy
-              echo "Dev process became unhealthy immediately after reporting ready. Last log lines:"
-              tail -25 "$LOG"
-              exit 1
-            fi
-            if ! dev_frontend_ready; then
-              DEV_NOTIFY_STAGE=frontend
-              sleep 2
-              continue
-            fi
-            write_dev_provenance "$SHA"
-            retain_dev_pdb "$SHA"
-            echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
-            if [ -n "$DEV_NOTIFY_TAB" ]; then
-              dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
-            fi
-            if [ -n "$CT_INSTANCE" ]; then
-              echo "Named dev ready; shared build gateway handoff skipped."
-            else
-              handoff_gateway_to_dev "$DEV_PID"
-            fi
-            exit 0
-          fi
-        fi
-        sleep 2
-      done
-    else
-      # Retained after the session, not before it: only then is the PDB on disk
-      # the one tauri just linked and ran. Nothing relinks until the next dev, so
-      # a daemon that died leaves its symbols intact for this copy.
-      dev_status=0
-      if [ -n "$DEV_NOTIFY_TAB" ]; then
-        INTERACTIVE_LOG="/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
-        : > "$INTERACTIVE_LOG"
-        DEV_NOTIFY_LOG="$INTERACTIVE_LOG"
-        EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
-        DEV_NOTIFY_STAGE=launch
-        DEV_NOTIFY_WAITER_PID=
-        if pnpm tauri dev --no-watch --config "$(dev_conf_path)" "${CT_DEV_TAURI_ARGS[@]}" 2>&1 | tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev; then
-          DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
-        else
-          DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
-        fi
-        dev_status="${DEV_NOTIFY_PIPE_STATUS[0]}"
-        DEV_NOTIFY_TEE_STATUS="${DEV_NOTIFY_PIPE_STATUS[1]}"
-        if [ "$dev_status" -eq 0 ]; then dev_status="$DEV_NOTIFY_TEE_STATUS"; fi
-        DEV_NOTIFY_SEND_CLAIMED=0
-        if ! dev_notify_is_sent "$DEV_NOTIFY_SENT_MARKER"; then
-          dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" exited "$CT_INSTANCE" "$CT_PORT" "$INTERACTIVE_LOG" "$dev_status"
-        fi
-        if [ "$DEV_NOTIFY_SEND_CLAIMED" = 1 ]; then
-          dev_notify_stop_stream_waiter "$DEV_NOTIFY_WAITER_PID"
-        else
-          wait "$DEV_NOTIFY_WAITER_PID" 2>/dev/null || true
-        fi
-        DEV_NOTIFY_WAITER_PID=
-        DEV_NOTIFY_STAGE=exited
-      else
-        pnpm tauri dev --no-watch --config "$(dev_conf_path)" "${CT_DEV_TAURI_ARGS[@]}" || dev_status=$?
-      fi
-      retain_dev_pdb "$(git rev-parse HEAD 2>/dev/null || true)"
-      exit "$dev_status"
-    fi
     ;;
   e2e)
     export CODETERM_API_URL="http://127.0.0.1:${CT_PORT}"
