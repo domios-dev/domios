@@ -151,7 +151,7 @@ export function ownershipErrors(catalogue, overlay, workflows, buildSource, plug
       const combined = commands.join("\n");
       if (entry.runner.split(" && ").every(command => combined.includes(command.replace("./build.sh", "bash build.sh")))) return true;
       if (entry.id === "provider-boundary" && combined.includes(entry.runner)) return true;
-      if (["node-script-tests-serial", "node-script-tests-cargo", "script-catalog", "test-catalogue"].includes(entry.id)) {
+      if (["node-script-tests-serial", "node-script-tests-cargo", "test-catalogue"].includes(entry.id)) {
         return combined.includes("bash build.sh script-guards") && buildSource.includes(entry.runner);
       }
       return false;
