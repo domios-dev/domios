@@ -4,7 +4,9 @@ use crate::service::test_fixture::RecordedUiEvents;
 #[test]
 fn status_emission_preserves_payload_and_event() {
     let recorded = Arc::new(RecordedUiEvents::default());
-    let emitter = UiStatusEmitter(recorded.clone());
+    let emitter = UiStatusEmitter {
+        ui: recorded.clone(),
+    };
     let payload = serde_json::json!({
         "active": true,
         "display": false,
