@@ -65,7 +65,7 @@ fn same_startup_hold(left: &WorkerAckIdentity, right: &WorkerAckIdentity) -> boo
 }
 
 impl WorkerAckRegistry {
-    pub(crate) fn arm(&self, identity: WorkerAckIdentity) -> WorkerAckArm {
+    pub fn arm(&self, identity: WorkerAckIdentity) -> WorkerAckArm {
         let (sender, receiver) = mpsc::channel();
         let previous = {
             let mut state = self.waiters.lock();

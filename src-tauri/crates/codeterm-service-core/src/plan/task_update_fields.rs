@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde_json::Value;
 
-pub(crate) const TASK_UPDATE_KEYS: &[&str] = &[
+pub const TASK_UPDATE_KEYS: &[&str] = &[
     "acceptance_criteria",
     "acceptance_criteria_replace",
     "body",
@@ -47,7 +47,7 @@ const SOCKET_CONTEXT_KEYS: &[&str] = &[
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TaskUpdateSeam {
+pub enum TaskUpdateSeam {
     Rest,
     Socket,
 }
@@ -77,7 +77,7 @@ impl fmt::Display for TaskUpdateInputError {
     }
 }
 
-pub(crate) fn validate_task_update_fields(
+pub fn validate_task_update_fields(
     body: &Value,
     seam: TaskUpdateSeam,
 ) -> Result<(), TaskUpdateInputError> {

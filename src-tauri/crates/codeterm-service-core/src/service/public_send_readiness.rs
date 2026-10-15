@@ -94,7 +94,7 @@ fn launch_is_finalized(stage: Option<crate::service::boot_stage::BootStage>) -> 
 }
 
 impl ReadinessRegistry {
-    fn arm(
+    pub fn arm(
         &self,
         tab_id: String,
         expected_turn: Option<String>,
