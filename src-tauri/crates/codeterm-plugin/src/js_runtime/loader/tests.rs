@@ -528,7 +528,7 @@ fn official_channel_record_accepts_provider_and_core_paths_only_for_their_ids() 
         &record("opaque-q7", "provider-opaque-q7", "elsewhere-q7"),
         "core-q7"
     ));
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         assert!(official(sys_id, sys_id));
         assert!(!official(sys_id, "other-q7"));
     }
@@ -767,7 +767,7 @@ fn trust_matrix() {
     }
 
     // Case 2: system id with custom content → Unverified. Skipped if the table is empty (cargo-publish edge case).
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(*sys_id);
         write(&dir.join("plugin.json"), &min_manifest(sys_id));
@@ -780,7 +780,7 @@ fn trust_matrix() {
     }
 
     // Case 3: system id with custom content from the official system channel stays trusted.
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(*sys_id);
         write(&dir.join("plugin.json"), &min_manifest(sys_id));
@@ -798,7 +798,7 @@ fn trust_matrix() {
 
     // Case 4: CODETERM_DEV=1 forces ThirdParty even for system id.
     env.set("CODETERM_DEV", "1");
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(*sys_id);
         write(&dir.join("plugin.json"), &min_manifest(sys_id));

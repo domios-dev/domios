@@ -333,6 +333,7 @@ dependencies = [
  "deunicode",
  "dirs 5.0.1",
  "ed25519-dalek",
+ "include_dir",
  "interprocess",
  "regex",
  "reqwest",
