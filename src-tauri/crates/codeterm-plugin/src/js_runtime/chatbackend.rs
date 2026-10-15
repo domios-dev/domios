@@ -88,6 +88,7 @@ impl JsChatBackend {
 
     fn normalize_plugin_origins(&self, messages: &mut [ChatMsg]) {
         for message in messages {
+            message.refresh_segments();
             if message.inbound_kind.as_deref() == Some("plugin")
                 || message.from_plugin.is_some()
                 || message.plugin_icon_svg.is_some()

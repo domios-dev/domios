@@ -210,6 +210,8 @@ pub struct ChatMsg {
     pub kind: String,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub segments: Option<Vec<codeterm_wire::envelope::MessageSegment>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub timestamp: Option<String>,
     /// Monotonic source-order ordinal (JSONL rich-message index / structured row
     /// position). The client's stable transcript-sort tiebreaker when timestamps
@@ -337,6 +339,21 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub interactive: Vec<InteractiveElement>,
 }
+
+impl ChatMsg {
+    pub fn refresh_segments(&mut self) {
+        self.segments =
+            (self.kind == "user").then(|| codeterm_wire::envelope::parse_envelope(&self.content));
+    }
+
+    pub fn with_segments(mut self) -> Self {
+        self.refresh_segments();
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 /// Result of one structured-chat read. `cursor` is an opaque bookmark
 /// (opencode: max part `time_created`) to pass back next poll. Empty

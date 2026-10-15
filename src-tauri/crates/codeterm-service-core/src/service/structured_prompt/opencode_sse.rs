@@ -273,19 +273,22 @@ pub fn normalize_chat_part(
             if text.trim().is_empty() {
                 return None;
             }
-            Some(ChatMsg {
-                id: update.part_id.clone(),
-                kind: if part_type == "reasoning" {
-                    "thinking".into()
-                } else if message.role == "user" {
-                    "user".into()
-                } else {
-                    "assistant".into()
-                },
-                content: text,
-                timestamp,
-                ..Default::default()
-            })
+            Some(
+                ChatMsg {
+                    id: update.part_id.clone(),
+                    kind: if part_type == "reasoning" {
+                        "thinking".into()
+                    } else if message.role == "user" {
+                        "user".into()
+                    } else {
+                        "assistant".into()
+                    },
+                    content: text,
+                    timestamp,
+                    ..Default::default()
+                }
+                .with_segments(),
+            )
         }
         "tool" => normalize_tool_part(update, timestamp),
         _ => None,
