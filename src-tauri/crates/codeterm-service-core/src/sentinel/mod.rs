@@ -5,8 +5,8 @@ pub use codeterm_sentinel::{
 };
 pub(crate) mod actions;
 mod ports_impl;
-#[cfg(test)]
-pub(crate) use ports_impl::manage_fixture_ports;
+#[cfg(any(test, feature = "test-support"))]
+pub use ports_impl::manage_fixture_ports;
 pub use ports_impl::register_sentinel;
 pub(crate) mod classify;
 pub(crate) mod graph;
