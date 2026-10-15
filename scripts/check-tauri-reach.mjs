@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,6 +23,8 @@ export function scan(root) {
     }
   }
   visit(scope);
+  const crashScope = 'src-tauri/crates/codeterm-crash/src/';
+  if (existsSync(join(root, crashScope))) visit(crashScope);
   return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
 }
 

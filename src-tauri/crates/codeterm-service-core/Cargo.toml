@@ -10,6 +10,7 @@ workspace = true
 name = "codeterm_service_core"
 
 [dependencies]
+codeterm-crash = { path = "../codeterm-crash" }
 codeterm-provider-ops = { path = "../codeterm-provider-ops" }
 codeterm-recall = { path = "../codeterm-recall" }
 codeterm-supporter = { path = "../codeterm-supporter" }
@@ -119,9 +120,6 @@ hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../../../crates/mem-store" }
 codeterm-paths = { path = "../../../crates/codeterm-paths" }
 codeterm-plugins = { path = "../codeterm-plugins" }
-crash-handler = "0.6"
-crash-context = "0.6"
-minidump-writer = "0.10"
 
 [features]
 default = ["embeddings"]

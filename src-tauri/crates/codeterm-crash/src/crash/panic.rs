@@ -45,7 +45,7 @@ pub fn install_panic_hook() {
         run_guarded_hook(
             || write_initial_diagnostics(info),
             |backtrace| {
-                crate::keepawake::cleanup_active_children_for_exit();
+                codeterm_keepawake::cleanup_active_children_for_exit();
                 write_panic_report(info, &backtrace);
                 prev(info);
             },

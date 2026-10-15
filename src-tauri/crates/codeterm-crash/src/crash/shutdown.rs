@@ -105,7 +105,7 @@ fn write_clean_exit_sentinel() {
 
 /// Unix-seconds timestamp of the last graceful exit, if a sentinel exists.
 /// `check_previous_crashes` ignores any report with mtime ≤ this.
-pub(crate) fn clean_exit_timestamp() -> Option<i64> {
+pub fn clean_exit_timestamp() -> Option<i64> {
     std::fs::read_to_string(clean_exit_path())
         .ok()
         .and_then(|s| s.trim().parse::<i64>().ok())
