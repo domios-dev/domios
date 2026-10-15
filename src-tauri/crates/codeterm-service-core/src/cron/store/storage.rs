@@ -261,7 +261,7 @@ impl CronStore {
         }
     }
 
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(test)]
     pub(crate) fn set_storage_deadline(&mut self, deadline: Duration) {
         if let Some(storage) = self.storage_mut() {
             storage.deadline = deadline;

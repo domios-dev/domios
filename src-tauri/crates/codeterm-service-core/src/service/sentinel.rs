@@ -12,7 +12,7 @@ use crate::sentinel::{
 };
 
 #[derive(Clone)]
-pub(crate) struct SentinelCaller {
+pub struct SentinelCaller {
     pub(super) tab: String,
     pub(super) team: Option<String>,
     pub(super) workspace: String,

@@ -131,7 +131,7 @@ pub(crate) struct SkippedJournalRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct JournalRepairReport {
+pub struct JournalRepairReport {
     pub(crate) restored_from: JournalRecordReport,
     pub(crate) skipped: Vec<SkippedJournalRecord>,
 }
