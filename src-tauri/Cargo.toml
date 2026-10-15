@@ -19,6 +19,7 @@ workspace = true
 codeterm-commands = { path = "crates/codeterm-commands" }
 codeterm-api = { path = "crates/codeterm-api" }
 codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false }
+codeterm-sentinel-host = { path = "crates/codeterm-sentinel-host" }
 codeterm-socket = { path = "crates/codeterm-socket" }
 codeterm-build-info = { path = "crates/codeterm-build-info" }
 tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }

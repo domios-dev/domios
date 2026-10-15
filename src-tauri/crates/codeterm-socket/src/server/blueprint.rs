@@ -1,6 +1,7 @@
 use serde_json::{json, Value};
 
 use super::{get_string_param, JsonRpcError};
+use codeterm_sentinel_host::{BlueprintExt, BlueprintPortableExt, SentinelDeleteExt, SentinelExt};
 use codeterm_service_core::service::ServiceState;
 
 fn error(message: impl Into<String>) -> JsonRpcError {
