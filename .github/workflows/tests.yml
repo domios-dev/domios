@@ -342,14 +342,17 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # Include-only rows: added keys on one base combination would overwrite each other, leaving one OS.
       matrix:
-        suite: [platform]
         include:
-          - os: Linux
+          - suite: platform
+            os: Linux
             label: linux-ci
-          - os: macOS
+          - suite: platform
+            os: macOS
             label: rust-shard
-          - os: Windows
+          - suite: platform
+            os: Windows
             label: windows-ci
     steps: *rust-test-steps
 
