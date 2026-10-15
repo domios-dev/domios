@@ -640,7 +640,6 @@ source scripts/cache-policy.sh
 source scripts/build-gateway.sh
 source scripts/nextest-archive.sh
 source scripts/lane-check.sh
-configure_lane_build_dir
 source scripts/release-signing.sh
 
 if [ -n "${CODETERM_BUILD_GATEWAY_DIR:-}" ]; then
@@ -2665,6 +2664,8 @@ EOF
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run node scripts/test-catalogue.mjs validate
+    sg_run bash scripts/check-crate-layering.sh
+    sg_run node --test scripts/tests/crate-layering.test.mjs
     sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
     sg_run node --test scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
     sg_run bash scripts/check-build-gateway-owner-reap.sh

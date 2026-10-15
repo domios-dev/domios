@@ -4,8 +4,8 @@
 use codeterm_types::agent::role_kind::builtins;
 use serde::Serialize;
 
-use crate::multiplexer::types::AgentRole;
-use crate::service::role_preset::{self, RolePreset};
+use crate::role_preset::{self, RolePreset};
+use codeterm_types::agent::AgentRole;
 
 use super::occasion::{self, Occasion};
 use super::overlay::{self, OverlayCatalog};

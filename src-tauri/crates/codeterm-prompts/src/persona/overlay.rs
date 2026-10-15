@@ -8,11 +8,11 @@ use std::sync::Arc;
 use codeterm_types::agent::role_kind::builtins;
 use parking_lot::RwLock;
 
-use crate::multiplexer::types::AgentRole;
-use crate::service::role_preset::{self, PresetOverlays};
+use crate::role_preset::{self, PresetOverlays};
+use codeterm_types::agent::AgentRole;
 
 /// Directory name under the instance data dir holding `*.toml` overlays.
-pub(crate) const OVERLAY_DIR: &str = "role-presets";
+pub const OVERLAY_DIR: &str = "role-presets";
 
 /// Keys an overlay may declare.
 const ALLOWED_KEYS: &[&str] = &["id", "label", "base", "guidance"];
@@ -42,7 +42,7 @@ pub struct CoreFragment {
     pub needle: &'static str,
 }
 
-pub(crate) const CONTRACT_CORE: &[CoreFragment] = &[
+pub const CONTRACT_CORE: &[CoreFragment] = &[
     CoreFragment {
         id: "framework_rule",
         needle: crate::prompts::WORKER_FRAMEWORK_RULE,
@@ -122,7 +122,7 @@ pub struct OverlayCatalog {
 }
 
 impl OverlayCatalog {
-    pub(crate) fn empty() -> Self {
+    pub fn empty() -> Self {
         Self::default()
     }
 
@@ -136,7 +136,7 @@ impl OverlayCatalog {
 
     /// Read every `*.toml` in `dir`. A rejected file is recorded and skipped;
     /// one bad overlay never blocks the rest.
-    pub(crate) fn load(dir: &Path) -> Self {
+    pub fn load(dir: &Path) -> Self {
         let mut catalog = Self::default();
         let entries = match std::fs::read_dir(dir) {
             Ok(entries) => entries,
@@ -162,7 +162,7 @@ impl OverlayCatalog {
     }
 
     #[cfg(test)]
-    pub(crate) fn from_sources(sources: &[(&str, &str)]) -> Self {
+    pub fn from_sources(sources: &[(&str, &str)]) -> Self {
         let mut catalog = Self::default();
         for (path, text) in sources {
             catalog.admit(path, text);
@@ -326,8 +326,8 @@ fn string_key(table: &toml::value::Table, key: &str) -> Result<Option<String>, R
     }
 }
 
-pub(crate) fn overlay_dir() -> PathBuf {
-    crate::paths::data_dir().join(OVERLAY_DIR)
+pub fn overlay_dir() -> PathBuf {
+    codeterm_paths::data_dir().join(OVERLAY_DIR)
 }
 
 static AMBIENT: std::sync::LazyLock<RwLock<Arc<OverlayCatalog>>> =
@@ -339,7 +339,7 @@ pub fn ambient() -> Arc<OverlayCatalog> {
     AMBIENT.read().clone()
 }
 
-pub(crate) fn install(catalog: OverlayCatalog) -> Arc<OverlayCatalog> {
+pub fn install(catalog: OverlayCatalog) -> Arc<OverlayCatalog> {
     let catalog = Arc::new(catalog);
     *AMBIENT.write() = catalog.clone();
     catalog

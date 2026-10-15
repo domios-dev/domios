@@ -1709,6 +1709,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-prompts"
+version = "0.0.0"
+dependencies = [
+ "codeterm-build-info",
+ "codeterm-mem",
+ "codeterm-paths",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-types",
+ "dirs 6.0.0",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.2",
+]
+
+[[package]]
 name = "codeterm-provider-signals"
 version = "1.6.2"
 dependencies = [
@@ -1720,6 +1740,7 @@ dependencies = [
 name = "codeterm-pty"
 version = "1.6.2"
 dependencies = [
+ "arc-swap",
  "base64 0.22.1",
  "codeterm-build-info",
  "codeterm-paths",
@@ -1881,6 +1902,7 @@ dependencies = [
  "codeterm-plan",
  "codeterm-plugin",
  "codeterm-plugins",
+ "codeterm-prompts",
  "codeterm-provider-signals",
  "codeterm-pty",
  "codeterm-repowatch",
