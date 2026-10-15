@@ -40,11 +40,8 @@ pub(crate) async fn hook_provider_event(
         tokio::task::spawn_blocking(move || {
             let state = owner;
             let tab_id = target;
-            state
-                .svc
-                .mux
-                .read()
-                .get_tab(&tab_id)
+            let mux = state.svc.mux.read();
+            mux.get_tab(&tab_id)
                 .map(|tab| {
                     (
                         tab.agent_type.clone(),

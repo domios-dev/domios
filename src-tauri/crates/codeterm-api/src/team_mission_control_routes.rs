@@ -246,11 +246,8 @@ pub async fn state(
     let team = tokio::task::spawn_blocking(move || {
         let state = owner;
         let team_id = target;
-        state
-            .svc
-            .mux
-            .read()
-            .get_team(&team_id)
+        let mux = state.svc.mux.read();
+        mux.get_team(&team_id)
             .cloned()
             .ok_or((StatusCode::NOT_FOUND, "team not found".to_string()))
     })

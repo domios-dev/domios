@@ -193,7 +193,7 @@ pub struct TransferBody {
     reason: String,
 }
 
-fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, Json<Value>)> {
+pub(super) fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, Json<Value>)> {
     crate::tab_routes::caller_tab_header(headers)
         .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| {
@@ -233,7 +233,7 @@ pub async fn transfer(
     })?
 }
 
-fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
+pub(super) fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
     match error {
         TeamPlanError::Plan(error) => plan_err(error),
         TeamPlanError::Team(message)

@@ -92,11 +92,8 @@ pub(crate) async fn rebind_session(
             let previous = tokio::task::spawn_blocking(move || {
                 let state = owner;
                 let tab_id = target;
-                state
-                    .svc
-                    .mux
-                    .read()
-                    .get_tab(&tab_id)
+                let mux = state.svc.mux.read();
+                mux.get_tab(&tab_id)
                     .and_then(|tab| tab.agent_session_id.clone())
             })
             .await
@@ -200,9 +197,8 @@ pub(crate) async fn validate_and_commit_rebind(
             let svc = owner;
             let tab_id = target.as_str();
             let session_id = session.as_str();
-            svc.mux
-                .read()
-                .get_tab(tab_id)
+            let mux = svc.mux.read();
+            mux.get_tab(tab_id)
                 .map(|tab| {
                     let evidence =
                 codeterm_service_core::agent::provider_identity::ProviderIdentityEvidence::capture(
