@@ -362,3 +362,10 @@ cannot serve as the live READY signal there. `build.ps1` still only forwards.
 | Symptom | Cause | Recovery |
 |---|---|---|
 | Windows DEV aborts with `fatal runtime error: I/O error: operation failed to complete synchronously` (event 1000, `0xc0000409`) | The former launch path gave Rust stdio an overlapped pipe. A synchronous write can return `ERROR_IO_PENDING` under reader load. | Rebuild with the corrected launcher and restart DEV. Keep Windows app stdout/stderr on the .NET synchronous-pipe boundary in foreground and `--wait`. Never attach app stdio directly to libuv or PowerShell pipeline pipes. |
+
+Fixed: DEV recompiled crates from the physical `C:` checkout despite an active
+`X:` gateway mapping. The old `dev-prep --no-server` calls duplicated CLI/embed
+Cargo builds with a physical cwd, including one call after gateway release.
+DEV now stages the CLI already built by `build.sh`; prebuilt launch performs no
+Cargo preparation. Main app and sidecar compilation stay at `X:` until build
+completion, then the mapping is released before launching the app.

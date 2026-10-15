@@ -11,18 +11,19 @@ for (const failure of [0, 42]) {
 ${fn.replace('exec bash ./build.sh', 'launch')}
 CODETERM_WEB_DIST= CT_DEV_CARGO_PROFILE= CT_DEV_CARGO_FEATURES=
 owned=1
+gateway_cwd="$PWD"
 configure_dev_cargo() { CT_DEV_CARGO_PROFILE=dev; CT_DEV_CARGO_FEATURES=opaque; }
 dev_conf_path() { printf /dev/null; }
-node() { :; }
-cargo() { [ "$owned" = 1 ]; printf 'cargo %s\\n' "$*"; return ${failure}; }
+node() { [ "$owned" = 1 ]; [ "$1" = scripts/bundle-cli.js ]; }
+cargo() { [ "$owned" = 1 ]; [ "$PWD" = "$gateway_cwd" ]; printf 'cargo %s\\n' "$*"; return ${failure}; }
 git() { printf opaque-sha; }
 write_dev_provenance() { [ "$owned" = 1 ]; echo provenance; }
 retain_dev_pdb() { :; }
-release_stable_build_path() { [ "$owned" = 1 ]; mapping=0; }
+release_stable_build_path() { [ "$owned" = 1 ]; mapping=0; cd /; }
 tauri_debug_dir() { echo opaque-target; }
 record_dev_target() { [ "$mapping" = 0 ]; }
 complete_build_gateway_before_handoff() { [ "$mapping" = 0 ]; owned=0; echo released; }
-launch() { [ "$owned" = 0 ]; printf 'launch %s\\n' "$*"; }
+launch() { [ "$owned" = 0 ]; [ "$PWD" != "$gateway_cwd" ]; printf 'launch %s\\n' "$*"; }
 build_and_launch_dev --wait --notify-tab opaque-tab`;
     const result = spawnSync(bash, ['-c', script], { encoding: 'utf8' });
     assert.equal(result.status, failure, result.stderr);
@@ -36,4 +37,22 @@ test('prebuilt retains its single provenance validation before stopping dev', ()
   assert.ok(prebuilt.indexOf('validate_dev_provenance') < prebuilt.indexOf('    kill_dev'));
   assert.doesNotMatch(prebuilt, /enter_cargo_gateway|enter_build_gateway/);
   assert.doesNotMatch(fn, /sleep|tauri dev/);
+});
+
+
+test('prebuilt launch never runs Cargo preparation after gateway release', () => {
+  const prebuilt = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('  dev)'));
+  const preparation = prebuilt.slice(prebuilt.indexOf('    export PATH='), prebuilt.indexOf('    if [ "$CT_DEV_WAIT" -eq 1 ]; then'));
+  const result = spawnSync(bash, ['-c', `set -euo pipefail
+CT_DATA_DIR=/tmp CT_CDP_PORT=opaque
+DEV_NOTIFY_STAGE=
+dev_cli_path() { echo opaque-cli; }
+configure_dev_cargo() { :; }
+node() { echo unexpected-cargo-preparation; return 91; }
+start_web_watch() { echo watch; }
+start_dev_static_server() { echo static; }
+${preparation}
+`], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'watch\nstatic');
 });
