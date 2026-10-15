@@ -1265,6 +1265,7 @@ dependencies = [
  "dirs 6.0.0",
  "futures-core",
  "futures-util",
+ "http-body",
  "log",
  "mockito",
  "parking_lot",

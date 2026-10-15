@@ -8,6 +8,20 @@ function clientWith(response: Response) {
 }
 
 describe("transportClient", () => {
+  it("uses one page client identity for JSON, local JSON, uploads and streams", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({}));
+    const client = createTransportClient({ origin, token: "fixture-token", fetch });
+    await client.json("GET", "/api/tabs");
+    await client.localJson("GET", "/api/config");
+    await client.upload("/api/attachments/upload", new FormData());
+    await new Promise<void>((resolve) => {
+      client.subscribe("/api/events/stream", () => {}, { onEnd: () => resolve() });
+    });
+    const identities = fetch.mock.calls.map(([, init]) => new Headers(init?.headers).get("X-CodeTerm-Client-Id"));
+    expect(identities).toHaveLength(4);
+    expect(identities[0]).toBeTruthy();
+    expect(new Set(identities).size).toBe(1);
+  });
   it("requires an explicit HTTP origin and confines credentials to it", async () => {
     expect(() => createTransportClient({ origin: "tauri://localhost", token: () => "x" })).toThrow();
     const { client, fetch } = clientWith(Response.json({}));
