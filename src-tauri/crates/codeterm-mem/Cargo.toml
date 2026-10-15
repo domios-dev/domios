@@ -25,6 +25,12 @@ regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 sqlite-vec = { version = "0.1.9", optional = true }
 fastembed = { version = "5", optional = true }
+rayon = { version = "1", optional = true }
+candle-core = { version = "0.11", optional = true, default-features = false }
+candle-nn = { version = "0.11", optional = true, default-features = false }
+candle-transformers = { version = "0.11", optional = true, default-features = false }
+tokenizers = { version = "0.22", optional = true, default-features = false, features = ["onig"] }
+hf-hub = { version = "0.4", optional = true, default-features = false, features = ["ureq"] }
 ndarray = { version = "0.17", optional = true }
 hnsw_rs = { version = "0.3", optional = true }
 
@@ -39,7 +45,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 
 [features]
 default = ["embeddings"]
-embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
+embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:rayon", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:tokenizers", "dep:hf-hub", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 
 [dev-dependencies]
 tempfile = "3"
