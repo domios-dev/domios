@@ -9,6 +9,7 @@ const SHA = /^[0-9a-f]{40}$/;
 export const VERBS = {
   'check-queue': { deadline: '45m', os: null, remote: 'check-queue' },
   nextest: { deadline: '30m', os: null, remote: 'nextest' },
+  'test-one': { deadline: '30m', os: null, remote: 'test-one' },
   'check-linux': { deadline: '45m', os: 'linux', remote: 'check-workspace' },
   'check-series': { deadline: '4h', os: null, remote: null },
   setup: { deadline: '20m', os: null, remote: null },
@@ -48,7 +49,7 @@ export function findPeer(peers, name) {
   return peer;
 }
 
-const VALUE_FLAGS = new Set(['--peer', '--os', '--deadline', '--reply-tab', '--sha', '--max-errors', '--max-warnings', '--spec']);
+const VALUE_FLAGS = new Set(['--peer', '--os', '--deadline', '--reply-tab', '--sha', '--max-errors', '--max-warnings', '--spec', '--prereq']);
 const PASS_FLAGS = new Set(['--max-errors', '--max-warnings']);
 const PASS_SWITCHES = new Set(['--touched-only', '--all']);
 
@@ -69,6 +70,7 @@ export function parseDispatchArgs(verb, argv) {
       else if (arg === '--reply-tab') opts.replyTab = value;
       else if (arg === '--sha') opts.sha = value;
       else if (arg === '--spec' && verb === 'check-series') opts.spec = value;
+      else if (arg === '--prereq' && verb !== 'check-series') opts.prereq = value;
       else throw new Error(`${arg} is not valid for ${verb}`);
     } else if (arg === '--lane' && verb === 'check-queue') { opts.lane = true; opts.passthrough.push(arg); }
     else if (arg === '--force') opts.force = true;
@@ -83,8 +85,8 @@ export function parseDispatchArgs(verb, argv) {
   if (verb === 'check-series') {
     if (!opts.spec || opts.positionals.length || opts.sha) throw new Error('usage: ./build.sh check-series --spec FILE --peer <name|auto>');
     opts.remoteArgs = [];
-  } else if (verb === 'nextest') {
-    if (opts.positionals.length < 1 || opts.positionals.length > 2) throw new Error('usage: ./build.sh nextest <scope> [filterset] --peer <name|auto> [--sha SHA]');
+  } else if (verb === 'nextest' || verb === 'test-one') {
+    if (opts.positionals.length < 1 || opts.positionals.length > 2) throw new Error(`usage: ./build.sh ${verb} <scope> [filter] --peer <name|auto> [--sha SHA]`);
     opts.remoteArgs = [...opts.positionals];
   } else {
     if (opts.positionals.length > 1) throw new Error(`usage: ./build.sh ${verb} [sha] --peer <name|auto>`);
@@ -157,8 +159,9 @@ export function eventHeader({ jobId, peer, verb, sha }) {
 }
 
 // One POSIX command line for the peer's shell: lock, fetch the SHA, then the job runner from that SHA.
-export function remoteCommand({ peer, repository, jobId, verb, sha, clone, runner, reply }) {
+export function remoteCommand({ peer, repository, jobId, verb, sha, clone, runner, reply, prereqB64 = null }) {
   if (!SHA.test(sha)) throw new Error(`remote commands need a full SHA, got '${sha}'`);
+  if (prereqB64 !== null && !/^[A-Za-z0-9+/]+=*$/.test(prereqB64)) throw new Error('prerequisite patch must be base64');
   if (!NAME.test(jobId) || !NAME.test(reply.tab) || !NAME.test(reply.peer)) throw new Error('job id and reply route must be plain names');
   const header = eventHeader({ jobId, peer: peer.name, verb, sha });
   const send = `codeterm send --require-agent --tab ${reply.tab} --mesh ${reply.peer}`;
@@ -178,6 +181,8 @@ export function remoteCommand({ peer, repository, jobId, verb, sha, clone, runne
     + `; elif ! ct_step detach git checkout --quiet --detach; then ct_fail bootstrap_failed`
     + `; elif ! ct_step fetch git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 fetch --quiet --no-tags origin +refs/heads/develop:refs/heads/develop ${sha}; then ct_fail bootstrap_failed`
     + `; elif ! ct_step checkout git checkout --quiet --detach ${sha}; then ct_fail bootstrap_failed`
+    + (prereqB64 === null ? '' : `; elif ! ct_step prereq sh -c 'printf %s "$1" | base64 -d | git apply --index' prereq ${prereqB64}; then git reset --quiet --hard; ct_fail bootstrap_failed`
+      + `; elif ! ct_step prereq_commit git -c user.name=codeterm-peer -c user.email=peer@codeterm.invalid commit --quiet -m 'scratch prerequisite, never pushed'; then git reset --quiet --hard; ct_fail bootstrap_failed`)
     + `; elif ! ct_step runner_missing test -f scripts/build-peer.mjs; then ct_fail bootstrap_failed`
     + `; elif ! ct_step node_missing command -v node; then ct_fail bootstrap_failed`
     + `; else node scripts/build-peer.mjs ${runner.map(shellQuote).join(' ')}; fi`,

@@ -2177,7 +2177,7 @@ enter_cargo_gateway() {
 }
 
 case "$CMD" in
-  check-queue|nextest)
+  check-queue|nextest|test-one)
     for arg in "${@:2}"; do
       [ "$arg" != --peer ] || peer_dispatch dispatch "$CMD" "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
     done
@@ -2215,6 +2215,7 @@ CodeTerm build commands
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
   check-queue <sha> --peer <name|auto> [--lane] [--os OS]  Same check in a mesh peer's gateway; result returns as one message
   nextest <scope> [filterset] --peer <name|auto> [--sha SHA]  Same nextest run in a mesh peer's gateway
+  test-one <scope> <name> --peer <name|auto> [--sha SHA]  Same focused test in a peer gateway; any peer verb takes --prereq DIFF (local, never-pushed commit)
   check-linux [sha] [--force]  Once per batch: cargo check --workspace --all-targets on a Linux peer
   check-workspace [sha]       Whole-workspace cargo check of a SHA in this machine's check worktree
   peer-setup <peer> [--sha R] [--install-toolchain]  Clone/refresh the peer fetch-only checkout, check (or user-install) its toolchain, open its status tab

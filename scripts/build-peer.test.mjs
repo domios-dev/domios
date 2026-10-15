@@ -179,6 +179,38 @@ test('remote command reports not_setup, clones on setup, runs the job from the S
   assert.ok(!fs.existsSync(path.join(fx.checkout, '.git/codeterm-peer-job.lock')), 'a failed bootstrap releases the lock');
 });
 
+test('a prerequisite patch becomes a local commit on the SHA before the runner, and a bad one fails cleanly', (t) => {
+  const fx = bootstrapFixture(t);
+  fx.runCommand(fx.command({ clone: true }));
+  fs.rmSync(path.join(fx.checkout, '.git/codeterm-peer-job.lock'), { recursive: true });
+  const diff = 'diff --git a/note.txt b/note.txt\nnew file mode 100644\n--- /dev/null\n+++ b/note.txt\n@@ -0,0 +1 @@\n+patched\n';
+  fx.runCommand(fx.command({ prereqB64: Buffer.from(diff).toString('base64') }));
+  assert.equal(git(fx.checkout, 'rev-parse', 'HEAD^'), fx.sha);
+  assert.equal(git(fx.checkout, 'show', 'HEAD:note.txt'), 'patched');
+  assert.equal(git(fx.checkout, 'status', '--porcelain'), '');
+  fs.rmSync(path.join(fx.checkout, '.git/codeterm-peer-job.lock'), { recursive: true });
+  fx.runCommand(fx.command({ prereqB64: Buffer.from('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-missing\n+y\n').toString('base64') }));
+  const sent = calls(fx.env.FAKE_CODETERM_LOG).filter((c) => c.args[0] === 'send');
+  assert.match(sent.at(-1).args.at(-1), /outcome=bootstrap_failed exit=\d+ stage=prereq$/);
+  assert.equal(git(fx.checkout, 'rev-parse', 'HEAD'), fx.sha);
+  assert.equal(git(fx.checkout, 'status', '--porcelain', '--untracked-files=no'), '');
+});
+
+test('test-one dispatches its scope and name, and --prereq ships the diff without changing the job SHA', (t) => {
+  const fx = dispatchFixture(t, {});
+  const patch = path.join(fx.dir, 'fix.diff');
+  fs.writeFileSync(patch, 'diff --git a/a b/a\n');
+  const result = fx.dispatch('test-one', 'sentinel', 'group_retirement', '--peer', 'ubunta', '--sha', fx.sha, '--prereq', patch);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /prerequisite fix\.diff sha256=[0-9a-f]{16} is committed locally/);
+  const cmd = calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1);
+  assert.ok(cmd.includes(`prereq ${Buffer.from('diff --git a/a b/a\n').toString('base64')};`));
+  assert.match(cmd, /'--' 'test-one' 'sentinel' 'group_retirement'; fi; exit$/);
+  const queue = fx.dispatch('check-queue', fx.sha, '--peer', 'ubunta', '--prereq', patch);
+  assert.equal(queue.status, 0, queue.stderr);
+  assert.match(calls(fx.log).filter((c) => c.args[1] === 'new').at(-1).args.at(-1), /'--' 'check-queue' 'HEAD'; fi; exit$/);
+});
+
 function dispatchFixture(t, statuses) {
   const dir = tempDir('dispatch');
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
