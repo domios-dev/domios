@@ -9,7 +9,7 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
-use codeterm_service_core::{commands, commands_mesh};
+use codeterm_commands::{commands, commands_mesh};
 use futures_core::Stream;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
