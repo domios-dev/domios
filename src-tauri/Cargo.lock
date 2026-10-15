@@ -1176,6 +1176,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-agent-model"
+version = "0.0.0"
+dependencies = [
+ "codeterm-agent-detect",
+ "codeterm-blueprint-types",
+ "codeterm-config",
+ "codeterm-cron",
+ "codeterm-mem",
+ "codeterm-paths",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-pty",
+ "codeterm-sentinel",
+ "codeterm-storage",
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "toml 0.8.2",
+ "ulid",
+ "uuid",
+ "vt100",
+]
+
+[[package]]
 name = "codeterm-analytics"
 version = "0.1.0"
 dependencies = [
@@ -1819,6 +1851,7 @@ dependencies = [
  "clipboard-win",
  "codeterm-account",
  "codeterm-agent-detect",
+ "codeterm-agent-model",
  "codeterm-analytics",
  "codeterm-billing",
  "codeterm-blueprint-types",

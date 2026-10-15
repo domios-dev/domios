@@ -22,9 +22,9 @@ use codeterm_storage::{
 const CRON_FILE_KEYS: [&str; 3] = ["version", "jobs", "history"];
 
 /// Decoders of every legacy domain this build imports.
-pub(crate) struct LegacyCodecs;
+pub struct LegacyCodecs;
 
-pub(crate) fn cutover_import_live(storage: &Storage) -> Result<ImportOutcome, MigrationError> {
+pub fn cutover_import_live(storage: &Storage) -> Result<ImportOutcome, MigrationError> {
     storage.import_live_root(&LiveRootImportRequest::new(), &LegacyCodecs)
 }
 
@@ -324,7 +324,7 @@ fn cron_failure(error: LegacyCronError) -> DecodeFailure {
 }
 
 /// Imports an inert copy of an instance root. Blocking: call it off the async runtime.
-pub(crate) fn import_copied_root(
+pub fn import_copied_root(
     storage: &Storage,
     request: &ImportRequest,
 ) -> Result<ImportOutcome, MigrationError> {

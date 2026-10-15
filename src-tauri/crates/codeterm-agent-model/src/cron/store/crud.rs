@@ -35,7 +35,7 @@ pub enum CronChange {
 
 impl CronChange {
     /// The single job a change is fenced on; scope removals name no job up front.
-    pub(crate) fn job_id(&self) -> Option<&str> {
+    pub fn job_id(&self) -> Option<&str> {
         match self {
             CronChange::Create(job) | CronChange::Patch(job) | CronChange::StartRun { job, .. } => {
                 Some(job.id.as_str())
@@ -54,7 +54,7 @@ pub enum CronScope {
 }
 
 impl CronScope {
-    pub(crate) fn contains(&self, job: &CronJob) -> bool {
+    pub fn contains(&self, job: &CronJob) -> bool {
         match self {
             CronScope::Workspace(workspace) => job.workspace_id == *workspace,
             CronScope::Team(team) => job.team_id.as_deref() == Some(team.as_str()),
@@ -64,19 +64,19 @@ impl CronScope {
 
 /// An authorized change and the value its caller receives once the change is committed.
 pub struct Prepared<T> {
-    pub(crate) changes: Vec<CronChange>,
-    pub(crate) value: T,
+    pub changes: Vec<CronChange>,
+    pub value: T,
 }
 
 impl<T> Prepared<T> {
-    pub(crate) fn new(change: CronChange, value: T) -> Self {
+    pub fn new(change: CronChange, value: T) -> Self {
         Prepared {
             changes: vec![change],
             value,
         }
     }
 
-    pub(crate) fn unchanged(value: T) -> Self {
+    pub fn unchanged(value: T) -> Self {
         Prepared {
             changes: Vec::new(),
             value,
@@ -86,16 +86,16 @@ impl<T> Prepared<T> {
 
 /// Outcome of a run completion; `fresh` is true only for the first terminal transition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RunFinished {
-    pub(crate) fresh: bool,
-    pub(crate) elapsed_ms: Option<u64>,
+pub struct RunFinished {
+    pub fresh: bool,
+    pub elapsed_ms: Option<u64>,
 }
 
 /// Session a run's agent bound before its tab closed.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct RunSession<'a> {
-    pub(crate) session_id: &'a str,
-    pub(crate) cwd: Option<&'a str>,
+pub struct RunSession<'a> {
+    pub session_id: &'a str,
+    pub cwd: Option<&'a str>,
 }
 
 /// Clones of one run's history entry and of its job, edited like the legacy in-place updates.
@@ -185,7 +185,7 @@ impl CronStore {
             .unwrap_or_default()
     }
 
-    pub(crate) fn active_runs(&self) -> Vec<(String, CronRunInfo)> {
+    pub fn active_runs(&self) -> Vec<(String, CronRunInfo)> {
         let mut runs = Vec::new();
         let mut seen = HashSet::new();
         for job in &self.file.jobs {
@@ -232,7 +232,7 @@ impl CronStore {
     }
 
     /// Writes committed post-state values into the cache.
-    pub(crate) fn apply_change(&mut self, change: &CronChange) {
+    pub fn apply_change(&mut self, change: &CronChange) {
         match change {
             CronChange::Create(job) => self.file.jobs.push(job.clone()),
             CronChange::Patch(job) => self.replace_job(job),
@@ -383,7 +383,7 @@ impl CronStore {
         Ok(Prepared::new(CronChange::Create(job.clone()), job))
     }
 
-    pub(crate) fn prepare_update(
+    pub fn prepare_update(
         &self,
         id: &str,
         patch: CronUpdateParams,
@@ -480,11 +480,7 @@ impl CronStore {
         Ok(Prepared::new(CronChange::Patch(job.clone()), job))
     }
 
-    pub(crate) fn prepare_delete(
-        &self,
-        id: &str,
-        keep_history: bool,
-    ) -> Result<Prepared<()>, String> {
+    pub fn prepare_delete(&self, id: &str, keep_history: bool) -> Result<Prepared<()>, String> {
         let job = self
             .get(id)
             .ok_or_else(|| format!("Cron job not found: {}", id))?;
@@ -504,10 +500,7 @@ impl CronStore {
     }
 
     /// Removes every job of the scope with its history; protection does not apply.
-    pub(crate) fn prepare_delete_scope(
-        &self,
-        scope: CronScope,
-    ) -> Result<Prepared<Vec<CronJob>>, String> {
+    pub fn prepare_delete_scope(&self, scope: CronScope) -> Result<Prepared<Vec<CronJob>>, String> {
         let removed: Vec<CronJob> = self
             .file
             .jobs
@@ -521,7 +514,7 @@ impl CronStore {
         Ok(Prepared::new(CronChange::RemoveScope(scope), removed))
     }
 
-    pub(crate) fn prepare_set_enabled(
+    pub fn prepare_set_enabled(
         &self,
         id: &str,
         enabled: bool,
@@ -550,7 +543,7 @@ impl CronStore {
         Ok(Prepared::new(CronChange::Patch(job.clone()), job))
     }
 
-    pub(crate) fn prepare_set_protected(
+    pub fn prepare_set_protected(
         &self,
         id: &str,
         protected: bool,
@@ -564,7 +557,7 @@ impl CronStore {
     }
 
     /// Moves a recurring job whose slot went stale to its next future slot without firing.
-    pub(crate) fn prepare_skip_stale_fire(&self, job_id: &str) -> Result<Prepared<bool>, String> {
+    pub fn prepare_skip_stale_fire(&self, job_id: &str) -> Result<Prepared<bool>, String> {
         let now_ms = self.now_ms();
         let Some(job) = self.get(job_id) else {
             return Ok(Prepared::unchanged(false));
@@ -587,7 +580,7 @@ impl CronStore {
     }
 
     /// Schedule advancement is fire-time-only; completion never re-derives next_run.
-    pub(crate) fn prepare_record_run(
+    pub fn prepare_record_run(
         &self,
         job_id: &str,
         run: CronRunInfo,
@@ -617,7 +610,7 @@ impl CronStore {
 
     /// The real completion path. Idempotent: once a run has a terminal status, later calls
     /// update timestamps but skip accounting, so only the first is `fresh`.
-    pub(crate) fn prepare_finish_run(
+    pub fn prepare_finish_run(
         &self,
         job_id: &str,
         run_id: &str,
@@ -627,7 +620,7 @@ impl CronStore {
         self.prepare_finish_run_with_summary(job_id, run_id, status, session, None)
     }
 
-    pub(crate) fn prepare_finish_run_with_summary(
+    pub fn prepare_finish_run_with_summary(
         &self,
         job_id: &str,
         run_id: &str,
@@ -677,7 +670,7 @@ impl CronStore {
         Ok(edit.into_prepared(self, finished))
     }
 
-    pub(crate) fn prepare_set_run_session(
+    pub fn prepare_set_run_session(
         &self,
         job_id: &str,
         run_id: &str,
@@ -688,7 +681,7 @@ impl CronStore {
         edit.into_prepared(self, ())
     }
 
-    pub(crate) fn prepare_set_run_report(
+    pub fn prepare_set_run_report(
         &self,
         job_id: &str,
         run_id: &str,
@@ -704,12 +697,7 @@ impl CronStore {
     }
 
     /// Records the tab a dispatched run was spawned into.
-    pub(crate) fn prepare_set_run_tab(
-        &self,
-        job_id: &str,
-        run_id: &str,
-        tab_id: &str,
-    ) -> Prepared<()> {
+    pub fn prepare_set_run_tab(&self, job_id: &str, run_id: &str, tab_id: &str) -> Prepared<()> {
         let mut edit = self.edit_run(job_id, run_id);
         edit.each(|run| run.tab_id = Some(tab_id.to_string()));
         edit.into_prepared(self, ())
@@ -717,7 +705,7 @@ impl CronStore {
 
     /// Cancels every unfinished run of the job, in its history and as its last run;
     /// returns each cancelled run with its elapsed time.
-    pub(crate) fn prepare_cancel_running(
+    pub fn prepare_cancel_running(
         &self,
         job_id: &str,
         now_ms: u64,
@@ -865,7 +853,7 @@ fn set_session(run: &mut CronRunInfo, session: RunSession<'_>) {
 
 /// service::cron_complete parity: dashboards and grep-based observability need every
 /// Failed/Cancelled run.
-pub(crate) fn log_finished(job_id: &str, run_id: &str, status: &CronRunStatus, run: RunFinished) {
+pub fn log_finished(job_id: &str, run_id: &str, status: &CronRunStatus, run: RunFinished) {
     if matches!(status, CronRunStatus::Failed | CronRunStatus::Cancelled) {
         log::info!(
             "Cron run completed: job={}, run={}, status={:?}, elapsed_ms={}",

@@ -59,7 +59,7 @@ impl CronStore {
 
     /// Moves the run a tab owns between Running and AwaitingOwnerPrompt; returns whether
     /// anything changed.
-    pub(crate) fn prepare_owner_prompt(&self, tab_id: &str, awaiting: bool) -> Prepared<bool> {
+    pub fn prepare_owner_prompt(&self, tab_id: &str, awaiting: bool) -> Prepared<bool> {
         let Some((job_id, run_id)) = self.tab_owners.get(tab_id) else {
             return Prepared::unchanged(false);
         };
