@@ -24,6 +24,21 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLElement; root
 }
 
 async function main(): Promise<void> {
+  const command = '"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "pnpm test"';
+  for (const renderIdentity of [undefined, (label: string) => <span>{label}</span>]) {
+    const running = await render(
+      <AgentStateIndicator
+        activity={tabActivity({ agent_session_id:"session", agent_state:{state:"working",status_line:"Working"} })}
+        providerName="Provider"
+        renderIdentity={renderIdentity}
+        activeTool={{toolKind:"command",toolDetail:command}}
+      />,
+    );
+    assert(running.host.querySelector('[role="status"]')?.textContent?.includes("Running tests"), "running row shows the shared command label");
+    assert(Array.from(running.host.querySelectorAll("[title]")).some(element => element.getAttribute("title") === command), "hover preserves the complete raw command");
+    await act(async () => running.root.unmount());
+    running.host.remove();
+  }
   const idle = await render(
     <AgentStateIndicator
       activity={tabActivity({ agent_state: { state: "idle" } })}
