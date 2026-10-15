@@ -44,6 +44,8 @@ pub struct WorkspaceSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabSnapshot {
+    #[serde(default)]
+    pub last_active_at_ms: Option<u64>,
     pub id: String,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
