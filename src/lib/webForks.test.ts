@@ -49,7 +49,6 @@ const INVENTORY: ForkSite[] = [
   { file: "src/components/Terminal/composerFiles.ts", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "browser DOM drag/drop vs native Tauri webview drag/drop" },
   { file: "src/components/Terminal/terminalOwnership.ts", anchor: "const isWeb = args.isWeb ?? IS_WEB;", ordinal: 1, cls: "capability-gate", note: "background-tab PTY suspension only applies where tabs can background (web)" },
   { file: "src/components/Terminal/voice/audio.ts", anchor: "!IS_WEB &&", ordinal: 1, cls: "platform-adaptation", note: "native macOS/iOS codec preference vs web codec order" },
-  { file: "src/components/Terminal/voice/audio.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "persist voice blob: webUpload vs Tauri save_temp_file" },
   { file: "src/components/Terminal/voice/useVoiceRecorder.ts", anchor: "IS_WEB", ordinal: 1, cls: "platform-adaptation", note: "different mic-unavailable guidance text per host" },
   { file: "src/components/Terminal/voice/useVoiceRecorder.ts", anchor: "if (IS_WEB && \"permissions\" in navigator && typeof navigator.permissions?.query === \"function\") {", ordinal: 1, cls: "platform-adaptation", note: "Permissions API gate only reliable in browsers (native WKWebView misreports)" },
   { file: "src/components/Terminal/voice/useLocalRecordingCapture.ts", anchor: "isDesktop: !IS_WEB,", ordinal: 1, cls: "capability-gate", note: "LARK receiver capture exists only where the desktop host owns the native input device" },
