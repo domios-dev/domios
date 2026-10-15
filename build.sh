@@ -487,7 +487,7 @@ run_nextest_scope() {
 }
 
 case "$CMD" in
-  gateway-*|help|gc|cache-status|cache-verify|cache-stats|build-history) ;;
+  gateway-*|help|gc|cache-status|cache-verify|cache-stats|build-history|frontend-build) ;;
   *) setup_env ;;
 esac
 
@@ -2123,6 +2123,10 @@ ensure_deps() {
   fi
 }
 
+build_release_frontend() {
+  pnpm build
+}
+
 prepare_release_bundle_inputs() {
   local minimum_macos_version
   minimum_macos_version=$(node -p "require('./src-tauri/tauri.conf.json').bundle?.macOS?.minimumSystemVersion || ''")
@@ -2133,7 +2137,7 @@ prepare_release_bundle_inputs() {
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     cargo_target_args=(--target "$CARGO_BUILD_TARGET")
   fi
-  pnpm build
+  build_release_frontend
   cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
   node scripts/prepare-embed-stub.js
@@ -2170,6 +2174,9 @@ case "$CMD" in
   fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
+  frontend-build)
+    enter_build_gateway "$CMD"
+    ;;
 esac
 
 case "$CMD" in
@@ -2198,6 +2205,7 @@ CodeTerm build commands
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-tests full|platform      Compile and run the full Rust suite, or this OS's cfg-gated subset, in place
   ci-clippy                   Run the clippy repo gate through the shared compile cache
+  frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
   worktree-check              Isolated lane-safe Rust compile check
   test-one <input-macos|input-windows|billing|account|analytics|app|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
                               Run one focused Rust test
@@ -2406,6 +2414,10 @@ EOF
   ci-tests)
     case "${2:-}" in full|platform) ;; *) echo "Usage: ./build.sh ci-tests full|platform" >&2; exit 2 ;; esac
     node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
+    ;;
+  frontend-build)
+    ensure_deps
+    build_release_frontend
     ;;
   release-inputs)
     ensure_deps

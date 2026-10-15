@@ -16,7 +16,7 @@ const tests = workflow("tests");
 const builds = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x86_64", "windows-x64", "windows-arm64"];
 const dependencies = job => [job.needs].flat();
 
-const fastJobs = ["file-sizes", "plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
+const fastJobs = ["file-sizes", "plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
 const longJobs = ["rust-tests", "rust-platform", "rust-receipts"];
 
 test("fast checks gate the Rust tests and every build, which then run in parallel", () => {

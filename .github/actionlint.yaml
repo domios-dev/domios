@@ -9,3 +9,4 @@ self-hosted-runner:
     - windows-build
     - windows-x64-build
     - rust-tests
+    - windows-light
