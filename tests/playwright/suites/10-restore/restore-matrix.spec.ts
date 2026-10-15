@@ -12,7 +12,7 @@ type MatrixSlot = {
   requested_model: string;
   booted_model_evidence: string | null;
   tab_id: string | null;
-  tab_id: string | null;
+
   marker: string;
   sid_before: string | null;
   sid_after: string | null;

@@ -34,7 +34,7 @@ async function applyViewportAndReload(
   page: Page,
   workspaceId: string,
   vp: { width: number; height: number },
-  mode: "board" | "list" = "board",
+  mode: "board" | "list" | "canvas" = "board",
 ): Promise<void> {
   await page.setViewportSize(vp);
   const shell = page.locator('[data-testid="plan-view-shell"]').first();
