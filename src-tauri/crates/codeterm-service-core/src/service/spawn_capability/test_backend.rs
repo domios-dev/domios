@@ -3,8 +3,8 @@
 
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
 
-pub(crate) struct SpawnableTestBackend {
-    pub(crate) id: &'static str,
+pub struct SpawnableTestBackend {
+    pub id: &'static str,
 }
 
 impl ChatBackendProvider for SpawnableTestBackend {

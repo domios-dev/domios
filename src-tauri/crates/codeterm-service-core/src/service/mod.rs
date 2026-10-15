@@ -19,7 +19,7 @@ pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
 pub mod agent_runtime;
-mod agent_transition;
+pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
@@ -63,7 +63,7 @@ pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_in
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
-pub(crate) mod launch_session_detection;
+pub mod launch_session_detection;
 pub mod local_preview;
 pub(crate) mod mesh_artifacts;
 pub use mesh_artifacts::transfer as mesh_artifacts_transfer;
@@ -84,7 +84,7 @@ pub mod ordered_actions;
 pub mod parked_user_delivery;
 pub mod post_update;
 pub(crate) mod process_tree;
-pub(crate) mod prompt_resolution;
+pub mod prompt_resolution;
 #[cfg(any(test, feature = "test-support"))]
 pub use prompt_resolution::tests as prompt_resolution_tests;
 pub(crate) mod protocol_recorder;
@@ -119,14 +119,14 @@ pub mod output_stream_activity;
 pub mod pending_delivery_payloads;
 pub(crate) mod permission_auto_confirm;
 pub mod permission_decision;
-pub(crate) mod permission_policy;
+pub mod permission_policy;
 pub use permission_policy::configured_permission_bypass_for as permission_policy_configured_permission_bypass_for;
 pub mod persona;
 pub mod plan;
 pub mod plan_authority;
 pub mod plan_batch_authority;
 mod plan_pause;
-mod plan_reconcile;
+pub mod plan_reconcile;
 mod prompt_chain;
 mod provider_handoff;
 use codeterm_util::pty_frame_timing;
@@ -151,7 +151,7 @@ pub mod remote_workers;
 pub mod reply_relay;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
-mod role_identity;
+pub mod role_identity;
 pub mod role_preset;
 pub mod role_profile;
 mod role_target;
@@ -165,18 +165,18 @@ pub use shell_exec::ExecWaiter;
 mod shell_restart;
 pub mod smart_add;
 pub mod spawn;
-pub(crate) mod spawn_capability;
+pub mod spawn_capability;
 mod spawn_chatbackend;
 mod spawn_cli;
 pub mod spawn_cwd;
 pub use spawn_cwd::CwdRefusal;
-mod spawn_factory;
+pub mod spawn_factory;
 mod spawn_hidden_launch;
 pub mod spawn_launch_verdict;
-mod spawn_params;
+pub mod spawn_params;
 pub mod spawn_plan_task;
 pub mod task_assignment;
-pub(crate) mod unattended_launch;
+pub mod unattended_launch;
 pub use spawn_plan_task::planned_task_title;
 mod spawn_rollback;
 mod spawn_shell;
@@ -195,7 +195,7 @@ pub(crate) mod utility_deadline_model;
 pub use utility_deadline_model::parse_timeout as utility_deadline_model_parse_timeout;
 mod utility_tabs;
 pub use status_reconciliation::SNAPSHOT_BUSY_ERROR;
-pub(crate) mod blocking;
+pub mod blocking;
 pub use blocking::run as blocking_run;
 pub(crate) mod restored_launch;
 pub mod store;
@@ -666,7 +666,7 @@ impl ServiceContext {
         self.emit_state_changed_after_bus_publish();
     }
 
-    pub(crate) fn emit_state_changed_after_bus_publish(&self) {
+    pub fn emit_state_changed_after_bus_publish(&self) {
         self.publish_authoritative_tab_statuses();
         self.output_stream_mux_changed();
         self.ext::<Arc<crate::service::MuxEmitStats>>()
@@ -920,7 +920,7 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn publish_mux_state_changed(events: &codeterm_events::EventBroadcaster) {
+pub fn publish_mux_state_changed(events: &codeterm_events::EventBroadcaster) {
     events.publish(codeterm_events::SystemEvent::MuxStateChanged);
 }
 
@@ -991,12 +991,12 @@ pub struct RejectedTaskTransition {
 }
 
 /// Helper: extract optional string from JSON value.
-pub(crate) fn json_str(v: &serde_json::Value, key: &str) -> Option<String> {
+pub fn json_str(v: &serde_json::Value, key: &str) -> Option<String> {
     v.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
 /// Replace "$ref" strings in params with actual tab_ids from previous results.
-pub(crate) fn resolve_refs(
+pub fn resolve_refs(
     params: &serde_json::Value,
     refs: &std::collections::HashMap<String, String>,
 ) -> serde_json::Value {

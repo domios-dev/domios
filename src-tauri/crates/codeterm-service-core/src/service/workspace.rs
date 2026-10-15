@@ -269,7 +269,7 @@ impl ServiceContext {
     }
 
     #[cfg(test)]
-    pub(crate) async fn close_workspace_as_human(
+    pub async fn close_workspace_as_human(
         &self,
         workspace_id: &str,
         force: bool,

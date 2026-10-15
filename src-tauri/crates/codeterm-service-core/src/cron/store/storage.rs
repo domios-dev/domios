@@ -342,7 +342,7 @@ impl CronStore {
             .and_then(|storage| storage.revisions.get(id).copied())
     }
 
-    pub(crate) fn team_teardown_revisions(
+    pub fn team_teardown_revisions(
         &self,
         team_id: &str,
     ) -> Result<Vec<(String, Revision)>, String> {
@@ -588,7 +588,7 @@ impl CronStore {
         consistent
     }
 
-    pub(crate) fn publish_external(
+    pub fn publish_external(
         &mut self,
         changes: &[CronChange],
         applied: &CronApplied,

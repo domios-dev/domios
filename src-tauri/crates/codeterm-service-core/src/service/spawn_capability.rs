@@ -8,9 +8,9 @@ use std::fmt;
 
 use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "spawn_capability/test_backend.rs"]
-pub(crate) mod test_backend;
+pub mod test_backend;
 
 #[cfg(test)]
 #[path = "spawn_capability/tests.rs"]

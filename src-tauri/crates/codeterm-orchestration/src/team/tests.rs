@@ -2,10 +2,10 @@ use super::*;
 
 use super::staffing::{prepare_team_member_spawn, team_member_role};
 
+use codeterm_events::EventBroadcaster;
 use codeterm_events::SystemEvent;
 use codeterm_service_core::plan::{OrchestratorRef, PlanStatus};
 use codeterm_service_core::service::plan::PlanStore;
-use codeterm_service_core::service::EventBroadcaster;
 
 fn isolated_plan_store() -> (
     tempfile::TempDir,

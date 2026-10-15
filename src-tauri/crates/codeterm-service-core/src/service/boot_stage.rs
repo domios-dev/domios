@@ -143,7 +143,7 @@ pub fn binding_observes_in_tab_launch(tab: &Tab) -> bool {
 
 /// Record a stage on the tab. Only a reason-carrying stage keeps its reason, so
 /// any other stage clears a previously latched failure and its launch identity.
-pub(crate) fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
+pub fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
     tab.boot_stage = Some(stage);
     tab.boot_failure_reason = stage
         .carries_reason()

@@ -87,7 +87,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(super) fn capture_close_inventory(
+    pub fn capture_close_inventory(
         &self,
         workspace: &str,
         team: Option<&str>,
@@ -163,7 +163,7 @@ impl ServiceContext {
         Ok(Some(id))
     }
 
-    pub(super) fn settle_close_inventory(&self, id: Option<&str>) -> Result<(), String> {
+    pub fn settle_close_inventory(&self, id: Option<&str>) -> Result<(), String> {
         let Some(id) = id else {
             return Ok(());
         };
