@@ -86,6 +86,13 @@ fn chat_start_inner(
         attached_at.elapsed().as_millis()
     );
     if runtime_requested {
+        if let Some(snapshot) = codeterm_service_core::service::tab_chat::runtime_stored::start(
+            svc,
+            &tab_id,
+            &subscription_id,
+        )? {
+            return Ok(snapshot);
+        }
         let (session, messages) =
             codeterm_service_core::service::agent_runtime::transport::snapshot(svc, &tab_id)?;
         let context = session.context.lock().clone();
@@ -515,7 +522,17 @@ pub fn chat_backfill_core(
     svc: &ServiceState,
     tab_id: String,
     before_offset: u64,
+    offset_kind: Option<ChatOffsetKind>,
 ) -> Result<ChatBackfillResult, String> {
+    if matches!(offset_kind, Some(ChatOffsetKind::Bytes)) {
+        if let Some(page) = codeterm_service_core::service::tab_chat::runtime_stored::backfill(
+            svc,
+            &tab_id,
+            before_offset,
+        )? {
+            return Ok(page);
+        }
+    }
     if codeterm_service_core::service::agent_runtime::requested_for_tab(svc, &tab_id) {
         let (session, messages) =
             codeterm_service_core::service::agent_runtime::transport::snapshot(svc, &tab_id)?;

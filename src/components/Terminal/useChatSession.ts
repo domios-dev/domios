@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
+import { transcriptOffsetKind } from "@codeterm/chat-core";
 import type {
   NormalizedChatMessage as ChatMessage,
   TranscriptBatch,
@@ -289,7 +290,8 @@ export function useChatSession({
   const loadOlderPage = useCallback(async (beforeOffset: number) => {
     const generationAtRequest = attachmentRef.current.generation;
     try {
-      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset });
+      const offsetKind = transcriptOffsetKind(readTranscriptWindow(windowKeyRef.current).transcript);
+      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset, offsetKind });
       if (
         !attachmentRef.current.isCurrent(generationAtRequest)
         || !canAdoptTranscriptAuthority(

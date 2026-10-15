@@ -2,6 +2,7 @@ use super::*;
 use codeterm_plugin::agent_runtime::{AgentRuntimeCommand, AgentRuntimeProtocol, RpcCall};
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
+        stored_history: false,
         usage: false,
         runtime: AgentRuntimeProtocol::StdioJsonrpc,
         command: AgentRuntimeCommand {

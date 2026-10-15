@@ -1,5 +1,6 @@
 {
   "agentRuntime": {
+    "storedHistory": true,
     "runtime": "stdio-jsonrpc",
     "command": {
       "binary": "codex",

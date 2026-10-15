@@ -112,6 +112,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         }),
         chat_backfill: (a: Args) => clientFor(a).json<ChatBackfillResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/backfill`, {
             before_offset: a.beforeOffset,
+            offset_kind: a.offsetKind,
         }),
         chat_send_text: (a: Args) => clientFor(a).json<ChatSendStatus>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`, {
             text: a.text,

@@ -120,6 +120,7 @@ export {
   reduceTranscript,
   transcriptBackfillCursor,
   transcriptCommittedEnd,
+  transcriptOffsetKind,
   transcriptRowCount,
   transcriptRows,
   type TranscriptAuthority,

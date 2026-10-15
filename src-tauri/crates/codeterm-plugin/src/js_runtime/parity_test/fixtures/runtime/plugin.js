@@ -1,4 +1,9 @@
 module.exports = {
+  runtimeStoredHistory(session, records) {
+    const value = JSON.parse(records);
+    if (value.session !== session) throw new Error('foreign session');
+    return value.messages;
+  },
   runtimePlan(_ctx, op) {
     if (op.kind === 'answerQuestion') return {action:{kind:'questionAnswer',input:{text:op.answers.flatMap(answer=>answer.values).join('\n'),attachments:[]}},state:null};
     if (op.kind === 'answer') return {action:{kind:'reply',requestId:op.requestId,result:{kind:'success',value:op.answer}},state:null};
