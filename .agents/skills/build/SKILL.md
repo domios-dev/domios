@@ -324,6 +324,8 @@ Bounds: a mesh tab cannot carry `--timeout` (only a local owning agent can), so 
 
 Measurements (fill from the first real runs): ROG cold first populate of `check-queue --all` — not yet measured; ROG warm lane `check-queue --lane` — not yet measured.
 
+Peer toolchain records: ROG (user amigo) had toolchains in `~/.rustup` but no proxies in `~/.cargo/bin`; `peer-setup ROG --install-toolchain` added rustup 1.29.1 proxies and cargo-nextest 0.9.148 there (default toolchain 1.95.0) and changed nothing under `C:\domios-ci` or the machine PATH. To remove it, delete those exes except `sccache.exe`, never `rustup self uninstall`, which deletes the `~/.rustup` other runs use. Never run `--install-toolchain` while another run uses that peer's toolchain.
+
 Troubleshooting:
 - No completion message arrives and the remote tab is gone: the shell exited before the runner started (for example a Windows peer without the `git-bash` profile). Check `codeterm tab list --mesh <peer>` and the peer's `peers.json` `shell`.
 - `outcome=not_setup stage=checkout_dir`: run `./build.sh peer-setup <peer>` first.
