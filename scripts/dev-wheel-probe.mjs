@@ -119,7 +119,7 @@ const arm = () => evaluate(`(() => {
     const onScroll = () => done("scroll");
     addEventListener("wheel", onWheel, { capture: true, passive: true });
     addEventListener("scroll", onScroll, true);
-    requestAnimationFrame(() => requestAnimationFrame(() => { if (!wheel) done("no-wheel-event"); }));
+    window.__wheelFlush = () => requestAnimationFrame(() => requestAnimationFrame(() => { if (!wheel) done("no-wheel-event"); }));
   });
 })()`);
 
@@ -139,6 +139,7 @@ for (const spec of specs) {
   await call("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
   await arm();
   await call("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY });
+  await evaluate("window.__wheelFlush()");
   const outcome = await evaluate("window.__wheelResult", true);
   const after = await evaluate(`(() => {
     const p = window.__wheelProbe;
