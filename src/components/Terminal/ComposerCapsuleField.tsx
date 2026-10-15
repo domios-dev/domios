@@ -11,7 +11,7 @@ import {
   type ComposerCapsule,
 } from "./composerCapsules";
 
-import { canRetryUpload } from "./attachmentUploadModel";
+import { canRetryUpload, uploadCardPresence } from "./attachmentUploadModel";
 import type { ComposerUpload } from "./composerUploadModel";
 
 interface Hover {
@@ -31,6 +31,16 @@ function PaintedCapsule({ span, capsule, hovered }: { span: CapsuleSpan; capsule
       {detail && <span className="ct-capsule__detail">{labelChars(detail)}</span>}
       {CAPSULE_TRAIL}
     </span>
+  );
+}
+
+function UploadCard({ upload, span, onRetry, onRemove }: { upload: ComposerUpload; span: CapsuleSpan; onRetry?: (id: number) => void; onRemove: (span: CapsuleSpan) => void }) {
+  return (
+    <div role="status" className="ct-capsule-button">
+      <span>{upload.state === "uploading" ? "Uploading…" : upload.failure?.message}</span>
+      {canRetryUpload(upload) && <button type="button" aria-label={`Retry attachment ${upload.name}`} onClick={() => onRetry?.(upload.id)}>Retry</button>}
+      <button type="button" aria-label={`Remove attachment ${upload.name}`} onClick={() => onRemove(span)}>Remove</button>
+    </div>
   );
 }
 
@@ -92,21 +102,22 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
   const hoverCapsule = hover ? registry[hover.span.label] : undefined;
   const hoveredUpload = uploads.find((upload) => upload.id === hoverCapsule?.uploadId);
   const segments = active ? capsuleSegments(value, registry) : [];
+  const uploadEntries = uploads.flatMap((upload) => {
+    const found = capsuleSegments(value, registry).find((segment) => "span" in segment && segment.span.label === upload.label);
+    return found && "span" in found ? [{ upload, span: found.span, presence: uploadCardPresence(upload, hoveredUpload?.id === upload.id) }] : [];
+  });
   return (
     <div ref={fieldRef} className="relative min-w-0 flex-1 self-center" onMouseMove={track} onMouseLeave={() => setHover(null)}>
       {children}
-      {uploads.map((upload) => {
-        const span = capsuleSegments(value, registry).find((segment) => "span" in segment && segment.span.label === upload.label);
-        if (!span || !("span" in span)) return null;
-        const visible = hoveredUpload?.id === upload.id;
-        return <div key={upload.id} ref={visible ? cardRef : undefined}
+      <div className="absolute bottom-full left-0 z-30 flex flex-col gap-1 pb-1.5 empty:hidden">
+        {uploadEntries.filter((entry) => entry.presence === "persistent").map((entry) => <UploadCard key={entry.upload.id} {...entry} onRetry={onRetryUpload} onRemove={onRemove} />)}
+      </div>
+      {uploadEntries.filter((entry) => entry.presence !== "persistent").map((entry) => {
+        const visible = entry.presence === "hover";
+        return <div key={entry.upload.id} ref={visible ? cardRef : undefined}
           className={visible ? "absolute z-30 pb-1.5" : "sr-only focus-within:not-sr-only focus-within:absolute focus-within:bottom-full focus-within:z-30"}
           style={visible && hover ? { left: hover.left, bottom: hover.bottom } : undefined}>
-          <div role="status" className="ct-capsule-button">
-            <span>{upload.state === "uploading" ? "Uploading…" : upload.failure?.message}</span>
-            {canRetryUpload(upload) && <button type="button" aria-label={`Retry attachment ${upload.name}`} onClick={() => onRetryUpload?.(upload.id)}>Retry</button>}
-            <button type="button" aria-label={`Remove attachment ${upload.name}`} onClick={() => { onRemove(span.span); setHover(null); }}>Remove</button>
-          </div>
+          <UploadCard {...entry} onRetry={onRetryUpload} onRemove={(span) => { onRemove(span); setHover(null); }} />
         </div>;
       })}
       {active && (
