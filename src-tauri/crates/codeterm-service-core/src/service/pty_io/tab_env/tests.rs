@@ -90,7 +90,7 @@ fn keys(env: &HashMap<String, String>) -> BTreeSet<String> {
 fn without_frontend_only(env: &HashMap<String, String>) -> HashMap<String, String> {
     let mut env = env.clone();
     for (key, _) in frontend_only_env() {
-        env.remove(*key);
+        env.remove(key);
     }
     env
 }
