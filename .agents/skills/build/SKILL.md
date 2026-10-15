@@ -335,7 +335,10 @@ Troubleshooting:
 - `outcome=not_setup stage=checkout_dir`: run `./build.sh peer-setup <peer>` first.
 - `outcome=bootstrap_failed stage=runner_missing`: the SHA predates the peer runner; dispatch a SHA that contains `scripts/build-peer.mjs`.
 - `outcome=bootstrap_failed stage=checkout`: the peer checkout has local changes; it is fetch-only and must stay clean.
-- `peer routing: busy; X=unknown(not_setup)`: the peer has no `Buildpeer` tab; rerun `peer-setup`.
+- `peer routing: busy; X=unknown(not_setup)`: the peer has no `Buildpeer` tab (a peer reboot closes it); rerun `peer-setup`.
+- Windows peer, `outcome=busy exit=75` with `check-worktree git worktree failed (128): ... Filename too long` in the gateway log: provider fixture paths exceed MAX_PATH. `peer-setup` sets repo-local `core.longpaths=true`, which the gateway check worktree inherits; rerun it.
+- `Slow unit ratchet FAIL: added baseline: ...` on a peer nextest of a lane behind develop: the ratchet compares the checkout's baselines against `origin/develop`, so baselines develop has since dropped read as added. The tests themselves passed (see the `tests:` line); merge develop into the lane to clear it.
+- A job's runner comes from the dispatched SHA, so a lane SHA older than a runner fix behaves like the old runner (no `tests:` summary line in the event, lock released after the event, which makes the next dispatch report `busy` at `peer_lock`).
 
 ## Cache retention and troubleshooting
 

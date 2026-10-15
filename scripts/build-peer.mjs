@@ -348,6 +348,8 @@ function setupLocal(argv) {
   const { opts } = jobArgs(argv);
   const started = Date.now();
   const logPath = jobLogPath(opts.id);
+  // The gateway's check worktree inherits this repo-local setting; fixture paths exceed MAX_PATH on Windows.
+  if (process.platform === 'win32') git(['config', 'core.longpaths', 'true']);
   const toolchain = spawnSync('bash', ['./build.sh', 'peer-toolchain', ...(opts['install-toolchain'] ? ['--install'] : [])],
     { encoding: 'utf8', timeout: opts['install-toolchain'] ? 900000 : 300000, windowsHide: true });
   const output = `${toolchain.stdout ?? ''}${toolchain.stderr ?? ''}`;
