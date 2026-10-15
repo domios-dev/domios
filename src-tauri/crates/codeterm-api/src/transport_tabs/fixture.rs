@@ -1,11 +1,11 @@
 use crate::routes::AppState;
-use codeterm_service_core::service::test_fixture::ServiceFixture;
+use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
 use std::sync::Arc;
 use tauri::Manager;
 
 pub(crate) fn app_state(fixture: &ServiceFixture) -> AppState {
     let config = fixture
-        ._app
+        .app
         .state::<codeterm_service_core::config::ConfigState>()
         .inner()
         .clone();
@@ -13,6 +13,7 @@ pub(crate) fn app_state(fixture: &ServiceFixture) -> AppState {
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("local-preview-test".into(), 0);
     mesh.disk_persist = false;
     AppState {
+        app: fixture.app.handle().clone(),
         svc: Arc::new(fixture.service.clone()),
         cron: Arc::new(parking_lot::Mutex::new(
             codeterm_service_core::cron::store::CronStore::new_with_path(

@@ -1,7 +1,6 @@
 pub mod agent;
 pub mod agent_commands;
 pub mod api_support;
-pub mod app_runtime;
 pub mod async_runtime;
 pub use codeterm_util::attachments;
 mod autostart;
@@ -19,7 +18,6 @@ pub mod crash;
 pub mod cron;
 pub mod delayed_send;
 pub mod dispatch;
-pub mod events;
 mod fdlimit;
 pub mod flow_trace;
 pub mod frontend_bundle_api_version;
@@ -36,8 +34,6 @@ pub mod mesh;
 pub mod mesh_host;
 pub mod message_markers;
 pub mod multiplexer;
-#[cfg(windows)]
-mod native_resize;
 pub mod notification;
 pub mod pasteboard;
 pub mod paths;
@@ -68,7 +64,6 @@ pub mod user_last_activity;
 pub mod view;
 pub mod view_host;
 mod webview2_reap;
-mod webview_watchdog;
 
 use std::sync::Arc;
 
@@ -95,10 +90,6 @@ pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
-#[cfg(test)]
-#[path = "../../../vendor/tauri-runtime-wry/src/owner_thread.rs"]
-mod windows_rc_ownership_regression;
-
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
@@ -108,9 +99,6 @@ pub mod persistence_test_support;
 pub use fdlimit::raise_fd_limit;
 pub use instance_lifetime::acquire as acquire_instance_lifetime;
 pub use liveness::start_api_liveness_watchdog;
-#[cfg(windows)]
-pub use native_resize::install as install_native_resize;
 pub use webview2_reap::reap_orphaned_webview2;
-pub use webview_watchdog::spawn as spawn_webview_watchdog;
 
 pub use webview2_reap::clear_journal_for_exit as clear_webview_journal_for_exit;

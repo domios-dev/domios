@@ -2,7 +2,6 @@ use super::plan_fields::{groups_from_csv, kinds_from_csv, tag_facets_field};
 use super::plan_linking::{owner_from_params, tags_field};
 use super::plan_refs;
 use super::{get_string_param, JsonRpcError};
-use codeterm_service_core::app_runtime::AppHandle;
 use codeterm_service_core::plan::{OrchestratorRef, PlanStatus, PlannerRef};
 use codeterm_service_core::service::lane_removal::LaneRemovalRequest;
 use codeterm_service_core::service::plan::adopt::AdoptPlanExt;
@@ -99,12 +98,8 @@ pub(crate) fn apply_batch_rpc(
         .map_err(batch_write_rpc_err)
 }
 
-pub(super) fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_service_core::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+pub(super) fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 /// The CodeTerm-owned lane removal boundary. A live tab whose shell sits inside
@@ -150,45 +145,44 @@ fn optional_string(params: Option<&Value>, key: &str) -> Option<String> {
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let now = super::plan_time::epoch_ms();
     if method.starts_with("plan.handoff.") {
-        return super::plan_handoff::dispatch(method, params, app, svc);
+        return super::plan_handoff::dispatch(method, params, svc);
     }
     if method.starts_with("plan.heartbeat.") {
-        return super::plan_heartbeat::dispatch(method, params, app, svc);
+        return super::plan_heartbeat::dispatch(method, params, svc);
     }
     if method.starts_with("plan.goal.") {
-        return super::plan_goal::dispatch(method, params, app, svc);
+        return super::plan_goal::dispatch(method, params, svc);
     }
     if method.starts_with("plan.qa.") {
-        return super::plan_qa::dispatch(method, params, app, svc);
+        return super::plan_qa::dispatch(method, params, svc);
     }
     if method.starts_with("plan.review.") {
-        return super::plan_review::dispatch(method, params, app, svc);
+        return super::plan_review::dispatch(method, params, svc);
     }
     if method.starts_with("plan.decision.") {
-        return super::plan_gates::dispatch(method, params, app, svc);
+        return super::plan_gates::dispatch(method, params, svc);
     }
     if super::plan_read::handles(method) {
         return super::plan_read::dispatch(method, params, svc);
     }
     if super::plan_elements::handles(method) {
-        return super::plan_elements::dispatch(method, params, app, svc);
+        return super::plan_elements::dispatch(method, params, svc);
     }
     if super::plan_loops::handles(method) {
-        return super::plan_loops::dispatch(method, params, app, svc);
+        return super::plan_loops::dispatch(method, params, svc);
     }
     if super::plan_lifecycle::handles(method) {
-        return super::plan_lifecycle::dispatch(method, params, app, svc);
+        return super::plan_lifecycle::dispatch(method, params, svc);
     }
     if super::plan_attachments::handles(method) {
-        return super::plan_attachments::dispatch(method, params, app, svc);
+        return super::plan_attachments::dispatch(method, params, svc);
     }
     if super::plan_task_rpc::handles(method) {
-        return super::plan_task_rpc::dispatch(method, params, app, svc, now);
+        return super::plan_task_rpc::dispatch(method, params, svc, now);
     }
     if super::plan_skills_rpc::handles(method) {
         return super::plan_skills_rpc::dispatch(method, params, svc, now);
@@ -231,7 +225,7 @@ pub(super) fn dispatch(
                     data: None,
                 })?;
         if confirm {
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
         }
         return Ok(json!({"plan_id": id, "dry_run": !confirm, "lanes": lanes}));
     }
@@ -263,7 +257,7 @@ pub(super) fn dispatch(
                 data: None,
             })?;
             let result = apply_batch_rpc(store, &id, body, now)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -343,7 +337,7 @@ pub(super) fn dispatch(
                 response["_hints"] = json!([hints::plan_sections_hint(&plan_id)]);
             }
             outcome.apply_to_response(&mut response);
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(response)
         }
 
@@ -406,7 +400,7 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             if !result.dry_run {
-                emit_plan_changed(app, &result.plan_id);
+                emit_plan_changed(svc, &result.plan_id);
             }
             Ok(serde_json::to_value(result).unwrap_or_default())
         }
@@ -479,10 +473,10 @@ pub(super) fn dispatch(
                         data: None,
                     })?;
             }
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }
-        "plan.archive" => super::plan_archive::archive(store, svc, app, params, now),
+        "plan.archive" => super::plan_archive::archive(store, svc, params, now),
         "plan.unarchive" => super::plan_archive::unarchive(store, svc, params, now),
         "plan.delete" => {
             let id = plan_refs::resolve_plan(store, params)?;
@@ -491,7 +485,7 @@ pub(super) fn dispatch(
                 message: e.to_string(),
                 data: None,
             })?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
@@ -518,7 +512,7 @@ pub(super) fn dispatch(
         "plan.disown" => {
             let id = plan_refs::resolve_plan(store, params)?;
             store.disown(&id, now).map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
@@ -530,7 +524,7 @@ pub(super) fn dispatch(
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_else(|| owner_from_params(&params_val));
             store.claim(&id, owner.clone(), now).map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             let mut response_hints = Vec::new();
             if matches!(
                 store.resolve_planner_tab(&id, |pid| svc.tab_probe(pid)),
@@ -555,7 +549,7 @@ pub(super) fn dispatch(
             let result = store
                 .ingest_plan_sections(&id, &markdown, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(serde_json::to_value(result).unwrap_or_else(|_| json!({ "sections": [] })))
         }
 
@@ -581,7 +575,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             let caller_tab = p
                 .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
@@ -612,7 +606,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             let caller_tab = p
                 .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
@@ -631,7 +625,7 @@ pub(super) fn dispatch(
             let (id, sid) = plan_refs::resolve_section(store, params)?;
             super::plan_task_rpc::authorize_draft_mutation(svc, &id, p)?;
             store.rm_section(&id, &sid, now).map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "section_id": sid }))
         }
 
@@ -651,7 +645,7 @@ pub(super) fn dispatch(
             store
                 .set_kinds(&id, kinds_from_csv(&kinds), now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
@@ -666,7 +660,7 @@ pub(super) fn dispatch(
             store
                 .set_tag_facets(&id, facets, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
@@ -726,7 +720,7 @@ pub(super) fn dispatch(
             store
                 .set_task_groups(&id, groups_from_csv(&groups), now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
@@ -749,7 +743,7 @@ pub(super) fn dispatch(
             store
                 .close_group(&id, &key, note, from, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "plan_id": id, "key": key }))
         }
 
@@ -757,7 +751,7 @@ pub(super) fn dispatch(
             let id = plan_refs::resolve_plan(store, params)?;
             let to = get_string_param(params, "to")?;
             store.link_plan(&id, &to, now).map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
@@ -765,7 +759,7 @@ pub(super) fn dispatch(
             let id = plan_refs::resolve_plan(store, params)?;
             let to = get_string_param(params, "to")?;
             store.unlink_plan(&id, &to, now).map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
@@ -790,7 +784,7 @@ pub(super) fn dispatch(
             let stride_id = store
                 .add_retrospective(&id, body, from, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "plan_id": id, "stride_id": stride_id }))
         }
 

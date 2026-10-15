@@ -10,6 +10,7 @@ workspace = true
 name = "codeterm_api"
 
 [dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime" }
 codeterm-commands = { path = "../codeterm-commands" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-orchestration = { path = "../codeterm-orchestration" }
@@ -64,6 +65,7 @@ codeterm-paths = { path = "../../../crates/codeterm-paths" }
 codeterm-plugins = { path = "../codeterm-plugins" }
 
 [dev-dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime", features = ["test-support"] }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-orchestration = { path = "../codeterm-orchestration", features = ["test-support"] }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host", features = ["test-support"] }

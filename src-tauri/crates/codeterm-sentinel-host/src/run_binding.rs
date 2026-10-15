@@ -3,7 +3,6 @@ use super::store::Sentinel;
 use codeterm_service_core::cron::store::{CronJob, CronRunInfo, CronRunStatus};
 use codeterm_service_core::service::ServiceContext;
 use serde_json::{json, Value};
-use tauri::Manager;
 
 const MAX_CRON_EVENT_BYTES: usize = 1024;
 
@@ -68,9 +67,7 @@ pub(super) fn cron_fired_event(payload: &str) -> Option<CronFiredEvent> {
 }
 
 fn cron_identity(svc: &ServiceContext, cron_id: &str) -> Option<CronJob> {
-    let state = svc
-        .app_handle
-        .try_state::<codeterm_service_core::CronState>()?;
+    let state = svc.try_ext::<codeterm_service_core::CronState>()?;
     let job = state.lock().get(cron_id).cloned();
     job
 }
@@ -82,9 +79,7 @@ fn verified_event(svc: &ServiceContext, event: CronFiredEvent) -> Option<Pending
     {
         return None;
     }
-    let state = svc
-        .app_handle
-        .try_state::<codeterm_service_core::CronState>()?;
+    let state = svc.try_ext::<codeterm_service_core::CronState>()?;
     let cron = state.lock();
     let job = cron.get(&event.cron_id)?;
     let run = cron
@@ -162,9 +157,7 @@ pub(super) fn process_pending(svc: &ServiceContext, handle: &super::scheduler::H
 }
 
 fn verify_pending(svc: &ServiceContext, pending: &PendingRunBinding) -> Option<PendingRunBinding> {
-    let state = svc
-        .app_handle
-        .try_state::<codeterm_service_core::CronState>()?;
+    let state = svc.try_ext::<codeterm_service_core::CronState>()?;
     let cron = state.lock();
     let job = cron.get(&pending.cron_id)?;
     let run = cron
@@ -230,10 +223,7 @@ pub(super) fn reconcile_runs(svc: &ServiceContext, handle: &super::scheduler::Ha
     if bound.is_empty() {
         return;
     }
-    let Some(state) = svc
-        .app_handle
-        .try_state::<codeterm_service_core::CronState>()
-    else {
+    let Some(state) = svc.try_ext::<codeterm_service_core::CronState>() else {
         unbind_missing_cron(svc, handle, bound);
         return;
     };

@@ -139,7 +139,7 @@ pub(super) fn dispatch(
     {
         codeterm_service_core::agent::model_catalog::invalidate(&id);
         if let Some(provider) = svc.agent_registry.provider_arc(&id) {
-            tauri::async_runtime::spawn(async move {
+            codeterm_service_core::async_runtime::spawn(async move {
                 let _ = codeterm_service_core::agent::model_catalog::refresh_models(provider, true)
                     .await;
             });

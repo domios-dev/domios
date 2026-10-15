@@ -95,3 +95,35 @@ for (const [name, dependency] of [
     assert.match(result.stderr, /leaf tier inversion/);
   });
 }
+
+for (const name of ["codeterm-service-core", "codeterm-events"]) {
+  test(`rejects host runtime dependency in ${name}`, (t) => {
+    const { write, run } = fixture(t);
+    write(name, "Cargo.toml", '[dependencies]\ncodeterm-host-runtime = { path = "../codeterm-host-runtime" }\n');
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /core or leaf crate depends on codeterm-host-runtime/);
+  });
+}
+
+test("allows the host runtime to own Tauri adapters", (t) => {
+  const { write, run } = fixture(t);
+  write("codeterm-host-runtime", "Cargo.toml", '[dependencies]\ntauri = "2"\ncodeterm-events = { path = "../codeterm-events" }\n');
+  write("codeterm-host-runtime", "src/lib.rs", 'pub type Runtime = tauri::Wry;');
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+});
+
+for (const declaration of [
+  '[dependencies]\ntauri = "2"',
+  '[dev-dependencies]\nrenamed = { package = "tauri", version = "2" }',
+  '[target.\'cfg(windows)\'.dependencies]\ntauri-plugin-shell = "2"',
+]) {
+  test(`rejects service-core framework dependency: ${declaration}`, (t) => {
+    const { write, run } = fixture(t);
+    write("codeterm-service-core", "Cargo.toml", declaration);
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /service core depends on tauri/);
+  });
+}

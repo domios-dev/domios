@@ -28,7 +28,7 @@ const CLEANUP_DEADLINE: Duration = Duration::from_secs(5);
 
 impl ServiceContext {
     pub(crate) fn install_local_recording_invalidation_observer(&self) -> Result<(), String> {
-        let weak = self.ext::<std::sync::Weak<ServiceContext>>().clone();
+        let weak = self.weak_self();
         self.ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .set_invalidation_observer(Arc::new(move |invalidation| {
                 let Some(service) = weak.upgrade() else {
@@ -54,7 +54,7 @@ impl ServiceContext {
         if !platform::supported() {
             return Err("local_recording_unsupported".into());
         }
-        let weak = self.ext::<std::sync::Weak<ServiceContext>>().clone();
+        let weak = self.weak_self();
         let id = plugin_id.to_string();
         let callback = std::sync::Arc::new(move |event| {
             let Some(svc) = weak.upgrade() else {
@@ -269,7 +269,7 @@ impl ServiceContext {
         plugin_id: String,
         adapter: Arc<dyn platform::LocalInputAdapter>,
     ) -> Receiver<()> {
-        let weak = self.ext::<std::sync::Weak<ServiceContext>>().clone();
+        let weak = self.weak_self();
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
         crate::async_runtime::spawn(async move {
             let service = weak.upgrade();

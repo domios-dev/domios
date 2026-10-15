@@ -1,5 +1,4 @@
 use serde_json::{json, Value};
-use tauri::Manager;
 
 use codeterm_service_core::plan::RemoteDispatchState;
 use codeterm_service_core::service::plan::PlanError;
@@ -68,7 +67,6 @@ fn remote_model_selection(
 
 pub(super) fn dispatch(
     params: &Option<Value>,
-    app: &codeterm_service_core::app_runtime::AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -168,7 +166,7 @@ pub(super) fn dispatch(
         return Err(invalid_dispatch("mesh Workers always require a peer lane"));
     }
     let attempt_id = codeterm_service_core::plan::ids::short_id("attempt");
-    let (peer_id, peer_name, peer_client, peer_state) = select_peer(app, &peer_target)?;
+    let (peer_id, peer_name, peer_client, peer_state) = select_peer(svc, &peer_target)?;
     if let Some(client) = peer_client
         .as_ref()
         .filter(|_| peer_state == PeerState::Online)
@@ -199,7 +197,7 @@ pub(super) fn dispatch(
                 now,
             )
             .map_err(super::super::plan::plan_rpc_err)?;
-        super::emit_plan_changed(app, &plan_id);
+        super::emit_plan_changed(svc, &plan_id);
         return Err(remote_failure(
             "peer_offline",
             &attempt_id,
@@ -218,8 +216,8 @@ pub(super) fn dispatch(
         &manifest,
         &authorized_gates,
     );
-    let origin_id = app
-        .state::<codeterm_service_core::MeshStateHandle>()
+    let origin_id = svc
+        .ext::<codeterm_service_core::MeshStateHandle>()
         .lock()
         .ident
         .identity
@@ -249,13 +247,13 @@ pub(super) fn dispatch(
             "paired peer has no reachable signed route",
         ));
     };
-    let response = tauri::async_runtime::block_on(client.auth_post_json_within(
+    let response = codeterm_service_core::async_runtime::block_on(client.auth_post_json_within(
         "/api/mesh/worker-dispatch",
         &request,
         Some(WORKER_DISPATCH_DEADLINE),
     ));
     let observed_spawn = if response.is_err() {
-        tauri::async_runtime::block_on(client.auth_post_json_within(
+        codeterm_service_core::async_runtime::block_on(client.auth_post_json_within(
             "/api/mesh/worker-dispatch-status",
             &request,
             Some(WORKER_DISPATCH_DEADLINE),
@@ -276,7 +274,7 @@ pub(super) fn dispatch(
             svc.plan_store
                 .set_remote_dispatch_state(&plan_id, &task_id, &attempt_id, &peer_id, state, now)
                 .map_err(super::super::plan::plan_rpc_err)?;
-            super::emit_plan_changed(app, &plan_id);
+            super::emit_plan_changed(svc, &plan_id);
             return Err(remote_failure(label, &attempt_id, &error));
         }
     };
@@ -292,7 +290,7 @@ pub(super) fn dispatch(
                 now,
             )
             .map_err(super::super::plan::plan_rpc_err)?;
-        super::emit_plan_changed(app, &plan_id);
+        super::emit_plan_changed(svc, &plan_id);
         return Err(remote_failure(
             "relay_lost",
             &attempt_id,
@@ -322,7 +320,7 @@ pub(super) fn dispatch(
                 now,
             )
             .map_err(super::super::plan::plan_rpc_err)?;
-        super::emit_plan_changed(app, &plan_id);
+        super::emit_plan_changed(svc, &plan_id);
         return Err(remote_failure(
             "relay_lost",
             &attempt_id,
@@ -364,7 +362,7 @@ pub(super) fn dispatch(
         worker_tab_id,
         &origin_tab_id,
     );
-    super::emit_plan_changed(app, &plan_id);
+    super::emit_plan_changed(svc, &plan_id);
     let mut result = json!({
         "accepted": false,
         "spawned": true,
@@ -388,7 +386,6 @@ pub(super) fn dispatch(
 
 pub(crate) fn merge_lane(
     params: &Option<Value>,
-    app: &codeterm_service_core::app_runtime::AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -489,7 +486,7 @@ pub(crate) fn merge_lane(
         codeterm_service_core::service::worker_lane::repository_identities(&canonical_cwd)
             .map_err(|error| invalid_dispatch(&error))?;
     let (peer_paired, peer_client) = {
-        let mesh_state = app.state::<codeterm_service_core::MeshStateHandle>();
+        let mesh_state = svc.ext::<codeterm_service_core::MeshStateHandle>();
         let mesh = mesh_state.lock();
         let paired = if let Some(peer) = mesh.paired_peers.get(&peer_id) {
             if peer.access_level != codeterm_service_core::mesh::types::AccessLevel::Full {
@@ -514,7 +511,7 @@ pub(crate) fn merge_lane(
                 now,
             )
             .map_err(super::super::plan::plan_rpc_err)?;
-        super::emit_plan_changed(app, &plan_id);
+        super::emit_plan_changed(svc, &plan_id);
         return Err(remote_failure(
             "peer_offline",
             &attempt_id,
@@ -531,7 +528,7 @@ pub(crate) fn merge_lane(
         "attempt_id": attempt_id,
         "report_sha": report_sha,
     });
-    let response = tauri::async_runtime::block_on(
+    let response = codeterm_service_core::async_runtime::block_on(
         peer_client.auth_post_json("/api/mesh/worker-lane-bundle", &request),
     );
     let response = match response {
@@ -541,7 +538,7 @@ pub(crate) fn merge_lane(
             svc.plan_store
                 .set_remote_dispatch_state(&plan_id, &task_id, &attempt_id, &peer_id, state, now)
                 .map_err(super::super::plan::plan_rpc_err)?;
-            super::emit_plan_changed(app, &plan_id);
+            super::emit_plan_changed(svc, &plan_id);
             return Err(remote_failure(label, &attempt_id, &error));
         }
     };
@@ -607,7 +604,7 @@ pub(crate) fn merge_lane(
             now,
         )
         .map_err(super::super::plan::plan_rpc_err)?;
-    super::emit_plan_changed(app, &plan_id);
+    super::emit_plan_changed(svc, &plan_id);
     Ok(json!({
         "integrated": true,
         "idempotent": false,
@@ -626,7 +623,7 @@ enum PeerState {
 }
 
 fn select_peer(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    svc: &ServiceState,
     target: &str,
 ) -> Result<
     (
@@ -637,7 +634,7 @@ fn select_peer(
     ),
     JsonRpcError,
 > {
-    let mesh_handle = app.state::<codeterm_service_core::MeshStateHandle>();
+    let mesh_handle = svc.ext::<codeterm_service_core::MeshStateHandle>();
     let mesh = mesh_handle.lock();
     let peer = resolve_dispatch_peer(&mesh.paired_peers, target)?;
     if peer.access_level != codeterm_service_core::mesh::types::AccessLevel::Full {
@@ -678,7 +675,9 @@ fn require_remote_dispatch_capability(
     client: &codeterm_service_core::mesh::transport::PeerClient,
     peer_name: &str,
 ) -> Result<(), JsonRpcError> {
-    let Ok(identify) = tauri::async_runtime::block_on(client.auth_get_json("/api/identify")) else {
+    let Ok(identify) =
+        codeterm_service_core::async_runtime::block_on(client.auth_get_json("/api/identify"))
+    else {
         return Ok(());
     };
     if identify_advertises(

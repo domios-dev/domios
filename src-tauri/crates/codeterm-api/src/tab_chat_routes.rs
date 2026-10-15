@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn transcript_contention_leaves_the_runtime_available() {
-        use codeterm_service_core::service::test_fixture::ServiceFixture;
+        use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
         use std::{future::Future, sync::mpsc, task::Poll, time::Duration};
 
         let (mux, tab_id) = MultiplexerState::new();

@@ -85,11 +85,10 @@ pub async fn mesh_sync(
     let mut mesh = state.mesh.lock();
     let our_id = mesh.ident.identity.instance_id.clone();
     let our_payload = sync_output_for_access(full_access, &our_id, mesh.build_sync_payload());
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::to_value(our_payload).unwrap()))
 }
 
@@ -835,8 +834,7 @@ async fn perform_relay_unredacted(
                 &preview,
             ),
         );
-        crate::events::emit_everywhere(
-            &state.svc.app_handle,
+        state.svc.ui.emit(
             "service-pushed",
             serde_json::json!({"source_id": sender_name, "target": target_tab, "kind": "mesh"}),
         );
