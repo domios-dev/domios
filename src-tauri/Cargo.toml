@@ -88,6 +88,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "main"
 path = "tests/main.rs"
 
+[[test]]
+name = "bridge_migrate_test"
+path = "tests/bridge_migrate_test.rs"
+test = false
+
+[[test]]
+name = "chatpipeline_seams_test"
+path = "tests/chatpipeline_seams_test.rs"
+test = false
+
 # Deterministic mem-recall bench runner. Reuses the `mem` module from the
 # lib crate directly. Default and stub modes run offline without an LLM
 # or embeddings; live decision mode is an explicit owner-run option.

@@ -606,9 +606,9 @@ export interface KeybindingsConfig {
   zoom_out?: string;
   zoom_reset?: string;
   open_settings?: string;
-  reopen_tab?: string;
+  reopen_tab: string;
   /** Cycle to the next sidebar item (plan entry or tab) in the active workspace. */
-  next_tab?: string;
+  next_tab: string;
   /** Cycle to the previous sidebar item (plan entry or tab) in the active workspace. */
   prev_tab?: string;
 }
