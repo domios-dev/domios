@@ -7,10 +7,15 @@ edition = "2021"
 workspace = true
 
 [features]
-test-support = []
+test-support = ["dep:codeterm-service-core", "codeterm-service-core/test-support"]
 
 [dependencies]
 codeterm-events = { path = "../codeterm-events" }
 tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
+
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, optional = true }
+
+[dev-dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
