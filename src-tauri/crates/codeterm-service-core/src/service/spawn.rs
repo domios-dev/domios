@@ -1072,7 +1072,7 @@ impl ServiceContext {
         })
     }
 
-    fn link_hidden_agent_pty(
+    pub fn link_hidden_agent_pty(
         &self,
         tab_id: &str,
         cwd: Option<String>,

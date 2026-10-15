@@ -56,7 +56,7 @@ pub async fn establish_notify_permission(
 
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
-    codeterm_service_core::service::open_url::open_url(url)
+    codeterm_service_core::service::open_url_open_url(url)
 }
 
 #[tauri::command]

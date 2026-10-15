@@ -294,7 +294,7 @@ impl ServiceContext {
     /// Set the tab's current boot stage (for late attachers reading the
     /// snapshot) and fan the transition out on the event bridge. Fire-and-forget
     /// — never blocks the launch thread.
-    pub(crate) fn emit_boot_stage(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+    pub fn emit_boot_stage(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
         if stage == BootStage::AgentReady {
             let pending_binding = {
                 let mux = self.mux.read();

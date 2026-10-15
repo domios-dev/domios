@@ -73,3 +73,5 @@ pub async fn answer_question(
         .await
         .map_err(|reason| reason.to_string())?
 }
+
+pub use restore::tab as restore_tab;

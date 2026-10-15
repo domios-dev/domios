@@ -219,8 +219,8 @@ pub mod tab_transport_chat;
 mod team;
 #[cfg(any(test, feature = "test-support"))]
 pub use team::close_team_with_state_change;
-#[cfg(test)]
-pub(crate) use team::rename_team_core;
+#[cfg(any(test, feature = "test-support"))]
+pub use team::rename_team_core;
 #[cfg(any(test, feature = "test-support"))]
 pub use team::rename_team_with_state_change;
 pub use team::TeamCloseResult;
@@ -301,8 +301,8 @@ pub use inject_verify::{
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::arm_provider_session_for_test;
-#[cfg(test)]
-pub(crate) use orchestrator::launch_waits_for_first_turn_binding;
+#[cfg(any(test, feature = "test-support"))]
+pub use orchestrator::launch_waits_for_first_turn_binding;
 pub(crate) use orchestrator::move_chatbackend_task_to_system_prompt;
 pub(crate) use orchestrator::record_provider_session;
 #[cfg(any(test, feature = "test-support"))]
@@ -326,7 +326,7 @@ pub use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
 pub(crate) use team::team_member_brief;
-pub(crate) use team::AddTeamMemberParams;
+pub use team::AddTeamMemberParams;
 pub use team::AddTeamMemberResult;
 pub use team::TeamMutationCaller;
 pub use team::TeamPlanError;
@@ -369,7 +369,7 @@ pub struct ServiceContext {
     pub activity: Arc<crate::mem::activity::ActivityRing>,
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
     pub prompt_detector: PromptDetectorState,
-    pub(crate) pty_ownership: pty_ownership::PtyOwnership,
+    pub pty_ownership: pty_ownership::PtyOwnership,
     // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.
@@ -392,7 +392,7 @@ pub struct ServiceContext {
     /// Unified facade over the agent + chat-backend stores. Listing and
     /// spawn-classify go through this so call-sites stop touching two registries.
     pub provider_registry: Arc<crate::provider::ProviderRegistry>,
-    pub(crate) local_recordings: Arc<local_recording::RecordingLeases>,
+    pub local_recordings: Arc<local_recording::RecordingLeases>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
     pub tokens: Arc<crate::service::tokens::TokenStore>,
     pub usage_store: crate::usage::UsageStoreHandle,
@@ -837,7 +837,7 @@ impl ServiceContext {
         });
     }
 
-    pub(crate) fn kill_ptys(&self, pty_ids: &[String]) {
+    pub fn kill_ptys(&self, pty_ids: &[String]) {
         self.pty_ownership.release_ptys(pty_ids);
         let mut manager = self.pty.lock();
         for id in pty_ids {
@@ -1060,3 +1060,23 @@ pub use background_work::incomplete_snapshot;
 pub use local_recording::{CaptureClipDescriptor, LocalRecordingCommitOutcome, RecordingLeases};
 pub use orchestrator::mark_tab_agent_launch_started;
 pub use pty_ownership::{LinkOutcome, PtyOwnership, PtySelection, TabPtyClaim};
+
+pub use background_work::apply as background_work_apply;
+pub use launch_diagnostics::AgentLaunchOrigin;
+#[cfg(any(test, feature = "test-support"))]
+pub use launch_session_detection::registered_launch_marker;
+pub use orchestrator::launch_agent_in_background_with_env;
+pub use provider_signals::apply as provider_signals_apply;
+pub use restored_launch::{
+    persist_restored_launch_identity, restore_permission_bypass_authorization,
+    restored_fresh_launch_input, restored_resume_session_id, restored_session_resumable,
+    RestoredFreshLaunchInput,
+};
+#[cfg(any(test, feature = "test-support"))]
+pub use skill_mirror::extract_revision;
+#[cfg(any(test, feature = "test-support"))]
+pub use structured_endpoint::remove as structured_endpoint_remove;
+pub use structured_endpoint::sse as structured_endpoint_sse;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use pty_ownership::OwnershipEvent;

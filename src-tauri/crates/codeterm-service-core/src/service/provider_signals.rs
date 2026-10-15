@@ -84,7 +84,7 @@ pub(crate) fn classify(
     })
 }
 
-pub(crate) fn apply(
+pub fn apply(
     svc: &ServiceContext,
     tab_id: &str,
     session: &str,

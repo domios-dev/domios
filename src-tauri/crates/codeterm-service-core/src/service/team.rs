@@ -37,7 +37,7 @@ pub enum TeamMutationCaller {
 }
 
 impl TeamMutationCaller {
-    pub(crate) fn from_tab(caller_tab_id: Option<&str>) -> Self {
+    pub fn from_tab(caller_tab_id: Option<&str>) -> Self {
         match caller_tab_id.map(str::trim).filter(|id| !id.is_empty()) {
             Some(tab_id) => Self::AgentTab(tab_id.to_string()),
             None => Self::Human,
@@ -89,7 +89,7 @@ impl ServiceContext {
         Ok(changed_plan_ids)
     }
 
-    pub(crate) async fn add_team_member(
+    pub async fn add_team_member(
         &self,
         team_id: &str,
         caller_tab_id: Option<&str>,
@@ -312,7 +312,7 @@ impl ServiceContext {
         Ok(team)
     }
 
-    pub(crate) fn rename_team(
+    pub fn rename_team(
         &self,
         team_id: &str,
         name: String,
@@ -722,7 +722,7 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn rename_team_core(
+pub fn rename_team_core(
     mux: &mut MultiplexerState,
     team_id: &str,
     name: String,
@@ -1144,7 +1144,7 @@ pub(crate) use staffing::prepare_team_member_spawn;
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
 pub(crate) use staffing::take_over_team_plan;
 pub(crate) use staffing::team_member_brief;
-pub(crate) use staffing::AddTeamMemberParams;
+pub use staffing::AddTeamMemberParams;
 pub use staffing::AddTeamMemberResult;
 pub(crate) use staffing::CartographerAttachLocks;
 pub(crate) use staffing::OrchestratorAttachLocks;

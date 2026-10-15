@@ -19,7 +19,7 @@ pub(crate) enum ChatBackendInstructionDelivery {
     Blocked { code: &'static str },
 }
 
-pub(crate) fn removed_chatbackend_error(plugin_id: &str) -> String {
+pub fn removed_chatbackend_error(plugin_id: &str) -> String {
     serde_json::json!({
         "code": "chat_backend_plugin_removed",
         "plugin_id": plugin_id,

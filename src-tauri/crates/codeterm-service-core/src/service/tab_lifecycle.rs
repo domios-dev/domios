@@ -6,7 +6,7 @@ use crate::session::lifecycle::{LifecycleKey, LifecycleTransition, TabLifecycleJ
 use super::ServiceContext;
 
 impl ServiceContext {
-    pub(crate) fn note_session_conversation(&self, tab_id: &str, session_id: &str) {
+    pub fn note_session_conversation(&self, tab_id: &str, session_id: &str) {
         let key = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)

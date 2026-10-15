@@ -6,7 +6,7 @@ use crate::app_runtime::AppHandle;
 use crate::update_state::AvailabilitySnapshot;
 use crate::UpdateStateHandle;
 
-pub(crate) type CheckFuture<'a> =
+pub type CheckFuture<'a> =
     Pin<Box<dyn Future<Output = Result<AvailabilitySnapshot, String>> + Send + 'a>>;
 
 /// Updater entry points startup calls; the root registers them before `run`.

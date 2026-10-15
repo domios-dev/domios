@@ -65,7 +65,7 @@ pub fn chat_start_core(
             svc.note_session_conversation(&tab_id, session_id);
         }
     }
-    codeterm_service_core::service::tab_chat::restore_notice::append_restore_notice(
+    codeterm_service_core::service::tab_chat::append_restore_notice(
         &svc.lifecycle_journal,
         &tab_id,
         result.messages.get_or_insert_default(),
@@ -107,7 +107,7 @@ fn chat_start_inner(
     }
     let started = std::time::Instant::now();
     let initial_authority = tab_chat_authority(svc, &tab_id);
-    if codeterm_service_core::service::structured_endpoint::sse(&tab_id).is_some()
+    if codeterm_service_core::service::structured_endpoint_sse(&tab_id).is_some()
         && initial_authority.0.is_some()
     {
         let archives = svc
@@ -119,11 +119,11 @@ fn chat_start_inner(
         let mut messages =
             super::context_epochs::materialize_archived_context_epochs(svc, &archives);
         messages.extend(
-            codeterm_service_core::service::structured_prompt::snapshot::read(svc, &tab_id)?,
+            codeterm_service_core::service::structured_prompt::read_snapshot(svc, &tab_id)?,
         );
-        let start = messages.len().saturating_sub(
-            codeterm_service_core::service::structured_prompt::snapshot::RETAINED_ROWS,
-        );
+        let start = messages
+            .len()
+            .saturating_sub(codeterm_service_core::service::structured_prompt::RETAINED_ROWS);
         messages.drain(..start);
         if tab_chat_authority(svc, &tab_id) != initial_authority {
             return Err("Transcript binding changed during attach".into());
@@ -257,7 +257,7 @@ fn chat_start_inner(
             })
             .unwrap_or_default();
         if let Some(nonce) = session_binding_nonce.as_deref() {
-            codeterm_service_core::service::provider_signals::apply_structured(
+            codeterm_service_core::service::provider_signals_apply_structured(
                 &svc,
                 &tab_id,
                 &session_id,
@@ -395,14 +395,14 @@ fn chat_start_inner(
         if snap.truncated() {
             codeterm_service_core::service::incomplete_snapshot(svc, &tab_id, &session_id, nonce);
         }
-        codeterm_service_core::service::provider_signals::apply(
+        codeterm_service_core::service::provider_signals_apply(
             svc,
             &tab_id,
             &session_id,
             nonce,
             &snap.runtime_observations,
         );
-        codeterm_service_core::service::background_work::apply(
+        codeterm_service_core::service::background_work_apply(
             svc,
             &tab_id,
             &session_id,

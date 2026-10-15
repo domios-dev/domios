@@ -5,13 +5,13 @@ use std::sync::Arc;
 #[derive(Clone, Default)]
 pub struct PtyOwnership {
     launch_claims: Arc<Mutex<HashMap<String, String>>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     observer: Arc<Mutex<Option<OwnershipObserver>>>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum OwnershipEvent {
+pub enum OwnershipEvent {
     AwaitingActivation,
     Linking {
         candidate: String,
@@ -19,8 +19,8 @@ pub(crate) enum OwnershipEvent {
     },
 }
 
-#[cfg(test)]
-pub(crate) type OwnershipObserver = Arc<dyn Fn(&str, OwnershipEvent) + Send + Sync>;
+#[cfg(any(test, feature = "test-support"))]
+pub type OwnershipObserver = Arc<dyn Fn(&str, OwnershipEvent) + Send + Sync>;
 
 pub struct TabPtyClaim {
     tab_id: String,
@@ -55,12 +55,12 @@ impl PtyOwnership {
         }
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-support")))]
     fn activate(&self, tab_id: &str) -> crate::service::pty_activation::TabActivationPermit {
         crate::service::pty_activation::acquire(tab_id)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn activate(&self, tab_id: &str) -> crate::service::pty_activation::TabActivationPermit {
         crate::service::pty_activation::acquire_with_wait_hook(tab_id, || {
             self.observe(tab_id, OwnershipEvent::AwaitingActivation)
@@ -68,7 +68,7 @@ impl PtyOwnership {
     }
 
     pub async fn acquire_async(&self, tab_id: String) -> Result<TabPtyClaim, String> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if self.observer.lock().is_some() {
             let ownership = self.clone();
             return tokio::task::spawn_blocking(move || ownership.acquire(&tab_id))
@@ -107,12 +107,12 @@ impl PtyOwnership {
             .retain(|_, claimed| !pty_ids.contains(claimed));
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_test_observer(&self, observer: OwnershipObserver) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_test_observer(&self, observer: OwnershipObserver) {
         *self.observer.lock() = Some(observer);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn observe(&self, tab_id: &str, event: OwnershipEvent) {
         let observer = self.observer.lock().clone();
         if let Some(observer) = observer {
@@ -120,14 +120,14 @@ impl PtyOwnership {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn launch_claim(&self, tab_id: &str) -> Option<String> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn launch_claim(&self, tab_id: &str) -> Option<String> {
         self.launch_claims.lock().get(tab_id).cloned()
     }
 }
 
 impl TabPtyClaim {
-    pub(crate) fn tab_id(&self) -> &str {
+    pub fn tab_id(&self) -> &str {
         &self.tab_id
     }
 
@@ -140,7 +140,7 @@ impl TabPtyClaim {
         mut kill: impl FnMut(&str),
         mut ready: impl FnMut(&str),
     ) -> PtySelection {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.ownership.observe(
             &self.tab_id,
             OwnershipEvent::Linking {
@@ -195,7 +195,7 @@ impl TabPtyClaim {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn coordinate(
         &self,
         launch_owned: bool,

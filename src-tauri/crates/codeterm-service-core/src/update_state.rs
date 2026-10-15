@@ -74,9 +74,9 @@ pub struct UpdateState {
     pub download_total_bytes: Option<u64>,
 }
 
-pub(crate) type StatusEmitter = Box<dyn Fn(serde_json::Value) + Send + Sync>;
+pub type StatusEmitter = Box<dyn Fn(serde_json::Value) + Send + Sync>;
 
-pub(crate) static STATUS_EMITTER: std::sync::OnceLock<StatusEmitter> = std::sync::OnceLock::new();
+pub static STATUS_EMITTER: std::sync::OnceLock<StatusEmitter> = std::sync::OnceLock::new();
 
 impl UpdateState {
     fn publish_status(&self) {

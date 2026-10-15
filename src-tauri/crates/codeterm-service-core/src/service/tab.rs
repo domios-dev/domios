@@ -412,7 +412,7 @@ impl ServiceContext {
             .pty_id
     }
 
-    pub(crate) fn link_pty_with_claim(
+    pub fn link_pty_with_claim(
         &self,
         claim: &crate::service::pty_ownership::TabPtyClaim,
         tab_id: &str,

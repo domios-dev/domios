@@ -290,7 +290,7 @@ fn restart_after_plugin_install(
 fn restart_after_plugin_install(
     app: &codeterm_service_core::app_runtime::AppHandle,
 ) -> Result<ApplyResult, String> {
-    codeterm_service_core::startup::restart_stdio::detach_for_restart();
+    codeterm_service_core::startup::restart_stdio_detach_for_restart();
     app.restart()
 }
 
@@ -424,7 +424,7 @@ pub(super) async fn install_staged_deb_and_restart(
     }
 
     log::info!("[updater] Debian package installed; restarting application");
-    codeterm_service_core::startup::restart_stdio::detach_for_restart();
+    codeterm_service_core::startup::restart_stdio_detach_for_restart();
     app.restart()
 }
 

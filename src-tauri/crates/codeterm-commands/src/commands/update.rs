@@ -13,7 +13,7 @@ pub async fn check_for_update(
     if let Some(bundles) =
         app.try_state::<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>()
     {
-        codeterm_service_core::startup::frontend_bundles::check(bundles.inner().clone());
+        codeterm_service_core::startup::frontend_bundles_check(bundles.inner().clone());
     }
     if !force.unwrap_or(false) {
         let us = update_state.lock();

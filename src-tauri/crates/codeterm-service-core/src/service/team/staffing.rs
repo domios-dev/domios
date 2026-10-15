@@ -48,7 +48,7 @@ fn refuse(team_id: &str, role: &str, code: &'static str, cause: impl Into<String
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AddTeamMemberParams {
+pub struct AddTeamMemberParams {
     pub provider: String,
     pub role: String,
     pub title: Option<String>,
