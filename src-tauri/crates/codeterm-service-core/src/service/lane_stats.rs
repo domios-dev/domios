@@ -70,11 +70,11 @@ impl ServiceContext {
         let repo_watch = self
             .ext::<crate::repowatch::RepoWatchRegistryHandle>()
             .clone();
-        let app = self.app_handle.clone();
+        let ui = self.ui.clone();
         let tab_id = tab_id.to_string();
         crate::async_runtime::spawn(async move {
             let capture = tokio::task::spawn_blocking(move || {
-                record_lane_turn(&service, &store, &repo_watch, &app, &tab_id)
+                record_lane_turn(&service, &store, &repo_watch, ui.as_ref(), &tab_id)
             });
             match tokio::time::timeout(TURN_CAPTURE_DEADLINE, capture).await {
                 Ok(Ok(())) => {}
@@ -86,9 +86,9 @@ impl ServiceContext {
 
     pub(crate) fn offer_merged_lane_cleanup(&self, repository_identity: String) {
         let store = self.plan_store.clone();
-        let app = self.app_handle.clone();
+        let ui = self.ui.clone();
         crate::async_runtime::spawn_blocking(move || {
-            offer_merged_lanes(&store, &app, &repository_identity)
+            offer_merged_lanes(&store, ui.as_ref(), &repository_identity)
         });
     }
 }
@@ -97,7 +97,7 @@ fn record_lane_turn(
     service: &ServiceContext,
     store: &PlanStore,
     repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
-    app: &crate::app_runtime::AppHandle,
+    ui: &dyn crate::ports::host::UiEvents,
     tab_id: &str,
 ) {
     let Some(target) = find_lane_attempt(store, tab_id) else {
@@ -164,10 +164,9 @@ fn record_lane_turn(
             *record = stats;
         }
     }) {
-        crate::events::emit_everywhere(
-            app,
+        ui.emit(
             "plan-changed",
-            &serde_json::json!({ "plan_id": target.plan_id }),
+            serde_json::json!({ "plan_id": target.plan_id }),
         );
     }
 }
@@ -468,7 +467,7 @@ fn unix_time_millis() -> u64 {
 
 fn offer_merged_lanes(
     store: &PlanStore,
-    app: &crate::app_runtime::AppHandle,
+    ui: &dyn crate::ports::host::UiEvents,
     repository_identity: &str,
 ) {
     let deadline = Instant::now() + TURN_CAPTURE_DEADLINE;
@@ -520,15 +519,10 @@ fn offer_merged_lanes(
                         .update_task_lane(&plan.id, &task.id, update, unix_time_millis())
                         .is_ok()
                     {
-                        crate::events::emit_everywhere(
-                            app,
-                            "plan-changed",
-                            &serde_json::json!({ "plan_id": plan.id }),
-                        );
-                        crate::events::emit_everywhere(
-                            app,
+                        ui.emit("plan-changed", serde_json::json!({ "plan_id": plan.id }));
+                        ui.emit(
                             "plan-lane-cleanup-offer",
-                            &serde_json::json!({
+                            serde_json::json!({
                                 "plan_id": plan.id,
                                 "task_id": task.id,
                                 "branch": branch,

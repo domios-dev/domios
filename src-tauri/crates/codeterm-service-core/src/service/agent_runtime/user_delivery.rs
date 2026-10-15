@@ -81,7 +81,10 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                     .chat_send_ledger
                     .set_user_pending_reason(&record.send_id, Some(&reason.to_string()))
                 {
-                    crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                    svc.ui.emit(
+                        "chat-send-status",
+                        serde_json::to_value(status).unwrap_or_default(),
+                    );
                 }
             }
             return Ok(UserDrain::Idle);
@@ -116,7 +119,10 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                     .chat_send_ledger
                     .expire_owned_before_write(&record.send_id, "launch_ended_before_write")
                 {
-                    crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                    svc.ui.emit(
+                        "chat-send-status",
+                        serde_json::to_value(status).unwrap_or_default(),
+                    );
                 }
                 continue;
             }
@@ -131,7 +137,10 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                     &record.send_id,
                     "recording_recipient_changed_before_write",
                 ) {
-                    crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                    svc.ui.emit(
+                        "chat-send-status",
+                        serde_json::to_value(status).unwrap_or_default(),
+                    );
                 }
                 super::capture::retire(&record.send_id);
                 continue;
@@ -172,7 +181,10 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             &record.send_id,
             result.map_err(|reason| reason.ledger_message()),
         ) {
-            crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+            svc.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(status).unwrap_or_default(),
+            );
         }
         if zero_write && record.capture_required {
             if store.discard_queued_from_ended_launch(&record)? {
@@ -180,7 +192,10 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
                     &record.send_id,
                     "recording_recipient_changed_before_write",
                 ) {
-                    crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                    svc.ui.emit(
+                        "chat-send-status",
+                        serde_json::to_value(status).unwrap_or_default(),
+                    );
                 }
             }
             super::capture::retire(&record.send_id);

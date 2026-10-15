@@ -7,7 +7,6 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use parking_lot::Mutex;
 use serde_json::json;
 use std::sync::{mpsc, Arc};
-use tauri::Listener;
 
 const PROVIDER: &str = "run-end-fixture";
 const SOURCE: &str = r#"
@@ -41,7 +40,7 @@ impl Drop for Scene {
         for tab in self.fixture.service.mux.read().snapshot().tabs.keys() {
             engine::stop(tab);
         }
-        crate::service::session_persist::stop_worker(self.fixture._app.handle()).unwrap();
+        crate::service::session_persist::stop_worker(&self.fixture.service).unwrap();
         for worker in self.fixture.service.workers.list() {
             if let Some(path) = worker.log_path {
                 let _ = std::fs::remove_file(path);
@@ -171,7 +170,7 @@ impl Scene {
     }
     fn ended(&self, event: &str) -> mpsc::Receiver<()> {
         let (tx, rx) = mpsc::channel();
-        self.fixture._app.listen(event, move |_| {
+        self.fixture.ui.listen(event, move |_| {
             let _ = tx.send(());
         });
         rx

@@ -25,11 +25,7 @@ pub(super) fn authorize(
     let authorization = if params.skip_permissions == Some(false) || carried.is_some() {
         carried
     } else {
-        permission_policy::configured_permission_bypass_for(
-            &svc.app_handle,
-            &svc.agent_registry,
-            provider,
-        )?
+        permission_policy::configured_permission_bypass_for(&svc, &svc.agent_registry, provider)?
     };
     params.skip_permissions = Some(permission_request(
         params.skip_permissions,

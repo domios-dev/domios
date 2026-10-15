@@ -236,7 +236,7 @@ impl ModelSwitchLaunch {
         launch.model = Some(model.clone());
         let authorization =
             crate::service::restored_launch::restore_permission_bypass_authorization(
-                &svc.app_handle,
+                &svc,
                 registry,
                 &snap.tab_id,
                 &snap.provider,

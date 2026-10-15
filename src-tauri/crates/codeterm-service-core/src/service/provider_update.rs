@@ -36,8 +36,7 @@ impl ProviderUpdateHost for ServiceContext {
     }
 
     fn completed(&self, provider: &str, summary: &str) {
-        crate::events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "provider-cli-completed",
             serde_json::json!({
                 "provider": provider, "operation": "update", "summary": summary,

@@ -83,7 +83,7 @@ fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
         .team_id;
 
     let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
-    crate::service::session_persist::flush_session_persistence(instance.fixture._app.handle())
+    crate::service::session_persist::flush_session_persistence(&instance.fixture.service)
         .expect("flush startup resync with orphan Team");
     let startup_saved = StorageDeskAdapter::from_storage(instance.storage.clone())
         .state()
@@ -113,7 +113,7 @@ fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
         .service
         .create_tab_with_activate(&main_workspace_id, false)
         .expect("create tab while orphan Team is present");
-    crate::service::session_persist::flush_session_persistence(instance.fixture._app.handle())
+    crate::service::session_persist::flush_session_persistence(&instance.fixture.service)
         .expect("flush tab and workspace changes");
     let saved = StorageDeskAdapter::from_storage(instance.storage.clone())
         .state()
@@ -438,7 +438,7 @@ fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
     }
     let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
     crate::service::session_persist::write_session_snapshot_with_intent(
-        instance.fixture._app.handle(),
+        &instance.fixture.service,
         &instance.fixture.service.mux,
         crate::session::store::SaveIntent::AuthorizedReduction,
     )
@@ -607,9 +607,13 @@ fn surface_resume_point_round_trip_expected_pass() {
         url: Some("https://mail.example.com/inbox#thread/42".into()),
         profile: Some("work".into()),
     };
-    let app = instance.fixture._app.handle().clone();
     assert_eq!(
-        write_surface_resume(&app, &instance.fixture.service.mux, &tab_id, &resume),
+        write_surface_resume(
+            &instance.fixture.service,
+            &instance.fixture.service.mux,
+            &tab_id,
+            &resume
+        ),
         Some(true)
     );
 

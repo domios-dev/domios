@@ -22,20 +22,13 @@ use codeterm_plugin::local_recording::{
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{Emitter, Manager};
 
 const SETUP_DEADLINE: Duration = Duration::from_secs(10);
 const CLEANUP_DEADLINE: Duration = Duration::from_secs(5);
 
 impl ServiceContext {
     pub(crate) fn install_local_recording_invalidation_observer(&self) -> Result<(), String> {
-        let weak = {
-            let service = self
-                .app_handle
-                .try_state::<crate::service::ServiceState>()
-                .ok_or_else(|| "recording_host_unavailable".to_string())?;
-            Arc::downgrade(service.inner())
-        };
+        let weak = self.ext::<std::sync::Weak<ServiceContext>>().clone();
         self.ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .set_invalidation_observer(Arc::new(move |invalidation| {
                 let Some(service) = weak.upgrade() else {
@@ -44,10 +37,9 @@ impl ServiceContext {
                 service
                     .local_recordings
                     .invalidate_generation(&invalidation.plugin_id, invalidation.generation);
-                let _ = service.app_handle.emit_to(
-                    tauri::EventTarget::any(),
+                service.ui.emit_native(
                     "local-recording-capture-invalidated",
-                    &invalidation,
+                    serde_json::to_value(&invalidation).unwrap_or_default(),
                 );
             }));
         Ok(())
@@ -62,20 +54,14 @@ impl ServiceContext {
         if !platform::supported() {
             return Err("local_recording_unsupported".into());
         }
-        let weak = {
-            let service = self
-                .app_handle
-                .try_state::<crate::service::ServiceState>()
-                .ok_or_else(|| "recording_host_unavailable".to_string())?;
-            std::sync::Arc::downgrade(service.inner())
-        };
+        let weak = self.ext::<std::sync::Weak<ServiceContext>>().clone();
         let id = plugin_id.to_string();
         let callback = std::sync::Arc::new(move |event| {
             let Some(svc) = weak.upgrade() else {
                 return;
             };
             let id = id.clone();
-            tauri::async_runtime::spawn_blocking(move || {
+            crate::async_runtime::spawn_blocking(move || {
                 if let Err(error) = svc.local_recording_input_event(&id, event) {
                     log::debug!("[local-recording] trigger refused: {error}");
                 }
@@ -120,7 +106,10 @@ impl ServiceContext {
                 }
                 log::debug!("[local-recording] selected input unavailable: {reason:?}");
                 let status = self.local_recording_status(plugin_id)?;
-                crate::events::emit_everywhere(&self.app_handle, "local-recording-status", status);
+                self.ui.emit(
+                    "local-recording-status",
+                    serde_json::to_value(status).unwrap_or_default(),
+                );
                 Ok(())
             }
         }
@@ -154,7 +143,7 @@ impl ServiceContext {
                 serde_json::json!({ "kind": "start", "capture": lease })
             }
         };
-        crate::events::emit_everywhere(&self.app_handle, "local-recording-capture", event);
+        self.ui.emit("local-recording-capture", event);
         Ok(())
     }
     pub fn local_recording_status(&self, plugin_id: &str) -> Result<RecordingStatus, String> {
@@ -189,7 +178,10 @@ impl ServiceContext {
             .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .set_enabled(plugin_id, enabled)
             .map_err(str::to_string)?;
-        crate::events::emit_everywhere(&self.app_handle, "local-recording-status", &status);
+        self.ui.emit(
+            "local-recording-status",
+            serde_json::to_value(&status).unwrap_or_default(),
+        );
         let completion =
             (enabled && status.granted && status.devices_selected && !status.available)
                 .then(|| self.schedule_local_recording_subscription(plugin_id.into(), adapter));
@@ -277,20 +269,17 @@ impl ServiceContext {
         plugin_id: String,
         adapter: Arc<dyn platform::LocalInputAdapter>,
     ) -> Receiver<()> {
-        let app_handle = self.app_handle.clone();
+        let weak = self.ext::<std::sync::Weak<ServiceContext>>().clone();
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-        tauri::async_runtime::spawn(async move {
-            let service = app_handle
-                .try_state::<crate::service::ServiceState>()
-                .map(|state| Arc::clone(state.inner()));
+        crate::async_runtime::spawn(async move {
+            let service = weak.upgrade();
             let result = match service {
                 Some(service) => {
                     let result = service.local_recording_subscribe(&plugin_id, adapter).await;
                     if let Ok(status) = service.local_recording_status(&plugin_id) {
-                        crate::events::emit_everywhere(
-                            &service.app_handle,
+                        service.ui.emit(
                             "local-recording-status",
-                            status,
+                            serde_json::to_value(status).unwrap_or_default(),
                         );
                     }
                     result
@@ -328,7 +317,7 @@ async fn subscribe_local_input(
 ) -> Result<(), String> {
     let cleanup_registry = registry.clone();
     let cleanup_id = plugin_id.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::async_runtime::spawn_blocking(move || {
         cleanup_registry.wait_for_subscription_slot(&cleanup_id, CLEANUP_DEADLINE)
     })
     .await
@@ -345,7 +334,7 @@ async fn subscribe_local_input(
     };
     let setup_registry = registry.clone();
     let setup_callback = callback.clone();
-    let worker = tauri::async_runtime::spawn_blocking(move || {
+    let worker = crate::async_runtime::spawn_blocking(move || {
         match adapter.subscribe(
             &setup.declaration,
             &setup.devices,

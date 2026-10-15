@@ -227,7 +227,7 @@ impl ServiceContext {
             });
         let (provider, session_id) = recovery_target(recovery, fresh_provider)?;
         let auto_approve = crate::service::permission_policy::configured_permission_bypass_for(
-            &self.app_handle,
+            self,
             &self.agent_registry,
             &provider,
         )

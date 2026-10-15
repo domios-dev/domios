@@ -60,7 +60,10 @@ async fn restart_inner(
         .chat_send_ledger
         .rpc_uncertain_for_launch(tab, Some(old_nonce))
     {
-        crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+        svc.ui.emit(
+            "chat-send-status",
+            serde_json::to_value(status).unwrap_or_default(),
+        );
     }
     let nonce = super::authority::rotate_restart(svc, tab, provider, old_nonce)
         .map_err(RuntimeFailure::Refused)?;

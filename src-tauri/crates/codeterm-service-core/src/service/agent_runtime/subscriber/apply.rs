@@ -170,7 +170,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         RuntimeEvent::ItemUpdated { thread_id, item } if owned(&thread_id) => {
             let item = session.cache.lock().reconcile_live(item, at);
             crate::service::tab_chat::structured_sink::emit_chat_msgs(
-                &svc.app_handle,
+                svc.ui.as_ref(),
                 &context.tab_id,
                 &[item],
                 None,
@@ -202,7 +202,10 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                     .claimed_sends
                     .retain(|claim| claim.send_id != send_id);
                 session.maps.lock().take_evidence(&send_id);
-                crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                svc.ui.emit(
+                    "chat-send-status",
+                    serde_json::to_value(status).unwrap_or_default(),
+                );
                 let consumed = {
                     let mut mux = svc.mux.write();
                     let pending = mux

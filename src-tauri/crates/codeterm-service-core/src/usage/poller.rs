@@ -585,7 +585,10 @@ fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
         "account_id": key.account_id,
         "snapshot_id": snapshot_id,
     });
-    crate::events::emit_everywhere(&svc.app_handle, "usage-snapshot-updated", &payload);
+    svc.ui.emit(
+        "usage-snapshot-updated",
+        serde_json::to_value(&payload).unwrap_or_default(),
+    );
     svc.events.broadcast("usage-snapshot-updated", payload);
 }
 

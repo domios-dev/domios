@@ -44,7 +44,7 @@ pub fn send(
             detail: "Runtime handoff already claimed; replay refused".into(),
         });
     }
-    let session = tauri::async_runtime::block_on(engine::ensure(svc, tab))
+    let session = crate::async_runtime::block_on(engine::ensure(svc, tab))
         .map_err(|error| before_write(tab, error))?;
     let _permit =
         super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
@@ -71,7 +71,7 @@ pub fn send(
             .try_start_scoped_with_normalization(tab, text, None, None, Default::default())
             .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?,
     };
-    tauri::async_runtime::block_on(svc.gateway.submit_runtime_loaded_turn(
+    crate::async_runtime::block_on(svc.gateway.submit_runtime_loaded_turn(
         svc,
         &session,
         &process,
@@ -170,7 +170,10 @@ pub(crate) async fn submit_loaded(
                 }
             }
             if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(&pending.send_id) {
-                crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                svc.ui.emit(
+                    "chat-send-status",
+                    serde_json::to_value(status).unwrap_or_default(),
+                );
             }
             Ok(())
         }
@@ -199,7 +202,10 @@ pub(crate) async fn submit_loaded(
         }
         other => {
             if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(&pending.send_id) {
-                crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                svc.ui.emit(
+                    "chat-send-status",
+                    serde_json::to_value(status).unwrap_or_default(),
+                );
             }
             Err(DeliveryError::SubmitUnconfirmed {
                 tab: tab.into(),
@@ -225,7 +231,7 @@ pub(crate) fn control(
     tab: &str,
     operation: RuntimeOperation,
 ) -> Result<RuntimeResult, String> {
-    let session = tauri::async_runtime::block_on(engine::ensure(svc, tab))
+    let session = crate::async_runtime::block_on(engine::ensure(svc, tab))
         .map_err(|error| error.to_string())?;
     let _permit =
         super::blocking::deadline(std::time::Duration::from_secs(30), session.gate.acquire())
@@ -242,7 +248,7 @@ pub(crate) fn control(
         .get_tab(tab)
         .and_then(|tab| tab.agent_type.clone())
         .ok_or("Runtime provider absent")?;
-    tauri::async_runtime::block_on(engine::run(svc, &provider, &session, &process, operation))
+    crate::async_runtime::block_on(engine::run(svc, &provider, &session, &process, operation))
         .map_err(|error| error.to_string())
 }
 
@@ -263,7 +269,7 @@ pub fn launch(
         target.chat_view = true;
     }
     super::authority::record_spawn(svc, tab, provider, &nonce)?;
-    let result = tauri::async_runtime::block_on(engine::ensure(svc, tab))
+    let result = crate::async_runtime::block_on(engine::ensure(svc, tab))
         .map(|_| ())
         .map_err(|error| format!("Runtime tab {tab} degraded: {error}"));
     svc.emit_state_changed();
@@ -283,7 +289,7 @@ pub fn snapshot(
     });
     let ensured = match cached {
         Some(session) => Ok(session),
-        None => tauri::async_runtime::block_on(engine::ensure(svc, tab)),
+        None => crate::async_runtime::block_on(engine::ensure(svc, tab)),
     };
     log::debug!(
         "[chat-attach] tab={tab} phase=ensure elapsed_ms={} ok={}",

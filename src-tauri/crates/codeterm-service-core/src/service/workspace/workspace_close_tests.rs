@@ -585,7 +585,7 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
         .import_snapshot(&stale_mux.to_session_snapshot(), Vec::new())
         .expect("seed a stale persisted tab for the rollback reduction");
     crate::service::session_persist::install_storage_desk_adapter(
-        fixture._app.handle(),
+        &fixture.service,
         StorageDeskAdapter::from_storage(storage.clone()),
     )
     .unwrap();
@@ -616,7 +616,7 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
         tabs_before,
         "provisional tab rolled back from the live desk"
     );
-    crate::service::session_persist::flush_session_persistence(fixture._app.handle()).unwrap();
+    crate::service::session_persist::flush_session_persistence(&fixture.service).unwrap();
     let after_state = adapter.state().unwrap();
     assert!(
         after_state.revision > before_revision,
@@ -634,7 +634,7 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
         "persisted desk holds exactly the pre-spawn tabs — no provisional tab, nothing lost"
     );
     assert!(!persisted_ids.contains(&stale_tab));
-    crate::service::session_persist::stop_worker(fixture._app.handle()).unwrap();
+    crate::service::session_persist::stop_worker(&fixture.service).unwrap();
     storage
         .shutdown()
         .wait(std::time::Duration::from_secs(30))

@@ -19,6 +19,10 @@ impl UiEvents for TauriUiEvents {
         }
     }
 
+    fn emit_native(&self, event: &str, payload: Value) {
+        let _ = self.0.emit(event, payload);
+    }
+
     fn emit_to(&self, target: &str, event: &str, payload: Value) {
         let _ = self.0.emit_to(target, event, payload);
     }
@@ -53,6 +57,14 @@ mod tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+        let (native_sender, native_receiver) = std::sync::mpsc::channel();
+        app.listen("native-probe", move |event| {
+            native_sender.send(event.payload().to_owned()).unwrap();
+        });
+        ui.emit_native("native-probe", serde_json::json!({ "native": true }));
+        let native: Value = serde_json::from_str(&native_receiver.try_recv().unwrap()).unwrap();
+        assert_eq!(native, serde_json::json!({ "native": true }));
+        assert!(web.try_recv().is_err());
         ui.emit_to("main", "targeted-probe", Value::Null);
         assert!(web.try_recv().is_err());
     }

@@ -318,7 +318,7 @@ pub fn arm(svc: &ServiceContext) {
         pending_update.as_ref(),
         || {
             matches!(
-                super::session_persist::write_session_snapshot(&svc.app_handle, &svc.mux),
+                super::session_persist::write_session_snapshot(&svc, &svc.mux),
                 Ok(crate::session::store::SaveOutcome::Saved)
             )
         },
@@ -337,9 +337,7 @@ pub fn arm(svc: &ServiceContext) {
             "[turn-resume] disabled; {} owed continue(s) settled as skipped",
             owed.len()
         );
-        if let Err(error) =
-            super::session_persist::write_session_snapshot(&svc.app_handle, &svc.mux)
-        {
+        if let Err(error) = super::session_persist::write_session_snapshot(&svc, &svc.mux) {
             log::warn!("[turn-resume] disabled marks were not persisted: {error}");
         }
         return;
@@ -613,7 +611,7 @@ impl ServiceContext {
             &claim,
             || {
                 matches!(
-                    super::session_persist::write_session_snapshot(&self.app_handle, &self.mux),
+                    super::session_persist::write_session_snapshot(self, &self.mux),
                     Ok(crate::session::store::SaveOutcome::Saved)
                 )
             },

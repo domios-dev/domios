@@ -270,7 +270,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::Emitter;
 
 use crate::agent::registry::AgentRegistry;
 use crate::multiplexer::commands::MuxState;
@@ -663,8 +662,7 @@ impl ServiceContext {
     /// hook, inbound report) so the sidebar refreshes consistently.
     pub fn emit_remote_workers_changed(&self, orchestrator_tab: &str) {
         // SSE bus, so the web mirror updates live too — not only on next remount.
-        crate::events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "remote-workers-changed",
             serde_json::json!({
                 "orchestrator_tab_id": orchestrator_tab,
@@ -710,7 +708,8 @@ impl ServiceContext {
         self.ext::<Arc<crate::service::MuxEmitStats>>()
             .pending_since_ms
             .store(wall_now_ms(), Ordering::Relaxed);
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
+        let service = self.clone();
         let pending = self.ext::<crate::service::MuxEmitPending>().0.clone();
         let mux = self.mux.clone();
         let agent_tracker = self.agent_tracker.clone();
@@ -737,7 +736,7 @@ impl ServiceContext {
                 }
                 if let Err(error) =
                     crate::service::session_persist::submit_session_snapshot_with_intent(
-                        &handle,
+                        &service,
                         &mux,
                         crate::session::store::SaveIntent::PreserveDesk,
                     )
@@ -747,7 +746,10 @@ impl ServiceContext {
                 stats.pending_since_ms.store(0, Ordering::Relaxed);
                 if !stats.frozen.load(Ordering::Acquire) {
                     stats.fires.fetch_add(1, Ordering::Relaxed);
-                    let _ = handle.emit("mux-state-changed", &snapshot);
+                    ui.emit_native(
+                        "mux-state-changed",
+                        serde_json::to_value(&snapshot).unwrap_or_default(),
+                    );
                 }
             });
         // Evidence build: surface a spawn failure instead of silently latching.
@@ -791,10 +793,10 @@ impl ServiceContext {
                 tab_id: tab_id.to_string(),
                 title: title.to_string(),
             });
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
         let payload = serde_json::json!({"tab_id": tab_id, "title": title});
         std::thread::spawn(move || {
-            let _ = handle.emit("tab-title-pinned", payload);
+            ui.emit_native("tab-title-pinned", payload);
         });
     }
 
@@ -808,11 +810,11 @@ impl ServiceContext {
             .publish(codeterm_events::SystemEvent::TabFocused {
                 tab_id: tab_id.to_string(),
             });
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
         let payload = serde_json::json!({"tab_id": tab_id});
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(75));
-            let _ = handle.emit("tab-focused", payload);
+            ui.emit_native("tab-focused", payload);
         });
     }
 
@@ -856,7 +858,7 @@ impl ServiceContext {
                 &project_root,
                 self.plan_store.clone(),
                 std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
-                    self.app_handle.clone(),
+                    self.ui.clone(),
                 )),
             ) {
                 Ok(watcher) => {
@@ -885,7 +887,7 @@ impl ServiceContext {
     /// OS notifications are NOT sent here — use in-app toasts only.
     pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
         // 1. Native webview + SSE bus (web mirror) through the single seam.
-        crate::events::emit_everywhere(&self.app_handle, event_type, &payload);
+        self.ui.emit(event_type, payload.clone());
         // 2. External webhooks + websockets (Telegram, Discord, etc.)
         self.events.broadcast(event_type, payload);
     }

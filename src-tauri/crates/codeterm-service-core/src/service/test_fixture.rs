@@ -24,12 +24,46 @@ pub struct ServiceFixture {
     pub temp: tempfile::TempDir,
 }
 
+type UiListener = Arc<dyn Fn(&serde_json::Value) + Send + Sync>;
+
 #[derive(Default)]
-pub struct RecordedUiEvents(pub Mutex<Vec<(String, serde_json::Value)>>);
+pub struct RecordedUiEvents(
+    pub Mutex<Vec<(String, serde_json::Value)>>,
+    Mutex<Vec<(usize, String, UiListener)>>,
+    std::sync::atomic::AtomicUsize,
+);
+
+impl RecordedUiEvents {
+    pub fn listen(
+        &self,
+        event: &str,
+        callback: impl Fn(&serde_json::Value) + Send + Sync + 'static,
+    ) -> usize {
+        let id = self.2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.1
+            .lock()
+            .push((id, event.to_owned(), Arc::new(callback)));
+        id
+    }
+
+    pub fn unlisten(&self, id: usize) {
+        self.1.lock().retain(|(key, _, _)| *key != id);
+    }
+}
 
 impl crate::ports::host::UiEvents for RecordedUiEvents {
     fn emit(&self, event: &str, payload: serde_json::Value) {
-        self.0.lock().push((event.to_owned(), payload));
+        self.0.lock().push((event.to_owned(), payload.clone()));
+        let listeners: Vec<_> = self
+            .1
+            .lock()
+            .iter()
+            .filter(|(_, name, _)| name == event)
+            .map(|(_, _, listener)| listener.clone())
+            .collect();
+        for listener in listeners {
+            listener(&payload);
+        }
     }
 
     fn emit_to(&self, _: &str, event: &str, payload: serde_json::Value) {
@@ -211,7 +245,7 @@ impl ServiceFixture {
                 assert!(persisted.tabs.iter().any(|entry| entry.id == tab.id));
             }
         }
-        super::session_persist::install_storage_desk_adapter(self._app.handle(), adapter)
+        super::session_persist::install_storage_desk_adapter(&self.service, adapter)
             .expect("install seeded fixture storage desk");
         storage
     }
@@ -407,10 +441,10 @@ impl ServiceFixture {
         extensions.insert::<crate::bubble::BubbleRegistryHandle>(Arc::new(
             crate::bubble::BubbleRegistry::new(),
         ));
+        let ui = Arc::new(RecordedUiEvents::default());
+        let repo_sink = Arc::new(crate::repowatch::TauriRepoEventSink::new(ui.clone()));
         extensions.insert::<crate::repowatch::RepoWatchRegistryHandle>(Arc::new(
-            crate::repowatch::RepoWatchRegistry::new(Arc::new(
-                crate::repowatch::TauriRepoEventSink::new(app.handle().clone()),
-            )),
+            crate::repowatch::RepoWatchRegistry::new(repo_sink.clone()),
         ));
         extensions.insert::<crate::view_host::ViewRegistryHandle>(Arc::new(
             crate::view_host::ViewRegistry::new(),
@@ -513,7 +547,6 @@ impl ServiceFixture {
             Mutex::new(Default::default()),
         )));
         install_test_runtime();
-        let ui = Arc::new(RecordedUiEvents::default());
         let service = ServiceContext {
             lifecycle_journal: Arc::new(crate::session::lifecycle::TabLifecycleJournal::for_dir(
                 data_dir.join("sessions"),
@@ -602,6 +635,7 @@ impl ServiceFixture {
         };
         assert!(app.manage(Arc::clone(&service.mux)));
         let owner = Arc::new(service.clone());
+        repo_sink.bind_service(Arc::downgrade(&owner));
         assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
         crate::ports::orchestration::install_fixture(&owner);
         Self {
@@ -743,7 +777,7 @@ mod tests {
         }
         assert!(matches!(
             super::super::session_persist::write_session_snapshot(
-                fixture._app.handle(),
+                &fixture.service,
                 &fixture.service.mux,
             )
             .unwrap(),
@@ -757,7 +791,7 @@ mod tests {
             tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"],
             "supplied-identity"
         );
-        super::super::session_persist::stop_worker(fixture._app.handle()).unwrap();
+        super::super::session_persist::stop_worker(&fixture.service).unwrap();
     }
 
     #[test]

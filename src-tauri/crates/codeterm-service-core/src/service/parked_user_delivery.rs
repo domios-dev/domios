@@ -405,7 +405,10 @@ impl super::ServiceContext {
             .chat_send_ledger
             .set_user_pending_reason(&record.send_id, Some(reason))
         {
-            crate::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            self.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(&status).unwrap_or_default(),
+            );
         }
         UserDrain::Idle
     }
@@ -415,7 +418,10 @@ impl super::ServiceContext {
             .chat_send_ledger
             .set_user_pending_reason(&record.send_id, None)
         {
-            crate::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            self.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(&status).unwrap_or_default(),
+            );
         }
     }
 
@@ -716,7 +722,10 @@ impl super::ServiceContext {
             .chat_send_ledger
             .finish(send_id, outcome.map_err(|error| error.ledger_message()))
         {
-            crate::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            self.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(&status).unwrap_or_default(),
+            );
         }
     }
 
@@ -929,7 +938,10 @@ impl super::ServiceContext {
 
     fn mark_user_send_written(&self, record: &UserSendRecord) {
         if let Some(status) = self.chat_send_ledger.mark_user_written(&record.send_id) {
-            crate::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            self.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(&status).unwrap_or_default(),
+            );
         }
     }
 }

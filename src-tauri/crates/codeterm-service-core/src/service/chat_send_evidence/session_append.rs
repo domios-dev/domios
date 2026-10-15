@@ -83,7 +83,7 @@ impl ServiceContext {
         };
         let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
             self.lifecycle_journal.clone(),
-            self.app_handle.clone(),
+            self,
             self.mux.clone(),
             0,
             Some(session.into()),

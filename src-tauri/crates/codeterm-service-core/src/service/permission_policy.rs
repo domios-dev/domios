@@ -1,5 +1,4 @@
 use crate::agent::registry::AgentRegistry;
-use tauri::Manager;
 #[derive(Clone, Debug)]
 pub struct PermissionBypassAuthorization {
     provider_id: String,
@@ -27,11 +26,9 @@ pub(crate) fn authorize_permission_bypass(
     })
 }
 
-pub(crate) fn configured_full_access_for(
-    app: &crate::app_runtime::AppHandle,
-) -> Result<bool, String> {
-    let choice = app
-        .try_state::<crate::config::ConfigState>()
+pub(crate) fn configured_full_access_for(svc: &super::ServiceContext) -> Result<bool, String> {
+    let choice = svc
+        .try_ext::<crate::config::ConfigState>()
         .map(|config| config.lock().agent.full_access)
         .ok_or_else(|| "Agent configuration state is unavailable".to_string())?;
     require_full_access_choice(choice)
@@ -45,14 +42,14 @@ pub(crate) fn require_full_access_choice(choice: Option<bool>) -> Result<bool, S
 }
 
 pub fn configured_permission_bypass_for(
-    app: &crate::app_runtime::AppHandle,
+    svc: &super::ServiceContext,
     registry: &AgentRegistry,
     provider_id: &str,
 ) -> Result<Option<PermissionBypassAuthorization>, String> {
     Ok(authorize_permission_bypass(
         registry,
         provider_id,
-        configured_full_access_for(app)?,
+        configured_full_access_for(svc)?,
     ))
 }
 
@@ -94,15 +91,15 @@ mod tests {
     fn configured_access_uses_injected_choices_and_refuses_unset() {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-        assert!(!configured_full_access_for(&fixture.service.app_handle).unwrap());
+        assert!(!configured_full_access_for(&fixture.service).unwrap());
         fixture.set_agent_full_access(true);
-        assert!(configured_full_access_for(&fixture.service.app_handle).unwrap());
+        assert!(configured_full_access_for(&fixture.service).unwrap());
         fixture
-            ._app
-            .state::<crate::config::ConfigState>()
+            .service
+            .ext::<crate::config::ConfigState>()
             .lock()
             .agent
             .full_access = None;
-        assert!(configured_full_access_for(&fixture.service.app_handle).is_err());
+        assert!(configured_full_access_for(&fixture.service).is_err());
     }
 }

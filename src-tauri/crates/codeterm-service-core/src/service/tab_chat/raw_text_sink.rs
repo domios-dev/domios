@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::app_runtime::AppHandle;
+use crate::ports::host::UiEvents;
 
 use crate::service::tab_chat::tailer::RawTextSink;
 
@@ -15,7 +15,7 @@ struct RawDeltaEvent<'a> {
 }
 
 pub struct TauriRawSink {
-    app: AppHandle,
+    ui: Arc<dyn UiEvents>,
 }
 
 impl RawTextSink for TauriRawSink {
@@ -25,14 +25,13 @@ impl RawTextSink for TauriRawSink {
             tab_id,
             text: &text,
         };
-        crate::events::emit_everywhere(
-            &self.app,
+        self.ui.emit(
             &event,
             serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
         );
     }
 }
 
-pub fn make_sink(app: AppHandle) -> Arc<dyn RawTextSink> {
-    Arc::new(TauriRawSink { app })
+pub fn make_sink(ui: Arc<dyn UiEvents>) -> Arc<dyn RawTextSink> {
+    Arc::new(TauriRawSink { ui })
 }

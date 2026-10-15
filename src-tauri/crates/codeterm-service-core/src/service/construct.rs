@@ -93,13 +93,9 @@ pub fn build_service_context(
     let kpi =
         crate::agent::kpi::KpiRecorder::from_config(&startup_config, &crate::paths::data_dir());
     {
-        let handle = app_handle.clone();
+        let ui = ui.clone();
         kpi.on_commit(move |plan_ids| {
-            crate::events::emit_everywhere(
-                &handle,
-                "kpi-recorded",
-                serde_json::json!({ "plan_ids": plan_ids }),
-            );
+            ui.emit("kpi-recorded", serde_json::json!({ "plan_ids": plan_ids }));
         });
     }
     let secrets = crate::secrets::new_state(&startup_config.integrations.secrets, &secret_registry);

@@ -69,7 +69,7 @@ pub async fn mesh_set_enabled(
     let enabled = codeterm_service_core::mesh::set_mesh_enabled(
         &state.mesh,
         &state.config,
-        &state.svc.app_handle,
+        state.svc.ui.as_ref(),
         body.enabled,
     );
     Ok(Json(serde_json::json!({ "ok": true, "enabled": enabled })))
@@ -93,10 +93,9 @@ pub async fn mesh_start_broadcast(
             }
         },
     )?;
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
+    state.svc.ui.emit(
         "mesh-state-changed",
-        serde_json::Value::Null,
+        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
     );
     Ok(Json(
         serde_json::json!({"ok": true, "duration_secs": duration}),
@@ -109,10 +108,9 @@ pub async fn mesh_stop_broadcast(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     codeterm_service_core::mesh::discovery::stop_broadcast(&state.mesh);
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
+    state.svc.ui.emit(
         "mesh-state-changed",
-        serde_json::Value::Null,
+        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
     );
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -137,10 +135,9 @@ pub async fn mesh_add_manual(
     let id = codeterm_service_core::mesh::manual::discover_at(&state.mesh, address, None)
         .await
         .map_err(|_| (StatusCode::BAD_GATEWAY, "Peer identity discovery refused"))?;
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
+    state.svc.ui.emit(
         "mesh-state-changed",
-        serde_json::Value::Null,
+        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
     );
     Ok(Json(serde_json::json!({"ok": true, "instance_id": id})))
 }
@@ -216,10 +213,9 @@ pub async fn mesh_exit(
     }
 
     state.mesh.lock().exit_mesh();
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
+    state.svc.ui.emit(
         "mesh-state-changed",
-        serde_json::Value::Null,
+        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
     );
     log::info!("[mesh/api] Exited mesh");
     Ok(Json(serde_json::json!({"ok": true})))
@@ -258,10 +254,9 @@ pub async fn mesh_set_access(
         peer.access_level = level;
         let _ = m.save();
     }
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
+    state.svc.ui.emit(
         "mesh-state-changed",
-        serde_json::Value::Null,
+        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
     );
     log::info!(
         "[mesh/api] Set access level for {} to {}",

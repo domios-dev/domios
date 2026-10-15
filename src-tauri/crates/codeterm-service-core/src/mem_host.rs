@@ -135,11 +135,16 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
     }
 }
 
-struct AppMemEventSink(crate::app_runtime::AppHandle);
+struct AppMemEventSink {
+    ui: std::sync::Arc<dyn crate::ports::host::UiEvents>,
+}
 
 impl MemEventSink for AppMemEventSink {
     fn emit_graph_worker_spawned(&self, info: &GraphWorkerInfo) {
-        crate::events::emit_everywhere(&self.0, "graph-worker-spawned", info);
+        self.ui.emit(
+            "graph-worker-spawned",
+            serde_json::to_value(info).unwrap_or_default(),
+        );
     }
 }
 
@@ -240,7 +245,7 @@ fn spawn_worker(
         info.extraction_retry = Some(retry);
     }
     svc.workers.register(info.clone());
-    AppMemEventSink(svc.app_handle.clone()).emit_graph_worker_spawned(&info);
+    AppMemEventSink { ui: svc.ui.clone() }.emit_graph_worker_spawned(&info);
 
     let svc_task = svc.clone();
     let worker_id_task = worker_id.clone();
@@ -703,6 +708,9 @@ pub fn cancel_worker(
             log::warn!("[graph-workers] cancel Tab {}: {}", info.tab_id, e);
         }
     }
-    crate::events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
+    svc.ui.emit(
+        "graph-worker-done",
+        serde_json::to_value(&info).unwrap_or_default(),
+    );
     Some(info)
 }

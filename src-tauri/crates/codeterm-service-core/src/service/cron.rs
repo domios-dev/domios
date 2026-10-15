@@ -18,13 +18,12 @@ pub(crate) fn cron_fired_payload(cron_id: &str, run_id: &str, tab_id: &str) -> s
 }
 
 pub(crate) fn emit_cron_fired(
-    app: &crate::app_runtime::AppHandle,
+    ui: &dyn crate::ports::host::UiEvents,
     cron_id: &str,
     run_id: &str,
     tab_id: &str,
 ) {
-    use tauri::Emitter;
-    let _ = app.emit("cron-fired", cron_fired_payload(cron_id, run_id, tab_id));
+    ui.emit_native("cron-fired", cron_fired_payload(cron_id, run_id, tab_id));
 }
 
 fn cron_report_delivery_label(result: Result<(), String>) -> String {
@@ -792,7 +791,7 @@ impl ServiceContext {
 
         if let Some(tab_id) = run_info.tab_id.as_deref() {
             self.sync_cron_owner_prompt_state(tab_id);
-            emit_cron_fired(&self.app_handle, id, &run_id, tab_id);
+            emit_cron_fired(self.ui.as_ref(), id, &run_id, tab_id);
         }
         self.emit_cron_changed();
         Ok(run_info)
@@ -936,9 +935,9 @@ impl ServiceContext {
     }
 
     pub fn emit_cron_changed(&self) {
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
         std::thread::spawn(move || {
-            crate::events::emit_everywhere(&handle, "cron-run-finished", ());
+            ui.emit("cron-run-finished", serde_json::Value::Null);
         });
     }
 }

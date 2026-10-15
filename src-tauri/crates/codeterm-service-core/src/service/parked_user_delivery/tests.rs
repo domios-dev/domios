@@ -100,7 +100,6 @@ use crate::service::pending_delivery_payloads::user_sends::UserSendStore;
 use crate::service::test_fixture::ServiceFixture;
 use std::sync::mpsc;
 use std::time::Instant;
-use tauri::Listener;
 
 const FIRST_PAYLOAD: &str = " \topaque-a-41c9\r\n\u{03bb}\t ";
 const SECOND_PAYLOAD: &str = "\topaque-b-8d27\n\u{754c}  ";
@@ -202,8 +201,8 @@ fn start_current_chat_send(
         .boot_stage;
     let (tx, rx) = mpsc::channel();
     let expected_tab = tab_id.to_string();
-    let listener = fixture._app.listen("chat-send-status", move |event| {
-        let value: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
+    let listener = fixture.ui.listen("chat-send-status", move |event| {
+        let value: serde_json::Value = event.clone();
         if value["tab_id"] == expected_tab {
             let _ = tx.send(value);
         }
@@ -213,7 +212,7 @@ fn start_current_chat_send(
         .start_chat_send(tab_id, payload.into(), None, Some(client_token.into()))
         .unwrap();
     let published = receive_send_status(&rx, &accepted.send_id);
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
     let published = published.expect("the current service completed admission and parking");
     assert_eq!(published["send_id"], accepted.send_id);
     assert!(matches!(
@@ -546,12 +545,12 @@ fn settled_listener(
     fixture: &ServiceFixture,
     tab: &str,
     send_id: &str,
-) -> (tauri::EventId, mpsc::Receiver<serde_json::Value>) {
+) -> (usize, mpsc::Receiver<serde_json::Value>) {
     let (tx, rx) = mpsc::channel();
     let tab = tab.to_string();
     let send_id = send_id.to_string();
-    let listener = fixture._app.listen("chat-send-status", move |event| {
-        let value: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
+    let listener = fixture.ui.listen("chat-send-status", move |event| {
+        let value: serde_json::Value = event.clone();
         if value["tab_id"] == tab
             && value["send_id"] == send_id
             && value["state"].as_str() != Some("written")

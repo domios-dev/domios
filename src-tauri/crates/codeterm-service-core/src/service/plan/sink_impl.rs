@@ -1,22 +1,20 @@
 use super::ports::PlanEventSink;
-use crate::app_runtime::AppHandle;
+use crate::ports::host::UiEvents;
+use std::sync::Arc;
 
 pub struct TauriPlanEventSink {
-    app: AppHandle,
+    ui: Arc<dyn UiEvents>,
 }
 
 impl TauriPlanEventSink {
-    pub fn new(app: AppHandle) -> Self {
-        Self { app }
+    pub fn new(ui: Arc<dyn UiEvents>) -> Self {
+        Self { ui }
     }
 }
 
 impl PlanEventSink for TauriPlanEventSink {
     fn emit_plan_changed(&self, plan_id: &str) {
-        crate::events::emit_everywhere(
-            &self.app,
-            "plan-changed",
-            serde_json::json!({ "plan_id": plan_id }),
-        );
+        self.ui
+            .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
     }
 }
