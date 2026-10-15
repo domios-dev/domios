@@ -1,4 +1,4 @@
-Verification is sized to cost, so lanes never contend for full builds:
-- A Worker may run isolated checks in its lane: a type check, affected tests, a linter, a small standalone package, via the build queue. A whole-project or main-app build is a full rebuild left to canonical; lanes start no dev servers and run no full suites, packaging or self-install.
-- The Orchestrator accepts on review, real-merges, then reruns each merged wave's focused selectors once in canonical; a failure there is a bounce or fix task. The broad gate runs once, on the release SHA.
-- Runs stay bounded; a deadline never licenses a higher cap or blind retry.
+Verification stays proportional:
+- Before committing Rust, source `build.sh env`; run `CARGO_BUILD_JOBS=4 cargo check -p <crate> --lib` with the owning manifest; add `--tests` for changed tests. Cargo locks shared intermediates; no gateway. Committed integration Clippy uses check-queue. Lane checks stay isolated; full/app builds, dev, suites, packaging and self-install stay in canonical.
+- Orchestrator reviews and real-merges lanes, then reruns each wave's focused selectors once in canonical; failures bounce. The broad gate runs once on the release SHA.
+- Keep bounds; no higher cap or blind retry after a deadline.
