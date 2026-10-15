@@ -32,6 +32,8 @@ on:
   workflow_dispatch:
   # Nightly full matrix on develop while the farm is idle, so parallel-test races
   # and flakes surface days before a release instead of on release day.
+  schedule:
+    - cron: '0 1 * * *'
 
 # A branch is tested through its pull request, never through its own pushes:
 # release/feat/lane pushes duplicated the matrix the PR already ran, and the

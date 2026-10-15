@@ -120,6 +120,7 @@ test("master accepts pull requests only from release branches", () => {
 test("reusable tests require the release SHA and force scope through both skip gates", () => {
   assert.ok(Object.hasOwn(tests.on, "pull_request"));
   assert.ok(Object.hasOwn(tests.on, "workflow_dispatch"));
+  assert.deepEqual(tests.on.schedule, [{ cron: "0 1 * * *" }], "the nightly full matrix on develop");
   assert.equal(tests.on.workflow_call.inputs.source_ref.required, true);
   assert.equal(tests.on.workflow_call.inputs.source_ref.type, "string");
   assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase"]);
