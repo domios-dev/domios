@@ -32,10 +32,7 @@ fn runtime_fixture() -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanu
         session_id: "own-thread".into(),
     };
     let fixture = ServiceFixture::new(mux);
-    use tauri::Manager;
-    assert!(fixture
-        ._app
-        .manage(Arc::new(fixture.service.clone()) as crate::service::ServiceState));
+
     let manifest = PluginManifest::from_json_str(&json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},

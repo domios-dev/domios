@@ -36,7 +36,6 @@ impl ServiceContext {
             &self.pty,
             &self.screen_state,
             &config,
-            &self.app_handle,
         )
         .map_err(AgentRestartError::Internal)?;
         let mut ready = self.finish_observed_restart(

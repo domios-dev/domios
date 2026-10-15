@@ -87,6 +87,10 @@ impl TauriShell {
 }
 
 impl Shell for TauriShell {
+    fn resource_dir(&self) -> Result<PathBuf, ShellError> {
+        self.0.path().resource_dir().map_err(failed)
+    }
+
     fn focus_window(&self, label: &str) -> Result<(), ShellError> {
         let label = label.to_owned();
         self.on_main(move |app| {

@@ -224,7 +224,7 @@ fn ensure_worker(svc: &super::ServiceContext) -> Result<SessionPersistenceWorker
         ui: svc.ui.clone(),
         mux: svc.mux.clone(),
         output_buf: svc.output_buf.clone(),
-        service: svc.ext::<std::sync::Weak<super::ServiceContext>>().clone(),
+        service: svc.weak_self(),
     };
     let mailbox = Arc::new(PersistenceMailbox::default());
     let worker = SessionPersistenceWorker {

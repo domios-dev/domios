@@ -586,7 +586,6 @@ impl ServiceContext {
         let svc = Arc::new(self.clone());
         let pty = self.pty.clone();
         let screen_state = self.screen_state.clone();
-        let app = self.app_handle.clone();
         let config = self.ext::<crate::config::ConfigState>().clone();
         std::thread::spawn(move || {
             crate::service::general_agent::restart_general_agent_with_force(
@@ -595,7 +594,6 @@ impl ServiceContext {
                 &pty,
                 &screen_state,
                 &config,
-                &app,
                 force,
             );
         });

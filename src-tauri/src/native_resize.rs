@@ -1,5 +1,5 @@
-use crate::app_runtime::Runtime as Wry;
-use crate::app_runtime::WebviewWindow;
+use codeterm_host_runtime::app_runtime::Runtime as Wry;
+use codeterm_host_runtime::app_runtime::WebviewWindow;
 use tauri::Emitter;
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, WPARAM},
