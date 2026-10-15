@@ -94,8 +94,15 @@ function mapFixture(directory, base) {
 test("maps a Rust service diff to its module filter", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/src/service/handler.rs");
   const output = mapFixture(fixture.directory, fixture.base);
-  assert.match(output, /\.\/build\.sh nextest app 'test\(\/\^service::handler::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest shell 'test\(\/\^service::handler::\/\)'/);
   assert.match(output, /Cost: 1 codeterm compile \+ 1 filter/);
+});
+
+test("maps root startup changes to the shell test binary", async (t) => {
+  const fixture = await makeDiffFixture(t, "src-tauri/src/startup/servers.rs");
+  const output = mapFixture(fixture.directory, fixture.base);
+  assert.match(output, /\.\/build\.sh nextest shell 'test\(\/\^startup::servers::\/\)'/);
+  assert.doesNotMatch(output, /nextest app/);
 });
 
 test("maps a provider plugin diff to plugin and native parity coverage", async (t) => {
@@ -108,7 +115,7 @@ test("maps a provider plugin diff to plugin and native parity coverage", async (
 test("maps a prompt diff to the prompt contract suite", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/prompts/launch.md");
   const output = mapFixture(fixture.directory, fixture.base);
-  assert.match(output, /\.\/build\.sh nextest app 'test\(\/\^prompts::tests::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest shell 'test\(\/\^prompts::tests::\/\)'/);
 });
 
 test("maps bundle crate changes to its supported scope and reverse dependents", async (t) => {
