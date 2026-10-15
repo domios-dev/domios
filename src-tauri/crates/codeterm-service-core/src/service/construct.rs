@@ -1,5 +1,7 @@
 use super::ServiceContext;
-use crate::{bridge, service};
+use crate::bridge;
+#[cfg(any(test, feature = "test-support"))]
+use crate::service;
 use parking_lot::Mutex;
 use std::sync::Arc;
 

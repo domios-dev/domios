@@ -192,7 +192,7 @@ pub fn install_storage_desk_adapter(
     worker.configure(WorkerMessage::InstallStorage(adapter))
 }
 
-pub(crate) fn set_storage_unavailable(
+pub fn set_storage_unavailable(
     app: &crate::app_runtime::AppHandle,
     reason: String,
 ) -> Result<(), String> {

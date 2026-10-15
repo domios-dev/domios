@@ -245,10 +245,10 @@ pub(crate) fn start_servers(
     };
     let restored_cron_session = {
         let mux = states.mux.read();
-        cron::recovery::RestoredCronSession::from_mux(&mux)
+        cron::RestoredCronSession::from_mux(&mux)
     };
     let scheduler_ready = port_ready
-        && match cron::recovery::reconcile_restored_runs(&cron_state, &restored_cron_session) {
+        && match cron::reconcile_restored_runs(&cron_state, &restored_cron_session) {
             Ok((retained, terminalized)) => {
                 if retained + terminalized > 0 {
                     log::info!(
@@ -341,7 +341,7 @@ pub(crate) fn start_servers(
         app.manage(codeterm_service_core::ports::rest::LocalApiRouter(
             router.clone(),
         ));
-        if let Err(e) = (codeterm_service_core::ports::socket::bridge().start_server)(
+        if let Err(e) = codeterm_socket::server::SocketServer::start(
             states.mux.clone(),
             states.pty.clone(),
             states.notif.clone(),
