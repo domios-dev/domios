@@ -182,6 +182,9 @@ must not have its default-DEV refusal bypassed.
   Record journal size/count and whether automatic compaction rewrites retained
   history repeatedly. Re-run with the same retained journal after a repair;
   deleting history or testing only an empty data directory is not proof.
+  Also compare `finish_tree_done` → `finish_restore_done`; derived restore
+  observations must not serialize unrelated launch transitions. After deferring
+  that work, verify the report still settles from real lifecycle changes.
 
 - [ ] Before measuring, require a successful focused repair gate when applicable,
   the exact committed build in health, and startup beyond service state
@@ -238,3 +241,7 @@ uncovered case. Never inject a fake event as live proof.
   viewed, sends attempted and replies proven. Every omission, unsafe fixture,
   provider prompt, unavailable capability and unresolved message remains explicit.
   Include matrix contract validation and the close/restore outcome in the report.
+- [ ] Before classifying a missing reply, inspect the exact own-session user
+  turn and subsequent assistant content. Report an answered probe with extra
+  text as a format failure, separately from non-delivery or a missing answer;
+  retain the strict oracle result and never resend to correct formatting.
