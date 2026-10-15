@@ -188,3 +188,6 @@ Source facts; check-queue errors=0 on lane `375953736` (all targets, so tests co
 ## Wave C prefix status
 
 Entry points now in place, without changing any delivery logic: `codeterm_pty::pty::ansi::sanitize_agent_prompt_input`; `ports::transport::{Selection, SendBatchItem, Input}` (data only; `codex_rpc::launch::spawn_from` keeps the `Selection` body); `service::ordered_actions`; `ServiceContext::deliver(tab, Input)`, which `message_gateway` uses for all five of its PTY writes; and `ServiceContext::attach_system_send` for the turn-resume ledger entry. Core->transport sites C1 still has to port (re-verified at the P5 tip): messenger.rs:528/556/640/947/949/956, messenger/turn_resume.rs:42/50, tab.rs:153/662/825/893, tab/lifecycle_exit.rs:218/329/427/486, tab/scrollback.rs:126, spawn_shell.rs:148/159/240, spawn.rs:613/889/936/1043, agent/run_watcher.rs:790, agent/state_reactor.rs:690, message_gateway.rs:408.
+## Service-core prompts split
+
+`codeterm-prompts` now owns the prompt templates, persona composition, role presets and skill mirroring, with their pure tests. Service-core retains re-export facades and the onboarding/worker-identity delivery parity tests. Canonical selectors: `./build.sh nextest codeterm-prompts` and `./build.sh nextest codeterm-service-core 'test(/^prompts::/) | test(/^service::persona::parity::/)'`.

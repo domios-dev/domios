@@ -3,10 +3,10 @@
 
 use codeterm_types::agent::role_kind::builtins;
 
-use crate::multiplexer::types::AgentRole;
-use crate::service::persona::occasion::{self, Occasion};
-use crate::service::persona::overlay::{OverlayCatalog, RejectionReason, CONTRACT_CORE};
-use crate::service::role_preset;
+use crate::persona::occasion::{self, Occasion};
+use crate::persona::overlay::{OverlayCatalog, RejectionReason, CONTRACT_CORE};
+use crate::role_preset;
+use codeterm_types::agent::AgentRole;
 
 const GOOD: &str = r#"
 id = "rust-backend-dev"

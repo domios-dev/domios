@@ -3,11 +3,11 @@
 
 use codeterm_types::agent::role_kind::builtins;
 
-use crate::multiplexer::types::AgentRole;
-use crate::service::persona::inspect::{self, PROBE_PAYLOAD};
-use crate::service::persona::occasion::{self, Occasion};
-use crate::service::persona::overlay::OverlayCatalog;
-use crate::service::role_preset;
+use crate::persona::inspect::{self, PROBE_PAYLOAD};
+use crate::persona::occasion::{self, Occasion};
+use crate::persona::overlay::OverlayCatalog;
+use crate::role_preset;
+use codeterm_types::agent::AgentRole;
 
 const OVERLAY: &str = r#"
 id = "rust-backend-dev"
