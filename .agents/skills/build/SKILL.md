@@ -299,7 +299,7 @@ calls; a successful build alone is not cache-hit proof.
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
 
-The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in the script-catalog CI workflow.
+The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in the script-catalog CI workflow. This also runs `scripts/check-crate-layering.sh` and its fixture tests: lower crates cannot import service-core or Tauri; two tracked Tauri violations must be removed when repaired.
 
 ## Warm check queue for lanes
 
@@ -751,7 +751,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Symptom | Cause | Recovery |
 |---|---|---|
 | `worktree-check` refuses with a busy-slot blocker | It enters the build gateway (it maps the stable `X:` build path, a machine-global drive, so it must be serialized); the slot is held by another job. | Report the blocker and continue source-only work; use `--wait-build` only when blocking is intended. Success shows `[cache-policy] stable build path X: -> <checkout>`. |
-| A gateway cargo run is `Finished` in seconds with an empty `targets/exceptional/<id>/debug` | `~/.cargo/config.toml` sets `build.build-dir` to `RustCaches/build/{workspace-path-hash}`; the stable `X:` path gives every gateway worktree the same hash, so intermediates are shared (gateway-serialized) and only final artifacts go to the target dir. | Expected. For a cold measurement remove that one hash directory and the target dir; never point two checkouts at one `CARGO_TARGET_DIR`, and build setup now shares `$CODETERM_RUST_CACHE_ROOT/lanes` (fallback `{cargo-cache-home}/codeterm-lanes`) and Cargo serializes access with its build-dir lock. Only the gateway may map the stable path, which `scripts/check-build-check-queue.sh` guards. |
+| A gateway cargo run is `Finished` in seconds with an empty `targets/exceptional/<id>/debug` | `~/.cargo/config.toml` sets `build.build-dir` to `RustCaches/build/{workspace-path-hash}`; the stable `X:` path gives every gateway worktree the same hash, so intermediates are shared (gateway-serialized) and only final artifacts go to the target dir. | Expected. For a cold measurement remove that one hash directory and the target dir; never point two checkouts at one `CARGO_TARGET_DIR`, and only `lane-check` shares `$CODETERM_RUST_CACHE_ROOT/lanes` (fallback `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`). Canonical gateway operations keep the user-level per-workspace build directory. Only the gateway may map the stable path, which `scripts/check-build-check-queue.sh` guards. |
 | `agent_restart` fails the surviving-shell stale-metadata fixture while retaining `agent_type` | The fixture declares a session nonce without its provider-reported match, so lifecycle cleanup correctly refuses the unauthenticated identity. | Seed matching reported nonce for this verified-exit scenario; retain the production authentication gate and rerun `test-one app agent_restart --wait-build`. |
 | A touched test file exceeds the 1200-line source limit | One harness accumulated several independent test groups | Move a group into a module with injected shared harness functions, retain the runner entrypoint, and rerun its focused suite plus the size check. |
 | `tsc --noEmit` reports TS6133 after a provider delegates parsing to a shared helper | The old parser import remains after its last call was removed | Remove the unused import, regenerate the provider bundle, and rerun TypeScript plus the focused plugin suite. |
@@ -922,7 +922,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 39 -->
+<!-- revision: 41 -->
 
 ### Lane and batch scopes
 
@@ -965,11 +965,15 @@ DEV and check-queue library Clippy retain default product features, including em
 
 ## Lane crate checks and shared intermediates
 
-Before committing, source `build.sh env` to resolve the machine cache, then run `CARGO_BUILD_JOBS=4 cargo check --manifest-path src-tauri/Cargo.toml -p <touched crate> --lib`, adding `--tests` when tests changed. Windows uses `./build.sh lane-check <crate> [--tests]`, which loads MSVC and stages frontend/sidecar resources without building them. Binary-only crates use their owning manifest and `--bins` in place of `--lib`. These type checks take no gateway slot and do not start or reconfigure sccache.
+Before committing, run `./build.sh lane-check <touched crate> [--tests]` on every platform. It loads the machine toolchain and stages frontend/sidecar resources without building them. Binary-only crates use their owning manifest and `--bins` in place of `--lib`. These type checks take no gateway slot and do not start or reconfigure sccache.
 
-Build setup (`source build.sh env`, also used by `lane-check`) exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` when the machine sets that root. Otherwise the tracked `.cargo/config.toml` falls back to `{cargo-cache-home}/codeterm-lanes`, with no workspace hash. Source the environment before a raw Cargo check on every platform; Cargo cannot interpolate arbitrary environment variables in a build-dir template. Cargo 1.95 expands this to one machine-local cache, shares registry units, distinguishes workspace member paths in unit metadata, and locks the build directory. Final targets remain per worktree. Do not replace Cargo's lock or share CARGO_TARGET_DIR. Builds and tests still acquire the gateway; check-queue remains the committed integration/clippy gate.
+`lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. Cargo serializes lane checks with its build-directory lock; final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
 
-GC maps the shared directory through Cargo metadata and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
+Lane-check and retention resolve the shared directory with `scripts/lane-build-dir.mjs`: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). GC adds that directory explicitly, independently of canonical/gateway Cargo metadata, and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
+
+### Canonical or gateway jobs unexpectedly use the lane build directory
+
+A tracked repo-root `.cargo/config.toml` applies to every Cargo invocation beneath the repository, including canonical and the gateway check-worktree. Using it for the lane fallback caused shared lock contention, discarded warm canonical cache reuse and selected a profile cache outside the owner's machine root. Lane-only Cargo settings belong in lane-check's process environment, never in repo-root Cargo configuration or unconditional build setup. Scope both the machine-root choice and fallback to the lane operation. Verify effective build directories for a lane, canonical and the gateway with the machine root both set and unset; lane reuse alone cannot prove cache isolation.
 
 | Dedicated CI mode fails at catalogue inventory with ENOENT on the Windows stable drive root | Git reports the physical checkout while discovery compared it to a subst alias, then tried walking the drive root. | Catalogue discovery resolves the root with `realpathSync.native` before Git identity and file enumeration. Verify the temporary-subst regression with `node --test scripts/tests/test-catalogue.test.mjs`, then run the dedicated CI mode under the normal gateway alias. |
 

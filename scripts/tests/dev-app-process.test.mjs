@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { runDevApp } from '../dev-app-process.mjs';
+import { devRuntimeEnvironment } from '../dev-runtime-environment.mjs';
 
 for (const code of [0, 17]) {
   test(`DEV child stdio is regular files or synchronous pipes, output drains completely, exit=${code}`, { timeout: 10_000 }, async () => {
@@ -44,11 +45,14 @@ test('DEV supervisor still sends READY from file output and disconnects exactly 
   const fakeProcess = { env: {}, connected: true, send: value => messages.push(value) };
   const signal = 'REST API generation opaque health-proven on http://127.0.0.1:7786/';
   const script = `const fs=require('node:fs'); if (process.platform !== 'win32' && ![1,2].every(fd => fs.fstatSync(fd).isFile())) process.exit(91); fs.writeSync(2, ${JSON.stringify(signal + '\n')});`;
-  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo',
+  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment',
     `${readiness}\n${supervisor}\nreturn supervisePrebuilt;`)(
-      options => runDevApp({ ...options, args: ['-e', script] }), fakeProcess,
+      options => {
+        assert.equal(options.env.CODETERM_DEV_WORKSPACE_ROOT, directory);
+        return runDevApp({ ...options, args: ['-e', script] });
+      }, fakeProcess,
       () => { if (fakeProcess.connected) { fakeProcess.connected = false; disconnected++; } }, StringDecoder, path.resolve,
-      (options, key) => options.get(key), directory);
+      (options, key) => options.get(key), directory, devRuntimeEnvironment);
   try {
     await execute(new Map([['--app', process.execPath], ['--log', path.join(directory, 'app.log')], ['--api-port', '7786']]));
     assert.deepEqual(messages, [{ type: 'ready', signal }]);
