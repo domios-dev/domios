@@ -55,3 +55,6 @@ pub use frontend_shell::{
 pub use progress::Boundary;
 pub use rest_api::listeners::additional_bind as rest_api_additional_bind;
 pub use storage::open_instance_storage;
+
+#[cfg(debug_assertions)]
+pub mod runtime_diagnostics;
