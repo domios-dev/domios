@@ -415,18 +415,17 @@ fn restored_owner_rechecks_pty_generation_immediately_before_the_single_write() 
                 .begin_kill(&rotate_id)
                 .expect("remove the original PTY generation")
                 .reap_in_background();
-            let (_, session) = service
-                .pty
-                .lock()
-                .spawn_with_id(
-                    Some(rotate_id.clone()),
-                    None,
-                    None,
-                    120,
-                    40,
-                    Default::default(),
-                )
-                .expect("replace the PTY with a new concrete generation");
+            let (_, session) = {
+                let gate = service.pty.lock().spawn_gate();
+                crate::pty::manager::build_session(gate, None, None, 120, 40, Default::default())
+                    .map(|built| {
+                        service
+                            .pty
+                            .lock()
+                            .register_session(Some(rotate_id.clone()), built)
+                    })
+            }
+            .expect("replace the PTY with a new concrete generation");
             assert!(service
                 .screen_state
                 .lock()

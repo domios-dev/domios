@@ -56,12 +56,19 @@ fn fixture_with_screen(
         .screen_state
         .lock()
         .process(&pty_id, screen.as_bytes());
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.clone()), None, None, 80, 24, Default::default())
-        .expect("test PTY");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.clone()), built)
+            },
+        )
+    }
+    .expect("test PTY");
     (fixture, tab_id, pty_id)
 }
 
