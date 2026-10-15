@@ -19,7 +19,7 @@ export async function waitForSessionBinding(
     async () => {
       const state = await api
         .get<{ tabs?: Record<string, { agent_session_id?: string | null }> }>("/mux/state")
-        .catch(() => ({ tabs: {} }));
+        .catch(() => ({ tabs: {} as Record<string, { agent_session_id?: string | null }> }));
       const tab = state.tabs?.[tabId];
       last = tab ? `session=${tab.agent_session_id}` : "tab absent from mux state";
       return Boolean(tab?.agent_session_id);
