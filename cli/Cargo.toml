@@ -38,6 +38,7 @@ codeterm-plugins = { path = "../src-tauri/crates/codeterm-plugins" }
 # In-process reuse of the daemon's strict PluginManifest + QuickJS loader for
 # `plugin validate` — the CLI never grows its own manifest interpretation.
 codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin" }
+codeterm-build-info = { path = "../src-tauri/crates/codeterm-build-info" }
 codeterm-paths = { path = "../crates/codeterm-paths" }
 # The notification level set is defined once in the daemon-shared crate; the CLI
 # derives its flag values from it instead of mirroring the enum.

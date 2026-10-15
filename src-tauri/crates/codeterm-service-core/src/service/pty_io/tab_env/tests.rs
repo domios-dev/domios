@@ -89,7 +89,7 @@ fn keys(env: &HashMap<String, String>) -> BTreeSet<String> {
 
 fn without_frontend_only(env: &HashMap<String, String>) -> HashMap<String, String> {
     let mut env = env.clone();
-    for (key, _) in FRONTEND_ONLY_ENV {
+    for (key, _) in frontend_only_env() {
         env.remove(*key);
     }
     env
@@ -120,12 +120,16 @@ fn env_compose_both_launch_paths_agree_for_one_tab_record() {
     );
     let expected_frontend_keys: BTreeSet<String> = keys(&service)
         .into_iter()
-        .chain(FRONTEND_ONLY_ENV.iter().map(|(key, _)| key.to_string()))
+        .chain(
+            frontend_only_env()
+                .into_iter()
+                .map(|(key, _)| key.to_string()),
+        )
         .collect();
     assert_eq!(
         keys(&frontend),
         expected_frontend_keys,
-        "the frontend surface may differ only by FRONTEND_ONLY_ENV"
+        "the frontend surface may differ only by frontend_only_env()"
     );
 }
 
@@ -275,7 +279,11 @@ fn env_compose_frontend_spawn_without_tab_record_stamps_no_identity() {
     ]
     .into_iter()
     .map(str::to_string)
-    .chain(FRONTEND_ONLY_ENV.iter().map(|(key, _)| key.to_string()))
+    .chain(
+        frontend_only_env()
+            .into_iter()
+            .map(|(key, _)| key.to_string()),
+    )
     .collect();
     assert_eq!(keys(&frontend), expected);
 }

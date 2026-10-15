@@ -310,6 +310,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-build-info"
+version = "0.1.0"
+
+[[package]]
 name = "codeterm-cli"
 version = "1.14.9"
 dependencies = [
@@ -317,6 +321,7 @@ dependencies = [
  "chrono",
  "clap",
  "codeterm-blueprint-types",
+ "codeterm-build-info",
  "codeterm-mem-store",
  "codeterm-mesh",
  "codeterm-notification-core",
@@ -432,6 +437,7 @@ dependencies = [
  "base64",
  "chrono",
  "codeterm-blueprint-types",
+ "codeterm-build-info",
  "codeterm-decision",
  "codeterm-local-recording",
  "codeterm-paths",

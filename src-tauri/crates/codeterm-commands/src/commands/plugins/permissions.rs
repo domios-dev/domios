@@ -94,7 +94,7 @@ pub(super) fn permission_action(
     let output = codeterm_plugins::run(
         codeterm_plugins::PluginCtx {
             data_root: codeterm_service_core::paths::data_dir(),
-            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            version: codeterm_build_info::installed_version().map(str::to_string),
         },
         action,
     )?;

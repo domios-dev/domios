@@ -60,7 +60,7 @@ pub(super) fn dispatch(
         "system.identify" => {
             return Ok(serde_json::json!({
                 "name": "CodeTerm",
-                "version": env!("CARGO_PKG_VERSION"),
+                "version": codeterm_build_info::version(),
                 "platform": std::env::consts::OS,
                 "features": ["multiplexer", "agent-detection", "notifications"]
             }));

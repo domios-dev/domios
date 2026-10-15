@@ -101,7 +101,7 @@ impl UpdateState {
             "last_error": self.last_error,
             "channel": self.channel.to_string(),
             "install_method": self.install_method.to_string(),
-            "current_version": env!("CARGO_PKG_VERSION"),
+            "current_version": codeterm_build_info::version(),
             "latest_known": self.last_check.as_ref().map(|i| i.latest_version.clone()),
             "update_available": self.last_check.as_ref().map(|i| i.update_available).unwrap_or(false),
             "phase_age_secs": self.phase_changed_at.map(|t| t.elapsed().as_secs()),

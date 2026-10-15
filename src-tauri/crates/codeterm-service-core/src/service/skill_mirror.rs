@@ -54,7 +54,7 @@ const PROVIDER_OWNERSHIP_FILE: &str = ".codeterm-owner";
 fn codeterm_skill_render_map() -> [(&'static str, &'static str); 4] {
     [
         ("{codeterm_cli}", crate::prompts::CODETERM_CLI),
-        ("{codeterm_version}", env!("CARGO_PKG_VERSION")),
+        ("{codeterm_version}", codeterm_build_info::version()),
         (
             "{interactive_child_pty_operation}",
             crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim(),
@@ -507,7 +507,7 @@ mod skills_seed_tests {
         );
         assert!(rendered.contains(&format!(
             "<!-- codeterm-version: {} -->",
-            env!("CARGO_PKG_VERSION")
+            codeterm_build_info::version()
         )));
         for (slot, _) in codeterm_skill_render_map() {
             assert!(
