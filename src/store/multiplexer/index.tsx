@@ -45,6 +45,9 @@ import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSes
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedTab } from "./context";
 import { createMuxStateStore } from "./selectorStore";
 import { createRefreshCoalescer } from "./refreshCoalescer";
+import { mountNotificationHistory } from "./notificationHistory";
+import { onResync } from "../../lib/resync";
+import { EVENT_STREAM_READY } from "../../lib/eventStreamReady";
 import { createPeerRebindGate } from "./peerRebindGate";
 import type { Tab } from "../../lib/types";
 import { remoteTabsFromOrdinaryProjection, refreshAttachedRemoteAgentStates, shouldRefreshRemoteTabs } from "./remoteTabProjection";
@@ -590,8 +593,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       });
     }
 
-    invoke<Notification[]>("list_notifications", { unreadOnly: false })
-      .then((notifications) =>
+    return mountNotificationHistory(
+      () => invoke<Notification[]>("list_notifications", { unreadOnly: false }),
+      (notifications) =>
         dispatch({
           type: "HYDRATE_NOTIFICATIONS",
           // Ingress for stored rows: an action written before actions carried
@@ -601,8 +605,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
             actions: adoptStoredActions(notification.actions),
           })),
         }),
-      )
-      .catch((err) => console.warn("Failed to load notification history:", err));
+      (refresh) => {
+        const unsubscribe = onResync(refresh);
+        window.addEventListener(EVENT_STREAM_READY, refresh);
+        return () => {
+          unsubscribe();
+          window.removeEventListener(EVENT_STREAM_READY, refresh);
+        };
+      },
+      (error) => console.warn("Failed to load notification history:", error),
+    );
   }, []);
 
   const createTab = useCallback(async (workspaceId: string, cwd?: string, shell?: string) => {
