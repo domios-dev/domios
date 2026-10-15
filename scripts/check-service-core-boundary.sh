@@ -26,6 +26,18 @@ if [ -n "$port_leaks" ]; then
   status=1
 fi
 
+for leaf in src-tauri/crates/*; do
+  case "${leaf##*/}" in
+    codeterm-service-core|codeterm-api|codeterm-commands|codeterm-host-runtime|codeterm-orchestration|codeterm-sentinel-host|codeterm-socket) continue ;;
+  esac
+  context_refs="$(grep -rnE --include='*.rs' '\bServiceContext\b' "$leaf/src" "$leaf/tests" 2>/dev/null | grep -vE ':[0-9]+:[[:space:]]*//' || true)"
+  if [ -n "$context_refs" ]; then
+    echo "service-core boundary: leaf names ServiceContext:" >&2
+    echo "$context_refs" >&2
+    status=1
+  fi
+done
+
 if [ "$status" -eq 0 ]; then
   echo "service-core boundary: ok"
 fi

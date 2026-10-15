@@ -21,7 +21,7 @@ const VIRTUAL_KEYS: &[(&str, i64)] = &[
 /// A viewer or agent input; the frontend sends precomputed CDP key fields, agents send flags.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct InputArgs {
+pub struct InputArgs {
     pub kind: String,
     #[serde(default)]
     pub x: Option<f64>,
@@ -56,7 +56,7 @@ pub(crate) struct InputArgs {
 }
 
 impl InputArgs {
-    pub(crate) fn click(x: f64, y: f64) -> Self {
+    pub fn click(x: f64, y: f64) -> Self {
         Self {
             kind: "click".into(),
             x: Some(x),
@@ -65,7 +65,7 @@ impl InputArgs {
         }
     }
 
-    pub(crate) fn key(key: &str, mods: &[String]) -> Self {
+    pub fn key(key: &str, mods: &[String]) -> Self {
         let has = |name: &str| mods.iter().any(|m| m.eq_ignore_ascii_case(name));
         Self {
             kind: "key".into(),
@@ -95,7 +95,7 @@ impl InputArgs {
     }
 }
 
-pub(crate) fn virtual_key_code(key: &str) -> i64 {
+pub fn virtual_key_code(key: &str) -> i64 {
     if let Some(named) = VIRTUAL_KEYS.iter().find(|(name, _)| *name == key) {
         return named.1;
     }
@@ -106,7 +106,7 @@ pub(crate) fn virtual_key_code(key: &str) -> i64 {
 }
 
 /// The DOM `code` for a key: `KeyA` / `Digit1` for letters and digits, the key name otherwise.
-pub(crate) fn key_code(key: &str) -> String {
+pub fn key_code(key: &str) -> String {
     match single_alphanumeric(key) {
         Some(c) if c.is_ascii_digit() => format!("Digit{c}"),
         Some(c) => format!("Key{}", c.to_ascii_uppercase()),
@@ -123,7 +123,7 @@ fn single_alphanumeric(key: &str) -> Option<char> {
 }
 
 /// The ordered CDP commands one input becomes.
-pub(crate) fn input_commands(input: &InputArgs) -> Result<Vec<(&'static str, Value)>, String> {
+pub fn input_commands(input: &InputArgs) -> Result<Vec<(&'static str, Value)>, String> {
     match input.kind.as_str() {
         "click" => {
             let (x, y) = input.point()?;
@@ -199,7 +199,7 @@ fn with_type(base: &Value, kind: &str) -> Value {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NavAction {
+pub enum NavAction {
     Goto,
     Back,
     Forward,
@@ -207,7 +207,7 @@ pub(crate) enum NavAction {
 }
 
 impl NavAction {
-    pub(crate) fn parse(raw: &str) -> Result<Self, String> {
+    pub fn parse(raw: &str) -> Result<Self, String> {
         match raw {
             "goto" => Ok(Self::Goto),
             "back" => Ok(Self::Back),
@@ -219,7 +219,7 @@ impl NavAction {
 }
 
 /// A scheme URL as is, a host-like word as a web URL, anything else as a search.
-pub(crate) fn goto_href(target: &str) -> Result<String, String> {
+pub fn goto_href(target: &str) -> Result<String, String> {
     let target = target.trim();
     if target.is_empty() {
         return Err("usage: goto <url>".into());
@@ -248,7 +248,7 @@ fn has_scheme(target: &str) -> bool {
 }
 
 /// `Page.getNavigationHistory` → the entry id one step `back` or forward, if any.
-pub(crate) fn history_entry(history: &Value, back: bool) -> Option<i64> {
+pub fn history_entry(history: &Value, back: bool) -> Option<i64> {
     let current = history.get("currentIndex")?.as_i64()?;
     let next = if back { current - 1 } else { current + 1 };
     let index = usize::try_from(next).ok()?;
@@ -261,7 +261,7 @@ pub(crate) fn history_entry(history: &Value, back: bool) -> Option<i64> {
 }
 
 /// The centre of the first `DOM.getContentQuads` quad.
-pub(crate) fn quad_center(result: &Value) -> Option<(f64, f64)> {
+pub fn quad_center(result: &Value) -> Option<(f64, f64)> {
     let quad = result.get("quads")?.as_array()?.first()?.as_array()?;
     let points: Vec<f64> = quad.iter().filter_map(Value::as_f64).collect();
     if points.len() < 8 {

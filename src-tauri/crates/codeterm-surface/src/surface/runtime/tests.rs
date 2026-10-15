@@ -153,13 +153,21 @@ fn surface_runtime_builtin_registry_names_the_browser_runtime() {
 fn surface_evidence_falls_back_to_the_data_dir_without_an_owner_pad() {
     let root = tempfile::tempdir().unwrap();
     let fallback = root.path().join("browsers").join("screenshots");
-    assert_eq!(evidence_dir(root.path(), None), fallback);
-    assert_eq!(evidence_dir(root.path(), Some("tab-without-pad")), fallback);
-    let pad = root.path().join("runtime").join("agent-pads").join("tab-1");
-    std::fs::create_dir_all(&pad).unwrap();
+    let mut host = crate::test_support::RecordingSurfaceHost::default();
+    assert_eq!(evidence_dir(&host, root.path(), None), fallback);
     assert_eq!(
-        evidence_dir(root.path(), Some("tab-1")),
+        evidence_dir(&host, root.path(), Some("tab-without-pad")),
+        fallback
+    );
+    let pad = root.path().join("runtime").join("agent-pads").join("tab-1");
+    host.pads.insert("tab-1".into(), pad.clone());
+    assert_eq!(
+        evidence_dir(&host, root.path(), Some("tab-1")),
         pad.join("screenshots")
+    );
+    assert_eq!(
+        *host.calls.lock(),
+        vec!["agent_pad:tab-without-pad", "agent_pad:tab-1"]
     );
 }
 
@@ -197,8 +205,8 @@ fn surface_state_serializes_the_stream_state_shape() {
 
 #[test]
 fn surface_sse_payload_names_events_and_base64s_frames() {
-    use crate::service::browser::screencast::{FrameMetadata, ScreencastFrame};
-    use crate::service::browser::viewport::Viewport;
+    use codeterm_browser::screencast::{FrameMetadata, ScreencastFrame};
+    use codeterm_browser::viewport::Viewport;
     let frame = Arc::new(ScreencastFrame {
         seq: 1,
         jpeg: b"jpg".to_vec(),

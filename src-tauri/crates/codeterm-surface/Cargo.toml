@@ -1,0 +1,39 @@
+[package]
+name = "codeterm-surface"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[features]
+test-support = []
+
+[dependencies]
+codeterm-browser = { path = "../codeterm-browser" }
+codeterm-local-recording = { path = "../codeterm-local-recording" }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-util = { path = "../codeterm-util" }
+async-trait = "0.1"
+async-stream = "0.3"
+url = "2"
+base64 = "0.22"
+futures-core = "0.3"
+futures-util = "0.3"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full", "test-util"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+codeterm-input-windows = { path = "../codeterm-input-windows" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+codeterm-input-macos = { path = "../codeterm-input-macos" }
+
+[dev-dependencies]
+tempfile = "3"
