@@ -28,12 +28,16 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
   const sent: string[] = [];
   const previews: string[] = [];
   let requests = 0;
+  let reads = 0;
   const fetch = vi.fn(async (_url: unknown, options?: RequestInit) => {
-    expect(String(_url)).toContain("/api/upload");
+    expect(String(_url)).toContain("/api/attachments/upload");
     const body = options?.body as FormData;
     const file = body.get("file") as File;
+    expect(body).toBeInstanceOf(FormData);
+    expect(file).toBeInstanceOf(Blob);
     expect(file.type).toBe("image/png");
     expect(file.size).toBe(5);
+    if (failure === "NotReadableError" && ++reads === 1) throw new DOMException("unreadable", "NotReadableError");
     if (++requests === 1 && failure === "HTTP 503") return new Response("busy", { status: 503 });
     return Response.json({ path, size: 5 });
   });
@@ -82,15 +86,9 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
     });
     const input = host.querySelector<HTMLInputElement>('[data-testid="composer-attach-input"]')!;
     const file = new File(["image"], "photo.png", { type: "image/png" });
-    if (failure === "NotReadableError") {
-      const read = file.arrayBuffer.bind(file);
-      let attempts = 0;
-      file.arrayBuffer = () => ++attempts === 1
-        ? Promise.reject(new DOMException("The I/O read operation failed.", "NotReadableError")) : read();
-    }
     Object.defineProperty(input, "files", { value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
-    expect(fetch.mock.calls.length, host.textContent ?? "").toBe(failure === "NotReadableError" ? 0 : 1);
+    expect(fetch.mock.calls.length, host.textContent ?? "").toBe(1);
     if (failure !== "success") {
       await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="1 attachment failed"]')!.click());
       const retry = host.querySelector<HTMLButtonElement>('[aria-label="Retry attachment photo.png"]');
