@@ -142,8 +142,7 @@ impl ServiceContext {
             tab.restorable_launch.permission_bypass_requested = skip;
             tab.restorable_launch.runtime_launch_options = Some(options);
         }
-        let outcome =
-            crate::service::session_persist::write_session_snapshot(&self.app_handle, &self.mux)?;
+        let outcome = crate::service::session_persist::write_session_snapshot(self, &self.mux)?;
         if !matches!(outcome, crate::session::store::SaveOutcome::Saved) {
             return Err("Runtime launch options persistence refused".into());
         }
@@ -205,7 +204,7 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
             ),
         )
     };
-    let requested = requested && permission_policy::configured_full_access_for(&svc.app_handle)?;
+    let requested = requested && permission_policy::configured_full_access_for(&svc)?;
     let params = SpawnAgentParams {
         agent: Some(provider.clone()),
         skip_permissions: Some(requested),

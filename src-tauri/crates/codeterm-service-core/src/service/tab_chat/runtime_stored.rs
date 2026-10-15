@@ -42,7 +42,7 @@ fn start_runtime(svc: &ServiceContext, tab: &str, nonce: Option<&str>) {
                     let context = session.context.lock().clone();
                     let rows = session.cache.lock().tail(200);
                     super::structured_sink::emit_chat_msgs(
-                        &svc.app_handle,
+                        svc.ui.as_ref(),
                         &starting.key.0,
                         &rows,
                         None,

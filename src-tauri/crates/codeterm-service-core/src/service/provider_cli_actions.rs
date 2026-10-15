@@ -189,10 +189,10 @@ pub fn launch_with_dispatch(
                 .write()
                 .set_tab_description(&monitor_tab, Some(fit_tab_description(&summary)));
             service.emit_state_changed();
-            crate::events::emit_everywhere(&service.app_handle, "provider-cli-completed", serde_json::json!({
+            service.ui.emit("provider-cli-completed", serde_json::to_value(serde_json::json!({
                 "provider": provider, "operation": operation, "tab_id": monitor_tab,
                 "exit_code": completion.and_then(ExecCompletion::exit_code), "status": status, "summary": summary,
-            }));
+            })).unwrap_or_default());
             if let Some(caller) = caller {
                 report_completion(&service, &caller, &monitor_tab, &summary);
             }

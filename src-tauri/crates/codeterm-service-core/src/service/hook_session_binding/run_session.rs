@@ -16,13 +16,16 @@ pub(super) fn propagate(svc: &ServiceContext, tab_id: &str, sid: &str) {
         svc.workers
             .set_run_session(&worker_id, sid.to_string(), cwd.clone());
         if let Some(info) = svc.workers.get(&worker_id) {
-            crate::events::emit_everywhere(&svc.app_handle, "graph-worker-progress", &info);
+            svc.ui.emit(
+                "graph-worker-progress",
+                serde_json::to_value(&info).unwrap_or_default(),
+            );
         }
     }
 
     if let Some(cron_state) = svc.try_ext::<CronState>() {
         if commit_cron_run_session(cron_state, tab_id, sid, cwd.as_deref()) {
-            crate::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+            svc.ui.emit("cron-run-finished", serde_json::Value::Null);
         }
     }
 }

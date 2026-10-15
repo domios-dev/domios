@@ -12,7 +12,7 @@ use app_ports::AppMeshEventSink;
 pub fn set_mesh_enabled(
     mesh: &MeshState,
     config: &crate::config::ConfigState,
-    app: &crate::app_runtime::AppHandle,
+    ui: &dyn crate::ports::host::UiEvents,
     enabled: bool,
 ) -> bool {
     let changed = {
@@ -26,11 +26,11 @@ pub fn set_mesh_enabled(
         if let Err(e) = crate::config::save_config_pub(&snapshot) {
             log::error!("[mesh] failed to persist mesh.enabled: {}", e);
         }
-        let sink = AppMeshEventSink { app };
+        let sink = AppMeshEventSink { ui };
         sink.emit_config_changed(serde_json::to_value(&snapshot).unwrap_or_default());
     }
 
-    let sink = AppMeshEventSink { app };
+    let sink = AppMeshEventSink { ui };
     codeterm_mesh::apply_mesh_enabled(mesh, enabled, &sink, schedule_mesh_announce);
     enabled
 }

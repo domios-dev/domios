@@ -12,7 +12,11 @@ pub(crate) fn start_background_tasks(
     app_handle: &codeterm_service_core::app_runtime::AppHandle,
     states: &AppStates,
 ) {
-    if let Err(error) = codeterm_service_core::service::session_persist::start_worker(app_handle) {
+    if let Err(error) = codeterm_service_core::service::session_persist::start_worker(
+        app_handle
+            .state::<codeterm_service_core::service::ServiceState>()
+            .inner(),
+    ) {
         log::error!("[session-persist] worker startup failed: {error}");
     }
     keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());

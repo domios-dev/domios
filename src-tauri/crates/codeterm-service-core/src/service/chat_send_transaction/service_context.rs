@@ -115,7 +115,10 @@ impl crate::service::ServiceContext {
                     .active
                     .store(false, std::sync::atomic::Ordering::Release);
             }
-            crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
+            svc.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(&status).unwrap_or_default(),
+            );
             if let Some(error) = status.error.as_deref() {
                 log::warn!(
                     "[chat-send] send_id={} tab={} failed: {}",
@@ -360,7 +363,10 @@ impl crate::service::ServiceContext {
                     })
             })
             .transpose()?;
-        crate::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        self.ui.emit(
+            "chat-send-status",
+            serde_json::to_value(&status).unwrap_or_default(),
+        );
         let tab = record.authority.tab_id.clone();
         if self.user_authority_is_ready(&record.authority) {
             if let Some(pty_id) = record.authority.pty_id.as_deref() {
@@ -409,7 +415,10 @@ impl crate::service::ServiceContext {
             .admit_question_answer(&reservation, &input.text, resolution, held)?;
         let status = self.chat_send_ledger.admit_user(&record);
         let tab = record.authority.tab_id.clone();
-        crate::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        self.ui.emit(
+            "chat-send-status",
+            serde_json::to_value(&status).unwrap_or_default(),
+        );
         drop(reservation);
         self.record_product_activity();
         self.wake_user_owner(

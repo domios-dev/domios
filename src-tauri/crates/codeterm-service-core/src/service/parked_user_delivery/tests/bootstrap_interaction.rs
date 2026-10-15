@@ -27,7 +27,7 @@ fn zero_write_owner_refusal_retains_head_and_disarms_turn_confirmation() {
         settled.recv_timeout(TEST_DEADLINE).unwrap()["state"],
         "held"
     );
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
     await_owner_idle(&fixture, &tab);
     let records = fixture
         .service

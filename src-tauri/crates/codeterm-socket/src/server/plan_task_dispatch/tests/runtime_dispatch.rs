@@ -35,7 +35,7 @@ impl Drop for RuntimeDispatchFixture {
         for id in tabs.keys() {
             codeterm_service_core::service::agent_runtime::engine::stop(id);
         }
-        codeterm_service_core::service::session_persist::stop_worker(self.fixture._app.handle())
+        codeterm_service_core::service::session_persist::stop_worker(&self.fixture.service)
             .unwrap();
     }
 }

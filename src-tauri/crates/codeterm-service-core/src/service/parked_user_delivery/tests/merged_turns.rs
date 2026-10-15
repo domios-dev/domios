@@ -538,7 +538,7 @@ fn pre_ready_uncertainty_does_not_stall_writes_or_replay_after_rebind() {
         receive_resolved_status(&settled).unwrap()["state"],
         "submit_unconfirmed"
     );
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
     await_owner_idle(&fixture, &tab);
     let (first_write, first_text) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
     assert_eq!(first_write, first.send_id);

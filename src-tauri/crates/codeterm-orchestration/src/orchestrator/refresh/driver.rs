@@ -351,7 +351,7 @@ fn send_compact(svc: &ServiceContext, _req: &RefreshRequest, ctx: &TabCtx) {
     }
     let permission_bypass =
         match codeterm_service_core::service::permission_policy::configured_permission_bypass_for(
-            &svc.app_handle,
+            &svc,
             &svc.agent_registry,
             &ctx.agent_type,
         ) {

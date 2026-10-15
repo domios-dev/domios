@@ -126,13 +126,14 @@ impl ServiceContext {
         };
         super::super::supporter_notify::record_ui_origin(&tab_id);
         if let Err(error) = self.ensure_agent_pad(&tab_id).and_then(|_| {
-            super::super::session_persist::write_session_snapshot(&self.app_handle, &self.mux)
-                .and_then(|outcome| match outcome {
+            super::super::session_persist::write_session_snapshot(self, &self.mux).and_then(
+                |outcome| match outcome {
                     crate::session::store::SaveOutcome::Saved => Ok(()),
                     crate::session::store::SaveOutcome::RefusedReduction(refusal) => Err(format!(
                         "desk persistence refused the General session: {refusal:?}"
                     )),
-                })
+                },
+            )
         }) {
             self.rollback_provisional_tab(&request.workspace_id, &tab_id);
             let _ = self.revoke_agent_pad(&tab_id);

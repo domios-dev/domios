@@ -81,7 +81,7 @@ fn emit_warning(svc: &ServiceContext, session: &Session, epoch: u64, reason: &st
     let row = session.cache.lock().reconcile_live(row, at);
     let context = session.context.lock().clone();
     crate::service::tab_chat::structured_sink::emit_chat_msgs(
-        &svc.app_handle,
+        svc.ui.as_ref(),
         &context.tab_id,
         &[row],
         None,

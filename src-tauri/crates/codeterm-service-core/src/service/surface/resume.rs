@@ -40,7 +40,7 @@ pub(crate) fn store_surface_resume(
 
 /// Blocking: stores `resume` and submits the desk snapshot when it changed.
 pub(crate) fn write_surface_resume(
-    app: &crate::app_runtime::AppHandle,
+    svc: &ServiceContext,
     mux: &MuxState,
     tab_id: &str,
     resume: &SurfaceResume,
@@ -48,7 +48,7 @@ pub(crate) fn write_surface_resume(
     let changed = store_surface_resume(&mut mux.write(), tab_id, resume)?;
     if changed {
         if let Err(error) = crate::service::session_persist::submit_session_snapshot_with_intent(
-            app,
+            svc,
             mux,
             SaveIntent::PreserveDesk,
         ) {
@@ -66,8 +66,8 @@ impl ServiceContext {
         updates: watch::Receiver<SurfaceResume>,
     ) {
         let mux = self.mux.clone();
-        let app = self.app_handle.clone();
-        crate::async_runtime::spawn(follow_resume(tab_id, updates, mux, app));
+        let svc = self.clone();
+        crate::async_runtime::spawn(follow_resume(tab_id, updates, mux, svc));
     }
 }
 
@@ -75,14 +75,14 @@ async fn follow_resume(
     tab_id: String,
     mut updates: watch::Receiver<SurfaceResume>,
     mux: MuxState,
-    app: crate::app_runtime::AppHandle,
+    svc: ServiceContext,
 ) {
     while updates.changed().await.is_ok() {
         tokio::time::sleep(RESUME_COALESCE).await;
         let resume = updates.borrow_and_update().clone();
-        let (mux, app, tab) = (mux.clone(), app.clone(), tab_id.clone());
+        let (mux, svc, tab) = (mux.clone(), svc.clone(), tab_id.clone());
         let written =
-            tokio::task::spawn_blocking(move || write_surface_resume(&app, &mux, &tab, &resume))
+            tokio::task::spawn_blocking(move || write_surface_resume(&svc, &mux, &tab, &resume))
                 .await;
         if !matches!(written, Ok(Some(_))) {
             break;

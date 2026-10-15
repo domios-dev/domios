@@ -4,6 +4,9 @@ use serde_json::Value;
 
 pub trait UiEvents: Send + Sync {
     fn emit(&self, event: &str, payload: Value);
+    fn emit_native(&self, event: &str, payload: Value) {
+        self.emit(event, payload);
+    }
     fn emit_to(&self, target: &str, event: &str, payload: Value);
 }
 

@@ -195,7 +195,6 @@ fn failed_relaunch_fails_held_send_once_without_writing() {
 }
 
 fn assert_ended_launch_fails_once(failed_launch: bool) {
-    use tauri::Listener;
     let (fixture, tab) = fixture(Some("saved-session"), false);
     if failed_launch {
         fixture
@@ -203,10 +202,8 @@ fn assert_ended_launch_fails_once(failed_launch: bool) {
             .reserve_agent_launch_binding_nonce(&tab, Some("saved-session"));
     }
     let (failure_tx, failure_rx) = mpsc::channel();
-    let listener = fixture._app.listen("agent-delivery-status", move |event| {
-        failure_tx
-            .send(serde_json::from_str::<serde_json::Value>(event.payload()).unwrap())
-            .unwrap();
+    let listener = fixture.ui.listen("agent-delivery-status", move |event| {
+        failure_tx.send(event.clone()).unwrap();
     });
     let (done_tx, done_rx) = mpsc::channel();
     let _boundary = super::test_boundary::Boundary::install(
@@ -251,7 +248,7 @@ fn assert_ended_launch_fails_once(failed_launch: bool) {
     fixture.service.wake_agent_deliveries_on_state_change(&tab);
     done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(failure_rx.try_recv().is_err());
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
 }
 
 #[test]

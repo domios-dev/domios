@@ -128,7 +128,7 @@ pub(crate) fn restored_launch_task(
 }
 
 pub fn restore_permission_bypass_authorization(
-    app: &crate::app_runtime::AppHandle,
+    svc: &super::ServiceContext,
     registry: &AgentRegistry,
     tab_id: &str,
     provider_id: &str,
@@ -138,7 +138,7 @@ pub fn restore_permission_bypass_authorization(
         return Ok(None);
     }
     let authorization = crate::service::permission_policy::configured_permission_bypass_for(
-        app,
+        svc,
         registry,
         provider_id,
     )?;
