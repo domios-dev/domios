@@ -1270,6 +1270,13 @@ same count still fails. A test-only run preserves baseline targets it did not bu
 an incomplete run's inventory over the baseline or hand-increase an allowance.
 
 Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
+
+If Rust test CI shows only `could not compile` without the preceding diagnostics,
+nextest's Cargo JSON stdout was captured without rendering its compiler errors.
+The compile failure path prints `compiler-message` errors through the warning
+collector's `renderedCompilerErrors`; warning artifacts remain warning-only.
+Verify the collector fixture and runner wiring with
+`node --test scripts/tests/collect-rust-warnings.test.mjs scripts/tests/ci-rust-tests.test.mjs`.
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
 

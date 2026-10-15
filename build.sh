@@ -1614,8 +1614,35 @@ check_workspace_run() {
   return "$status"
 }
 
+# User scope only: --no-modify-path leaves the machine PATH alone; remove with `rustup self uninstall` and deleting cargo-nextest.
+peer_toolchain_install() {
+  local want bin="${CARGO_HOME:-$HOME/.cargo}/bin" tmp nextest dl=(curl --proto '=https' --tlsv1.2 -fsSL --speed-limit 1000 --speed-time 60)
+  want="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+  tmp="$(mktemp -d)"
+  if ! command -v rustup >/dev/null 2>&1; then
+    case "$OSTYPE" in
+      darwin*|linux*) "${dl[@]}" https://sh.rustup.rs -o "$tmp/rustup-init.sh" \
+        && sh "$tmp/rustup-init.sh" -y --no-modify-path --profile minimal --default-toolchain "$want" ;;
+      *) "${dl[@]}" https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe -o "$tmp/rustup-init.exe" \
+        && "$tmp/rustup-init.exe" -y --no-modify-path --profile minimal --default-toolchain "$want" ;;
+    esac || { rm -rf "$tmp"; echo "peer-toolchain: rustup install failed" >&2; return 1; }
+  fi
+  rm -rf "$tmp"
+  export PATH="$bin:$PATH"
+  rustup toolchain install "$want" --profile minimal --component clippy,rustfmt || return 1
+  if ! command -v cargo-nextest >/dev/null 2>&1; then
+    case "$OSTYPE" in
+      darwin*) nextest=mac ;;
+      linux*) [ "$(uname -m)" = aarch64 ] && nextest=linux-arm || nextest=linux ;;
+      *) nextest=windows-tar ;;
+    esac
+    "${dl[@]}" "https://get.nexte.st/latest/$nextest" | tar zxf - -C "$bin" || { echo "peer-toolchain: cargo-nextest install failed" >&2; return 1; }
+  fi
+}
+
 peer_toolchain() {
   local want rustc_v rustup_v native ok=1 tool
+  if [ "${1:-}" = --install ]; then peer_toolchain_install || return 1; fi
   want="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
   rustup_v="$(rustup --version 2>/dev/null | awk 'NR==1{print $2}')"
   rustc_v="$(rustc --version 2>/dev/null | awk '{print $2}')"
@@ -2109,13 +2136,16 @@ enter_cargo_gateway() {
 }
 
 case "$CMD" in
-  check-queue|nextest)
+  check-queue|nextest|test-one)
     for arg in "${@:2}"; do
       [ "$arg" != --peer ] || peer_dispatch dispatch "$CMD" "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
     done
     ;;
   check-linux)
     peer_dispatch dispatch check-linux "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
+    ;;
+  check-series)
+    peer_dispatch dispatch check-series "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
     ;;
   peer-setup)
     peer_dispatch setup "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
@@ -2150,12 +2180,14 @@ CodeTerm build commands
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
   check-queue <sha> --peer <name|auto> [--lane] [--os OS]  Same check in a mesh peer's gateway; result returns as one message
   nextest <scope> [filterset] --peer <name|auto> [--sha SHA]  Same nextest run in a mesh peer's gateway
+  test-one <scope> <name> --peer <name|auto> [--sha SHA]  Same focused test in a peer gateway; any peer verb takes --prereq DIFF (local, never-pushed commit)
   check-linux [sha] [--force]  Once per batch: cargo check --workspace --all-targets on a Linux peer
   check-workspace [sha]       Whole-workspace cargo check of a SHA in this machine's check worktree
-  peer-setup <peer>           Clone/refresh the peer's fetch-only checkout, check its toolchain, open its status tab
+  peer-setup <peer> [--sha R] [--install-toolchain]  Clone/refresh the peer fetch-only checkout, check (or user-install) its toolchain, open its status tab
+  check-series --spec F --peer P  Serial scratch-commit check-queue timings (seed, floor, edit per area) on a peer
   peer-route [--os OS]        Show which peer --peer auto would pick
   peer-status                 One PEER_STATUS line: this machine's gateway load (read by --peer auto)
-  peer-toolchain              Check rustup/rustc pin, native toolchain, node, nextest and sccache
+  peer-toolchain [--install]   Check rustup/rustc pin, native toolchain, node, nextest, sccache; --install adds user-scope rustup + nextest
   runner-pause MACHINE        Park MACHINE-* GitHub runners (labels -> paused; unique labels lent to a same-OS runner)
   runner-resume MACHINE       Restore MACHINE-* runner labels and return lent labels
   runner-status               List runners with labels and paused machines
@@ -2333,10 +2365,10 @@ EOF
     check_workspace_run "${@:2}"
     ;;
   peer-status)
-    node scripts/build-peer.mjs status --gateway-dir "$(ct_gateway_dir)"
+    ct_gateway_peer_status
     ;;
   peer-toolchain)
-    peer_toolchain
+    peer_toolchain "${@:2}"
     ;;
   runner-pause)
     node scripts/runner-toggle.mjs pause "${2:?runner-pause requires a machine, e.g. BLACKSTAR}"
@@ -2532,6 +2564,8 @@ EOF
     esac
     ;;
   nextest)
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
     run_nextest_scope "${@:2}"
     ;;
   nextest-archive)

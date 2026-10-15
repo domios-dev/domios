@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import {
-  jobEvent, loadPeers, outcomeOf, parseDispatchArgs, parseJobLog, parseStatusOutput, pickPeer, remoteCommand,
+  findPeer, jobEvent, loadPeers, pathPrefix, outcomeOf, parseDispatchArgs, parseJobLog, parseStatusOutput, pickPeer, remoteCommand,
 } from './build-peer-lib.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -105,7 +105,12 @@ test('job log parsing returns the check-queue summary, receipts and errors once'
 
 test('job log parsing returns nextest counts and failing tests without ANSI', () => {
   const parsed = parseJobLog(fs.readFileSync(path.join(fixtures, 'nextest.log'), 'utf8'));
-  assert.deepEqual(parsed.summary, ['Summary [   1.204s] 3 tests run: 2 passed, 1 failed, 0 skipped']);
+  assert.deepEqual(parsed.summary, [
+    'Summary [   1.204s] 3 tests run: 2 passed, 1 failed, 0 skipped',
+    'tests: runs=1 exit=0      Summary [   1.066s] 110 tests run: 110 passed, 5 skipped artifact=/tmp/parallel.log',
+    'Slow unit ratchet FAIL: baseline requires exact binary/test names and a measured duration over 1 second',
+    'Build gateway job 20261015T060514-1614340-26772 exit: 1',
+  ]);
   assert.deepEqual(parsed.details, ['FAIL [   0.020s] codeterm-plan store::tests::persists', 'error: test run failed']);
 });
 
@@ -174,6 +179,38 @@ test('remote command reports not_setup, clones on setup, runs the job from the S
   assert.ok(!fs.existsSync(path.join(fx.checkout, '.git/codeterm-peer-job.lock')), 'a failed bootstrap releases the lock');
 });
 
+test('a prerequisite patch becomes a local commit on the SHA before the runner, and a bad one fails cleanly', (t) => {
+  const fx = bootstrapFixture(t);
+  fx.runCommand(fx.command({ clone: true }));
+  fs.rmSync(path.join(fx.checkout, '.git/codeterm-peer-job.lock'), { recursive: true });
+  const diff = 'diff --git a/note.txt b/note.txt\nnew file mode 100644\n--- /dev/null\n+++ b/note.txt\n@@ -0,0 +1 @@\n+patched\n';
+  fx.runCommand(fx.command({ prereqB64: Buffer.from(diff).toString('base64') }));
+  assert.equal(git(fx.checkout, 'rev-parse', 'HEAD^'), fx.sha);
+  assert.equal(git(fx.checkout, 'show', 'HEAD:note.txt'), 'patched');
+  assert.equal(git(fx.checkout, 'status', '--porcelain'), '');
+  fs.rmSync(path.join(fx.checkout, '.git/codeterm-peer-job.lock'), { recursive: true });
+  fx.runCommand(fx.command({ prereqB64: Buffer.from('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-missing\n+y\n').toString('base64') }));
+  const sent = calls(fx.env.FAKE_CODETERM_LOG).filter((c) => c.args[0] === 'send');
+  assert.match(sent.at(-1).args.at(-1), /outcome=bootstrap_failed exit=\d+ stage=prereq$/);
+  assert.equal(git(fx.checkout, 'rev-parse', 'HEAD'), fx.sha);
+  assert.equal(git(fx.checkout, 'status', '--porcelain', '--untracked-files=no'), '');
+});
+
+test('test-one dispatches its scope and name, and --prereq ships the diff without changing the job SHA', (t) => {
+  const fx = dispatchFixture(t, {});
+  const patch = path.join(fx.dir, 'fix.diff');
+  fs.writeFileSync(patch, 'diff --git a/a b/a\n');
+  const result = fx.dispatch('test-one', 'sentinel', 'group_retirement', '--peer', 'ubunta', '--sha', fx.sha, '--prereq', patch);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /prerequisite fix\.diff sha256=[0-9a-f]{16} is committed locally/);
+  const cmd = calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1);
+  assert.ok(cmd.includes(`prereq ${Buffer.from('diff --git a/a b/a\n').toString('base64')};`));
+  assert.match(cmd, /'--' 'test-one' 'sentinel' 'group_retirement'; fi; exit$/);
+  const queue = fx.dispatch('check-queue', fx.sha, '--peer', 'ubunta', '--prereq', patch);
+  assert.equal(queue.status, 0, queue.stderr);
+  assert.match(calls(fx.log).filter((c) => c.args[1] === 'new').at(-1).args.at(-1), /'--' 'check-queue' 'HEAD'; fi; exit$/);
+});
+
 function dispatchFixture(t, statuses) {
   const dir = tempDir('dispatch');
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -201,11 +238,11 @@ test('named peer dispatch opens one bounded build tab on that peer and records t
   const flag = (name) => args[args.indexOf(name) + 1];
   assert.equal(flag('--mesh'), 'ROG');
   assert.equal(flag('--shell'), 'git-bash');
-  assert.equal(flag('--timeout'), '55m');
+  assert.ok(args.includes('--eager') && !args.includes('--timeout'));
   assert.equal(flag('--purpose'), 'build');
   assert.match(flag('--cmd'), new RegExp(`'run-job' .*'--reply-peer' 'a35724e2-c7e3-486b-95d1-5edaa7f8d749' '--reply-tab' 'tab01' .*'--' 'check-queue' '${fx.sha}'`));
   assert.doesNotMatch(flag('--cmd'), /'--peer'/);
-  assert.match(flag('--cmd'), /'check-queue' '[0-9a-f]{40}' '--lane'; fi$/);
+  assert.match(flag('--cmd'), /'check-queue' '[0-9a-f]{40}' '--lane'; fi; exit$/);
   const records = fs.readdirSync(fx.state);
   assert.equal(records.length, 1);
   assert.equal(JSON.parse(fs.readFileSync(path.join(fx.state, records[0]), 'utf8')).remote_tab, 'remote01');
@@ -227,12 +264,17 @@ test('auto routing reads each peer status over mesh and refuses with 75 when non
   assert.match(result.stdout, /peer-route: chose ROG; ROG=idle\/load0 ubunta=running\/load1/);
   const execs = calls(fx.log).filter((c) => c.args[1] === 'exec');
   assert.deepEqual(execs.map((c) => c.args[c.args.indexOf('--tab') + 1]).sort(), ['status-ROG', 'status-ubunta']);
-  assert.match(calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1), /'--' 'nextest' 'plan'; fi$/);
+  assert.match(calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1), /'--' 'nextest' 'plan'; fi; exit$/);
 
   const busy = dispatchFixture(t, { ROG: 'exec_timeout', ubunta: 'not_setup' });
   const refused = busy.dispatch('check-queue', busy.sha, '--peer', 'auto');
   assert.equal(refused.status, 75);
   assert.match(refused.stderr, /busy; ROG=unknown\(exec_timeout\) ubunta=unknown\(not_setup\)/);
+
+  const late = dispatchFixture(t, { ROG: 'exec_timeout', ubunta: { late: idle() } });
+  const routed = late.dispatch('check-linux', late.sha);
+  assert.equal(routed.status, 0, routed.stderr);
+  assert.match(routed.stdout, /peer=ubunta verb=check-linux/);
 });
 
 test('check-linux routes to the Linux peer once per SHA unless forced', (t) => {
@@ -240,7 +282,7 @@ test('check-linux routes to the Linux peer once per SHA unless forced', (t) => {
   const first = fx.dispatch('check-linux', fx.sha);
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /peer=ubunta verb=check-linux/);
-  assert.match(calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1), new RegExp(`'--' 'check-workspace' '${fx.sha}'; fi$`));
+  assert.match(calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1), new RegExp(`'--' 'check-workspace' '${fx.sha}'; fi; exit$`));
   const again = fx.dispatch('check-linux', fx.sha);
   assert.equal(again.status, 0);
   assert.match(again.stdout, /already dispatched/);
@@ -262,7 +304,7 @@ function jobFixture(t, buildScript) {
   return { dir, env, runJob, event: () => calls(env.FAKE_CODETERM_LOG).find((c) => c.args[0] === 'send') };
 }
 
-test('peer job runs the verb with --wait-build, sends one completion event and releases the lock', (t) => {
+test('peer job runs the verb with --wait-build, releases the lock, then sends one completion event', (t) => {
   const log = posixPath(path.join(fixtures, 'check-queue.log'));
   const fx = jobFixture(t, `echo "args=$*"\ncat ${JSON.stringify(log)}\nexit 101\n`);
   const result = fx.runJob(60, 'check-queue', SHA);
@@ -273,7 +315,7 @@ test('peer job runs the verb with --wait-build, sends one completion event and r
   assert.match(event.stdin, /^\[peer-job peer-9\] peer=ROG verb=check-queue sha=a{40} outcome=failed exit=101 wall=\d+s\n/);
   assert.match(event.stdin, /\nwarnings=2 shown=2 failing=codeterm-plan\n/);
   assert.match(event.stdin, /\nremote-log=.*codeterm-peer-jobs[\\/]peer-9\.log gateway-log=/);
-  assert.ok(!fs.existsSync(path.join(fx.dir, '.git/codeterm-peer-job.lock')));
+  assert.equal(event.lockHeld, false, 'the event cues the next dispatch, so the checkout is free when it is sent');
 });
 
 test('peer job past its deadline is killed and reported as deadline', (t) => {
@@ -282,4 +324,61 @@ test('peer job past its deadline is killed and reported as deadline', (t) => {
   assert.notEqual(result.status, 0);
   assert.match(fx.event().stdin, /outcome=deadline/);
   assert.ok(!fs.existsSync(path.join(fx.dir, '.git/codeterm-peer-job.lock')));
+});
+
+test('peer-setup clones at the requested SHA and forwards the toolchain install request', (t) => {
+  const fx = dispatchFixture(t, {});
+  const setup = (...args) => run(process.execPath, [path.join(root, 'scripts/build-peer.mjs'), 'setup', ...args, '--state-dir', fx.state], { cwd: fx.dir, env: fx.env });
+  assert.equal(setup('ROG', '--sha', fx.sha, '--install-toolchain').status, 0);
+  assert.equal(setup('ubunta', '--sha', fx.sha).status, 0);
+  const [rog, ubunta] = calls(fx.log).filter((c) => c.args[1] === 'new').map((c) => c.args.at(-1));
+  assert.match(rog, /ct_clone\(\)/);
+  assert.match(rog, new RegExp(`'setup-local' .*'--sha' '${fx.sha}' .*'--install-toolchain' '1'; fi; exit$`));
+  assert.doesNotMatch(ubunta, /--install-toolchain/);
+  assert.notEqual(setup('ROG', '--sha', fx.unpushed).status, 0);
+});
+
+test('a peer path list prefixes the job command and the status probe; node is checked before the runner', () => {
+  const ubunta = findPeer(config.peers, 'ubunta');
+  assert.deepEqual(ubunta.path, ['$HOME/.local/node22/bin']);
+  assert.equal(pathPrefix(findPeer(config.peers, 'ROG')), '');
+  const command = remoteCommand({ peer: ubunta, repository: 'https://example.invalid/r.git', jobId: 'peer-1', verb: 'check-linux',
+    sha: 'a'.repeat(40), clone: false, runner: ['run-job'], reply: { peer: 'origin', tab: 'tab01' } });
+  assert.ok(command.startsWith('export PATH="$HOME/.local/node22/bin:$PATH"; '));
+  assert.ok(command.indexOf('ct_step node_missing command -v node') < command.indexOf('node scripts/build-peer.mjs'));
+  assert.throws(() => loadPeers({ peers: { X: { os: 'linux', checkout: '/x', path: ['/bin; rm -rf /'] } } }), /plain directories/);
+});
+
+const SEED_DEAD_OWNER = `set -e
+ct_repo_root() { pwd; }
+source scripts/build-gateway.sh
+pid=4194303
+while [ -r "/proc/$pid/stat" ] || kill -0 "$pid" 2>/dev/null; do pid=$((pid - 1)); done
+ct_gateway_state_tool create --dir "$STATE" --job-id orphan --job release-bundle --command "release-bundle" --owner ci \\
+  --owner-pid "$pid" --owner-start-token 1234567890 --owner-process-command "bash ./build.sh release-bundle" \\
+  --worktree "$PWD" --source-sha fixture --queue-key 0000000000000-0000000000-orphan --queued-at "$(ct_gateway_now)" \\
+  --log-path "$STATE/jobs/orphan.log"
+CT_BUILD_JOB_ID=orphan ct_gateway_update_job running "" "" "$(ct_gateway_now)" ""
+mkdir -p "$STATE/lock"
+for f in pid native_pid; do echo "$pid" > "$STATE/lock/$f"; done
+for f in start_token native_start_token; do echo 1234567890 > "$STATE/lock/$f"; done
+echo orphan > "$STATE/lock/job_id"; echo 0000000000000-0000000000-orphan > "$STATE/lock/queue_key"
+echo release-bundle > "$STATE/lock/command"; echo "$PWD" > "$STATE/lock/worktree"; echo fixture > "$STATE/lock/source_sha"
+`;
+
+test('peer-status reaps a dead CI owner, so a cancelled release job never leaves the slot looking busy', (t) => {
+  const state = tempDir('reap');
+  t.after(() => fs.rmSync(state, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(state, 'jobs'));
+  fs.mkdirSync(path.join(state, 'queue'));
+  const env = { ...process.env, STATE: posixPath(state), CT_BUILD_GATEWAY_SCOPE: 'fixture', CT_BUILD_GATEWAY_FIXTURE_DIR: posixPath(state) };
+  const seeded = run(bash, ['-c', SEED_DEAD_OWNER], { cwd: root, env });
+  assert.equal(seeded.status, 0, seeded.stderr);
+  const result = run(bash, ['-c', 'ct_repo_root() { pwd; }; source scripts/build-gateway.sh; ct_gateway_peer_status'], { cwd: root, env });
+  assert.equal(result.status, 0, result.stderr);
+  const status = parseStatusOutput(result.stdout);
+  assert.equal(status.gateway.active, false, result.stdout);
+  assert.ok(!fs.existsSync(path.join(state, 'lock')));
+  const record = JSON.parse(fs.readFileSync(path.join(state, 'jobs/orphan.json'), 'utf8'));
+  assert.deepEqual([record.state, record.outcome], ['failed', 'owner_lost']);
 });

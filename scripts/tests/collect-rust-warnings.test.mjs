@@ -5,10 +5,22 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { parse } from 'yaml';
-import { parseWarnings, deduplicate, makeBaseline, ratchet, assertBaselineShrinks, capture, renderReport } from '../collect-rust-warnings.mjs';
+import { parseWarnings, deduplicate, makeBaseline, ratchet, assertBaselineShrinks, capture, renderReport, renderedCompilerErrors } from '../collect-rust-warnings.mjs';
 const fixture = name => fs.readFileSync(new URL('../../tests/fixtures/rust-warnings/' + name, import.meta.url), 'utf8');
 const opts = { platform: 'Windows', target: 'x86_64-pc-windows-msvc' };
 const warnings = () => parseWarnings(fixture('windows.txt'), opts);
+
+test('compiler errors retain rendered source diagnostics and stay out of warning records', () => {
+  const input = fixture('compile-errors.jsonl');
+  const diagnostics = input.split('\n').flatMap(line => {
+    try { return [JSON.parse(line)]; } catch { return []; }
+  }).filter(item => item.reason === 'compiler-message' && item.message.level === 'error');
+  assert.equal(diagnostics.length, 2);
+  assert.equal(renderedCompilerErrors(input), diagnostics.map(item => item.message.rendered).join(''));
+  assert.deepEqual(parseWarnings(input, opts).map(w => w.message), ['fixture warning']);
+  assert.equal(renderedCompilerErrors('{"reason":"compiler-message","message":{"level":"error","message":"fallback"}}'), 'fallback\n');
+  assert.equal(renderedCompilerErrors('null\n{}\ninvalid'), '');
+});
 test('Cargo JSON keeps warning location, lint, crate and ANSI-free snippet', () => {
   const [w] = parseWarnings(fixture('cargo.jsonl'), opts);
   assert.equal(w.crate, 'codeterm');

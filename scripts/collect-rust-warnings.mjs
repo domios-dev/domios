@@ -6,6 +6,15 @@ import { pathToFileURL } from 'node:url';
 
 export const stripAnsi = text => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
 export const warningKey = w => JSON.stringify([w.target, w.file, w.line, w.code, w.message]);
+export function renderedCompilerErrors(input) {
+  return input.split(/\r?\n/).flatMap(line => {
+    let item;
+    try { item = JSON.parse(line); } catch { return []; }
+    if (item?.reason !== 'compiler-message' || item.message?.level !== 'error') return [];
+    const rendered = item.message.rendered || item.message.message;
+    return typeof rendered === 'string' ? [rendered.endsWith('\n') ? rendered : rendered + '\n'] : [];
+  }).join('');
+}
 export function deduplicate(warnings) {
   return [...new Map(warnings.map(w => [warningKey(w), w])).values()].sort((a, b) => warningKey(a).localeCompare(warningKey(b)));
 }
