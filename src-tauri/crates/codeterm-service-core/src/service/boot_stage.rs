@@ -212,6 +212,8 @@ pub(crate) fn boot_stage_event(
     serde_json::json!({
         "tab_id": tab_id,
         "stage": stage,
+        "agent_booting": tab.agent_booting,
+        "session_bound": tab.agent_session_id.as_deref().is_some_and(|id| !id.trim().is_empty()),
         "reason": stage.carries_reason().then_some(reason).flatten(),
         "launch_generation": {
             "epoch": tab.lifecycle_epoch,

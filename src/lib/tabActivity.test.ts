@@ -15,6 +15,7 @@ const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivi
   ["unbound provider working", { ...agent, agent_session_id: null, agent_state: { state: "working" } }, "Working", "starting", false, false],
   ["provider work during launch", { ...agent, boot_stage: "launch_written", agent_state: { state: "working" } }, "Working", "starting", false, false],
   ["provider question", { ...agent, agent_state: { state: "question" } }, null, "waiting-on-user", false, false],
+  ["agent_ready beats agent_booting", { ...agent, agent_booting: true, boot_stage: "agent_ready" }, "Idle", "idle", false, false],
   ["booting", { ...agent, agent_booting: true }, "Working", "starting", false, false],
   ["launch written", { ...agent, boot_stage: "launch_written" }, null, "starting", false, false],
   ["lazy composer ready before session creation", { ...agent, agent_session_id: null, boot_stage: "agent_ready" }, "Idle", "idle", false, false],
