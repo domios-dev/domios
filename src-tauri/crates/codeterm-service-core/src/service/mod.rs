@@ -336,7 +336,7 @@ pub use team::{
     transfer_team_plan, unarchive_team_plan, validate_active_team_plan_bindings,
     validate_plan_team_binding, TeamExt,
 };
-pub(crate) use team::{live_team_ids, reconcile_dangling_team_plan_bindings_and_emit};
+pub use team::{live_team_ids, reconcile_dangling_team_plan_bindings_and_emit};
 pub use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
 pub use team::{CartographerAttachLocks, OrchestratorAttachLocks};
 pub use team_core::TeamMutationCaller;
@@ -1095,3 +1095,5 @@ pub use provider_update::check_available as check_provider_update_available;
 pub use restore_exited_member::{apply_restore_decisions, mark_legacy_role_shell_failures};
 pub use skill_mirror::{mirror_skills_to_providers, seed_bundled_skills};
 pub use utility_deadline::restore as restore_utility_deadlines;
+
+pub use supporter_notify::record_launch as supporter_record_launch;

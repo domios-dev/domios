@@ -149,7 +149,7 @@ pub fn write_session_snapshot(
     write_session_snapshot_with_intent(app, mux, SaveIntent::PreserveDesk)
 }
 
-pub(crate) fn write_session_snapshot_with_intent(
+pub fn write_session_snapshot_with_intent(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     intent: SaveIntent,
@@ -160,7 +160,7 @@ pub(crate) fn write_session_snapshot_with_intent(
         .ok_or_else(|| "desk persistence barrier returned no outcome".to_string())
 }
 
-pub(crate) fn submit_session_snapshot_with_intent(
+pub fn submit_session_snapshot_with_intent(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     intent: SaveIntent,
@@ -200,7 +200,7 @@ pub fn set_storage_unavailable(
     worker.configure(WorkerMessage::Unavailable(reason))
 }
 
-pub(crate) fn start_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
+pub fn start_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     ensure_worker(app).map(|_| ())
 }
 

@@ -91,7 +91,7 @@ impl TeamExt for ServiceContext {
     }
 }
 
-pub(crate) fn live_team_ids(svc: &ServiceContext) -> std::collections::BTreeSet<String> {
+pub fn live_team_ids(svc: &ServiceContext) -> std::collections::BTreeSet<String> {
     svc.mux
         .read()
         .list_teams()
@@ -100,7 +100,7 @@ pub(crate) fn live_team_ids(svc: &ServiceContext) -> std::collections::BTreeSet<
         .collect()
 }
 
-pub(crate) fn reconcile_dangling_team_plan_bindings_and_emit(
+pub fn reconcile_dangling_team_plan_bindings_and_emit(
     svc: &ServiceContext,
     live_team_ids: &std::collections::BTreeSet<String>,
     now_ms: u64,

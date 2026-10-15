@@ -258,7 +258,7 @@ pub fn build_service_context(
     extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(
         parking_lot::Mutex::new(crate::service::WorkerPersonaReservations::default()),
     )));
-    let svc_ctx = ServiceContext {
+    ServiceContext {
         lifecycle_journal: crate::session::lifecycle::TabLifecycleJournal::shared_arc(),
         #[cfg(any(test, feature = "test-support"))]
         ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
@@ -302,6 +302,5 @@ pub fn build_service_context(
         worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
         gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         extensions: Arc::new(extensions.finish()),
-    };
-    svc_ctx
+    }
 }

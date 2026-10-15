@@ -286,7 +286,7 @@ pub(crate) fn start_background_tasks(
                 }; // tracker lock released here
 
                 for (pty_id, raw_prev, raw_now) in changed {
-                    codeterm_service_core::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+                    codeterm_service_core::service::pty_io::notify_submit_cycle_status_transition(
                         &pty_id, raw_prev, raw_now,
                     );
                     let tab_id = mux.write().tab_id_for_pty(&pty_id);
