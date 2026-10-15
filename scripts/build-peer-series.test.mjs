@@ -35,6 +35,8 @@ test('check run parsing keeps every cargo Finished time, the wall and the gatewa
   const run = parseCheckRun(output, full);
   assert.deepEqual([run.wall, run.exit, run.gatewayJob, run.packages, run.finished], [42, 0, 'J1', '-p codeterm-api', [30.25, 65]]);
   assert.equal(parseCheckRun('check-queue: no Rust changes between a and b; nothing to check\n').skipped, true);
+  assert.equal(parseCheckRun('check-queue: sha=x lane=0 packages= cli=0 exit=0 wall=1s full-log=/Users/k/Library/Application Support/g/J.check.log\n').fullLog,
+    '/Users/k/Library/Application Support/g/J.check.log');
   const lines = seriesSummary([{ base_label: 'BEFORE', area: 'pty_io', seed: A, edit: A, runs: { warm: run, floor: run, edit: run } }],
     { expected: 2, stopped: null, resultsPath: '/r.json', otherGatewayJobs: [] });
   assert.equal(lines[0], 'series: areas=1/2 stopped=none results=/r.json');

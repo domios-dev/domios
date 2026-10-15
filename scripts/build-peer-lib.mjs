@@ -290,7 +290,7 @@ export function parseCheckRun(output, fullLog = '') {
     exit: line ? Number(line.match(/ exit=(\d+)/)?.[1]) : null,
     wall: line ? Number(line.match(/ wall=(\d+)s/)?.[1]) : null,
     packages: line?.match(/ packages=(.*?) cli=/)?.[1] ?? null,
-    fullLog: line?.match(/ full-log=(\S+)/)?.[1] ?? null,
+    fullLog: line?.match(/ full-log=(.+)$/)?.[1] ?? null,
     gatewayJob: text.match(/Build gateway job (\S+) log: /)?.[1] ?? null,
     finished: fromLog.length ? fromLog : finishedIn(text),
   };
