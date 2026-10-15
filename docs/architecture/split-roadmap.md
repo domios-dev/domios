@@ -204,3 +204,7 @@ Tests move with those implementations (132 leaf cases in the static inventory). 
 - `codeterm-supporter` (0.0.0) owns the Supporter runtime, budget/spend/journal/feed/connection engine, process-tree witnesses and their tests. Service-core retains its existing module paths through re-exports and keeps notification/status adapters.
 - Pure confidence policy, diagnostic redaction and correlation projection sit below the core. Capture and journal integration stay with tab lifecycle state; process-tree fixtures cross the boundary through `test-support`.
 - Recall registry/DecisionBackend and mem search, capability-probe orchestration and provider-update orchestration remain in service-core. Their port seams are deferred owner decisions, not part of this slice.
+
+## Service-core capability-probe host port
+
+`codeterm-provider-ops::capability_probe` owns the cache, executor, initialization protocol, process capture and their tests. `CapabilityProbeHost` supplies request validation, capability-selected binary lookup, matching tabs and snapshot publication; service-core implements it and preserves existing callers through its facade. Canonical selector: `./build.sh nextest codeterm-provider-ops 'test(/^capability_probe::/)'`.
