@@ -492,6 +492,41 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm lint
 
+  # Windows bundles build the frontend from the gateway's subst drive, where a pnpm
+  # workspace symlink can give one file two identities; nothing else runs from there.
+  frontend-windows:
+    name: frontend (Windows, stable path)
+    needs: [changed, file-sizes]
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    runs-on: [self-hosted, Windows, windows-light]
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - name: Build the release frontend from the stable build path
+        run: bash build.sh frontend-build
+
   ts-types:
     name: ts generated types
     needs: [changed, file-sizes]
