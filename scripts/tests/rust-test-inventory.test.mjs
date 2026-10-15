@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { diffInventories, lexRust, loadInventory, parseCargoToml, scanWorkspace } from "../rust-test-inventory.mjs";
+import { diffInventories, evalCfg, facadeMatch, lexRust, loadInventory, parseCargoToml, parseRenames, scanWorkspace } from "../rust-test-inventory.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(here, "fixtures", "rust-test-inventory");
@@ -168,4 +168,158 @@ test("diff CLI on an identical inventory exits 0 with zero lost", () => {
   const run = runDiff(file, file);
   assert.equal(run.status, 0, run.stdout + run.stderr);
   assert.match(run.stdout, /lost: 0\b/);
+});
+
+test("evalCfg decides OS gates and leaves features and debug_assertions undecided", () => {
+  const table = [
+    ['target_os="windows"', "linux", false],
+    ["windows", "windows", true],
+    ["unix", "macos", true],
+    ["not(windows)", "linux", true],
+    ['all(test, target_os="macos")', "linux", false],
+    ['any(windows, target_os="macos")', "linux", false],
+    ["any(windows, test)", "linux", true],
+    ['all(feature="embeddings", not(target_os="macos"))', "macos", false],
+    ['feature="embeddings"', "linux", null],
+    ["debug_assertions", "windows", null],
+    ["any(windows, test) && not(windows)", "linux", true],
+    ['target_family="unix"', "linux", true],
+  ];
+  for (const [expr, os, want] of table) assert.equal(evalCfg(expr, os), want, `${expr} on ${os}`);
+});
+
+const gatedWorkspace = () => {
+  const root = tmp();
+  const write = (rel, text) => {
+    mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    writeFileSync(path.join(root, rel), text);
+  };
+  write("src-tauri/Cargo.toml", '[package]\nname = "gated-app"\n');
+  write(
+    "src-tauri/src/lib.rs",
+    [
+      "#[cfg(test)]",
+      "mod tests {",
+      "    #[test] fn portable() {}",
+      "    #[cfg(windows)] #[test] fn windows_only() {}",
+      '    #[cfg(target_os = "macos")] #[test] fn mac_only() {}',
+      "    #[cfg(unix)] #[test] fn unix_only() {}",
+      '    #[cfg(feature = "extra")] #[test] fn featured() {}',
+      "}",
+    ].join("\n"),
+  );
+  return root;
+};
+const linuxNextest = (cases) => ({ "rust-suites": { "gated-app": { "package-name": "gated-app", testcases: Object.fromEntries(cases.map((c) => [`tests::${c}`, {}])) } } });
+
+test("diff --target-os drops foreign-gated static keys so a clean single-OS nextest list loses nothing", () => {
+  const scan = scanWorkspace(gatedWorkspace());
+  const nextest = linuxNextest(["portable", "unix_only", "featured"]);
+  assert.deepEqual(keys(diffInventories(loadInventory(scan), loadInventory(nextest)).lost), ["tests::mac_only", "tests::windows_only"]);
+  const d = diffInventories(loadInventory(scan), loadInventory(nextest), { targetOs: "linux" });
+  assert.equal(d.ok, true);
+  assert.deepEqual(keys(d.targetDropped), ["tests::mac_only", "tests::windows_only"]);
+  const dir = tmp();
+  const before = writeJson(dir, "static.json", scan);
+  const run = spawnSync(process.execPath, [script, "diff", "--target-os", "linux", before, writeJson(dir, "nextest.json", nextest)], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.match(run.stdout, /lost: 0\b/);
+  assert.match(run.stdout, /dropped as foreign-gated: 2\b/);
+  const bad = spawnSync(process.execPath, [script, "diff", "--target-os", "solaris", before, before], { encoding: "utf8" });
+  assert.equal(bad.status, 2);
+});
+
+test("diff --target-os still fails on a portable or undecided key the nextest list lost", () => {
+  const scan = loadInventory(scanWorkspace(gatedWorkspace()));
+  const d = diffInventories(scan, loadInventory(linuxNextest(["unix_only"])), { targetOs: "linux" });
+  assert.equal(d.ok, false);
+  assert.deepEqual(keys(d.lost), ["tests::featured", "tests::portable"]);
+});
+
+test("diff --target-os on a snapshot without per-test cfg uses the cfg-gated module allowance", () => {
+  const scan = scanWorkspace(gatedWorkspace());
+  const snapshot = loadInventory({ tests: scan.tests.map(({ cfg, ...t }) => t), warnings: scan.warnings });
+  const clean = diffInventories(snapshot, loadInventory(linuxNextest(["portable", "unix_only", "featured"])), { targetOs: "linux" });
+  assert.equal(clean.ok, true);
+  assert.equal(clean.targetDropped.reduce((n, x) => n + x.count, 0), 2);
+  const real = diffInventories(snapshot, loadInventory(linuxNextest(["unix_only", "featured"])), { targetOs: "linux" });
+  assert.equal(real.ok, false);
+  assert.equal(real.lost.reduce((n, l) => n + l.count, 0), 1);
+});
+
+const row = (crate, key) => ({ crate, ...(key.includes("::") ? { module_path: key.slice(0, key.lastIndexOf("::")), test_name: key.slice(key.lastIndexOf("::") + 2) } : { module_path: "", test_name: key }) });
+
+test("a move across a facade passes even when the crate is named unlike the module it came from", () => {
+  const before = loadInventory([row("codeterm-service-core", "storage::probe::tests::slow_case"), row("codeterm-service-core", "storage::probe::tests::fast_case")]);
+  const after = loadInventory([row("codeterm-persist-engine", "probe::tests::slow_case"), row("codeterm-persist-engine", "probe::tests::fast_case")]);
+  const d = diffInventories(before, after);
+  assert.equal(d.ok, true);
+  assert.deepEqual(d.moved.map((m) => `${m.key} as ${m.as}`), ["storage::probe::tests::fast_case as probe::tests::fast_case", "storage::probe::tests::slow_case as probe::tests::slow_case"]);
+  assert.equal(facadeMatch("tests::x", ["alpha::tests::x", "beta::tests::x"]), null);
+  assert.equal(facadeMatch("alpha::tests::x", ["tests::x"]), "tests::x");
+});
+
+const pty = loadInventory([row("codeterm-service-core", "service::pty_io::tests::strips_osc"), row("codeterm-service-core", "service::pty_io::tests::keeps_text")]);
+const ptyAfter = loadInventory([row("codeterm-pty", "pty::ansi::tests::strips_osc"), row("codeterm-service-core", "service::pty_io::tests::keeps_text")]);
+
+test("--renames: a reviewed map line turns a lost key into renamed (reviewed); an unlisted loss still fails", () => {
+  assert.equal(diffInventories(pty, ptyAfter).ok, false);
+  const d = diffInventories(pty, ptyAfter, { renames: parseRenames("# P5 sanitizer move\nservice::pty_io::tests::strips_osc -> pty::ansi::tests::strips_osc\n") });
+  assert.equal(d.ok, true);
+  assert.deepEqual(d.renamed.map((r) => `${r.key} -> ${r.to}`), ["service::pty_io::tests::strips_osc -> pty::ansi::tests::strips_osc"]);
+  assert.deepEqual(d.added, []);
+  const lostAlso = loadInventory([row("codeterm-pty", "pty::ansi::tests::strips_osc")]);
+  const partial = diffInventories(pty, lostAlso, { renames: parseRenames("service::pty_io::tests::strips_osc -> pty::ansi::tests::strips_osc") });
+  assert.equal(partial.ok, false);
+  assert.deepEqual(keys(partial.lost), ["service::pty_io::tests::keeps_text"]);
+});
+
+test("--renames: a stale map line fails, whether its old key is not lost or its new key is absent", () => {
+  const notLost = diffInventories(pty, ptyAfter, { renames: parseRenames("service::pty_io::tests::strips_osc -> pty::ansi::tests::strips_osc\nservice::pty_io::tests::keeps_text -> pty::ansi::tests::keeps_text") });
+  assert.equal(notLost.ok, false);
+  assert.match(notLost.renameErrors.join("\n"), /keeps_text \(line 2\): service::pty_io::tests::keeps_text is not lost/);
+  const absent = diffInventories(pty, ptyAfter, { renames: parseRenames("service::pty_io::tests::strips_osc -> pty::ansi::tests::strip_osc") });
+  assert.equal(absent.ok, false);
+  assert.match(absent.renameErrors[0], /pty::ansi::tests::strip_osc is not in the after inventory/);
+  assert.throws(() => parseRenames("service::a => b"), /not "old_key -> new_key"/);
+});
+
+function gateRepo(t) {
+  const repo = mkdtempSync(path.join(tmpdir(), "rti-gate-repo-"));
+  t.after(() => rmSync(repo, { recursive: true, force: true }));
+  const git = (...args) => {
+    const r = spawnSync("git", ["-C", repo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "core.autocrlf=false", ...args], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout.trim();
+  };
+  const commit = (fixture, message) => {
+    for (const e of readdirSync(repo)) if (e !== ".git") rmSync(path.join(repo, e), { recursive: true, force: true });
+    cpSync(path.join(fixtures, fixture), repo, { recursive: true });
+    git("add", "-A");
+    git("commit", "-qm", message);
+    return git("rev-parse", "HEAD");
+  };
+  git("init", "-q");
+  return { repo, commit, gate: (base, ...extra) => spawnSync(process.execPath, [script, "gate", "--base", base, "--root", repo, ...extra], { encoding: "utf8" }) };
+}
+
+test("gate scans the merge-base and HEAD from git objects: a crate move exits 0, a rename exits 1 unless reviewed", (t) => {
+  const g = gateRepo(t);
+  const base = g.commit("move-before", "before");
+  g.commit("move-after", "crate move");
+  const moved = g.gate(base);
+  assert.equal(moved.status, 0, moved.stdout + moved.stderr);
+  assert.match(moved.stdout, /lost: 0\b/);
+  assert.match(moved.stdout, /moved: 2\b/);
+  g.commit("rename-after", "rename");
+  const renamed = g.gate(base);
+  assert.equal(renamed.status, 1, renamed.stdout + renamed.stderr);
+  assert.match(renamed.stdout, /parser::tests::parses_header/);
+  const map = path.join(g.repo, "..", `${path.basename(g.repo)}-renames.txt`);
+  writeFileSync(map, "parser::tests::parses_header -> parser::tests::parses_head\n");
+  t.after(() => rmSync(map, { force: true }));
+  const reviewed = g.gate(base, "--renames", map);
+  assert.equal(reviewed.status, 0, reviewed.stdout + reviewed.stderr);
+  assert.match(reviewed.stdout, /renamed \(reviewed\): 1\b/);
+  assert.equal(readdirSync(tmpdir()).filter((e) => e.startsWith("rti-gate-") && !e.startsWith("rti-gate-repo-")).length, 0);
 });
