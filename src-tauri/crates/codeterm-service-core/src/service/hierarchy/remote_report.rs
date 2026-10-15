@@ -42,7 +42,7 @@ impl ServiceContext {
             // relay retry can never double-post it into the target tab.
             delivery_id: Some(uuid::Uuid::new_v4().to_string()),
         };
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             if let Err(error) = crate::service::mesh_artifacts::transfer(
                 &client,
                 &cmd.method,

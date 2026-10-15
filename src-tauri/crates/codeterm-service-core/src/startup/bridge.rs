@@ -109,7 +109,7 @@ pub fn unmark_tab_connected_service(svc: &ServiceState, service: &str) {
 /// Synchronous wrapper used at boot — schedules the async start on the
 /// tauri runtime and logs failures. Callers must NOT block on completion.
 pub fn spawn_telegram_bridge(svc: ServiceState) {
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let _op = svc
             .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
             .op_guard()

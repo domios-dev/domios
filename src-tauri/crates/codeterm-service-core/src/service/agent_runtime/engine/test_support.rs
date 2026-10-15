@@ -13,7 +13,7 @@ impl Drop for LiveRuntime {
 }
 
 pub(crate) fn live_runtime(tab: &Tab) -> LiveRuntime {
-    let (process, peer) = tauri::async_runtime::block_on(async {
+    let (process, peer) = crate::async_runtime::block_on(async {
         let (host, peer) = tokio::io::duplex(4096);
         let (reader, writer) = tokio::io::split(host);
         (

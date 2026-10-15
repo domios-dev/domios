@@ -318,7 +318,7 @@ fn runtime_oneshot_process_exit_settles_failure_and_keeps_history() {
     let ended = scene.ended("cron-run-finished");
     let session = engine::for_tab(run.tab_id.as_ref().unwrap()).unwrap();
     let process = session.process.lock().clone().unwrap();
-    let _ = tauri::async_runtime::block_on(process.client.request_guarded(
+    let _ = crate::async_runtime::block_on(process.client.request_guarded(
         &RpcCall {
             target: None,
             method: "fixture/exit".into(),
@@ -387,7 +387,7 @@ fn runtime_dreamer_process_exit_records_failure_and_closes() {
     let ended = scene.ended("graph-worker-done");
     let session = engine::for_tab(&tab).unwrap();
     let process = session.process.lock().clone().unwrap();
-    let _ = tauri::async_runtime::block_on(process.client.request_guarded(
+    let _ = crate::async_runtime::block_on(process.client.request_guarded(
         &RpcCall {
             target: None,
             method: "fixture/exit".into(),

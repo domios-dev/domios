@@ -52,7 +52,7 @@ pub(crate) fn switch(
         )
         .map_err(ModelSwitchError::InvalidModel)?;
     }
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         switch_inner(svc, tab, model, effort, mode)
             .await
             .map_err(|reason| ModelSwitchError::RuntimeControlRefused(reason.to_string()))

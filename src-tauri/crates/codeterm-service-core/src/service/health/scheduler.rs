@@ -23,7 +23,7 @@ pub fn start(
     activity: ActivityWriter,
     app_handle: crate::app_runtime::AppHandle,
 ) {
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         log::info!(
             "[services] health scheduler started (tick {}s, debounce {} ticks)",
             TICK_SECS,

@@ -196,7 +196,7 @@ impl super::ServiceContext {
         }
         let svc = self.clone();
         let pending_tab_id = tab_id.to_string();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             if let Err(error) = svc.quiesce_worker_attempt(request).await {
                 log::error!("[worker-interruption] exhaustion checkpoint incident: {error}");
                 let _ = svc.app_handle.emit(
@@ -345,7 +345,7 @@ impl super::ServiceContext {
         }
         let svc = self.clone();
         let pending_tab_id = tab_id.to_string();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             if let Err(error) = svc.interrupt_worker_attempt(request).await {
                 log::error!("[worker-interruption] coordination incident: {error}");
                 let _ = svc.app_handle.emit(

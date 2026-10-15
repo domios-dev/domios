@@ -122,7 +122,7 @@ pub(super) fn refresh_account(
     tab: String,
     sidecar: std::sync::Arc<super::lifecycle::Sidecar>,
 ) {
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         if let Ok(response) = sidecar
             .client
             .request("account/read", json!({"refreshToken":false}))

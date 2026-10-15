@@ -2,7 +2,7 @@ use std::process::{Child, Command};
 #[cfg(windows)]
 use std::time::Instant;
 
-pub(crate) trait ProcessChild {
+pub trait ProcessChild {
     fn id(&self) -> u32;
     #[cfg(windows)]
     fn kill(&mut self) -> std::io::Result<()>;
@@ -26,7 +26,7 @@ impl ProcessChild for Child {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BoundaryCompletion {
+pub enum BoundaryCompletion {
     #[cfg(unix)]
     VisibleGroupAbsent,
     #[cfg(windows)]
@@ -35,7 +35,7 @@ pub(crate) enum BoundaryCompletion {
 }
 
 impl BoundaryCompletion {
-    pub(crate) fn confirmed(self) -> bool {
+    pub fn confirmed(self) -> bool {
         self != Self::PresentOrUnknown
     }
 }
@@ -48,7 +48,7 @@ enum LeaderOwnership {
     Lost,
 }
 
-pub(crate) struct ProcessTree {
+pub struct ProcessTree {
     leader: LeaderOwnership,
     #[cfg(test)]
     termination_error: bool,
@@ -61,7 +61,7 @@ pub(crate) struct ProcessTree {
 }
 
 impl ProcessTree {
-    pub(crate) fn prepare(command: &mut Command) -> Result<Self, String> {
+    pub fn prepare(command: &mut Command) -> Result<Self, String> {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -129,7 +129,7 @@ impl ProcessTree {
         }
     }
 
-    pub(crate) fn record_spawn(&mut self, child: &impl ProcessChild) -> Result<(), String> {
+    pub fn record_spawn(&mut self, child: &impl ProcessChild) -> Result<(), String> {
         if self.leader != LeaderOwnership::Unspawned
             || child.id() <= 1
             || child.id() > i32::MAX as u32
@@ -140,7 +140,7 @@ impl ProcessTree {
         Ok(())
     }
 
-    pub(crate) fn attach(&mut self, child: &impl ProcessChild) -> Result<(), String> {
+    pub fn attach(&mut self, child: &impl ProcessChild) -> Result<(), String> {
         if self.leader != LeaderOwnership::Retained(child.id()) {
             return Err("updater leader ownership lost before attach".into());
         }
@@ -177,18 +177,18 @@ impl ProcessTree {
         Ok(())
     }
 
-    pub(crate) fn reaped(&mut self, child: &impl ProcessChild) {
+    pub fn reaped(&mut self, child: &impl ProcessChild) {
         self.leader = match self.leader {
             LeaderOwnership::Retained(id) if id == child.id() => LeaderOwnership::Retired(id),
             _ => LeaderOwnership::Lost,
         };
     }
 
-    pub(crate) fn wait_failed(&mut self) {
+    pub fn wait_failed(&mut self) {
         self.leader = LeaderOwnership::Lost;
     }
 
-    pub(crate) fn observe_event(&self) -> Result<BoundaryCompletion, String> {
+    pub fn observe_event(&self) -> Result<BoundaryCompletion, String> {
         #[cfg(unix)]
         {
             let id = match self.leader {
@@ -238,7 +238,7 @@ impl ProcessTree {
     }
 
     #[cfg(windows)]
-    pub(crate) fn wait_completion(&self, deadline: Instant) -> Result<BoundaryCompletion, String> {
+    pub fn wait_completion(&self, deadline: Instant) -> Result<BoundaryCompletion, String> {
         use windows_sys::Win32::System::IO::GetQueuedCompletionStatus;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -281,7 +281,7 @@ impl ProcessTree {
     }
 
     #[cfg(windows)]
-    pub(crate) fn close_handles(&mut self) -> Result<(), String> {
+    pub fn close_handles(&mut self) -> Result<(), String> {
         let mut errors = Vec::new();
         for handle in [&mut self.job, &mut self.port] {
             let owned = std::mem::replace(handle, std::ptr::null_mut());
@@ -299,11 +299,11 @@ impl ProcessTree {
     }
 
     #[cfg(test)]
-    pub(crate) fn inject_termination_error(&mut self, enabled: bool) {
+    pub fn inject_termination_error(&mut self, enabled: bool) {
         self.termination_error = enabled;
     }
 
-    pub(crate) fn terminate(&self, child: &mut impl ProcessChild) -> Result<(), String> {
+    pub fn terminate(&self, child: &mut impl ProcessChild) -> Result<(), String> {
         #[cfg(test)]
         if self.termination_error {
             return Err("injected termination API error".into());
@@ -374,7 +374,7 @@ impl Drop for ProcessTree {
     }
 }
 
-pub(crate) fn owner_alive(pid: u32) -> bool {
+pub fn owner_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
         let exists = unsafe { libc::kill(pid as i32, 0) == 0 };

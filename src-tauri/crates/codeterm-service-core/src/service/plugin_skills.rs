@@ -82,5 +82,5 @@ pub fn sync(mem: &MemManager, registry: &AgentCommandRegistry) {
 
 /// Off the caller's thread: mem writes block, and callers include the async runtime.
 pub fn spawn_sync(mem: Arc<MemManager>, registry: Arc<AgentCommandRegistry>) {
-    tauri::async_runtime::spawn_blocking(move || sync(&mem, &registry));
+    crate::async_runtime::spawn_blocking(move || sync(&mem, &registry));
 }
