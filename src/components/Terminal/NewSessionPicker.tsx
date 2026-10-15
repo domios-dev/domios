@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import type { AppConfig } from "../../lib/types";
@@ -24,7 +25,6 @@ import { ModeCards } from "./NewSessionPickerParts";
 import { useAnimatedHeight } from "../shared/useAnimatedHeight";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
-import { spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import { WorkspaceFolderError } from "../Sidebar/WorkspaceFolderError";
 import { createPortal } from "react-dom";
 
@@ -57,7 +57,7 @@ export function NewSessionPicker({
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const [busy, setBusy] = useState(false);
-  const [spawnError, setSpawnError] = useState<string | null>(null);
+  const [spawnError, setSpawnError] = useState<unknown>(null);
   const [firstAccessFull, setFirstAccessFull] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
@@ -167,7 +167,7 @@ export function NewSessionPicker({
         onClose();
       }
     } catch (e) {
-      setSpawnError(spawnErrorMessage(e));
+      setSpawnError(e);
     } finally {
       setBusy(false);
     }
@@ -348,7 +348,7 @@ export function NewSessionPicker({
                   {presets.filter((preset) => preset.provider === choice.providerId).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
                 </select>
               </label>}
-              {presetsError && <p role="alert">Presets unavailable</p>}
+              {presetsError && <InlineErrorNotice error={presetsError} operation="loading session presets" />}
               {choice.mode === "single" ? (
                 <OrchestrationRoleRow
                   label="Agent"
@@ -440,7 +440,7 @@ export function NewSessionPicker({
           </label>
         )}
 
-        {spawnError && <p role="alert" className="relative mt-4 text-xs text-[var(--ct-red)]">{spawnError}</p>}
+        {spawnError != null && <InlineErrorNotice error={spawnError} operation="starting this session" blocking />}
         <div className="relative mt-4 flex justify-end">
           <Button
             variant="primary"

@@ -1,8 +1,8 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UpdatePanelContents } from "../UpdatePanel";
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useEffect } from "react";
-import { AlertCircle, CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
-import { classifyUpdateFailure } from "../../lib/updateStatusModel";
+import { CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
 import { useUpdate } from "../../hooks/useUpdate";
 import { BusySpinner } from "../shared/BusyState";
 import { UI_BUTTON } from "../shared/design";
@@ -129,12 +129,7 @@ export function UpdateSection({ config, onUpdate }: {
         )}
 
         {!unified && error && (
-          <div className="flex items-start gap-2 rounded-md border border-[var(--ct-red)]/30 bg-[var(--ct-red)]/10 px-3 py-2 text-xs text-[var(--ct-red)]">
-            <AlertCircle size={14} className="mt-0.5 shrink-0" />
-            <div><div role="alert">{classifyUpdateFailure("check", error)?.message}</div>
-              <details><summary>Details</summary><pre className="whitespace-pre-wrap break-words">{error}</pre></details>
-            </div>
-          </div>
+          <InlineErrorNotice error={error} operation="checking for updates" blocking />
         )}
 
         {updateAvailable && releaseNotes && releaseNotes.trim().length > 0 && (

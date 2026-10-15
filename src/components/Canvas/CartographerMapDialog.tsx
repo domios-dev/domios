@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useId, useRef, useState } from "react";
 import { parseVoiceMessage } from "@codeterm/chat-ui";
 import type { ProviderDescriptor } from "../../lib/types";
@@ -111,7 +112,7 @@ export function CartographerMapDialog(props: CartographerMapDialogProps) {
       </label>)}
     </fieldset>
     {props.loading && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Loading providers and models…</p>}
-    {props.catalogueError && <p role="alert" className="text-xs text-[var(--ct-red)]">{props.catalogueError}</p>}
+    {props.catalogueError && <InlineErrorNotice error={props.catalogueError} operation="starting the Cartographer" blocking />}
     <fieldset disabled={form.submitting}>
       <OrchestrationRoleRow label="Cartographer" providers={props.providers} providerId={form.draft.providerId}
         modelId={form.draft.modelId ?? ""} disabledProviderIds={unavailable}
@@ -137,7 +138,7 @@ export function CartographerMapDialog(props: CartographerMapDialogProps) {
       {!voiceUi.isPreview && <ComposerActionButton voiceUi={voiceUi} sendDisabled={busy} onSend={() => {}} />}
     </div>
     {form.transcribing && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Transcribing description…</p>}
-    {form.error && <p role="alert" className="text-xs text-[var(--ct-red)]">{form.error}</p>}
+    {form.error && <InlineErrorNotice error={form.error} operation="starting the Cartographer" blocking />}
     <div className="flex justify-end gap-2">
       <button type="button" className={UI_BUTTON.ghost} disabled={form.submitting} onClick={props.onCancel}>Cancel</button>
       <button type="submit" className={UI_BUTTON.primary} disabled={!canStart}>{form.submitting ? "Starting…" : "Start"}</button>

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { memo, useState, useCallback, useRef } from "react";
 import { formatAge } from "../../lib/timeLabels";
 import { createPortal } from "react-dom";
@@ -259,7 +260,7 @@ function RecentlyClosedInner({
           })}
         </div>
       )}
-      {restoreError && <p role="alert">{restoreError}</p>}
+      {restoreError && <InlineErrorNotice error={restoreError} operation="restoring this tab" blocking />}
       {tooltip &&
         createPortal(
           <div

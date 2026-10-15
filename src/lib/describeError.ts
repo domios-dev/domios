@@ -20,6 +20,27 @@ const runtimeFailures: readonly (readonly [RegExp, string, string])[] = [
   [/^(?:Superseded\b|Runtime session changed;)/, "The agent session changed and the operation was canceled", "This operation belonged to an earlier session. Check the current session before continuing."],
 ];
 
+const knownNotices: Record<string, readonly [string, string]> = {
+  frontend_version_mismatch: ["The interface needs an update", "The interface and daemon use incompatible API versions. Update Domios, then reload the interface."],
+  memory_run_incomplete: ["The memory run needs attention", "Some results could not be saved. Review the run report before trying again."],
+  terminal_input_failed: ["Terminal input failed", "The terminal could not accept the input. Check the connection before sending again."],
+  automation_unavailable: ["Automations could not be loaded", "Retained records may be stale, so stopping is disabled. Refresh to check the current state."],
+  automation_incomplete: ["The automation snapshot is incomplete", "Some participants or links are unavailable. Refresh before acting on this snapshot."],
+  blueprint_unavailable: ["The Blueprint is unavailable", "It may have been removed. Select another recorded Blueprint to continue."],
+  blueprint_stop_failed: ["The Blueprint could not be stopped", "It may still be running. Check its current state before retrying Stop."],
+  blueprint_root_unavailable: ["The Blueprint root is unavailable", "This graph cannot be shown. Select another Blueprint or refresh its records."],
+  team_unavailable: ["The Team is unavailable", "Its current scope could not be read. Select another Team or refresh to continue."],
+  cron_list_unavailable: ["Scheduled jobs could not be loaded", "The current list could not be checked. Refresh before changing a scheduled job."],
+  file_open_failed: ["The file could not be opened", "The file or its viewer is unavailable. Check that the file still exists and try again."],
+  analytics_settings_unavailable: ["Analytics settings could not be updated", "The saved settings could not be loaded or changed. Refresh and try again."],
+  supporter_status_unavailable: ["Supporter status could not be checked", "Saved rows may be stale. Refresh before changing a connection."],
+  supporter_catalogue_unavailable: ["The model catalogue is unavailable", "Refresh the catalogue before choosing a model."],
+  supporter_connection_unverified: ["The connection could not be verified", "Refresh Supporter status before making changes."],
+  supporter_credit_unavailable: ["Supporter credit is unavailable", "Domios uses deterministic results until credit can be checked again. Check the connected adapter's account."],
+  supporter_storage_unavailable: ["Supporter spend storage needs attention", "Spend records may be incomplete. Check the adapter and refresh its status."],
+  provider_integration_incomplete: ["The provider integration needs repair", "Some integration files are missing or stale. Repair the integration to restore callbacks."],
+};
+
 const record = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
 
@@ -48,6 +69,13 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   const spawn = /spawn|createprocess|executable|shell/i.test(raw);
   // OS codes are interpreted only in spawn errors; e.g. ENOENT elsewhere may mean an attachment.
   const inferred = !code;
+  const known = Object.prototype.hasOwnProperty.call(knownNotices, kind) ? knownNotices[kind] : undefined;
+  if (known) return result(known[0], known[1], ["retry"]);
+  if (kind === "frontend_crash") return result("The interface could not render", "The daemon and terminals may still be running. Reload the interface, or leave this location to open safely on this machine.", []);
+  if (kind === "plugin_load_failed") return result("The plugin could not load", "This plugin is unavailable. Review the details, then update or reinstall it before trying again.", ["retry"]);
+  if (kind === "plugin_reload_failed") return result("The plugin could not reload", "The previous version is still running. Review the details and retry after fixing the plugin.", ["retry"]);
+  if (kind === "plugin_removed") return result("This chat's plugin was removed", "Open a new session with an installed provider to continue.", []);
+  if (kind === "mesh_partial_failure") return result("Some mesh resources could not be refreshed", "The last known resources remain visible. Refresh the connection before acting on stale results.", ["retry"]);
   if (kind === "close_inventory_unavailable" || inferred && /close (?:inventory|status)/i.test(context.operation ?? "")) {
     return result("The close status could not be checked", "Domios could not check which resources are still open. Retry before closing the workspace or Team.", ["retry"]);
   }

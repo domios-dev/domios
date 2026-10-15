@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight, Network } from "lucide-react";
 import { focusEntry, focusLost } from "./focus";
@@ -18,8 +19,8 @@ export interface AutomationGraphViewProps {
 export function AutomationNotices({ state, noun }: { state: AutomationSnapshot; noun: string }) {
   return <>
     {state.loading && <p role="status" className="px-4 py-3 text-[var(--ct-muted-fg)]">Reading {noun}…</p>}
-    {state.failed && <p role="alert" className="px-4 py-3">Automations unavailable. Retained records are stale; stopping is disabled.</p>}
-    {state.graph?.truncated && <p role="alert" className="px-4 py-3">This automation snapshot is incomplete. Some participants or links are unavailable.</p>}
+    {state.failed && <InlineErrorNotice error={{ code: "automation_unavailable", raw: "" }} />}
+    {state.graph?.truncated && <InlineErrorNotice error={{ code: "automation_incomplete", raw: "" }} />}
   </>;
 }
 
@@ -59,7 +60,7 @@ function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProp
     </ScenarioPanel> : <>
       <div className="ct-jobs-header px-4 py-3"><h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Blueprints</h2></div>
       <AutomationNotices state={state} noun="automations" />
-      {missing && <p ref={removed} tabIndex={-1} role="alert" className="px-4 py-3 outline-none">The selected Blueprint is unavailable. Select a recorded Blueprint to continue.</p>}
+      {missing && <div ref={removed} tabIndex={-1}  className="px-4 py-3 outline-none"><InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /></div>}
       {state.graph && <>
         {state.graph.scenarios.length === 0 && <p className="px-4 py-3 text-[var(--ct-muted-fg)]">No Blueprints recorded in this scope.</p>}
         <ul ref={list} aria-label="Blueprint scenarios" className="space-y-2 p-3">{blueprintScenarioJobs(state.graph, attachment).map((job) => {
