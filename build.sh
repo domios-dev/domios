@@ -640,7 +640,6 @@ source scripts/cache-policy.sh
 source scripts/build-gateway.sh
 source scripts/nextest-archive.sh
 source scripts/lane-check.sh
-configure_lane_build_dir
 source scripts/release-signing.sh
 
 if [ -n "${CODETERM_BUILD_GATEWAY_DIR:-}" ]; then
