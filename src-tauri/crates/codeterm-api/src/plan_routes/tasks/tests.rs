@@ -145,6 +145,7 @@ fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
 
 #[test]
 fn rest_every_supported_update_key_reaches_the_real_handler() {
+    codeterm_service_core::ports::socket::register_test_stub();
     let (fixture, plan_id, task_id, parent_task_id, dependency_task_id, owner) = update_fixture();
     let service = Arc::new(fixture.service.clone());
     let headers = owner_headers(&owner);

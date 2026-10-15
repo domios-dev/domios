@@ -88,7 +88,7 @@ fn stub_error() -> RpcError {
     }
 }
 
-/// Installs a bridge whose entry points all fail; for tests that only need some bridge present.
+/// Installs a bridge whose entry points fail, except remote-attempt recovery, which finds none.
 #[cfg(any(test, feature = "test-support"))]
 pub fn register_test_stub() {
     register(RpcBridge {
@@ -96,7 +96,7 @@ pub fn register_test_stub() {
         version_skew_gate: |_| None,
         dispatch_service_rpc: |_, _, _| Err(stub_error()),
         dispatch_mesh_rpc: |_, _, _, _| Err(stub_error()),
-        recover_remote_attempts: |_, _, _, _, _| Err(stub_error()),
+        recover_remote_attempts: |_, _, _, _, _| Ok(()),
         respawn_remote: |_, _, _, _, _, _, _| Err(stub_error()),
         run_dispatch_startup: |_, _| {},
         start_server: |_, _, _, _, _, _| Err(stub_error().message),
