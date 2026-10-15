@@ -236,12 +236,14 @@ jobs:
     strategy:
       matrix:
         suite: [full]
+    env:
+      # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
     steps: &rust-test-steps
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-          # Keep the warm target between jobs; the cleanup step sweeps it by age.
-          clean: false
           fetch-depth: 0
         env:
           GIT_CONFIG_COUNT: '1'
@@ -325,7 +327,7 @@ jobs:
         if: always()
         run: node scripts/ci-rust-prepare.mjs cleanup
       - &clean-job-outputs
-        name: Remove this job's Rust targets and archives
+        name: Remove job archives and sweep old Rust targets
         if: always()
         continue-on-error: true
         run: node scripts/ci-workspace-cleanup.mjs
@@ -356,6 +358,10 @@ jobs:
           - suite: platform
             os: Windows
             label: windows-ci
+    env:
+      # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
     steps: *rust-test-steps
 
   rust-receipts:
@@ -397,12 +403,14 @@ jobs:
       contents: read
       actions: write
     timeout-minutes: 30
+    env:
+      # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/clippy
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-          # Keep the warm target between jobs; the cleanup step sweeps it by age.
-          clean: false
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:

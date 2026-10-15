@@ -27,10 +27,10 @@ test('sweeps each existing Rust target by age and keeps a target when cargo-swee
   const { root, ws } = workspace();
   try {
     const calls = [];
-    const swept = sweepRustTargets(ws, (command, args) => { calls.push([command, ...args]); return { status: 0 }; });
+    const swept = sweepRustTargets(ws, (command, args) => { calls.push([command, ...args]); return { status: 0 }; }, undefined);
     assert.deepEqual(swept, ['src-tauri', 'cli']);
-    assert.deepEqual(calls.map(call => call.slice(0, 4)), [['cargo', 'sweep', '--time', '2'], ['cargo', 'sweep', '--time', '2']]);
-    assert.deepEqual(sweepRustTargets(ws, () => ({ error: new Error('missing') })), []);
+    assert.deepEqual(calls.map(call => call.slice(0, 4)), [['cargo', 'sweep', '--time', '7'], ['cargo', 'sweep', '--time', '7']]);
+    assert.deepEqual(sweepRustTargets(ws, () => ({ error: new Error('missing') }), undefined), []);
     assert.ok(existsSync(join(ws, 'src-tauri/target/debug')));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -63,5 +63,18 @@ test('a symlinked parent that escapes the workspace is refused', (t) => {
     try { symlinkSync(outside, join(ws, 'linked'), 'junction'); } catch { t.skip('symlinks unavailable'); return; }
     assert.throws(() => removeJobOutputs(ws, ['linked/target']), /outside/);
     assert.ok(existsSync(join(outside, 'target')));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('sweeps warm targets kept outside the checkout with their own CARGO_TARGET_DIR', () => {
+  const { root, ws } = workspace();
+  try {
+    for (const dir of ['src-tauri', 'cli']) writeFileSync(join(ws, dir, 'Cargo.toml'), '[package]');
+    const external = join(root, 'ci-targets', 'tests');
+    for (const dir of ['src-tauri', 'cli', 'orphan']) mkdirSync(join(external, dir), { recursive: true });
+    rmSync(join(ws, 'src-tauri/target'), { recursive: true }); rmSync(join(ws, 'cli/target'), { recursive: true });
+    const seen = [];
+    sweepRustTargets(ws, (command, args, options) => { seen.push([args.at(-1), options.env.CARGO_TARGET_DIR]); return { status: 0 }; }, external);
+    assert.deepEqual(seen.sort(), [[join(ws, 'cli'), join(external, 'cli')], [join(ws, 'src-tauri'), join(external, 'src-tauri')]]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

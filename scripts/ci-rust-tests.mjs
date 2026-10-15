@@ -157,6 +157,11 @@ export function verifyReceipts(receipts) {
     receipts.map((r) => `| ${r.mode} | ${r.runner} | ${r.os} | ${r.arch} | ${r.executed} | ${r.seconds.toFixed(1)} s |`).join('\n');
 }
 
+// Each workspace keeps its own warm target outside the checkout, so clean checkouts never erase it.
+export function laneTargetDir(manifest, root) {
+  return root ? path.join(root, path.dirname(manifest).replace(/[\/]/g, '-')) : undefined;
+}
+
 const tomlConfig = (filter, listener) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
 
 async function run(mode) {
@@ -172,6 +177,8 @@ async function run(mode) {
   fs.mkdirSync(directory, { recursive: true });
   try {
     for (const lane of lanes) {
+      const targetDir = laneTargetDir(lane.manifest, process.env.CI_TARGET_ROOT);
+      if (targetDir) process.env.CARGO_TARGET_DIR = env.CARGO_TARGET_DIR = targetDir;
       if (lane.lane === 'workspace') execFileSync('cargo', ['build', '--locked', '--manifest-path', lane.manifest, '--bin', 'codeterm-embed'], { stdio: 'inherit' });
       const messages = compile(lane);
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
