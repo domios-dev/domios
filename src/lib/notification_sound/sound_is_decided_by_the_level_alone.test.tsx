@@ -32,7 +32,10 @@ function productionFiles(directory: string, found: string[] = []): string[] {
 
 async function main() {
   // A gate here would be a gate on the panel's only live path, which is the defect that retired it — so this pins that no successor gate grew back.
-  const gate = read("../../../src-tauri/crates/codeterm-service-core/src/service/notification.rs");
+  const gate = [
+    read("../../../src-tauri/crates/codeterm-service-core/src/service/notification.rs"),
+    read("../../../src-tauri/crates/codeterm-notifications/src/notification_create.rs"),
+  ].join("\n");
   check(
     (gate.match(/\bemit\(payload\)/g) ?? []).length === 1,
     "the arrival event is emitted from exactly one place",
