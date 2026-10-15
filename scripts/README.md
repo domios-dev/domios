@@ -76,6 +76,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-file-sizes.sh` | build.sh release-preflight/verify/install-local; CI file-sizes.yml; scripts qa-gates.lib.sh, task.mjs, tests/check-file-sizes.test.mjs; skill gates |
 | `check-generated-chat-types.mjs` | package.json script |
 | `check-health-identity.sh` | build.sh script-guards |
+| `check-linux-arm64-builder.sh` | CI release-credentials.yml, release-linux-arm64.yml; skill github-release |
 | `check-local-install-continuation.sh` | build.sh script-guards |
 | `check-msvc-cross-env.sh` | scripts qa-gates.lib.sh |
 | `check-msvc-discovery.sh` | skill build |
@@ -91,7 +92,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-release-closure.mjs` | CI release-manifest-validate.yml; scripts tests/release-closure-authority.test.mjs, tests/test_release_workflow_contract.py; skill github-release |
 | `check-release-credentials-mac.sh` | CI release-credentials.yml, release-macos-build.yml; scripts tests/release-job-graph.test.mjs; skill github-release |
 | `check-release-locks.mjs` | build.sh release-preflight/build/install-local; CI release.yml; package.json script; skill github-release |
-| `check-release-runners.sh` | skill github-release |
+| `check-release-runners.sh` | CI release-credentials.yml; skill github-release |
 | `check-release-signing.sh` | CI build-gateway.yml; scripts check-build-gateway-policy.sh |
 | `check-release-source-clean.sh` | CI build-gateway.yml; scripts check-build-gateway-policy.sh |
 | `check-sccache-basedir-isolation.sh` | scripts cache-policy.sh; skill build |

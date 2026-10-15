@@ -92,10 +92,7 @@ jobs:
           fi
 
       - name: Verify native Docker builder
-        run: |
-          docker info >/dev/null
-          docker image inspect codeterm-build-linux-arm64 >/dev/null
-          test "$(docker image inspect --format '{{.Architecture}}' codeterm-build-linux-arm64)" = arm64
+        run: bash scripts/check-linux-arm64-builder.sh
 
       - name: Build and smoke Linux arm64 in native container
         run: |
@@ -105,7 +102,6 @@ jobs:
           source scripts/cache-policy.sh
           ct_sccache_storage
           test "$CT_SCCACHE_STORAGE" = shared
-          docker run --rm --pull=never --platform linux/arm64 codeterm-build-linux-arm64 sccache --version
           node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- docker run --rm --pull=never --platform linux/arm64 \
             -v "$ART:/work" -v "$PWD/.codeterm/build-machine/scripts/build-linux.sh:/build-linux.sh:ro" \
             -e DOMIOS_FIREBASE_API_KEY -e DOMIOS_FIREBASE_PROJECT_ID -e DOMIOS_FIREBASE_APP_ID \
