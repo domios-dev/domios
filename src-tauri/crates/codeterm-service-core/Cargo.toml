@@ -116,7 +116,6 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 which = "7"
 wait-timeout = "0.2"
 sqlite-vec = { version = "0.1.9", optional = true }
-fastembed = { version = "5", optional = true }
 ndarray = { version = "0.17", optional = true }
 hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../../../crates/mem-store" }
@@ -128,7 +127,7 @@ default = ["embeddings"]
 # annembed (UMAP graph layout) is macOS-only: its LAPACK backend is the
 # Accelerate framework; Windows/Linux have no provider wired and fail at
 # link time. Declared in the macOS target section below.
-embeddings = ["codeterm-mem/embeddings", "dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
+embeddings = ["codeterm-mem/embeddings", "dep:sqlite-vec", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 dev-updater-allowlocal = []
 test-support = ["codeterm-provider-ops/test-support", "codeterm-recall/test-support", "codeterm-worker-services/test-support", "codeterm-lanes/test-support", "codeterm-local-preview/test-support", "codeterm-plugin/test-support", "codeterm-plan/test-support", "codeterm-storage/test-support", "codeterm-sentinel/test-support", "codeterm-decision/decision-fixture-clock", "codeterm-agent-model/test-support", "codeterm-supporter/test-support"]
 
@@ -143,13 +142,6 @@ annembed = { version = "0.1.6", optional = true, default-features = false, featu
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
 objc2-foundation = "0.3"
-
-# x86_64 macOS: pyke does not ship an ort prebuilt for this target, so we
-# enable fastembed's `ort-load-dynamic` feature and dlopen libonnxruntime
-# at runtime from a dylib bundled next to the app binary. arm64 keeps
-# static linking via the default `download-binaries` path.
-[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
-fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
 
 [target.'cfg(windows)'.dependencies]
 codeterm-input-windows = { path = "../codeterm-input-windows" }

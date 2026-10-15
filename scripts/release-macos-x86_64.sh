@@ -11,144 +11,18 @@ cd "$REPO"
 : "${RELEASE_KEYCHAIN:?Import the job signing keychain first}"
 SIGN_ID="$APPLE_SIGNING_IDENTITY"
 
-ONNX_VER="1.23.2"
-ONNX_DIR="/tmp/onnxruntime-osx-x86_64-${ONNX_VER}"
-ONNX_TGZ="${ONNX_DIR}.tgz"
-LIBCXX_DIR="${CODETERM_MONTEREY_LIBCXX_DIR:-}"
-
-find_libcxx_dir() {
-  if [ -n "$LIBCXX_DIR" ]; then
-    printf '%s\n' "$LIBCXX_DIR"
-    return
-  fi
-
-  if [ "$(uname -m)" != "x86_64" ]; then
-    echo "FATAL: set CODETERM_MONTEREY_LIBCXX_DIR to x86_64/universal LLVM libc++ dylibs" >&2
-    echo "The arm64 Homebrew LLVM libc++ cannot be used for the x86_64 updater." >&2
-    exit 1
-  fi
-
-  for dir in \
-    /usr/local/opt/llvm/lib/c++ \
-    /usr/local/opt/llvm/lib; do
-    if [ -f "$dir/libc++.1.dylib" ]; then
-      printf '%s\n' "$dir"
-      return
-    fi
-  done
-
-  echo "FATAL: CODETERM_MONTEREY_LIBCXX_DIR must point to x86_64 libc++ dylibs" >&2
-  echo "Install or provide LLVM libc++ containing libc++.1.dylib and libc++abi.1.dylib." >&2
-  exit 1
-}
-
-assert_x86_64_dylib() {
-  local file="$1"
-  file "$file" | grep -q x86_64 || {
-    echo "FATAL: expected x86_64 dylib: $file -> $(file "$file")" >&2
-    exit 1
-  }
-}
-
-change_install_name_if_present() {
-  local file="$1"
-  local old="$2"
-  local new="$3"
-  if otool -L "$file" | awk '{print $1}' | grep -Fxq "$old"; then
-    install_name_tool -change "$old" "$new" "$file"
-  fi
-}
-
-# 1. Fetch ONNX Runtime 1.23.2 Intel mac dylib (once)
-if [ ! -f "${ONNX_DIR}/lib/libonnxruntime.${ONNX_VER}.dylib" ]; then
-  curl --fail --location --max-time 120 -o "$ONNX_TGZ" \
-    "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VER}/onnxruntime-osx-x86_64-${ONNX_VER}.tgz"
-  echo "d10359e16347b57d9959f7e80a225a5b4a66ed7d7e007274a15cae86836485a6  $ONNX_TGZ" | shasum -a 256 -c -
-  tar -xzf "$ONNX_TGZ" -C /tmp/
-fi
-
-# 2. Ensure target installed
 rustup target add x86_64-apple-darwin >/dev/null
-
-# 3. Stub the externalBin + resources globs so tauri_build's validation passes during step 3b.
-mkdir -p src-tauri/bundled-embed src-tauri/bundled-cli
-touch src-tauri/bundled-embed/codeterm-embed-x86_64-apple-darwin
-HOST_TRIPLE=$(rustc -vV | awk '/^host:/ { print $2 }')
-touch "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}"
+mkdir -p src-tauri/bundled-cli
 touch src-tauri/bundled-cli/codeterm
-
-# 3b. Build the frontend and target-correct x86_64 sidecars.
 CARGO_BUILD_TARGET=x86_64-apple-darwin \
   CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}" \
   ./build.sh release-inputs
+codesign --force --options runtime --timestamp --keychain "$RELEASE_KEYCHAIN" --sign "$SIGN_ID" src-tauri/bundled-cli/codeterm
 
-# 4. Stage signed dylibs alongside the already bundled sidecars.
-mkdir -p src-tauri/bundled-embed src-tauri/bundled-cli src-tauri/bundled-embed-libs
-cp "${ONNX_DIR}/lib/libonnxruntime.${ONNX_VER}.dylib" src-tauri/bundled-embed-libs/libonnxruntime.dylib
-
-LIBCXX_DIR="$(find_libcxx_dir)"
-cp "$LIBCXX_DIR/libc++.1.dylib" src-tauri/bundled-embed-libs/libc++.1.dylib
-if [ -f "$LIBCXX_DIR/libc++abi.1.dylib" ]; then
-  cp "$LIBCXX_DIR/libc++abi.1.dylib" src-tauri/bundled-embed-libs/libc++abi.1.dylib
-fi
-
-assert_x86_64_dylib src-tauri/bundled-embed-libs/libonnxruntime.dylib
-assert_x86_64_dylib src-tauri/bundled-embed-libs/libc++.1.dylib
-if [ -f src-tauri/bundled-embed-libs/libc++abi.1.dylib ]; then
-  assert_x86_64_dylib src-tauri/bundled-embed-libs/libc++abi.1.dylib
-  change_install_name_if_present \
-    src-tauri/bundled-embed-libs/libc++.1.dylib \
-    /usr/lib/libc++abi.1.dylib \
-    @loader_path/libc++abi.1.dylib
-  change_install_name_if_present \
-    src-tauri/bundled-embed-libs/libc++.1.dylib \
-    @rpath/libc++abi.1.dylib \
-    @loader_path/libc++abi.1.dylib
-fi
-change_install_name_if_present \
-  src-tauri/bundled-embed-libs/libonnxruntime.dylib \
-  /usr/lib/libc++.1.dylib \
-  @loader_path/libc++.1.dylib
-change_install_name_if_present \
-  src-tauri/bundled-embed-libs/libonnxruntime.dylib \
-  @rpath/libc++.1.dylib \
-  @loader_path/libc++.1.dylib
-otool -L src-tauri/bundled-embed-libs/libonnxruntime.dylib | grep -q '@loader_path/libc++.1.dylib' || {
-  echo "FATAL: libonnxruntime.dylib still does not load bundled libc++" >&2
-  otool -L src-tauri/bundled-embed-libs/libonnxruntime.dylib >&2
-  exit 1
-}
-
-for f in src-tauri/bundled-embed/codeterm-embed-x86_64-apple-darwin \
-         src-tauri/bundled-cli/codeterm \
-         src-tauri/bundled-embed-libs/libonnxruntime.dylib \
-         src-tauri/bundled-embed-libs/libc++.1.dylib \
-         src-tauri/bundled-embed-libs/libc++abi.1.dylib; do
-  [ -f "$f" ] || continue
-  codesign --force --options runtime --timestamp --keychain "$RELEASE_KEYCHAIN" --sign "$SIGN_ID" "$f"
-done
-
-# 5. Merge config: add bundled-embed-libs/* to resources (don't suppress beforeBuildCommand).
-cat > /tmp/tauri.x86_64.conf.json <<'JSONEOF'
-{
-  "bundle": {
-    "resources": {
-      "../skills": "skills",
-      "bundled-cli/*": "cli/",
-      "bundled-embed-libs/*": "embed-libs/"
-    }
-  }
-}
-JSONEOF
-
-# 6. Tauri build with cross-target + updater signing. CARGO_BUILD_TARGET forces every cargo
-# invocation inside beforeBuildCommand to cross-compile; TAURI_SIGNING_PRIVATE_KEY_PATH makes Tauri
-# emit the .app.tar.gz + .sig updater bundle alongside the DMG.
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
 : "${TAURI_SIGNING_PRIVATE_KEY_PATH:?Prepare the job updater key first}"
 pnpm tauri build --target x86_64-apple-darwin \
-  --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
-  --config /tmp/tauri.x86_64.conf.json
+  --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
 unset CARGO_BUILD_TARGET
 
 # 6b. Arch assertion: fail before notarize if CLI or GUI is wrong arch.

@@ -89,7 +89,6 @@ qa_dev_healthy() {
 
 qa_prep_stubs() {
   mkdir -p "$QA_ROOT/dist"
-  node "$QA_ROOT/scripts/prepare-embed-stub.js" >/dev/null 2>&1 || true
   mkdir -p "$QA_ROOT/src-tauri/bundled-cli"
   [ -e "$QA_ROOT/src-tauri/bundled-cli/codeterm" ] \
     || touch "$QA_ROOT/src-tauri/bundled-cli/codeterm"

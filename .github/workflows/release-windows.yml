@@ -285,17 +285,10 @@ jobs:
           # Prepend new dirs to PATH for later steps (preserves gh/git/node).
           foreach ($d in $newPathDirs) { $d | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
 
-      # Pre-create the target-triple sidecar stubs so tauri_build's externalBin/
-      # resource glob validation passes on the FIRST cargo build of a cross target
-      # (prepare-embed-stub.js only stubs the HOST triple). bundle-cli.js /
-      # bundle-embed.js overwrite these with the real arm64/x64 binaries during
-      # beforeBuildCommand, so the shipped installer carries the correct sidecars.
-      - name: Pre-create cross-build sidecar stubs
+      - name: Pre-create cross-build CLI stubs
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force src-tauri\bundled-embed | Out-Null
           New-Item -ItemType Directory -Force src-tauri\bundled-cli | Out-Null
-          New-Item -ItemType File -Force "src-tauri\bundled-embed\codeterm-embed-${{ matrix.target }}.exe" | Out-Null
           New-Item -ItemType File -Force "src-tauri\bundled-cli\codeterm-${{ matrix.target }}.exe" | Out-Null
 
       - name: Verify shared compile cache
