@@ -1,4 +1,5 @@
-use super::{ordered_ids, run_wave};
+use super::{ordered_ids, run_wave, take_next};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
@@ -24,11 +25,41 @@ fn general_tabs_precede_projects_then_recent_activity_wins() {
 }
 
 #[test]
+fn changed_focus_takes_the_next_slot_without_reclaiming_in_flight_tabs() {
+    let mut pending = vec![0, 1, 2, 3];
+    assert_eq!(take_next(&mut pending, Some(2)), Some(2));
+    assert_eq!(take_next(&mut pending, Some(3)), Some(3));
+    assert_eq!(take_next(&mut pending, Some(2)), Some(0));
+    assert_eq!(take_next(&mut pending, None), Some(1));
+    assert_eq!(take_next(&mut pending, Some(3)), None);
+}
+
+#[test]
+fn wave_reads_current_focus_when_each_slot_becomes_free() {
+    let focused = AtomicUsize::new(0);
+    let launched = Mutex::new(Vec::new());
+    let results = run_wave(
+        &[0, 1, 2, 3, 4],
+        1,
+        || Some(focused.load(Ordering::Relaxed)),
+        |_| Ok(()),
+        |item| {
+            launched.lock().unwrap().push(*item);
+            focused.store(if *item == 0 { 4 } else { 3 }, Ordering::Relaxed);
+            Ok(())
+        },
+    );
+    assert_eq!(launched.into_inner().unwrap(), [0, 4, 3, 1, 2]);
+    assert_eq!(results, vec![Ok(()); 5]);
+}
+
+#[test]
 fn every_cwd_is_validated_before_slots_start_and_failures_are_isolated() {
     let events = Mutex::new(Vec::new());
     let results = run_wave(
         &[0, 1, 2, 3],
         4,
+        || None,
         |item| {
             events.lock().unwrap().push(("validate", *item));
             if *item == 0 {
@@ -74,6 +105,7 @@ fn four_tabs_can_start_independently_and_the_fifth_waits_for_a_slot() {
         run_wave(
             &[0, 1, 2, 3, 4],
             4,
+            || None,
             |_| Ok(()),
             |item| {
                 entered_tx.send(*item).unwrap();
