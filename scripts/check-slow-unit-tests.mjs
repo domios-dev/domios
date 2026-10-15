@@ -130,6 +130,19 @@ export function slowTestVerdict(timings, document, previousDocument = document, 
   return { errors, regressions };
 }
 
+// Parallel timings include contention, so without serial confirmation they only advise.
+export function parallelAdvice(candidates, document) {
+  const allowed = new Map(validateBaseline(document).map(entry => [entry.key, entry.measuredSeconds]));
+  return [
+    ...candidates.map(candidate => {
+      const key = allowanceKey(allowed, identity(candidate));
+      const limit = key ? regressionLimit(allowed.get(key)) : newSlowFailureSeconds;
+      return `${candidate.measuredSeconds > limit ? '::warning::' : ''}Unit timing (parallel only): ${candidate.measuredSeconds.toFixed(3)}s, limit ${limit.toFixed(3)}s ${describeEntry(candidate)}`;
+    }),
+    `Slow unit ratchet ADVISORY: ${candidates.length} candidates reported from parallel timings without serial confirmation.`,
+  ];
+}
+
 export function checkSlowTests(...args) {
   const { errors, regressions } = slowTestVerdict(...args);
   return [...errors, ...regressions];
@@ -196,6 +209,15 @@ function main() {
       filter: candidateFilter(candidates),
     }, null, 2) + '\n');
     console.log(`Slow unit candidates: ${candidates.length} of ${timings.length} tests require serial measurement.`);
+    return;
+  }
+  if (!options.alone && options.policy === 'advisory') {
+    const errors = checkBaseline(document, previous);
+    if (errors.length) throw new Error(errors.join('\n'));
+    for (const line of parallelAdvice(candidates, document)) console.log(line);
+    if (candidates.length && process.env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n::warning::Slow unit ratchet ADVISORY (parallel only): ${candidates.map(describeEntry).join('; ')}\n`);
+    }
     return;
   }
   const alone = options.alone ? parseTimings(readFileSync(options.alone, 'utf8')) : [];
