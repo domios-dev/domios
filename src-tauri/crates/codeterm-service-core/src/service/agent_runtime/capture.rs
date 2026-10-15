@@ -79,7 +79,10 @@ pub(crate) fn admit(
         }
     };
     let status = svc.chat_send_ledger.admit_user(&record);
-    crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
+    svc.ui.emit(
+        "chat-send-status",
+        serde_json::to_value(&status).unwrap_or_default(),
+    );
     drop(reservation);
     svc.wake_user_owner(
         &tab,

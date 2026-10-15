@@ -47,10 +47,10 @@ impl crate::service::ServiceContext {
             .user_sends
             .cancel_or_dismiss(tab_id, dismissal)?;
         self.wake_parked_user_send(tab_id);
-        crate::events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "chat-send-dismissed",
-            &serde_json::json!({"tab_id": tab_id, "receipt": receipt}),
+            serde_json::to_value(&serde_json::json!({"tab_id": tab_id, "receipt": receipt}))
+                .unwrap_or_default(),
         );
         Ok(receipt)
     }

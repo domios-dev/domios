@@ -5,7 +5,6 @@ use codeterm_plugin::local_recording::{
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use tauri::Listener;
 
 fn declaration() -> codeterm_local_recording::LocalRecordingTrigger {
     codeterm_local_recording::LocalRecordingTrigger {
@@ -250,8 +249,6 @@ fn lark_recording_contract_production_adapter_fails_closed_before_native_acquisi
 async fn lark_recording_contract_production_enable_uses_injected_readiness_boundary() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let state: crate::service::ServiceState = Arc::new(fixture.service.clone());
-    assert!(fixture._app.manage(state));
     let service = &fixture.service;
     let registry = service
         .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
@@ -292,12 +289,10 @@ fn lark_recording_contract_enable_without_devices_emits_setup_status() {
         .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>();
     registry.register("trigger", declaration(), true);
     let (event_tx, event_rx) = std::sync::mpsc::channel();
-    let listener = fixture
-        ._app
-        .listen_any("local-recording-status", move |event| {
-            let value = serde_json::from_str::<serde_json::Value>(event.payload()).unwrap();
-            event_tx.send(value).unwrap();
-        });
+    let listener = fixture.ui.listen("local-recording-status", move |event| {
+        let value = event.clone();
+        event_tx.send(value).unwrap();
+    });
 
     let (status, completion) = fixture
         .service
@@ -311,7 +306,7 @@ fn lark_recording_contract_enable_without_devices_emits_setup_status() {
     assert_eq!(event["enabled"], true);
     assert_eq!(event["devicesSelected"], false);
     assert_eq!(event["available"], false);
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
 }
 
 #[tokio::test]
@@ -335,21 +330,17 @@ async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_ca
 
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let state: crate::service::ServiceState = Arc::new(fixture.service.clone());
-    assert!(fixture._app.manage(state));
     let service = &fixture.service;
     service
         .install_local_recording_invalidation_observer()
         .unwrap();
     let (event_tx, event_rx) = std::sync::mpsc::channel();
-    let listener =
-        fixture
-            ._app
-            .handle()
-            .listen_any("local-recording-capture-invalidated", move |event| {
-                let value = serde_json::from_str::<serde_json::Value>(event.payload()).unwrap();
-                let _ = event_tx.send(value);
-            });
+    let listener = fixture
+        .ui
+        .listen("local-recording-capture-invalidated", move |event| {
+            let value = event.clone();
+            let _ = event_tx.send(value);
+        });
 
     for invalidation in [
         Invalidation::Disable,
@@ -522,7 +513,7 @@ async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_ca
         serde_json::to_value(LocalRecordingInvalidationReason::AccessLost).unwrap(),
         serde_json::json!("accessLost")
     );
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
 }
 
 #[cfg(all(test, target_os = "macos"))]

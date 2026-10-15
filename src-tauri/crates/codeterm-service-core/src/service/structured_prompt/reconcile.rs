@@ -220,7 +220,7 @@ pub(super) fn emit_snapshot_part(
             .get_tab(tab_id)
             .and_then(|tab| tab.session_binding_nonce.clone());
         crate::service::tab_chat::structured_sink::emit_chat_msgs(
-            &svc.app_handle,
+            svc.ui.as_ref(),
             tab_id,
             &[part],
             None,

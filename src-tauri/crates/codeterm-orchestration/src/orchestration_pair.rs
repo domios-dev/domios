@@ -200,7 +200,7 @@ fn validate_pair_provider(
     )?;
     let full_access =
         codeterm_service_core::service::permission_policy::configured_permission_bypass_for(
-            &service.app_handle,
+            &service,
             &service.agent_registry,
             provider,
         )?

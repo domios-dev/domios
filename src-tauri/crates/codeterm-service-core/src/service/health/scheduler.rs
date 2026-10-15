@@ -21,7 +21,7 @@ struct DebounceState {
 pub fn start(
     store: Arc<ServicesStore>,
     activity: ActivityWriter,
-    app_handle: crate::app_runtime::AppHandle,
+    ui: Arc<dyn crate::ports::host::UiEvents>,
 ) {
     crate::async_runtime::spawn(async move {
         log::info!(
@@ -31,7 +31,7 @@ pub fn start(
         );
         let mut state: HashMap<String, DebounceState> = HashMap::new();
         loop {
-            run_tick(&store, &activity, &app_handle, &mut state).await;
+            run_tick(&store, &activity, ui.as_ref(), &mut state).await;
             tokio::time::sleep(Duration::from_secs(TICK_SECS)).await;
         }
     });
@@ -40,7 +40,7 @@ pub fn start(
 async fn run_tick(
     store: &Arc<ServicesStore>,
     activity: &ActivityWriter,
-    app_handle: &crate::app_runtime::AppHandle,
+    ui: &dyn crate::ports::host::UiEvents,
     state: &mut HashMap<String, DebounceState>,
 ) {
     let services = match store.list(None, Some(true)) {
@@ -80,8 +80,7 @@ async fn run_tick(
                 &svc.id,
                 (status_str(prev), status_str(snap.status)),
             ));
-            crate::events::emit_everywhere(
-                app_handle,
+            ui.emit(
                 "service-health-changed",
                 serde_json::json!({"service_id": svc.id, "status": snap.status}),
             );

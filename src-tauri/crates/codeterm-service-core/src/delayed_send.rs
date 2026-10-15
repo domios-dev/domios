@@ -1123,10 +1123,9 @@ fn to_view(svc: &crate::service::ServiceContext, msg: DelayedMessage) -> Delayed
 }
 
 fn emit_changed(svc: &crate::service::ServiceContext, tab_id: &str) {
-    crate::events::emit_everywhere(
-        &svc.app_handle,
+    svc.ui.emit(
         "delayed-send-changed",
-        serde_json::json!({ "tabId": tab_id }),
+        serde_json::to_value(serde_json::json!({ "tabId": tab_id })).unwrap_or_default(),
     );
 }
 

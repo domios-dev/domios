@@ -308,7 +308,7 @@ fn chat_start_inner(
         ) {
             let sink = codeterm_service_core::service::tab_chat::structured_sink::make_sink(
                 svc.lifecycle_journal.clone(),
-                svc.app_handle.clone(),
+                &svc,
                 svc.mux.clone(),
                 Some(session_id.clone()),
                 session_binding_nonce.clone(),
@@ -372,7 +372,7 @@ fn chat_start_inner(
         ) {
             let sink = codeterm_service_core::service::tab_chat::structured_sink::make_flatten_sink(
                 svc.lifecycle_journal.clone(),
-                svc.app_handle.clone(),
+                &svc,
                 svc.mux.clone(),
                 0,
                 Some(session_id.clone()),
@@ -470,7 +470,7 @@ fn chat_start_inner(
     ) {
         let sink = codeterm_service_core::service::tab_chat::structured_sink::make_flatten_sink(
             svc.lifecycle_journal.clone(),
-            svc.app_handle.clone(),
+            &svc,
             svc.mux.clone(),
             msg_count,
             Some(session_id.clone()),

@@ -58,7 +58,7 @@ pub async fn serve_enable_handler(
     check_auth(&state, &headers)?;
     let body = body.unwrap_or_default();
     let result = codeterm_service_core::service::web_access::enable(
-        state.svc.app_handle.clone(),
+        state.svc.ui.clone(),
         state.mesh.clone(),
         state.api_port,
         body.https_port,
@@ -82,7 +82,7 @@ pub async fn serve_disable_handler(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let result = codeterm_service_core::service::web_access::disable(
-        state.svc.app_handle.clone(),
+        state.svc.ui.clone(),
         state.mesh.clone(),
         state.api_port,
     )

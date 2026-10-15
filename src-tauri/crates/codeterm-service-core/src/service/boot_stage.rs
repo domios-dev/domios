@@ -383,10 +383,9 @@ impl ServiceContext {
         stage: BootStage,
         reason: Option<&str>,
     ) {
-        crate::events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "tab-boot-stage",
-            boot_stage_event(tab_id, tab, stage, reason),
+            serde_json::to_value(boot_stage_event(tab_id, tab, stage, reason)).unwrap_or_default(),
         );
     }
 
@@ -657,10 +656,9 @@ impl ServiceContext {
                 .collect::<Vec<_>>()
         };
         if crate::crash::lifecycle::heal_current_epoch(&healthy) {
-            crate::events::emit_everywhere(
-                &self.app_handle,
+            self.ui.emit(
                 "recovery-state-changed",
-                crate::crash::lifecycle::recovery_state(),
+                serde_json::to_value(crate::crash::lifecycle::recovery_state()).unwrap_or_default(),
             );
         }
     }

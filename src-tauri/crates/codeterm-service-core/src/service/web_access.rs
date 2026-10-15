@@ -1,6 +1,7 @@
 use std::sync::{Mutex, OnceLock};
 
-use crate::app_runtime::AppHandle;
+use crate::ports::host::UiEvents;
+use std::sync::Arc;
 
 use crate::{mesh, MeshStateHandle};
 
@@ -15,7 +16,7 @@ fn mutation_gate() -> &'static Mutex<()> {
 }
 
 async fn mutate(
-    app: AppHandle,
+    ui: Arc<dyn UiEvents>,
     mesh_state: MeshStateHandle,
     api_port: u16,
     mutation: Mutation,
@@ -37,7 +38,7 @@ async fn mutate(
 
     if changed {
         let report = mesh::broadcast_announce(&mesh_state, None).await;
-        crate::events::emit_everywhere(&app, "mesh-state-changed", serde_json::Value::Null);
+        ui.emit("mesh-state-changed", serde_json::Value::Null);
         if !report.errors.is_empty() {
             let publication_warning = format!(
                 "Web Access changed locally, but {} Mesh peer announcement(s) failed",
@@ -54,20 +55,20 @@ async fn mutate(
 }
 
 pub async fn enable(
-    app: AppHandle,
+    ui: Arc<dyn UiEvents>,
     mesh_state: MeshStateHandle,
     api_port: u16,
     https_port: Option<u16>,
 ) -> Result<mesh::ServeResult, String> {
-    mutate(app, mesh_state, api_port, Mutation::Enable(https_port)).await
+    mutate(ui, mesh_state, api_port, Mutation::Enable(https_port)).await
 }
 
 pub async fn disable(
-    app: AppHandle,
+    ui: Arc<dyn UiEvents>,
     mesh_state: MeshStateHandle,
     api_port: u16,
 ) -> Result<mesh::ServeResult, String> {
-    mutate(app, mesh_state, api_port, Mutation::Disable).await
+    mutate(ui, mesh_state, api_port, Mutation::Disable).await
 }
 
 pub fn local_ip_address() -> Option<String> {

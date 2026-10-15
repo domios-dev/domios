@@ -174,7 +174,7 @@ async fn close_team_via_service_persists_the_reduced_desk() {
         )
         .expect("seed the Storage desk before Team close");
     codeterm_service_core::service::session_persist::install_storage_desk_adapter(
-        fixture._app.handle(),
+        &fixture.service,
         StorageDeskAdapter::from_storage(storage.clone()),
     )
     .unwrap();
@@ -201,10 +201,8 @@ async fn close_team_via_service_persists_the_reduced_desk() {
         .await
         .unwrap();
 
-    codeterm_service_core::service::session_persist::flush_session_persistence(
-        fixture._app.handle(),
-    )
-    .unwrap();
+    codeterm_service_core::service::session_persist::flush_session_persistence(&fixture.service)
+        .unwrap();
     let after = adapter.snapshot().expect("desk re-persisted");
     let after_ids = persisted_ids(&after);
     assert!(
@@ -219,7 +217,7 @@ async fn close_team_via_service_persists_the_reduced_desk() {
         after.teams.iter().all(|team| team.id != team_id),
         "closed Team is gone from the snapshot"
     );
-    codeterm_service_core::service::session_persist::stop_worker(fixture._app.handle()).unwrap();
+    codeterm_service_core::service::session_persist::stop_worker(&fixture.service).unwrap();
     storage
         .shutdown()
         .wait(std::time::Duration::from_secs(30))

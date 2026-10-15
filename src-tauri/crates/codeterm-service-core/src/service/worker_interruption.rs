@@ -4,7 +4,6 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::plan::InterruptionCheckpoint;
 use crate::service::plan::interruption::checkpoint_digest;
-use tauri::Emitter;
 
 const CHECKPOINT_ARTIFACT_MAX_BYTES: usize = 4 * 1024 * 1024;
 const CHECKPOINT_UNTRACKED_FILE_READ_LIMIT: u64 = CHECKPOINT_ARTIFACT_MAX_BYTES as u64;
@@ -199,7 +198,7 @@ impl super::ServiceContext {
         crate::async_runtime::spawn(async move {
             if let Err(error) = svc.quiesce_worker_attempt(request).await {
                 log::error!("[worker-interruption] exhaustion checkpoint incident: {error}");
-                let _ = svc.app_handle.emit(
+                svc.ui.emit_native(
                     "coordination-incident",
                     serde_json::json!({
                         "kind": "provider_exhaustion_checkpoint_failed",
@@ -348,7 +347,7 @@ impl super::ServiceContext {
         crate::async_runtime::spawn(async move {
             if let Err(error) = svc.interrupt_worker_attempt(request).await {
                 log::error!("[worker-interruption] coordination incident: {error}");
-                let _ = svc.app_handle.emit(
+                svc.ui.emit_native(
                     "coordination-incident",
                     serde_json::json!({
                         "kind": "worker_interruption_checkpoint_failed",

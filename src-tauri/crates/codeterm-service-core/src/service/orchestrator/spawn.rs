@@ -620,7 +620,7 @@ impl ServiceContext {
 
         let permission_bypass_authorization =
             crate::service::permission_policy::configured_permission_bypass_for(
-                &self.app_handle,
+                self,
                 &self.agent_registry,
                 &agent_cmd,
             )?;
@@ -1060,10 +1060,9 @@ impl ServiceContext {
             }),
             now_ms,
         ) {
-            Ok(()) => crate::events::emit_everywhere(
-                &self.app_handle,
+            Ok(()) => self.ui.emit(
                 "plan-changed",
-                serde_json::json!({ "plan_id": plan_id }),
+                serde_json::to_value(serde_json::json!({ "plan_id": plan_id })).unwrap_or_default(),
             ),
             Err(e) => log::warn!("[spawn] failed to bind planner ref for plan {plan_id}: {e}"),
         }

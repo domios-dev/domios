@@ -112,7 +112,7 @@ impl ServiceContext {
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
             auto_approve: crate::service::permission_policy::configured_permission_bypass_for(
-                &self.app_handle,
+                self,
                 &self.agent_registry,
                 provider,
             )

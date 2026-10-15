@@ -366,7 +366,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
             }
 
             crate::service::cron::emit_cron_fired(
-                &service.app_handle,
+                service.ui.as_ref(),
                 job_id,
                 &run_id,
                 &handle.tab_id,

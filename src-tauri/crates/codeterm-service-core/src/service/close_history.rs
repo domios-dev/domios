@@ -395,7 +395,7 @@ impl ServiceContext {
     }
 
     fn persist_history_desk(&self) -> Result<(), String> {
-        match session_persist::write_session_snapshot(&self.app_handle, &self.mux)? {
+        match session_persist::write_session_snapshot(self, &self.mux)? {
             crate::session::store::SaveOutcome::Saved => Ok(()),
             crate::session::store::SaveOutcome::RefusedReduction(_) => {
                 Err("Restored desk was not persisted".into())
