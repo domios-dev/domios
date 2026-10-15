@@ -882,8 +882,34 @@ fn team_close_inventory_includes_terminal_unplanned_child_and_worktree_less_lane
     }));
 }
 
+#[test]
+fn team_close_keeps_foreign_team_child_open() {
+    let (mut mux, team_id, orchestrator, _, _) = team_members();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let foreign = mux.create_tab(&workspace_id).unwrap();
+    let foreign_team = mux
+        .resolve_or_mint_team_for_parent(&foreign)
+        .unwrap()
+        .team_id;
+    mux.get_tab_mut(&foreign).unwrap().parent_tab_id = Some(orchestrator);
+    let (_plan_dir, store) = isolated_plan_store();
+    close_team_with_state_change(
+        &mut mux,
+        &codeterm_events::EventBroadcaster::new(),
+        &store,
+        &team_id,
+        &TeamMutationCaller::HumanConfirmedHeaderless,
+        1,
+    )
+    .unwrap();
+    let survivor = mux.get_tab(&foreign).unwrap();
+    assert_eq!(survivor.team_id.as_deref(), Some(foreign_team.as_str()));
+    assert!(survivor.parent_tab_id.is_none());
+    assert!(mux.get_team(&foreign_team).is_some());
+}
+
 #[tokio::test]
-async fn service_close_team_preserves_untracked_lane_after_pty_shutdown() {
+async fn human_team_close_with_busy_member_preserves_dirty_lane() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -934,12 +960,24 @@ async fn service_close_team_preserves_untracked_lane_after_pty_shutdown() {
         2,
     );
 
-    fixture
+    let result = fixture
         .service
-        .close_team(&team_id, TeamMutationCaller::AgentTab(orchestrator), true)
+        .close_team(
+            &team_id,
+            TeamMutationCaller::HumanConfirmedHeaderless,
+            false,
+        )
         .await
         .unwrap();
 
+    assert!(fixture.service.mux.read().get_tab(&worker).is_none());
+    assert!(fixture.service.mux.read().get_team(&team_id).is_none());
+    assert_eq!(result.killed_workers.len(), 1);
+    assert_eq!(result.inventory.kept.len(), 1);
+    assert_eq!(
+        result.inventory.kept[0].path.as_deref(),
+        Some(worktree.to_str().unwrap())
+    );
     assert_eq!(fs::read_to_string(&untracked).unwrap(), "keep this work\n");
     let worktrees = git(&repo, &["worktree", "list", "--porcelain"]).replace('\\', "/");
     let worktree_path = worktree.display().to_string().replace('\\', "/");

@@ -160,6 +160,7 @@ export interface SidebarWorkspaceTabsProps {
     model?: string,
   ) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
+  closingTeamIds?: ReadonlySet<string>;
   onOpenSentinelJob?: (target: JobsTarget) => void;
 }
 
@@ -195,6 +196,7 @@ export function SidebarWorkspaceTabs({
   onRenameTeam,
   onAddTeamMember,
   onCloseTeam,
+  closingTeamIds,
   onOpenSentinelJob,
 }: SidebarWorkspaceTabsProps) {
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
@@ -502,6 +504,7 @@ export function SidebarWorkspaceTabs({
         onAddMember={onAddTeamMember
           ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerTabId, model)
           : undefined}
+        closing={closingTeamIds?.has(teamId)}
         onCloseTeam={onCloseTeam}
       />
       </SortableRow>,
