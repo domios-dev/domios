@@ -22,6 +22,7 @@ pub(super) fn start(service: &ServiceContext) {
                         .is_some_and(|name| name == storage::STATE_FILE)
                 })
             {
+                storage::changed();
                 let _ = tx.send(());
             }
         }
