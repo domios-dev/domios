@@ -752,6 +752,8 @@ pub fn spawn(
 }
 
 pub async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
+    #[cfg(debug_assertions)]
+    let _watchdog = super::runtime_diagnostics::Watchdog::spawn("rest");
     let (sender, mut commands) = mpsc::unbounded_channel();
     control.install(sender);
     #[cfg(test)]
