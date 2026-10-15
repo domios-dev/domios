@@ -279,11 +279,11 @@ fn an_unproven_report_leaves_a_spawn_failure_latched() {
 
 #[test]
 fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
-    use codeterm_service_core::service::parked_user_delivery::tests::{
+    use codeterm_service_core::service::parked_user_delivery::test_support::{
         queue_fixture, UserSubmitBoundary,
     };
     let (fixture, tab_id) = queue_fixture(false, None);
-    codeterm_service_core::service::parked_user_delivery::tests::attach_fixture_pty(
+    codeterm_service_core::service::parked_user_delivery::test_support::attach_fixture_pty(
         &fixture, &tab_id,
     );
     let first = fixture
@@ -373,7 +373,7 @@ fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
 
 #[test]
 fn stale_nonce_ack_does_not_release_and_rebound_launch_expires_queued_user_owner() {
-    use codeterm_service_core::service::parked_user_delivery::tests::{
+    use codeterm_service_core::service::parked_user_delivery::test_support::{
         await_owner_idle, queue_fixture, UserSubmitBoundary,
     };
     let (fixture, tab_id) = queue_fixture(false, None);
