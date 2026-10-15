@@ -1,7 +1,7 @@
 # Curated startup matrix
 
 This live bench adopts the owner's real DEV window (default instance, API 7686,
-WebView2 CDP from health). It spends provider tokens: one minimal PONG prompt per
+WebView2 CDP from health). It spends provider tokens: one unique response-token prompt per
 tab. The scripted matrix never closes tabs, replaces drafts, or changes product code.
 After its table, follow [EXPLORE.md](EXPLORE.md) for the required agent-driven
 visual pass, including the explicitly authorized single-fixture close/restore probe.
@@ -45,13 +45,13 @@ only for a run that sent no prompts; it does not repeat a completed probe.
 
 After a process crash, `--attach <crashed-dir>` adopts the freshly restarted DEV
 using the crashed run's listener identity, then takes a fresh policy inventory.
-Any tab whose prior run attempted a send is opened and measured but gets no new
-payload. Its unresolved round trip remains a failure with the retained receipt.
-This prevents a held send from being replayed during recovery.
+Prior attempted receipts remain in the evidence. Each tab receives a new unique
+probe, and only that probe's own response token can complete its round trip.
 
-Before starting, inspect the saved inventory and existing input. Pass
-`--preserve-input <comma-separated-tab-ids>` for unresolved sends or owner drafts
-that must remain untouched (including aiderF while its delivery is unresolved).
+New unique probes may be sent to every DEV tab even when earlier probes remain
+unresolved. OpenCode and Aider stay in every provider sweep. Optionally pass
+`--preserve-input <comma-separated-tab-ids>` when a particular tab should receive
+no new input; there are no default preserved IDs.
 Those rows retain startup observations and receive a visual visit, but get no
 new payload. They remain explicit incomplete reply coverage, never a passing row.
 
@@ -90,7 +90,7 @@ start. SSE has no emission timestamp: replay gives an upper bound, and overflow
 frames explicitly preserve gaps. Frozen tabs have no boot-ready duration; their
 separate `wake_ms` is relative to the action. No screenshot implies agent readiness.
 `reply_ms` records the first new assistant content observed through the API;
-`completed_ms` separately includes waiting for idle after the exact PONG transcript.
+`completed_ms` separately includes waiting for idle after the exact response token.
 Each probe carries a unique run/tab token; only assistant items after that exact
 user turn and before the next user turn qualify, even if a sleeping tab's initial
 chat snapshot was unavailable. A retained pending CLI receipt is not a refusal
