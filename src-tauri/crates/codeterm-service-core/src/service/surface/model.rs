@@ -43,7 +43,7 @@ impl SurfaceError {
         }
     }
 
-    pub(crate) fn message(&self) -> String {
+    pub fn message(&self) -> String {
         match self {
             Self::InvalidTarget(raw) => {
                 format!("'{raw}' is not <plugin_id>:<surface_id>")

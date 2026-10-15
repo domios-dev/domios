@@ -26,7 +26,7 @@ const MAX_IDLE_RETRIES: u8 = 3;
 const MAX_OUTPUT_RETRIES: u8 = 3;
 
 impl CarrySchedule {
-    fn arm(&mut self, tab_id: &str, agent_type: &str) {
+    pub fn arm(&mut self, tab_id: &str, agent_type: &str) {
         self.pending
             .entry(tab_id.to_string())
             .or_insert_with(|| PendingCarry {

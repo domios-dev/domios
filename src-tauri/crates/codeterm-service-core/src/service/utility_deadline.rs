@@ -235,7 +235,7 @@ fn remove_deadline(tab_id: &str, armed: &mut HashMap<String, Armed>) -> Result<(
     Ok(())
 }
 
-fn arm(
+pub fn arm(
     service: &ServiceContext,
     deadline: Deadline,
     armed: &mut HashMap<String, Armed>,

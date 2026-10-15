@@ -419,7 +419,7 @@ impl MessageGateway {
         }
     }
 
-    pub(crate) fn require_worker_report(&self, tab_id: &str) {
+    pub fn require_worker_report(&self, tab_id: &str) {
         self.worker_report_required
             .lock()
             .insert(tab_id.to_string());

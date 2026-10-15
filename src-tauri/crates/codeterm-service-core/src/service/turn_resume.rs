@@ -307,7 +307,7 @@ fn settle_deadline(
 static WAVE: std::sync::OnceLock<Wave> = std::sync::OnceLock::new();
 
 /// Arm this start's wave after unconditional tab restore.
-pub(crate) fn arm(svc: &ServiceContext) {
+pub fn arm(svc: &ServiceContext) {
     let Some(start_epoch) = crate::crash::lifecycle::current_start_epoch() else {
         return;
     };

@@ -14,7 +14,7 @@ use crate::service::plan::PlanStore;
 
 /// Marks the refusal class so a wrong-task report stays distinguishable from the
 /// neighbouring nonce and epoch refusals in logs and in the delivered report.
-pub(crate) const STALE_TASK_HINT_REFUSAL: &str = "STALE TASK BINDING";
+pub const STALE_TASK_HINT_REFUSAL: &str = "STALE TASK BINDING";
 
 /// The same typed-refusal family, one step further down the path: the task write
 /// was refused, and live resolution then named no recipient either. A stale plan

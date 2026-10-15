@@ -361,7 +361,7 @@ pub(crate) fn startup_starter_prompt_for_class(
         .flatten()
 }
 
-pub(crate) fn startup_starter_prompt(
+pub fn startup_starter_prompt(
     supervised: bool,
     task_bound: bool,
 ) -> Option<crate::agent::provider::StarterPrompt> {

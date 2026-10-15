@@ -64,10 +64,10 @@ pub(crate) struct PlanLifecyclePreview {
 pub struct PlanLifecycleOutcome {
     pub(crate) kind: PlanLifecycleKind,
     pub(crate) plan_id: String,
-    pub(crate) applied: bool,
+    pub applied: bool,
     pub(crate) mode: PlanMode,
-    pub(crate) stride_id: Option<String>,
-    pub(crate) operation: Option<PlanPauseOperation>,
+    pub stride_id: Option<String>,
+    pub operation: Option<PlanPauseOperation>,
 }
 
 fn non_empty(value: Option<&str>) -> Option<&str> {

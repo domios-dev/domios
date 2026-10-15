@@ -68,7 +68,7 @@ pub(crate) fn validate_spawn_cwd(cwd: Option<&str>) -> Result<(), CwdRefusal> {
     })
 }
 
-pub(crate) fn cwd_problem(cwd: &str) -> Option<String> {
+pub fn cwd_problem(cwd: &str) -> Option<String> {
     inspect_cwd(cwd).err().map(|(_, problem)| problem)
 }
 

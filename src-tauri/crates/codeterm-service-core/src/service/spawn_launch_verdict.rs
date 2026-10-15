@@ -12,7 +12,7 @@ mod tests;
 
 /// Bounded below the 30 s forward deadline of a relayed or loopback-HTTP caller,
 /// so a live launch still in progress is never reported as a transport failure.
-pub(crate) const SPAWN_LAUNCH_VERDICT_DEADLINE: Duration = Duration::from_secs(20);
+pub const SPAWN_LAUNCH_VERDICT_DEADLINE: Duration = Duration::from_secs(20);
 const OUTPUT_TAIL_LINES: usize = 20;
 const OUTPUT_TAIL_BYTES: usize = 2048;
 
@@ -30,7 +30,7 @@ pub enum SpawnLaunchVerdict {
 }
 
 impl SpawnLaunchVerdict {
-    pub(crate) fn launch_state(&self) -> &'static str {
+    pub fn launch_state(&self) -> &'static str {
         match self {
             Self::Ready => "ready",
             Self::Starting { .. } => "starting",
@@ -49,7 +49,7 @@ impl SpawnLaunchVerdict {
     }
 
     /// The spawn's own warning followed by this verdict's, as one response field.
-    pub(crate) fn merged_warning(
+    pub fn merged_warning(
         &self,
         tab_id: &str,
         spawn_warning: Option<&str>,
@@ -73,7 +73,7 @@ pub struct SpawnLaunchFailure {
 impl SpawnLaunchFailure {
     pub(crate) const CODE: &'static str = "launch_failed";
 
-    pub(crate) fn message(&self) -> String {
+    pub fn message(&self) -> String {
         let mut message = format!(
             "agent launch failed in Tab {}: {}",
             self.tab_id, self.reason
@@ -85,7 +85,7 @@ impl SpawnLaunchFailure {
         message
     }
 
-    pub(crate) fn data(&self) -> serde_json::Value {
+    pub fn data(&self) -> serde_json::Value {
         serde_json::json!({
             "type": Self::CODE,
             "tab_id": self.tab_id,

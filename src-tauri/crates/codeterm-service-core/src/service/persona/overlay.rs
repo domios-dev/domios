@@ -335,7 +335,7 @@ static AMBIENT: std::sync::LazyLock<RwLock<Arc<OverlayCatalog>>> =
 
 /// The installed catalog. Empty until the service loads one, so unit tests and
 /// fixtures never depend on the developer's home directory.
-pub(crate) fn ambient() -> Arc<OverlayCatalog> {
+pub fn ambient() -> Arc<OverlayCatalog> {
     AMBIENT.read().clone()
 }
 
@@ -346,6 +346,6 @@ pub(crate) fn install(catalog: OverlayCatalog) -> Arc<OverlayCatalog> {
 }
 
 /// Re-read the overlay directory. Adding a leaf kind needs this, never a build.
-pub(crate) fn reload() -> Arc<OverlayCatalog> {
+pub fn reload() -> Arc<OverlayCatalog> {
     install(OverlayCatalog::load(&overlay_dir()))
 }
