@@ -5,16 +5,14 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "../../helpers/fixtures";
-import { isStubTransportActive } from "../../helpers/stub-gate";
-import { STUB_ENV_ABSENT_SKIP, stubEnvActive } from "../../helpers/perf-seed";
+import { pinHeadsToStub, requireStubbedProvider, STUB_PIN_PROVIDER, type StubbedProvider } from "../../helpers/stub-pin";
 import { ApiClient, type Tab } from "../../helpers/api-client";
 import { PlanRegistry } from "../../helpers/plan-cleanup";
 
 const TEST_WS_PREFIX = "pw-picker";
-// The provider the stub-gate probe proves is replayed; every spawn case pins it on every head.
-const STUB_PROVIDER = "claude";
+// Every spawn case pins this provider on every head.
+const STUB_PROVIDER = STUB_PIN_PROVIDER;
 
 const NEW_SESSION_CHOICE_STORAGE_KEY = "codeterm:new-session-choice";
 
@@ -369,52 +367,24 @@ async function cleanupWorkspace(api: ApiClient, wsId: string | undefined): Promi
 test.describe("new-session picker", () => {
   // Spawn-flow tests run on the stub transport; picker UI plumbing is
   // provider-independent, so golden carries no live-LLM cost here.
-  // Fails, never skips: plain Playwright must not launch a live provider. Checks run in
-  // launch-free order, so the probe spawn only happens once claude is proven replayable.
-  async function requireStub(api: ApiClient): Promise<PickerProvider> {
-    if (!stubEnvActive()) throw new Error(`picker spawn cases ${STUB_ENV_ABSENT_SKIP}`);
-    const only = (process.env.CODETERM_STUB_AGENT_PROVIDERS ?? "").trim();
-    if (only && !only.split(",").some((id) => id.trim().toLowerCase() === STUB_PROVIDER)) {
-      throw new Error(`CODETERM_STUB_AGENT_PROVIDERS="${only}" leaves ${STUB_PROVIDER} unstubbed; it would launch live`);
-    }
-    const stub = (await api.get<PickerProvider[]>("/agents/providers")).find((p) => p.id === STUB_PROVIDER);
-    if (!stub) throw new Error(`/agents/providers does not list the stub provider ${STUB_PROVIDER}`);
-    // The replayer wraps PTY launches only; a runtime-capable provider bypasses it.
-    if (stub.transport !== "pty" || stub.agent_runtime !== undefined) {
-      throw new Error(
-        `${STUB_PROVIDER} would launch outside the PTY replayer (transport=${stub.transport}, agent_runtime=${JSON.stringify(stub.agent_runtime)})`,
-      );
-    }
-    if (!(await isStubTransportActive(api))) {
-      throw new Error(`CODETERM_STUB_AGENT_CMD is set but the daemon did not replay ${STUB_PROVIDER}; refusing a live launch`);
-    }
-    return stub;
+  async function requireStub(api: ApiClient): Promise<StubbedProvider> {
+    return requireStubbedProvider(api, STUB_PROVIDER);
   }
 
-  /** Selects the stub provider on every head through the picker's own dropdowns. */
-  async function pinStubProvider(page: Page, stub: PickerProvider, heads: Locator[]): Promise<void> {
-    for (const trigger of heads) {
-      await expect(trigger, "provider catalogue must load before a head can be pinned").not.toHaveAttribute("data-value", "", { timeout: 15_000 });
-      await trigger.click();
-      const option = page.getByRole("menuitem", { name: stub.display_name ?? STUB_PROVIDER, exact: true });
-      await expect(option, `${STUB_PROVIDER} must be installed and selectable`).toBeEnabled({ timeout: 5_000 });
-      await option.click();
-      await expect(trigger, `head must launch the stubbed ${STUB_PROVIDER}`).toHaveAttribute("data-value", STUB_PROVIDER);
-    }
-  }
-
-  async function pinPairToStub(page: Page, stub: PickerProvider): Promise<void> {
+  async function pinPairToStub(page: Page, stub: StubbedProvider): Promise<void> {
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
-    await pinStubProvider(page, stub, [
-      dropdown(page, "picker-provider-orchestrator"),
-      dropdown(page, "picker-provider-planner"),
+    await pinHeadsToStub(page, stub, [
+      { kind: "menu", trigger: dropdown(page, "picker-provider-orchestrator") },
+      { kind: "menu", trigger: dropdown(page, "picker-provider-planner") },
     ]);
   }
 
-  async function pinSingleToStub(page: Page, stub: PickerProvider): Promise<void> {
+  async function pinSingleToStub(page: Page, stub: StubbedProvider): Promise<void> {
     await page.locator('[data-testid="picker-mode-single"]').click();
     const picker = page.locator('[data-testid="new-session-picker"]');
-    await pinStubProvider(page, stub, [picker.getByRole("button", { name: "Agent provider", exact: true })]);
+    await pinHeadsToStub(page, stub, [
+      { kind: "menu", trigger: picker.getByRole("button", { name: "Agent provider", exact: true }) },
+    ]);
   }
 
   function expectStubLaunch(tab: MuxTab): void {
