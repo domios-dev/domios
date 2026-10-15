@@ -17,8 +17,6 @@ if (process.argv[2] === 'cleanup') {
       if (fs.statSync(target).isFile() && fs.statSync(target).size === 0) fs.unlinkSync(target);
     }
   }
-} else if (process.argv[2] === 'runtime') {
-  fs.mkdirSync('dist', { recursive: true });
 } else {
   fs.mkdirSync('dist', { recursive: true });
   fs.mkdirSync(bundles[0], { recursive: true });
