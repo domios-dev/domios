@@ -18,7 +18,7 @@ pub(crate) fn complete_screen(input: &str) -> bool {
         && screen(input) == super::screen_tail(input)
 }
 
-pub(crate) fn value(input: &Value) -> Value {
+pub fn value(input: &Value) -> Value {
     match input {
         Value::String(s) => Value::String(text(s)),
         Value::Array(items) => Value::Array(items.iter().map(value).collect()),

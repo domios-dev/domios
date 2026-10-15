@@ -16,7 +16,7 @@ pub struct QuestionAnswer {
 }
 
 impl QuestionAnswer {
-    pub(crate) fn new(name: &str, question: &str, answer: &str) -> Self {
+    pub fn new(name: &str, question: &str, answer: &str) -> Self {
         Self {
             name: scrub(name, MAX_NAME_CHARS),
             question: scrub(question, MAX_QUESTION_CHARS),
@@ -64,7 +64,7 @@ pub(super) fn project(value: &Value) -> Option<Vec<QuestionAnswer>> {
     (!questions.is_empty()).then_some(questions)
 }
 
-pub(crate) enum ActivityContext {
+pub enum ActivityContext {
     Rerank {
         query: String,
         titles: Vec<String>,

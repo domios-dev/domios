@@ -51,7 +51,7 @@ pub(crate) use observer::{prepare_observation, spawn_observer};
 pub(crate) fn forget_observations(tab: &str) {
     admission::forget(tab);
 }
-pub(crate) use privacy::value as redact_decision_diagnostic;
+pub use privacy::value as redact_decision_diagnostic;
 pub use privacy::{screen as redact_screen, text as redact_text};
 mod questions;
 pub(crate) mod safe_choice;

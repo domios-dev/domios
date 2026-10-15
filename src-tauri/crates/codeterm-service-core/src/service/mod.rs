@@ -50,7 +50,7 @@ pub mod hook_session_binding;
 pub mod inject_verify;
 pub mod input_parser;
 pub mod input_transport;
-pub(crate) mod instance_env;
+pub mod instance_env;
 pub mod integration_silence;
 pub mod kpi_hooks;
 pub mod lane_clean;
