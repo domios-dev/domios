@@ -1097,6 +1097,7 @@ dependencies = [
  "codeterm-commands",
  "codeterm-decision",
  "codeterm-mem",
+ "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-socket",
  "codeterm-types",
@@ -1190,6 +1191,7 @@ dependencies = [
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-pty",
+ "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-storage",
  "codeterm-types",
@@ -1720,6 +1722,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-sentinel-host"
+version = "1.14.9-dev.6"
+dependencies = [
+ "chrono",
+ "codeterm-analytics",
+ "codeterm-blueprint-types",
+ "codeterm-cron",
+ "codeterm-decision",
+ "codeterm-events",
+ "codeterm-plugin",
+ "codeterm-pty",
+ "codeterm-sentinel",
+ "codeterm-service-core",
+ "codeterm-shutdown",
+ "codeterm-storage",
+ "codeterm-types",
+ "codeterm-util",
+ "cron",
+ "log",
+ "parking_lot",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "codeterm-service-core"
 version = "1.14.9-dev.6"
 dependencies = [
@@ -1862,6 +1896,7 @@ dependencies = [
  "codeterm-plan",
  "codeterm-plugin",
  "codeterm-sentinel",
+ "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-types",
  "codeterm-util",
