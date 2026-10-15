@@ -40,6 +40,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `script-guards` | guard | bash | pr | no | no | 120 | single | `./build.sh script-guards` | `.agents/skills/build/SKILL.md` |
 | `test-catalogue` | guard | js | pr | no | no | 60 | single | `node scripts/test-catalogue.mjs validate` | `tests/README.md` |
 | `rust-agent-model` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-agent-model` | `.agents/skills/gates/SKILL.md` |
+| `rust-provider-ops` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-provider-ops` | `.agents/skills/gates/SKILL.md` |
 | `rust-prompts` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-prompts` | `.agents/skills/gates/SKILL.md` |
 | `rust-supporter` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-supporter` | `.agents/skills/gates/SKILL.md` |
 | `rust-recall` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-recall` | `.agents/skills/gates/SKILL.md` |

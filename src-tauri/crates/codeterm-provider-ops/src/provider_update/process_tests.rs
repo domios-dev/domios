@@ -91,7 +91,7 @@ fn provider_update_resume_failure_is_an_error_and_owned_child_is_reaped() {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let mut tree = crate::service::provider_update::ProcessTree::prepare(&mut command).unwrap();
+    let mut tree = crate::provider_update::ProcessTree::prepare(&mut command).unwrap();
     let mut child = command.spawn().unwrap();
     tree.record_spawn(&child).unwrap();
     let evidence = codeterm_util::process_util::diagnostics::snapshot(&child);

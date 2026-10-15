@@ -1758,6 +1758,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-provider-ops"
+version = "0.0.0"
+dependencies = [
+ "codeterm-agent-model",
+ "codeterm-plugin",
+ "codeterm-supporter",
+ "codeterm-types",
+ "codeterm-util",
+ "dirs 6.0.0",
+ "libc",
+ "log",
+ "notify",
+ "parking_lot",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "codeterm-provider-signals"
 version = "1.6.2"
 dependencies = [
@@ -1952,6 +1974,7 @@ dependencies = [
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-prompts",
+ "codeterm-provider-ops",
  "codeterm-provider-signals",
  "codeterm-pty",
  "codeterm-recall",
@@ -2099,7 +2122,6 @@ name = "codeterm-supporter"
 version = "0.0.0"
 dependencies = [
  "chrono",
- "codeterm-agent-model",
  "codeterm-decision",
  "codeterm-mem",
  "codeterm-notification-core",
@@ -2108,7 +2130,6 @@ dependencies = [
  "codeterm-types",
  "codeterm-util",
  "codeterm-worker-services",
- "libc",
  "log",
  "parking_lot",
  "regex",
@@ -2118,7 +2139,6 @@ dependencies = [
  "tempfile",
  "toml 0.8.2",
  "uuid",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
