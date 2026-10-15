@@ -152,26 +152,6 @@ impl Handle {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-pub fn fixture_handle(store: Store, app: codeterm_host_runtime::app_runtime::AppHandle) -> Handle {
-    fixture_handle_with_ui(store, Arc::new(HostEvents(app)))
-}
-
-#[cfg(any(test, feature = "test-support"))]
-struct HostEvents(codeterm_host_runtime::app_runtime::AppHandle);
-
-#[cfg(any(test, feature = "test-support"))]
-impl codeterm_service_core::ports::host::UiEvents for HostEvents {
-    fn emit(&self, event: &str, payload: serde_json::Value) {
-        codeterm_host_runtime::events::emit_everywhere(&self.0, event, payload);
-    }
-
-    fn emit_to(&self, target: &str, event: &str, payload: serde_json::Value) {
-        use tauri::Emitter;
-        let _ = self.0.emit_to(target, event, payload);
-    }
-}
-
-#[cfg(any(test, feature = "test-support"))]
 pub fn fixture_handle_with_ui(
     store: Store,
     ui: Arc<dyn codeterm_service_core::ports::host::UiEvents>,
