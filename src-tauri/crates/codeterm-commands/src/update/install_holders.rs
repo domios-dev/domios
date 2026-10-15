@@ -4,7 +4,7 @@ mod model;
 mod windows;
 
 pub(super) async fn check_before_shutdown(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), String> {
     #[cfg(windows)]
     {

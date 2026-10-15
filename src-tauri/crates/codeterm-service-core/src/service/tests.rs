@@ -374,7 +374,6 @@ fn confirmed_delivery_cleanup_is_scoped_to_its_exact_attempt() {
     use crate::multiplexer::types::{DeliveryAttemptProvenance, PendingDeliveryChannel};
     use crate::service::test_fixture::ServiceFixture;
     use crate::session::SessionStore;
-    use tauri::Manager;
 
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -382,7 +381,7 @@ fn confirmed_delivery_cleanup_is_scoped_to_its_exact_attempt() {
         SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
     ));
     assert!(fixture.service.set_ext(session.clone()).is_ok());
-    fixture._app.manage(session);
+
     fixture
         .service
         .create_pending_delivery(&tab_id, PendingDeliveryChannel::FallbackBootstrap, "brief")
@@ -436,7 +435,6 @@ fn unproven_delivery_attempt_is_never_cleanup_wildcard() {
     use crate::multiplexer::types::PendingDeliveryChannel;
     use crate::service::test_fixture::ServiceFixture;
     use crate::session::SessionStore;
-    use tauri::Manager;
 
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -444,7 +442,7 @@ fn unproven_delivery_attempt_is_never_cleanup_wildcard() {
         SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
     ));
     assert!(fixture.service.set_ext(session.clone()).is_ok());
-    fixture._app.manage(session);
+
     fixture
         .service
         .create_pending_delivery(&tab_id, PendingDeliveryChannel::FallbackBootstrap, "brief")

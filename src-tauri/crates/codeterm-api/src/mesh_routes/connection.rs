@@ -502,11 +502,10 @@ pub async fn mesh_connect_peer(
     let result = manual::connect_from_body(state.mesh.clone(), instance_id, &body)
         .await
         .map_err(rest_connect_error)?;
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     Ok(Json(result.as_json()))
 }
 
@@ -539,21 +538,17 @@ pub async fn mesh_approve_peer(
         .to_string();
 
     use crate::mesh_routes::pairing::{do_approve, ApproveError};
-    do_approve(
-        state.mesh.clone(),
-        state.svc.app_handle.clone(),
-        request_id.clone(),
-    )
-    .await
-    .map_err(|e| {
-        let status = match &e {
-            ApproveError::NotFound => StatusCode::NOT_FOUND,
-            ApproveError::Expired => StatusCode::GONE,
-            ApproveError::NoKeypair => StatusCode::INTERNAL_SERVER_ERROR,
-            ApproveError::Network(_) | ApproveError::Rejected(_) => StatusCode::BAD_GATEWAY,
-        };
-        (status, e.to_string())
-    })?;
+    do_approve(state.mesh.clone(), state.svc.ui.clone(), request_id.clone())
+        .await
+        .map_err(|e| {
+            let status = match &e {
+                ApproveError::NotFound => StatusCode::NOT_FOUND,
+                ApproveError::Expired => StatusCode::GONE,
+                ApproveError::NoKeypair => StatusCode::INTERNAL_SERVER_ERROR,
+                ApproveError::Network(_) | ApproveError::Rejected(_) => StatusCode::BAD_GATEWAY,
+            };
+            (status, e.to_string())
+        })?;
     log::info!("[mesh/api] Pairing approved for request {}", request_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -574,11 +569,10 @@ pub async fn mesh_reject_peer(
     reject_pending_request_http(&mut mesh, &request_id)?;
     drop(mesh);
 
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -622,11 +616,10 @@ pub async fn mesh_disconnect_peer(
 
     state.mesh.lock().unpair(&instance_id);
 
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     log::info!("[mesh/api] Disconnected from {}", instance_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }

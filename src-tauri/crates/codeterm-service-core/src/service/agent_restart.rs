@@ -586,14 +586,7 @@ impl ServiceContext {
         let svc = Arc::new(self.clone());
         let pty = self.pty.clone();
         let screen_state = self.screen_state.clone();
-        let app = self.app_handle.clone();
-        let config = {
-            use tauri::Manager;
-            self.app_handle
-                .state::<crate::config::ConfigState>()
-                .inner()
-                .clone()
-        };
+        let config = self.ext::<crate::config::ConfigState>().clone();
         std::thread::spawn(move || {
             crate::service::general_agent::restart_general_agent_with_force(
                 &svc,
@@ -601,7 +594,6 @@ impl ServiceContext {
                 &pty,
                 &screen_state,
                 &config,
-                &app,
                 force,
             );
         });
@@ -650,10 +642,8 @@ impl ServiceContext {
             return None;
         }
         let provider = tab.agent_type.clone().or_else(|| {
-            use tauri::Manager;
             Some(
-                self.app_handle
-                    .state::<crate::config::ConfigState>()
+                self.ext::<crate::config::ConfigState>()
                     .lock()
                     .general_agent
                     .agent_provider

@@ -69,6 +69,7 @@ fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> Cor
 
 #[derive(Clone)]
 pub struct AppState {
+    pub app: codeterm_host_runtime::app_runtime::AppHandle,
     pub svc: codeterm_service_core::service::ServiceState,
     pub cron: codeterm_service_core::CronState,
     pub cron_wake: codeterm_service_core::CronWake,
@@ -1056,7 +1057,7 @@ pub(super) fn create_router_with_preview_admission(
 pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Router {
     let frontend_origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
         &state.config.lock().api,
-        state.svc.app_handle.config().build.dev_url.as_ref(),
+        state.app.config().build.dev_url.as_ref(),
     );
     let router = router.layer(middleware::from_fn_with_state(
         state.clone(),

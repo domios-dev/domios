@@ -322,7 +322,6 @@ pub(crate) fn recover(
                     &service.pty,
                     &service.screen_state,
                     config,
-                    &service.app_handle,
                 );
             }
             true

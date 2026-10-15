@@ -10,9 +10,10 @@ workspace = true
 name = "codeterm_orchestration"
 
 [features]
-test-support = ["codeterm-service-core/test-support"]
+test-support = ["codeterm-host-runtime/test-support", "codeterm-service-core/test-support"]
 
 [dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-analytics = { path = "../codeterm-analytics" }
 codeterm-events = { path = "../codeterm-events" }
@@ -27,5 +28,6 @@ parking_lot = "0.12"
 tempfile = "3"
 
 [dev-dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime", features = ["test-support"] }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-sentinel = { path = "../codeterm-sentinel", features = ["test-support"] }

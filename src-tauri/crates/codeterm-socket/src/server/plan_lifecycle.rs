@@ -1,4 +1,3 @@
-use codeterm_service_core::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::AgentRef;
@@ -14,7 +13,6 @@ pub(super) fn handles(method: &str) -> bool {
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let store = &svc.plan_store;
@@ -65,7 +63,7 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             svc.reconcile_time_reminder_eligibility();
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             let mut resp = json!({ "ok": true });
             if let Some(plan) = store.get(&id) {
                 let outcome =
@@ -82,7 +80,7 @@ pub(super) fn dispatch(
                     codeterm_service_core::service::plan::lane_cleanup::LaneCleanupOutcome::Cleaned
                         | codeterm_service_core::service::plan::lane_cleanup::LaneCleanupOutcome::Partial(_)
                 ) {
-                    emit_plan_changed(app, &id);
+                    emit_plan_changed(svc, &id);
                 }
             }
             // Re-read so hints reflect any cleanup that just ran.
@@ -131,12 +129,8 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_service_core::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 fn push_hints(value: &mut Value, hints: Vec<String>) {

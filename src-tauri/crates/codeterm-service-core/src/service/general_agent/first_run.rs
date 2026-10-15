@@ -1,6 +1,5 @@
 //! First-run General Agent provider picker — tab marker + completion flow.
 
-use crate::app_runtime::AppHandle;
 use crate::multiplexer::types::TabType;
 
 use super::workspace::{default_chat_view_for_provider, ensure_general_workspace};
@@ -132,7 +131,6 @@ fn close_first_run_tabs(
 pub fn complete_first_run_core(
     svc: &crate::ServiceState,
     config: &crate::config::ConfigState,
-    app: &AppHandle,
     provider_id: &str,
     full_access: bool,
 ) -> Result<(), String> {
@@ -180,14 +178,13 @@ pub fn complete_first_run_core(
     let provider_owned = provider_id.to_string();
     let config = config.clone();
     let svc = svc.clone();
-    let app = app.clone();
     std::thread::spawn(move || {
         if let Err(error) = super::instructions::ensure_bootstrap_instructions() {
             log::error!("[general-agent] Failed to write bootstrap instructions: {error}");
         }
         let capability_hints = config.lock().general_agent.capability_hints;
         generate_instructions(capability_hints, &provider_owned, Some(&mem));
-        start_general_agent(&svc, &mux, &pty, &screen_state, &config, &app);
+        start_general_agent(&svc, &mux, &pty, &screen_state, &config);
     });
     Ok(())
 }

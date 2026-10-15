@@ -120,6 +120,8 @@ fn required() -> Vec<(TypeId, &'static str)> {
         WorkerIdentityAllocator,
     };
     vec![
+        key::<crate::config::ConfigState>(),
+        key::<crate::MeshStateHandle>(),
         key::<LaunchTaskFiles>(),
         key::<WorkspaceRelocationLock>(),
         key::<AccountCell>(),

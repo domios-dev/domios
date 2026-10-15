@@ -1,5 +1,3 @@
-use tauri::Manager;
-
 use codeterm_service_core::multiplexer::types::TabCloseReason;
 use codeterm_service_core::service::ServiceContext;
 
@@ -26,9 +24,9 @@ pub(super) async fn prepare_storage_team_teardown(
     caller: &TeamMutationCaller,
 ) -> Result<(PreparedTeamClose, Option<PreparedStorageTeamTeardown>), String> {
     let Some(storage) = svc
-        .app_handle
-        .try_state::<codeterm_service_core::storage::Storage>()
-        .map(|state| state.inner().clone())
+        .try_ext::<codeterm_service_core::startup::StorageAuthority>()
+        .and_then(|authority| authority.storage())
+        .cloned()
     else {
         let mux = svc.mux.read();
         return Ok((super::prepare_team_close(&mux, team_id, caller)?, None));
@@ -44,22 +42,16 @@ pub(super) async fn prepare_storage_team_teardown(
         .get(team_id)
         .ok_or_else(|| format!("Team {team_id} has no committed desk row"))?;
     let cron = svc
-        .app_handle
-        .try_state::<codeterm_service_core::CronState>()
+        .try_ext::<codeterm_service_core::CronState>()
         .ok_or("CronState not registered")?
-        .inner()
         .clone();
     let wake = svc
-        .app_handle
-        .try_state::<codeterm_service_core::CronWake>()
+        .try_ext::<codeterm_service_core::CronWake>()
         .ok_or("CronWake not registered")?
-        .inner()
         .clone();
     let sentinel = svc
-        .app_handle
-        .try_state::<codeterm_service_core::ports::sentinel::SentinelPorts>()
+        .try_ext::<codeterm_service_core::ports::sentinel::SentinelPorts>()
         .ok_or("Sentinel ports not registered")?
-        .inner()
         .clone();
     let (prepared, teardown) = {
         let mux = svc.mux.read();

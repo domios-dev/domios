@@ -173,7 +173,7 @@ pub async fn install_update(
                 "message": "An update is already being applied."
             })));
         };
-        let app = state.svc.app_handle.clone();
+        let app = state.app.clone();
         let (channel, install_method) = {
             let us = state.update_state.lock();
             (us.channel, us.install_method.clone())
@@ -437,7 +437,7 @@ pub async fn availability(
         query.map_err(|error| availability_error(StatusCode::BAD_REQUEST, error.to_string()))?;
     availability_response(
         codeterm_commands::update::discovery::check(
-            &state.svc.app_handle,
+            &state.svc.ui,
             &state.update_state,
             bundles.map(|b| b.0),
             q.force.unwrap_or(false),
