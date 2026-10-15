@@ -1818,6 +1818,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-recall"
+version = "0.0.0"
+dependencies = [
+ "codeterm-agent-model",
+ "codeterm-config",
+ "codeterm-decision",
+ "codeterm-mem",
+ "codeterm-paths",
+ "codeterm-plan",
+ "codeterm-supporter",
+ "codeterm-types",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "codeterm-repowatch"
 version = "0.1.0"
 dependencies = [
@@ -1958,6 +1977,7 @@ dependencies = [
  "codeterm-provider-ops",
  "codeterm-provider-signals",
  "codeterm-pty",
+ "codeterm-recall",
  "codeterm-repowatch",
  "codeterm-secrets",
  "codeterm-sentinel",

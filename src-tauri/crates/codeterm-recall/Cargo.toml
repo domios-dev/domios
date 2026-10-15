@@ -1,0 +1,28 @@
+[package]
+name = "codeterm-recall"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+codeterm-agent-model = { path = "../codeterm-agent-model" }
+codeterm-config = { path = "../codeterm-config" }
+codeterm-decision = { path = "../codeterm-decision" }
+codeterm-mem = { path = "../codeterm-mem", default-features = false }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-plan = { path = "../codeterm-plan" }
+codeterm-supporter = { path = "../codeterm-supporter" }
+codeterm-types = { path = "../codeterm-types" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+[dev-dependencies]
+codeterm-decision = { path = "../codeterm-decision", features = ["decision-fixture-clock"] }
+parking_lot = "0.12"
+tempfile = "3"
+
+[features]
+test-support = []

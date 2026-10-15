@@ -7,6 +7,36 @@ const hosts = new Set([
   "codeterm-service-core", "codeterm-api", "codeterm-commands",
   "codeterm-orchestration", "codeterm-sentinel-host", "codeterm-socket",
 ]);
+const leafTiers = [
+  [],
+  ["events", "config", "secrets", "keepawake", "cron", "shutdown", "prompts", "local-preview", "worker-services", "lanes"],
+  ["sentinel"],
+  ["agent-model"],
+  ["supporter"],
+  ["provider-ops", "recall"],
+];
+const tierByCrate = new Map(leafTiers.flatMap((names, tier) => names.map((name) => [`codeterm-${name}`, tier])));
+// Unlisted foundation crates are tier zero; extracted leaves must never become their dependencies.
+const tierFor = (name) => tierByCrate.get(name) ?? 0;
+
+function cargoDependencies(text) {
+  const dependencies = [];
+  for (const section of text.replace(/#.*$/gm, "").split(/\r?\n(?=\s*\[)/)) {
+    const table = /^\s*\[([^\n]+)\]\s*\r?\n([\s\S]*)/.exec(section);
+    if (!table) continue;
+    const dependencyTable = /(?:^|\.)(?:dependencies|dev-dependencies|build-dependencies)(?:\.["']?([\w-]+)["']?)?$/.exec(table[1]);
+    if (!dependencyTable) continue;
+    const packageName = (body, fallback) => /\bpackage\s*=\s*["']([^"']+)["']/.exec(body)?.[1] ?? fallback;
+    if (dependencyTable[1]) {
+      dependencies.push(packageName(table[2], dependencyTable[1]));
+    } else {
+      for (const entry of table[2].matchAll(/^\s*["']?([\w-]+)["']?\s*=\s*(\{[^}]*\}|[^\n]*)/gm)) {
+        dependencies.push(packageName(entry[2], entry[1]));
+      }
+    }
+  }
+  return dependencies;
+}
 const knownTauriViolations = new Map(
   (process.env.CODETERM_LAYERING_KNOWN_TAURI ?? "").split(/\s+/).filter(Boolean).map((entry) => entry.split(":")),
 );
@@ -30,6 +60,11 @@ for (const base of ["src-tauri/crates", "crates"]) {
     const crate = path.join(directory, entry.name);
     const manifest = path.join(crate, "Cargo.toml");
     if (!fs.existsSync(manifest)) continue;
+    for (const dependency of cargoDependencies(fs.readFileSync(manifest, "utf8"))) {
+      if (tierFor(dependency) > tierFor(entry.name)) {
+        violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: leaf tier inversion: ${entry.name} (tier ${tierFor(entry.name)}) -> ${dependency} (tier ${tierFor(dependency)})`);
+      }
+    }
     const files = [manifest, path.join(crate, "build.rs"), ...sources(path.join(crate, "src")), ...sources(path.join(crate, "tests"))];
     for (const file of files.filter((file) => fs.existsSync(file))) {
       const isManifest = file === manifest;

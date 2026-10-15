@@ -1,18 +1,19 @@
 pub mod agent;
-pub use codeterm_config as config;
-pub use codeterm_plugin as plugin;
-pub use codeterm_pty::{multiplexer, session};
-pub mod chatbackend {
-    pub use codeterm_plugin::chatbackend_provider::*;
-}
+pub(crate) use codeterm_config as config;
+#[cfg(test)]
+pub(crate) use codeterm_plugin as plugin;
+#[cfg(test)]
+pub(crate) use codeterm_plugin::chatbackend_provider as chatbackend;
+pub(crate) use codeterm_pty::{multiplexer, session};
 pub mod cron;
 pub mod restore_report;
 pub mod storage;
-pub use codeterm_paths as paths;
-pub use codeterm_util::{persisted_state, process_util};
-pub mod plan {
-    pub use codeterm_plan::plan::*;
-}
+pub(crate) use codeterm_paths as paths;
+pub(crate) use codeterm_plan::plan;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use codeterm_util::persisted_state;
+#[cfg(test)]
+pub(crate) use codeterm_util::process_util;
 mod message_kind;
 pub use message_kind::MessageKind;
 #[cfg(any(test, feature = "test-support"))]
