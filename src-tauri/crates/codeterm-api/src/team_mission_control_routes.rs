@@ -30,7 +30,7 @@ impl TeamMissionControlQuery {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub(crate) struct TeamMissionControlEvent {
+pub struct TeamMissionControlEvent {
     pub id: String,
     pub plan_id: String,
     pub plan_title: String,
