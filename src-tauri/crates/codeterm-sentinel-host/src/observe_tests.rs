@@ -344,9 +344,7 @@ fn sentinel_observe_source_scan_has_no_pty_writer() {
 
     let root = codeterm_service_core::test_support::fixture_manifest_dir();
     let mut sources = Vec::new();
-    for directory in ["src/sentinel", "src/service/sentinel"] {
-        read_sources(&root.join(directory), &mut sources);
-    }
+    read_sources(&root.join("src"), &mut sources);
     let writers = [
         ["write_bound_prompt", "_steps"].concat(),
         ["pty", ".lock().", "write"].concat(),
@@ -361,7 +359,7 @@ fn sentinel_observe_source_scan_has_no_pty_writer() {
                 path.display()
             );
         }
-        let allowed_shell_sends = usize::from(path == root.join("src/sentinel/routes.rs"));
+        let allowed_shell_sends = usize::from(path == root.join("src/routes.rs"));
         assert_eq!(
             source.matches(&shell_send).count(),
             allowed_shell_sends,
