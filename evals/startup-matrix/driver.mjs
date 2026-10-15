@@ -6,8 +6,10 @@ import { EventEmitter, once } from 'node:events';
 import { setInterval as sampleEvery } from 'node:timers/promises';
 import { client, Events, root } from '../core-journeys/lib/env.mjs';
 import { listenerIdentity } from '../core-journeys/lib/listener.mjs';
+import { focusedPaneScript } from '../core-journeys/lib/cdp.mjs';
+import { retainedSendReceipt } from '../restart-endurance/send-receipt.mjs';
 import { chatMessages, replyVerdict, newAssistantText } from '../core-journeys/lib/oracle.mjs';
-import { inventory, matrix, lockSites, render, evaluateSla } from './model.mjs';
+import { inventory, matrix, lockSites, render, evaluateSla, replyWindow, remainingDeadline } from './model.mjs';
 
 const args = process.argv.slice(2);
 const option = (flag, fallback) => args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
@@ -15,8 +17,10 @@ const out = resolve(option('--out', join(root, 'target-check/evals/startup-matri
 const expected = option('--expect-build', '3b7bf7ea2');
 const deadlineMs = 120_000;
 const resume = option('--resume', null);
-const previous = resume ? JSON.parse(readFileSync(join(resolve(resume), 'results.json'))) : null;
-if (previous?.tabs.some(t => t.send_at != null)) throw new Error('Resume refused: the prior run already attempted prompts');
+const attach = option('--attach', null);
+const priorDir = attach ?? resume;
+const previous = priorDir ? JSON.parse(readFileSync(join(resolve(priorDir), 'results.json'))) : null;
+if (!attach && previous?.tabs.some(t => t.send_at != null)) throw new Error('Resume refused: the prior run already attempted prompts');
 if (Number(process.env.CODETERM_API_PORT) !== 7686 || !process.env.CODETERM_DEV_DATA_DIR)
   throw new Error('Use run.sh: requires dev_run connection pinned to 7686');
 const dev = { url: 'http://127.0.0.1:7686', port: 7686, token: process.env.CODETERM_API_TOKEN };
@@ -111,22 +115,23 @@ async function connect(health) {
 async function select(t) {
   await selectWorkspace(t);
   const group = tabGroup(t);
-  let button = group.getByRole('button', { name: /^(Open tab |General Agent)/ }).first();
+  const button = tabButton(t);
+  if (!await button.count()) throw new Error(`No accessible activation button for ${t.title}`);
   const at = Date.now();
   if (await button.isEnabled()) await button.click();
   else if (!await page.getByRole('region', { name: `Tab chat: ${t.title}`, exact: true }).isVisible())
     throw new Error('Tab activation is disabled and its own chat is not visible');
-  await page.waitForFunction(id => {
-    const panes = [...document.querySelectorAll('[data-tab-id]')];
-    return panes.some(e => e.getAttribute('data-tab-id') === id && e.getAttribute('data-testid') !== 'tab-item' &&
-      e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0);
-  }, t.id, { timeout: 15_000, polling: 'mutation' });
-  return { at, render_ms: Date.now() - at, sidebar: await group.ariaSnapshot().catch(() => button.ariaSnapshot()) };
+  await page.evaluate(focusedPaneScript(t.id, 15_000));
+  return { at, render_ms: Date.now() - at, sidebar: await (await group.count() ? group.first() : button).ariaSnapshot() };
 }
-const escaped = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function tabGroup(t) {
   const group = page.getByRole('group', { name: t.role_profile === 'general_agent' ? 'General Agent' : t.title, exact: true });
-  return t.role_profile === 'general_agent' ? group.filter({ hasText: new RegExp(`\\b${escaped(t.title)}\\b`) }) : group;
+  return t.role_profile === 'general_agent' ? group.filter({ hasText: t.title }) : group;
+}
+function tabButton(t) {
+  return t.role_profile === 'general_agent'
+    ? page.getByRole('button', { name: 'General Agent', exact: true }).filter({ hasText: t.title }).last()
+    : tabGroup(t).getByRole('button', { name: new RegExp('^Open tab ') }).first();
 }
 async function selectWorkspace(t) {
   if (t.workspace !== 'General')
@@ -135,7 +140,9 @@ async function selectWorkspace(t) {
 async function marker(t) {
   await selectWorkspace(t);
   const groups = tabGroup(t);
-  return groups.count().then(n => n ? groups.first().ariaSnapshot() : 'No accessible tab group');
+  if (await groups.count()) return groups.first().ariaSnapshot();
+  const button = tabButton(t);
+  return await button.count() ? button.ariaSnapshot() : 'No accessible tab activation button';
 }
 function stageFor(id, since) {
   return captured.find(e => e.received_at >= since && e.event_type === 'tab-boot-stage' &&
@@ -156,36 +163,42 @@ async function reply(t, signal, send, baseline) {
     const [chat, record] = await Promise.all([api(`/api/tabs/${t.id}/chat`, { signal }), tabRecord(t.id, signal)]);
     return { chat, record };
   }, value => {
-    if (t.first_reply_ms == null && newAssistantText(chatMessages(value.chat), baselineIds).length)
+    const messages = chatMessages(value.chat);
+    const window = replyWindow(messages, t.prompt);
+    if (!window) return false;
+    t.user_turn_evidence = { id: window.user.id, session: value.record?.agent_session_id };
+    const following = window.following;
+    if (t.first_reply_ms == null && newAssistantText(following, baselineIds).length)
       t.first_reply_ms = Date.now() - at;
-    const verdict = replyVerdict({ messages: chatMessages(value.chat), baselineIds, marker: 'PONG',
+    const verdict = replyVerdict({ messages: following, baselineIds, marker: 'PONG',
       record: value.record, boundSession: record.agent_session_id });
     if (verdict.fail) throw new Error(verdict.fail);
     return Boolean(verdict.done);
   }, signal, 'PONG transcript');
-  const file = `transcript-${t.id}.json`; saveJson(file, { baseline_ids: [...baselineIds], session_before: record.agent_session_id, ...outcome });
+  const file = `transcript-${t.id}.json`; saveJson(file, { prompt: t.prompt, baseline_ids: [...baselineIds], session_before: record.agent_session_id, ...outcome });
   t.completed_ms = Date.now() - at; t.reply_ms = t.first_reply_ms; t.reply_ok = true; t.reply_evidence = file;
 }
 async function main() {
-  const before = previous?.before_health ?? await api('/api/health');
+  const before = attach ? await api('/api/health') : previous?.before_health ?? await api('/api/health');
   if (!resume && !before.build_sha?.startsWith(expected) && !before.build?.startsWith(expected)) throw new Error(`Wrong build ${before.build}`);
   result.build = before.build_sha ?? before.build;
-  result.before_health = before; result.before_listener = previous?.before_listener ?? listenerIdentity(7686);
+  result.before_health = before;
+  result.before_listener = attach ? previous.restart.after : previous?.before_listener ?? listenerIdentity(7686);
   const state = resume ? JSON.parse(readFileSync(join(resolve(resume), 'before-state.json'))) : await currentState();
   saveJson('before-state.json', state);
   const rows = inventory(state, result.started_at);
   result.inventory = rows;
   result.tabs = matrix(rows).map(t => ({ ...t, role_profile: state.tabs[t.id].role_profile, notes: [], reply_ok: false, observed: 'not measured', ready_ms: null, reply_ms: null }));
-  if (!resume) {
+  if (!priorDir) {
     await connect(before);
     for (const t of result.tabs) t.before_sidebar = await marker(t).catch(e => `unavailable: ${e.message}`);
   } else {
-    result.resumed_from = resolve(resume);
+    result.resumed_from = resolve(priorDir);
     for (const t of result.tabs) t.before_sidebar = previous.tabs.find(p => p.id === t.id)?.before_sidebar;
   }
   save(); console.log(`ARMED ${out}`);
   // The Orchestrator owns restart. Log writes are observation cues, never proof of a restart.
-  const newHealth = await waitFor(() => api('/api/health', { signal: AbortSignal.timeout(5000) }).catch(() => null),
+  const newHealth = attach ? before : await waitFor(() => api('/api/health', { signal: AbortSignal.timeout(5000) }).catch(() => null),
     h => h?.boot_id && h.boot_id !== before.boot_id, AbortSignal.timeout(deadlineMs), 'new boot', 'log');
   result.restart = { before: result.before_listener, after: listenerIdentity(7686), health: newHealth };
   result.restart.verified = result.restart.before.pid !== result.restart.after.pid &&
@@ -202,6 +215,7 @@ async function main() {
   writeFileSync(join(out, 'dev.log'), bootLog);
   events = await new ReplayEvents(dev, new AbortController().signal).open(newHealth.boot_id);
   await browser?.close(); await connect(newHealth);
+  writeFileSync(join(out, 'accessibility.txt'), await page.locator('body').ariaSnapshot());
   const bootState = await currentState(); saveJson('boot-state.json', bootState);
   result.boot_snapshot_at = Date.now();
   for (const t of result.tabs) {
@@ -212,23 +226,36 @@ async function main() {
   save();
   const awake = result.tabs.filter(t => t.policy === 'awake');
   const bootPending = awake.map(async t => {
-    try { const r = await ready(t, bootAt, AbortSignal.timeout(Math.max(1, deadlineMs - (Date.now() - bootAt)))); t.ready_ms = r.ms; t.ready_event = r.event; }
+    try { const r = await ready(t, bootAt, AbortSignal.timeout(remainingDeadline(Date.now(), bootAt, deadlineMs))); t.ready_ms = r.ms; t.ready_event = r.event; }
     catch (error) { t.notes.push(`boot readiness failed: ${error.message}`); }
   });
   const frozen = result.tabs.filter(t => t.boot?.frozen);
-  const agentWake = [...frozen].sort((a, b) => a.title.localeCompare(b.title)).find(t => t.backing !== 'chat_backend') ?? frozen[0];
+  const attempted = new Map(attach ? previous.tabs.filter(t => t.send_at != null).map(t => [t.id, t]) : []);
+  const agentWake = [...frozen].sort((a, b) => a.title.localeCompare(b.title)).find(t => t.backing !== 'chat_backend' && !attempted.has(t.id)) ?? frozen.find(t => !attempted.has(t.id));
   const pending = [...bootPending];
   const ordered = [...result.tabs].sort((a, b) => Number(b.backing === 'chat_backend') - Number(a.backing === 'chat_backend') || a.title.localeCompare(b.title));
   for (const t of ordered) {
     let started = Date.now();
+    t.prompt = `Reply with the single word PONG. Do not run tools. Probe ${result.started_at.toString(36)}:${t.id}.`;
     console.log(`PROBE ${t.title} ${t.id} ${t.observed}`);
     t.wake_method = t === agentWake ? 'agent-send' : t.boot?.frozen ? 'sidebar-open' : 'already-awake';
     try {
+      if (attempted.has(t.id)) {
+        t.carried_send = attempted.get(t.id).send;
+        t.notes.push('Prior attempted send preserved across crash; no new payload or replay');
+        t.click = await select(t);
+        if (t.boot?.frozen) pending.push(ready(t, started, AbortSignal.timeout(deadlineMs)).then(r => {
+          t.wake_ms = r.ms; t.wake_event = r.event;
+        }).catch(e => t.notes.push(`wake failed: ${e.message}`)).finally(save));
+        t.screenshot = await screenshot(t.id);
+        continue;
+      }
       if (t === agentWake) {
         const signal = AbortSignal.timeout(deadlineMs);
         const task = reply(t, signal, async () => {
-          const receipt = await cli(['send', '--tab', t.id, '--require-agent', '--stdin', '--json'], 'Reply with the single word PONG. Do not run tools.');
-          if (receipt.code) t.notes.push(`dc send exit ${receipt.code}`);
+          const receipt = await cli(['send', '--tab', t.id, '--require-agent', '--stdin', '--json'], t.prompt);
+          receipt.retained = retainedSendReceipt(receipt.code, receipt.stdout);
+          if (receipt.code && !receipt.retained) t.notes.push(`dc send exit ${receipt.code}`);
           return receipt;
         });
         pending.push(task.then(async () => {
@@ -236,7 +263,9 @@ async function main() {
         }).catch(async error => { t.notes.push(`agent wake/reply failed: ${error.message}`); t.screenshot = await screenshot(t.id); }).finally(save));
         continue;
       }
-      const baseline = await api(`/api/tabs/${t.id}/chat`);
+      const baseline = await api(`/api/tabs/${t.id}/chat`).catch(error => {
+        t.baseline_error = error.message; return [];
+      });
       started = Date.now();
       t.click = await select(t);
       const signal = AbortSignal.timeout(deadlineMs);
@@ -256,14 +285,15 @@ async function main() {
             if (t.backing === 'chat_backend') {
               const existing = await composer.inputValue();
               if (existing) throw new Error('Owner has a composer draft; preserved');
-              await composer.fill('Reply with the single word PONG. Do not run tools.');
+              await composer.fill(t.prompt);
               t.accepting_ms = Date.now() - (t.click.at + t.click.render_ms);
               t.boot_accepting_upper_bound_ms = Date.now() - bootAt;
               await composer.press('Enter');
               sent.accept(); return { method: 'composer-enter' };
             }
-            const receipt = await cli(['send', '--tab', t.id, '--require-agent', '--stdin', '--json'], 'Reply with the single word PONG. Do not run tools.');
-            if (receipt.code) t.notes.push(`Send refused or unconfirmed: exit ${receipt.code}`);
+            const receipt = await cli(['send', '--tab', t.id, '--require-agent', '--stdin', '--json'], t.prompt);
+            receipt.retained = retainedSendReceipt(receipt.code, receipt.stdout);
+            if (receipt.code && !receipt.retained) t.notes.push(`Send refused or unconfirmed: exit ${receipt.code}`);
             sent.accept(); return receipt;
           } catch (error) { sent.reject(error); throw error; }
         }, baseline);
@@ -276,14 +306,15 @@ async function main() {
   }
   await Promise.all(pending);
   if (captured.some(e => e.event_type === 'overflow')) result.failures.push('SSE replay/stream gap; see overflow frames in events.jsonl');
-  const finalState = await currentState();
+  const finalState = await currentState().catch(error => {
+    result.failures.push(`Final state unavailable: ${error.message}`); return { tabs: {} };
+  });
   result.final_state = 'final-state.json'; saveJson(result.final_state, finalState);
   for (const t of result.tabs) {
     const final = finalState.tabs[t.id];
     t.final = final;
     t.observed += ` → ${final?.frozen ? 'still frozen' : final?.boot_stage ?? 'absent'}`;
     if (final?.boot_failure_reason) t.notes.push(final.boot_failure_reason);
-    if (t.wake_ms != null) t.notes.push(`Wake agent_ready after ${t.wake_ms} ms via ${t.wake_method}`);
     if (t.policy === 'awake' && t.ready_ms == null) t.notes.push('No boot agent_ready event within 120 s');
     t.started = t.ready_ms != null || t.wake_event != null;
     t.sla = evaluateSla(t);
