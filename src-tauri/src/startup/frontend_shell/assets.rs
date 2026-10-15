@@ -37,7 +37,7 @@ impl DevelopmentAssets {
     }
 }
 
-impl tauri::Assets<crate::app_runtime::Runtime> for DevelopmentAssets {
+impl tauri::Assets<codeterm_service_core::app_runtime::Runtime> for DevelopmentAssets {
     fn get(&self, key: &AssetKey) -> Option<Cow<'_, [u8]>> {
         self.files
             .get(key)

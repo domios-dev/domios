@@ -35,7 +35,7 @@ fn frontend_shell_contract_uses_only_loopback_http_origins() {
 
 #[test]
 fn frontend_shell_contract_refuses_missing_credentials_or_disabled_listener() {
-    let mut config = crate::config::schema::ApiConfig::default();
+    let mut config = codeterm_service_core::config::schema::ApiConfig::default();
     config.enabled = true;
     config.token = None;
     assert!(bootstrap(&config).is_err());
@@ -133,7 +133,7 @@ fn frontend_shell_contract_limits_native_permissions_to_the_exact_frontend_origi
 
 #[test]
 fn frontend_shell_contract_cors_origins_match_declared_navigation_origins() {
-    let mut config = crate::config::schema::ApiConfig::default();
+    let mut config = codeterm_service_core::config::schema::ApiConfig::default();
     config.port = 7690;
     let dev = Url::parse("http://127.0.0.1:1463/").unwrap();
     let origins = declared_frontend_origins(&config, Some(&dev));

@@ -36,6 +36,7 @@ pub trait Shell: Send + Sync {
     fn focus_window(&self, label: &str) -> Result<(), ShellError>;
     fn window_exists(&self, label: &str) -> bool;
     fn os_notify(&self, title: &str, body: Option<&str>) -> Result<(), ShellError>;
+    fn toast_permission(&self, enabling: Option<bool>) -> String;
     fn open_webview(&self, request: WebviewRequest) -> Result<(), ShellError>;
     fn current_exe(&self) -> Result<PathBuf, ShellError>;
     fn config_dir(&self) -> Result<PathBuf, ShellError>;
@@ -54,6 +55,10 @@ impl Shell for NoShell {
 
     fn os_notify(&self, _: &str, _: Option<&str>) -> Result<(), ShellError> {
         Err(ShellError::Unavailable)
+    }
+
+    fn toast_permission(&self, _: Option<bool>) -> String {
+        "unknown".to_string()
     }
 
     fn open_webview(&self, _: WebviewRequest) -> Result<(), ShellError> {

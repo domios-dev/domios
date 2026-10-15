@@ -100,8 +100,16 @@ impl Shell for TauriShell {
     }
 
     fn os_notify(&self, title: &str, body: Option<&str>) -> Result<(), ShellError> {
-        codeterm_service_core::notification::os_notify::_send_os_notification(&self.0, title, body);
+        crate::os_notify::_send_os_notification(&self.0, title, body);
         Ok(())
+    }
+
+    fn toast_permission(&self, enabling: Option<bool>) -> String {
+        match enabling {
+            Some(enabling) => crate::os_notify::establish_toast_permission(&self.0, enabling),
+            None => crate::os_notify::toast_permission(&self.0),
+        }
+        .to_string()
     }
 
     fn open_webview(&self, request: WebviewRequest) -> Result<(), ShellError> {

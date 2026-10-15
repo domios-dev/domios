@@ -532,11 +532,7 @@ impl ServiceContext {
                     NotificationAdmission::Explicit,
                     &self.notif,
                     |title, body| {
-                        crate::notification::os_notify::_send_os_notification(
-                            &self.app_handle,
-                            title,
-                            body,
-                        )
+                        let _ = self.shell.os_notify(title, body);
                     },
                     title,
                     body,

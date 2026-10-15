@@ -1,5 +1,5 @@
 use super::{RestApiPhase, RestApiStatus};
-use url::{Host, Url};
+use url::Url;
 
 pub(super) fn external_link(url: &Url, origin: Option<&str>) -> Option<Url> {
     if !matches!(url.scheme(), "http" | "https" | "mailto")
@@ -13,31 +13,7 @@ pub(super) fn external_link(url: &Url, origin: Option<&str>) -> Option<Url> {
     Some(url.clone())
 }
 
-pub(super) fn development_frontend(
-    debug: bool,
-    dev_url: Option<&Url>,
-) -> Result<Option<Url>, String> {
-    if !debug {
-        return Ok(None);
-    }
-    let Some(url) = dev_url else {
-        return Ok(None);
-    };
-    let loopback = match url.host() {
-        Some(Host::Ipv4(ip)) => ip.is_loopback(),
-        Some(Host::Ipv6(ip)) => ip.is_loopback(),
-        Some(Host::Domain(host)) => host == "localhost",
-        None => false,
-    };
-    if !loopback
-        || !matches!(url.scheme(), "http" | "https")
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return Err("Development frontend must use a loopback HTTP origin".into());
-    }
-    Ok(Some(url.clone()))
-}
+pub(super) use codeterm_service_core::startup::frontend_shell_development_frontend as development_frontend;
 
 #[derive(Clone, Copy)]
 pub(super) struct BootObservation {

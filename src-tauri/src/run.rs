@@ -1,6 +1,7 @@
 use crate::startup;
+use crate::{crash, keepawake};
 use codeterm_service_core::service::ServiceState;
-use codeterm_service_core::{agent, bridge, crash, keepawake, mem, plugin, pty, service};
+use codeterm_service_core::{agent, bridge, mem, plugin, pty, service};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tauri::Manager;
