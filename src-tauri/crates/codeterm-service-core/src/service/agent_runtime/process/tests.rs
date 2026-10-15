@@ -77,7 +77,7 @@ async fn own_tab_environment_reaches_the_child_and_its_shell_commands() {
     process.finish().await.unwrap();
 }
 #[tokio::test]
-async fn child_exit_reports_status_and_stderr_and_pipe_drop_is_not_success() {
+async fn child_exit_reports_status_and_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let process = spawn(
         Path::new("node"),
@@ -109,6 +109,13 @@ async fn child_exit_reports_status_and_stderr_and_pipe_drop_is_not_success() {
     assert!(
         matches!(&*ended.borrow(),Some(RuntimeFailure::ProcessExited{code:Some(23),stderr,..}) if stderr=="opaque fixture stderr")
     );
+}
+
+// A live Node process on Windows keeps its stdout pipe open after closing fd 1, so the fixture cannot drop it.
+#[cfg(unix)]
+#[tokio::test]
+async fn pipe_drop_from_a_live_peer_is_not_success() {
+    let dir = tempfile::tempdir().unwrap();
     let process = spawn(
         Path::new("node"),
         &capability(),
