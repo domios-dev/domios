@@ -1,5 +1,9 @@
 use super::provider::AgentProvider;
-pub use codeterm_agent_model::agent::registry::*;
+pub use codeterm_agent_model::agent::registry::{
+    ProviderStartupStatus, SessionMatchMode, SessionSearchError, SessionSearchHit,
+    SessionSearchOpts, SessionSearchResult, SessionSearchWarning, SessionSkipReason,
+    SessionSnippet, DEFAULT_SESSION_FILE_BYTE_CAP, PROVIDER_STARTUP_WAIT,
+};
 use std::sync::Arc;
 type ModelRegistry = codeterm_agent_model::agent::registry::AgentRegistry;
 
@@ -25,11 +29,5 @@ impl AgentRegistry {
     }
     pub fn native_fallback(&self, id: &str) -> Option<Arc<dyn AgentProvider>> {
         self.0.native_fallback(id)
-    }
-}
-
-impl codeterm_agent_detect::classify_input::StatusBarRowsSource for AgentRegistry {
-    fn status_bar_rows_for(&self, agent_type: &str) -> Option<u16> {
-        self.try_status_bar_rows(agent_type)
     }
 }
