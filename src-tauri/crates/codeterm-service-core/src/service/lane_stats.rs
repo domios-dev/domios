@@ -26,7 +26,7 @@ struct LaneAttemptTarget {
 }
 
 #[derive(Debug)]
-enum CaptureFailure {
+pub enum CaptureFailure {
     Deadline,
     Git(String),
 }

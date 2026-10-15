@@ -223,7 +223,7 @@ fn slot_text(slot: Slot, preset: &RolePreset) -> String {
 /// Where an occasion's text came from — the resolved preset, the occasion's
 /// declared fallback, or nowhere because the pair contributes nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Emission {
+pub enum Emission {
     Preset,
     Fallback,
     Silent,

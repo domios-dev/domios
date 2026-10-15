@@ -50,7 +50,7 @@ pub(crate) struct PresetFragment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RolePreset {
+pub struct RolePreset {
     /// Structural role the kind resolved under. Occasions select rows by this
     /// and by kind id, never by a wire literal.
     pub role: AgentRole,

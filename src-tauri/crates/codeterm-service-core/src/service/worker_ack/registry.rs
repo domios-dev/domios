@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver};
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct WorkerAckIdentity {
+pub struct WorkerAckIdentity {
     pub(crate) plan_id: String,
     pub(crate) task_id: String,
     pub(crate) attempt_id: String,
