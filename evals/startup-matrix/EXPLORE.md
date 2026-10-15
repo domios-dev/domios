@@ -39,9 +39,9 @@ an API response, or an unviewed file.
   ID, provider/backing, frozen flag, last activity, and expected startup policy.
   Include General, recent tabs, untouched sleeping tabs, and every Endure fresh
   and used provider fixture. Reconcile visited IDs against this inventory at end.
-- [ ] Preserve owner drafts, active tasks, and pending deliveries. In particular,
-  carry aiderF's held send evidence without resending it or sending another probe
-  over it. Record that unresolved delivery as a finding. Do not type PONG prose
+- [ ] Send new uniquely identified probes to DEV tabs even when an older probe
+  remains unresolved; include Aider and OpenCode in every sweep. Reconcile each
+  token independently and never count an older reply for a new probe. Do not type PONG prose
   into shells or answer provider permission/login prompts automatically.
 
 Each step gets a sequence number, action and time, tab/workspace ID, screenshot
@@ -162,7 +162,7 @@ must not have its default-DEV refusal bypassed.
   conclusions from one provider: Claude, Grok, Aider, OpenCode, Codex Chat and
   plain shells, with at least one fresh and one used fixture of each. Inventory
   missing fixtures/providers explicitly; never substitute a Codex result for PTY
-  proof. Preserve existing unresolved inputs and do not resend a prior probe.
+  proof. Retain every unresolved receipt while sending a new unique probe.
   Add a per-provider table to the report with both fixture IDs, restored/fresh
   session provenance, boot-to-ready, immediate input acceptance, own-session
   reply evidence and cold/warm history results. Shells use unique-token echoes
@@ -185,6 +185,13 @@ must not have its default-DEV refusal bypassed.
   Also compare `finish_tree_done` → `finish_restore_done`; derived restore
   observations must not serialize unrelated launch transitions. After deferring
   that work, verify the report still settles from real lifecycle changes.
+- [ ] Compare transport admission under a mixed restore load: PTY and chat/RPC
+  use separate bounded budgets. Hold one transport busy and verify the other
+  progresses; open or address a queued tab and verify its own wake starts
+  independently of the boot wave. Preserve the per-tab materialization claim.
+  Save the configured activity window and join queued IDs to General membership
+  and pre-action activity; outside General, unknown or older-than-48-hour tabs
+  must remain asleep until explicitly opened or addressed.
 
 - [ ] Before measuring, require a successful focused repair gate when applicable,
   the exact committed build in health, and startup beyond service state
@@ -206,13 +213,16 @@ must not have its default-DEV refusal bypassed.
 - [ ] After the individual walkthrough, run one bounded simultaneous-send wave
   across eligible idle agents without waiting for each reply before sending
   the next. Give every message a fresh run/tab/sequence token. Preserve drafts,
-  active tasks and unresolved sends; list exclusions rather than overwriting them.
+  prior probe receipts; use preserved IDs only as an explicit opt-in. Pin sidebar and
+  composer controls to exact tab IDs, since titles can repeat across retained
+  panes. Keep each new probe's token and receipt in its own evidence window.
 - [ ] Exercise immediate input before first readiness, addressing an untouched
   sleeping fixture, input while switching, and a short ordered burst in an
   isolated fixture. Record every attempted token and its held/written/delivered
   or failed state. Require one own-session user turn per token, ordered new
-  replies, no duplicate bubbles and no replay after bind/restart. A written or
-  uncertain payload is never resent. Capture unresolved and failed states.
+  replies, no duplicate bubbles and no product replay after bind/restart.
+  Testers may submit another unique probe; Domios must never automatically replay
+  a written payload. Capture each unresolved and failed state independently.
 - [ ] For each shell without active work, submit one harmless unique-token echo
   in its actual shell syntax and capture/view its output. Never send agent prose
   to a shell. Inspect non-agent surfaces through their intended visible controls.
@@ -245,3 +255,20 @@ uncovered case. Never inject a fake event as live proof.
   turn and subsequent assistant content. Report an answered probe with extra
   text as a format failure, separately from non-delivery or a missing answer;
   retain the strict oracle result and never resend to correct formatting.
+
+## Defects locked by fast tests
+
+When these tests pass, skip repeating the long diagnostic drill for the same
+defect. Keep the short integrated provider sweep: a unit test cannot measure an
+external CLI's startup or prove native UI wiring.
+
+| Fixed defect | Regression coverage |
+|---|---|
+| Retained journal repeatedly compacted without new growth | locked by test opening_retained_history_allows_growth_before_automatic_compaction and automatic_compaction_rechecks_growth_and_preserves_uncovered_records |
+| Derived restore observations blocked lifecycle progress | locked by test requests_coalesce_without_waiting_and_keep_changes_during_an_observation |
+| Chat restores consumed the PTY admission budget | locked by test bounded_transports_progress_independently_without_starving_queued_tabs |
+| Opening a pending restored chat did not bypass boot admission | locked by test explicit_chat_wake_bypasses_pending_boot_restore |
+
+Run the existing tests in each changed area alongside its regression test.
+A new defect adds its fast oracle here and in the run report; retain any executed
+red-before/green-after evidence instead of claiming it from source inspection.
