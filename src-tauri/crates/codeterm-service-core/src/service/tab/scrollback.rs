@@ -105,7 +105,7 @@ mod tests {
         assert!(!tab.scrollback_seed_pending);
         let buffer = fixture.service.output_buf.lock();
         let replay = crate::session::scrollback_restore::shell_scrollback_replay(tail);
-        assert_eq!(buffer.get(&pty_id), Some(replay.as_slice()));
+        assert_eq!(buffer.copy(&pty_id).as_deref(), Some(replay.as_slice()));
         assert_eq!(
             buffer.read_since(&pty_id, 0),
             (replay.clone(), replay.len() as u64)
@@ -142,7 +142,7 @@ mod tests {
             .unwrap();
         assert!(!tab.scrollback_seed_pending);
         let buffer = fixture.service.output_buf.lock();
-        assert!(buffer.get_full(&pty_id).unwrap().starts_with(tail));
+        assert!(buffer.copy_full(&pty_id).unwrap().starts_with(tail));
         drop(buffer);
         fixture.service.kill_ptys(&[pty_id]);
     }
@@ -205,9 +205,9 @@ mod tests {
         buffer.append(&pty_id, frame);
         let mut expected = replay.to_vec();
         expected.extend_from_slice(frame);
-        assert_eq!(buffer.get_full(&pty_id), Some(expected.as_slice()));
+        assert_eq!(buffer.copy_full(&pty_id), Some(expected.clone()));
         let mut parser = vt100::Parser::new(6, 80, 256);
-        parser.process(buffer.get_full(&pty_id).unwrap());
+        parser.process(&buffer.copy_full(&pty_id).unwrap());
         assert_eq!(
             parser.screen().rows(0, 80).collect::<Vec<_>>(),
             ["new frame", "", "", "", "", "composer> "]

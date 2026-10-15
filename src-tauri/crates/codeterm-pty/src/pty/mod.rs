@@ -6,6 +6,7 @@ pub mod child_env;
 mod child_exit;
 pub mod login_shell;
 pub mod manager;
+mod output_buffer;
 pub mod screen_state;
 pub mod scrollback_capture;
 pub mod shell_integration;

@@ -516,3 +516,51 @@ fn every_split_of_a_box_drawing_line_decodes_without_replacement() {
         );
     }
 }
+
+#[test]
+fn limited_reads_preserve_emit_plans_at_every_utf8_boundary() {
+    let mut buffer = OutputBuffer::new(16);
+    let data = "a€😀z".repeat(PER_TAB_SWEEP_CAP / 3);
+    buffer.append("p", data.as_bytes());
+    let total = buffer.total_written("p");
+    let mut offset = 0;
+    while offset < total {
+        let (whole, end) = buffer.read_since("p", offset);
+        let expected = plan_emit(offset, &whole, end, PER_TAB_SWEEP_CAP);
+        let chunk = buffer.read_since_limited("p", offset, PER_TAB_SWEEP_CAP);
+        let actual = plan_emit_limited(offset, &chunk);
+        assert_eq!(actual, expected);
+        assert!(actual.new_offset > offset);
+        offset = actual.new_offset;
+    }
+    buffer.append("p", &[0xf0, 0x9f]);
+    let chunk = buffer.read_since_limited("p", offset, PER_TAB_SWEEP_CAP);
+    let waiting = plan_emit_limited(offset, &chunk);
+    assert!(waiting.output.is_empty());
+    assert_eq!(waiting.new_offset, offset);
+    buffer.append("p", &[0x98, 0x80]);
+    let chunk = buffer.read_since_limited("p", offset, PER_TAB_SWEEP_CAP);
+    assert_eq!(plan_emit_limited(offset, &chunk).output, "😀".as_bytes());
+}
+
+#[test]
+fn limited_reads_preserve_malformed_boundary_and_truncation_plans() {
+    let mut buffer = OutputBuffer::new(16);
+    let mut bytes = vec![b'x'; 2 * 1024 * 1024 + 13];
+    for boundary in [PER_TAB_SWEEP_CAP, 2 * PER_TAB_SWEEP_CAP] {
+        bytes[13 + boundary] = 0x80;
+        bytes[13 + boundary - 1] = b'a';
+    }
+    buffer.append("p", &bytes);
+    let mut offset = 0;
+    while offset < buffer.total_written("p") {
+        let (whole, total) = buffer.read_since("p", offset);
+        let expected = plan_emit(offset, &whole, total, PER_TAB_SWEEP_CAP);
+        let chunk = buffer.read_since_limited("p", offset, PER_TAB_SWEEP_CAP);
+        assert!(chunk.bytes.len() <= PER_TAB_SWEEP_CAP);
+        let actual = plan_emit_limited(offset, &chunk);
+        assert_eq!(actual, expected);
+        assert!(actual.new_offset > offset);
+        offset = actual.new_offset;
+    }
+}

@@ -906,9 +906,9 @@ impl ServiceContext {
         let ob = self.output_buf.clone();
         let pid = pty_id.to_string();
         let _ = tokio::time::timeout(tokio::time::Duration::from_secs(timeout_secs), async move {
-            let start_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
+            let start_len = ob.lock().len(&pid);
             loop {
-                let cur_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
+                let cur_len = ob.lock().len(&pid);
                 if cur_len > start_len + min_bytes {
                     return;
                 }
