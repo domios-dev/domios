@@ -11,15 +11,19 @@
 //! Parent is responsible for restarting the child when memory grows past
 //! a threshold (or after N requests).
 
+#[cfg(feature = "embeddings")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "embeddings")]
 use std::io::{BufRead, BufReader, Write};
 
+#[cfg(feature = "embeddings")]
 #[derive(Deserialize)]
 struct Request {
     id: String,
     text: String,
 }
 
+#[cfg(feature = "embeddings")]
 #[derive(Serialize)]
 struct Response {
     id: String,
@@ -29,7 +33,7 @@ struct Response {
     error: Option<String>,
 }
 
-#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+#[cfg(all(feature = "embeddings", target_os = "macos", target_arch = "x86_64"))]
 fn ensure_ort_dylib() {
     if std::env::var_os("ORT_DYLIB_PATH").is_some() {
         return;
@@ -61,7 +65,10 @@ fn ensure_ort_dylib() {
     );
 }
 
-#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+#[cfg(all(
+    feature = "embeddings",
+    not(all(target_os = "macos", target_arch = "x86_64"))
+))]
 fn ensure_ort_dylib() {}
 
 #[cfg(feature = "embeddings")]

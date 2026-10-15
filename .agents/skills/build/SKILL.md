@@ -922,7 +922,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 33 -->
+<!-- revision: 34 -->
 
 ### Lane and batch scopes
 
@@ -972,3 +972,5 @@ Build setup (`source build.sh env`, also used by `lane-check`) exports `CARGO_BU
 GC maps the shared directory through Cargo metadata and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
 
 | Dedicated CI mode fails at catalogue inventory with ENOENT on the Windows stable drive root | Git reports the physical checkout while discovery compared it to a subst alias, then tried walking the drive root. | Catalogue discovery resolves the root with `realpathSync.native` before Git identity and file enumeration. Verify the temporary-subst regression with `node --test scripts/tests/test-catalogue.test.mjs`, then run the dedicated CI mode under the normal gateway alias. |
+
+Product check-queue Clippy disables Cargo defaults and explicitly enables the selected root/core/mem package product features. This keeps embeddings enabled while avoiding the extra synthetic `default` feature marker that direct core selection otherwise adds. Ordinary tests still disable defaults without product features. The embedding-worker imports, protocol types and ORT setup are feature-gated so shell test targets compile without embeddings under denied warnings.
