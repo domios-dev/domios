@@ -4,9 +4,9 @@ use crate::session::lifecycle::AgentTypeWriteOrigin;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderIdentityEvidence {
     pub cwd: Option<String>,
-    pub(crate) session_id: Option<String>,
-    pub(crate) configured_nonce: Option<String>,
-    pub(crate) reported_nonce: Option<String>,
+    pub session_id: Option<String>,
+    pub configured_nonce: Option<String>,
+    pub reported_nonce: Option<String>,
 }
 
 impl ProviderIdentityEvidence {

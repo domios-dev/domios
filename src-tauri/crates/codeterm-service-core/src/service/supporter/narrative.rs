@@ -9,10 +9,10 @@ pub(crate) const MAX_NAME_CHARS: usize = 64;
 pub(crate) const MAX_QUESTIONS: usize = 64;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct QuestionAnswer {
-    pub(crate) name: String,
-    pub(crate) question: String,
-    pub(crate) answer: String,
+pub struct QuestionAnswer {
+    pub name: String,
+    pub question: String,
+    pub answer: String,
 }
 
 impl QuestionAnswer {
