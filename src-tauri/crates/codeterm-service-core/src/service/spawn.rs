@@ -1076,9 +1076,22 @@ impl ServiceContext {
         cwd: Option<String>,
         env_vars: HashMap<String, String>,
     ) -> Result<String, String> {
+        self.link_hidden_agent_pty_with_builder(tab_id, |gate| {
+            crate::pty::manager::build_session(gate, None, cwd, 120, 40, env_vars)
+        })
+    }
+
+    fn link_hidden_agent_pty_with_builder(
+        &self,
+        tab_id: &str,
+        build: impl FnOnce(
+            crate::pty::manager::PtySpawnGate,
+        ) -> Result<crate::pty::manager::BuiltSession, String>,
+    ) -> Result<String, String> {
         let pty_claim = self.pty_ownership.acquire(tab_id);
-        // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
-        let candidate = self.pty.lock().spawn(None, cwd, 120, 40, env_vars)?.0;
+        let gate = self.pty.lock().spawn_gate();
+        let built = build(gate)?;
+        let candidate = self.pty.lock().register_session(None, built).0;
         super::pty_resize::resize(&self.pty, &self.screen_state, &candidate, None)?;
         let selection = self.link_pty_with_claim(&pty_claim, tab_id, candidate, true);
         if !selection.linked {

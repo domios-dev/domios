@@ -680,10 +680,12 @@ mod tests {
     }
 
     fn spawn_generation(pty: &crate::PtyState, pty_id: &str) -> u64 {
-        let (_, session) = pty
-            .lock()
-            .spawn_with_id(Some(pty_id.to_string()), None, None, 80, 24, HashMap::new())
-            .expect("spawn test PTY");
+        let (_, session) = {
+            let gate = pty.lock().spawn_gate();
+            crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+                .map(|built| pty.lock().register_session(Some(pty_id.to_string()), built))
+        }
+        .expect("spawn test PTY");
         session.generation
     }
 
@@ -860,19 +862,19 @@ mod tests {
         assert_eq!(mux.tab_id_for_pty(ROLE_PTY), Some(tab.clone()));
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let generation = {
-            let (_, session) = fixture
-                .service
-                .pty
-                .lock()
-                .spawn_with_id(
-                    Some(ROLE_PTY.to_string()),
-                    None,
-                    None,
-                    80,
-                    24,
-                    HashMap::new(),
+            let (_, session) = {
+                let gate = fixture.service.pty.lock().spawn_gate();
+                crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new()).map(
+                    |built| {
+                        fixture
+                            .service
+                            .pty
+                            .lock()
+                            .register_session(Some(ROLE_PTY.to_string()), built)
+                    },
                 )
-                .expect("spawn test PTY");
+            }
+            .expect("spawn test PTY");
             session.generation
         };
         assert!(fixture

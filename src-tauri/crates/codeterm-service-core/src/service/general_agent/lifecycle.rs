@@ -740,10 +740,7 @@ fn is_launch_stage(stage: BootStage) -> bool {
 }
 
 fn tab_still_owns_pty(mux: &crate::MuxState, tab_id: &str, pty_id: &str) -> bool {
-    mux.write()
-        .get_tab(tab_id)
-        .and_then(|p| p.pty_id.as_deref())
-        == Some(pty_id)
+    mux.read().get_tab(tab_id).and_then(|p| p.pty_id.as_deref()) == Some(pty_id)
 }
 
 fn terminate_pty_before_relaunch(

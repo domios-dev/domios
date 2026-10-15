@@ -66,11 +66,12 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
             serde_json::from_value(serde_json::to_value(launch).unwrap()).unwrap();
         id
     };
-    let (old_id, old_session) = svc
-        .pty
-        .lock()
-        .spawn(None, None, 80, 24, HashMap::new())
-        .unwrap();
+    let (old_id, old_session) = {
+        let gate = svc.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+            .map(|built| svc.pty.lock().register_session(None, built))
+    }
+    .unwrap();
     let claim = svc.pty_ownership.acquire(&tab_id);
     let first = svc.link_pty_with_claim(&claim, &tab_id, old_id.clone(), true);
     assert!(first.linked);
@@ -99,11 +100,12 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
         "{}",
         resumed.command
     );
-    let (new_id, _) = svc
-        .pty
-        .lock()
-        .spawn(None, None, 80, 24, HashMap::new())
-        .unwrap();
+    let (new_id, _) = {
+        let gate = svc.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+            .map(|built| svc.pty.lock().register_session(None, built))
+    }
+    .unwrap();
     let replacement =
         svc.link_provider_launch_pty(&claim, &tab_id, new_id.clone(), Some(&old_id), true);
     assert!(replacement.linked && replacement.retained_candidate);
