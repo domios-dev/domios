@@ -9,7 +9,7 @@ const hosts = new Set([
 ]);
 const leafTiers = [
   [],
-  ["events", "config", "secrets", "keepawake", "cron", "shutdown", "prompts", "local-preview", "worker-services", "lanes"],
+  ["events", "config", "secrets", "keepawake", "crash", "cron", "shutdown", "prompts", "local-preview", "worker-services", "lanes"],
   ["sentinel"],
   ["agent-model"],
   ["supporter"],
@@ -85,6 +85,7 @@ for (const base of ["src-tauri/crates", "crates"]) {
         const core = isManifest ? /\bcodeterm[-_]service[-_]core\b/ : /\bcodeterm_service_core\b/;
         const tauri = isManifest ? /\btauri(?:[-_]\w+)?\b/ : /\btauri(?:_\w+)?\s*::|\b(?:use|extern\s+crate)\s+tauri\b/;
         const location = `${path.relative(root, file).replaceAll("\\", "/")}:${index + 1}`;
+        if (!isManifest && /\bServiceContext\b/.test(line)) violations.push(`${location}: leaf crate names ServiceContext`);
         if (core.test(line)) violations.push(`${location}: leaf crate names codeterm-service-core`);
         if (tauri.test(line)) {
           seenTauri.add(entry.name);

@@ -25,7 +25,7 @@ fn observe_quit_request() -> usize {
     TERMINATE_NOW
 }
 
-/// Call once from Tauri `setup`, on the main thread, after the delegate exists.
+/// Call once during setup, on the main thread, after the delegate exists.
 pub fn install_quit_hook() {
     // SAFETY: main thread during setup; NSApp and its delegate are live by then.
     unsafe {
