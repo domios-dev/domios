@@ -62,7 +62,7 @@ Orchestrator's canonical wave batch.
 | Goal | Entry point | Touches production? | Read first |
 |---|---|---:|---|
 | Develop and inspect changes | `./build.sh dev` / `.\build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
-| Compile both Rust test profiles (a full rebuild, run in canonical) | `./build.sh check-tests` / `.\build.ps1 check-tests` | No; isolated target, never the build gateway | `.agents/skills/gates/SKILL.md` |
+| Compile both Rust test profiles (a full rebuild, run in canonical) | `./build.sh check-tests` / `.\build.ps1 check-tests` | No; shared Cargo gateway | `.agents/skills/gates/SKILL.md` |
 | Build and test a local production installer | `./build.sh release-preflight`, then `./build.sh build` | Only the explicit self-install step | this section |
 | Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `.agents/skills/github-release/SKILL.md` |
 
@@ -126,8 +126,9 @@ Old records have no cache evidence; `Compiling` alone never proves a cache miss
 or an S3 hit. Check-queue records the requested SHA, selected crate set and
 touched-file count, and preserves its full compiler log beside that job.
 
-Gateway Cargo runs add `cargo::core::compiler::fingerprint=info` to `CARGO_LOG`.
-At completion the fingerprint lines are saved in `jobs/<id>.fingerprint.log`
+Cargo fingerprint tracing is off by default. Set `CODETERM_BUILD_FINGERPRINTS=1`
+for an evidence run: trace lines go directly to `jobs/<id>.fingerprint.log`,
+bypassing the FIFO and tee. The job log prints only bounded dirty-reason counts,
 and compact unit/stale-reason entries enter the job JSON. History shows up to ten
 rebuilt units per job, ranked by observed dirty events; the complete list is in
 JSON. Missing Cargo reasons stay unknown. This counts invalidations, not CPU time.
@@ -298,10 +299,36 @@ The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap 
 
 ## Warm check queue for lanes
 
-`./build.sh check-queue [<sha>] [--max-errors N] [--max-warnings N] [--touched-only] [--all]` gives a Worker compile feedback on a committed lane SHA without a cold lane build. It takes the machine gateway slot (fail-fast, exit 75 when busy, `--wait-build` only when blocking is intended), verifies and publishes the SHA in the single per-machine check worktree `<gateway dir>/check-worktree`, and runs `cargo clippy --all-targets --no-deps --message-format=short -- <scripts/clippy-allow.sh>` with the worktree's own `target/app` and `target/cli`. The same job also runs an app `cargo check --lib` with the dev profile, the manifest's dev/default features (excluding custom-protocol), no test cfg, and the same inherited Rust flags/profile overrides as dev. Both dev launch and this check use `configure_dev_cargo`; errors and warnings share the same log and policy. Packages come from `git diff <merge-base with develop> <sha>`: `src-tauri/crates/<name>` maps to `-p <name>`, `src-tauri/src` to `codeterm`, `cli/` to the CLI manifest; a crate change also checks `codeterm` unless `--touched-only`. Output is the first N `file:line:col: error[...]` lines, an `errors=N shown=M` total (a nonzero Cargo exit with no parsed diagnostic contributes one failure), the first `--max-warnings` (default 40) unique warning lines, `warnings crate=<name> count=N` per warned crate, `warnings=N shown=M failing=<crates|none>`, and the full log path. Any rustc or clippy warning in a touched crate fails the run (exit 1); `--all` checks the whole app workspace plus the CLI and fails on any warning. `./build.sh check` prints the same per-crate warning lines and a `check: warnings=N` total. Crates deny `warnings` through Cargo `[lints]`, so check-queue warnings normally surface as errors. It never builds in canonical or a lane target. The first run on a machine is cold; subsequent runs are incremental.
+`./build.sh check-queue [<sha>] [--max-errors N] [--max-warnings N] [--touched-only] [--all] [--lane]` gives a Worker compile feedback on a committed lane SHA without a cold lane build. It takes the machine gateway slot (fail-fast, exit 75 when busy, `--wait-build` only when blocking is intended), verifies and publishes the SHA in the single per-machine check worktree `<gateway dir>/check-worktree`, and runs `cargo clippy --all-targets --no-deps --message-format=short -- <scripts/clippy-allow.sh>` with the worktree's own `target/app` and `target/cli`. The same job also runs an app `cargo check --lib` with the dev profile, the manifest's dev/default features (excluding custom-protocol), no test cfg, and the same inherited Rust flags/profile overrides as dev. Both dev launch and this check use `configure_dev_cargo`; errors and warnings share the same log and policy. Packages come from `git diff <merge-base with develop> <sha>`: `src-tauri/crates/<name>` maps to `-p <name>`, `src-tauri/src` to `codeterm`, `cli/` to the CLI manifest; a crate change also checks `codeterm` unless `--touched-only`. Output is the first N `file:line:col: error[...]` lines, an `errors=N shown=M` total (a nonzero Cargo exit with no parsed diagnostic contributes one failure), the first `--max-warnings` (default 40) unique warning lines, `warnings crate=<name> count=N` per warned crate, `warnings=N shown=M failing=<crates|none>`, and the full log path. Any rustc or clippy warning in a touched crate fails the run (exit 1); `--all` checks the whole app workspace plus the CLI and fails on any warning. `./build.sh check` prints the same per-crate warning lines and a `check: warnings=N` total. Crates deny `warnings` through Cargo `[lints]`, so check-queue warnings normally surface as errors. It never builds in canonical or a lane target. The first run on a machine is cold; subsequent runs are incremental.
 
 Troubleshooting:
 - Symptom `sccache: incremental compilation is prohibited` from `rustc -vV`: cause an exported `CARGO_INCREMENTAL`; recovery is to leave it unset (the verb unsets it) and let the profile decide.
+
+## Peer build gateways (mesh build farm)
+
+Mesh peers run the same verbs in their own gateway, with their own warm cache and stable build path, so several machines check lanes in parallel instead of queueing on one gateway. Peers and their fetch-only checkouts are listed in `.codeterm/build-machine/peers.json`; a peer marked `"routable": false` (eight, the release builder) is refused until its owner frees it, and `CODETERM_PEERS_ENABLE=eight` enables it for one call. All remote work goes through `codeterm tab new --mesh <peer> --cmd ...`; never ssh by hand, never put a credential in a command, and never touch a machine's runner pause.
+
+| Verb | What happens |
+|---|---|
+| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `rollacode/codeterm` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop`, runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. |
+| `./build.sh check-queue <sha> --peer <name\|auto> [--lane] [--os OS]` | The peer fetches `develop` and the SHA, detaches its checkout at the SHA and runs `./build.sh check-queue <sha> [flags] --wait-build` in its gateway. `--lane`, `--all`, `--touched-only`, `--max-errors` and `--max-warnings` pass through unchanged. |
+| `./build.sh nextest <scope> [filterset] --peer <name\|auto> [--sha SHA]` | Same, running `./build.sh nextest <scope> [filterset] --wait-build` at the SHA (default HEAD). |
+| `./build.sh check-linux [sha] [--force]` | Once per batch: `./build.sh check-workspace <sha>` (`cargo check --workspace --all-targets` for the app workspace and the CLI, any warning fails) on the idle Linux peer, so `cfg(unix)` paths compile. A second call for the same SHA prints the existing receipt; `--force` dispatches again. |
+| `./build.sh peer-route [--os OS]` | Shows what `--peer auto` would choose. |
+
+Dispatch returns at once with `peer-job: id=... peer=... remote-tab=... deadline=...` and writes a record under `<gateway dir>/peer-jobs/`. The SHA must be on a remote-tracking branch (push first). Completion is one message to the calling agent tab (`CODETERM_TAB_ID`, or `--reply-tab`) through `codeterm send --require-agent --mesh <origin instance id>`; nothing polls. The message starts `[peer-job <id>] peer=<peer> verb=<verb> sha=<sha> outcome=passed|failed|busy|deadline exit=N wall=Ns`, then the same summary lines the local verb prints (`errors=`, `warnings=... failing=`, `check-queue: dev-lib ...` and `app-test ...` receipts, `check-queue: sha=...`, nextest `Summary [...] N tests run: ...`, `check-workspace: ...`), up to 12 error or failing-test lines, and `remote-log=<peer path> gateway-log=<peer gateway log>`. Bootstrap failures report `outcome=not_setup|busy|bootstrap_failed stage=<step>` instead.
+
+`--peer auto` reads each OS-matching routable peer's load over mesh: `codeterm tab list --mesh <peer>` finds its `Buildpeer` tab and `codeterm tab exec --mesh <peer>` runs `./build.sh peer-status`, which prints one lock-free `PEER_STATUS {json}` line (gateway state, active job, queue length, last job end, peer job lock). The least-loaded idle peer wins, ties going to the peer idle longest; a peer that is unreachable, not set up or slower than the 20 s probe deadline is skipped, and when no peer is idle the dispatch exits 75 with each peer's state.
+
+Bounds: each job tab has `--timeout` = verb deadline + 10 min (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`); the peer runner kills the build tree at the deadline and still reports `outcome=deadline`; fetch aborts below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab, never `tab restart`, because a shell's timeout counts from its creation.
+
+Measurements (fill from the first real runs): ROG cold first populate of `check-queue --all` — not yet measured; ROG warm lane `check-queue --lane` — not yet measured.
+
+Troubleshooting:
+- No completion message arrives and the remote tab is gone: the tab timeout fired before the runner started (the shell never ran the command, for example a Windows peer without the `git-bash` profile). Check `codeterm tab list --mesh <peer>` and the peer's `peers.json` `shell`.
+- `outcome=not_setup stage=checkout_dir`: run `./build.sh peer-setup <peer>` first.
+- `outcome=bootstrap_failed stage=checkout`: the peer checkout has local changes; it is fetch-only and must stay clean.
+- `peer routing: busy; X=unknown(not_setup)`: the peer has no `Buildpeer` tab; rerun `peer-setup`.
 
 ## Cache retention and troubleshooting
 
@@ -312,6 +339,37 @@ Missing-checkout targets and targets unused for `CODETERM_CACHE_MAX_AGE_DAYS` (d
 At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tauri/target` and `cli/target` with the same configurable age. An unavailable sweep tool prints one installation hint; sweep failures do not fail a build. `SCCACHE_CACHE_SIZE` is explicitly exported with default **10G** before starting sccache. An already-running server retains its startup configuration: apply changed sccache limits only by restarting it with the gateway idle, never during compilation.
 
 Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `.\build.ps1 gc --dry-run` / `.\build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
+
+Manual GC also maps every existing Git worktree of this repository and the sibling
+`codeterm-plugins` repository, plus the gateway's stable `X:` checkout, through
+`cargo metadata --format-version 1 --offline --no-deps`. Cargo 1.95 exposes
+`build_directory`; no hash approximation is used. Set `CODETERM_PLUGINS_CHECKOUT`
+when the plugin repository is elsewhere. Missing repositories, failed metadata,
+or a missing gateway mapping refuse deletion. Each workspace mapping is printed.
+The configured two-level `{workspace-path-hash}` cache roots are discovered from
+these paths, rather than hardcoding BLACKSTAR's RustCaches location.
+
+Only unmapped build directories are removed, regardless of age. A live checkout's
+old build directory remains protected; `CODETERM_CACHE_MAX_AGE_DAYS` continues to
+govern exceptional targets and cargo-sweep, not deletion of live build directories.
+`codeterm plan lanes --clean` removes worktrees upstream: their build directories
+become orphans on the next manual GC. Automatic hourly retention keeps its existing
+scope because the stable drive may not yet be mapped when that hook runs.
+
+GC takes nonblocking exclusive locks on every `.cargo-lock` below each orphan and
+holds them through removal; a busy or unreadable lock protects the entire directory.
+The lock protocol follows Cargo 1.95's
+[layout](https://github.com/rust-lang/cargo/blob/rust-1.95.0/src/cargo/core/compiler/layout.rs)
+and [flock](https://github.com/rust-lang/cargo/blob/rust-1.95.0/src/cargo/util/flock.rs):
+Windows `LockFileEx`, Unix `flock`. Python 3.12+ is required on Windows for junction
+validation. Links and unexpected hash layouts refuse collection. Each orphan and
+the total are reported in GiB. Fixtures: `node --test scripts/cargo-build-gc.test.mjs`.
+For an explicitly blocking cleanup use `.\build.ps1 gc --wait-build` in a Team
+build shell; capture `Get-PSDrive C` before and after, and preview first.
+
+If GC exits 2 on a live lane's malformed Cargo manifest, no orphan deletion is
+allowed: its build directory cannot yet be mapped. Ask that lane's owner to fix
+the manifest, then rerun the preview. Never skip the checkout or guess its hash.
 
 Every candidate is physically resolved using `pwd -P` and must be a direct child of the exceptional target root, or the checkout's exact target directory for sweep. Empty, root, parent, symlink/junction, redirected ancestor, and nested-link paths are refused. Deletion does not follow links. If retention reports an unsafe path, inspect and remove the redirection separately; never relax the boundary to make GC pass. Retention and marker updates use an exclusive gateway metadata lock and refuse concurrent modification. Automatic failures print a hint and let builds continue; explicit GC returns failure for invalid configuration or an unavailable lock.
 
@@ -717,7 +775,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | History/status sees a missing, partial or delete-pending job record during replacement | A reader observed a transient filesystem view while a writer published a complete temporary JSON file. | Readers skip the unavailable record once, without retries; gateway-status serializes normal observations with the metadata mutex. Verify `readers skip missing, incomplete and inaccessible replacement observations without retry`, `gateway status skips a partial JSON record and keeps a valid job`, and the build-history unreadable-record CLI fixture. |
 | Shared-cache fixture says `rg: command not found` in a utility shell | The fixture depended on an optional search executable absent from that shell PATH. | The fixture now uses portable grep from the required Bash toolchain. Run `bash scripts/check-shared-sccache.sh`; do not count a launcher/search failure as a passing policy check. |
 | `sccache: error: ... os error 10048` during concurrent check-tests/check-queue | Both gateway and non-gateway verbs observed no server and attempted startup. | All build-script cache configuration, verification and restart paths now share a dedicated per-machine startup mutex. The gateway metadata mutex remains free. Verify `four concurrent cache clients start the server exactly once and leave gateway metadata free` in `scripts/build-gateway-cache.test.mjs`; do not restart or bypass a cache serving active compilers. |
-| `check-queue` reports no warnings but dev fails a dead-code lint | All-target test feature/cfg unification covered a helper that the ordinary dev library configuration could not reach. | Check-queue now additionally checks the exact regular app library dev profile/features without test targets in the same gateway job. The summary and full log record `check-queue: dev-lib args=... exit=...` for that pass. Separate `app-test scope=nextest|test-one args=... exit=...` receipts cover service-core test cfg with default features disabled for nextest and enabled for test-one; each uses its runner's shared configuration. Dev and the check share the configuration helper; verify `scripts/dev-build-configuration.test.mjs`, then rerun canonical check-queue and dev. |
+| `check-queue` reports no warnings but dev fails a dead-code lint | All-target test feature/cfg unification covered a helper that the ordinary dev library configuration could not reach. | Check-queue now additionally checks the exact regular app library dev profile/features without test targets in the same gateway job. The summary and full log record `check-queue: dev-lib args=... exit=...` for that pass. An `app-test scope=nextest,test-one args=... exit=...` receipt covers their shared service-core test cfg and default embeddings features; dev, root default, core default and test features must agree. Dev and the check share the configuration helper; verify `scripts/dev-build-configuration.test.mjs`, then rerun canonical check-queue and dev. |
 | An owned check-queue exits 75 because Cargo/rustc is running elsewhere | Sccache restart used a whole-machine process scan even after the caller acquired the gateway slot. | The current step validates the slot's job/pid/start tuple and uses that ownership to configure under the shared startup mutex. Only callers without exact ownership retain the global idle refusal; every supported Cargo verb uses the common entry. Verify the busy-machine owned/foreign-caller cases in `scripts/check-shared-sccache.sh`, then rerun the owned canonical check. |
 | Gateway exits with `Cannot establish publication helper identity` under load | A one-shot Windows process lookup was unknown, and publication guard construction threw before the bounded mutex refusal handler. | The current guard waits on ownership filesystem events before trying the lookup again. Its deadline returns retry-safe exit 75 with no helper ownership published. Verify the transient helper-identity regression in `scripts/build-gateway-mutex.test.mjs`; unknown identity never authorizes reclamation. |
 | Tracked modules or CLI manifests vanish through `X:` while another fixture runs | Fake gateway jobs held an isolated fixture slot but remapped the global production `subst` drive. Production release could also unmap that fixture's alias. | Fixture scope now skips both mapping and release; mapping requires the exact production job/pid/start owner, and release checks the mapped job still owns the slot. Verify the stable-drive isolation regression in `scripts/build-gateway-cache.test.mjs`. Never repair a live drive manually. |
@@ -856,3 +914,22 @@ esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
 <!-- revision: 30 -->
+
+### Lane and batch scopes
+
+Workers run rustfmt, source-size and service-core-boundary guards locally, then one `./build.sh check-queue --lane <sha>`. Lane checks use Clippy libraries for existing touched workspace packages, root bins only on root changes, and leaf test targets only for changed test paths or moved crates. Service-core tests stay at the batch; CLI uses its own binary-only check when cli/ changes. Require errors=0 and warnings=0, retain the summary and list test-one selectors. Never poll a busy gateway. Batches use the default full check-queue; a batch failure bounces the owning lane with the integration SHA.
+
+Canonical QA builds `./build.sh nextest-archive <sha>` once. The verified warm worktree builds root and service-core default-feature library tests into one atomically published gateway `test-archives/<sha>/app.tar.zst`. `test-one app <selector>` and `nextest app [filterset]` reuse it on the same clean Rust SHA, without recompilation; a missing archive uses the ordinary build path. rdeps filtersets use the ordinary workspace path. Both app runners use default embeddings. The feature guard refuses divergence between root dev, root defaults and core default/test features. Canonical measurements use `./build.sh nextest-archive <sha> --measure <selector>...`, within the verified warm checkout for that SHA. Archives print build wall time; archived test-one prints selector wall time. Preserve logs and history for measurements; never infer archive reuse from a short duration.
+
+If a completed job reports `logging_degraded`, its command exit and completed/failed state are retained; the warning names the partial log. A tee/EOF drain failure formerly overwrote successful Cargo exit 0 with wrapper exit 74. Inspect the full check log for diagnostics; run `./build.sh gateway-logging-check`. An unknown command exit or metadata publication failure still refuses readiness.
+A mutex refusal prints the state.lock owner PID, start token, job ID, publication age and queued waiter tuples. Unknown values remain unknown; age never authorizes reclamation. Capture this evidence with the job receipt before investigating contention.
+
+A Windows `EPERM` while renaming `state.lock.pending.*` to `state.lock` is a publication sharing conflict. The helper releases its publication guard, retains the same candidate, and waits for a mutex ownership event before retrying inside the existing failure deadline. Its own guard changes and unrelated file events do not drive retries. A deadline refusal removes the unpublished candidate. Run `node --test scripts/build-gateway-mutex.test.mjs`; capture the owner/waiter tuple if the bounded event wait expires, without deleting unknown shared ownership.
+
+A queued PowerShell -> Git Bash client must retain its actual Bash waiter identity. Job, queue and slot ownership now record BASHPID with its MSYS start token, mapped Windows PID and Windows start token. On Windows reaping probes the captured native identity, not the MSYS number; unavailable native evidence remains unknown and never reaps. Older incomplete ownership needs an owner decision, not inferred death from a missing proc entry. Run `node --test scripts/build-gateway-owner.test.mjs` for the real build.ps1 chain and namespace model; capture both identity pairs when reporting a future owner-lost incident.
+
+Canonical P3 measurement on core-touching SHA `5df475f92` (205 files): full check 157 s (job `20261014T210857-13756-8399`), `--lane` 148 s with errors=0, warnings=0, exit=0 (`tone-gates-20261014-230937-49731`). The saving is 9 s (about 6%); service-core compilation dominates this lane. Do not promise large savings for core-touching lanes. Archive SHA `d001809b8` built in 367 s (job `20261014T232911-133-4384`); selector timing was invalid because the first archived run refused its argv with exit 2 after 1 s. Selector measurements must be rerun after the argv repair.
+
+An archived nextest run rejects Cargo package/target selection such as `-p` and `--lib` together with `--archive-file`. Select the archived core library using `--filter-expr 'package(=codeterm-service-core) & kind(lib)'`, intersecting any caller filterset, while retaining workspace remapping and zero-match refusal. Both app runners use the same archive argument builder. Run `node --test scripts/nextest-archive.test.mjs`; its exact captured selector argv is checked by the installed nextest parser with a nonexistent archive (no Cargo build or test execution), and the former conflicting argv must refuse as a usage error. Canonical then reruns `./build.sh nextest-archive d001809b8 --measure service::close_history service::team service::workspace service::plugin_host sentinel:: socket::server::plan_review api::mesh_routes::rpc commands::html_preview startup:: update::`.
+
+If an archived selector refuses `workspace root manifest at X:\Cargo.toml does not exist` (job `20261015T000926-46028-23229`), the remap points at the checkout rather than the Cargo workspace. App archive runners and serial slow-test confirmation remap to `<checkout>/src-tauri`, where Cargo.toml contains `[workspace]`. The shared Bash builder refuses a missing manifest before running nextest; archive and serial-confirmation fixtures assert the target manifest. The failed first selector's exit 96 / 4 s is not a test execution measurement. Rerun the canonical measurement command above after merging the repair.

@@ -3,14 +3,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
-
-#[derive(Deserialize)]
-pub struct SyncParams {
-    pub path: Option<String>,
-}
+use crate::mem_ops::sync::*;
 
 pub async fn mem_sync(
     AxumState(state): AxumState<AppState>,

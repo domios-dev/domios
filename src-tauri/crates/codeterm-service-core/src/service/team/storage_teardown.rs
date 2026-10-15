@@ -13,7 +13,7 @@ pub(super) struct PreparedStorageTeamTeardown {
     pub(super) storage: crate::storage::Storage,
     pub(super) cron: crate::CronState,
     wake: crate::CronWake,
-    pub(super) sentinel: crate::sentinel::scheduler::Handle,
+    pub(super) sentinel: crate::ports::sentinel::SentinelPorts,
     pub(super) request: crate::storage::TeamTeardown,
     pub(super) cron_changes: Vec<crate::cron::store::CronChange>,
     cron_tabs: Vec<String>,
@@ -58,8 +58,8 @@ impl ServiceContext {
             .clone();
         let sentinel = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
-            .ok_or("Sentinel Handle not registered")?
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
+            .ok_or("Sentinel ports not registered")?
             .inner()
             .clone();
         let (prepared, teardown) = {
@@ -82,7 +82,6 @@ impl ServiceContext {
                     cron_logs.push(logs);
                 }
             }
-            sentinel.store.lock().ensure_external_commit_ready()?;
             (
                 prepared,
                 PreparedStorageTeamTeardown {
@@ -102,6 +101,8 @@ impl ServiceContext {
                 },
             )
         };
+        // Last check, after the mux and cron-store guards are dropped.
+        teardown.sentinel.store.ensure_external_commit_ready()?;
         Ok((prepared, Some(teardown)))
     }
 
@@ -130,7 +131,7 @@ impl ServiceContext {
             log::error!("Team cron cleanup task failed: {error}");
         }
         teardown.wake.notify_all();
-        teardown.sentinel.notify();
+        teardown.sentinel.wake.notify();
         self.emit_cron_changed();
         self.emit_state_changed_after_bus_publish();
     }

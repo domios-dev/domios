@@ -71,6 +71,7 @@ pub enum TabCloseReason {
     PolicyStartup,
     /// A bounded run watchdog retired a tab that never reached a terminal state.
     Watchdog,
+    UtilityTimeout,
     /// The tab's own PTY exited; the role-bearing tab is pruned after it.
     PtyExit,
     /// Spawn or launch failed after the tab existed, so the half-built tab goes.
@@ -92,6 +93,7 @@ impl TabCloseReason {
             Self::PolicyWorker => "policy_worker",
             Self::PolicyStartup => "policy_startup",
             Self::Watchdog => "watchdog",
+            Self::UtilityTimeout => "utility_timeout",
             Self::PtyExit => "pty_exit",
             Self::SpawnRollback => "spawn_rollback",
             Self::AgentRunEnded => "agent_run_ended",

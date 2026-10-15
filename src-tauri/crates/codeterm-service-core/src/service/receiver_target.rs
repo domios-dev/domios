@@ -15,6 +15,11 @@ pub const RECEIVER_TARGET_CONTRIBUTION_KIND: &str = "receiver_target";
 
 type Bindings = BTreeMap<String, String>;
 
+/// Sole owner of the webhook-receiver → tab bindings.
+pub struct ReceiverTargets(pub std::sync::Arc<ReceiverTargetStore>);
+
+pub(crate) struct LocalRecordingTargets(pub(crate) std::sync::Arc<ReceiverTargetStore>);
+
 pub struct ReceiverTargetStore {
     path: PathBuf,
     bindings: Mutex<Bindings>,
@@ -204,15 +209,25 @@ fn persist_failed(detail: String) -> ReceiverTargetError {
 
 impl ServiceContext {
     pub(crate) fn receiver_target_eligible(&self, plugin_id: &str) -> bool {
-        self.webhook_registry.contains(plugin_id)
-            || self.local_recording_registry.contains(plugin_id)
+        self.ext::<codeterm_plugin::WebhookRegistryHandle>()
+            .contains(plugin_id)
+            || self
+                .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+                .contains(plugin_id)
     }
 
     fn receiver_target_store(&self, plugin_id: &str) -> &ReceiverTargetStore {
-        if self.local_recording_registry.contains(plugin_id) {
-            &self.local_recording_targets
+        if self
+            .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+            .contains(plugin_id)
+        {
+            &self
+                .ext::<crate::service::receiver_target::LocalRecordingTargets>()
+                .0
         } else {
-            &self.receiver_targets
+            &self
+                .ext::<crate::service::receiver_target::ReceiverTargets>()
+                .0
         }
     }
     fn receiver_target_liveness(&self, tab_id: &str) -> TargetLiveness {
@@ -239,9 +254,12 @@ impl ServiceContext {
     }
 
     pub fn live_receiver_target(&self, plugin_id: &str) -> Option<String> {
-        live_target(self.receiver_targets.get(plugin_id), |tab_id| {
-            self.receiver_target_liveness(tab_id)
-        })
+        live_target(
+            self.ext::<crate::service::receiver_target::ReceiverTargets>()
+                .0
+                .get(plugin_id),
+            |tab_id| self.receiver_target_liveness(tab_id),
+        )
     }
 
     pub fn receiver_target(
@@ -312,7 +330,7 @@ impl ServiceContext {
         tab_id: &str,
     ) -> Result<TabMenuState, ReceiverTargetError> {
         let items = self
-            .tab_menu_registry
+            .ext::<codeterm_plugin::tab_menu::TabMenuRegistryHandle>()
             .get(plugin_id)
             .ok_or(ReceiverTargetError::MenuItemNotFound)?;
         let item = items
@@ -342,12 +360,16 @@ impl ServiceContext {
     }
 
     pub fn tab_menu_state(&self) -> TabMenuState {
-        let mut plugin_ids = self.tab_menu_registry.ids();
+        let mut plugin_ids = self
+            .ext::<codeterm_plugin::tab_menu::TabMenuRegistryHandle>()
+            .ids();
         plugin_ids.sort();
         let items = plugin_ids
             .into_iter()
             .filter_map(|plugin_id| {
-                let items = self.tab_menu_registry.get(&plugin_id)?;
+                let items = self
+                    .ext::<codeterm_plugin::tab_menu::TabMenuRegistryHandle>()
+                    .get(&plugin_id)?;
                 Some((plugin_id, items))
             })
             .flat_map(|(plugin_id, items)| {
@@ -364,8 +386,15 @@ impl ServiceContext {
                     .collect::<Vec<_>>()
             })
             .collect();
-        let mut receiver_targets = self.receiver_targets.bindings();
-        receiver_targets.extend(self.local_recording_targets.bindings());
+        let mut receiver_targets = self
+            .ext::<crate::service::receiver_target::ReceiverTargets>()
+            .0
+            .bindings();
+        receiver_targets.extend(
+            self.ext::<crate::service::receiver_target::LocalRecordingTargets>()
+                .0
+                .bindings(),
+        );
         TabMenuState {
             items,
             receiver_targets,
@@ -374,7 +403,11 @@ impl ServiceContext {
 
     pub(crate) fn forget_receiver_targets_for_tab(&self, tab_id: &str) {
         self.local_recordings.close_tab(tab_id);
-        match self.receiver_targets.forget_tab(tab_id) {
+        match self
+            .ext::<crate::service::receiver_target::ReceiverTargets>()
+            .0
+            .forget_tab(tab_id)
+        {
             Ok(true) => self.publish_receiver_targets_changed(),
             Ok(false) => {}
             Err(detail) => log::warn!("[receiver-target] {detail}"),

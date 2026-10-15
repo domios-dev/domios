@@ -119,3 +119,53 @@ for (const phase of ['before-publish', 'after-publish']) {
     } finally { fs.rmSync(f.directory, { recursive: true, force: true }); }
   });
 }
+
+test('a new SHA keeps the mtimes of unchanged files so Cargo stays fresh, and changed files stay new', async () => {
+  const f = fixture();
+  try {
+    const current = await prepareCheckWorktree({ ...f, sha: f.old, jobId: 'old' });
+    const settled = new Date('2020-01-01T00:00:00Z');
+    for (const file of ['cli/Cargo.toml', 'cli', 'src-tauri/src/owned.rs']) fs.utimesSync(path.join(current, file), settled, settled);
+    const ready = await prepareCheckWorktree({ ...f, jobId: 'new' });
+    verifyCheckWorktree(ready, f.sha, f.git('rev-parse', `${f.sha}^{tree}`));
+    assert.equal(fs.statSync(path.join(ready, 'cli/Cargo.toml')).mtimeMs, settled.getTime());
+    assert.equal(fs.statSync(path.join(ready, 'cli')).mtimeMs, settled.getTime());
+    assert.ok(fs.statSync(path.join(ready, 'src-tauri/crates/core/src/owned.rs')).mtimeMs > settled.getTime());
+  } finally { fs.rmSync(f.directory, { recursive: true, force: true }); }
+});
+
+test('a dirty previous checkout carries no mtimes', async () => {
+  const f = fixture();
+  try {
+    const current = await prepareCheckWorktree({ ...f, sha: f.old, jobId: 'old' });
+    const settled = new Date('2020-01-01T00:00:00Z');
+    fs.writeFileSync(path.join(current, 'cli/Cargo.toml'), '[package]\nname="edited"\n');
+    fs.utimesSync(path.join(current, 'cli/Cargo.toml'), settled, settled);
+    const ready = await prepareCheckWorktree({ ...f, jobId: 'new' });
+    assert.ok(fs.statSync(path.join(ready, 'cli/Cargo.toml')).mtimeMs > settled.getTime());
+  } finally { fs.rmSync(f.directory, { recursive: true, force: true }); }
+});
+
+for (const leftover of ['no-git', 'unregistered-git']) {
+  test(`recovery removes a ${leftover} previous leftover instead of refusing every later job`, async () => {
+    const f = fixture();
+    try {
+      await prepareCheckWorktree({ ...f, sha: f.old, jobId: 'old' });
+      const previous = path.join(f.gateway, 'check-worktree.previous-leftover');
+      if (leftover === 'no-git') {
+        fs.mkdirSync(path.join(previous, 'src-tauri'), { recursive: true });
+      } else {
+        f.git('worktree', 'add', '--quiet', '--detach', previous, f.old);
+        fs.rmSync(path.join(f.repository, '.git', 'worktrees', path.basename(previous)), { recursive: true, force: true });
+        f.git('worktree', 'prune');
+      }
+      fs.writeFileSync(path.join(previous, 'src-tauri', 'stale.rs'), 'stale\n');
+      const staging = path.join(f.gateway, 'check-worktree.pending-leftover');
+      fs.writeFileSync(path.join(f.gateway, 'check-worktree-publication.json'), JSON.stringify({ staging, previous, sha: f.sha }));
+      const ready = await prepareCheckWorktree({ ...f, jobId: 'recovery' });
+      verifyCheckWorktree(ready, f.sha, f.git('rev-parse', `${f.sha}^{tree}`));
+      assert.equal(fs.existsSync(previous), false);
+      assert.equal(fs.existsSync(path.join(f.gateway, 'check-worktree-publication.json')), false);
+    } finally { fs.rmSync(f.directory, { recursive: true, force: true }); }
+  });
+}

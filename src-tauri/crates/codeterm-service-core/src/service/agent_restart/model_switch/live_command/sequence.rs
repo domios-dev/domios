@@ -70,7 +70,7 @@ impl CommandSequence {
         transcript: &ModelSwitchTranscript,
     ) -> Self {
         let signal = command_signal(&mut svc.screen_state.lock(), &target.pty_id);
-        svc.restart_tracker
+        svc.ext::<crate::service::agent_restart::RestartTracker>()
             .lock()
             .staged_models
             .observe_command_idle(&target.tab_id, &signal);

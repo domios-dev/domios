@@ -188,8 +188,8 @@ pub(super) fn dispatch(
                 .and_then(Value::as_str)
                 .map(str::to_owned);
             let target = match (&id, flag("stopped")) {
-                (Some(id), false) => crate::sentinel::delete::DeleteTarget::One(id),
-                (None, true) => crate::sentinel::delete::DeleteTarget::Stopped,
+                (Some(id), false) => codeterm_sentinel::delete::DeleteTarget::One(id),
+                (None, true) => codeterm_sentinel::delete::DeleteTarget::Stopped,
                 _ => return Err(error("pass exactly one of id or stopped")),
             };
             let deleted = svc
@@ -371,11 +371,11 @@ fn step_kind_name(kind: &codeterm_blueprint_types::blueprint_pipeline::StepKind)
 }
 
 fn stored_definition(value: Value) -> Result<Value, JsonRpcError> {
-    crate::sentinel::public_definition::stored_definition(value).map_err(error)
+    codeterm_sentinel::public_definition::stored_definition(value).map_err(error)
 }
 
 fn exposed_definition(value: Value) -> Value {
-    crate::sentinel::public_definition::exposed_definition(value)
+    codeterm_sentinel::public_definition::exposed_definition(value)
 }
 
 #[cfg(test)]
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn sentinel_update_rpc_version_conflict_carries_current_version() {
-        let error = error(crate::sentinel::amend::version_conflict(9));
+        let error = error(codeterm_sentinel::amend::version_conflict(9));
         assert_eq!(
             error.data.as_ref().unwrap()["code"],
             "blueprint_version_conflict"

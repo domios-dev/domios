@@ -469,7 +469,8 @@ impl ServiceContext {
             },
         );
         self.invalidate_guarded_agent_input(tab_id);
-        self.provider_tree_witnesses.clear_tab(tab_id);
+        self.ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+            .clear_tab(tab_id);
         log::info!(
             "[agent-lifecycle] cleared Tab identity: tab={tab_id} cause={cause} verdict_source={source} tree_evidence={tree_evidence}"
         );

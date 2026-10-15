@@ -175,7 +175,7 @@ pub fn record_startup() -> RecoveryState {
         pid: std::process::id(),
         started_at: now,
         last_healthy_at: now,
-        build_hash: codeterm_build_info::BUILD_HASH.to_string(),
+        build_hash: codeterm_build_info::hash().to_string(),
         platform: platform_name().to_string(),
     };
 
@@ -292,7 +292,7 @@ pub fn recovery_state() -> RecoveryState {
         pid: std::process::id(),
         started_at: now,
         last_healthy_at: now,
-        build_hash: codeterm_build_info::BUILD_HASH.to_string(),
+        build_hash: codeterm_build_info::hash().to_string(),
         platform: platform_name().to_string(),
     });
     let last_crash: Option<CrashRecord> = read_json(&last_crash_path());
