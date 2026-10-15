@@ -5,7 +5,6 @@ use crate::service::agent_runtime::engine;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::RuntimeContext;
 use std::time::Duration;
-use tauri::Manager;
 
 pub(super) struct RuntimeRun {
     nonce: String,
@@ -342,8 +341,7 @@ impl ServiceContext {
                 &metadata.owner_linkage
             {
                 let timeout = self
-                    .app_handle
-                    .try_state::<crate::CronState>()
+                    .try_ext::<crate::CronState>()
                     .and_then(|cron| cron.lock().get(job_id).and_then(|job| job.timeout_seconds))
                     .unwrap_or(self.configuration().memory.worker_timeout_seconds);
                 (

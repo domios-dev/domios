@@ -24,6 +24,7 @@ impl ServiceInstance {
             .expect("startup opens ready Storage")
             .clone();
         let fixture = ServiceFixture::new_at(mux, root);
+        assert!(fixture.service.set_ext(authority.clone()).is_ok());
         assert!(fixture._app.manage(authority.clone()));
         let app = fixture._app.handle().clone();
         crate::service::session_persist::install_storage_desk_adapter(
@@ -68,6 +69,7 @@ impl ServiceInstance {
             MultiplexerState::from_session_snapshot(&snapshot)
         };
         let fixture = ServiceFixture::new_at(mux, root);
+        assert!(fixture.service.set_ext(authority.clone()).is_ok());
         assert!(fixture._app.manage(authority.clone()));
         let app = fixture._app.handle().clone();
         crate::service::session_persist::install_storage_desk_adapter(

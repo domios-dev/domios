@@ -6,7 +6,6 @@ use codeterm_types::plan::{
     PlanPauseSchedule, PlanPauseStepOutcome, PlannerRef, PLAN_PAUSE_EFFECTS,
 };
 use serde::Serialize;
-use tauri::Manager;
 
 use super::plan::pause_operation::{open_pause_operation, PlanPauseBegin, PlanResumeBegin};
 use super::plan::{PlanError, PlanStore};
@@ -471,7 +470,7 @@ impl PlanPausePorts for ServicePlanPausePorts<'_> {
     }
 
     fn schedule_enabled(&self, job_id: &str) -> Option<bool> {
-        let cron = self.svc.app_handle.try_state::<crate::CronState>()?;
+        let cron = self.svc.try_ext::<crate::CronState>()?;
         let enabled = cron.lock().get(job_id).map(|job| job.enabled);
         enabled
     }
@@ -479,17 +478,15 @@ impl PlanPausePorts for ServicePlanPausePorts<'_> {
     fn set_schedule_enabled(&self, job_id: &str, enabled: bool) -> Result<(), String> {
         let cron = self
             .svc
-            .app_handle
-            .try_state::<crate::CronState>()
+            .try_ext::<crate::CronState>()
             .ok_or("cron store unavailable")?;
         let wake = self
             .svc
-            .app_handle
-            .try_state::<crate::CronWake>()
+            .try_ext::<crate::CronWake>()
             .ok_or("cron wake unavailable")?;
         let set = || {
             self.svc
-                .cron_enable(cron.inner(), wake.inner(), job_id, enabled)
+                .cron_enable(cron, wake, job_id, enabled)
                 .map(|_| ())
         };
         // Storage blocks until COMMIT; a runtime worker hands its queue to another thread first.
@@ -515,7 +512,7 @@ impl ServiceContext {
         let Some(team_id) = non_empty(plan.team_id.as_deref()) else {
             return vec![];
         };
-        let Some(cron) = self.app_handle.try_state::<crate::CronState>() else {
+        let Some(cron) = self.try_ext::<crate::CronState>() else {
             return vec![];
         };
         let store = cron.lock();

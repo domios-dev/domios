@@ -400,6 +400,14 @@ impl ServiceContext {
     pub fn ext<T: std::any::Any + Send + Sync>(&self) -> &T {
         self.extensions.get::<T>()
     }
+
+    pub fn try_ext<T: std::any::Any + Send + Sync>(&self) -> Option<&T> {
+        self.extensions.try_get::<T>()
+    }
+
+    pub fn set_ext<T: std::any::Any + Send + Sync>(&self, value: T) -> Result<(), T> {
+        self.extensions.set(value)
+    }
 }
 
 /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
