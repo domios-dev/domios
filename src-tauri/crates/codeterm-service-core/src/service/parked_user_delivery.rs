@@ -569,7 +569,7 @@ impl super::ServiceContext {
         let service = self.clone();
         let tab_id = tab_id.to_string();
         let dispatch_events = owner.dispatch_events.subscribe();
-        tauri::async_runtime::spawn_blocking(move || {
+        crate::async_runtime::spawn_blocking(move || {
             loop {
                 let generation = owner.wake_generation.load(Ordering::Acquire);
                 let dispatch_generation = owner.dispatch_generation.load(Ordering::Acquire);
@@ -611,7 +611,7 @@ impl super::ServiceContext {
                     let service = service.clone();
                     let tab_id = tab_id.clone();
                     let wake_owner = owner.clone();
-                    tauri::async_runtime::spawn(async move {
+                    crate::async_runtime::spawn(async move {
                         while !wake_owner.revoked.load(Ordering::Acquire)
                             && wake_owner.dispatch_generation.load(Ordering::Acquire) == refused_at
                         {

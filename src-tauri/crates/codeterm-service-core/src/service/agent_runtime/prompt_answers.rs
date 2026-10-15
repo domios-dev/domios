@@ -237,7 +237,7 @@ pub fn respond(
             }
             live.claimed = true;
         }
-        let result = tauri::async_runtime::block_on(engine::run(
+        let result = crate::async_runtime::block_on(engine::run(
             svc,
             &session.provider,
             &session,

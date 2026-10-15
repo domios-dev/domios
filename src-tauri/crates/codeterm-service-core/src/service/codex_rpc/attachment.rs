@@ -87,7 +87,7 @@ pub fn start(
     listener: tokio::net::TcpListener,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let handshakes = Arc::new(tokio::sync::Semaphore::new(32));
         let connections = Arc::new(Connections::default());
         loop {
@@ -109,7 +109,7 @@ pub fn start(
                 token.clone(),
                 shutdown.clone(),
             );
-            tauri::async_runtime::spawn(async move {
+            crate::async_runtime::spawn(async move {
                 let connection = uuid::Uuid::new_v4().to_string();
                 let relay = async {
                     let expected = format!("Bearer {token}");

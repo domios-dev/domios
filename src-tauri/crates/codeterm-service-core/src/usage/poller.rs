@@ -142,7 +142,7 @@ impl UsagePoller {
 
     pub fn spawn(self) {
         let inner = self.inner.clone();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             loop {
                 if let Err(e) = tick(&inner).await {
                     log::warn!("[usage.poller] tick error: {}", e);
@@ -176,7 +176,7 @@ impl UsagePoller {
             return;
         }
         let inner = self.inner.clone();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             if let Err(e) = run_probe_for(inner, key.clone()).await {
                 log::warn!(
                     "[usage.poller] manual refresh probe {:?}/{:?} failed: {}",

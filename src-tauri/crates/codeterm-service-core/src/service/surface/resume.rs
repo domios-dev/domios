@@ -67,7 +67,7 @@ impl ServiceContext {
     ) {
         let mux = self.mux.clone();
         let app = self.app_handle.clone();
-        tauri::async_runtime::spawn(follow_resume(tab_id, updates, mux, app));
+        crate::async_runtime::spawn(follow_resume(tab_id, updates, mux, app));
     }
 }
 

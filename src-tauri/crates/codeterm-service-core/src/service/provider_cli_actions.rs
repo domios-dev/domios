@@ -178,7 +178,7 @@ pub fn launch_with_dispatch(
     let service = svc.clone();
     let monitor_tab = tab_id.clone();
     let provider = provider.to_owned();
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let completion = waiter.wait(std::time::Duration::from_secs(1800)).await;
         let _ = tokio::task::spawn_blocking(move || {
             crate::agent::model_catalog::invalidate(&provider);

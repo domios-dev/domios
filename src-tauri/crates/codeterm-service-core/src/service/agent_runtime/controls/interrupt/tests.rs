@@ -75,7 +75,7 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
         .unwrap();
     let session = engine::for_tab(&id).unwrap();
     let process = session.process.lock().clone().unwrap();
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         let mut context = session.context.lock().clone();
         context.active_turn_id = Some("root-turn".into());
         context.active_turns.push(RuntimeActiveTurn {
@@ -131,7 +131,7 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
         .completions
         .lock()
         .contains("own-thread", "reply-turn"));
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         session.context.lock().active_turn_id = Some("never-completes".into());
         let target = InterruptTarget::capture(&session.context.lock()).unwrap();
         let mut changes = session.control_changes.subscribe();

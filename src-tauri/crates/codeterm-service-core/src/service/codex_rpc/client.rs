@@ -124,7 +124,7 @@ impl Client {
         self.0.death.send_replace(None);
         let sender = self.clone();
         let mut shutdown = self.0.death.subscribe();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             loop {
                 tokio::select! {
                     _ = shutdown.changed() => break,
@@ -144,7 +144,7 @@ impl Client {
         });
         let receiver = self.clone();
         let mut shutdown = self.0.death.subscribe();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             loop {
                 tokio::select! {
                     _ = shutdown.changed() => break,

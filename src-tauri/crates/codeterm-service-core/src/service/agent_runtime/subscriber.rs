@@ -26,7 +26,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
     let mut ended = process.client.ended();
     let mut exited = process.ended.clone();
     let epoch = session.context.lock().epoch;
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         loop {
             if session.context.lock().epoch != epoch
                 || engine::validate_binding(&svc, &session).is_err()

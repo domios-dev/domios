@@ -258,7 +258,7 @@ fn spawn_bg<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    tauri::async_runtime::spawn(fut);
+    crate::async_runtime::spawn(fut);
 }
 
 fn stamp_chatbackend_launch_identity(
