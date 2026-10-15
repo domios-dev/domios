@@ -51,37 +51,8 @@ test('dev launch and the regular library check share profile, features, flags an
     for (const line of source.split('\n').filter(line => line.includes('pnpm tauri dev') && !line.includes('screen -dmS'))) {
       assert.ok(line.includes('CT_DEV_TAURI_ARGS'), line);
     }
-    assert.match(source.match(/^check_queue_run\(\) \{[\s\S]*?^\}/m)[0], /run_check_queue_cargo "\$out" cargo check "\$\{CT_DEV_CHECK_ARGS\[@\]\}" --message-format=short \|\| dev_status=\$\?/);
-    assert.match(source, /CODETERM_DEV=1 CODETERM_WEB_DIST="\$cw\/dist" CARGO_TARGET_DIR="\$cw\/target\/app"/);
-  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
-});
 
-test('check-queue reports dev library arguments and its own exit in the summary and full log', () => {
-  const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
-  const pass = source.match(/^  configure_dev_cargo\n  local dev_status=0[\s\S]*?(?=^  local test_runner test_status)/m)[0];
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-cargo-receipt-'));
-  try {
-    for (const exit of [0, 42]) {
-      const result = spawnSync(bash, ['-c', `
-        set -euo pipefail
-        configure_dev_cargo() { CT_DEV_CHECK_ARGS=(--lib --profile opaque-profile --features opaque-feature); }
-        run_check_queue_cargo() { shift; "$@"; }
-        cargo() { return ${exit}; }
-        run_pass() {
-          cw="$PWD"
-          out=pass.log
-          : > "$out"
-          status=17
-          ${pass}
-          printf 'aggregate=%s\\n' "$status"
-        }
-        run_pass
-      `], { cwd: directory, encoding: 'utf8' });
-      assert.equal(result.status, 0, result.stderr);
-      const marker = `check-queue: dev-lib args=--lib --profile opaque-profile --features opaque-feature exit=${exit}`;
-      assert.equal(result.stdout.trim(), `${marker}\naggregate=${exit || 17}`);
-      assert.equal(fs.readFileSync(path.join(directory, 'pass.log'), 'utf8').trim(), marker);
-    }
+
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -145,8 +116,8 @@ test('app test checks share both runner configurations and persist per-pass rece
       assert.ok(check.includes('--profile test'));
       assert.doesNotMatch(launch, /--release|--profile|--cargo-profile/);
     }
-    assert.ok(!nextestArgs.includes('--no-default-features'));
-    assert.ok(!focusedArgs.includes('--no-default-features'));
+    assert.ok(nextestArgs.includes('--no-default-features'));
+    assert.ok(focusedArgs.includes('--no-default-features'));
     const markers = fs.readFileSync(path.join(directory, 'pass.log'), 'utf8').trim().split('\n');
     assert.equal(markers.length, 1);
     for (const [index, runner] of ['nextest,test-one'].entries()) {

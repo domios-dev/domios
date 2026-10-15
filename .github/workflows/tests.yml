@@ -376,9 +376,27 @@ jobs:
       CODETERM_ALLOW_EXTERNAL_TARGET: '1'
     steps: *rust-test-steps
 
+  rust-embeddings:
+    name: rust embeddings
+    needs: [changed, fmt]
+    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.fmt.result == 'success') }}
+    runs-on: [self-hosted, rust-tests]
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        suite: [embeddings]
+    env:
+      # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+    steps: *rust-test-steps
+
   rust-receipts:
     name: rust test receipts
-    needs: [changed, rust-tests, rust-platform]
+    needs: [changed, rust-tests, rust-platform, rust-embeddings]
     if: ${{ inputs.phase != 'fast' && (always() && needs.changed.outputs.heavy == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -402,7 +420,8 @@ jobs:
         env:
           TESTS_RESULT: ${{ needs.rust-tests.result }}
           PLATFORM_RESULT: ${{ needs.rust-platform.result }}
-        run: node -e "if (process.env.TESTS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success') process.exit(1)"
+          EMBEDDINGS_RESULT: ${{ needs.rust-embeddings.result }}
+        run: node -e "if (process.env.TESTS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success' || process.env.EMBEDDINGS_RESULT !== 'success') process.exit(1)"
       - name: One passing full suite and one passing platform subset per OS
         run: node scripts/ci-rust-tests.mjs verify ci-rust-receipts
 
