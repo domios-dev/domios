@@ -72,7 +72,7 @@ export {
 /** Recovery is decided by reducer outcomes and observed authority, never by a
  *  deadline: these are the outcomes that require a fresh authoritative parse. */
 function needsRecovery(outcome: TranscriptOutcome): boolean {
-  return outcome === "recover_gap" || outcome === "recover_overlap";
+  return outcome === "recover_gap";
 }
 
 function bindingKey(sessionId: string | null, nonce: string | null | undefined): string {
