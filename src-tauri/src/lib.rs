@@ -6,7 +6,7 @@ mod startup;
 pub fn run() {
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_socket::register_socket();
-    codeterm_service_core::register_orchestration();
+    codeterm_orchestration::register_orchestration();
     run::run(
         tauri::generate_context!(),
         command_registration::register_commands,

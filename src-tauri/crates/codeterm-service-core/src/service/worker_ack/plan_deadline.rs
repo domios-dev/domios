@@ -114,7 +114,7 @@ impl ServiceContext {
         ))
     }
 
-    pub(crate) fn register_agent_startup_supervision(
+    pub fn register_agent_startup_supervision(
         &self,
         supervisor_tab_id: &str,
         agent_tab_id: &str,
@@ -131,7 +131,7 @@ impl ServiceContext {
 
     /// Register the two launch attempts a pair mint owns together with the lease
     /// on the Team it minted for them.
-    pub(crate) fn register_pair_startup_lease(
+    pub fn register_pair_startup_lease(
         &self,
         lease: StartupTeamLease,
         titled_members: &[(&str, &str)],
@@ -159,7 +159,7 @@ impl ServiceContext {
 
     /// Retire the lease itself. The caller has already settled the Team, so no
     /// later sweep may act on this reservation again.
-    pub(crate) fn forget_pair_startup_lease(&self, team_id: &str) {
+    pub fn forget_pair_startup_lease(&self, team_id: &str) {
         self.worker_ack.release_startup_lease(team_id);
     }
 

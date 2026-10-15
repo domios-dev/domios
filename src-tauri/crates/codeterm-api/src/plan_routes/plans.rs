@@ -151,7 +151,7 @@ pub async fn list(
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
         check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-        codeterm_service_core::service::validate_active_team_plan_bindings(&state.svc)
+        codeterm_orchestration::validate_active_team_plan_bindings(&state.svc)
             .map_err(team_plan_err)?;
         let want = if let Some(project) = &q.project {
             Some(
@@ -698,7 +698,7 @@ pub async fn get(
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
         check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-        codeterm_service_core::service::validate_plan_team_binding(&state.svc, &id)
+        codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
             .map_err(team_plan_err)?;
         let plan = state
             .svc

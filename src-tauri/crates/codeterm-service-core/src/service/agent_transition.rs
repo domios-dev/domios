@@ -28,7 +28,7 @@ pub enum AgentPlacement {
 }
 
 impl AgentPlacement {
-    pub(crate) fn orchestrator(can_spawn: Option<bool>) -> Self {
+    pub fn orchestrator(can_spawn: Option<bool>) -> Self {
         Self::Manager {
             role_profile: builtins::ORCHESTRATOR.to_string(),
             parent_tab_id: None,
@@ -67,7 +67,7 @@ pub struct AgentTransitionRequest {
 }
 
 impl AgentTransitionRequest {
-    pub(crate) fn roleless(tab_id: impl Into<String>) -> Self {
+    pub fn roleless(tab_id: impl Into<String>) -> Self {
         Self {
             tab_id: tab_id.into(),
             destination: AgentPlacement::Roleless,
@@ -80,7 +80,7 @@ impl AgentTransitionRequest {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TransitionFailurePoint {
+pub enum TransitionFailurePoint {
     None,
     AfterPlanCommit,
     SkipPlanRebind,
@@ -103,7 +103,7 @@ impl ServiceContext {
         self.set_tab_role_with_profile(tab_id, role_str, None, parent_tab_id, can_spawn)
     }
 
-    pub(crate) fn set_tab_role_with_profile(
+    pub fn set_tab_role_with_profile(
         &self,
         tab_id: &str,
         role_str: &str,
@@ -344,7 +344,7 @@ fn role_team_bindings(
         .collect()
 }
 
-pub(crate) fn transition_plan_to_orchestrator_core(
+pub fn transition_plan_to_orchestrator_core(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     plan_id: &str,
@@ -371,7 +371,7 @@ pub(crate) fn transition_plan_to_orchestrator_core(
 
 /// Recovery seam for a Team whose Orchestrator is gone: a replacement anchor
 /// takes the plan over, and the Team's own Planner keeps its binding.
-pub(crate) fn recover_plan_ownership_for_new_orchestrator(
+pub fn recover_plan_ownership_for_new_orchestrator(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     plan_id: &str,
@@ -438,7 +438,7 @@ fn execute_transition(
     execute_transition_at(mux, plan_store, request, failure, epoch_ms())
 }
 
-fn execute_transition_at(
+pub fn execute_transition_at(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     request: AgentTransitionRequest,

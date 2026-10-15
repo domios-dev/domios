@@ -47,7 +47,7 @@ impl ServiceContext {
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
-        let team_membership = super::team::resolve_inherited_team_attachment(
+        let team_membership = super::team_membership::resolve_inherited_team_attachment(
             &self.mux.read(),
             spec.team_id.as_deref(),
             spec.creator_tab_id.as_deref(),
@@ -121,7 +121,7 @@ impl ServiceContext {
             }
             let _ = mux.set_tab_description(&result, spec.description.clone());
             if let Some(attachment) = &team_membership {
-                super::team::apply_team_attachment(&mut mux, attachment, &result)?;
+                super::team_membership::apply_team_attachment(&mut mux, attachment, &result)?;
             }
             if let Some(title) = spec.title.as_deref().filter(|_| reused.is_none()) {
                 if let Err(e) = mux.rename_tab(&result, title) {

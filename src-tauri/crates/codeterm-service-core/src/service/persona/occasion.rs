@@ -104,7 +104,7 @@ pub struct OccasionRules {
     fallback: Fallback,
 }
 
-pub(crate) const DEFAULT_WORKER_IDENTITY: &str = "You are a Domios Worker.";
+pub const DEFAULT_WORKER_IDENTITY: &str = "You are a Domios Worker.";
 
 /// The default identity of a Worker launched without a task-owned persona.
 fn default_worker_identity() -> String {

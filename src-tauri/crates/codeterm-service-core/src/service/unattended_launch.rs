@@ -18,7 +18,7 @@ pub(crate) const LIFECYCLE_COMMANDS: &[&str] = &[
 pub(crate) const CRON_RUN_COMMANDS: &[&str] = &["codeterm cron complete"];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum LaunchPurpose {
+pub enum LaunchPurpose {
     #[default]
     Agent,
     CronRun,
@@ -56,14 +56,14 @@ pub(crate) fn at_owned_launch_prompt(tab: &Tab) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct UnattendedLaunch<'a> {
-    pub(crate) provider_id: &'a str,
-    pub(crate) model: Option<&'a str>,
-    pub(crate) role: Option<&'a str>,
-    pub(crate) role_profile: Option<&'a str>,
-    pub(crate) has_task: bool,
-    pub(crate) purpose: LaunchPurpose,
-    pub(crate) full_access: bool,
+pub struct UnattendedLaunch<'a> {
+    pub provider_id: &'a str,
+    pub model: Option<&'a str>,
+    pub role: Option<&'a str>,
+    pub role_profile: Option<&'a str>,
+    pub has_task: bool,
+    pub purpose: LaunchPurpose,
+    pub full_access: bool,
 }
 
 impl UnattendedLaunch<'_> {
@@ -148,10 +148,7 @@ fn lacks_unattended_mode(mode: &ModelMode, launch: &UnattendedLaunch<'_>) -> boo
 
 /// Refuse, before any tab exists, a launch whose role cannot run its CodeTerm
 /// commands unattended on the requested model.
-pub(crate) fn preflight(
-    registry: &AgentRegistry,
-    launch: &UnattendedLaunch<'_>,
-) -> Result<(), String> {
+pub fn preflight(registry: &AgentRegistry, launch: &UnattendedLaunch<'_>) -> Result<(), String> {
     let Some(mode) = model_mode(registry, launch) else {
         return Ok(());
     };
