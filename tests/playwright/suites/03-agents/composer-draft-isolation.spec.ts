@@ -5,6 +5,7 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
+import { pinPickerToStub } from "../../helpers/stub-pin";
 import type { ApiClient, Workspace } from "../../helpers/api-client";
 import type { Page } from "@playwright/test";
 
@@ -107,6 +108,10 @@ test.describe("@golden composer draft isolation", () => {
     // Drive the picker by its own testids: the confirm label flips with the
     // mode ("Start team" / "Start session"), so a name match tracks state.
     await picker.locator('[data-testid="picker-mode-orchestration"]').click();
+    await pinPickerToStub(api, page, [
+      { kind: "menu", trigger: picker.locator('[data-testid="picker-provider-orchestrator"]') },
+      { kind: "menu", trigger: picker.locator('[data-testid="picker-provider-planner"]') },
+    ]);
     const confirm = picker.locator('[data-testid="picker-confirm"]');
     await expect(confirm).toBeEnabled({ timeout: 10_000 });
     await confirm.click();

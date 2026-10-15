@@ -675,7 +675,13 @@ refuses that mode without serial execution. Ordinary suites retain default
 parallelism.
 The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
 crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
-may only shrink after its first landing. `scripts/unit-test-benchmarks.json`
+may only shrink after its first landing. Baseline entries are
+`{key, measuredSeconds}` with the crate-independent `module_path::test_name`
+key of `scripts/rust-test-inventory.mjs` (`testKey`), so a crate move never
+reads as a new slow unit. When crate-split turns an app module into a crate
+root the key loses one leading segment; the inventory's `facadeMatch` pairs the
+two keys when the match is unique, whatever the crate is named, and the
+inventory diff uses the same rule. Any other module path change is a new key. `scripts/unit-test-benchmarks.json`
 contains exact benchmark identities with explicit throughput/latency reasons.
 Exemptions print their identity, timing and reason, preserve test failures,
 and cannot be added or changed after their first landing without review.

@@ -9,7 +9,7 @@
  *   provider fingerprint at all — honest rather than silently Claude.
  */
 
-/** stub-gate.ts probes tab output for this marker to decide the transport is live. */
+/** Banner marker that proves a tab is running the replayer. */
 export const STUB_MARKER = "stub replay";
 
 const ESC = "";

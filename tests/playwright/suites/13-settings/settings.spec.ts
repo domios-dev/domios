@@ -5,7 +5,7 @@
  */
 import type { AppConfig } from "../../../../src/lib/types";
 import { expect, test, type ManagedUiSession } from "../../helpers/fixtures";
-
+interface SettingsConfig extends AppConfig { keybindings: AppConfig["keybindings"] & Record<"next_tab" | "reopen_tab", string> }
 async function openSettings(ui: ManagedUiSession): Promise<void> {
   await ui.reconnect();
   await ui.page.locator('[data-testid="titlebar-settings"]').click();
@@ -128,7 +128,7 @@ test("@smoke font family edit persists through the Settings UI", async ({ api, u
 });
 
 test("@smoke keybinding display renders configured shortcuts", async ({ api, ui }) => {
-  const config = await api.get<AppConfig>("/config");
+  const config = await api.get<SettingsConfig>("/config");
   await openSettings(ui);
 
   const nextTab = ui.page.locator('[data-testid="settings-keybinding-row"][data-keybinding-key="next_tab"]');

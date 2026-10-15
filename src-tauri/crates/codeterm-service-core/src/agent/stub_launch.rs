@@ -9,10 +9,34 @@ pub fn is_active() -> bool {
 }
 
 fn configured_stub_command() -> Option<String> {
-    cfg!(debug_assertions)
-        .then(|| std::env::var(STUB_CMD_ENV).ok())
+    stub_command(cfg!(debug_assertions), std::env::var(STUB_CMD_ENV).ok())
+}
+
+fn stub_command(debug_build: bool, raw: Option<String>) -> Option<String> {
+    debug_build
+        .then_some(raw)
         .flatten()
         .filter(|value| !value.trim().is_empty())
+}
+
+/// Whether a launch of `provider_id` would be replayed; `None` outside debug builds.
+pub fn provider_stub_replay(provider_id: &str) -> Option<bool> {
+    stub_replay_status(
+        cfg!(debug_assertions),
+        std::env::var(STUB_CMD_ENV).ok(),
+        std::env::var(STUB_PROVIDERS_ENV).ok().as_deref(),
+        provider_id,
+    )
+}
+
+fn stub_replay_status(
+    debug_build: bool,
+    command: Option<String>,
+    providers: Option<&str>,
+    provider_id: &str,
+) -> Option<bool> {
+    debug_build
+        .then(|| stub_command(true, command).is_some() && provider_enabled(provider_id, providers))
 }
 
 fn provider_enabled(provider_id: &str, configured: Option<&str>) -> bool {
@@ -84,6 +108,30 @@ fn split_prep_and_invocation(cmd: &str) -> Option<(&str, &str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stub_replay_status_is_debug_only_and_per_provider() {
+        let cmd = || Some("node replay.mjs".to_string());
+        assert_eq!(stub_replay_status(false, cmd(), None, "claude"), None);
+        assert_eq!(stub_replay_status(true, None, None, "claude"), Some(false));
+        assert_eq!(
+            stub_replay_status(true, Some("  ".into()), None, "claude"),
+            Some(false)
+        );
+        assert_eq!(stub_replay_status(true, cmd(), None, "claude"), Some(true));
+        assert_eq!(
+            stub_replay_status(true, cmd(), Some(""), "codex"),
+            Some(true)
+        );
+        assert_eq!(
+            stub_replay_status(true, cmd(), Some("codex, Claude"), "claude"),
+            Some(true)
+        );
+        assert_eq!(
+            stub_replay_status(true, cmd(), Some("codex"), "claude"),
+            Some(false)
+        );
+    }
 
     #[test]
     fn gate_and_wrap_behavior() {
