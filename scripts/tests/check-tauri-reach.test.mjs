@@ -46,6 +46,11 @@ test('CLI fixture ratchets committed budgets and rejects restoring removed reach
     baseline({ [file]: 1 });
     commit();
     assert.equal(run().status, 0);
+    const crash = 'src-tauri/crates/codeterm-crash/src/nested/leak.rs';
+    source(crash, 'use tauri::Runtime;');
+    assert.match(run().stderr, /crash.*reach grew/);
+    source(crash, 'pub fn clean() {}');
+    assert.equal(run().status, 0);
     source(file, 'tauri::async_runtime::spawn(task); AppHandle');
     assert.match(run().stderr, /grew/);
     baseline({ [file]: 2 });

@@ -15,7 +15,7 @@ function fixture(t) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, text);
   };
-  for (const name of ["codeterm-events", "codeterm-keepawake"]) write(name, "Cargo.toml", '[package]\nname = "' + name + '"');
+  for (const name of ["codeterm-events", "codeterm-keepawake", "codeterm-crash"]) write(name, "Cargo.toml", '[package]\nname = "' + name + '"');
   write("codeterm-prompts", "Cargo.toml", '[package]\nname = "codeterm-prompts"');
   return { write, run: () => spawnSync(bash, [script, root], { encoding: "utf8" }) };
 }
@@ -33,6 +33,7 @@ for (const [name, file, text] of [
   ["codeterm-prompts", "build.rs", 'extern crate tauri;'],
   ["codeterm-prompts", "tests/nested/leak.rs", 'use codeterm_service_core::service::ServiceContext;'],
   ["codeterm-events", "src/lib.rs", 'use codeterm_service_core::ServiceContext;'],
+  ["codeterm-crash", "src/nested/leak.rs", 'fn leak(_: &ServiceContext) {}'],
 ]) {
   test(`rejects ${name}/${file}: ${text}`, (t) => {
     const { write, run } = fixture(t);
@@ -60,6 +61,7 @@ test("allows same and lower leaf tiers, including supporter consumers", (t) => {
     ["codeterm-recall", "codeterm-supporter"],
     ["codeterm-provider-ops", "codeterm-supporter"],
     ["codeterm-events", "codeterm-config"],
+    ["codeterm-crash", "codeterm-keepawake"],
   ]) {
     write(name, "Cargo.toml", `[package]\nname = "${name}"\n[dependencies]\n${dependency} = { path = "../${dependency}" }\n`);
   }

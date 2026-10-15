@@ -26,6 +26,8 @@ if [ -n "$port_leaks" ]; then
   status=1
 fi
 
+node scripts/check-crate-layering.mjs || status=1
+
 if [ "$status" -eq 0 ]; then
   echo "service-core boundary: ok"
 fi
