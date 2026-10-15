@@ -822,6 +822,8 @@ fn observe_with_owner_prompt(
             drop(state);
             owner_prompt_changed(prompt.as_ref().map(|active| active.question.as_str()));
             state = OBSERVATIONS.state.lock();
+            // A clear or acknowledgement noted while unlocked already notified; re-check it.
+            continue;
         }
         let deadline = owner_deadline.unwrap_or(normal_deadline);
         if OBSERVATIONS
@@ -833,7 +835,9 @@ fn observe_with_owner_prompt(
                 .armed
                 .get(&attempt.tab_id)
                 .filter(|observed| &observed.attempt == attempt)
-                .is_some_and(|observed| Some(observed.prompt_revision) != last_revision)
+                .is_some_and(|observed| {
+                    observed.evidence.is_some() || Some(observed.prompt_revision) != last_revision
+                })
             {
                 continue;
             }

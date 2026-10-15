@@ -11,7 +11,7 @@ const DEADLINE: Duration = Duration::from_secs(30);
 
 pub struct ServiceInstance {
     pub fixture: ServiceFixture,
-    pub(crate) storage: Storage,
+    pub storage: Storage,
     authority: StorageAuthority,
 }
 

@@ -268,7 +268,7 @@ async fn prove_and_publish_listener_pair(
     tokio::pin!(server);
     tokio::select! {
         result = &mut server => panic!("listeners exited before proof: {result:?}"),
-        result = prove_set(primary_address, Some(remote_address)) => result.unwrap(),
+        result = prove_set(primary_address, Some(remote_address), HEALTH_PROOF_DEADLINE) => result.unwrap(),
     }
     assert!(control.listeners.ready().is_empty());
     let status = control

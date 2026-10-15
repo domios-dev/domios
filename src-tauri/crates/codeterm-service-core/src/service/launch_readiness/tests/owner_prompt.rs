@@ -2,20 +2,11 @@ use super::*;
 use std::time::Duration;
 
 #[test]
-fn launch_waits_for_owner_prompt_without_spawn_failed() {
-    owner_prompt_readiness_round_trip("owner-prompt-readiness");
-}
-
-#[test]
 fn answered_owner_prompt_resumes_normal_readiness() {
-    owner_prompt_readiness_round_trip("answered-owner-prompt");
-}
-
-fn owner_prompt_readiness_round_trip(prefix: &str) {
     let attempt = LaunchAttempt {
-        tab_id: format!("{prefix}-tab"),
-        pty_id: format!("{prefix}-pty"),
-        binding_nonce: format!("{prefix}-nonce"),
+        tab_id: "answered-owner-prompt-tab".into(),
+        pty_id: "answered-owner-prompt-pty".into(),
+        binding_nonce: "answered-owner-prompt-nonce".into(),
     };
     owner_prompt_pending_until(
         &attempt.tab_id,
