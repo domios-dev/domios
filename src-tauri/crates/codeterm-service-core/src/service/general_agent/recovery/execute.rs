@@ -315,8 +315,7 @@ pub(crate) fn recover(
                     );
                 }
             } else {
-                use tauri::Manager;
-                if let Some(config) = service.app_handle.try_state::<crate::config::ConfigState>() {
+                if let Some(config) = service.try_ext::<crate::config::ConfigState>() {
                     let svc = std::sync::Arc::new(service.clone());
                     super::super::lifecycle::start_general_agent(
                         &svc,

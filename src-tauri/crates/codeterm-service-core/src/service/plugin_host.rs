@@ -1,7 +1,6 @@
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
-use tauri::Manager;
 
 use crate::mem::{workers, SearchQuery};
 use crate::multiplexer::types::TabCloseReason;
@@ -384,10 +383,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn event_sources_changed(&self) {
         self.contributions_changed("graph-nodes");
-        if let Some(ports) = self
-            .app_handle
-            .try_state::<crate::ports::sentinel::SentinelPorts>()
-        {
+        if let Some(ports) = self.try_ext::<crate::ports::sentinel::SentinelPorts>() {
             ports.wake.notify();
         }
     }
@@ -444,10 +440,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
                     .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
                     .pipeline_id_for(subscription_id)
                 {
-                    if let Some(ports) = self
-                        .app_handle
-                        .try_state::<crate::ports::sentinel::SentinelPorts>()
-                    {
+                    if let Some(ports) = self.try_ext::<crate::ports::sentinel::SentinelPorts>() {
                         ports.wake.notify_event_subscription_changed(&pipeline_id);
                     }
                 }
@@ -458,10 +451,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
                     .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
                     .pipeline_id_for(subscription_id)
                 {
-                    if let Some(ports) = self
-                        .app_handle
-                        .try_state::<crate::ports::sentinel::SentinelPorts>()
-                    {
+                    if let Some(ports) = self.try_ext::<crate::ports::sentinel::SentinelPorts>() {
                         ports.wake.notify_event_subscription_changed(&pipeline_id);
                     }
                 }

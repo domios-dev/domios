@@ -4,7 +4,6 @@ use std::sync::{Arc, LazyLock};
 
 use codeterm_plugin::provider::{AgentProvider, ProviderUpdateAvailability};
 use parking_lot::Mutex;
-use tauri::Manager;
 
 use super::ServiceContext;
 use state::Admission;
@@ -141,8 +140,7 @@ fn update_instance_name(instance: Option<&str>, port: u16, allow_non_prod: bool)
 fn updates_enabled(service: &ServiceContext) -> bool {
     ENABLED.load(Ordering::Acquire)
         && service
-            .app_handle
-            .try_state::<crate::config::ConfigState>()
+            .try_ext::<crate::config::ConfigState>()
             .is_some_and(|config| config.lock().updater.auto_update_provider_clis)
 }
 

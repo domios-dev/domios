@@ -9,7 +9,6 @@ use codeterm_types::agent::capability_probe::{
 };
 use parking_lot::Mutex;
 use std::{path::PathBuf, sync::OnceLock, time::Duration};
-use tauri::Manager;
 mod cache;
 mod executor;
 mod process;
@@ -41,8 +40,7 @@ fn request(svc: &ServiceContext, tab: &str) -> Result<Request, ProbeFailure> {
         )
     };
     let enabled = svc
-        .app_handle
-        .try_state::<crate::config::ConfigState>()
+        .try_ext::<crate::config::ConfigState>()
         .is_some_and(|config| {
             config
                 .lock()
