@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::amend::{Amendment, AmendmentLineage, DefinitionSnapshot, DefinitionVersion};
 use crate::command::{Capture, Parameters, ResultMetadata, Status as CommandStatus};
-use crate::identity::Identity;
 use crate::handlers::{Handler, ResultRecord, Status, Transition};
+use crate::identity::Identity;
 use crate::machine::{EscalateTarget, Machine, Route, SafeKind};
 use crate::source::{RunBinding, TabBinding};
 use crate::store::Sentinel;
@@ -320,9 +320,7 @@ fn domain_transition(record: TransitionRecord) -> Transition {
         decision: record
             .decision_json
             .as_deref()
-            .and_then(|json| {
-                serde_json::from_str::<crate::provenance::Decision>(json).ok()
-            })
+            .and_then(|json| serde_json::from_str::<crate::provenance::Decision>(json).ok())
             .filter(|decision| decision.valid()),
         id: record.id,
         bucket: record.bucket,

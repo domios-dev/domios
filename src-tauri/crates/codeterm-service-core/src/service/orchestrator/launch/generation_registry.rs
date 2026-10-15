@@ -78,11 +78,7 @@ impl LaunchRegistry {
         true
     }
 
-    pub fn record_provider_session(
-        &self,
-        tab_id: &str,
-        binding: &ProviderSessionBinding,
-    ) -> bool {
+    pub fn record_provider_session(&self, tab_id: &str, binding: &ProviderSessionBinding) -> bool {
         let Some(ack) = self
             .tabs
             .get(tab_id)

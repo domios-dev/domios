@@ -1,9 +1,9 @@
-use codeterm_service_core::service::TeamExt;
 use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_service_core::service::TeamExt;
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};

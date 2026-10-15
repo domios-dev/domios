@@ -162,18 +162,11 @@ pub struct DeadlineReceipt {
 }
 
 impl Deadlines {
-    pub fn start(
-        limit: Duration,
-        runtime: Duration,
-    ) -> Result<Self, ProbeFailure> {
+    pub fn start(limit: Duration, runtime: Duration) -> Result<Self, ProbeFailure> {
         Self::at(limit, runtime, Instant::now())
     }
 
-    pub fn at(
-        limit: Duration,
-        runtime: Duration,
-        admitted: Instant,
-    ) -> Result<Self, ProbeFailure> {
+    pub fn at(limit: Duration, runtime: Duration, admitted: Instant) -> Result<Self, ProbeFailure> {
         let duration = limit.min(runtime);
         let Some(hard) = admitted.checked_add(duration) else {
             return Err(ProbeFailure::new("probe_deadline_unavailable"));
@@ -235,10 +228,7 @@ impl Deadlines {
 }
 
 #[cfg(any(unix, test))]
-pub fn cancellation_target(
-    ownership: LeaderOwnership,
-    child_id: u32,
-) -> Result<i32, String> {
+pub fn cancellation_target(ownership: LeaderOwnership, child_id: u32) -> Result<i32, String> {
     match ownership {
         LeaderOwnership::Retained(id) if id == child_id && id > 1 && id <= i32::MAX as u32 => {
             Ok(id as i32)

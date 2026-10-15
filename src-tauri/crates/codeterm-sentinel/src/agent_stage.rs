@@ -67,11 +67,7 @@ pub fn run(
     }
 }
 
-pub fn effective_deadline(
-    stage_ms: u64,
-    remaining_ms: Option<u64>,
-    now: Instant,
-) -> Instant {
+pub fn effective_deadline(stage_ms: u64, remaining_ms: Option<u64>, now: Instant) -> Instant {
     now + Duration::from_millis(stage_ms.min(remaining_ms.unwrap_or(stage_ms)))
 }
 
