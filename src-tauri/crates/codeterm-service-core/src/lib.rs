@@ -71,13 +71,12 @@ mod webview_watchdog;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::Manager;
 
 use multiplexer::commands::MuxState;
 pub use notification::NotifState;
 use pty::manager::{OutputBuffer, PtyManager};
 use pty::screen_state::ScreenState;
-use service::{ServiceContext, ServiceState};
+use service::ServiceState;
 
 pub type PtyState = Arc<lock_hold::TimedMutex<PtyManager>>;
 pub type OutputBufferState = Arc<lock_hold::TimedMutex<OutputBuffer>>;

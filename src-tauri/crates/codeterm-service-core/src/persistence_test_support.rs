@@ -1,4 +1,5 @@
 use crate::multiplexer::state::MultiplexerState;
+pub use crate::service::session_persist::persistence_test_support::assert_unavailable_rejects_persistence_without_a_commit;
 use crate::service::test_fixture::ServiceFixture;
 use crate::session::store::StorageDeskAdapter;
 use crate::startup::StorageAuthority;

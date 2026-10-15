@@ -568,7 +568,7 @@ mod tests {
 
         assert!(state.list_workspaces().is_empty());
         assert!(!boot_resync);
-        codeterm_service_core::service::session_persist::tests::
+        codeterm_service_core::persistence_test_support::
             assert_unavailable_rejects_persistence_without_a_commit();
     }
 

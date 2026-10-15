@@ -136,7 +136,7 @@ enum PersistenceBackend {
         revision: codeterm_storage::Revision,
     },
     Unavailable(String),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Test(Box<dyn FnMut(u64) -> Result<SaveOutcome, String> + Send>),
 }
 
@@ -520,7 +520,7 @@ fn commit_request(
         }
         PersistenceBackend::Pending => Err("Storage desk backend is not initialized".to_string()),
         PersistenceBackend::Unavailable(reason) => Err(reason.clone()),
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         PersistenceBackend::Test(writer) => writer(request.revision),
     }
 }
@@ -710,3 +710,6 @@ impl super::ServiceContext {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod persistence_test_support;

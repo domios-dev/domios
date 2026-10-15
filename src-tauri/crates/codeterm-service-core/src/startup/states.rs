@@ -7,7 +7,6 @@ use crate::{
     AgentTrackerState, KeepAwakeStateHandle, MeshStateHandle, OutputBufferState, PtyState,
     ReportStoreState, ResizeOwnerState, ScreenStateHandle, UpdateStateHandle,
 };
-use std::sync::Arc;
 
 /// All shared application states, grouped for easier passing between init functions.
 pub struct AppStates {
