@@ -13,7 +13,7 @@ pub(crate) fn begin() -> Shutdown {
         })
         .collect();
     let (done, wait) = mpsc::channel();
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let results =
             futures_util::future::join_all(cleanups.into_iter().map(|cleanup| cleanup.finish()))
                 .await;

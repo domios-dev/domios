@@ -90,7 +90,7 @@ pub(crate) fn log_launch_environment(
         tab_id,
         env,
         |job| {
-            tauri::async_runtime::spawn_blocking(job);
+            crate::async_runtime::spawn_blocking(job);
         },
     );
 }

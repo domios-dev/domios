@@ -72,7 +72,7 @@ impl ServiceContext {
             .clone();
         let app = self.app_handle.clone();
         let tab_id = tab_id.to_string();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             let capture = tokio::task::spawn_blocking(move || {
                 record_lane_turn(&service, &store, &repo_watch, &app, &tab_id)
             });
@@ -87,7 +87,7 @@ impl ServiceContext {
     pub(crate) fn offer_merged_lane_cleanup(&self, repository_identity: String) {
         let store = self.plan_store.clone();
         let app = self.app_handle.clone();
-        tauri::async_runtime::spawn_blocking(move || {
+        crate::async_runtime::spawn_blocking(move || {
             offer_merged_lanes(&store, &app, &repository_identity)
         });
     }

@@ -141,7 +141,7 @@ pub fn spawn(
     let mut stderr = child.stderr.take().ok_or(RuntimeFailure::PipeEof)?;
     let output = Arc::new(Mutex::new(Vec::new()));
     let captured = output.clone();
-    let stderr_reader = tauri::async_runtime::spawn(async move {
+    let stderr_reader = crate::async_runtime::spawn(async move {
         let mut bytes = [0u8; 4096];
         while let Ok(count) = stderr.read(&mut bytes).await {
             if count == 0 {
@@ -170,7 +170,7 @@ pub fn spawn(
             }
         }
     });
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         #[cfg(unix)]
         let status = {
             let terminate = tokio::select! {_ = stopping.changed()=>true,result=&mut witnessed=>matches!(result,Ok(Ok(())))};

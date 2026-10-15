@@ -73,7 +73,7 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
     if store.queued(tab)?.is_empty() {
         return Ok(UserDrain::Idle);
     }
-    let session = match tauri::async_runtime::block_on(engine::ensure(svc, tab)) {
+    let session = match crate::async_runtime::block_on(engine::ensure(svc, tab)) {
         Ok(session) => session,
         Err(reason) => {
             for record in store.queued(tab)? {

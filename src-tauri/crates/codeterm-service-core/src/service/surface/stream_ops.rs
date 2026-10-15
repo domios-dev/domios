@@ -137,7 +137,7 @@ impl ServiceContext {
             .ext::<Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
             .take_closed(|tab_id| self.mux.read().get_tab(tab_id).is_some());
         for runtime in closed {
-            tauri::async_runtime::spawn(async move { runtime.dispose().await });
+            crate::async_runtime::spawn(async move { runtime.dispose().await });
         }
     }
 

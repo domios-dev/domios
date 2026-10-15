@@ -651,7 +651,7 @@ impl ServiceContext {
         let service = self.clone();
         let tab_id = tab_id.to_string();
         let new_type = new_type.to_string();
-        tauri::async_runtime::spawn_blocking(move || {
+        crate::async_runtime::spawn_blocking(move || {
             log::debug!(
                 "[bridge] admitting {} buffered messages tab={} provider={}",
                 queued.len(),

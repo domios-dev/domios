@@ -692,7 +692,7 @@ fn enqueue_agent_turn(
     let svc_task = svc.clone();
     let worker_id_task = worker_id.clone();
     let provider_acquire = provider.clone();
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let permit = svc_task
             .ext::<std::sync::Arc<crate::mem::worker_pool::WorkerPool>>()
             .acquire(&provider_acquire)
