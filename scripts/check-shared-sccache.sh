@@ -210,6 +210,20 @@ printf 'PASS CI verification starts shared S3 only when no server is live\n'
 printf 'PASS runner process credentials require both keys and never query vault\n'
 
 (
+  codeterm() { printf 'vault-call\n' >> "$WORK/events"; return 1; }
+  rm -f "$WORK/events"
+  export CODETERM_SCCACHE_STORAGE=local CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner
+  export AWS_ACCESS_KEY_ID=fixture-access AWS_SECRET_ACCESS_KEY=fixture-secret SCCACHE_ENDPOINT=http://stale
+  ct_sccache_storage
+  [ "$CT_SCCACHE_STORAGE" = local ]
+  [ -z "${SCCACHE_ENDPOINT:-}" ]
+  [ ! -e "$WORK/events" ]
+  ! ct_sccache_storage_matches 's3, name: sccache, prefix: /'
+  ct_sccache_storage_matches 'Local disk: "C:/Developer/RustCaches/sccache"'
+) > "$WORK/pinned.log" 2>&1
+printf 'PASS a machine pinned to local storage ignores S3 credentials and restarts an S3 server\n'
+
+(
   printf 's3, name: sccache, prefix: /' > "$WORK/location"
   curl() { printf 200; }
   FIXTURE_SERVER_LIVE=0
