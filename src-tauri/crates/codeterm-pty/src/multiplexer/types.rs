@@ -536,6 +536,8 @@ pub struct PendingModelSelection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
+    #[serde(default, skip_deserializing)]
+    pub frozen: bool,
     #[serde(default)]
     pub last_active_at_ms: Option<u64>,
     #[serde(default, skip_deserializing)]

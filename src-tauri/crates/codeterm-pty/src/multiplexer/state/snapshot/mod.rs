@@ -739,6 +739,7 @@ fn install_leaf(
             skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
+            frozen: false,
             last_active_at_ms: None,
             restored_from_snapshot: true,
             scrollback_seed_pending,

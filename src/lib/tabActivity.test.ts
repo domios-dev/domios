@@ -75,3 +75,6 @@ assert.equal(tabActivity({ ...agent, provider_signals: providerSignals }).label,
 assert.equal(tabActivity({ ...agent, pending_prompt: pending, provider_signals: providerSignals }, "Waiting").label, pending.question);
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working" }, provider_signals: providerSignals }).label, "Working");
 console.log(`tab activity: ${cases.length} table cases, ${startingStages.length} boot stages and working-count checks passed`);
+
+assert.equal(tabActivity({ ...agent, frozen: true }, "Working").active, false);
+assert.equal(tabActivity({ ...agent, frozen: true }, "Working").launching, false);

@@ -526,6 +526,7 @@ pub fn run(
                 let _ = chatbackend_registry.start_discovery();
             }
             codeterm_service_core::service::agent_runtime::restore_all(&service_state);
+            codeterm_service_core::service::lazy_restore::initialize(&service_state, states.config.lock().restore.active_window_hours);
             app.manage(service_state.clone());
             codeterm_service_core::service::account::register_deep_links(&app_handle, service_state.clone())?;
             {
