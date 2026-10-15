@@ -603,6 +603,8 @@ automation that needs a detached health gate and does not prove a visible window
 | A native cwd regression accepts the resolved path, but its `cmd.exe` child exits 1 with `The directory or file cannot be created` | Shell startup introduces an uncontrolled dependency after native process creation; literal command-line syntax did not remove it. | Run the current Rust test executable with `--list --exact opaque-filter` instead, retaining the empty-cwd raw error assertion and a successful native child exit. Rerun the focused launch selector. |
 | The focused wrapper reports `exceptional worktree compilation requires sccache` before selecting tests | The utility cannot discover the existing machine cache executable. | Add only its verified existing directory to the utility process PATH, confirm exact executable resolution and that `sccache --show-stats` reaches the prestarted shared server, then use the same focused wrapper with a fresh idle gateway. Preserve the failed receipt; never disable, replace, clear, or restart the shared cache to bypass this prerequisite. |
 | Multiple crate compilations fail with `sccache: caused by: Failed to read response header` or `error reading compile response from server` (`os error 10054`) | The machine-level cache server reset compiler connections during the build; it may answer again after the failed job exits. | With the gateway idle, check `sccache --show-stats`. If it responds, retry the same bounded operation once; if it does not, use the sccache restart recovery above. Never bypass the shared cache or raise the test cap. |
+| nextest reports Unknown nextest scope: api before compiling | The short api alias belongs to test-one, while nextest accepts the package name through its codeterm-* scope. | Use ./build.sh nextest codeterm-api with the same focused filter. Preserve the refused run; do not repeat a successful check. |
+| Multiple cache-fronted crate checks fail with sccache socket address-in-use (os error 10048), while cache stats still respond | TCP address allocation failed; inspect local ephemeral-port pressure instead of assuming the cache server is wedged. A recorded incident had 15045 TIME_WAIT sockets against a 16384-port dynamic range, mostly to the local app HTTP port. | Preserve the failed job. At an idle gateway inspect cache stats and socket counts; keep a responsive shared server running. One CARGO_BUILD_JOBS=1 invocation can test a reduced connection burst; the recorded serial attempt also failed, so further attempts require the host pressure to be resolved. Do not repeat successful selectors, change system port ranges or kill production. Only on an explicit owner request, one process-local diagnostic check may use CODETERM_USE_SCCACHE=0 RUSTC_WRAPPER= ./build.sh check; this leaves the shared cache server and machine configuration untouched. Both variables are required because the opt-out does not clear an inherited wrapper. This recipe does not bypass exceptional test/dev paths, which explicitly require or restore sccache; do not claim those paths were uncached. |
 | `test-one app` fails with `expected item after attributes` in `report_plan_ctx/tests.rs`, and the moved desktop reporter is unused | The test split left a trailing `#[test]` in the shared module and omitted it from the first moved function in `tests/desktop_reports.rs`. | Move `#[test]` onto that function, remove the trailing attribute, and rerun the same focused app filter. |
 
 ### Visible Windows dev session
@@ -974,6 +976,13 @@ DEV target directories. `dev-prebuilt` never invokes Cargo or `dev-prep --no-ser
 its staging is complete before provenance is written under the gateway.
 
 ## Product and test feature sets
+
+If `codeterm-mem` lib tests fail without defaults on unused `open_with_embedder`
+or `submit_chunks`, their test helpers lack the embeddings gate used by their
+callers. Gate the helpers with `cfg(all(test, feature = "embeddings"))`; retain
+the tests and denied warnings. After `source build.sh env`, compile both with
+`cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-mem --lib --no-default-features --no-run`
+and the same command without `--no-default-features` in a Team build shell.
 
 For a CPU embedding parity measurement, retain an old embedding executable before
 removing its build artifacts, then run `./build.sh embedding-parity --old-binary

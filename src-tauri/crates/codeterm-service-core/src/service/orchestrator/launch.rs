@@ -64,8 +64,10 @@ struct ProviderAck {
     changed: parking_lot::Condvar,
 }
 
-static LAUNCH_REGISTRY: std::sync::LazyLock<parking_lot::Mutex<LaunchRegistry>> =
-    std::sync::LazyLock::new(|| parking_lot::Mutex::new(LaunchRegistry::default()));
+static LAUNCH_REGISTRY: std::sync::LazyLock<crate::lock_hold::TimedMutex<LaunchRegistry>> =
+    std::sync::LazyLock::new(|| {
+        crate::lock_hold::TimedMutex::new("launch_registry", LaunchRegistry::default())
+    });
 #[derive(Debug, Clone)]
 pub struct LaunchGeneration {
     tab_id: String,
