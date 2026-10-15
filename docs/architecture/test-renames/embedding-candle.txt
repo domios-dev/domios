@@ -1,0 +1,2 @@
+# The owner replaced call-budget child recycling with an idle-unloaded in-process worker.
+embeddings::tests::embedding_child_recycles_before_the_memory_budget_is_exceeded -> embedding_worker::tests::idle_deadline_drops_the_model_and_next_job_loads_again

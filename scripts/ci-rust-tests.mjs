@@ -227,6 +227,19 @@ async function run(mode) {
         if (audit.error || audit.status !== 0) throw new Error(`Slow unit ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }
     }
+    if (mode === 'embeddings') {
+      const lane = lanes[0];
+      const config = path.join(directory, 'embedding-parity.toml');
+      fs.writeFileSync(config, tomlConfig('package(=codeterm-mem) & test(=embedding_model::tests::candle_embedding_matches_fastembed_golden)', false));
+      const log = path.join(directory, 'embedding-parity.log');
+      const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest',
+        ...runArgs(lane, config), '--run-ignored', 'only'], log, env);
+      const report = fs.readFileSync(log, 'utf8');
+      requireTestSuccess(result, report, 'Embedding golden parity');
+      const count = executedCount(report);
+      if (count !== 1) throw new Error(`Expected one embedding parity oracle, got ${count}`);
+      receipt.executed += count;
+    }
     if (!receipt.executed) throw new Error('No Rust tests executed');
     receipt.exit = 0;
   } finally {
