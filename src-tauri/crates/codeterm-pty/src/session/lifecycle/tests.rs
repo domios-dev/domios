@@ -48,52 +48,35 @@ fn key(tab_id: &str, epoch: u64, operation: &str) -> LifecycleKey {
     LifecycleKey::new(tab_id, LifecycleEpoch(epoch), operation)
 }
 
-/// A launch that committed everything and sealed.
+fn full_launch_transitions(session_id: &str) -> [LifecycleTransition; 6] {
+    [
+        LifecycleTransition::EpochOpened,
+        LifecycleTransition::ProviderIdentityCommitted {
+            provider: "claude".into(),
+        },
+        LifecycleTransition::SessionBound {
+            session_id: session_id.into(),
+            binding_nonce: "nonce-1".into(),
+            source: Default::default(),
+        },
+        LifecycleTransition::RoleBinding {
+            role: Some("Manager".into()),
+            role_profile: Some("orchestrator".into()),
+            can_spawn: true,
+            depth: 1,
+        },
+        LifecycleTransition::TeamBinding {
+            team_id: Some("team-1".into()),
+            parent_tab_id: None,
+        },
+        LifecycleTransition::LaunchReady,
+    ]
+}
+
 fn commit_full_launch(journal: &TabLifecycleJournal, key: &LifecycleKey, session_id: &str) {
-    journal
-        .append(key.clone(), LifecycleTransition::EpochOpened)
-        .unwrap();
-    journal
-        .append(
-            key.clone(),
-            LifecycleTransition::ProviderIdentityCommitted {
-                provider: "claude".into(),
-            },
-        )
-        .unwrap();
-    journal
-        .append(
-            key.clone(),
-            LifecycleTransition::SessionBound {
-                session_id: session_id.into(),
-                binding_nonce: "nonce-1".into(),
-                source: Default::default(),
-            },
-        )
-        .unwrap();
-    journal
-        .append(
-            key.clone(),
-            LifecycleTransition::RoleBinding {
-                role: Some("Manager".into()),
-                role_profile: Some("orchestrator".into()),
-                can_spawn: true,
-                depth: 1,
-            },
-        )
-        .unwrap();
-    journal
-        .append(
-            key.clone(),
-            LifecycleTransition::TeamBinding {
-                team_id: Some("team-1".into()),
-                parent_tab_id: None,
-            },
-        )
-        .unwrap();
-    journal
-        .append(key.clone(), LifecycleTransition::LaunchReady)
-        .unwrap();
+    for transition in full_launch_transitions(session_id) {
+        journal.append(key.clone(), transition).unwrap();
+    }
 }
 
 fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapshot {
@@ -760,36 +743,40 @@ fn compaction_preserves_checkpoints_and_bounds_the_file() {
 
 #[test]
 fn compaction_preserves_latest_verified_session_per_tab() {
-    let (journal, _dir) = new_journal();
-    let original = key("tab-a", 1, "op-a");
-    commit_full_launch(&journal, &original, "session-old");
-    let latest = key("tab-a", 2, "op-b");
-    commit_full_launch(&journal, &latest, "session-a");
+    let mut history = Vec::new();
+    let mut append = |key: LifecycleKey, transition| {
+        history.push(JournalRecord::Transition {
+            entry: LifecycleEntry {
+                seq: history.len() as u64 + 1,
+                key,
+                transition,
+                recorded_at: String::new(),
+            },
+        });
+    };
+    for (epoch, operation, session) in [(1, "op-a", "session-old"), (2, "op-b", "session-a")] {
+        for transition in full_launch_transitions(session) {
+            append(key("tab-a", epoch, operation), transition);
+        }
+    }
     let restored = key("tab-a", 3, "op-c");
-    journal
-        .append(restored.clone(), LifecycleTransition::EpochOpened)
-        .unwrap();
-    journal
-        .append(
-            restored.clone(),
-            LifecycleTransition::RolledBack {
-                reason: "restored without a live agent".into(),
-            },
-        )
-        .unwrap();
-    journal
-        .append(
-            restored,
-            LifecycleTransition::RestoreAwaitingAgentRestart {
-                session_id: "session-a".into(),
-            },
-        )
-        .unwrap();
+    append(restored.clone(), LifecycleTransition::EpochOpened);
+    append(
+        restored.clone(),
+        LifecycleTransition::RolledBack {
+            reason: "restored without a live agent".into(),
+        },
+    );
+    append(
+        restored,
+        LifecycleTransition::RestoreAwaitingAgentRestart {
+            session_id: "session-a".into(),
+        },
+    );
 
     // The journal API cannot emit a sessionless checkpoint, so seed the reducer
     // input with the reported compacted shape.
-    let mut history = journal.load().records;
-    let checkpoint_seq = journal.load().last_seq() + 1;
+    let checkpoint_seq = history.len() as u64 + 1;
     history.push(JournalRecord::Checkpoint {
         checkpoint: LifecycleCheckpoint {
             key: key("tab-a", 4, "identity-cleared"),

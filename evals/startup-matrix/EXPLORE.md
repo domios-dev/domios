@@ -177,6 +177,11 @@ must not have its default-DEV refusal bypassed.
   queue time from materialization, and SSE replay receipt from emission time.
   Unknown phases stay unknown. Preserve attempted sends while reconciling late
   own-session replies; a harness correction never authorizes resubmission.
+- [ ] If an `AgentReady` commit holds the launch registry, compare its
+  `finish_authority_done` → `finish_journal_done` span with total held time.
+  Record journal size/count and whether automatic compaction rewrites retained
+  history repeatedly. Re-run with the same retained journal after a repair;
+  deleting history or testing only an empty data directory is not proof.
 
 - [ ] Before measuring, require a successful focused repair gate when applicable,
   the exact committed build in health, and startup beyond service state
