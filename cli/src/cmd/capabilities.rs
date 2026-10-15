@@ -139,7 +139,7 @@ mod tests {
 
     fn advertised_methods() -> Vec<&'static str> {
         let source = include_str!(
-            "../../../src-tauri/crates/codeterm-service-core/src/socket/server/dispatch.rs"
+            "../../../src-tauri/crates/codeterm-socket/src/server/dispatch.rs"
         );
         let block = source
             .split_once("let methods = vec![")
