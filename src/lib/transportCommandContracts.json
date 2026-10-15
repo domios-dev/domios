@@ -196,6 +196,7 @@
         "/api/workspaces/reorder"
       ]
     ],
+    "wake_tab": [["POST", "/api/tabs/tab/wake"]],
     "mux_set_focused_tab": [
       [
         "POST",

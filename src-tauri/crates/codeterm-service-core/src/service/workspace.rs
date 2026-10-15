@@ -704,7 +704,6 @@ impl ServiceContext {
 
     pub fn set_active_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
         self.mux.write().set_active_tab(workspace_id, tab_id)?;
-        self.wake_frozen_tab(tab_id)?;
         self.emit_state_changed();
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
@@ -723,7 +722,6 @@ impl ServiceContext {
             mux.set_active_workspace(workspace_id)?;
             mux.set_active_tab(workspace_id, tab_id)?;
         }
-        self.wake_frozen_tab(tab_id)?;
         self.emit_state_changed();
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);

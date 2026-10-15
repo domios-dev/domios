@@ -67,6 +67,15 @@ async function main() {
     "sidebar failure badge has its own accessible name",
   );
 
+  const renderSleeping = (frozen: boolean) => act(async () => root.render(
+    <TabItem tab={{ ...tab, frozen }} index={0} isActive={false} onClick={() => undefined}
+      onClose={() => undefined} canClose={false} workspaceId="fixture-workspace" />,
+  ));
+  await renderSleeping(true);
+  assert(host.querySelector('[role="img"][aria-label="Sleeping"]'), "sleeping snapshot exposes the accessible indicator");
+  await renderSleeping(false);
+  assert(!host.querySelector('[aria-label="Sleeping"]'), "waking clears the sleeping indicator");
+
   await act(async () => root.unmount());
   host.remove();
   console.log("✓ TabItem restore failure wiring: sidebar badge role and accessible name");
