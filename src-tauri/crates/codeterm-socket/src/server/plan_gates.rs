@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::service::plan::PlanError;
@@ -23,12 +22,8 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_host_runtime::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 fn string_list(params: Option<&Value>, key: &str) -> Vec<String> {
@@ -58,7 +53,6 @@ fn to_value(v: impl serde::Serialize) -> Result<Value, JsonRpcError> {
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
@@ -96,7 +90,7 @@ pub(super) fn dispatch(
                             "gate": gate.clone()
                         })),
                     })?;
-                emit_plan_changed(app, &plan_id);
+                emit_plan_changed(svc, &plan_id);
                 return to_value(&gate);
             }
 
@@ -179,7 +173,7 @@ pub(super) fn dispatch(
                 } else {
                     "replace_or_rebind_planner"
                 };
-                emit_plan_changed(app, &plan_id);
+                emit_plan_changed(svc, &plan_id);
                 return Err(JsonRpcError {
                     code: -32003,
                     message: "agent_unavailable".into(),
@@ -194,7 +188,7 @@ pub(super) fn dispatch(
                     })),
                 });
             }
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             to_value(&gate)
         }
 
@@ -209,7 +203,7 @@ pub(super) fn dispatch(
                 .answer_gate(&plan_id, &gate_id, &answer, answered_by.as_deref(), now)
                 .map_err(plan_rpc_err)?;
             svc.nudge_gate_asker(&plan_id, &gate_id, &answer, answered_by.as_deref());
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             to_value(&gate)
         }
 
@@ -228,7 +222,7 @@ pub(super) fn dispatch(
                     message,
                     data: Some(json!({ "request_id": request_id })),
                 })?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             to_value(request)
         }
 
@@ -251,7 +245,7 @@ pub(super) fn dispatch(
             let gate = store
                 .escalate_gate(&plan_id, &gate_id, note.as_deref(), now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             to_value(&gate)
         }
 

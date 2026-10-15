@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::OrchestratorRef;
@@ -25,12 +24,8 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_host_runtime::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 /// A list field the caller either did not mention (`None`, kept) or set. A single
@@ -56,7 +51,6 @@ fn string_list_field(body: &Value, key: &str) -> Result<Option<Vec<String>>, Jso
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
@@ -155,7 +149,7 @@ pub(super) fn dispatch(
             let goal = store
                 .patch_goal(&id, patch, epoch_ms())
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             let mut resp = json!({ "ok": true, "goal": goal });
             if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| {
                 codeterm_service_core::service::plan::hints::planner_ownership_nudge(

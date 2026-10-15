@@ -1,4 +1,3 @@
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::service::ServiceState;
@@ -16,7 +15,6 @@ pub(super) fn is_targeted(params: &Option<Value>) -> bool {
 
 pub(super) fn dispatch(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, super::JsonRpcError> {
     let plan_id = required_target(params, "plan_id")?;
@@ -91,7 +89,7 @@ pub(super) fn dispatch(
     .map_err(super::super::plan::plan_rpc_err)?;
     let status = match outcome {
         AttemptBindingRestoreResult::Restored(_) => {
-            super::emit_plan_changed(app, &plan_id);
+            super::emit_plan_changed(svc, &plan_id);
             "restored"
         }
         AttemptBindingRestoreResult::AlreadyCurrent => "already_current",

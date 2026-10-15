@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::{EffortLinkRel, PlanStatus};
@@ -24,20 +23,12 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_host_runtime::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
-fn emit_spec_changed(app: &AppHandle, spec_id: &str) {
-    codeterm_host_runtime::events::emit_everywhere(
-        app,
-        "spec-changed",
-        json!({ "spec_id": spec_id }),
-    );
+fn emit_spec_changed(svc: &ServiceState, spec_id: &str) {
+    svc.ui.emit("spec-changed", json!({ "spec_id": spec_id }));
 }
 
 fn bad_param(message: String) -> JsonRpcError {
@@ -97,7 +88,6 @@ fn tags_field(params: Option<&Value>) -> Vec<String> {
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
@@ -124,7 +114,7 @@ pub(super) fn dispatch(
             let spec = store
                 .create_spec(title, project, now)
                 .map_err(plan_rpc_err)?;
-            emit_spec_changed(app, &spec.id);
+            emit_spec_changed(svc, &spec.id);
             Ok(json!({ "spec_id": spec.id, "spec": spec }))
         }
         "spec.list" => {
@@ -155,7 +145,7 @@ pub(super) fn dispatch(
         "spec.delete" => {
             let id = super::plan_refs::resolve_spec(store, params)?;
             store.delete_spec(&id, now).map_err(plan_rpc_err)?;
-            emit_spec_changed(app, &id);
+            emit_spec_changed(svc, &id);
             Ok(json!({ "ok": true, "spec_id": id }))
         }
         "spec.show" => {
@@ -189,7 +179,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_spec_changed(app, &id);
+            emit_spec_changed(svc, &id);
             Ok(json!({ "section_id": sid }))
         }
         "spec.section.update" => {
@@ -206,7 +196,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_spec_changed(app, &id);
+            emit_spec_changed(svc, &id);
             Ok(json!({ "ok": true }))
         }
         "spec.section.rm" => {
@@ -214,7 +204,7 @@ pub(super) fn dispatch(
             store
                 .rm_spec_section(&id, &sid, now)
                 .map_err(plan_rpc_err)?;
-            emit_spec_changed(app, &id);
+            emit_spec_changed(svc, &id);
             Ok(json!({ "ok": true }))
         }
         "spec.section.show" => {
@@ -256,7 +246,7 @@ pub(super) fn dispatch(
                     }
                 }
             }
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(json!({ "ok": all_ok, "results": results }))
         }
         "spec.link.rm" => {
@@ -273,7 +263,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(json!({ "ok": true }))
         }
         "spec.link.list" => {
@@ -304,7 +294,7 @@ pub(super) fn dispatch(
             store
                 .link_effort(&from, &to, rel, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &from);
+            emit_plan_changed(svc, &from);
             Ok(json!({ "ok": true }))
         }
         _ => Err(JsonRpcError {

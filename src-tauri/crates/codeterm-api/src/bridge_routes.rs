@@ -262,7 +262,10 @@ fn persist_telegram_enabled(state: &AppState, enabled: bool) {
         enabled,
         codeterm_service_core::config::save_config_pub,
     );
-    crate::events::emit_everywhere(&state.svc.app_handle, "config-changed", &snapshot);
+    state.svc.ui.emit(
+        "config-changed",
+        serde_json::to_value(&snapshot).unwrap_or(serde_json::Value::Null),
+    );
 }
 
 /// Returns the daemon's config after the flag change; it must reach every client,

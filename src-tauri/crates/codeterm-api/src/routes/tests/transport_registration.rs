@@ -3,8 +3,8 @@ use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
 };
+use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
-use codeterm_service_core::service::test_fixture::ServiceFixture;
 use tower::ServiceExt;
 
 use crate::transport_tabs::fixture;

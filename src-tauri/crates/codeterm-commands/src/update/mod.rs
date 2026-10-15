@@ -15,8 +15,11 @@ pub use channel::Channel;
 pub use codeterm_service_core::update_state::{InstallMethod, UpdatePhase, UpdateState};
 pub use manifest::Manifest;
 
-pub fn bind_status_emitter(app: codeterm_host_runtime::app_runtime::AppHandle) {
+pub fn bind_status_emitter(ui: std::sync::Arc<dyn codeterm_service_core::ports::host::UiEvents>) {
     let _ = codeterm_service_core::update_state::STATUS_EMITTER.set(Box::new(move |status| {
-        codeterm_host_runtime::events::emit_everywhere(&app, "update-status-changed", status);
+        ui.emit(
+            "update-status-changed",
+            serde_json::to_value(status).unwrap_or(serde_json::Value::Null),
+        );
     }));
 }

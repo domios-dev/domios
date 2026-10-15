@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::service::plan::PlanError;
@@ -27,18 +26,13 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_host_runtime::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let store = &svc.plan_store;
@@ -50,7 +44,7 @@ pub(super) fn dispatch(
             let attachment = store
                 .attach_to_section(&id, &sid, std::path::Path::new(&path), now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "attachment": attachment }))
         }
         "plan.task.attach" => {
@@ -59,7 +53,7 @@ pub(super) fn dispatch(
             let attachment = store
                 .attach_to_task(&id, &tid, std::path::Path::new(&path), now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "attachment": attachment }))
         }
         _ => Err(JsonRpcError {

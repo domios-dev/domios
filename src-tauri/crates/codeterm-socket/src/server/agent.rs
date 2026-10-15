@@ -1,6 +1,5 @@
 //! `agent.*` JSON-RPC handlers.
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::Value;
 
 use codeterm_service_core::service::ServiceState;
@@ -10,7 +9,6 @@ use super::{get_string_param, JsonRpcError};
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    _app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
@@ -377,7 +375,7 @@ pub(super) fn dispatch(
                 return task_ack_with_skill_brief(response, params, svc, &acknowledged);
             }
             svc.gateway.require_worker_report(&tab_id);
-            super::plan::emit_plan_changed(_app, &plan_id);
+            super::plan::emit_plan_changed(svc, &plan_id);
             let runtime_ready = acknowledged.attempt.session_id.is_some();
             let parent_tab_id = acknowledged
                 .attempt
@@ -699,8 +697,7 @@ mod tests {
                 "task_id": task_id,
                 "message": "REPORT NOT SENT: canonical checkout is dirty. Original report: in_review",
             })),
-            &service,
-        )
+            &service, None)
         .unwrap();
 
         assert_eq!(response["accepted"], false);
@@ -816,6 +813,7 @@ mod tests {
             "agent.ack",
             Some(serde_json::json!({ "tab_id": worker_tab_id })),
             &service,
+            None,
         )
         .unwrap();
 

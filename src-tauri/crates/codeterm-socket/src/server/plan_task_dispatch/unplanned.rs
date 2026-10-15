@@ -1,4 +1,3 @@
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::service::ServiceState;
@@ -12,18 +11,16 @@ use super::{
 
 pub(crate) fn dispatch_unplanned(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
-    dispatch_unplanned_with_spawn(params, app, svc, now, |svc, spawn_params, ready_tx| {
+    dispatch_unplanned_with_spawn(params, svc, now, |svc, spawn_params, ready_tx| {
         svc.spawn_agent_sync_with_ready(spawn_params, ready_tx)
     })
 }
 
 pub(super) fn dispatch_unplanned_with_spawn<S>(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
     now: u64,
     spawn_agent: S,
@@ -136,7 +133,6 @@ where
     dispatch_params["execution_intent"] = json!("mutating");
     let dispatched = dispatch_with_spawn_approval_exemption(
         &Some(dispatch_params),
-        app,
         svc,
         now,
         Some(&task_id),
@@ -162,6 +158,6 @@ where
             }
         }
     }
-    emit_plan_changed(app, &plan_id);
+    emit_plan_changed(svc, &plan_id);
     dispatched
 }

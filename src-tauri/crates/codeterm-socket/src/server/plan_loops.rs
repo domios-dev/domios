@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::AgentRef;
@@ -25,15 +24,11 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_host_runtime::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
-fn emit_loop_plan_changed(app: &AppHandle, svc: &ServiceState, lid: &str) {
+fn emit_loop_plan_changed(svc: &ServiceState, lid: &str) {
     let store = &svc.plan_store;
     if let Some(plan_id) = store.list_index().iter().find_map(|e| {
         store
@@ -41,7 +36,7 @@ fn emit_loop_plan_changed(app: &AppHandle, svc: &ServiceState, lid: &str) {
             .filter(|pl| pl.loops.iter().any(|l| l.id == lid))
             .map(|pl| pl.id)
     }) {
-        emit_plan_changed(app, &plan_id);
+        emit_plan_changed(svc, &plan_id);
     }
 }
 
@@ -54,7 +49,6 @@ pub(super) fn handles(method: &str) -> bool {
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
@@ -80,7 +74,7 @@ pub(super) fn dispatch(
             let mid = store
                 .add_milestone(&id, &tid, &kind, text, from, add_kind, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "milestone_id": mid }))
         }
 
@@ -96,7 +90,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "milestone_id": ms_id }))
         }
 
@@ -105,7 +99,7 @@ pub(super) fn dispatch(
             store
                 .rm_milestone(&id, &tid, &ms_id, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "milestone_id": ms_id }))
         }
 
@@ -123,7 +117,7 @@ pub(super) fn dispatch(
             let mid = store
                 .add_plan_stride(&id, &kind, text, from, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "stride_id": mid }))
         }
 
@@ -143,7 +137,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "loop_id": lid }))
         }
 
@@ -159,7 +153,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_loop_plan_changed(app, svc, &lid);
+            emit_loop_plan_changed(svc, &lid);
             Ok(json!({ "ok": true, "loop_id": lid }))
         }
 
@@ -185,14 +179,14 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_loop_plan_changed(app, svc, &lid);
+            emit_loop_plan_changed(svc, &lid);
             Ok(serde_json::to_value(result).unwrap_or_default())
         }
 
         "plan.loop.stop" => {
             let lid = super::plan_refs::resolve_loop(store, params)?;
             store.stop_loop(&lid, now).map_err(plan_rpc_err)?;
-            emit_loop_plan_changed(app, svc, &lid);
+            emit_loop_plan_changed(svc, &lid);
             Ok(json!({ "ok": true, "loop_id": lid }))
         }
 

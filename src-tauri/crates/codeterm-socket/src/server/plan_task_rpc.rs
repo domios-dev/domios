@@ -13,7 +13,6 @@ use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for
 #[cfg(test)]
 use super::plan_task_dispatch::dispatch_with_spawn;
 use super::{get_string_param, JsonRpcError};
-use codeterm_host_runtime::app_runtime::AppHandle;
 use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::plan::task_queries::TaskListFilter;
 use codeterm_service_core::service::plan::{hints, NewTask, PlanError};
@@ -180,7 +179,6 @@ pub(super) fn handles(method: &str) -> bool {
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -212,7 +210,7 @@ pub(super) fn dispatch(
                     message,
                     data: None,
                 })?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(json!({
                 "ok": true,
                 "plan_id": plan_id,
@@ -294,7 +292,7 @@ pub(super) fn dispatch(
             store
                 .set_task_assignment(&task_id, Some(&tab_id), role, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }))
         }
 
@@ -310,7 +308,7 @@ pub(super) fn dispatch(
             store
                 .set_task_assignment(&task_id, None, None, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }))
         }
 
@@ -407,7 +405,7 @@ pub(super) fn dispatch(
                     .set_task_assignment(&task_id, Some(tab), assign_role, now)
                     .map_err(plan_rpc_err)?;
             }
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             let mut response_hints = hints::task_create_hints(
                 &plan_id,
                 &task_id,
@@ -566,7 +564,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             let linked = store
                 .get(&id)
                 .and_then(|plan| {
@@ -608,7 +606,7 @@ pub(super) fn dispatch(
             }
             Ok(resp)
         }
-        "plan.task.split" => split::dispatch_split(params, app, svc, now),
+        "plan.task.split" => split::dispatch_split(params, svc, now),
         "plan.task.update" => {
             validate_task_update_params(p)?;
             let files = task_files_field(p)?;
@@ -763,7 +761,7 @@ pub(super) fn dispatch(
                     .add_task_external_refs(&id, &tid, &external_refs, now)
                     .map_err(plan_rpc_err)?;
             }
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             let caller_tab = p
                 .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
@@ -791,7 +789,7 @@ pub(super) fn dispatch(
             let linked = store
                 .link_task_sections(&id, &tid, &sections, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "section_ids": linked }))
         }
 
@@ -802,7 +800,7 @@ pub(super) fn dispatch(
                 .relink_unlinked_tasks(&id, apply, now)
                 .map_err(plan_rpc_err)?;
             if apply && !report.applied.is_empty() {
-                emit_plan_changed(app, &id);
+                emit_plan_changed(svc, &id);
             }
             Ok(serde_json::to_value(report).unwrap_or_default())
         }
@@ -837,12 +835,12 @@ pub(super) fn dispatch(
             } else {
                 assign_task_with_profile(store, svc, params, p, None, now)?
             };
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true }))
         }
-        "plan.task.dispatch" => super::plan_task_dispatch::dispatch(params, app, svc, now),
+        "plan.task.dispatch" => super::plan_task_dispatch::dispatch(params, svc, now),
         "plan.task.merge_remote_lane" => {
-            super::plan_task_dispatch::remote::merge_lane(params, app, svc, now)
+            super::plan_task_dispatch::remote::merge_lane(params, svc, now)
         }
         "plan.task.remote_ack" => {
             let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
@@ -872,7 +870,7 @@ pub(super) fn dispatch(
                 &peer_id,
                 &worker_tab_id,
             );
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(
                 json!({"acknowledged": acknowledged, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}),
             )
@@ -930,13 +928,13 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(
                 json!({"reported": reported, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}),
             )
         }
         "plan.task.dispatch_unplanned" => {
-            super::plan_task_dispatch::dispatch_unplanned(params, app, svc, now)
+            super::plan_task_dispatch::dispatch_unplanned(params, svc, now)
         }
         "plan.task.attempts" => {
             let (id, tid) = plan_refs::resolve_task(store, params)?;
@@ -970,7 +968,7 @@ pub(super) fn dispatch(
                 .find(|attempt| attempt.id == source_id && attempt.mesh_peer.is_some())
             {
                 return super::plan_task_dispatch::remote_recovery::respawn_remote(
-                    params, app, svc, &id, &tid, source, now,
+                    params, svc, &id, &tid, source, now,
                 );
             }
             if task.status == TaskStatus::Pending {
@@ -1102,9 +1100,8 @@ pub(super) fn dispatch(
                 now,
             )
             .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             let startup = super::plan_task_dispatch::DispatchStartup {
-                app: app.clone(),
                 svc: svc.clone(),
                 plan_id: id.clone(),
                 task_id: tid.clone(),
@@ -1145,9 +1142,9 @@ pub(super) fn dispatch(
             }))
         }
 
-        "plan.task.compete" => super::plan_competition::compete(params, app, svc, now),
+        "plan.task.compete" => super::plan_competition::compete(params, svc, now),
 
-        "plan.task.judge" => super::plan_competition::judge(params, app, svc, now),
+        "plan.task.judge" => super::plan_competition::judge(params, svc, now),
 
         "plan.task.rm" => {
             let all = p.and_then(|x| x.get("all")).and_then(|v| v.as_bool()) == Some(true);
@@ -1162,7 +1159,7 @@ pub(super) fn dispatch(
                 store.rm_task(&id, &tid, now).map_err(plan_rpc_err)?;
                 (id, 1)
             };
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "removed": count }))
         }
 
