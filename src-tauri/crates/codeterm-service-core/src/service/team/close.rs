@@ -15,7 +15,7 @@ use crate::service::plan::{PlanStore, TaskLaneUpdate};
 const LANE_BRANCH_PREFIX: &str = "lane/";
 
 #[derive(Debug)]
-pub(crate) struct CloseTeamCleanup {
+pub struct CloseTeamCleanup {
     pub(super) member_tab_ids: Vec<String>,
     pub(super) agent_providers: Vec<(String, String)>,
     pub(super) chat_backings: Vec<(String, String)>,

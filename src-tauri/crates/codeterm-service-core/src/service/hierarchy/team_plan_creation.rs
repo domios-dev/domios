@@ -16,7 +16,7 @@ pub enum TeamPlanCreationError {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TeamPlanCreationOutcome {
+pub struct TeamPlanCreationOutcome {
     pub plan: Plan,
     pub team_id: String,
     pub team_minted: bool,
