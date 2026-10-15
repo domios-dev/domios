@@ -3,6 +3,7 @@ import type { ChatAttachment } from "./ChatAttachment";
 import type { ChatSessionIntent } from "./ChatSessionIntent";
 import type { ChatTimelineMarker } from "./ChatTimelineMarker";
 import type { InteractiveElement } from "./InteractiveElement";
+import type { MessageSegment } from "./MessageSegment";
 
 /**
  * A single chat message shaped like the frontend `ChatMessage`
@@ -13,7 +14,7 @@ import type { InteractiveElement } from "./InteractiveElement";
  * `id` must be stable across polls so the UI merges an updated message in
  * place instead of duplicating it.
  */
-export type ChatMsg = { id: string, type: string, content: string, timestamp?: string | null, 
+export type ChatMsg = { id: string, type: string, content: string, segments?: Array<MessageSegment> | null, timestamp?: string | null, 
 /**
  * Monotonic source-order ordinal (JSONL rich-message index / structured row
  * position). The client's stable transcript-sort tiebreaker when timestamps
@@ -47,7 +48,7 @@ toolPairing?: string | null,
 /**
  * Source-provided command outcome facts. Missing facts stay absent.
  */
-toolExitCode?: number | null, toolDurationMs?: number | null, toolInterrupted?: boolean | null, toolBackgroundTaskId?: string | null, 
+toolExitCode?: number | null, toolDurationMs?: number | null, toolStatus?: "running" | "completed" | "failed" | "interrupted" | "abandoned" | null, toolStartedAtMs?: number | null, toolCompletedAtMs?: number | null, toolInterrupted?: boolean | null, toolBackgroundTaskId?: string | null, 
 /**
  * Per-file diffs with the exact hunks the provider's own edit record supplied.
  */

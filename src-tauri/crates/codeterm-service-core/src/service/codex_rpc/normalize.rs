@@ -102,6 +102,7 @@ impl Normalizer {
                 let previous = self.items.get(&key)?;
                 message.seq = previous.seq;
                 message.timestamp = previous.timestamp.clone();
+                message.refresh_segments();
                 self.items.insert(key, message.clone());
                 Some(message)
             })
@@ -185,6 +186,7 @@ impl Normalizer {
         if method == "item/completed" {
             self.restored.completed(&key);
         }
+        message.refresh_segments();
         self.items.insert(key, message.clone());
         Some(message)
     }

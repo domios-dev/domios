@@ -1,12 +1,6 @@
-import { messageRowParts } from "@codeterm/chat-core";
+import { envelopeRows } from "@codeterm/chat-core";
 import type { NormalizedChatMessage as ChatMessage, TimelineItem } from "@codeterm/chat-core";
-import {
-  detectChatPrefix,
-  foldHeaderFrames,
-  splitChatPrefixedMessages,
-  stripPastedContentTags,
-  type ChatOrigin,
-} from "../../lib/chatPrefixes";
+import { detectChatPrefix, framePrefix, type ChatOrigin } from "../../lib/chatPrefixes";
 
 export interface EnrichedChatEntry {
   msg: ChatMessage;
@@ -19,31 +13,30 @@ export interface EnrichedChatEntry {
 export type EnrichmentCache = WeakMap<ChatMessage, EnrichedChatEntry[]>;
 
 function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedChatEntry[] {
-  const partPrefixes = (raw.messageParts ? messageRowParts(raw.messageParts) : undefined)?.map((part): { body: string; origin?: ChatOrigin; correlationId?: string } => ({
-    ...(part.kind === "frame" ? detectChatPrefix(part.content) ?? { body: part.content } : { body: stripPastedContentTags(part.content) }),
-    correlationId: part.correlationId,
-  }));
-  const splitPrefixes: Array<{ body: string; origin?: ChatOrigin; correlationId?: string }> | null | undefined =
-    (partPrefixes && foldHeaderFrames(partPrefixes)) ?? splitChatPrefixedMessages(raw.content);
-  if (splitPrefixes && (splitPrefixes.length > 1 || raw.messageParts)) {
-    return splitPrefixes.map((prefix, index) => {
-      const msg = {
-        ...raw, id: `${raw.id}-prefix-${index}`, content: prefix.body,
-        messageParts: undefined,
-        inboundKind: prefix.origin ? raw.inboundKind : undefined,
-        attachments: index === 0 ? raw.attachments : undefined, fromLabel: undefined,
-        fromTab: undefined, fromModel: undefined, fromMesh: undefined,
-        fromPurpose: undefined, fromContext: undefined, fromPlugin: undefined,
-        correlationId: prefix.correlationId,
+  if (raw.segments) {
+    const hasFrames = raw.segments.some((segment) => segment.type === "frame");
+    const rows = envelopeRows(raw.segments);
+    if (!rows.length && raw.attachments?.length) rows.push({ content: raw.content, segments: raw.segments });
+    return rows.map((row, index) => {
+      const prefix = row.frame ? framePrefix({ ...row.frame.attrs, from: row.frame.from }, row.content) : detectChatPrefix(row.content);
+      const msg: ChatMessage = {
+        ...raw, id: `${raw.id}-segment-${index}`, content: prefix?.body ?? row.content,
+        sourceMessageId: raw.sourceMessageId ?? raw.id,
+        segments: row.segments,
+        correlationId: row.correlationId ?? (index === 0 ? raw.correlationId : undefined),
+        inboundKind: row.frame || !hasFrames ? raw.inboundKind : undefined,
+        attachments: index === 0 ? raw.attachments : undefined,
+        ...(hasFrames ? {
+          fromLabel: undefined, fromTab: undefined, fromModel: undefined, fromMesh: undefined,
+          fromPurpose: undefined, fromContext: undefined, fromPlugin: undefined,
+        } : {}),
       };
-      return { msg, item: { kind: "message" as const, message: msg }, origin: prefix.origin };
+      return { msg, item: { kind: "message" as const, message: msg }, origin: prefix?.origin };
     });
   }
-  const prefix = splitPrefixes?.length === 1 ? splitPrefixes[0] : detectChatPrefix(raw.content);
-  const content = prefix?.body ?? stripPastedContentTags(raw.content);
-  const m = content === raw.content ? raw : { ...raw, content };
-  const item =
-    m === raw || rawItem.kind !== "message" ? rawItem : { kind: "message" as const, message: m };
+  const prefix = detectChatPrefix(raw.content);
+  const m = prefix ? { ...raw, content: prefix.body } : raw;
+  const item = m === raw || rawItem.kind !== "message" ? rawItem : { kind: "message" as const, message: m };
   const pluginId = m.fromPlugin?.trim();
   if (pluginId) {
     const origin: ChatOrigin = {
