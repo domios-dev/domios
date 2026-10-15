@@ -315,6 +315,7 @@ pub async fn spawn_agent(
         activate: body.activate,
         audience: body.audience,
         manager_bootstrap: None,
+        user_created: false,
         structured_prompt_server: None,
         remote_task_binding: None,
     };
