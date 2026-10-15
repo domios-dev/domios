@@ -50,7 +50,7 @@ pub(crate) fn command_for_target(updater: &str, target: &str) -> Result<String, 
     Ok(updater.replace("{version}", target))
 }
 
-pub(crate) fn compatible_command_for_target(
+pub fn compatible_command_for_target(
     updater: &str,
     target: &str,
     compatibility: Option<&CompatibilityManifest>,

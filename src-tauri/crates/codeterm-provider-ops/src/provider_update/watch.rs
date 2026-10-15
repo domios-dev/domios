@@ -1,11 +1,11 @@
 use notify::{RecursiveMode, Watcher};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{storage, ServiceContext};
+use super::{storage, ProviderUpdateHost};
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 
-pub(super) fn start(service: &ServiceContext) {
+pub(super) fn start(service: &impl ProviderUpdateHost) {
     if STARTED.swap(true, Ordering::AcqRel) {
         return;
     }

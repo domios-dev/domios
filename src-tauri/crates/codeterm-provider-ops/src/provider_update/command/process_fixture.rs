@@ -10,8 +10,7 @@ use std::time::Duration;
 
 use super::{EnvironmentPolicy, Invocation, UpdateCommandFailure};
 
-const ENTRY: &str =
-    "service::provider_update::command::process_fixture::provider_update_fixture_entry";
+const ENTRY: &str = "provider_update::command::process_fixture::provider_update_fixture_entry";
 const BOUND: Duration = Duration::from_secs(15);
 
 pub(super) fn invocation(mode: &str, address: &str) -> Invocation {
