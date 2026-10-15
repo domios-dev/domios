@@ -45,7 +45,7 @@ pub use command::{
     build_agent_command_with_launch_marker_for_service,
 };
 use reader_readiness::{BackendPty, ReaderReadiness};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use startup_readiness::launch_waits_for_first_turn_binding;
 #[cfg(test)]
 #[path = "launch/tests.rs"]
