@@ -28,6 +28,10 @@ test('Windows text collects both imports, unused mut and both dead methods witho
   assert.equal(records.find(w => w.message.includes('feed_pty_output_inner')).line, 23);
   assert.ok(records.every(w => w.crate === 'codeterm'));
 });
+test('a failed build reports its compile error, never Cargo status lines, as warnings', () => {
+  const text = '   Compiling fixture-crate v0.1.0\nerror[E0599]: no variant named `Other`\nwarning: build failed, waiting for other jobs to finish...\nerror: could not compile `fixture-crate`\n';
+  assert.deepEqual(parseWarnings(text, { platform: 'Linux', target: 'x86_64-unknown-linux-gnu' }), []);
+});
 test('JSON and text warnings deduplicate by target/file/line/lint/message; other targets remain', () => {
   const records = parseWarnings(fixture('windows.txt') + fixture('cargo.jsonl'), opts);
   assert.equal(records.length, 5);
