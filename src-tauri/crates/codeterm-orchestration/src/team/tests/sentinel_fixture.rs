@@ -57,7 +57,9 @@ impl BlueprintStore for FixtureSentinels {
 
     fn adopt_external_commit(
         &self,
-        committed: &codeterm_storage::Committed<codeterm_storage::SentinelCommit>,
+        committed: &codeterm_service_core::storage::Committed<
+            codeterm_service_core::storage::SentinelCommit,
+        >,
     ) -> Result<(), String> {
         self.0.lock().adopt_external_commit(committed)
     }
