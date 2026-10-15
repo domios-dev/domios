@@ -81,7 +81,7 @@ impl ServiceContext {
     }
 
     /// `caller_tab_id: None` is the user acting through the tab's own menu.
-    pub(crate) async fn open_bridge_thread(
+    pub async fn open_bridge_thread(
         &self,
         caller_tab_id: Option<&str>,
         target_tab_id: &str,

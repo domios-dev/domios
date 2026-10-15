@@ -558,7 +558,7 @@ impl ServiceContext {
         Ok(resume_preview(&plan, |agent| live.contains(&agent.tab_id)))
     }
 
-    pub(crate) fn pause_plan_operation(
+    pub fn pause_plan_operation(
         &self,
         plan_id: &str,
         reason: &str,

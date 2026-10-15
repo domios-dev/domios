@@ -255,7 +255,7 @@ impl ServiceContext {
         ))
     }
 
-    pub(crate) async fn close_workspace_guarded_async(
+    pub async fn close_workspace_guarded_async(
         &self,
         caller_tab_id: Option<&str>,
         workspace_id: &str,
@@ -278,7 +278,7 @@ impl ServiceContext {
             .await
     }
 
-    pub(crate) async fn close_workspace_as_confirmed_headerless_human(
+    pub async fn close_workspace_as_confirmed_headerless_human(
         &self,
         workspace_id: &str,
         force: bool,

@@ -1,6 +1,6 @@
 pub mod agent;
 pub mod agent_commands;
-mod api;
+pub mod api;
 mod api_support;
 pub mod app_runtime;
 pub use codeterm_util::attachments;
@@ -14,7 +14,7 @@ pub mod chatpreprocessor;
 pub mod clipboard_files;
 pub mod commands;
 mod commands_mesh;
-mod config;
+pub mod config;
 pub mod crash;
 pub mod cron;
 pub mod delayed_send;
@@ -37,7 +37,7 @@ pub mod message_markers;
 pub mod multiplexer;
 #[cfg(windows)]
 mod native_resize;
-mod notification;
+pub mod notification;
 pub mod pasteboard;
 pub mod paths;
 pub mod sentinel;
@@ -77,7 +77,7 @@ use parking_lot::Mutex;
 use tauri::Manager;
 
 use multiplexer::commands::MuxState;
-use notification::NotifState;
+pub use notification::NotifState;
 use pty::manager::{OutputBuffer, PtyManager};
 use pty::screen_state::ScreenState;
 use service::{ServiceContext, ServiceState};

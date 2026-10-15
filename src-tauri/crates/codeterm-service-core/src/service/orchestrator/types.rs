@@ -118,11 +118,11 @@ pub struct SpawnAgentParams {
     /// Bound task id (CODETERM_TASK_ID).
     pub task_id: Option<String>,
     #[serde(default, skip)]
-    pub(crate) task_launch_authority: Option<TaskLaunchAuthority>,
+    pub task_launch_authority: Option<TaskLaunchAuthority>,
     #[serde(default, skip)]
     pub(crate) remote_task_binding: Option<RemoteTaskBinding>,
     #[serde(default, skip)]
-    pub(crate) plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
+    pub plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
     /// Gate tokens a task-less Worker may claim as executed, rendered into its
@@ -227,7 +227,7 @@ pub struct RemoteTaskBinding {
 }
 
 impl TaskLaunchAuthority {
-    pub(crate) fn env(&self) -> std::collections::HashMap<String, String> {
+    pub fn env(&self) -> std::collections::HashMap<String, String> {
         let mut env = std::collections::HashMap::from([
             ("CODETERM_PLAN_ID".into(), self.plan_id.clone()),
             ("CODETERM_TASK_ID".into(), self.task_id.clone()),

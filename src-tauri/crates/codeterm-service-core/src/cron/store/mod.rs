@@ -190,7 +190,7 @@ impl CronStore {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new_with_path(path: PathBuf) -> Self {
         Self::load(
             path,
@@ -201,7 +201,7 @@ impl CronStore {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new_with_path_and_clock(path: PathBuf, clock: SharedClock) -> Self {
         Self::load(
             path,

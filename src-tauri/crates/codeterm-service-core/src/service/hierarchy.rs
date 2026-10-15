@@ -12,7 +12,7 @@ mod report_delivery;
 mod report_diagnostics;
 mod report_event;
 mod report_persistence;
-pub(crate) mod report_plan_ctx;
+pub mod report_plan_ctx;
 mod report_target;
 pub(crate) mod stalled_team;
 mod status;
@@ -22,7 +22,7 @@ pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub(crate) use report_delivery::HierarchyReportDelivery;
-pub(crate) use report_plan_ctx::{
+pub use report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
 };
 pub use status::TabStatusInfo;
@@ -84,7 +84,7 @@ impl ServiceContext {
         clear_planner_bindings_for_lifecycle_exit(&self.plan_store, tab_id, epoch_ms());
     }
 
-    pub(crate) fn replay_planner_requests_if_routable(&self, tab_id: &str) {
+    pub fn replay_planner_requests_if_routable(&self, tab_id: &str) {
         let now_ms = epoch_ms();
         for plan in self.plan_store.list_full() {
             let Some(crate::plan::PlannerRef::Tab {

@@ -13,7 +13,7 @@ pub(crate) struct ChatIdentity {
 }
 
 impl ChatIdentity {
-    pub(crate) fn from_tab(tab: &Tab) -> Option<Self> {
+    pub fn from_tab(tab: &Tab) -> Option<Self> {
         let TabBacking::ChatBackend {
             plugin_id,
             session_id,

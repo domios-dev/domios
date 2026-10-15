@@ -204,7 +204,7 @@ pub(crate) fn start_worker(app: &crate::app_runtime::AppHandle) -> Result<(), St
     ensure_worker(app).map(|_| ())
 }
 
-pub(crate) fn stop_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
+pub fn stop_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     let worker = ensure_worker(app)?;
     let (response, completion) = mpsc::channel();
     worker.configure(WorkerMessage::Stop(response))?;

@@ -31,7 +31,7 @@ impl ServiceContext {
         portable::export(&self.sentinel_show(caller, id)?)
     }
 
-    pub(crate) fn blueprint_import(
+    pub fn blueprint_import(
         &self,
         caller: &SentinelCaller,
         recipe: Recipe,
