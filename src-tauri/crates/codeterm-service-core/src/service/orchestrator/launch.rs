@@ -486,6 +486,7 @@ pub fn launch_agent_in_background_with_env(
             return;
         }
 
+        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "preparation_wait_enter");
         let launch_cmd = match preparation.finish() {
             Ok(command) => command,
             Err(reason) => {
@@ -497,6 +498,7 @@ pub fn launch_agent_in_background_with_env(
                 return;
             }
         };
+        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "preparation_done");
         let structured = crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some();
         let binding_turn = if structured {
             None
@@ -624,6 +626,7 @@ pub fn launch_agent_in_background_with_env(
             }
             return;
         }
+        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_enter");
         crate::service::task_files::retire_settings_for_launch(&svc, &tab_id, &launch_cmd);
         if let Err(error) = launch.capture_binding_nonce(
             &svc,
@@ -642,6 +645,7 @@ pub fn launch_agent_in_background_with_env(
             return;
         }
         drop(pty_claim);
+        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_done");
         let mut wrapped_launch_cmd = command_with_binding_nonce(
             &launch_cmd,
             launch
