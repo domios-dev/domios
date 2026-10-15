@@ -116,12 +116,13 @@ pub fn run(
                 let window = startup::frontend_shell_create_window(app, &api_config)?;
                 startup::setup_window_styling(&window);
                 #[cfg(windows)]
-                codeterm_service_core::install_native_resize(&window)?;
-                codeterm_service_core::spawn_webview_watchdog(window);
+                crate::native_resize::install(&window)?;
+                crate::webview_watchdog::spawn(window);
             }
 
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
+            codeterm_socket::register_socket(app_handle.clone());
 
             // remainder; timed + already expired → drop the snapshot.
             keepawake::reap_orphaned_children_on_startup();
@@ -537,7 +538,7 @@ pub fn run(
             codeterm_service_core::service::agent_runtime::restore_all(&service_state);
             codeterm_service_core::service::lazy_restore::initialize(&service_state, states.config.lock().restore.active_window_hours);
             app.manage(service_state.clone());
-            codeterm_service_core::service::account::register_deep_links(&app_handle, service_state.clone())?;
+            crate::deep_links::register_deep_links(&app_handle, service_state.clone())?;
             {
                 let service = service_state.clone();
                 tauri::async_runtime::spawn(async move {
@@ -638,7 +639,7 @@ pub fn run(
 
             let startup_step = startup::StartupStep::logged("platform and server initialization");
             startup::setup_conpty_host(app);
-            startup::install_bundled_cli(app);
+            startup::install_bundled_cli(service_state.shell.as_ref());
             drop(startup::restore_complete(&service_state));
             startup::start_servers(app, &states, &service_state);
             startup::frontend_shell_start(app_handle.clone(), states.rest_api.clone());

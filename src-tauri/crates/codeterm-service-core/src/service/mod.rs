@@ -396,6 +396,12 @@ pub struct ServiceContext {
 pub type ServiceState = Arc<ServiceContext>;
 
 impl ServiceContext {
+    pub(crate) fn weak_self(&self) -> std::sync::Weak<Self> {
+        self.try_ext::<std::sync::Weak<Self>>()
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub fn ext<T: std::any::Any + Send + Sync>(&self) -> &T {
         self.extensions.get::<T>()
     }

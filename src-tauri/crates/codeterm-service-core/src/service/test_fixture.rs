@@ -31,9 +31,19 @@ pub struct RecordedUiEvents(
     pub Mutex<Vec<(String, serde_json::Value)>>,
     Mutex<Vec<(usize, String, UiListener)>>,
     std::sync::atomic::AtomicUsize,
+    Option<Arc<codeterm_events::EventBroadcaster>>,
 );
 
 impl RecordedUiEvents {
+    pub fn with_broadcaster(events: Arc<codeterm_events::EventBroadcaster>) -> Self {
+        Self(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Some(events),
+        )
+    }
+
     pub fn listen(
         &self,
         event: &str,
@@ -51,8 +61,8 @@ impl RecordedUiEvents {
     }
 }
 
-impl crate::ports::host::UiEvents for RecordedUiEvents {
-    fn emit(&self, event: &str, payload: serde_json::Value) {
+impl RecordedUiEvents {
+    fn record(&self, event: &str, payload: serde_json::Value) {
         self.0.lock().push((event.to_owned(), payload.clone()));
         let listeners: Vec<_> = self
             .1
@@ -65,9 +75,25 @@ impl crate::ports::host::UiEvents for RecordedUiEvents {
             listener(&payload);
         }
     }
+}
+
+impl crate::ports::host::UiEvents for RecordedUiEvents {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        self.record(event, payload.clone());
+        if let Some(events) = &self.3 {
+            events.publish_generic(
+                event,
+                codeterm_events::web_safe_event_payload(event, payload),
+            );
+        }
+    }
+
+    fn emit_native(&self, event: &str, payload: serde_json::Value) {
+        self.record(event, payload);
+    }
 
     fn emit_to(&self, _: &str, event: &str, payload: serde_json::Value) {
-        self.emit(event, payload);
+        self.record(event, payload);
     }
 }
 
@@ -251,8 +277,8 @@ impl ServiceFixture {
     }
 
     pub fn set_agent_full_access(&self, full_access: bool) {
-        self._app
-            .state::<crate::config::ConfigState>()
+        self.service
+            .ext::<crate::config::ConfigState>()
             .lock()
             .agent
             .full_access = Some(full_access);
@@ -441,7 +467,8 @@ impl ServiceFixture {
         extensions.insert::<crate::bubble::BubbleRegistryHandle>(Arc::new(
             crate::bubble::BubbleRegistry::new(),
         ));
-        let ui = Arc::new(RecordedUiEvents::default());
+        let events = Arc::new(codeterm_events::EventBroadcaster::new());
+        let ui = Arc::new(RecordedUiEvents::with_broadcaster(events.clone()));
         let repo_sink = Arc::new(crate::repowatch::TauriRepoEventSink::new(ui.clone()));
         extensions.insert::<crate::repowatch::RepoWatchRegistryHandle>(Arc::new(
             crate::repowatch::RepoWatchRegistry::new(repo_sink.clone()),
@@ -574,7 +601,7 @@ impl ServiceFixture {
             } else {
                 crate::notification::store::NotificationStore::new(10)
             })),
-            events: Arc::new(codeterm_events::EventBroadcaster::new()),
+            events,
             app_handle: app.handle().clone(),
             ui: ui.clone(),
             shell: Arc::new(crate::ports::host::NoShell),
@@ -687,7 +714,6 @@ impl ServiceFixture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tauri::{Emitter, Listener};
 
     #[test]
     fn fixture_configuration_and_weak_owner_are_initialized() {
@@ -722,6 +748,27 @@ mod tests {
     }
 
     #[test]
+    fn recorded_ui_broadcasts_only_global_events() {
+        use crate::ports::host::UiEvents;
+        let events = Arc::new(codeterm_events::EventBroadcaster::new());
+        let mut receiver = events.subscribe();
+        let ui = RecordedUiEvents::with_broadcaster(events);
+        let payload = serde_json::json!({"probe": [1, 2]});
+        ui.emit("broadcast", payload.clone());
+        match receiver.try_recv().unwrap().event {
+            codeterm_events::SystemEvent::Generic { event_type, data } => {
+                assert_eq!(event_type, "broadcast");
+                assert_eq!(data, payload);
+            }
+            event => panic!("unexpected event: {event:?}"),
+        }
+        ui.emit_native("native", serde_json::Value::Null);
+        ui.emit_to("main", "targeted", serde_json::Value::Null);
+        assert!(receiver.try_recv().is_err());
+        assert_eq!(ui.0.lock().len(), 3);
+    }
+
+    #[test]
     fn service_runtime_uses_the_host_pool_from_blocking_workers() {
         let fixture = ServiceFixture::new(MultiplexerState::new().0);
         let expected = fixture.service.rt.id();
@@ -744,30 +791,19 @@ mod tests {
         std::thread::spawn(|| {
             let (mux, _) = MultiplexerState::new();
             let fixture = ServiceFixture::new(mux);
-            assert!(fixture._app.webview_windows().is_empty());
+            use crate::ports::host::UiEvents;
             fixture.set_agent_full_access(true);
-            let config = fixture
-                .service
-                .app_handle
-                .state::<crate::config::ConfigState>();
-            assert_eq!(config.lock().agent.full_access, Some(true));
-            let (tx, rx) = std::sync::mpsc::channel();
-            let listener = fixture
-                .service
-                .app_handle
-                .listen("fixture-event", move |event| {
-                    tx.send(event.payload().to_owned()).unwrap();
-                });
-            fixture
-                .service
-                .app_handle
-                .emit("fixture-event", 42)
-                .unwrap();
             assert_eq!(
-                rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap(),
-                "42"
+                fixture.service.configuration().agent.full_access,
+                Some(true)
             );
-            fixture.service.app_handle.unlisten(listener);
+            let (tx, rx) = std::sync::mpsc::channel();
+            let listener = fixture.ui.listen("fixture-event", move |value| {
+                tx.send(value.clone()).unwrap();
+            });
+            fixture.ui.emit("fixture-event", serde_json::json!(42));
+            assert_eq!(rx.try_recv().unwrap(), serde_json::json!(42));
+            fixture.ui.unlisten(listener);
         })
         .join()
         .unwrap();
