@@ -4,7 +4,7 @@ use crate::agent::provider::{ModelCatalogueAuthority, ModelInfo};
 use crate::agent::registry::AgentRegistry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InvalidModelError {
+pub struct InvalidModelError {
     pub provider_id: String,
     pub requested_model: String,
     pub valid_model_ids: Vec<String>,
@@ -66,7 +66,7 @@ impl fmt::Display for InvalidModelError {
     }
 }
 
-pub(crate) fn model_catalogue_capability(
+pub fn model_catalogue_capability(
     registry: &AgentRegistry,
     provider_id: &str,
 ) -> crate::agent::provider::ModelCatalogueCapability {
@@ -85,7 +85,7 @@ pub(crate) fn normalize_requested_model(provider_id: &str, requested: &str) -> S
     }
 }
 
-pub(crate) fn catalogue_lookup_model(requested: &str, catalogue: &[ModelInfo]) -> String {
+pub fn catalogue_lookup_model(requested: &str, catalogue: &[ModelInfo]) -> String {
     let requested = requested.trim();
     let without_context = requested
         .get(..requested.len().saturating_sub(4))
@@ -104,7 +104,7 @@ pub(crate) fn catalogue_lookup_model(requested: &str, catalogue: &[ModelInfo]) -
     }
 }
 
-pub(crate) fn catalogue_models_match(
+pub fn catalogue_models_match(
     registry: &AgentRegistry,
     provider_id: &str,
     left: &str,
@@ -165,7 +165,7 @@ pub(crate) fn preserve_context_suffix(resolved: String, requested: &str) -> Stri
     }
 }
 
-pub(crate) fn validate_agent_model(
+pub fn validate_agent_model(
     registry: &AgentRegistry,
     provider_id: &str,
     model: Option<&str>,
@@ -174,7 +174,7 @@ pub(crate) fn validate_agent_model(
     resolve_agent_model_selection(registry, Some(provider_id), model, &default_provider).map(|_| ())
 }
 
-pub(crate) fn resolve_agent_model_selection(
+pub fn resolve_agent_model_selection(
     registry: &AgentRegistry,
     explicit_provider: Option<&str>,
     model: Option<&str>,

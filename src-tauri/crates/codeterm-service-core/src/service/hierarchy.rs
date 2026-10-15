@@ -26,7 +26,7 @@ pub use report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
 };
 pub use status::TabStatusInfo;
-pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
+pub use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
 use planner_delivery::{epoch_ms, planner_rehydrate_payload, planner_request_payload};
 use report_persistence::{

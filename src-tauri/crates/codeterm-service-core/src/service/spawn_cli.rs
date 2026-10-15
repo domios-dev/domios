@@ -100,7 +100,7 @@ pub(crate) struct LaunchClearance {
 }
 
 /// The launch gate checks provider registration and the launch binary.
-pub(crate) fn provider_launch_preflight(
+pub fn provider_launch_preflight(
     registry: &AgentRegistry,
     provider_id: &str,
     permission_bypassed: bool,
@@ -183,7 +183,7 @@ pub(crate) fn clearance_for(
 /// The only tab-creation entry point on the agent spawn path. Taking the
 /// clearance is what makes "refused before a tab exists" a compile-time fact
 /// rather than a comment about statement order.
-pub(crate) fn create_cleared_agent_tab(
+pub fn create_cleared_agent_tab(
     mux: &mut MultiplexerState,
     workspace_id: &str,
     _clearance: &LaunchClearance,

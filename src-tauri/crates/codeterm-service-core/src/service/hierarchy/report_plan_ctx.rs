@@ -28,7 +28,7 @@ pub(crate) const PLANNER_AUTHORITY_REFUSAL: &str = "PLANNER AUTHORITY REFUSED";
 pub(crate) const PLAN_EVIDENCE_AUTHORITY_REFUSAL: &str = "PLAN EVIDENCE AUTHORITY REFUSED";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PlanOnlyReportAuthority {
+pub enum PlanOnlyReportAuthority {
     Planner,
     PlanOwner,
     EvidenceReporter(PlanEvidenceClass),
@@ -111,7 +111,7 @@ fn stale_task_hint_refusal(
 /// 3. If no `plan_id_hint`, tries tab assignment directly.
 /// 4. Ambiguous (>1 assignment) — errors with candidate list.
 /// 5. No assignment — returns (None, None) so the report proceeds without a milestone.
-pub(crate) fn resolve_plan_ctx(
+pub fn resolve_plan_ctx(
     plan_store: &PlanStore,
     tab_id: &str,
     plan_id_hint: Option<&str>,
@@ -226,7 +226,7 @@ pub(crate) fn verify_planner_report_authority(
     Ok(())
 }
 
-pub(crate) fn classify_plan_only_report_authority(
+pub fn classify_plan_only_report_authority(
     plan_store: &PlanStore,
     mux: &MultiplexerState,
     plan_id: &str,
