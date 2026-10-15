@@ -3,6 +3,12 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { render, replyWindow } from './model.mjs';
 import { chatMessages, replyVerdict } from '../core-journeys/lib/oracle.mjs';
+export function replyProven(tab, proof) {
+  if (!tab.marker || proof.marker !== tab.marker) return false;
+  const window = replyWindow(chatMessages(proof.chat), proof.prompt);
+  return Boolean(replyVerdict({ messages: window?.following ?? [], baselineIds: new Set(proof.baseline_ids),
+    marker: tab.marker, record: proof.record, boundSession: proof.session_before }).done);
+}
 export function validate(dir) {
   const r = JSON.parse(readFileSync(join(dir, 'results.json')));
   const errors = [];
@@ -27,10 +33,7 @@ export function validate(dir) {
       if (!t.reply_evidence || !existsSync(join(dir, t.reply_evidence))) errors.push(`${t.id}: transcript absent`);
       else {
         const proof = JSON.parse(readFileSync(join(dir, t.reply_evidence)));
-        const window = replyWindow(chatMessages(proof.chat), proof.prompt);
-        const verdict = replyVerdict({ messages: window?.following ?? [], baselineIds: new Set(proof.baseline_ids),
-          marker: 'PONG', record: proof.record, boundSession: proof.session_before });
-        if (!verdict.done) errors.push(`${t.id}: exact own-session PONG is unproven`);
+        if (!replyProven(t, proof)) errors.push(`${t.id}: exact own-session probe token is unproven`);
       }
     }
     if ((!t.reply_ok || t.notes.length) && (!t.screenshot || !existsSync(join(dir, t.screenshot)))) errors.push(`${t.id}: failure screenshot absent`);
