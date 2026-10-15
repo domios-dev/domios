@@ -2,7 +2,9 @@
 
 This live bench adopts the owner's real DEV window (default instance, API 7686,
 WebView2 CDP from health). It spends provider tokens: one minimal PONG prompt per
-tab. It never closes tabs, replaces drafts, or changes product code.
+tab. The scripted matrix never closes tabs, replaces drafts, or changes product code.
+After its table, follow [EXPLORE.md](EXPLORE.md) for the required agent-driven
+visual pass, including the explicitly authorized single-fixture close/restore probe.
 
 Reserve serialized QA with the Orchestrator first. Run from a Team-bound QA shell:
 
