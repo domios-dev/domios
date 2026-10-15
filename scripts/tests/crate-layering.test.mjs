@@ -132,3 +132,24 @@ for (const declaration of [
     assert.match(result.stderr, /service core depends on tauri/);
   });
 }
+
+for (const name of ["codeterm-notifications", "codeterm-events"]) {
+  test(`rejects a context reference under ${name}`, (t) => {
+    const { write, run } = fixture(t);
+    write(name, "Cargo.toml", `[package]\nname = "${name}"`);
+    write(name, "src/adapter.rs", "pub fn adapt(context: &ServiceContext) {}");
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /leaf crate names ServiceContext/);
+  });
+}
+
+test("notification tier accepts models and rejects upward dependencies", (t) => {
+  const { write, run } = fixture(t);
+  write("codeterm-notifications", "Cargo.toml", '[dependencies]\ncodeterm-recall = "0"');
+  assert.equal(run().status, 0);
+  write("codeterm-recall", "Cargo.toml", '[dependencies]\ncodeterm-notifications = "0"');
+  const result = run();
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /leaf tier inversion/);
+});

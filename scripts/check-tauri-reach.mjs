@@ -11,7 +11,7 @@ export function countReach(source) {
   return [...source.matchAll(/tauri::|AppHandle|app_handle/g)].length;
 }
 
-export function scan(root) {
+export function scan(root, directory = scope) {
   const counts = {};
   function visit(directory) {
     for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
@@ -23,11 +23,7 @@ export function scan(root) {
       }
     }
   }
-  visit(scope);
-  for (const leaf of extractedLeaves) {
-    const leafScope = `src-tauri/crates/${leaf}/src/`;
-    if (existsSync(join(root, leafScope))) visit(leafScope);
-  }
+  if (existsSync(join(root, directory))) visit(directory);
   return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
 }
 
@@ -75,6 +71,9 @@ export function main(root, args) {
     ? validateBaseline(JSON.parse(git(root, 'show', `${fork}:${baselinePath}`)))
     : allowed;
   const errors = checkReach(scan(root), allowed, previous);
+  for (const file of extractedLeaves.flatMap((leaf) => Object.keys(scan(root, `src-tauri/crates/${leaf}/src/`)))) {
+    errors.push(`${file}: extracted leaf names the host runtime`);
+  }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(`tauri reach: ok (${Object.keys(allowed).length} files with remaining reach)`);
 }

@@ -48,7 +48,7 @@ test('CLI fixture ratchets committed budgets and rejects restoring removed reach
     assert.equal(run().status, 0);
     const crash = 'src-tauri/crates/codeterm-crash/src/nested/leak.rs';
     source(crash, 'use tauri::Runtime;');
-    assert.match(run().stderr, /crash.*reach grew/);
+    assert.match(run().stderr, /codeterm-crash.*extracted leaf names the host runtime/);
     source(crash, 'pub fn clean() {}');
     assert.equal(run().status, 0);
     source(file, 'tauri::async_runtime::spawn(task); AppHandle');
@@ -60,6 +60,11 @@ test('CLI fixture ratchets committed budgets and rejects restoring removed reach
     assert.match(run().stderr, /drop entry/);
     baseline({});
     assert.equal(run().status, 0);
+    const leaf = 'src-tauri/crates/codeterm-notifications/src/lib.rs';
+    source(leaf, 'pub type Runtime = tauri::Wry;');
+    assert.match(run().stderr, /extracted leaf names the host runtime/);
+    source(leaf, 'pub fn pure() {}');
+    assert.equal(run().status, 0);
     commit();
     source(file, 'tauri::async_runtime::spawn(task);');
     baseline({ [file]: 1 });
@@ -68,7 +73,7 @@ test('CLI fixture ratchets committed budgets and rejects restoring removed reach
     baseline({});
     source(file, 'crate::async_runtime::spawn(task);');
     source('src-tauri/crates/codeterm-surface/src/runtime.rs', 'tauri::async_runtime::spawn(task);');
-    assert.match(run().stderr, /codeterm-surface.*reach grew/);
+    assert.match(run().stderr, /codeterm-surface.*extracted leaf names the host runtime/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
