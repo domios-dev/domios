@@ -932,7 +932,9 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/attachments/temp-file",
-            post(web_routes::save_temp_file),
+            post(web_routes::save_temp_file).layer(axum::extract::DefaultBodyLimit::max(
+                web_routes::MAX_TEMP_FILE_BYTES,
+            )),
         )
         .route(
             "/api/attachments/clipboard-image",

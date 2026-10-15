@@ -15,9 +15,8 @@ pub fn save_clipboard_file_core(bytes: Vec<u8>, filename: String) -> Result<Stri
         "files",
         &filename,
         &bytes,
-        codeterm_service_core::attachments::EvictionPolicy::MaxBytes(
-            codeterm_service_core::attachments::DEFAULT_MAX_BYTES,
-        ),
+        // A single chat upload may reach 150 MB, so the shared 100 MB cap would evict it at once.
+        codeterm_service_core::attachments::EvictionPolicy::MaxBytes(CHAT_UPLOAD_CACHE_BYTES),
     )?;
     Ok(path.to_string_lossy().to_string())
 }
@@ -38,6 +37,8 @@ pub async fn materialize_dropped_files(paths: Vec<String>) -> Result<Vec<String>
     .await
     .map_err(|e| format!("materialize dropped files task failed: {}", e))?
 }
+
+const CHAT_UPLOAD_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[tauri::command]
 pub fn save_temp_file(
