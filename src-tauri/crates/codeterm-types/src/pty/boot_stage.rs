@@ -48,6 +48,8 @@ pub struct ProvisionalLaunch {
     pub pty_id: String,
     pub binding_nonce: String,
     pub reason: String,
+    #[serde(default)]
+    pub awaiting_binding_ack: bool,
 }
 
 impl BootStage {

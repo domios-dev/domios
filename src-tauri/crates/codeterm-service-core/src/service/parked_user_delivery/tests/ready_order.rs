@@ -1,6 +1,149 @@
 use super::*;
 
 #[test]
+fn binding_ack_wait_preserves_held_sends_but_explicit_degradation_settles_them() {
+    use crate::service::hook_session_binding::{
+        acknowledge_and_reconcile_session_binding, bind_reported_session,
+    };
+    use codeterm_types::pty::BootStage;
+
+    for explicit_degradation in [false, true] {
+        let (fixture, tab) = queue_fixture(false, None);
+        attach_fixture_pty(&fixture, &tab);
+        let (writes_tx, writes_rx) = mpsc::channel();
+        let _boundary = UserSubmitBoundary::install(
+            &tab,
+            Arc::new(move |record, text| {
+                writes_tx
+                    .send((record.send_id.clone(), text.to_owned()))
+                    .unwrap();
+                Err(DeliveryError::SubmitUnconfirmed {
+                    tab: record.authority.tab_id.clone(),
+                    detail: "opaque-submit-evidence-pending".into(),
+                })
+            }),
+        );
+        let first = fixture
+            .service
+            .start_chat_send(&tab, "first".into(), None, None)
+            .unwrap();
+        let second = fixture
+            .service
+            .start_chat_send(&tab, "second".into(), None, None)
+            .unwrap();
+        await_owner_idle(&fixture, &tab);
+        if explicit_degradation {
+            fixture.service.record_provisional_launch(
+                &crate::service::launch_readiness::LaunchAttempt {
+                    tab_id: tab.clone(),
+                    pty_id: "opaque-pty".into(),
+                    binding_nonce: "opaque-current-nonce".into(),
+                },
+                BootStage::LaunchBindingUnconfirmed,
+                "opaque-degraded-launch",
+            );
+        } else {
+            fixture
+                .service
+                .emit_boot_stage(&tab, BootStage::AgentReady, None);
+        }
+        await_owner_idle(&fixture, &tab);
+        assert_eq!(
+            fixture.service.mux.read().get_tab(&tab).unwrap().boot_stage,
+            Some(BootStage::LaunchBindingUnconfirmed)
+        );
+        let records = fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .records(&tab)
+            .unwrap();
+        let expected = if explicit_degradation {
+            vec![]
+        } else {
+            vec![first.send_id.clone(), second.send_id.clone()]
+        };
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.send_id.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        for send in [&first, &second] {
+            assert_eq!(
+                fixture
+                    .service
+                    .chat_send_ledger
+                    .status(&send.send_id)
+                    .unwrap()
+                    .state,
+                if explicit_degradation {
+                    ChatSendState::Failed
+                } else {
+                    ChatSendState::Pending
+                }
+            );
+        }
+        assert!(matches!(
+            writes_rx.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+        let claim = bind_reported_session(
+            &fixture.service.mux,
+            fixture.service.agent_registry.as_ref(),
+            &tab,
+            "opaque-provider",
+            "opaque-session",
+            Some("opaque-current-nonce"),
+        )
+        .unwrap();
+        acknowledge_and_reconcile_session_binding(
+            &fixture.service,
+            &tab,
+            &claim,
+            Some("opaque-current-nonce"),
+        )
+        .unwrap();
+        await_owner_idle(&fixture, &tab);
+        if !explicit_degradation {
+            assert_eq!(
+                writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+                (first.send_id.clone(), "first".into())
+            );
+            assert_eq!(
+                writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+                (second.send_id.clone(), "\n\nsecond".into())
+            );
+            for send in [&first, &second] {
+                assert_eq!(
+                    fixture
+                        .service
+                        .chat_send_ledger
+                        .status(&send.send_id)
+                        .unwrap()
+                        .state,
+                    ChatSendState::Unknown
+                );
+            }
+        }
+        fixture.service.wake_parked_user_send(&tab);
+        await_owner_idle(&fixture, &tab);
+        assert!(matches!(
+            writes_rx.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+        assert!(fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .records(&tab)
+            .unwrap()
+            .is_empty());
+    }
+}
+
+#[test]
 fn concurrent_drain_cannot_skip_the_admission_owners_claimed_head() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);

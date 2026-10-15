@@ -453,7 +453,9 @@ run_nextest_scope() {
     run_exit=$?
   fi
   node "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/build-gateway-output.mjs" test-summary "$timing_dir/parallel.log" "$run_exit"
-  if [ "${SLOW_UNIT_TESTS_MEASUREMENT:-}" = "alone" ]; then
+  if [ "${SLOW_UNIT_TESTS_MEASUREMENT:-}" = "off" ]; then
+    echo "slow-unit measurement skipped (SLOW_UNIT_TESTS_MEASUREMENT=off)"
+  elif [ "${SLOW_UNIT_TESTS_MEASUREMENT:-}" = "alone" ]; then
     if [ "${NEXTEST_TEST_THREADS:-}" != "1" ]; then
       echo "alone measurement requires NEXTEST_TEST_THREADS=1" >&2
       guard_exit=2
