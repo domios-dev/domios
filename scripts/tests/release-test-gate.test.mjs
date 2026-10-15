@@ -194,7 +194,7 @@ test("the full suite runs once on the rust-tests pool and each OS runs only its 
   assert.deepEqual(full["runs-on"], ["self-hosted", "rust-tests"]);
   assert.deepEqual(full.strategy.matrix.suite, ["full"]);
   const platform = tests.jobs["rust-platform"];
-  assert.deepEqual(platform.strategy.matrix.suite, ["platform"]);
+  assert.ok(platform.strategy.matrix.include.every(entry => entry.suite === "platform"));
   assert.deepEqual(platform.strategy.matrix.include.map(entry => entry.os).sort(), ["Linux", "Windows", "macOS"]);
   assert.equal(platform.strategy["fail-fast"], false);
   for (const job of [full, platform]) {
@@ -204,4 +204,11 @@ test("the full suite runs once on the rust-tests pool and each OS runs only its 
     assert.ok(!job.steps.some(step => step.uses?.startsWith("actions/download-artifact")), "no archive download");
   }
   assert.deepEqual(new Set(dependencies(tests.jobs["rust-receipts"])), new Set(["changed", "rust-tests", "rust-platform"]));
+});
+
+test("platform tests expand to one job per OS", () => {
+  const { include, ...axes } = tests.jobs["rust-platform"].strategy.matrix;
+  assert.deepEqual(Object.keys(axes), [], "added include keys on a base combination overwrite each other");
+  assert.deepEqual(include.map(row => [row.suite, row.os]), [["platform", "Linux"], ["platform", "macOS"], ["platform", "Windows"]]);
+  for (const row of include) assert.ok(row.label, row.os);
 });
