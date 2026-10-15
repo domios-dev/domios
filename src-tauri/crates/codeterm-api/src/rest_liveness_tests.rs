@@ -6,9 +6,8 @@ use axum::{
     routing::get,
     Router,
 };
-use codeterm_service_core::{
-    multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
-};
+use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
+use codeterm_service_core::multiplexer::state::MultiplexerState;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -21,6 +20,7 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
         codeterm_service_core::mesh::MeshManager::new("cron-entry-off-runtime".into(), 0);
     mesh.disk_persist = false;
     AppState {
+        app: fixture.app.handle().clone(),
         svc: Arc::new(fixture.service.clone()),
         cron: Arc::new(parking_lot::Mutex::new(
             codeterm_service_core::cron::store::CronStore::new_with_path(

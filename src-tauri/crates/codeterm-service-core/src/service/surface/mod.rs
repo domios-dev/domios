@@ -2,8 +2,8 @@
 
 mod activity;
 mod agent_call;
-mod browser;
 mod exit;
+mod host;
 mod model;
 mod ops;
 pub(crate) mod resume;
@@ -12,7 +12,7 @@ pub use runtime::sse_payload as runtime_sse_payload;
 mod stream_ops;
 mod transport;
 
-pub(crate) use activity::{is_agent_method, sanitize_actor, SurfaceActivityGate};
+pub(crate) use activity::{is_agent_method, SurfaceActivityGate};
 pub use exit::{begin_surface_shutdown, SurfaceShutdown};
 pub use model::SurfaceError;
 pub use model::SurfaceOpenRequest;

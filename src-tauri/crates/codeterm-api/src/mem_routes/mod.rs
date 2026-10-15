@@ -105,5 +105,8 @@ pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem
     };
 
     state.svc.activity.record(event.clone());
-    crate::events::emit_everywhere(&state.svc.app_handle, "mem-activity", &event);
+    state.svc.ui.emit(
+        "mem-activity",
+        serde_json::to_value(&event).unwrap_or(serde_json::Value::Null),
+    );
 }

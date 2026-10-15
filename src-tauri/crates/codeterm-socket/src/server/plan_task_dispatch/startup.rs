@@ -116,7 +116,7 @@ pub(crate) fn run_startup(
                 &this.attempt_id,
                 this.spawn_command.clone(),
             );
-            emit_plan_changed(&this.app, &this.plan_id);
+            emit_plan_changed(&this.svc, &this.plan_id);
             let nudges = this
                 .svc
                 .plan_store
@@ -177,7 +177,7 @@ pub(crate) fn run_startup(
                     &stage,
                 ),
             );
-            emit_plan_changed(&this.app, &this.plan_id);
+            emit_plan_changed(&this.svc, &this.plan_id);
         }
         Err(error) => {
             let stage = error
@@ -224,7 +224,7 @@ pub(crate) fn run_startup(
             } else {
                 false
             };
-            emit_plan_changed(&this.app, &this.plan_id);
+            emit_plan_changed(&this.svc, &this.plan_id);
             publish_startup_report(
                 &this.svc,
                 &this.parent_tab_id,

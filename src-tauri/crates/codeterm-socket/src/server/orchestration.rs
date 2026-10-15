@@ -4,7 +4,6 @@
 //! `OrchestrationPairExt::create_orchestration_pair`.
 
 use codeterm_orchestration::OrchestrationPairExt;
-use codeterm_service_core::app_runtime::AppHandle;
 use serde_json::Value;
 
 use codeterm_orchestration::OrchestrationPairParams;
@@ -15,7 +14,6 @@ use super::JsonRpcError;
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    _app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
@@ -45,12 +43,14 @@ pub(super) fn dispatch(
             .map_err(super::model_errors::invalid_model_rpc_error)?;
 
             let svc_ref = &**svc;
-            let result = tauri::async_runtime::block_on(svc_ref.create_orchestration_pair(req))
-                .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
-                })?;
+            let result = codeterm_service_core::async_runtime::block_on(
+                svc_ref.create_orchestration_pair(req),
+            )
+            .map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e,
+                data: None,
+            })?;
 
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,

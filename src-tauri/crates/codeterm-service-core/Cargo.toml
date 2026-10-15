@@ -10,6 +10,9 @@ workspace = true
 name = "codeterm_service_core"
 
 [dependencies]
+codeterm-crash = { path = "../codeterm-crash" }
+codeterm-surface = { path = "../codeterm-surface" }
+codeterm-notifications = { path = "../codeterm-notifications" }
 codeterm-provider-ops = { path = "../codeterm-provider-ops" }
 codeterm-recall = { path = "../codeterm-recall" }
 codeterm-supporter = { path = "../codeterm-supporter" }
@@ -24,21 +27,14 @@ codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-repowatch = { path = "../codeterm-repowatch" }
 codeterm-account = { path = "../codeterm-account" }
 codeterm-billing = { path = "../codeterm-billing" }
-tauri-plugin-deep-link = "2"
 codeterm-analytics = { path = "../codeterm-analytics" }
 codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
 tempfile = "3"
-tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run
 # here when called from headless / background Rust code paths). Features chosen to keep
 # binary size minimal — no parallel/multi-context, no async, just the
 # core eval surface + ES modules.
 rquickjs = { version = "0.11", features = ["loader", "macro", "parallel"] }
-tauri-plugin-shell = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-dialog = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 portable-pty = { path = "../../pty-fork" }
 tokio = { version = "1", features = ["full", "test-util"] }
 serde = { version = "1", features = ["derive"] }
@@ -126,9 +122,6 @@ hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../../../crates/mem-store" }
 codeterm-paths = { path = "../../../crates/codeterm-paths" }
 codeterm-plugins = { path = "../codeterm-plugins" }
-crash-handler = "0.6"
-crash-context = "0.6"
-minidump-writer = "0.10"
 
 [features]
 default = ["embeddings"]
@@ -162,7 +155,7 @@ fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
 codeterm-input-windows = { path = "../codeterm-input-windows" }
 conpty = "0.7"
 clipboard-win = "5"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 codeterm-provider-ops = { path = "../codeterm-provider-ops", features = ["test-support"] }

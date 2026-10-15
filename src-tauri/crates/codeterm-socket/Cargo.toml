@@ -10,6 +10,7 @@ workspace = true
 name = "codeterm_socket"
 
 [dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime" }
 codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-orchestration = { path = "../codeterm-orchestration" }
@@ -47,6 +48,7 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime", features = ["test-support"] }
 codeterm-api = { path = "../codeterm-api" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host", features = ["test-support"] }

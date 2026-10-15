@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use tauri::Manager;
 
 use super::SentinelExt;
 use crate::{
@@ -89,8 +88,7 @@ pub fn target_identity(
     match route {
         Route::Sentinel(id) => {
             let handle = svc
-                .app_handle
-                .try_state::<Handle>()
+                .host_extension::<Handle>()
                 .ok_or("blueprints not initialized")?;
             let store = handle.store.lock();
             store.validate_target(job, id)?;
@@ -108,8 +106,7 @@ pub fn target_identity(
         }
         Route::Cron(id) => {
             let crons = svc
-                .app_handle
-                .try_state::<codeterm_service_core::CronState>()
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or("cron not initialized")?;
             let store = crons.lock();
             let cron = store.get(id).ok_or("cron target disappeared")?;
@@ -244,15 +241,13 @@ impl AutomationGraphExt for ServiceContext {
         team: Option<&str>,
     ) -> Result<Snapshot, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         graph::validate_scope(&self.mux.read(), workspace, team)?;
         let (jobs, live_leases) = storage::committed_scope(&handle.store, workspace, team)?;
         let journals = pipeline_journals(&handle, &jobs)?;
         let crons = self
-            .app_handle
-            .try_state::<codeterm_service_core::CronState>()
+            .try_ext::<codeterm_service_core::CronState>()
             .map(|state| connected_crons(&state.lock(), &jobs, workspace, team))
             .unwrap_or_default();
         let now = handle.store.lock().clock.now_ms();
@@ -281,8 +276,7 @@ impl AutomationGraphExt for ServiceContext {
 
     fn automation_graph_workspace_snapshot(&self, workspace: &str) -> Result<Snapshot, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         {
             let mux = self.mux.read();
@@ -319,8 +313,7 @@ impl AutomationGraphExt for ServiceContext {
         for (team, scoped_jobs) in grouped {
             let team_ref = team.as_deref();
             let crons = self
-                .app_handle
-                .try_state::<codeterm_service_core::CronState>()
+                .try_ext::<codeterm_service_core::CronState>()
                 .map(|state| connected_crons(&state.lock(), &scoped_jobs, workspace, team_ref))
                 .unwrap_or_default();
             let snapshot = graph::project(
@@ -382,8 +375,7 @@ impl AutomationGraphExt for ServiceContext {
 
     fn automation_configured_fallback(&self) -> Value {
         let config = self
-            .app_handle
-            .try_state::<codeterm_service_core::config::ConfigState>()
+            .try_ext::<codeterm_service_core::config::ConfigState>()
             .map(|s| s.lock().supporter.clone());
         match config
             .as_ref()
@@ -403,8 +395,7 @@ impl AutomationGraphExt for ServiceContext {
         id: &str,
     ) -> Result<Sentinel, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();
@@ -422,8 +413,7 @@ impl AutomationGraphExt for ServiceContext {
         id: &str,
     ) -> Result<(), String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();
@@ -476,8 +466,30 @@ fn pipeline_journals(
 pub fn install_invalidations(
     svc: &ServiceContext,
     store: std::sync::Arc<parking_lot::Mutex<Store>>,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) {
     use tauri::Listener;
+    install_invalidation_listeners(svc, store, |event, callback| {
+        app.listen_any(event, move |_| callback());
+    });
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub fn install_fixture_invalidations(
+    svc: &ServiceContext,
+    store: std::sync::Arc<parking_lot::Mutex<Store>>,
+    ui: &codeterm_service_core::service::test_fixture::RecordedUiEvents,
+) {
+    install_invalidation_listeners(svc, store, |event, callback| {
+        ui.listen(event, move |_| callback());
+    });
+}
+
+fn install_invalidation_listeners(
+    svc: &ServiceContext,
+    store: std::sync::Arc<parking_lot::Mutex<Store>>,
+    listen: impl Fn(&str, Box<dyn Fn() + Send + Sync>),
+) {
     for event in [
         "cron-fired",
         "cron-run-finished",
@@ -486,29 +498,30 @@ pub fn install_invalidations(
         "config-changed",
     ] {
         let store = store.clone();
-        let app = svc.app_handle.clone();
-        svc.app_handle.listen_any(event, move |_| {
-            let changes = {
-                let store = store.lock();
-                let scopes: BTreeSet<_> = store
-                    .list()
-                    .iter()
-                    .filter(|j| {
-                        j.is_scenario_root()
-                    })
-                    .map(|j| (j.workspace_id.clone(), j.team_id.clone()))
-                    .collect();
-                scopes
+        let ui = svc.ui.clone();
+        listen(
+            event,
+            Box::new(move || {
+                let changes = {
+                    let store = store.lock();
+                    let scopes: BTreeSet<_> = store
+                        .list()
+                        .iter()
+                        .filter(|j| j.is_scenario_root())
+                        .map(|j| (j.workspace_id.clone(), j.team_id.clone()))
+                        .collect();
+                    scopes
                     .into_iter()
                     .filter_map(|(workspace_id, team_id)| {
                         let revision = store.committed_revision(&workspace_id, team_id.as_deref())?;
                         Some(json!({"workspace_id":workspace_id,"team_id":team_id,"revision":revision}))
                     })
                     .collect::<Vec<_>>()
-            };
-            for change in changes {
-                codeterm_service_core::events::emit_everywhere(&app, "automation-graph-changed", change);
-            }
-        });
+                };
+                for change in changes {
+                    ui.emit("automation-graph-changed", change);
+                }
+            }),
+        );
     }
 }

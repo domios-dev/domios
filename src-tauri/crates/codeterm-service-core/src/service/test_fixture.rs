@@ -3,7 +3,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::Manager;
 
 use super::ServiceContext;
 use crate::lock_hold::{TimedMutex, TimedRwLock};
@@ -11,7 +10,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanStore;
 
 pub fn install_test_runtime() {
-    crate::async_runtime::install(tauri::async_runtime::handle().inner().clone());
+    let _ = crate::async_runtime::handle();
 }
 
 pub struct ServiceFixture {
@@ -20,7 +19,6 @@ pub struct ServiceFixture {
     /// The waiter lifetime owner. The registry keeps only a `Weak` of this, so
     /// dropping the fixture is itself the teardown signal.
     _owner: Arc<ServiceContext>,
-    pub _app: crate::app_runtime::App,
     pub temp: tempfile::TempDir,
 }
 
@@ -31,9 +29,19 @@ pub struct RecordedUiEvents(
     pub Mutex<Vec<(String, serde_json::Value)>>,
     Mutex<Vec<(usize, String, UiListener)>>,
     std::sync::atomic::AtomicUsize,
+    Option<Arc<codeterm_events::EventBroadcaster>>,
 );
 
 impl RecordedUiEvents {
+    pub fn with_broadcaster(events: Arc<codeterm_events::EventBroadcaster>) -> Self {
+        Self(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Some(events),
+        )
+    }
+
     pub fn listen(
         &self,
         event: &str,
@@ -51,8 +59,8 @@ impl RecordedUiEvents {
     }
 }
 
-impl crate::ports::host::UiEvents for RecordedUiEvents {
-    fn emit(&self, event: &str, payload: serde_json::Value) {
+impl RecordedUiEvents {
+    fn record(&self, event: &str, payload: serde_json::Value) {
         self.0.lock().push((event.to_owned(), payload.clone()));
         let listeners: Vec<_> = self
             .1
@@ -65,9 +73,25 @@ impl crate::ports::host::UiEvents for RecordedUiEvents {
             listener(&payload);
         }
     }
+}
+
+impl crate::ports::host::UiEvents for RecordedUiEvents {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        self.record(event, payload.clone());
+        if let Some(events) = &self.3 {
+            events.publish_generic(
+                event,
+                codeterm_events::web_safe_event_payload(event, payload),
+            );
+        }
+    }
+
+    fn emit_native(&self, event: &str, payload: serde_json::Value) {
+        self.record(event, payload);
+    }
 
     fn emit_to(&self, _: &str, event: &str, payload: serde_json::Value) {
-        self.emit(event, payload);
+        self.record(event, payload);
     }
 }
 
@@ -251,8 +275,8 @@ impl ServiceFixture {
     }
 
     pub fn set_agent_full_access(&self, full_access: bool) {
-        self._app
-            .state::<crate::config::ConfigState>()
+        self.service
+            .ext::<crate::config::ConfigState>()
             .lock()
             .agent
             .full_access = Some(full_access);
@@ -314,14 +338,9 @@ impl ServiceFixture {
                 mux.attach_closed_store(store);
             }
         }
-        let builder = crate::app_runtime::builder();
-        let app = builder
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
         let mut config = crate::config::schema::AppConfig::default();
         config.agent.full_access = Some(false);
         let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
-        assert!(app.manage(config.clone()));
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         let chatbackend_registry = Arc::new(crate::chatbackend::ChatBackendRegistry::new());
         let provider_registry = Arc::new(crate::provider::ProviderRegistry::new(
@@ -366,6 +385,18 @@ impl ServiceFixture {
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
         extensions.insert_service_slots();
         extensions.insert(config);
+        let (private_key, public_key) = crate::mesh::crown::generate_peer_keypair();
+        extensions.insert::<crate::MeshStateHandle>(Arc::new(Mutex::new(
+            crate::mesh::MeshManager::in_memory(
+                crate::mesh::types::MeshIdentity {
+                    instance_id: uuid::Uuid::new_v4().to_string(),
+                    private_key: Some(private_key),
+                    public_key: Some(public_key),
+                },
+                "fixture".into(),
+                0,
+            ),
+        )));
 
         extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
             Arc::new(parking_lot::Mutex::new(())),
@@ -441,7 +472,8 @@ impl ServiceFixture {
         extensions.insert::<crate::bubble::BubbleRegistryHandle>(Arc::new(
             crate::bubble::BubbleRegistry::new(),
         ));
-        let ui = Arc::new(RecordedUiEvents::default());
+        let events = Arc::new(codeterm_events::EventBroadcaster::new());
+        let ui = Arc::new(RecordedUiEvents::with_broadcaster(events.clone()));
         let repo_sink = Arc::new(crate::repowatch::TauriRepoEventSink::new(ui.clone()));
         extensions.insert::<crate::repowatch::RepoWatchRegistryHandle>(Arc::new(
             crate::repowatch::RepoWatchRegistry::new(repo_sink.clone()),
@@ -574,8 +606,7 @@ impl ServiceFixture {
             } else {
                 crate::notification::store::NotificationStore::new(10)
             })),
-            events: Arc::new(codeterm_events::EventBroadcaster::new()),
-            app_handle: app.handle().clone(),
+            events,
             ui: ui.clone(),
             shell: Arc::new(crate::ports::host::NoShell),
             rt: crate::async_runtime::handle().clone(),
@@ -632,17 +663,16 @@ impl ServiceFixture {
             worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
             gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
             extensions: Arc::new(extensions.finish()),
+            host_extensions: Default::default(),
         };
-        assert!(app.manage(Arc::clone(&service.mux)));
         let owner = Arc::new(service.clone());
-        repo_sink.bind_service(Arc::downgrade(&owner));
         assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
+        repo_sink.bind_service(Arc::downgrade(&owner));
         crate::ports::orchestration::install_fixture(&owner);
         Self {
             service,
             ui,
             _owner: owner,
-            _app: app,
             temp,
         }
     }
@@ -687,7 +717,41 @@ impl ServiceFixture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tauri::{Emitter, Listener};
+
+    #[test]
+    fn fixture_configuration_and_weak_owner_are_initialized() {
+        let fixture = ServiceFixture::new(MultiplexerState::new().0);
+        fixture.set_agent_full_access(true);
+        assert_eq!(
+            fixture.service.configuration().agent.full_access,
+            Some(true)
+        );
+        let owner = fixture
+            .service
+            .ext::<std::sync::Weak<ServiceContext>>()
+            .upgrade()
+            .unwrap();
+        assert!(Arc::ptr_eq(&owner, &fixture._owner));
+    }
+
+    #[test]
+    fn fixture_mesh_identity_is_isolated_and_never_persists() {
+        let first = ServiceFixture::new(MultiplexerState::new().0);
+        let second = ServiceFixture::new(MultiplexerState::new().0);
+        let first_mesh = first.service.ext::<crate::MeshStateHandle>();
+        let second_mesh = second.service.ext::<crate::MeshStateHandle>();
+        assert!(!Arc::ptr_eq(first_mesh, second_mesh));
+        let first_mesh = first_mesh.lock();
+        let second_mesh = second_mesh.lock();
+        assert!(!first_mesh.disk_persist);
+        assert!(!second_mesh.disk_persist);
+        assert!(first_mesh.paired_peers.is_empty());
+        assert!(second_mesh.paired_peers.is_empty());
+        assert_ne!(
+            first_mesh.ident.identity.instance_id,
+            second_mesh.ident.identity.instance_id
+        );
+    }
 
     #[test]
     fn recorded_ui_preserves_event_payloads_in_order() {
@@ -703,6 +767,27 @@ mod tests {
                 ("targeted".to_owned(), serde_json::Value::Null)
             ]
         );
+    }
+
+    #[test]
+    fn recorded_ui_broadcasts_only_global_events() {
+        use crate::ports::host::UiEvents;
+        let events = Arc::new(codeterm_events::EventBroadcaster::new());
+        let mut receiver = events.subscribe();
+        let ui = RecordedUiEvents::with_broadcaster(events);
+        let payload = serde_json::json!({"probe": [1, 2]});
+        ui.emit("broadcast", payload.clone());
+        match receiver.try_recv().unwrap().event {
+            codeterm_events::SystemEvent::Generic { event_type, data } => {
+                assert_eq!(event_type, "broadcast");
+                assert_eq!(data, payload);
+            }
+            event => panic!("unexpected event: {event:?}"),
+        }
+        ui.emit_native("native", serde_json::Value::Null);
+        ui.emit_to("main", "targeted", serde_json::Value::Null);
+        assert!(receiver.try_recv().is_err());
+        assert_eq!(ui.0.lock().len(), 3);
     }
 
     #[test]
@@ -728,30 +813,19 @@ mod tests {
         std::thread::spawn(|| {
             let (mux, _) = MultiplexerState::new();
             let fixture = ServiceFixture::new(mux);
-            assert!(fixture._app.webview_windows().is_empty());
+            use crate::ports::host::UiEvents;
             fixture.set_agent_full_access(true);
-            let config = fixture
-                .service
-                .app_handle
-                .state::<crate::config::ConfigState>();
-            assert_eq!(config.lock().agent.full_access, Some(true));
-            let (tx, rx) = std::sync::mpsc::channel();
-            let listener = fixture
-                .service
-                .app_handle
-                .listen("fixture-event", move |event| {
-                    tx.send(event.payload().to_owned()).unwrap();
-                });
-            fixture
-                .service
-                .app_handle
-                .emit("fixture-event", 42)
-                .unwrap();
             assert_eq!(
-                rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap(),
-                "42"
+                fixture.service.configuration().agent.full_access,
+                Some(true)
             );
-            fixture.service.app_handle.unlisten(listener);
+            let (tx, rx) = std::sync::mpsc::channel();
+            let listener = fixture.ui.listen("fixture-event", move |value| {
+                tx.send(value.clone()).unwrap();
+            });
+            fixture.ui.emit("fixture-event", serde_json::json!(42));
+            assert_eq!(rx.try_recv().unwrap(), serde_json::json!(42));
+            fixture.ui.unlisten(listener);
         })
         .join()
         .unwrap();

@@ -756,3 +756,29 @@ fn blueprint_delivery_rearm_on_change_claims_executes_and_completes() {
             && transition.handlers[0].status == Status::Completed
     }));
 }
+
+#[test]
+fn scheduler_handle_uses_context_registry_and_ui_events() {
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1000);
+    let mut store = Store::new(fixture.temp.path().join("sentinels.json"), clock);
+    create(&mut store, false, json!({}));
+    store.take_changes();
+    let handle = super::scheduler::fixture_handle_with_ui(store, fixture.service.ui.clone());
+    super::manage_fixture_ports(&fixture.service, &handle);
+    let registered = fixture
+        .service
+        .host_extension::<super::scheduler::Handle>()
+        .unwrap();
+    assert!(Arc::ptr_eq(&registered.store, &handle.store));
+    registered.notify();
+    assert!(fixture.ui.0.lock().is_empty());
+    let id = registered.store.lock().list()[0].id.clone();
+    registered.notify_event_subscription_changed(&id);
+    let events = fixture.ui.0.lock();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].0, "automation-graph-changed");
+    assert_eq!(events[0].1["workspace_id"], "workspace");
+}

@@ -1044,7 +1044,6 @@ pub async fn restart_general_agent(
     let pty = svc.pty.clone();
     let screen_state = svc.screen_state.clone();
     let config = state.config.clone();
-    let app = svc.app_handle.clone();
     std::thread::spawn(move || {
         codeterm_service_core::service::general_agent::restart_general_agent(
             &svc,
@@ -1052,7 +1051,6 @@ pub async fn restart_general_agent(
             &pty,
             &screen_state,
             &config,
-            &app,
         );
     });
     Ok(Json(serde_json::json!({"ok": true})))
@@ -1075,7 +1073,6 @@ pub async fn restart_general_agent_tab(
     let pty = svc.pty.clone();
     let screen_state = svc.screen_state.clone();
     let config = state.config.clone();
-    let app = svc.app_handle.clone();
     std::thread::spawn(move || {
         codeterm_service_core::service::general_agent::restart_general_agent(
             &svc,
@@ -1083,7 +1080,6 @@ pub async fn restart_general_agent_tab(
             &pty,
             &screen_state,
             &config,
-            &app,
         );
     });
     Ok(Json(serde_json::json!({"ok": true, "restarted": true})))
@@ -1102,11 +1098,9 @@ pub async fn complete_general_agent_first_run(
     Json(body): Json<CompleteFirstRunBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let app = state.svc.app_handle.clone();
     codeterm_service_core::service::general_agent::complete_first_run_core(
         &state.svc,
         &state.config,
-        &app,
         &body.provider_id,
         body.full_access,
     )

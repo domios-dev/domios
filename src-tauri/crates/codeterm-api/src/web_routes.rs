@@ -104,8 +104,7 @@ pub async fn tab_chat_view(
         check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
         state.svc.set_chat_view(&tab_id, body.enabled);
         // Explicit API request = remote-control command (bridge / agents / tests):
-        crate::events::emit_everywhere(
-            &state.svc.app_handle,
+        state.svc.ui.emit(
             "tab-chat-view",
             serde_json::json!({ "tab_id": tab_id, "enabled": body.enabled }),
         );
