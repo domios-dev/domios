@@ -28,6 +28,7 @@ fn should_materialize_restored_backend(
 use codeterm_service_core::startup::FRONTEND_READINESS_DEADLINE_ELAPSED;
 
 fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
+    codeterm_service_core::startup::boot_timing::mark("-", None, "restore_scheduled");
     codeterm_util::named_thread::spawn("restore-pty-backends", move || {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         let mut queued = Vec::new();
@@ -36,6 +37,7 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
             || note_frontend_deadline(&service_state),
             || restored_backend_tab_ids(&service_state),
             |tab_id| {
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "wave_queued");
                 queued.push(tab_id.to_string());
                 Ok(())
             },
@@ -48,7 +50,16 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
         let results = super::restored_backends::run_wave(
             &queued,
             4,
+            || {
+                let focused = service_state
+                    .mux
+                    .read()
+                    .get_focused_tab_id()
+                    .map(str::to_owned);
+                focused.and_then(|id| queued.iter().position(|tab_id| *tab_id == id))
+            },
             |tab_id| {
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "cwd_check_enter");
                 let cwd = service_state
                     .mux
                     .read()
@@ -61,9 +72,11 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                     publish_backend_materialization_failure(&service_state, tab_id, reason);
                     log::error!("[startup-pty] tab={tab_id} cwd refused: {reason}");
                 }
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "cwd_check_done");
                 result
             },
             |tab_id| {
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "wave_admitted");
                 let result = if service_state.tab_chat_backing(tab_id).is_some() {
                     service_state
                         .chatbackend_reopen_if_restored(tab_id)
@@ -80,6 +93,7 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                     started.elapsed().as_millis(),
                     result.is_ok()
                 );
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "materialized");
                 result
             },
         );
@@ -228,7 +242,7 @@ pub(crate) fn start_servers(
             reason,
         );
         if let Err(error) = codeterm_service_core::service::session_persist::set_storage_unavailable(
-            &app_handle,
+            service_state,
             reason.to_string(),
         ) {
             log::error!("[session-persist] unavailable backend setup failed: {error}");
@@ -239,7 +253,7 @@ pub(crate) fn start_servers(
         );
         if let Err(error) =
             codeterm_service_core::service::session_persist::install_storage_desk_adapter(
-                &app_handle,
+                service_state,
                 adapter,
             )
         {
@@ -250,7 +264,7 @@ pub(crate) fn start_servers(
     if states.boot_resync && states.storage.storage().is_some() {
         let resync =
             codeterm_service_core::service::session_persist::write_session_snapshot_with_intent(
-                &app_handle,
+                service_state,
                 &states.mux,
                 codeterm_service_core::session::store::SaveIntent::AuthorizedReduction,
             );
@@ -359,6 +373,8 @@ pub(crate) fn start_servers(
             }
         };
 
+    assert!(service_state.set_ext(cron_state.clone()).is_ok());
+    assert!(service_state.set_ext(cron_wake.clone()).is_ok());
     app.manage(cron_state.clone());
     app.manage(cron_wake.clone());
     let fence_wake = cron_wake.clone();
@@ -428,7 +444,6 @@ pub(crate) fn start_servers(
             test_clock: test_clock.clone(),
             events: states.event_broadcaster.clone(),
             web_dist: resolve_web_dist(app.path().resource_dir().ok()),
-            snapshot_bound: codeterm_service_core::startup::snapshot_bound::SnapshotBound::new(),
         };
         let router = codeterm_api::routes::create_router_with_frontend(rest_inputs, bundles);
         app.manage(codeterm_service_core::ports::rest::LocalApiRouter(

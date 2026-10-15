@@ -154,5 +154,5 @@ fn anchorless_equal_text_requires_two_distinct_live_turn_ids() {
         settled.recv_timeout(TEST_DEADLINE).unwrap()["send_id"],
         second.send_id
     );
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
 }

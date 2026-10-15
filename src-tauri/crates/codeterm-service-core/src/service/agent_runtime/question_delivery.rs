@@ -79,9 +79,9 @@ pub(crate) fn answer(
     }
     super::questions::validate_answers(&record.questions, &answers)
         .map_err(|reason| reason.to_string())?;
-    let session = tauri::async_runtime::block_on(engine::ensure(svc, tab))
+    let session = crate::async_runtime::block_on(engine::ensure(svc, tab))
         .map_err(|reason| reason.to_string())?;
-    let input = tauri::async_runtime::block_on(async {
+    let input = crate::async_runtime::block_on(async {
         let _permit =
             tokio::time::timeout(std::time::Duration::from_secs(30), session.gate.acquire())
                 .await

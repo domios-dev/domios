@@ -45,6 +45,10 @@ fn generic_paths() -> PathBuf {
         })
 }
 fn generic_provider(dir: &Path) -> JsProvider {
+    generic_provider_with_history(dir, true)
+}
+
+fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider {
     let kinds = [
         "initialize",
         "openThread",
@@ -60,13 +64,42 @@ fn generic_provider(dir: &Path) -> JsProvider {
         .iter()
         .map(|kind| ((*kind).into(), json!([kind])))
         .collect();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"usage":true,"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"usage":true,"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
         manifest,
         Arc::new(PluginVm::from_source("echo-runtime", source).unwrap()),
     )
+}
+
+#[test]
+fn runtime_stored_history_native_quickjs_parity_and_capability_gate() {
+    let dir = generic_paths();
+    let records = json!({"session":"own-session", "messages":[
+        {"id":"own-item", "type":"user", "content":"opaque", "seq":0}
+    ]})
+    .to_string();
+    for enabled in [false, true] {
+        let js = generic_provider_with_history(&dir, enabled);
+        let native = native::NativeRuntime(js.agent_runtime().unwrap());
+        let a = native.runtime_stored_history("own-session", &records);
+        let b = js.runtime_stored_history("own-session", &records);
+        assert_eq!(a.is_ok(), enabled);
+        assert_eq!(b.is_ok(), enabled);
+        if enabled {
+            assert_eq!(
+                serde_json::to_value(a.unwrap()).unwrap(),
+                serde_json::to_value(b.unwrap()).unwrap()
+            );
+        }
+        assert!(native
+            .runtime_stored_history("foreign-session", &records)
+            .is_err());
+        assert!(js
+            .runtime_stored_history("foreign-session", &records)
+            .is_err());
+    }
 }
 
 #[tokio::test]

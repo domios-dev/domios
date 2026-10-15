@@ -24,7 +24,7 @@ function fixture() {
   for (const dir of ['scripts', 'target/debug', 'data/bin', 'src-tauri/bundled-embed', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
-  for (const name of ['dev-prep.mjs', 'dev-app-process.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'build-identity.cjs']) {
+  for (const name of ['dev-prep.mjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'build-identity.cjs']) {
     fs.copyFileSync(path.join(root, 'scripts', name), path.join(checkout, 'scripts', name));
   }
   const exe = process.platform === 'win32' ? '.exe' : '';

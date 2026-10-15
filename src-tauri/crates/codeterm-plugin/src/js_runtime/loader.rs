@@ -91,6 +91,14 @@ fn scan_one(root: &Path, providers: &mut Vec<JsProvider>, report: &mut Vec<LoadO
 
 /// Parse a `plugin.json`, load the bundled JS, return a ready provider.
 pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
+    load_one_with_installation(manifest_path, crate::bundled::installed())
+}
+
+pub(crate) fn load_one_with_installation(
+    manifest_path: &Path,
+    installation: Result<&crate::bundled::BundledPlugins, String>,
+) -> Result<JsProvider, String> {
+    installation?;
     let manifest = PluginManifest::load(manifest_path)?;
     let entry = manifest
         .entry_path()
@@ -362,11 +370,27 @@ fn core_eligibility(
 }
 
 pub fn default_roots(workspace_root: Option<&Path>) -> Vec<PathBuf> {
-    ordered_roots(
+    let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
+    let workspace = selected_workspace_root(
         workspace_root,
+        std::env::var_os("CODETERM_DEV_WORKSPACE_ROOT").map(PathBuf::from),
+        dev,
+    );
+    ordered_roots(
+        workspace.as_deref(),
         codeterm_paths::data_dir().join("plugins"),
-        std::env::var("CODETERM_DEV").as_deref() == Ok("1"),
+        dev,
     )
+}
+
+fn selected_workspace_root(
+    compiled: Option<&Path>,
+    explicit: Option<PathBuf>,
+    dev: bool,
+) -> Option<PathBuf> {
+    explicit
+        .filter(|_| dev)
+        .or_else(|| compiled.map(Path::to_path_buf))
 }
 
 fn ordered_roots(

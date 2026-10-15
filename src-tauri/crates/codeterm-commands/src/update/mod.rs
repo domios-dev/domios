@@ -17,6 +17,6 @@ pub use manifest::Manifest;
 
 pub fn bind_status_emitter(app: codeterm_service_core::app_runtime::AppHandle) {
     let _ = codeterm_service_core::update_state::STATUS_EMITTER.set(Box::new(move |status| {
-        codeterm_events::emit_everywhere(&app, "update-status-changed", status);
+        codeterm_service_core::events::emit_everywhere(&app, "update-status-changed", status);
     }));
 }

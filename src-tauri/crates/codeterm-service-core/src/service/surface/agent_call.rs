@@ -388,7 +388,7 @@ fn block_on_runtime<F: std::future::Future>(future: F) -> F::Output {
         Ok(handle) if handle.runtime_flavor() == RuntimeFlavor::MultiThread => {
             tokio::task::block_in_place(|| handle.block_on(future))
         }
-        _ => tauri::async_runtime::block_on(future),
+        _ => crate::async_runtime::block_on(future),
     }
 }
 

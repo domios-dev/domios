@@ -53,7 +53,7 @@ pub struct LogStore {
     conn: Mutex<Connection>,
     ring: Mutex<VecDeque<PendingLog>>,
     db_path: PathBuf,
-    app_handle: Mutex<Option<crate::app_runtime::AppHandle>>,
+    ui: Mutex<Option<std::sync::Arc<dyn crate::ports::host::UiEvents>>>,
 }
 
 #[derive(Clone)]
@@ -101,7 +101,7 @@ impl LogStore {
             conn: Mutex::new(conn),
             ring: Mutex::new(VecDeque::with_capacity(RING_CAP)),
             db_path,
-            app_handle: Mutex::new(None),
+            ui: Mutex::new(None),
         }))
     }
 
@@ -114,7 +114,7 @@ impl LogStore {
             conn: Mutex::new(conn),
             ring: Mutex::new(VecDeque::with_capacity(RING_CAP)),
             db_path: PathBuf::from(":memory:"),
-            app_handle: Mutex::new(None),
+            ui: Mutex::new(None),
         }))
     }
 
@@ -122,8 +122,8 @@ impl LogStore {
         &self.db_path
     }
 
-    pub fn attach_app(&self, handle: crate::app_runtime::AppHandle) {
-        *self.app_handle.lock() = Some(handle);
+    pub fn attach_ui(&self, handle: std::sync::Arc<dyn crate::ports::host::UiEvents>) {
+        *self.ui.lock() = Some(handle);
     }
 
     pub fn push(
@@ -154,7 +154,7 @@ impl LogStore {
         if let Some(d) = dropped {
             let _ = self.persist(std::iter::once(d));
         }
-        if let Some(handle) = self.app_handle.lock().clone() {
+        if let Some(ui) = self.ui.lock().clone() {
             let payload = serde_json::json!({
                 "ts": ts,
                 "level": pending.level,
@@ -162,7 +162,7 @@ impl LogStore {
                 "message": pending.message,
                 "context": context,
             });
-            codeterm_events::emit_everywhere(&handle, "logs-updated", payload);
+            ui.emit("logs-updated", payload);
         }
     }
 
@@ -261,7 +261,7 @@ impl LogStore {
 
     pub fn start_flush_loop(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 let Some(store) = weak.upgrade() else { break };

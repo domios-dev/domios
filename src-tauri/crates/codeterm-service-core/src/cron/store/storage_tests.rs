@@ -95,7 +95,7 @@ impl Fixture {
     fn assert_cache_is_committed(&self) {
         let fresh = self.rehydrated();
         let cache = self.cron.lock();
-        assert_eq!(cache.file.jobs, fresh.file.jobs, "definitions and order");
+        assert_eq!(cache.list(), fresh.list(), "definitions and order");
         assert_eq!(histories(&cache), histories(&fresh), "run history");
     }
 
@@ -124,8 +124,7 @@ impl Fixture {
 
 fn histories(store: &CronStore) -> BTreeMap<String, Vec<CronRunInfo>> {
     store
-        .file
-        .history
+        .test_history_snapshot()
         .iter()
         .filter(|(_, runs)| !runs.is_empty())
         .map(|(id, runs)| (id.clone(), runs.clone()))
@@ -403,7 +402,8 @@ fn storage_cron_legacy_import_conserves_every_original_fact() {
     let legacy = CronStore::new_with_path(path.clone());
     let imported = f.rehydrated();
     assert_eq!(
-        imported.file.jobs, legacy.file.jobs,
+        imported.list(),
+        legacy.list(),
         "every field, null and order"
     );
     assert_eq!(histories(&imported), histories(&legacy));
@@ -414,7 +414,7 @@ fn storage_cron_legacy_import_conserves_every_original_fact() {
     assert_eq!(imported.get_history("ghost").len(), 1);
     assert!(state_of(&f.snapshot(), "ghost").identity.retired);
     assert!(
-        imported.tab_owners.is_empty() && !imported.is_job_running("job-a"),
+        imported.test_tab_owner_count() == 0 && !imported.is_job_running("job-a"),
         "a historical Running row never becomes live tab ownership"
     );
     let before = f.snapshot();

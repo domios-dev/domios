@@ -2,7 +2,7 @@
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 type Slot = Box<dyn Any + Send + Sync>;
 
@@ -12,10 +12,43 @@ pub struct Extensions {
 
 impl Extensions {
     pub fn get<T: Any + Send + Sync>(&self) -> &T {
+        self.try_get::<T>()
+            .unwrap_or_else(|| panic!("extension {} is not registered", std::any::type_name::<T>()))
+    }
+
+    pub fn try_get<T: Any + Send + Sync>(&self) -> Option<&T> {
+        self.map.get(&TypeId::of::<T>()).and_then(|slot| {
+            slot.downcast_ref::<T>()
+                .or_else(|| slot.downcast_ref::<OnceLock<T>>().and_then(OnceLock::get))
+        })
+    }
+
+    pub fn get_or_init<T: Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> &T {
         self.map
             .get(&TypeId::of::<T>())
-            .and_then(|slot| slot.downcast_ref::<T>())
-            .unwrap_or_else(|| panic!("extension {} is not registered", std::any::type_name::<T>()))
+            .and_then(|slot| slot.downcast_ref::<OnceLock<T>>())
+            .unwrap_or_else(|| {
+                panic!(
+                    "late extension {} is not registered",
+                    std::any::type_name::<T>()
+                )
+            })
+            .get_or_init(init)
+    }
+
+    pub fn set<T: Any + Send + Sync>(&self, value: T) -> Result<(), T> {
+        let result = match self
+            .map
+            .get(&TypeId::of::<T>())
+            .and_then(|slot| slot.downcast_ref::<OnceLock<T>>())
+        {
+            Some(slot) => slot.set(value),
+            None => Err(value),
+        };
+        if result.is_err() {
+            log::error!("extension {} could not be set", std::any::type_name::<T>());
+        }
+        result
     }
 }
 
@@ -36,6 +69,30 @@ impl ExtensionsBuilder {
                 std::any::type_name::<T>()
             );
         }
+    }
+
+    pub fn insert_late<T: Any + Send + Sync>(&mut self) {
+        if self
+            .map
+            .insert(TypeId::of::<T>(), Box::new(OnceLock::<T>::new()))
+            .is_some()
+        {
+            panic!(
+                "extension {} is registered twice",
+                std::any::type_name::<T>()
+            );
+        }
+    }
+
+    pub(crate) fn insert_service_slots(&mut self) {
+        self.insert_late::<crate::CronState>();
+        self.insert_late::<crate::CronWake>();
+        self.insert_late::<crate::ports::sentinel::SentinelPorts>();
+        self.insert_late::<crate::session::SessionState>();
+        self.insert_late::<crate::startup::StorageAuthority>();
+        self.insert_late::<std::sync::Weak<crate::service::ServiceContext>>();
+        self.insert_late::<crate::service::cron::OwnerPromptRequests>();
+        self.insert_late::<crate::service::session_persist::SessionPersistenceWorker>();
     }
 
     pub fn finish(self) -> Extensions {
@@ -103,6 +160,7 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<LocalRecordingTargets>(),
         key::<MuxEmitPending>(),
         key::<PublishedTabStatuses>(),
+        key::<Arc<crate::service::PublishedMuxState>>(),
         key::<Arc<crate::service::MuxEmitStats>>(),
         key::<crate::service::output_stream_activity::OutputStreamActivityTx>(),
         key::<crate::pasteboard::PasteboardState>(),

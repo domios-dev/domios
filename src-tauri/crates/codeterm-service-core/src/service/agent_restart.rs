@@ -279,7 +279,7 @@ impl ServiceContext {
             ));
         }
         snap.auto_approve = crate::service::permission_policy::configured_permission_bypass_for(
-            &self.app_handle,
+            self,
             &self.agent_registry,
             target_provider,
         )
@@ -860,7 +860,7 @@ fn build_relaunch_command(
         snap.cwd.as_deref(),
     );
     let auto_approve = match crate::service::permission_policy::configured_permission_bypass_for(
-        &svc.app_handle,
+        &svc,
         &svc.agent_registry,
         provider,
     ) {

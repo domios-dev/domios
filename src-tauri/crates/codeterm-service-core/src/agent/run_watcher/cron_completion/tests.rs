@@ -85,7 +85,6 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
     use parking_lot::Mutex;
     use std::sync::{mpsc, Arc};
     use std::time::{Duration, Instant};
-    use tauri::{Listener, Manager};
 
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&tab_id).unwrap();
@@ -128,8 +127,8 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
     let store = CronStore::new_with_path(fixture.temp.path().join("crons.json"));
     let cron: crate::CronState = Arc::new(Mutex::new(store));
     let wake: crate::CronWake = Arc::new(std::sync::Condvar::new());
-    fixture._app.manage(cron.clone());
-    fixture._app.manage(wake.clone());
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
+    assert!(fixture.service.set_ext(wake.clone()).is_ok());
     let job = cron
         .lock()
         .create(CronCreateParams {
@@ -231,7 +230,7 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
     let closed_mux = fixture.service.mux.clone();
     let closed_tab = tab_id.clone();
     let persisted = path.clone();
-    let listener = fixture._app.listen("cron-run-finished", move |_| {
+    let listener = fixture.ui.listen("cron-run-finished", move |_| {
         if closed_mux.read().get_tab(&closed_tab).is_none() {
             let _ = closed_tx.try_send(std::fs::read_to_string(&persisted).unwrap());
         }
@@ -263,7 +262,7 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
             let snapshot = crate::service::tab_chat::session_chat_snapshot(&fixture.service, "pending-fixture", "", "own-session", 0);
             panic!("transcript append must release pending completion: {error}; completion(stopped,prior_ids,events,watcher_present,session_path,watch_dir)={completion:?}; completed={completed:?}; tab_open={tab_open:?}; run_status={run_status:?}; snapshot={snapshot:?}");
         });
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(recorded.trim()).unwrap(),
         answer

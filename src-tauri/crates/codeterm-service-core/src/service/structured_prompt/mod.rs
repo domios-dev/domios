@@ -176,7 +176,7 @@ pub fn maybe_start_subscriber(svc: &ServiceContext, tab_id: &str) {
     log::info!("[structured-channel] tab={tab_id} status=subscribing endpoint={} session={} binding_nonce={}", binding.base_url, binding.session_id, binding.nonce);
     let svc = svc.clone();
     let tab_id = tab_id.to_string();
-    tauri::async_runtime::spawn(subscriber::run(svc, tab_id, binding, receiver, live));
+    crate::async_runtime::spawn(subscriber::run(svc, tab_id, binding, receiver, live));
 }
 
 /// Allocate the server; subscription starts after authenticated launch binding.
@@ -355,7 +355,7 @@ fn handle_event(
                 .get_tab(tab_id)
                 .and_then(|tab| tab.session_binding_nonce.clone());
             crate::service::tab_chat::structured_sink::emit_chat_msgs(
-                &svc.app_handle,
+                svc.ui.as_ref(),
                 tab_id,
                 &[session_events::message(&session_id, &kind)],
                 None,
@@ -619,7 +619,7 @@ fn emit_chat_part(
     tool_diffs::apply(svc, tab_id, &update.part, &mut chat_message);
     let sink = crate::service::tab_chat::structured_sink::make_sink(
         svc.lifecycle_journal.clone(),
-        svc.app_handle.clone(),
+        &svc,
         svc.mux.clone(),
         Some(binding.session_id),
         binding.binding_nonce,

@@ -5,6 +5,8 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`agentRuntime.storedHistory` declares that `runtimeStoredHistory(sessionId, records)` projects bounded native session records to the same item ids and row order as runtime history. It is pure: no process, filesystem or new sandbox host API. Reject foreign session metadata, ignore foreign-thread events, and test offline/runtime projection parity. The host keeps stored byte cursors separate from runtime item cursors.
+
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
 with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
 host requires a unique provider-parsed option, a delegated Worker/Planner role,

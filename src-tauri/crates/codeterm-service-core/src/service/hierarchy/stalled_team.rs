@@ -170,7 +170,7 @@ impl ServiceContext {
         let svc = self.clone();
         let plan = plan.clone();
         let gone_tab_id = gone_tab_id.map(str::to_string);
-        tauri::async_runtime::spawn_blocking(move || {
+        crate::async_runtime::spawn_blocking(move || {
             svc.nudge_stalled_team_blocking(&plan, orchestrator_idle, gone_tab_id.as_deref());
         });
     }

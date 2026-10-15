@@ -261,6 +261,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "arg_enum_proc_macro"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1111,11 +1120,13 @@ dependencies = [
  "dirs 6.0.0",
  "fastembed",
  "fern",
+ "include_dir",
  "log",
  "objc2",
  "objc2-app-kit",
  "parking_lot",
  "png 0.17.16",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2",
@@ -1131,6 +1142,7 @@ dependencies = [
  "tokio",
  "url",
  "vt100",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1162,6 +1174,38 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "vt100",
+]
+
+[[package]]
+name = "codeterm-agent-model"
+version = "0.0.0"
+dependencies = [
+ "codeterm-agent-detect",
+ "codeterm-blueprint-types",
+ "codeterm-config",
+ "codeterm-cron",
+ "codeterm-mem",
+ "codeterm-paths",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-pty",
+ "codeterm-sentinel",
+ "codeterm-storage",
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "toml 0.8.2",
+ "ulid",
+ "uuid",
  "vt100",
 ]
 
@@ -1397,7 +1441,6 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "tauri",
  "tokio",
  "uuid",
 ]
@@ -1441,15 +1484,50 @@ dependencies = [
 name = "codeterm-keepawake"
 version = "1.6.2"
 dependencies = [
- "codeterm-events",
  "codeterm-paths",
  "codeterm-util",
  "log",
  "parking_lot",
  "serde",
  "serde_json",
- "tauri",
  "tempfile",
+]
+
+[[package]]
+name = "codeterm-lanes"
+version = "0.0.0"
+dependencies = [
+ "codeterm-paths",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-repowatch",
+ "codeterm-util",
+ "log",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.2",
+ "url",
+ "uuid",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-local-preview"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "codeterm-types",
+ "dirs 6.0.0",
+ "libc",
+ "log",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1662,6 +1740,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-prompts"
+version = "0.0.0"
+dependencies = [
+ "codeterm-build-info",
+ "codeterm-mem",
+ "codeterm-paths",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-types",
+ "dirs 6.0.0",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.2",
+]
+
+[[package]]
+name = "codeterm-provider-ops"
+version = "0.0.0"
+dependencies = [
+ "codeterm-agent-model",
+ "codeterm-plugin",
+ "codeterm-supporter",
+ "codeterm-types",
+ "codeterm-util",
+ "dirs 6.0.0",
+ "libc",
+ "log",
+ "notify",
+ "parking_lot",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "codeterm-provider-signals"
 version = "1.6.2"
 dependencies = [
@@ -1673,6 +1793,7 @@ dependencies = [
 name = "codeterm-pty"
 version = "1.6.2"
 dependencies = [
+ "arc-swap",
  "base64 0.22.1",
  "codeterm-build-info",
  "codeterm-paths",
@@ -1696,6 +1817,25 @@ dependencies = [
  "vt100",
  "wait-timeout",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-recall"
+version = "0.0.0"
+dependencies = [
+ "codeterm-agent-model",
+ "codeterm-config",
+ "codeterm-decision",
+ "codeterm-mem",
+ "codeterm-paths",
+ "codeterm-plan",
+ "codeterm-supporter",
+ "codeterm-types",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1798,15 +1938,18 @@ version = "0.0.0"
 dependencies = [
  "aes-gcm",
  "annembed",
+ "arc-swap",
  "async-stream",
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "bytes",
  "chrono",
  "chrono-tz",
  "clipboard-win",
  "codeterm-account",
  "codeterm-agent-detect",
+ "codeterm-agent-model",
  "codeterm-analytics",
  "codeterm-billing",
  "codeterm-blueprint-types",
@@ -1821,6 +1964,8 @@ dependencies = [
  "codeterm-input-macos",
  "codeterm-input-windows",
  "codeterm-keepawake",
+ "codeterm-lanes",
+ "codeterm-local-preview",
  "codeterm-local-recording",
  "codeterm-mem",
  "codeterm-mem-store",
@@ -1830,17 +1975,22 @@ dependencies = [
  "codeterm-plan",
  "codeterm-plugin",
  "codeterm-plugins",
+ "codeterm-prompts",
+ "codeterm-provider-ops",
  "codeterm-provider-signals",
  "codeterm-pty",
+ "codeterm-recall",
  "codeterm-repowatch",
  "codeterm-secrets",
  "codeterm-sentinel",
  "codeterm-shutdown",
  "codeterm-storage",
+ "codeterm-supporter",
  "codeterm-types",
  "codeterm-usage",
  "codeterm-util",
  "codeterm-wire",
+ "codeterm-worker-services",
  "conpty",
  "crash-context",
  "crash-handler",
@@ -1970,6 +2120,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-supporter"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "codeterm-decision",
+ "codeterm-mem",
+ "codeterm-notification-core",
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-types",
+ "codeterm-util",
+ "codeterm-worker-services",
+ "log",
+ "parking_lot",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.2",
+ "uuid",
+]
+
+[[package]]
 name = "codeterm-types"
 version = "1.6.2"
 dependencies = [
@@ -2023,6 +2197,24 @@ dependencies = [
  "serde",
  "serde_json",
  "ts-rs",
+]
+
+[[package]]
+name = "codeterm-worker-services"
+version = "0.0.0"
+dependencies = [
+ "codeterm-pty",
+ "codeterm-types",
+ "log",
+ "parking_lot",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "url",
+ "uuid",
 ]
 
 [[package]]

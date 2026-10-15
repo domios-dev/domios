@@ -715,10 +715,10 @@ impl ServiceContext {
                             report_outcome = Some(ReportOutcomeClass::BlockProposed);
                         }
                         self.plan_turn_counter.reset_activity(tab_id);
-                        codeterm_events::emit_everywhere(
-                            &self.app_handle,
+                        self.ui.emit(
                             "plan-changed",
-                            serde_json::json!({ "plan_id": plan_id }),
+                            serde_json::to_value(serde_json::json!({ "plan_id": plan_id }))
+                                .unwrap_or_default(),
                         );
                     }
                     Err(cause) => {
@@ -802,16 +802,16 @@ impl ServiceContext {
                 "report_outcome": report_outcome,
             }),
         );
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "agent-report",
-            report_event::agent_report_event(
+            serde_json::to_value(report_event::agent_report_event(
                 &storage_key,
                 tab_id,
                 &from_title,
                 &report,
                 task_report,
-            ),
+            ))
+            .unwrap_or_default(),
         );
 
         match target {
@@ -1022,7 +1022,7 @@ impl ServiceContext {
             body,
             delivery_id: None,
         };
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {
                 Ok(r) if r.ok => {
                     log::info!("[plan/mesh] batch relayed to {}/{}", peer, plan_id)

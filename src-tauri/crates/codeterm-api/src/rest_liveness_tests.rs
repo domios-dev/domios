@@ -50,7 +50,6 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
         test_clock: None,
         events: fixture.service.events.clone(),
         web_dist: None,
-        snapshot_bound: codeterm_service_core::startup::snapshot_bound::SnapshotBound::default(),
     }
 }
 
@@ -147,3 +146,37 @@ fn rest_liveness_health_bypasses_saturated_blocking_pool_with_real_middleware() 
 }
 
 mod logging;
+
+#[tokio::test]
+async fn published_mux_state_returns_seeded_json_while_state_writers_hold_both_locks() {
+    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let state = app_state(&fixture);
+    let expected = state.svc.published_mux_state();
+    let svc = state.svc.clone();
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        let mut mux = svc.mux.write();
+        let _tracker = svc.agent_tracker.lock();
+        mux.create_workspace("not published yet".into(), None);
+        entered_tx.send(()).unwrap();
+        release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    });
+    entered_rx.await.unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_millis(250),
+        crate::web_routes::mux_state(axum::extract::State(state), axum::http::HeaderMap::new()),
+    )
+    .await;
+    release_tx.send(()).unwrap();
+    writer.join().unwrap();
+    let response = result
+        .expect("published view must not wait for either state lock")
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    assert_eq!(body, expected);
+}

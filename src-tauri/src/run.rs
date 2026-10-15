@@ -1,6 +1,7 @@
 use crate::startup;
+use crate::{crash, keepawake};
 use codeterm_service_core::service::ServiceState;
-use codeterm_service_core::{agent, bridge, crash, keepawake, mem, plugin, pty, service};
+use codeterm_service_core::{agent, bridge, mem, plugin, pty, service};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tauri::Manager;
@@ -11,6 +12,7 @@ pub fn run(
         tauri::Builder<codeterm_service_core::app_runtime::Runtime>,
     ) -> tauri::Builder<codeterm_service_core::app_runtime::Runtime>,
 ) {
+    codeterm_service_core::async_runtime::install(tauri::async_runtime::handle().inner().clone());
     // Never automatic: only an explicit `repair-user-path` argv reaches it.
     startup::run_user_path_repair_if_invoked();
 
@@ -165,10 +167,11 @@ pub fn run(
                 Arc::new(codeterm_service_core::glance::GlanceRegistry::new());
             let bubble_registry: codeterm_service_core::bubble::BubbleRegistryHandle =
                 Arc::new(codeterm_service_core::bubble::BubbleRegistry::new());
+            let ui: Arc<dyn codeterm_service_core::ports::host::UiEvents> =
+                Arc::new(crate::host_ports::TauriUiEvents(app_handle.clone()));
+            let repo_sink = Arc::new(codeterm_service_core::repowatch::TauriRepoEventSink::new(ui.clone()));
             let repo_watch: codeterm_service_core::repowatch::RepoWatchRegistryHandle =
-                Arc::new(codeterm_service_core::repowatch::RepoWatchRegistry::new(Arc::new(
-                    codeterm_service_core::repowatch::TauriRepoEventSink::new(app_handle.clone()),
-                )));
+                Arc::new(codeterm_service_core::repowatch::RepoWatchRegistry::new(repo_sink.clone()));
             let view_registry: codeterm_service_core::view_host::ViewRegistryHandle =
                 Arc::new(codeterm_service_core::view_host::ViewRegistry::new());
             let chatbackend_registry: codeterm_service_core::chatbackend::ChatBackendRegistryHandle =
@@ -312,7 +315,7 @@ pub fn run(
                 #[cfg(debug_assertions)]
                 use std::path::PathBuf;
                 agent_registry.begin_startup_provider_loading(
-                    codeterm_service_core::plugin::system_plugins::SYSTEM_PLUGIN_HASHES
+                    codeterm_service_core::plugin::system_plugins::hashes()
                         .iter()
                         .map(|(id, _)| *id),
                 );
@@ -447,6 +450,9 @@ pub fn run(
             let svc_ctx = codeterm_service_core::service::build_service_context(
                 &states,
                 &app_handle,
+                ui.clone(),
+                Arc::new(crate::host_ports::TauriShell(app_handle.clone())),
+                codeterm_service_core::async_runtime::handle().clone(),
                 agent_registry,
                 &chatbackend_registry,
                 mem,
@@ -473,7 +479,9 @@ pub fn run(
             );
             codeterm_service_core::service::supporter::runtime_with_notifications(&svc_ctx);
             let service_state: ServiceState = Arc::new(svc_ctx);
+            assert!(service_state.set_ext(Arc::downgrade(&service_state)).is_ok());
             codeterm_service_core::ports::orchestration::install(&service_state);
+            repo_sink.bind_service(Arc::downgrade(&service_state));
             service_state.chat_send_ledger.bind_settlement_owner(&service_state);
             {
                 let service = service_state.clone();
@@ -486,7 +494,7 @@ pub fn run(
             service_state.plan_store.bind_task_key_port(Arc::new(
                 codeterm_service_core::service::plan::task_key_port_impl::MuxTaskKeyPort::new(
                     service_state.mux.clone(),
-                    service_state.app_handle.clone(),
+                    Arc::downgrade(&service_state),
                 ),
             ));
             service_state
@@ -554,7 +562,7 @@ pub fn run(
             {
                 let store = service_state.services_store.clone();
                 let activity = codeterm_service_core::service::activity::ActivityWriter::new(store.conn());
-                codeterm_service_core::service::health::scheduler::start(store, activity, app.handle().clone());
+                codeterm_service_core::service::health::scheduler::start(store, activity, service_state.ui.clone());
             }
 
             // Secrets init happens before API listener binds to avoid auth calls hitting uninitialized state.
@@ -613,7 +621,7 @@ pub fn run(
             {
                 let log_store = codeterm_service_core::logs::LogStore::open(&codeterm_service_core::paths::data_dir())
                     .expect("app_logs.db init");
-                log_store.attach_app(app_handle.clone());
+                log_store.attach_ui(service_state.ui.clone());
                 codeterm_service_core::logs::set_global(log_store.clone());
                 log_store.start_flush_loop();
             }
@@ -655,7 +663,7 @@ pub fn run(
             );
             if states.config.lock().api.enabled {
                 codeterm_service_core::start_api_liveness_watchdog(
-                    app_handle.clone(),
+                    service_state.ui.clone(),
                     states.mesh.clone(),
                     states.rest_api.clone(),
                     states.config.lock().api.port,
@@ -703,7 +711,7 @@ pub fn run(
                             files.len(),
                             dir.display()
                         );
-                        codeterm_events::emit_everywhere(
+                        codeterm_service_core::events::emit_everywhere(
                             &app_handle,
                             "crash_report_available",
                             serde_json::json!({

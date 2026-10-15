@@ -65,4 +65,6 @@ Chat messages may carry an `interactive` array of answerable prompt widgets pars
 
 The enum is open for future element types. The frontend renders each as a clickable widget and routes the answer through the tab send path (`/api/tabs/{id}/send`).
 
-<!-- revision: 3 -->
+Backfill accepts `offset_kind` (`bytes` or `items`) alongside `before_offset`; preserve the snapshot's unit across runtime startup. Providers declaring native stored runtime history can serve recorded messages before their runtime starts; live updates reconcile by the same native item ids.
+
+<!-- revision: 4 -->

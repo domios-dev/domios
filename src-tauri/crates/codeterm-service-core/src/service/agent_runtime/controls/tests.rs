@@ -77,7 +77,7 @@ impl std::ops::Deref for RuntimeFixture {
 impl Drop for RuntimeFixture {
     fn drop(&mut self) {
         engine::stop(&self.tab);
-        crate::service::session_persist::stop_worker(self.fixture._app.handle())
+        crate::service::session_persist::stop_worker(&self.fixture.service)
             .expect("stop runtime fixture persistence worker");
     }
 }
@@ -176,7 +176,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             "target"
         );
     }
-    crate::service::session_persist::flush_session_persistence(fixture._app.handle()).unwrap();
+    crate::service::session_persist::flush_session_persistence(&fixture.service).unwrap();
     let persisted =
         crate::session::store::StorageDeskAdapter::from_storage(fixture.storage.clone())
             .snapshot()
@@ -230,7 +230,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
 #[test]
 fn tab_stop_interrupts_a_working_runtime_and_keeps_the_tab_open() {
     let (fixture, id) = runtime_fixture();
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         let session = engine::ensure(&fixture.service, &id).await.unwrap();
         let epoch = session.context.lock().epoch;
         super::super::subscriber::publish_events(

@@ -8,6 +8,9 @@ use std::sync::Arc;
 pub fn build_service_context(
     states: &crate::startup::AppStates,
     app_handle: &crate::app_runtime::AppHandle,
+    ui: Arc<dyn crate::ports::host::UiEvents>,
+    shell: Arc<dyn crate::ports::host::Shell>,
+    rt: tokio::runtime::Handle,
     agent_registry: Arc<crate::agent::registry::AgentRegistry>,
     chatbackend_registry: &crate::chatbackend::ChatBackendRegistryHandle,
     mem: Arc<crate::mem::MemManager>,
@@ -90,13 +93,9 @@ pub fn build_service_context(
     let kpi =
         crate::agent::kpi::KpiRecorder::from_config(&startup_config, &crate::paths::data_dir());
     {
-        let handle = app_handle.clone();
+        let ui = ui.clone();
         kpi.on_commit(move |plan_ids| {
-            codeterm_events::emit_everywhere(
-                &handle,
-                "kpi-recorded",
-                serde_json::json!({ "plan_ids": plan_ids }),
-            );
+            ui.emit("kpi-recorded", serde_json::json!({ "plan_ids": plan_ids }));
         });
     }
     let secrets = crate::secrets::new_state(&startup_config.integrations.secrets, &secret_registry);
@@ -107,6 +106,10 @@ pub fn build_service_context(
         crate::usage::UsageStore::open(&crate::paths::data_dir()).expect("usage.db init");
 
     let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+    extensions.insert_service_slots();
+    extensions.insert(states.config.clone());
+    extensions.insert(states.mesh.clone());
+
     extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
         Arc::new(parking_lot::Mutex::new(())),
     ));
@@ -226,6 +229,15 @@ pub fn build_service_context(
     extensions.insert(crate::service::PublishedTabStatuses(Arc::new(
         Default::default(),
     )));
+    let initial_mux = super::status_reconciliation::snapshot_with_reconciled_status(
+        &states.mux,
+        &states.agent_tracker,
+        &agent_registry,
+    );
+    extensions.insert(Arc::new(
+        super::PublishedMuxState::new(initial_mux.generation, &initial_mux)
+            .expect("initial mux snapshot serialization"),
+    ));
     extensions.insert(
         crate::service::output_stream_activity::OutputStreamActivityTx(
             crate::service::output_stream_activity::channel(),
@@ -257,7 +269,7 @@ pub fn build_service_context(
     extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(
         parking_lot::Mutex::new(crate::service::WorkerPersonaReservations::default()),
     )));
-    ServiceContext {
+    let service = ServiceContext {
         lifecycle_journal: crate::session::lifecycle::TabLifecycleJournal::shared_arc(),
         #[cfg(any(test, feature = "test-support"))]
         ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
@@ -269,6 +281,9 @@ pub fn build_service_context(
         notif: states.notif.clone(),
         events: states.event_broadcaster.clone(),
         app_handle: app_handle.clone(),
+        ui,
+        shell,
+        rt,
         agent_tracker: states.agent_tracker.clone(),
         report_store: states.report_store.clone(),
         kpi,
@@ -301,5 +316,8 @@ pub fn build_service_context(
         worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
         gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         extensions: Arc::new(extensions.finish()),
-    }
+    };
+    assert!(service.set_ext(states.storage.clone()).is_ok());
+    assert!(service.set_ext(states.session.clone()).is_ok());
+    service
 }

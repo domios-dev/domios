@@ -361,10 +361,10 @@ impl ServiceContext {
         ) {
             log::warn!("[permission-auto-confirm] persist after toggle failed: {error}");
         }
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "permission-auto-confirm-changed",
-            serde_json::json!({ "tab_id": tab_id, "enabled": enabled }),
+            serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "enabled": enabled }))
+                .unwrap_or_default(),
         );
         self.emit_state_changed();
         Ok(enabled)
@@ -612,10 +612,12 @@ impl ServiceContext {
         if let Some(tab) = self.mux.write().get_tab_mut(&binding.tab_id) {
             record_auto_confirmation(&mut tab.permission_auto_confirmations, audit.clone());
         }
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "permission-auto-confirmed",
-            serde_json::json!({ "tab_id": binding.tab_id, "confirmation": audit }),
+            serde_json::to_value(
+                serde_json::json!({ "tab_id": binding.tab_id, "confirmation": audit }),
+            )
+            .unwrap_or_default(),
         );
         self.emit_state_changed();
         true
@@ -666,10 +668,10 @@ impl ServiceContext {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
         if retracted {
-            codeterm_events::emit_everywhere(
-                &self.app_handle,
+            self.ui.emit(
                 "prompt-state-changed",
-                serde_json::json!({ "tab_id": tab_id, "prompt": null }),
+                serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "prompt": null }))
+                    .unwrap_or_default(),
             );
             self.emit_state_changed();
         }
@@ -685,10 +687,10 @@ impl ServiceContext {
             None => false,
         };
         if surfaced {
-            codeterm_events::emit_everywhere(
-                &self.app_handle,
+            self.ui.emit(
                 "prompt-state-changed",
-                serde_json::json!({ "tab_id": tab_id, "prompt": prompt }),
+                serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "prompt": prompt }))
+                    .unwrap_or_default(),
             );
             self.emit_state_changed();
         }

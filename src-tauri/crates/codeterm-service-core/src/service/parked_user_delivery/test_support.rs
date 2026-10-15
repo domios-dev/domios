@@ -21,6 +21,7 @@ pub(crate) fn pre_ready_fixture() -> (ServiceFixture, String) {
     let session: crate::session::SessionState = Arc::new(Mutex::new(
         crate::session::SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
     ));
+    assert!(fixture.service.set_ext(session.clone()).is_ok());
     assert!(fixture._app.manage(session));
     assert!(fixture
         ._app

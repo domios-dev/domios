@@ -24,14 +24,15 @@ impl ServiceInstance {
             .expect("startup opens ready Storage")
             .clone();
         let fixture = ServiceFixture::new_at(mux, root);
+        assert!(fixture.service.set_ext(authority.clone()).is_ok());
         assert!(fixture._app.manage(authority.clone()));
-        let app = fixture._app.handle().clone();
+        let svc = &fixture.service;
         crate::service::session_persist::install_storage_desk_adapter(
-            &app,
+            svc,
             StorageDeskAdapter::from_storage(storage.clone()),
         )
         .expect("startup installs the Storage desk adapter");
-        crate::service::session_persist::start_worker(&app)
+        crate::service::session_persist::start_worker(svc)
             .expect("startup starts the desk persistence worker");
         let is_empty = StorageDeskAdapter::from_storage(storage.clone())
             .snapshot()
@@ -40,7 +41,7 @@ impl ServiceInstance {
             .is_empty();
         if is_empty {
             crate::service::session_persist::write_session_snapshot_with_intent(
-                &app,
+                svc,
                 &fixture.service.mux,
                 crate::session::store::SaveIntent::AuthorizedReduction,
             )
@@ -68,19 +69,20 @@ impl ServiceInstance {
             MultiplexerState::from_session_snapshot(&snapshot)
         };
         let fixture = ServiceFixture::new_at(mux, root);
+        assert!(fixture.service.set_ext(authority.clone()).is_ok());
         assert!(fixture._app.manage(authority.clone()));
-        let app = fixture._app.handle().clone();
+        let svc = &fixture.service;
         crate::service::session_persist::install_storage_desk_adapter(
-            &app,
+            svc,
             StorageDeskAdapter::from_storage(storage.clone()),
         )
         .expect("startup installs the Storage desk adapter");
-        crate::service::session_persist::start_worker(&app)
+        crate::service::session_persist::start_worker(svc)
             .expect("startup starts the desk persistence worker");
         let is_empty = snapshot.workspaces.is_empty();
         if is_empty {
             crate::service::session_persist::write_session_snapshot_with_intent(
-                &app,
+                svc,
                 &fixture.service.mux,
                 crate::session::store::SaveIntent::AuthorizedReduction,
             )
@@ -95,8 +97,8 @@ impl ServiceInstance {
 
     pub fn restart(self, root: &Path) -> Self {
         self.fixture.service.kpi.drain();
-        let app = self.fixture._app.handle().clone();
-        crate::service::session_persist::stop_worker(&app)
+        let svc = &self.fixture.service;
+        crate::service::session_persist::stop_worker(svc)
             .expect("the old daemon drains desk persistence before shutdown");
         drop(self.fixture);
         drop(self.authority);
@@ -114,8 +116,8 @@ pub fn started(root: &Path) -> ServiceInstance {
 
 pub fn close(instance: ServiceInstance) {
     instance.fixture.service.kpi.drain();
-    let app = instance.fixture._app.handle().clone();
-    crate::service::session_persist::stop_worker(&app)
+    let svc = &instance.fixture.service;
+    crate::service::session_persist::stop_worker(svc)
         .expect("desk persistence worker stops cleanly");
     drop(instance.fixture);
     drop(instance.authority);

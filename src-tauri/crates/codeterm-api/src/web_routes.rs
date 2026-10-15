@@ -15,45 +15,26 @@ use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::startup::snapshot_bound;
 
 pub use crate::web_plugin_routes::plugin_ui;
 
-/// Full multiplexer snapshot — the web bundle's `mux_get_state`.
-///
-/// Bounded: the snapshot clones the whole multiplexer under two locks, so a
-/// request storm or lifecycle contention is refused at the door instead of
-/// queued. The build itself runs on the blocking pool — it never starves the
-/// async runtime.
+/// Published multiplexer JSON; lifecycle writers never delay this read.
 pub async fn mux_state(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use axum::response::IntoResponse;
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .ensure_storage_available()
         .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
 
-    let Some(_permit) = state.snapshot_bound.try_enter() else {
-        return Err((
-            snapshot_bound::SNAPSHOT_OVERLOAD_STATUS,
-            snapshot_bound::SNAPSHOT_OVERLOAD_BODY.to_string(),
-        ));
-    };
-
-    let svc = state.svc.clone();
-    let snapshot = tokio::task::spawn_blocking(move || svc.try_snapshot_with_reconciled_status())
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let Some(snapshot) = snapshot else {
-        state.svc.emit_state_changed_when_snapshot_readable();
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            codeterm_service_core::service::SNAPSHOT_BUSY_ERROR.to_string(),
-        ));
-    };
-    Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        state.svc.published_mux_state(),
+    )
+        .into_response())
 }
 
 pub async fn tab_focus(
@@ -1080,6 +1061,7 @@ pub async fn chat_raw_stop(
 #[derive(Deserialize)]
 pub struct ChatBackfillBody {
     before_offset: u64,
+    offset_kind: Option<codeterm_service_core::service::tab_chat::results::ChatOffsetKind>,
 }
 
 pub async fn chat_raw_backfill(
@@ -1091,7 +1073,7 @@ pub async fn chat_raw_backfill(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        commands::chat_backfill_core(&svc, tab_id, body.before_offset)
+        commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.offset_kind)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

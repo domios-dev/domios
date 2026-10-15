@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
-use tauri::Manager;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -223,8 +222,7 @@ pub(crate) fn owner(service: &ServiceContext, tab_id: &str, label: &str, body: &
             || tab.task_binding.is_some(),
         team_owned: tab.team_id.is_some(),
         cron: service
-            .app_handle
-            .try_state::<crate::CronState>()
+            .try_ext::<crate::CronState>()
             .is_some_and(|cron| cron.lock().get_tab_owner(tab_id).is_some()),
         hidden: tab.hidden,
         general_agent: super::general_agent::is_general_agent(&tab),

@@ -32,7 +32,8 @@ impl JsProvider {
         }
         let consumed_bytes = window.new_offset - from_offset;
         // land inside line bodies, which the plugin's per-line JSON.parse will reject. Byte-count is no longer trusted from JS; we computed it above.
-        let chunk = String::from_utf8_lossy(&window.bytes).to_string();
+        let line_starts = crate::jsonl_window::record_starts(&window.bytes);
+        let chunk = chunk_value(window.bytes);
         let context = serde_json::json!({
             "session_key": path.to_string_lossy(),
             "from_offset": from_offset,
@@ -42,14 +43,14 @@ impl JsProvider {
             messages: Vec<serde_json::Value>,
         }
         let parsed = self
-            .try_call::<JsDelta>("parseSessionDelta", &[serde_json::json!(chunk), context])
+            .try_call::<JsDelta>("parseSessionDelta", &[chunk, context])
             .and_then(|d| crate::jsonl_window::rows_from_plugin(d.messages));
         match parsed {
             Some((mut messages, record_indexes)) => {
-                crate::jsonl_window::anchor_rows(
+                crate::jsonl_window::anchor_rows_from_starts(
                     &mut messages,
                     &record_indexes,
-                    &window.bytes,
+                    &line_starts,
                     from_offset,
                 );
                 SessionDelta {
@@ -71,3 +72,12 @@ impl JsProvider {
         }
     }
 }
+
+fn chunk_value(bytes: Vec<u8>) -> serde_json::Value {
+    let chunk = String::from_utf8(bytes)
+        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+    serde_json::Value::String(chunk)
+}
+
+#[cfg(test)]
+mod tests;

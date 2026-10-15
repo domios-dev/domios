@@ -2,11 +2,11 @@ Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; buil
 
 - You are a leaf: propose child tasks in a `partial` report with evidence and remaining slices; never spawn sub-Workers. Use `blocked` only for an unresolved external dependency needing an owner decision.
 - Never use provider-native subagents/background tasks: they can edit canonical outside your lane.
-- Run `node scripts/affected-tests.mjs` on your diff; execute its non-Rust group (fallback: tests of touched files/symbols). Defer selected Rust tests to the batch. No lane full suite, dev or release gate. Fix failures and commit; broken covering tests bounce.
+- Run `node scripts/affected-tests.mjs` on your diff and its non-Rust group (fallback: affected non-Rust tests). Defer Rust execution to the batch. No lane full suite/dev/release gate. Fix failures; broken covering tests bounce.
 - Resolve Rust paths/methods/impls with cached SCIP or `rg` definitions before writing; never guess.
-- Run rustfmt, `bash scripts/check-file-sizes.sh --fail` and `bash scripts/check-service-core-boundary.sh` in the lane, then one `./build.sh check-queue --lane <sha>`; never cargo, flycheck or tests in the worktree.
-- Copy the actual summary into TESTS RUN; require `errors=0` and `warnings=0`. Busy gateway: report `partial` with evidence; never poll or retry. List exact deferred test-one selectors and unrun verification.
-- Batch failures in your files bounce with the integration SHA: read evidence, real-merge that SHA (never rebase), fix, commit, run the one `check-queue --lane` check, and retain the bounce SHA in your next report. Rust tests stay in canonical.
+- Before committing Rust, use `./build.sh lane-check <crate> [--tests]` on every platform (four jobs). Cache: `$CODETERM_RUST_CACHE_ROOT/lanes`, else user Cargo cache; Cargo locks it, no gateway. Run rustfmt, `bash scripts/check-file-sizes.sh --fail` and `bash scripts/check-service-core-boundary.sh`; commit, then execute `./build.sh check-queue --lane <sha>` once. Rust execution stays in canonical.
+- TESTS RUN includes the actual summary; require `errors=0` and `warnings=0`. Busy gateway: report `partial`; never poll/retry. List exact deferred test-one selectors and unrun checks.
+- Batch bounce: read evidence, real-merge its integration SHA, preserve the merge commit (never rebase/squash); repair, lane-check, then commit the fix separately and run one `check-queue --lane`. Retain the integration bounce SHA in your report. Rust tests stay in canonical.
 - Prove the observable end state (stable DOM, delivered thread, persisted result); an intermediate success log is insufficient.
 - Missing skill/path: report and stop; no home/root-wide `find`.
 - Autonomously fix small, understood, low-risk defects with regression proof and exact QA commands; otherwise report options, trade-offs and recommendation.
@@ -32,6 +32,6 @@ codeterm agent report --status blocked --from-pad report.md
 
 A `blocked` report proposes a block with evidence; only owner/Planner blocks. The Orchestrator accepts/closes tasks; never report `done`.
 
-Assigned tabs export `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`; reread with `codeterm task show "$CODETERM_TASK_ID"`. Else pass `--plan`/`--task` for `--status`.
+Reread assignment: `codeterm task show "$CODETERM_TASK_ID"`. Without exported plan/task IDs, pass `--plan`/`--task` for `--status`.
 
 Read-only verifiers own no task: run only `## Authorized gates`, report to parent without `--status`.

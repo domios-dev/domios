@@ -258,7 +258,7 @@ fn spawn_bg<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    tauri::async_runtime::spawn(fut);
+    crate::async_runtime::spawn(fut);
 }
 
 fn stamp_chatbackend_launch_identity(
@@ -754,7 +754,6 @@ impl ServiceContext {
         history_meta: serde_json::Value,
     ) {
         let svc = self.clone();
-        let app = self.app_handle.clone();
         spawn_bg(async move {
             let (source_session_id, session_binding_nonce) = svc
                 .mux
@@ -769,7 +768,7 @@ impl ServiceContext {
                 .unwrap_or((None, None));
             let inner = crate::service::tab_chat::structured_sink::make_sink(
                 svc.lifecycle_journal.clone(),
-                app,
+                &svc,
                 svc.mux.clone(),
                 source_session_id,
                 session_binding_nonce,
@@ -1148,7 +1147,7 @@ impl ServiceContext {
             })
             .unwrap_or((None, None));
         crate::service::tab_chat::structured_sink::emit_chat_msgs(
-            &self.app_handle,
+            self.ui.as_ref(),
             tab_id,
             &[note],
             None,

@@ -96,7 +96,7 @@ pub async fn save_session_api(
             |reason| serde_json::json!({"tab_id": tab_id, "withdrawn": false, "reason": reason}),
         )
             });
-        codeterm_commands::update::shutdown::persist_session(&state.svc.app_handle, &state.svc)?;
+        codeterm_commands::update::shutdown::persist_session(&state.svc)?;
         Ok::<_, String>((continuation, suppression, withdrawal))
     })
     .await
@@ -363,7 +363,7 @@ pub async fn resume_session_api(
 
     let permission_bypass_authorization =
         codeterm_service_core::service::permission_policy_configured_permission_bypass_for(
-            &state.svc.app_handle,
+            &state.svc,
             &state.svc.agent_registry,
             &meta.provider,
         )

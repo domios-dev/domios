@@ -185,6 +185,7 @@ fn adapter(path: PathBuf) -> Adapter {
 }
 
 fn store() -> SecretStoreState {
+    crate::service::blocking::install_test_runtime();
     Arc::new(tokio::sync::RwLock::new(
         Arc::new(MockStore::new()) as Arc<dyn SecretStore>
     ))
@@ -207,7 +208,7 @@ fn model_provider_saved_secret_copy_is_owned_and_source_survives_removal() {
     let dir = tempfile::tempdir().unwrap();
     let adapter = adapter(dir.path().join("opencode.json"));
     let store = store();
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         store
             .read()
             .await
@@ -248,7 +249,7 @@ fn model_provider_saved_secret_copy_is_owned_and_source_survives_removal() {
         },
     )
     .unwrap();
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         assert_eq!(
             store
                 .read()
@@ -309,7 +310,7 @@ fn model_provider_add_launch_remove_preserves_foreign_config_and_secret_confinem
     .unwrap();
     assert_eq!(read_config(&adapter.path).unwrap(), foreign);
     assert!(
-        tauri::async_runtime::block_on(async { store.read().await.get("slot").await }).is_err()
+        crate::async_runtime::block_on(async { store.read().await.get("slot").await }).is_err()
     );
 }
 
@@ -335,7 +336,7 @@ fn model_provider_foreign_collision_never_creates_a_secret() {
     );
     assert_eq!(read_config(&adapter.path).unwrap(), config);
     assert!(
-        tauri::async_runtime::block_on(async { store.read().await.get("slot").await }).is_err()
+        crate::async_runtime::block_on(async { store.read().await.get("slot").await }).is_err()
     );
     assert_eq!(
         execute(
@@ -469,7 +470,7 @@ fn model_provider_existing_secret_is_not_overwritten() {
     let dir = tempfile::tempdir().unwrap();
     let adapter = adapter(dir.path().join("config.json"));
     let store = store();
-    let saved = tauri::async_runtime::block_on(async {
+    let saved = crate::async_runtime::block_on(async {
         store
             .read()
             .await
@@ -498,7 +499,7 @@ fn model_provider_existing_secret_is_not_overwritten() {
         .unwrap_err(),
         ModelProviderError::Conflict
     );
-    let secret = tauri::async_runtime::block_on(async {
+    let secret = crate::async_runtime::block_on(async {
         store.read().await.get(&saved.item_id).await.unwrap()
     });
     assert_eq!(secret.value.expose_secret(), "foreign-value");
@@ -553,7 +554,7 @@ fn model_provider_config_failure_cleans_the_new_secret() {
         ModelProviderError::Config
     );
     assert!(
-        tauri::async_runtime::block_on(async { store.read().await.get("slot").await }).is_err()
+        crate::async_runtime::block_on(async { store.read().await.get("slot").await }).is_err()
     );
     assert!(!adapter.adapter.path.exists());
 }

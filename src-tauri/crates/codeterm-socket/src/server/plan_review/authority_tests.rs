@@ -201,7 +201,7 @@ fn acceptance_removes_only_the_assigned_workers_completion_watches() {
         fixture.service.app_handle.clone(),
     );
     fixture.service.app_handle.manage(handle.clone());
-    codeterm_sentinel_host::manage_fixture_ports(&fixture.service.app_handle, &handle);
+    codeterm_sentinel_host::manage_fixture_ports(&fixture.service, &handle);
     let creator = fixture.service.sentinel_caller(&worker, None).unwrap();
     let create = |until: Option<&str>| {
         serde_json::from_value(json!({

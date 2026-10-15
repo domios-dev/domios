@@ -90,7 +90,7 @@ impl InterruptTarget {
 }
 
 pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         let session = engine::ensure(svc, tab).await?;
         let permit = session
             .gate

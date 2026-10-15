@@ -216,12 +216,12 @@ async fn probe_local_health(client: &reqwest::Client, api_port: u16) -> bool {
 }
 
 async fn publish_api_recovery(
-    app: &crate::app_runtime::AppHandle,
+    ui: &dyn crate::ports::host::UiEvents,
     mesh: &crate::MeshStateHandle,
     recovery: &crate::startup::RestApiRecovery,
 ) {
     apply_mesh_local_health(mesh, true);
-    codeterm_events::emit_everywhere(app, "mesh-state-changed", serde_json::Value::Null);
+    ui.emit("mesh-state-changed", serde_json::Value::Null);
     let report = crate::mesh::broadcast_announce(mesh, None).await;
     log::info!(
         "[liveness] local API generation {} recovery transition {} announced; sent={} ok={} errors={}",
@@ -234,7 +234,7 @@ async fn publish_api_recovery(
 }
 
 pub fn start_api_liveness_watchdog(
-    app: crate::app_runtime::AppHandle,
+    ui: std::sync::Arc<dyn crate::ports::host::UiEvents>,
     mesh: crate::MeshStateHandle,
     rest_api: crate::startup::RestApiControlState,
     api_port: u16,
@@ -271,7 +271,7 @@ pub fn start_api_liveness_watchdog(
                     }
                     if let Some(recovery) = recovery {
                         if recovery_claims.claim(recovery.transition_id) {
-                            publish_api_recovery(&app, &mesh, &recovery).await;
+                            publish_api_recovery(ui.as_ref(), &mesh, &recovery).await;
                         }
                         continue;
                     }
@@ -298,11 +298,7 @@ pub fn start_api_liveness_watchdog(
                                 write_liveness_report,
                             );
                             if changed {
-                                codeterm_events::emit_everywhere(
-                                    &app,
-                                    "mesh-state-changed",
-                                    serde_json::Value::Null,
-                                );
+                                ui.emit("mesh-state-changed", serde_json::Value::Null);
                             }
                             match report_result {
                                 Some(Ok(path)) => log::error!(

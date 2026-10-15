@@ -1,5 +1,15 @@
 # Owner-style exploratory startup pass
 
+For a launch serialization diagnosis, compare the bare-shell wait's own elapsed
+log with source-clock phase timestamps. A zero prompt wait means the missing
+time precedes that wait. Capture `[launch-gate]` wait/hold microseconds per tab,
+operation and stage, and correlate the earliest holder with queued launches and
+session-start requests before changing generation atomicity. Fresh fixtures must
+be newly created in this run; old tabs named `F` are restored fixtures. Record CLI
+request/response time separately from daemon readiness and visible input timing.
+If a workspace is hidden in sidebar overflow, open and capture/view that control
+before selecting it; a hidden-workspace locator timeout is a harness failure.
+
 The scripted matrix supplies timings and protocol evidence. This pass supplies
 an agent's visual judgment of the real DEV window. Capturing a screenshot does
 not complete a step: open the PNG with the agent's image viewer and describe
@@ -138,3 +148,93 @@ Screenshot (viewed): explore/NNN-tab-action.png
 API/event/log evidence:
 Suspected area (hypothesis):
 ```
+
+## Integrated event and no-loss round (local, on request)
+
+Run this extension only when the owner requests an integrated live round. It
+does not add a CI gate. Use the same build, evidence directory, DEV wrappers,
+native window and screenshot-viewing rules as the checklist above. Reuse
+`core-journeys/lib/oracle.mjs` and `replyWindow` for exact new own-session replies;
+the standalone core-journeys runner requires a named disposable instance and
+must not have its default-DEV refusal bypassed.
+
+- [ ] After **every** DEV restart, complete a provider sweep before drawing
+  conclusions from one provider: Claude, Grok, Aider, OpenCode, Codex Chat and
+  plain shells, with at least one fresh and one used fixture of each. Inventory
+  missing fixtures/providers explicitly; never substitute a Codex result for PTY
+  proof. Preserve existing unresolved inputs and do not resend a prior probe.
+  Add a per-provider table to the report with both fixture IDs, restored/fresh
+  session provenance, boot-to-ready, immediate input acceptance, own-session
+  reply evidence and cold/warm history results. Shells use unique-token echoes
+  and real shell readiness/output. A missing start, slow ready, blocked input,
+  absent own-session reply or lost used history fails that provider's row.
+- [ ] When PTY readiness is slow, save the pre-fix phase table before changing
+  behavior: process start, restore scheduling, frontend wait, wave queue/admission,
+  cwd check, PTY claim/build/register/resize, first output, launch preparation,
+  shell/provider readiness, authenticated session and `AgentReady`. DEV
+  `[boot-phase]` records carry microsecond timestamps and exact tab/PTY IDs;
+  join first output by PTY ID. Distinguish shell output from provider readiness,
+  queue time from materialization, and SSE replay receipt from emission time.
+  Unknown phases stay unknown. Preserve attempted sends while reconciling late
+  own-session replies; a harness correction never authorizes resubmission.
+- [ ] If an `AgentReady` commit holds the launch registry, compare its
+  `finish_authority_done` → `finish_journal_done` span with total held time.
+  Record journal size/count and whether automatic compaction rewrites retained
+  history repeatedly. Re-run with the same retained journal after a repair;
+  deleting history or testing only an empty data directory is not proof.
+
+- [ ] Before measuring, require a successful focused repair gate when applicable,
+  the exact committed build in health, and startup beyond service state
+  construction without panic. A failed startup is a finding, not latency evidence.
+- [ ] For every step append UTC start/end, monotonic elapsed milliseconds,
+  workspace/tab/session/binding identity, action, screenshot path, `viewed`,
+  visual observation and event/transcript references to `explore/steps.jsonl`.
+  Retain pre-action state and failed trials. Write the full account and coverage
+  table to `explore/report.md`, including the source SHA for each measured wave.
+- [ ] Measure a used chat's first cold open and subsequent warm open separately:
+  click-to-first-content, snapshot-ready, editable composer and text accepted.
+  Record visible history and compare message IDs/session with saved API history.
+  Do not infer input readiness from a loader disappearing. Chat acceptance must
+  be within 1000 ms of visible content; PTY readiness within 5000 ms of boot/wake.
+- [ ] Rapidly switch across each available provider and a shell, preserving
+  drafts, and capture/view every first painted pane. Record click-to-content
+  milliseconds, exact selected identity, history continuity and composer state.
+  Missing content, a loader takeover, raw replay, flicker or a stale pane fails.
+- [ ] After the individual walkthrough, run one bounded simultaneous-send wave
+  across eligible idle agents without waiting for each reply before sending
+  the next. Give every message a fresh run/tab/sequence token. Preserve drafts,
+  active tasks and unresolved sends; list exclusions rather than overwriting them.
+- [ ] Exercise immediate input before first readiness, addressing an untouched
+  sleeping fixture, input while switching, and a short ordered burst in an
+  isolated fixture. Record every attempted token and its held/written/delivered
+  or failed state. Require one own-session user turn per token, ordered new
+  replies, no duplicate bubbles and no replay after bind/restart. A written or
+  uncertain payload is never resent. Capture unresolved and failed states.
+- [ ] For each shell without active work, submit one harmless unique-token echo
+  in its actual shell syntax and capture/view its output. Never send agent prose
+  to a shell. Inspect non-agent surfaces through their intended visible controls.
+
+Subscribe to native UI events and the DEV SSE stream before the following real
+actions. Save before/action/after screenshots and actually view each one. An
+event or HTTP response without its expected visible result does not pass. If a
+capability, authenticated provider or safe fixture is absent, record the exact
+uncovered case. Never inject a fake event as live proof.
+
+| Surface | Real action and observable pass | Event evidence |
+|---|---|---|
+| Title | Rename one safe fixture, see its sidebar title change, then restore it | `tab-title-pinned` |
+| Status/stream | Send a fresh prompt; see activity and new streamed assistant content in the correct tab | `tab-status-changed`, actual `tab-chat-<id>` / `tab-chat-msg-<id>` channels |
+| Sidebar/restore | See General/recent tabs start and an untouched older tab retain its clock marker until opened/addressed | `mux-state-changed`, `tab-boot-stage` with exact tab and stage |
+| Notifications | Through a DEV agent caller, create a kept test notification and exercise the offered action/resolution; see the corresponding bell entry and result | `notification-created`, and the exercised `notification-updated`, `notification-answered`, `notification-resolved` events |
+| Recording | Start and stop a test capture through the DEV recording controls; see the active indicator and final stopped state | `local-recording-status`, `local-recording-capture` where applicable |
+| Cron | Trigger one test job; see the kept run's real result and completion in Jobs | `cron-run-finished` and any observed run-specific event names |
+| Persistence | Restart only DEV; see the same retained tab/session/history, notification and cron result | new listener/boot proof, retained IDs and restored UI |
+
+- [ ] Report every missing event by its exact name, trigger, native versus SSE
+  observation and visible consequence. Keep source wiring facts separate from
+  executed behavior and hypotheses; absence from an unsubscribed channel is not
+  evidence of an emitter regression.
+- [ ] Reconcile the initial complete inventory with visited IDs, screenshots
+  viewed, sends attempted and replies proven. Every omission, unsafe fixture,
+  provider prompt, unavailable capability and unresolved message remains explicit.
+  Include matrix contract validation and the close/restore outcome in the report.

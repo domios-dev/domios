@@ -45,14 +45,14 @@ pub(crate) struct BlockedNotice {
 }
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(plan_reminder_poll_secs(
                 &svc.configuration().orchestration,
             )))
             .await;
             let svc_for_scan = svc.clone();
-            if let Err(e) = tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = crate::async_runtime::spawn_blocking(move || {
                 svc_for_scan.send_due_plan_time_reminders();
                 svc_for_scan.run_lane_watchdog();
             })

@@ -13,7 +13,7 @@ Open build shells with `--purpose build` and foreground servers with `--purpose 
 
 Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `codeterm tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Normal command completion adds no message.
 
-Shell restart preserves the original deadline. Reset it before another build if that build needs a fresh lifetime. `codeterm tab inspect --tab <ID>` shows `utility_deadline.started_ms` and `deadline_ms` in epoch milliseconds; their difference is the requested lifetime. Timeout notices distinguish shell lifetime from the latest command elapsed time.
+Shell restart renews the previous lifetime. Pass `codeterm tab restart --tab <ID> --timeout 20m` to override it, or `--timeout none` to disable it. `codeterm tab inspect --tab <ID>` shows `utility_deadline.started_ms` and `deadline_ms` in epoch milliseconds; their difference is the requested lifetime. Timeout notices distinguish shell lifetime from the latest command elapsed time.
 
 With `QA_NOTIFY_TAB`, QA streams each step to its log and sends one early
 failure receipt on the first Cargo compile error, nextest/Vitest failure,
@@ -101,7 +101,6 @@ Create one Team-bound QA tab for repeated reports, then restart it for each run:
 
 ```bash
 codeterm tab new --team <team-id> --purpose qa --timeout 10m --title QA
-codeterm tab timeout --tab <qa-tab-id> --timeout 10m
 codeterm tab restart --tab <qa-tab-id> --cmd "QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'"
 ```
 
@@ -170,3 +169,11 @@ DEV app stdout/stderr use .NET Framework synchronous pipes on Windows and regula
 files on Unix, through `scripts/dev-app-process.mjs`. The reader forwards log chunks
 into the report stream, preserving READY health validation without exposing the
 Rust app to overlapped pipeline handles. Both foreground and `--wait` share it.
+
+## PowerShell capture turns Cargo progress into an exception
+
+Do not wrap `build.ps1` with PowerShell `*>` or `2>&1` to capture build output.
+Its `ErrorActionPreference=Stop` can turn normal Cargo stderr progress into a
+terminating `NativeCommandError`, leaving no compile verdict or exit record.
+Run the command through `scripts/qa-report.sh` in the Team utility shell instead;
+it merges streams inside Bash and preserves the raw exit in the run summary.

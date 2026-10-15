@@ -7,7 +7,6 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use parking_lot::Mutex;
 use serde_json::json;
 use std::sync::{mpsc, Arc};
-use tauri::{Listener, Manager};
 
 const PROVIDER: &str = "run-end-fixture";
 const SOURCE: &str = r#"
@@ -41,7 +40,7 @@ impl Drop for Scene {
         for tab in self.fixture.service.mux.read().snapshot().tabs.keys() {
             engine::stop(tab);
         }
-        crate::service::session_persist::stop_worker(self.fixture._app.handle()).unwrap();
+        crate::service::session_persist::stop_worker(&self.fixture.service).unwrap();
         for worker in self.fixture.service.workers.list() {
             if let Some(path) = worker.log_path {
                 let _ = std::fs::remove_file(path);
@@ -58,8 +57,8 @@ impl Scene {
             fixture.temp.path().join("cron.json"),
         )));
         let wake = Arc::new(std::sync::Condvar::new());
-        fixture._app.manage(cron.clone());
-        fixture._app.manage(wake.clone());
+        assert!(fixture.service.set_ext(cron.clone()).is_ok());
+        assert!(fixture.service.set_ext(wake.clone()).is_ok());
         let methods = [
             "initialize",
             "resumeThread",
@@ -171,7 +170,7 @@ impl Scene {
     }
     fn ended(&self, event: &str) -> mpsc::Receiver<()> {
         let (tx, rx) = mpsc::channel();
-        self.fixture._app.listen(event, move |_| {
+        self.fixture.ui.listen(event, move |_| {
             let _ = tx.send(());
         });
         rx
@@ -318,7 +317,7 @@ fn runtime_oneshot_process_exit_settles_failure_and_keeps_history() {
     let ended = scene.ended("cron-run-finished");
     let session = engine::for_tab(run.tab_id.as_ref().unwrap()).unwrap();
     let process = session.process.lock().clone().unwrap();
-    let _ = tauri::async_runtime::block_on(process.client.request_guarded(
+    let _ = crate::async_runtime::block_on(process.client.request_guarded(
         &RpcCall {
             target: None,
             method: "fixture/exit".into(),
@@ -387,7 +386,7 @@ fn runtime_dreamer_process_exit_records_failure_and_closes() {
     let ended = scene.ended("graph-worker-done");
     let session = engine::for_tab(&tab).unwrap();
     let process = session.process.lock().clone().unwrap();
-    let _ = tauri::async_runtime::block_on(process.client.request_guarded(
+    let _ = crate::async_runtime::block_on(process.client.request_guarded(
         &RpcCall {
             target: None,
             method: "fixture/exit".into(),

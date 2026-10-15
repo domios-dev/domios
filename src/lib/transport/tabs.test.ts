@@ -111,6 +111,16 @@ describe("tab command HTTP contract", () => {
     ]);
   });
 
+  it("preserves byte and item cursor units on history backfill", async () => {
+    const { transport, calls } = fixture();
+    await transport.chat_backfill({ tabId:"tab", beforeOffset:4096, offsetKind:"bytes" });
+    await transport.chat_backfill({ tabId:"tab", beforeOffset:200, offsetKind:"items" });
+    expect(calls.map(call => call.body)).toEqual([
+      {before_offset:4096, offset_kind:"bytes"},
+      {before_offset:200, offset_kind:"items"},
+    ]);
+  });
+
   it("unwraps raw ANSI history, text, spawn id and enabled envelopes", async () => {
     const { transport, calls } = fixture([{ output: "\x1b[31mred" }, { text: "screen" }, { pty_id: "live" }, { enabled: true }]);
     expect(await transport.get_tab_history_raw({ tabId: "a/b" })).toBe("\x1b[31mred");

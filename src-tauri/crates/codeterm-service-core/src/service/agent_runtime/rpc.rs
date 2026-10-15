@@ -69,7 +69,7 @@ impl Client {
         }));
         let sender = client.clone();
         let mut ended = client.ended();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             loop {
                 let text = tokio::select! {
                     _ = ended.changed() => break,
@@ -109,7 +109,7 @@ impl Client {
         });
         let receiver = client.clone();
         let mut ended = client.ended();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             let mut reader = BufReader::new(reader);
             loop {
                 let text = tokio::select! { _ = ended.changed() => break, text = read_frame(&mut reader) => text };

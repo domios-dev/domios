@@ -253,7 +253,7 @@ fn try_send_with_capture(
     let active = super::control::active_turn(tab);
     log::debug!("[rpc/send] tab={tab} branch=block_on origin={origin:?}");
     let send_id = pending.send_id.clone();
-    let submission = tauri::async_runtime::block_on(submit_owned_rpc(
+    let submission = crate::async_runtime::block_on(submit_owned_rpc(
         svc,
         origin,
         active.as_deref(),
@@ -603,7 +603,7 @@ fn observe(svc: &ServiceContext, tab: &str, sidecar: &Arc<Sidecar>) {
         .and_then(|tab| tab.session_binding_nonce.clone());
     let svc = svc.clone();
     let tab = tab.to_string();
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         loop {
             if death.borrow().is_some() || *process_death.borrow() {
                 break;
@@ -657,7 +657,10 @@ fn observe(svc: &ServiceContext, tab: &str, sidecar: &Arc<Sidecar>) {
 }
 
 fn emit(svc: &ServiceContext, status: &ChatSendStatus) {
-    codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+    svc.ui.emit(
+        "chat-send-status",
+        serde_json::to_value(status).unwrap_or_default(),
+    );
 }
 
 #[cfg(test)]

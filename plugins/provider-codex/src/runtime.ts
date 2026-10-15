@@ -3,8 +3,9 @@ import type {
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
 } from "@codeterm/plugin-sdk";
 import { object, text, list, userThread, steerRefused, archivedResume } from "./runtimeProtocol";
-import { HISTORY_CHUNK_BYTES, serializedBytes, sanitizeHistory, historyItem, boundHistoryRows } from "./runtimeHistoryBounds";
-import { json, runtimeItems } from "./runtimeMessages";
+import { HISTORY_CHUNK_BYTES, serializedBytes, sanitizeHistory, historyItem } from "./runtimeHistoryBounds";
+import { json } from "./runtimeMessages";
+import { projectHistoryItem } from "./runtimeStoredHistory";
 import { loginPlan, loginResponse } from "./runtimeLogin";
 import { rateLimitEvents } from "./runtimeUsage";
 import { accountAuth } from "./runtimeAuth";
@@ -208,12 +209,8 @@ function collectHistoryItems(op: Extract<Operation,{kind:"readHistory"}>, state:
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
     const record = object(entries[index]); const rawItem = historyItem(record.item ?? record);
     const nextQuestions = reconcileHistoryQuestions(op.threadId,rawItem,questions);
-    const rows = boundHistoryRows(runtimeItems(rawItem,seq+1));
     const timestamp = record.startedAtMs ?? record.completedAtMs;
-    for (const row of rows) {
-      row.toolFlowId = String(turn.id);
-      if (typeof timestamp === "number" && Number.isFinite(timestamp)) row.timestamp = new Date(timestamp).toISOString();
-    }
+    const rows = projectHistoryItem(rawItem,seq+1,String(turn.id),timestamp);
     const active = turn.status === "inProgress" && turn.startedAt != null && record.completedAtMs == null
       && !["completed","failed","interrupted","declined"].includes(String(object(rawItem).status));
     const opened = active ? rows.map(item=>({turnId:String(turn.id),item})) : [];

@@ -58,7 +58,7 @@ pub async fn serve_enable_handler(
     check_auth(&state, &headers)?;
     let body = body.unwrap_or_default();
     let result = codeterm_service_core::service::web_access::enable(
-        state.svc.app_handle.clone(),
+        state.svc.ui.clone(),
         state.mesh.clone(),
         state.api_port,
         body.https_port,
@@ -82,7 +82,7 @@ pub async fn serve_disable_handler(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let result = codeterm_service_core::service::web_access::disable(
-        state.svc.app_handle.clone(),
+        state.svc.ui.clone(),
         state.mesh.clone(),
         state.api_port,
     )
@@ -126,7 +126,7 @@ pub async fn keepawake_start_handler(
     let body = body.unwrap_or_default();
     let st = codeterm_service_core::keepawake::start(
         &state.keepawake,
-        &state.svc.app_handle,
+        &state.svc.ui,
         body.duration_secs,
         body.display,
         body.gnome_policy,
@@ -143,7 +143,7 @@ pub async fn keepawake_stop_handler(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    codeterm_service_core::keepawake::stop(&state.keepawake, &state.svc.app_handle)
+    codeterm_service_core::keepawake::stop(&state.keepawake, &state.svc.ui)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }

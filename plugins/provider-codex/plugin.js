@@ -690,6 +690,521 @@ function runtimeItems(raw, seq) {
   return row2 ? [row2] : [];
 }
 
+// plugins/provider-codex/src/actionTitle.ts
+var MAX_TITLE_CHARS = 48;
+function clip2(value) {
+  const compact2 = value.replace(/\s+/g, " ").trim();
+  if (compact2.length <= MAX_TITLE_CHARS) return compact2;
+  return compact2.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
+}
+function text2(value) {
+  return typeof value === "string" ? value : "";
+}
+function baseName(path) {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  return trimmed.split(/[\\/]/).pop() || trimmed;
+}
+function commandHead(command) {
+  const tokens = command.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const width = tokens.length > 1 && tokens[1].charAt(0) !== "-" && tokens[1].charAt(0) !== '"' ? 2 : 1;
+  return tokens.slice(0, width).join(" ");
+}
+function actionTitle(fields) {
+  const summary = text2(fields.tool_summary);
+  const detail = text2(fields.tool_detail);
+  if (fields.tool_kind === "command") {
+    const more = /\(\+(\d+) more\)$/.exec(summary);
+    return clip2(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
+  }
+  if (fields.tool_kind === "read" && summary) return clip2(`Read ${baseName(summary)}`);
+  if (fields.tool_kind === "edit") {
+    const edits = Array.isArray(fields.tool_edits) ? fields.tool_edits : [];
+    const paths = edits.map((edit) => text2(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
+    if (paths.length > 0) return clip2(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
+  }
+  return clip2(summary || "Tool activity");
+}
+
+// plugins/provider-codex/src/agentActivity.ts
+var AGENT_STATES = {
+  started: "started",
+  pending_init: "started",
+  running: "running",
+  completed: "completed",
+  errored: "failed",
+  failed: "failed",
+  interrupted: "interrupted",
+  shutdown: "closed",
+  closed: "closed"
+};
+function text3(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function record2(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function row(uuid, blocks, ts, timestamp) {
+  if (blocks.length === 0) return null;
+  return { role: "assistant", ...uuid ? { uuid } : {}, blocks, ts, timestamp };
+}
+function agentBlock(fields, summary, turnId) {
+  const input = {};
+  for (const key in fields) if (fields[key]) input[key] = fields[key];
+  const flowId = text3(turnId);
+  return { kind: "tool_use", data: {
+    name: "agent_activity",
+    input,
+    tool_kind: "agent",
+    tool_summary: summary,
+    tool_status: "success",
+    ...flowId ? { tool_flow_id: flowId } : {}
+  } };
+}
+function thoughtRow(id, summaries, ts, timestamp) {
+  const blocks = summaries.filter((summary) => typeof summary === "string" && summary.trim() !== "").map((summary) => ({ kind: "thinking", data: { text: summary } }));
+  return row(text3(id) ? `reasoning-${text3(id)}` : "", blocks, ts, timestamp);
+}
+function reasoningItemRow(item, ts, timestamp) {
+  return thoughtRow(item.id, Array.isArray(item.summary_text) ? item.summary_text : [], ts, timestamp);
+}
+function reasoningResponseRow(payload, ts, timestamp) {
+  const parts = Array.isArray(payload.summary) ? payload.summary : [];
+  const summaries = parts.map((part) => {
+    const entry = record2(part);
+    return entry && entry.type === "summary_text" ? entry.text : void 0;
+  });
+  return thoughtRow(payload.id, summaries, ts, timestamp);
+}
+function subAgentRow(item, id, turnId, ts, timestamp) {
+  const agentId = text3(item.agent_thread_id);
+  const agentPath = text3(item.agent_path);
+  if (!agentId && !agentPath) return null;
+  const state = AGENT_STATES[text3(item.kind)] ?? "unknown";
+  const block = agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId);
+  return row(text3(id) ? `agent-${text3(id)}` : "", [block], ts, timestamp);
+}
+function collabCallRow(item, turnId, ts, timestamp) {
+  const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
+  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record2) : [];
+  const states = record2(item.agents_states);
+  const seen = [];
+  const blocks = [];
+  for (const receiver of receivers) {
+    const agentId = text3(receiver);
+    if (!agentId || seen.indexOf(agentId) !== -1) continue;
+    seen.push(agentId);
+    const agentPath = text3(agents.find((entry) => entry !== null && text3(entry.thread_id) === agentId)?.agent_path);
+    const state = AGENT_STATES[text3(record2(states?.[agentId])?.status)] ?? "unknown";
+    blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
+  }
+  return row(text3(item.id) ? `collab-${text3(item.id)}` : "", blocks, ts, timestamp);
+}
+function agentMessageRow(payload, ts, timestamp) {
+  const from = text3(payload.author);
+  const to = text3(payload.recipient);
+  if (!from || !to || from === to) return null;
+  const turnId = record2(payload.internal_chat_message_metadata_passthrough)?.turn_id;
+  const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
+  return row(text3(payload.id) ? `agent-message-${text3(payload.id)}` : "", [block], ts, timestamp);
+}
+
+// plugins/provider-codex/src/execWrapper.ts
+var MAX_SUMMARY_CHARS = 160;
+function quotedValue(source, key) {
+  const keyMatch = new RegExp("\\b" + key + "\\s*:\\s*").exec(source);
+  if (!keyMatch) return null;
+  const quoteIndex = keyMatch.index + keyMatch[0].length;
+  const quote = source[quoteIndex];
+  if (quote !== '"' && quote !== "'") return null;
+  let value = "";
+  for (let i = quoteIndex + 1; i < source.length; i++) {
+    const char = source[i];
+    if (char === quote) return decodeString(value, quote);
+    if (char === "\\" && i + 1 < source.length) {
+      value += char + source[++i];
+    } else {
+      value += char;
+    }
+  }
+  return null;
+}
+function decodeString(value, quote) {
+  return value.replace(/\\(.)/g, (_match, escaped) => {
+    if (escaped === "n") return "\n";
+    if (escaped === "r") return "\r";
+    if (escaped === "t") return "	";
+    if (escaped === "\\" || escaped === '"' || quote === "'" && escaped === "'") return escaped;
+    return "\\" + escaped;
+  });
+}
+function callObjectAt(source, start) {
+  const open = start < 0 ? -1 : source.indexOf("{", start);
+  if (open < 0) return null;
+  let depth = 0;
+  let quote = "";
+  for (let i = open; i < source.length; i++) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\") i++;
+      else if (char === quote) quote = "";
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "{") {
+      depth++;
+    } else if (char === "}" && --depth === 0) {
+      return source.substring(open + 1, i);
+    }
+  }
+  return null;
+}
+function callObjects(source, toolName) {
+  const objects = [];
+  const needle = `tools.${toolName}`;
+  let offset = 0;
+  while (offset < source.length) {
+    const start = source.indexOf(needle, offset);
+    if (start < 0) break;
+    const body = callObjectAt(source, start);
+    if (body) objects.push(body);
+    offset = start + needle.length;
+  }
+  return objects;
+}
+function scriptCommands(raw) {
+  const commandBodies = [
+    ...callObjects(raw, "exec_command"),
+    ...callObjects(raw, "shell_command")
+  ];
+  return commandBodies.map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "").filter(Boolean);
+}
+function commandText(value) {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
+  const argv = value;
+  if (!argv[0].trim()) return "";
+  return argv.map((argument) => argument === "" || /[\s\"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
+}
+function unwrapCommandExecution(value) {
+  if (typeof value === "string") return value.trim() ? { command: value, detail: value } : null;
+  if (!Array.isArray(value) || value.length < 3 || !value.every((argument) => typeof argument === "string")) return null;
+  const argv = value;
+  for (let i = 1; i < argv.length - 1; i++) {
+    const option = argv[i].toLowerCase();
+    if (option !== "-command" && option !== "-c" && option !== "-lc" && option !== "/c") continue;
+    if (!argv[i + 1].trim()) return null;
+    return { command: argv[i + 1], detail: commandText(argv) };
+  }
+  return null;
+}
+function execScriptCommands(raw) {
+  return typeof raw === "string" ? scriptCommands(raw) : [];
+}
+function jsonCallObject(source) {
+  const match = /\btools\.shell_command\(\s*(\{[\s\S]*\})\s*\)\s*;/.exec(source);
+  if (!match) return null;
+  try {
+    const value = JSON.parse(match[1]);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch (_) {
+    return null;
+  }
+}
+function unwrapShellCommand(raw) {
+  if (typeof raw !== "string") return null;
+  try {
+    const value = jsonCallObject(raw);
+    if (value) {
+      const command2 = typeof value.command === "string" ? value.command : typeof value.cmd === "string" ? value.cmd : "";
+      if (!command2.trim()) return null;
+      const workdir2 = typeof value.workdir === "string" && value.workdir ? value.workdir : void 0;
+      const timeout_ms2 = typeof value.timeout_ms === "number" ? value.timeout_ms : void 0;
+      return { command: command2, ...workdir2 ? { workdir: workdir2 } : {}, ...timeout_ms2 !== void 0 ? { timeout_ms: timeout_ms2 } : {} };
+    }
+    const body = callObjects(raw, "shell_command")[0];
+    if (!body) return null;
+    const command = quotedValue(body, "command") || quotedValue(body, "cmd");
+    if (!command || !command.trim()) return null;
+    const workdir = quotedValue(body, "workdir") || void 0;
+    const timeoutText = /\btimeout_ms\s*:\s*(\d+)/.exec(body);
+    const timeout_ms = timeoutText ? Number(timeoutText[1]) : void 0;
+    return { command, ...workdir ? { workdir } : {}, ...timeout_ms !== void 0 ? { timeout_ms } : {} };
+  } catch (_) {
+    return null;
+  }
+}
+function compactCommand(command) {
+  return command.replace(/\s+/g, " ").trim();
+}
+function clipSummary(value, limit = MAX_SUMMARY_CHARS) {
+  if (value.length <= limit) return value;
+  return value.substring(0, Math.max(1, limit - 3)).trimEnd() + "...";
+}
+function commandSummary(commands) {
+  const compact2 = commands.map(compactCommand).filter(Boolean);
+  const first = compact2[0];
+  const suffix = compact2.length > 1 ? ` (+${compact2.length - 1} more)` : "";
+  const summary = clipSummary(first, MAX_SUMMARY_CHARS - suffix.length) + suffix;
+  return { kind: "command", summary, detail: commands.map((value) => value.trim()).join("\n\n") };
+}
+function readableToolName(name) {
+  const leaf = name.split("__").pop() || name;
+  return leaf.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+function fallbackSummary(raw) {
+  const nested = /\btools\.([A-Za-z_$][\w$]*)/.exec(raw);
+  const firstLine = raw.split(/\r\n?|\n/).map((line) => line.trim()).find(Boolean) || "Tool activity";
+  const summary = nested ? readableToolName(nested[1]) : firstLine;
+  return { kind: "generic", summary: clipSummary(summary), detail: raw.trim() };
+}
+function summarizeExecScript(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const commands = scriptCommands(raw);
+  if (commands.length > 0) return commandSummary(commands);
+  const image = callObjects(raw, "view_image")[0];
+  if (image) {
+    const path = quotedValue(image, "path");
+    if (path) return { kind: "read", summary: clipSummary(path), detail: path };
+  }
+  const stdin = callObjects(raw, "write_stdin")[0];
+  if (stdin) {
+    const chars = quotedValue(stdin, "chars");
+    const summary = chars ? "Send input to running command" : "Wait for command output";
+    return { kind: "generic", summary, detail: summary };
+  }
+  return fallbackSummary(raw);
+}
+
+// plugins/provider-codex/src/richResults.ts
+function text4(value) {
+  return typeof value === "string" ? value : "";
+}
+function record3(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function webFields(source) {
+  const action = record3(source.action);
+  const rich = { kind: "web" };
+  const query = text4(source.query) || text4(action?.query);
+  if (query) rich.query = query;
+  const actionName = text4(source.action) || text4(action?.type);
+  if (actionName) rich.action = actionName;
+  if (text4(action?.url)) rich.url = text4(action?.url);
+  if (text4(action?.pattern)) rich.pattern = text4(action?.pattern);
+  if (Array.isArray(source.results)) rich.resultCount = source.results.length;
+  return rich;
+}
+function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts, timestamp) {
+  return {
+    role: "assistant",
+    uuid,
+    ts,
+    timestamp,
+    blocks: [{ kind: "tool_use", data: {
+      id,
+      name,
+      tool_kind: rich.kind,
+      tool_summary: summary,
+      tool_title: summary,
+      ...detail ? { tool_detail: detail } : {},
+      tool_rich_result: rich,
+      ...text4(turnId) ? { tool_flow_id: text4(turnId) } : {},
+      tool_status: failed ? "error" : "success"
+    } }]
+  };
+}
+function webSearchEndResult(payload, ts, timestamp) {
+  const source = record3(payload);
+  const id = text4(source?.call_id);
+  if (!source || !id) return null;
+  const rich = webFields(source);
+  const summary = rich.query || rich.url || "";
+  if (!summary) return null;
+  return resultMessage(`result-${id}`, id, "web_search", rich, summary, summary, false, source.turn_id, ts, timestamp);
+}
+function imageGenerationEndResult(payload, ts, timestamp) {
+  const source = record3(payload);
+  const id = text4(source?.call_id);
+  if (!source || !id) return null;
+  const rich = { kind: "image", origin: "generated" };
+  const status = text4(source.status);
+  const path = text4(source.saved_path);
+  const prompt = text4(source.revised_prompt);
+  if (status) rich.status = status;
+  if (path) rich.path = path;
+  if (prompt) rich.prompt = prompt;
+  const summary = path && baseName(path) || prompt || status || "image generation";
+  return resultMessage(`result-${id}`, id, "image_generation", rich, summary, path || prompt, status === "failed" || status === "error", source.turn_id, ts, timestamp);
+}
+function imageViewResult(item, ts, timestamp, turnId) {
+  const id = text4(item.id);
+  const path = text4(item.path);
+  if (!id || !path) return null;
+  const rich = { kind: "image", origin: "viewed", path };
+  return resultMessage(`activity-${id}`, id, "image_view", rich, baseName(path) || path, path, false, turnId, ts, timestamp);
+}
+function extensionResult(item, ts, timestamp, turnId) {
+  const id = text4(item.id);
+  if (!id || !text4(item.kind).startsWith("web.")) return null;
+  const rich = webFields(item);
+  const summary = rich.query || rich.url || rich.action || "";
+  if (!summary) return null;
+  return resultMessage(`activity-${id}`, id, "extension", rich, summary, summary, false, turnId, ts, timestamp);
+}
+
+// plugins/provider-codex/src/activity.ts
+function parsedReadTitle(value) {
+  if (!Array.isArray(value) || value.length === 0) return "";
+  const names = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") return "";
+    const parsed = entry;
+    const name = text5(parsed.name) || baseName(text5(parsed.path));
+    if (parsed.type !== "read" || !name) return "";
+    if (names.indexOf(name) === -1) names.push(name);
+  }
+  return actionTitle({ tool_summary: `Read ${names[0]}` + (names.length > 1 ? ` +${names.length - 1}` : "") });
+}
+function text5(value) {
+  return typeof value === "string" ? value : "";
+}
+function exactOutcomeNumber(value, nonnegative) {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(value)) return void 0;
+  if (nonnegative && value < 0) return void 0;
+  return value;
+}
+function durationMilliseconds(item) {
+  const numericDuration = exactOutcomeNumber(item.duration_ms, true);
+  if (numericDuration !== void 0) return numericDuration;
+  if (!item.duration || typeof item.duration !== "object" || Array.isArray(item.duration)) return void 0;
+  const duration = item.duration;
+  const secs = exactOutcomeNumber(duration.secs, true);
+  const nanos = exactOutcomeNumber(duration.nanos, true);
+  if (secs === void 0 || nanos === void 0) return void 0;
+  return exactOutcomeNumber(secs * 1e3 + Math.round(nanos / 1e6), true);
+}
+function commandOutcome(item) {
+  const outcome2 = {};
+  const exitCode = exactOutcomeNumber(item.exit_code, false);
+  const durationMs = durationMilliseconds(item);
+  if (exitCode !== void 0) outcome2.tool_exit_code = exitCode;
+  if (durationMs !== void 0) outcome2.tool_duration_ms = durationMs;
+  return outcome2;
+}
+function completedActivity(value, ts, timestamp, turnId) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const item = value;
+  const id = text5(item.id);
+  if (!id) return null;
+  const flow = text5(turnId) ? { tool_flow_id: text5(turnId) } : {};
+  const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
+  if (item.type === "CommandExecution") {
+    const command = commandText(item.command);
+    if (!command || item.status !== "completed" && item.status !== "failed") return null;
+    const exitCode = exactOutcomeNumber(item.exit_code, false);
+    const failed = item.status === "failed" || exitCode !== void 0 && exitCode !== 0;
+    const output = text5(item.aggregated_output) || [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n");
+    const fields2 = { tool_kind: "command", tool_summary: command, tool_detail: command };
+    const outcome2 = commandOutcome(item);
+    message.blocks = [
+      { kind: "tool_use", data: {
+        id,
+        name: "command_execution",
+        input: { command, ...Array.isArray(item.command) ? { argv: item.command } : {} },
+        ...fields2,
+        tool_echo: true,
+        tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields2),
+        ...outcome2,
+        ...flow,
+        tool_status: failed ? "error" : "success"
+      } },
+      { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed, ...outcome2 } }
+    ];
+    return message;
+  }
+  if (item.type === "FileChange") {
+    const paths = changedPaths(item.changes);
+    if (paths.length === 0 || item.status !== "completed" && item.status !== "failed") return null;
+    const failed = item.status === "failed";
+    const diffs = codexFileDiffs(item.changes);
+    const fields2 = {
+      tool_kind: "edit",
+      tool_summary: paths[0] + (paths.length > 1 ? ` +${paths.length - 1}` : ""),
+      tool_detail: paths.join("\n"),
+      tool_edits: diffEdits(diffs)
+    };
+    message.blocks = [
+      { kind: "tool_use", data: {
+        id,
+        name: "file_change",
+        input: { paths },
+        ...fields2,
+        tool_title: actionTitle({ ...fields2, tool_edits: paths.map((path) => ({ path })) }),
+        ...flow,
+        ...diffs.length > 0 ? { file_diffs: diffs } : {},
+        tool_status: failed ? "error" : "success"
+      } },
+      { kind: "tool_result", data: { tool_use_id: id, content: [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n"), is_error: failed } }
+    ];
+    return message;
+  }
+  if (item.type === "ImageView") return imageViewResult(value, ts, timestamp, turnId);
+  if (item.type === "Extension") return extensionResult(value, ts, timestamp, turnId);
+  const fields = value;
+  if (item.type === "SubAgentActivity") return subAgentRow(fields, id, turnId, ts, timestamp);
+  if (item.type === "CollabAgentToolCall") return collabCallRow(fields, turnId, ts, timestamp);
+  if (item.type === "Reasoning") return reasoningItemRow(fields, ts, timestamp);
+  return null;
+}
+
+// plugins/provider-codex/src/runtimeStoredHistory.ts
+function projectHistoryItem(raw, seq, turn, timestamp) {
+  const rows = boundHistoryRows(runtimeItems(historyItem(raw), seq));
+  for (const row2 of rows) {
+    row2.toolFlowId = turn;
+    if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
+  }
+  return rows;
+}
+function recordedItem(raw) {
+  const item = Object.fromEntries(Object.entries(object(raw)).map(([key, value]) => [
+    key.replace(/_([a-z])/g, (_match, letter) => letter.toUpperCase()),
+    value
+  ]));
+  if (typeof item.type === "string") item.type = item.type.replace(/^./, (letter) => letter.toLowerCase());
+  if (item.type === "commandExecution") {
+    item.command = commandText(item.command);
+    item.aggregatedOutput ?? (item.aggregatedOutput = [item.stdout, item.stderr].filter((value) => typeof value === "string" && value).join("\n"));
+    item.durationMs ?? (item.durationMs = durationMilliseconds({ duration: item.duration, duration_ms: item.durationMs }));
+  }
+  if (Array.isArray(item.changes)) item.changes = item.changes.map((change) => {
+    const value = object(change), kind = object(value.kind);
+    return { ...value, kind: { ...kind, ...typeof kind.type === "string" ? { type: kind.type.toLowerCase() } : {} } };
+  });
+  if (Array.isArray(item.content)) item.content = item.content.map((part) => {
+    const value = object(part);
+    return { ...value, ...typeof value.type === "string" ? { type: value.type.replace(/^./, (letter) => letter.toLowerCase()) } : {} };
+  });
+  return item;
+}
+function runtimeStoredHistory(sessionId, records) {
+  const rows = /* @__PURE__ */ new Map();
+  for (const line of records.split("\n")) {
+    if (!line.trim()) continue;
+    const record5 = object(JSON.parse(line));
+    const payload = object(record5.payload);
+    if (record5.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
+    if (record5.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
+    const turn = text(payload.turn_id);
+    if (!turn || !text(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
+    const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms);
+    for (const row2 of projected) {
+      row2.seq = rows.get(row2.id)?.seq ?? rows.size;
+      rows.set(row2.id, row2);
+    }
+  }
+  return [...rows.values()];
+}
+
 // plugins/provider-codex/src/runtimeLogin.ts
 function loginPlan(raw) {
   const value = object(raw);
@@ -1739,12 +2254,8 @@ function collectHistoryItems(op, state, turn, entries) {
     const record5 = object(entries[index]);
     const rawItem = historyItem(record5.item ?? record5);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const rows = boundHistoryRows(runtimeItems(rawItem, seq + 1));
     const timestamp = record5.startedAtMs ?? record5.completedAtMs;
-    for (const row2 of rows) {
-      row2.toolFlowId = String(turn.id);
-      if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
-    }
+    const rows = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp);
     const active = turn.status === "inProgress" && turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
@@ -2785,7 +3296,7 @@ function updateAvailable(current, latest) {
   }
   return false;
 }
-function record2(value) {
+function record4(value) {
   if (typeof value !== "string") return null;
   try {
     const parsed = JSON.parse(value);
@@ -2795,7 +3306,7 @@ function record2(value) {
   }
 }
 function checkCodexUpdate(host2) {
-  const installed = record2(host2.exec(JSON.stringify({
+  const installed = record4(host2.exec(JSON.stringify({
     bin: "codex",
     args: ["--version"],
     timeoutMs: 5e3
@@ -2803,181 +3314,15 @@ function checkCodexUpdate(host2) {
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
   const current = installed.stdout.match(/\d+\.\d+\.\d+/)?.[0];
   if (!current) return null;
-  const response = record2(host2.fetch(JSON.stringify({
+  const response = record4(host2.fetch(JSON.stringify({
     url: "https://registry.npmjs.org/@openai%2Fcodex/latest",
     method: "GET",
     timeoutMs: 6e3
   })));
   if (response?.status !== 200 || typeof response.body !== "string") return null;
-  const metadata = record2(response.body);
+  const metadata = record4(response.body);
   const latest = metadata?.version;
   return updateAvailable(current, latest) && typeof latest === "string" ? { currentVersion: current, latestVersion: latest } : null;
-}
-
-// plugins/provider-codex/src/execWrapper.ts
-var MAX_SUMMARY_CHARS = 160;
-function quotedValue(source, key) {
-  const keyMatch = new RegExp("\\b" + key + "\\s*:\\s*").exec(source);
-  if (!keyMatch) return null;
-  const quoteIndex = keyMatch.index + keyMatch[0].length;
-  const quote = source[quoteIndex];
-  if (quote !== '"' && quote !== "'") return null;
-  let value = "";
-  for (let i = quoteIndex + 1; i < source.length; i++) {
-    const char = source[i];
-    if (char === quote) return decodeString(value, quote);
-    if (char === "\\" && i + 1 < source.length) {
-      value += char + source[++i];
-    } else {
-      value += char;
-    }
-  }
-  return null;
-}
-function decodeString(value, quote) {
-  return value.replace(/\\(.)/g, (_match, escaped) => {
-    if (escaped === "n") return "\n";
-    if (escaped === "r") return "\r";
-    if (escaped === "t") return "	";
-    if (escaped === "\\" || escaped === '"' || quote === "'" && escaped === "'") return escaped;
-    return "\\" + escaped;
-  });
-}
-function callObjectAt(source, start) {
-  const open = start < 0 ? -1 : source.indexOf("{", start);
-  if (open < 0) return null;
-  let depth = 0;
-  let quote = "";
-  for (let i = open; i < source.length; i++) {
-    const char = source[i];
-    if (quote) {
-      if (char === "\\") i++;
-      else if (char === quote) quote = "";
-    } else if (char === '"' || char === "'") {
-      quote = char;
-    } else if (char === "{") {
-      depth++;
-    } else if (char === "}" && --depth === 0) {
-      return source.substring(open + 1, i);
-    }
-  }
-  return null;
-}
-function callObjects(source, toolName) {
-  const objects = [];
-  const needle = `tools.${toolName}`;
-  let offset = 0;
-  while (offset < source.length) {
-    const start = source.indexOf(needle, offset);
-    if (start < 0) break;
-    const body = callObjectAt(source, start);
-    if (body) objects.push(body);
-    offset = start + needle.length;
-  }
-  return objects;
-}
-function scriptCommands(raw) {
-  const commandBodies = [
-    ...callObjects(raw, "exec_command"),
-    ...callObjects(raw, "shell_command")
-  ];
-  return commandBodies.map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "").filter(Boolean);
-}
-function commandText(value) {
-  if (typeof value === "string") return value;
-  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
-  const argv = value;
-  if (!argv[0].trim()) return "";
-  return argv.map((argument) => argument === "" || /[\s\"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
-}
-function unwrapCommandExecution(value) {
-  if (typeof value === "string") return value.trim() ? { command: value, detail: value } : null;
-  if (!Array.isArray(value) || value.length < 3 || !value.every((argument) => typeof argument === "string")) return null;
-  const argv = value;
-  for (let i = 1; i < argv.length - 1; i++) {
-    const option = argv[i].toLowerCase();
-    if (option !== "-command" && option !== "-c" && option !== "-lc" && option !== "/c") continue;
-    if (!argv[i + 1].trim()) return null;
-    return { command: argv[i + 1], detail: commandText(argv) };
-  }
-  return null;
-}
-function execScriptCommands(raw) {
-  return typeof raw === "string" ? scriptCommands(raw) : [];
-}
-function jsonCallObject(source) {
-  const match = /\btools\.shell_command\(\s*(\{[\s\S]*\})\s*\)\s*;/.exec(source);
-  if (!match) return null;
-  try {
-    const value = JSON.parse(match[1]);
-    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
-  } catch (_) {
-    return null;
-  }
-}
-function unwrapShellCommand(raw) {
-  if (typeof raw !== "string") return null;
-  try {
-    const value = jsonCallObject(raw);
-    if (value) {
-      const command2 = typeof value.command === "string" ? value.command : typeof value.cmd === "string" ? value.cmd : "";
-      if (!command2.trim()) return null;
-      const workdir2 = typeof value.workdir === "string" && value.workdir ? value.workdir : void 0;
-      const timeout_ms2 = typeof value.timeout_ms === "number" ? value.timeout_ms : void 0;
-      return { command: command2, ...workdir2 ? { workdir: workdir2 } : {}, ...timeout_ms2 !== void 0 ? { timeout_ms: timeout_ms2 } : {} };
-    }
-    const body = callObjects(raw, "shell_command")[0];
-    if (!body) return null;
-    const command = quotedValue(body, "command") || quotedValue(body, "cmd");
-    if (!command || !command.trim()) return null;
-    const workdir = quotedValue(body, "workdir") || void 0;
-    const timeoutText = /\btimeout_ms\s*:\s*(\d+)/.exec(body);
-    const timeout_ms = timeoutText ? Number(timeoutText[1]) : void 0;
-    return { command, ...workdir ? { workdir } : {}, ...timeout_ms !== void 0 ? { timeout_ms } : {} };
-  } catch (_) {
-    return null;
-  }
-}
-function compactCommand(command) {
-  return command.replace(/\s+/g, " ").trim();
-}
-function clipSummary(value, limit = MAX_SUMMARY_CHARS) {
-  if (value.length <= limit) return value;
-  return value.substring(0, Math.max(1, limit - 3)).trimEnd() + "...";
-}
-function commandSummary(commands) {
-  const compact2 = commands.map(compactCommand).filter(Boolean);
-  const first = compact2[0];
-  const suffix = compact2.length > 1 ? ` (+${compact2.length - 1} more)` : "";
-  const summary = clipSummary(first, MAX_SUMMARY_CHARS - suffix.length) + suffix;
-  return { kind: "command", summary, detail: commands.map((value) => value.trim()).join("\n\n") };
-}
-function readableToolName(name) {
-  const leaf = name.split("__").pop() || name;
-  return leaf.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-function fallbackSummary(raw) {
-  const nested = /\btools\.([A-Za-z_$][\w$]*)/.exec(raw);
-  const firstLine = raw.split(/\r\n?|\n/).map((line) => line.trim()).find(Boolean) || "Tool activity";
-  const summary = nested ? readableToolName(nested[1]) : firstLine;
-  return { kind: "generic", summary: clipSummary(summary), detail: raw.trim() };
-}
-function summarizeExecScript(raw) {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  const commands = scriptCommands(raw);
-  if (commands.length > 0) return commandSummary(commands);
-  const image = callObjects(raw, "view_image")[0];
-  if (image) {
-    const path = quotedValue(image, "path");
-    if (path) return { kind: "read", summary: clipSummary(path), detail: path };
-  }
-  const stdin = callObjects(raw, "write_stdin")[0];
-  if (stdin) {
-    const chars = quotedValue(stdin, "chars");
-    const summary = chars ? "Send input to running command" : "Wait for command output";
-    return { kind: "generic", summary, detail: summary };
-  }
-  return fallbackSummary(raw);
 }
 
 // plugins/provider-codex/src/patchEdits.ts
@@ -3011,306 +3356,6 @@ function patchEdits(patch) {
   } catch (_) {
     return [];
   }
-}
-
-// plugins/provider-codex/src/actionTitle.ts
-var MAX_TITLE_CHARS = 48;
-function clip2(value) {
-  const compact2 = value.replace(/\s+/g, " ").trim();
-  if (compact2.length <= MAX_TITLE_CHARS) return compact2;
-  return compact2.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
-}
-function text2(value) {
-  return typeof value === "string" ? value : "";
-}
-function baseName(path) {
-  const trimmed = path.replace(/[\\/]+$/, "");
-  return trimmed.split(/[\\/]/).pop() || trimmed;
-}
-function commandHead(command) {
-  const tokens = command.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
-  const width = tokens.length > 1 && tokens[1].charAt(0) !== "-" && tokens[1].charAt(0) !== '"' ? 2 : 1;
-  return tokens.slice(0, width).join(" ");
-}
-function actionTitle(fields) {
-  const summary = text2(fields.tool_summary);
-  const detail = text2(fields.tool_detail);
-  if (fields.tool_kind === "command") {
-    const more = /\(\+(\d+) more\)$/.exec(summary);
-    return clip2(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
-  }
-  if (fields.tool_kind === "read" && summary) return clip2(`Read ${baseName(summary)}`);
-  if (fields.tool_kind === "edit") {
-    const edits = Array.isArray(fields.tool_edits) ? fields.tool_edits : [];
-    const paths = edits.map((edit) => text2(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
-    if (paths.length > 0) return clip2(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
-  }
-  return clip2(summary || "Tool activity");
-}
-
-// plugins/provider-codex/src/agentActivity.ts
-var AGENT_STATES = {
-  started: "started",
-  pending_init: "started",
-  running: "running",
-  completed: "completed",
-  errored: "failed",
-  failed: "failed",
-  interrupted: "interrupted",
-  shutdown: "closed",
-  closed: "closed"
-};
-function text3(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-function record3(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function row(uuid, blocks, ts, timestamp) {
-  if (blocks.length === 0) return null;
-  return { role: "assistant", ...uuid ? { uuid } : {}, blocks, ts, timestamp };
-}
-function agentBlock(fields, summary, turnId) {
-  const input = {};
-  for (const key in fields) if (fields[key]) input[key] = fields[key];
-  const flowId = text3(turnId);
-  return { kind: "tool_use", data: {
-    name: "agent_activity",
-    input,
-    tool_kind: "agent",
-    tool_summary: summary,
-    tool_status: "success",
-    ...flowId ? { tool_flow_id: flowId } : {}
-  } };
-}
-function thoughtRow(id, summaries, ts, timestamp) {
-  const blocks = summaries.filter((summary) => typeof summary === "string" && summary.trim() !== "").map((summary) => ({ kind: "thinking", data: { text: summary } }));
-  return row(text3(id) ? `reasoning-${text3(id)}` : "", blocks, ts, timestamp);
-}
-function reasoningItemRow(item, ts, timestamp) {
-  return thoughtRow(item.id, Array.isArray(item.summary_text) ? item.summary_text : [], ts, timestamp);
-}
-function reasoningResponseRow(payload, ts, timestamp) {
-  const parts = Array.isArray(payload.summary) ? payload.summary : [];
-  const summaries = parts.map((part) => {
-    const entry = record3(part);
-    return entry && entry.type === "summary_text" ? entry.text : void 0;
-  });
-  return thoughtRow(payload.id, summaries, ts, timestamp);
-}
-function subAgentRow(item, id, turnId, ts, timestamp) {
-  const agentId = text3(item.agent_thread_id);
-  const agentPath = text3(item.agent_path);
-  if (!agentId && !agentPath) return null;
-  const state = AGENT_STATES[text3(item.kind)] ?? "unknown";
-  const block = agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId);
-  return row(text3(id) ? `agent-${text3(id)}` : "", [block], ts, timestamp);
-}
-function collabCallRow(item, turnId, ts, timestamp) {
-  const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
-  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record3) : [];
-  const states = record3(item.agents_states);
-  const seen = [];
-  const blocks = [];
-  for (const receiver of receivers) {
-    const agentId = text3(receiver);
-    if (!agentId || seen.indexOf(agentId) !== -1) continue;
-    seen.push(agentId);
-    const agentPath = text3(agents.find((entry) => entry !== null && text3(entry.thread_id) === agentId)?.agent_path);
-    const state = AGENT_STATES[text3(record3(states?.[agentId])?.status)] ?? "unknown";
-    blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
-  }
-  return row(text3(item.id) ? `collab-${text3(item.id)}` : "", blocks, ts, timestamp);
-}
-function agentMessageRow(payload, ts, timestamp) {
-  const from = text3(payload.author);
-  const to = text3(payload.recipient);
-  if (!from || !to || from === to) return null;
-  const turnId = record3(payload.internal_chat_message_metadata_passthrough)?.turn_id;
-  const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
-  return row(text3(payload.id) ? `agent-message-${text3(payload.id)}` : "", [block], ts, timestamp);
-}
-
-// plugins/provider-codex/src/richResults.ts
-function text4(value) {
-  return typeof value === "string" ? value : "";
-}
-function record4(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function webFields(source) {
-  const action = record4(source.action);
-  const rich = { kind: "web" };
-  const query = text4(source.query) || text4(action?.query);
-  if (query) rich.query = query;
-  const actionName = text4(source.action) || text4(action?.type);
-  if (actionName) rich.action = actionName;
-  if (text4(action?.url)) rich.url = text4(action?.url);
-  if (text4(action?.pattern)) rich.pattern = text4(action?.pattern);
-  if (Array.isArray(source.results)) rich.resultCount = source.results.length;
-  return rich;
-}
-function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts, timestamp) {
-  return {
-    role: "assistant",
-    uuid,
-    ts,
-    timestamp,
-    blocks: [{ kind: "tool_use", data: {
-      id,
-      name,
-      tool_kind: rich.kind,
-      tool_summary: summary,
-      tool_title: summary,
-      ...detail ? { tool_detail: detail } : {},
-      tool_rich_result: rich,
-      ...text4(turnId) ? { tool_flow_id: text4(turnId) } : {},
-      tool_status: failed ? "error" : "success"
-    } }]
-  };
-}
-function webSearchEndResult(payload, ts, timestamp) {
-  const source = record4(payload);
-  const id = text4(source?.call_id);
-  if (!source || !id) return null;
-  const rich = webFields(source);
-  const summary = rich.query || rich.url || "";
-  if (!summary) return null;
-  return resultMessage(`result-${id}`, id, "web_search", rich, summary, summary, false, source.turn_id, ts, timestamp);
-}
-function imageGenerationEndResult(payload, ts, timestamp) {
-  const source = record4(payload);
-  const id = text4(source?.call_id);
-  if (!source || !id) return null;
-  const rich = { kind: "image", origin: "generated" };
-  const status = text4(source.status);
-  const path = text4(source.saved_path);
-  const prompt = text4(source.revised_prompt);
-  if (status) rich.status = status;
-  if (path) rich.path = path;
-  if (prompt) rich.prompt = prompt;
-  const summary = path && baseName(path) || prompt || status || "image generation";
-  return resultMessage(`result-${id}`, id, "image_generation", rich, summary, path || prompt, status === "failed" || status === "error", source.turn_id, ts, timestamp);
-}
-function imageViewResult(item, ts, timestamp, turnId) {
-  const id = text4(item.id);
-  const path = text4(item.path);
-  if (!id || !path) return null;
-  const rich = { kind: "image", origin: "viewed", path };
-  return resultMessage(`activity-${id}`, id, "image_view", rich, baseName(path) || path, path, false, turnId, ts, timestamp);
-}
-function extensionResult(item, ts, timestamp, turnId) {
-  const id = text4(item.id);
-  if (!id || !text4(item.kind).startsWith("web.")) return null;
-  const rich = webFields(item);
-  const summary = rich.query || rich.url || rich.action || "";
-  if (!summary) return null;
-  return resultMessage(`activity-${id}`, id, "extension", rich, summary, summary, false, turnId, ts, timestamp);
-}
-
-// plugins/provider-codex/src/activity.ts
-function parsedReadTitle(value) {
-  if (!Array.isArray(value) || value.length === 0) return "";
-  const names = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object") return "";
-    const parsed = entry;
-    const name = text5(parsed.name) || baseName(text5(parsed.path));
-    if (parsed.type !== "read" || !name) return "";
-    if (names.indexOf(name) === -1) names.push(name);
-  }
-  return actionTitle({ tool_summary: `Read ${names[0]}` + (names.length > 1 ? ` +${names.length - 1}` : "") });
-}
-function text5(value) {
-  return typeof value === "string" ? value : "";
-}
-function exactOutcomeNumber(value, nonnegative) {
-  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(value)) return void 0;
-  if (nonnegative && value < 0) return void 0;
-  return value;
-}
-function durationMilliseconds(item) {
-  const numericDuration = exactOutcomeNumber(item.duration_ms, true);
-  if (numericDuration !== void 0) return numericDuration;
-  if (!item.duration || typeof item.duration !== "object" || Array.isArray(item.duration)) return void 0;
-  const duration = item.duration;
-  const secs = exactOutcomeNumber(duration.secs, true);
-  const nanos = exactOutcomeNumber(duration.nanos, true);
-  if (secs === void 0 || nanos === void 0) return void 0;
-  return exactOutcomeNumber(secs * 1e3 + Math.round(nanos / 1e6), true);
-}
-function commandOutcome(item) {
-  const outcome2 = {};
-  const exitCode = exactOutcomeNumber(item.exit_code, false);
-  const durationMs = durationMilliseconds(item);
-  if (exitCode !== void 0) outcome2.tool_exit_code = exitCode;
-  if (durationMs !== void 0) outcome2.tool_duration_ms = durationMs;
-  return outcome2;
-}
-function completedActivity(value, ts, timestamp, turnId) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const item = value;
-  const id = text5(item.id);
-  if (!id) return null;
-  const flow = text5(turnId) ? { tool_flow_id: text5(turnId) } : {};
-  const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
-  if (item.type === "CommandExecution") {
-    const command = commandText(item.command);
-    if (!command || item.status !== "completed" && item.status !== "failed") return null;
-    const exitCode = exactOutcomeNumber(item.exit_code, false);
-    const failed = item.status === "failed" || exitCode !== void 0 && exitCode !== 0;
-    const output = text5(item.aggregated_output) || [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n");
-    const fields2 = { tool_kind: "command", tool_summary: command, tool_detail: command };
-    const outcome2 = commandOutcome(item);
-    message.blocks = [
-      { kind: "tool_use", data: {
-        id,
-        name: "command_execution",
-        input: { command, ...Array.isArray(item.command) ? { argv: item.command } : {} },
-        ...fields2,
-        tool_echo: true,
-        tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields2),
-        ...outcome2,
-        ...flow,
-        tool_status: failed ? "error" : "success"
-      } },
-      { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed, ...outcome2 } }
-    ];
-    return message;
-  }
-  if (item.type === "FileChange") {
-    const paths = changedPaths(item.changes);
-    if (paths.length === 0 || item.status !== "completed" && item.status !== "failed") return null;
-    const failed = item.status === "failed";
-    const diffs = codexFileDiffs(item.changes);
-    const fields2 = {
-      tool_kind: "edit",
-      tool_summary: paths[0] + (paths.length > 1 ? ` +${paths.length - 1}` : ""),
-      tool_detail: paths.join("\n"),
-      tool_edits: diffEdits(diffs)
-    };
-    message.blocks = [
-      { kind: "tool_use", data: {
-        id,
-        name: "file_change",
-        input: { paths },
-        ...fields2,
-        tool_title: actionTitle({ ...fields2, tool_edits: paths.map((path) => ({ path })) }),
-        ...flow,
-        ...diffs.length > 0 ? { file_diffs: diffs } : {},
-        tool_status: failed ? "error" : "success"
-      } },
-      { kind: "tool_result", data: { tool_use_id: id, content: [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n"), is_error: failed } }
-    ];
-    return message;
-  }
-  if (item.type === "ImageView") return imageViewResult(value, ts, timestamp, turnId);
-  if (item.type === "Extension") return extensionResult(value, ts, timestamp, turnId);
-  const fields = value;
-  if (item.type === "SubAgentActivity") return subAgentRow(fields, id, turnId, ts, timestamp);
-  if (item.type === "CollabAgentToolCall") return collabCallRow(fields, turnId, ts, timestamp);
-  if (item.type === "Reasoning") return reasoningItemRow(fields, ts, timestamp);
-  return null;
 }
 
 // plugins/provider-codex/src/fileChangePairing.ts
@@ -5324,6 +5369,7 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  runtimeStoredHistory,
   runtimePlan,
   runtimeResponse,
   runtimeReduce,
