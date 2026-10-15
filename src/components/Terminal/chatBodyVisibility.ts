@@ -6,6 +6,7 @@ import { placeOutboundReports, type OutboundReportPlacement } from "./outboundRe
 export type ChatBodyView =
   | { kind: "none" }
   | { kind: "starting"; label: string }
+  | { kind: "launch_failed"; reason: string | null }
   | { kind: "failed"; reason: ChatUnavailableReason };
 
 export interface ChatBodyInput {
@@ -16,6 +17,7 @@ export interface ChatBodyInput {
 }
 
 export function chatBodyView(input: ChatBodyInput): ChatBodyView {
+  if (input.bootView.kind === "launch_failed") return input.bootView;
   if (input.hasTranscript) return { kind: "none" };
   if (input.unavailable) return { kind: "failed", reason: input.unavailable };
   return input.bootView;

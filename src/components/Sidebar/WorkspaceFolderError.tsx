@@ -5,7 +5,7 @@ import type { Workspace } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 
-export function WorkspaceFolderError({ workspace, rawError, cwd }: { workspace: Workspace; rawError?: string | null; cwd?: string | null }) {
+export function WorkspaceFolderError({ workspace, rawError, cwd, onRelocate }: { workspace: Workspace; rawError?: string | null; cwd?: string | null; onRelocate?: (path: string) => Promise<unknown> }) {
   const { setWorkspaceCwd } = useMultiplexer();
   const [busy, setBusy] = useState(false);
   const [remotePicker, setRemotePicker] = useState(false);
@@ -16,7 +16,8 @@ export function WorkspaceFolderError({ workspace, rawError, cwd }: { workspace: 
     setBusy(true);
     setError(null);
     try {
-      await setWorkspaceCwd(workspace.id, path);
+      if (onRelocate) await onRelocate(path);
+      else await setWorkspaceCwd(workspace.id, path);
     } catch (error) {
       setError(error);
     } finally {

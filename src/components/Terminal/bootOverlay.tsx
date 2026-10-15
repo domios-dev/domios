@@ -1,6 +1,5 @@
-import { ErrorNotice, InlineErrorNotice, type ErrorNoticeAction } from "../shared/ErrorNotice";
-import { describeError } from "../../lib/describeError";
-import { WorkspaceFolderError } from "../Sidebar/WorkspaceFolderError";
+import { InlineErrorNotice, type ErrorNoticeAction } from "../shared/ErrorNotice";
+import { TabLaunchFailure } from "./TabLaunchFailure";
 import { tabStartingLabel } from "../Sidebar/tabAttention";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import type { Tab, Workspace } from "../../lib/types";
@@ -49,6 +48,7 @@ export function tabBootOverlayView(
 }
 
 interface TabBootOverlayProps {
+  tabId?: string;
   view: TabBootOverlayView;
   workspace?: Workspace;
   cwd?: string | null;
@@ -63,6 +63,7 @@ interface TabBootOverlayProps {
 }
 
 export function TabBootOverlay({
+  tabId,
   view,
   workspace,
   cwd,
@@ -90,11 +91,9 @@ export function TabBootOverlay({
     >
       {view.kind === "failed" ? (
         <div className="absolute bottom-6 left-1/2 w-[min(34rem,calc(100%-2rem))] -translate-x-1/2" data-testid="tab-boot-failed">
-          {workspace && describeError(view.reason).actions.includes("choose-folder")
-            ? <WorkspaceFolderError workspace={workspace} rawError={view.reason} cwd={cwd} />
-            : <ErrorNotice error={view.reason} operation="starting this tab" cwd={cwd} blocking actions={bootActions(view, {
+          <TabLaunchFailure tabId={tabId} workspace={workspace} cwd={cwd} reason={view.reason} actions={bootActions(view, {
               onRetry, onStartFreshAgent, onStartNewSession, onKeepShell, startingNewSession,
-            })} />}
+            })} />
           {actionError && <InlineErrorNotice error={actionError} operation="starting a new session" blocking />}
         </div>
       ) : (
