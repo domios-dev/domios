@@ -1,5 +1,5 @@
 pub use codeterm_events::*;
-pub use codeterm_service_core::events::emit_everywhere;
+pub use codeterm_host_runtime::events::emit_everywhere;
 
 #[cfg(test)]
 mod tests {

@@ -1,10 +1,10 @@
-use codeterm_service_core::app_runtime::WebviewWindow;
+use codeterm_host_runtime::app_runtime::WebviewWindow;
 #[cfg(debug_assertions)]
 mod assets;
 
 pub fn application_context(
-    context: tauri::Context<codeterm_service_core::app_runtime::Runtime>,
-) -> tauri::Context<codeterm_service_core::app_runtime::Runtime> {
+    context: tauri::Context<codeterm_host_runtime::app_runtime::Runtime>,
+) -> tauri::Context<codeterm_host_runtime::app_runtime::Runtime> {
     #[cfg(debug_assertions)]
     {
         let mut context = context;
@@ -152,7 +152,7 @@ fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
 }
 
 pub fn create_window(
-    app: &codeterm_service_core::app_runtime::App,
+    app: &codeterm_host_runtime::app_runtime::App,
     config: &codeterm_service_core::config::schema::ApiConfig,
 ) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
     let development_frontend =
@@ -319,7 +319,7 @@ fn observe_navigation(window: WebviewWindow, url: Url) {
 }
 
 async fn frontend_url(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     origin: &str,
 ) -> Result<Url, String> {
     if let Some(url) = &app.state::<ShellSupervisor>().development_frontend {
@@ -365,7 +365,7 @@ async fn frontend_url(
     }
 }
 
-pub fn start(app: codeterm_service_core::app_runtime::AppHandle, control: RestApiControlState) {
+pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle, control: RestApiControlState) {
     let mut status = control.subscribe_status();
     tauri::async_runtime::spawn(async move {
         loop {
@@ -409,7 +409,7 @@ pub fn start(app: codeterm_service_core::app_runtime::AppHandle, control: RestAp
     });
 }
 
-pub fn retry(app: &codeterm_service_core::app_runtime::AppHandle) {
+pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
     let control = app.state::<RestApiControlState>().inner().clone();
     let observed = control.status();
     if observed.phase != RestApiPhase::Listening {

@@ -13,7 +13,7 @@ use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for
 #[cfg(test)]
 use super::plan_task_dispatch::dispatch_with_spawn;
 use super::{get_string_param, JsonRpcError};
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::plan::task_queries::TaskListFilter;
 use codeterm_service_core::service::plan::{hints, NewTask, PlanError};

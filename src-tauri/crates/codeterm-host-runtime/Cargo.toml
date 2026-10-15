@@ -1,0 +1,16 @@
+[package]
+name = "codeterm-host-runtime"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[features]
+test-support = []
+
+[dependencies]
+codeterm-events = { path = "../codeterm-events" }
+tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }

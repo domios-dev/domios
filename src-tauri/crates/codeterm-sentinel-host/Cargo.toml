@@ -10,6 +10,7 @@ workspace = true
 name = "codeterm_sentinel_host"
 
 [dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-sentinel = { path = "../codeterm-sentinel" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
@@ -38,10 +39,11 @@ rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load
 tempfile = "3"
 
 [dev-dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime", features = ["test-support"] }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-sentinel = { path = "../codeterm-sentinel", features = ["test-support"] }
 codeterm-decision = { path = "../codeterm-decision", features = ["decision-fixture-clock"] }
 codeterm-storage = { path = "../codeterm-storage", features = ["test-support"] }
 
 [features]
-test-support = ["codeterm-service-core/test-support", "codeterm-sentinel/test-support"]
+test-support = ["codeterm-host-runtime/test-support", "codeterm-service-core/test-support", "codeterm-sentinel/test-support"]

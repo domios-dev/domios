@@ -2,7 +2,7 @@ use super::plan_fields::{groups_from_csv, kinds_from_csv, tag_facets_field};
 use super::plan_linking::{owner_from_params, tags_field};
 use super::plan_refs;
 use super::{get_string_param, JsonRpcError};
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use codeterm_service_core::plan::{OrchestratorRef, PlanStatus, PlannerRef};
 use codeterm_service_core::service::lane_removal::LaneRemovalRequest;
 use codeterm_service_core::service::plan::adopt::AdoptPlanExt;
@@ -100,7 +100,7 @@ pub(crate) fn apply_batch_rpc(
 }
 
 pub(super) fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_service_core::events::emit_everywhere(
+    codeterm_host_runtime::events::emit_everywhere(
         app,
         "plan-changed",
         json!({ "plan_id": plan_id }),
