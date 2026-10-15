@@ -39,7 +39,7 @@ impl CronStore {
                 .as_ref()
                 .map_or(self.file.jobs.as_slice(), |draft| draft.jobs.as_slice()),
             Backend::Unavailable(_) => self.file.jobs.as_slice(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Legacy(_) => self.file.jobs.as_slice(),
         }
     }
@@ -118,9 +118,9 @@ impl CronStore {
             return Err(format!("cron storage unavailable: {reason}"));
         }
         if self.backend.require_legacy().is_ok() {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             return self.save();
-            #[cfg(not(test))]
+            #[cfg(not(any(test, feature = "test-support")))]
             return Err("legacy cron writer is test-only".to_string());
         }
         Ok(())
