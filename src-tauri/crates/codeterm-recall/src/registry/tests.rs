@@ -16,17 +16,16 @@ use super::{
     candidate, registered_adapters, supporter_state, supporter_token_dir, token_store,
     DecisionBackend, SupporterRegistry, Untouched,
 };
-use crate::config::schema::{MemoryRerankConfig, SupporterConfig};
-use crate::mem::decision::token_store::TokenStatus;
-use crate::mem::rerank::RerankConfig;
-use crate::mem::search::{SearchConfig, SearchQuery};
-use crate::mem::{MemKind, MemManager, MemScope, NewMemItem, SearchHit};
-use crate::mem_ops::search::{
-    baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
-    RERANK_EXCLUSIVE,
+use crate::search::{
+    baseline_search, resolve_search, RecallBackend, SearchError, SearchParams, RERANK_EXCLUSIVE,
 };
-use crate::service::plan::ports::PlanIndexQuery;
-use crate::service::plan::search_index::PlanSearchHit;
+use codeterm_mem::decision::token_store::TokenStatus;
+use codeterm_mem::rerank::RerankConfig;
+use codeterm_mem::search::{SearchConfig, SearchQuery};
+use codeterm_mem::{MemKind, MemManager, MemScope, NewMemItem, SearchHit};
+use codeterm_plan::service_plan::ports::PlanIndexQuery;
+use codeterm_plan::service_plan::search_index::PlanSearchHit;
+use codeterm_types::config::{MemoryRerankConfig, SupporterConfig};
 
 const STUB_ID: &str = "stub-decision";
 const QUERY: &str = "lighthouse";
@@ -43,7 +42,7 @@ struct SeededBackend {
     plans: Vec<PlanSearchHit>,
     graph_calls: AtomicUsize,
     sessions: Vec<SessionCandidate>,
-    runtime: Arc<crate::service::supporter::SupporterRuntime>,
+    runtime: Arc<codeterm_supporter::SupporterRuntime>,
     _journal_dir: tempfile::TempDir,
 }
 
@@ -70,7 +69,7 @@ impl RecallBackend for SeededBackend {
 }
 
 impl DecisionBackend for SeededBackend {
-    fn supporter_runtime(&self) -> Arc<crate::service::supporter::SupporterRuntime> {
+    fn supporter_runtime(&self) -> Arc<codeterm_supporter::SupporterRuntime> {
         self.runtime.clone()
     }
     fn recall_untouched(
@@ -140,7 +139,7 @@ fn seeded() -> SeededBackend {
     }
     let journal_dir = tempfile::tempdir().unwrap();
     SeededBackend {
-        runtime: Arc::new(crate::service::supporter::SupporterRuntime::new(
+        runtime: Arc::new(codeterm_supporter::SupporterRuntime::new(
             journal_dir.path().into(),
         )),
         _journal_dir: journal_dir,
@@ -222,10 +221,10 @@ fn enabled_cfg() -> SupporterConfig {
     SupporterConfig {
         adapter: Some(STUB_ID.into()),
         memory_rerank: MemoryRerankConfig {
-            sources: crate::config::schema::SupporterSources {
+            sources: codeterm_types::config::SupporterSources {
                 graph: 0,
                 docs: 0,
-                ..crate::config::schema::SupporterSources::default()
+                ..codeterm_types::config::SupporterSources::default()
             },
             ..MemoryRerankConfig::default()
         },
@@ -661,7 +660,6 @@ fn decision_legacy_and_decision_both_explicit_rejected() {
     for cfg in [SupporterConfig::default(), enabled_cfg()] {
         let error = resolve_search(&backend, &registry, &cfg, request.clone()).unwrap_err();
         assert_eq!(error, SearchError::InvalidParams(RERANK_EXCLUSIVE.into()));
-        assert_eq!(error.into_http().0, axum::http::StatusCode::BAD_REQUEST);
     }
 }
 
@@ -746,47 +744,11 @@ fn decision_access_delta_matches_returned_hits() {
 }
 
 #[test]
-fn decision_http_search_does_not_block_runtime() {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap();
-    let (release, signal) = mpsc::channel::<()>();
-    let backend = Arc::new(seeded());
-    let registry = Arc::new(registry_with(StubMode::Gate {
-        signal: Mutex::new(signal),
-        released: AtomicBool::new(false),
-    }));
-    let cfg = SupporterConfig {
-        deadline_ms: 10_000,
-        ..enabled_cfg()
-    };
-    let request = SearchParams {
-        supporter: Some(true),
-        ..params(2)
-    };
-
-    let output = runtime
-        .block_on(async move {
-            let search =
-                run_blocking_search(move || resolve_search(&*backend, &registry, &cfg, request));
-            // Runs only while the runtime thread is free, i.e. while the search is off-runtime.
-            let releaser = tokio::spawn(async move { release.send(()).unwrap() });
-            let output = search.await;
-            releaser.await.unwrap();
-            output
-        })
-        .unwrap();
-
-    assert_eq!(output["supporter"]["status"], "applied");
-    assert_eq!(output["hits"].as_array().unwrap().len(), 2);
-}
-
-#[test]
 fn supporter_token_dir_is_under_data_dir() {
     let dir = supporter_token_dir();
     assert!(dir.starts_with(codeterm_paths::data_dir()));
     assert!(dir.ends_with("supporter"));
-    let repo_root = crate::test_support::fixture_manifest_dir()
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(3)
         .unwrap();

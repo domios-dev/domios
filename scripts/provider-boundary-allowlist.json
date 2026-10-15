@@ -6862,20 +6862,6 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/supporter/registry/sessions_source.rs",
-      "token": "claude",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/supporter/registry/tests/sessions.rs",
-      "token": "claude",
-      "count": 3,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
       "file": "src-tauri/crates/codeterm-api/src/mem_routes/dream.rs",
       "token": "claude",
       "count": 1,
