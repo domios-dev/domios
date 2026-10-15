@@ -10,7 +10,7 @@ struct WriteEvidence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TabAgentTypeState {
+pub struct TabAgentTypeState {
     pub(crate) provider: Option<String>,
     pub(crate) locked: bool,
 }

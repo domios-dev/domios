@@ -6,6 +6,7 @@ use super::sanitize_actor;
 use crate::mem::store::{self, with_changed_by, MemUpdate};
 use crate::service::ServiceState;
 
+pub use codeterm_mem::curation::merge::MergeBody;
 pub(crate) use codeterm_mem::curation::merge::*;
 
 pub fn merge_error_status(err: &MergeError) -> StatusCode {

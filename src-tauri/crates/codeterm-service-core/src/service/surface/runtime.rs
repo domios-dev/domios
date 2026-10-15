@@ -15,7 +15,7 @@ use crate::service::browser::viewport::ViewportRequest;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SurfaceState {
+pub struct SurfaceState {
     pub owner: String,
     pub title: String,
     pub url: String,
@@ -32,7 +32,7 @@ pub(crate) struct SurfaceState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum NoticeTone {
+pub enum NoticeTone {
     Info,
     Error,
 }
@@ -40,12 +40,12 @@ pub(crate) enum NoticeTone {
 /// Lets the viewer render a recurring condition in place instead of as a notice bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum NoticeKind {
+pub enum NoticeKind {
     PreviewPaused,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct SurfaceNotice {
+pub struct SurfaceNotice {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tone: Option<NoticeTone>,
@@ -89,7 +89,7 @@ impl SurfaceNotice {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum SurfaceEvent {
+pub enum SurfaceEvent {
     State(SurfaceState),
     Frame(Arc<ScreencastFrame>),
     Notice(SurfaceNotice),

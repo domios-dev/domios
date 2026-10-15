@@ -1026,7 +1026,7 @@ impl ServiceContext {
         });
     }
 
-    pub(crate) fn arm_bound_worker_ack_deadline_for_tab(
+    pub fn arm_bound_worker_ack_deadline_for_tab(
         &self,
         tab_id: &str,
         spawn_command: String,

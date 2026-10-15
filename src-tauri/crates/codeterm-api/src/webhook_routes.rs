@@ -18,7 +18,7 @@ pub async fn list_webhooks(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct RegisterWebhookBody {
+pub struct RegisterWebhookBody {
     url: String,
     #[serde(default)]
     events: Vec<String>,

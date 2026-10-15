@@ -32,7 +32,7 @@ impl StorageAuthority {
         self.storage().ok_or(StorageUnavailableError)
     }
 
-    pub(crate) fn storage(&self) -> Option<&Storage> {
+    pub fn storage(&self) -> Option<&Storage> {
         match self {
             StorageAuthority::Ready(storage) => Some(storage),
             StorageAuthority::Unavailable { .. } => None,

@@ -50,7 +50,7 @@ fn visible_spawn_capabilities(
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct SpawnInput<'a> {
+pub struct SpawnInput<'a> {
     pub provider_task: Option<&'a str>,
     pub starter_prompt: StarterPrompt,
     pub confirmed_first_turn: Option<String>,
@@ -109,7 +109,7 @@ pub fn prepare_spawn_input<'a>(
 }
 
 impl SpawnInput<'_> {
-    pub(crate) fn fallback_spec(
+    pub fn fallback_spec(
         &self,
         bootstrap: Option<&str>,
         launch_task: Option<&str>,

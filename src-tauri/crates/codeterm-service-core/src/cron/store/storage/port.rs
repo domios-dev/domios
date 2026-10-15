@@ -39,7 +39,7 @@ impl CronStore {
                 .as_ref()
                 .map_or(self.file.jobs.as_slice(), |draft| draft.jobs.as_slice()),
             Backend::Unavailable(_) => self.file.jobs.as_slice(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Legacy(_) => self.file.jobs.as_slice(),
         }
     }

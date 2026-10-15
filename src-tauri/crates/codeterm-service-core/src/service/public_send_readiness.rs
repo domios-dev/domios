@@ -807,7 +807,7 @@ impl ServiceContext {
         READINESS.bind_attempt(attempt, key);
     }
 
-    pub(crate) fn has_public_send_launch_gate(&self, tab_id: &str) -> bool {
+    pub fn has_public_send_launch_gate(&self, tab_id: &str) -> bool {
         READINESS.state.lock().gates.contains_key(tab_id)
     }
 
@@ -815,7 +815,7 @@ impl ServiceContext {
         READINESS.complete(tab_id, key);
     }
 
-    pub(crate) fn await_public_send_readiness(
+    pub fn await_public_send_readiness(
         &self,
         tab_id: &str,
         timeout: Duration,

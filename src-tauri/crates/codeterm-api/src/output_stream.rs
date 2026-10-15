@@ -29,7 +29,7 @@ use codeterm_service_core::service::ServiceState;
 const PER_TAB_SWEEP_CAP: usize = 128 * 1024;
 
 #[derive(Deserialize)]
-pub(crate) struct OutputStreamQuery {
+pub struct OutputStreamQuery {
     since: Option<String>,
     tab_id: Option<String>,
 }
@@ -164,7 +164,7 @@ fn tab_output_start_offset(from: Option<u64>, total: u64) -> u64 {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct StreamQuery {
+pub struct StreamQuery {
     from: Option<u64>,
 }
 

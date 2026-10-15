@@ -35,22 +35,22 @@ pub async fn wait_for_answer(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Answer {
+pub enum Answer {
     Allow,
     Deny,
 }
 
 pub struct Request {
-    pub(crate) id: String,
-    pub(crate) session_id: String,
-    pub(crate) nonce: String,
-    pub(crate) prompt: PendingPrompt,
-    pub(crate) answers: Vec<Answer>,
-    pub(crate) sender: Option<oneshot::Sender<Answer>>,
+    pub id: String,
+    pub session_id: String,
+    pub nonce: String,
+    pub prompt: PendingPrompt,
+    pub answers: Vec<Answer>,
+    pub sender: Option<oneshot::Sender<Answer>>,
 }
 
 #[derive(Default)]
-pub(crate) struct Broker {
+pub struct Broker {
     requests: HashMap<String, VecDeque<Request>>,
 }
 
@@ -121,7 +121,7 @@ impl Broker {
     }
 }
 
-pub(crate) static BROKER: LazyLock<Mutex<Broker>> = LazyLock::new(|| Mutex::new(Broker::default()));
+pub static BROKER: LazyLock<Mutex<Broker>> = LazyLock::new(|| Mutex::new(Broker::default()));
 
 pub fn decision(answer: Option<Answer>) -> Value {
     match answer {
@@ -212,10 +212,10 @@ pub fn notify(
 }
 
 pub struct PendingGuard {
-    pub(crate) svc: ServiceState,
-    pub(crate) tab_id: String,
-    pub(crate) id: String,
-    pub(crate) identity: PromptIdentity,
+    pub svc: ServiceState,
+    pub tab_id: String,
+    pub id: String,
+    pub identity: PromptIdentity,
 }
 
 fn hook_identity(identity: &PromptIdentity) -> bool {

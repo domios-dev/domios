@@ -12,7 +12,7 @@ use crate::sentinel::{
 };
 
 #[derive(Clone)]
-pub(crate) struct SentinelCaller {
+pub struct SentinelCaller {
     pub(super) tab: String,
     pub(super) team: Option<String>,
     pub(super) workspace: String,
@@ -285,7 +285,7 @@ impl ServiceContext {
         Ok(prepared)
     }
 
-    pub(crate) fn sentinel_caller(
+    pub fn sentinel_caller(
         &self,
         tab_id: &str,
         nonce: Option<&str>,
@@ -293,7 +293,7 @@ impl ServiceContext {
         caller_from_mux(&self.mux.read(), tab_id, nonce)
     }
 
-    pub(crate) fn sentinel_create(
+    pub fn sentinel_create(
         &self,
         caller: &SentinelCaller,
         create: Create,

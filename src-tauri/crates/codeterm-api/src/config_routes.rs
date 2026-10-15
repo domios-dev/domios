@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]
-pub(crate) struct ConfigQuery {
+pub struct ConfigQuery {
     key: Option<String>,
 }
 
@@ -147,7 +147,7 @@ fn api_query_includes_listener(key: &str) -> bool {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct PatchConfigBody {
+pub struct PatchConfigBody {
     key: Option<String>,
     value: Option<serde_json::Value>,
     #[serde(flatten)]

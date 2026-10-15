@@ -85,7 +85,7 @@ impl ServiceContext {
         clear_planner_bindings_for_lifecycle_exit(&self.plan_store, tab_id, epoch_ms());
     }
 
-    pub(crate) fn replay_planner_requests_if_routable(&self, tab_id: &str) {
+    pub fn replay_planner_requests_if_routable(&self, tab_id: &str) {
         let now_ms = epoch_ms();
         for plan in self.plan_store.list_full() {
             let Some(crate::plan::PlannerRef::Tab {

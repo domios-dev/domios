@@ -8,12 +8,12 @@ use serde::Deserialize;
 use crate::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]
-pub(crate) struct RenameTeamBody {
+pub struct RenameTeamBody {
     name: String,
 }
 
 #[derive(Deserialize)]
-pub(crate) struct AddTeamMemberBody {
+pub struct AddTeamMemberBody {
     provider: String,
     role: String,
     title: Option<String>,
@@ -23,7 +23,7 @@ pub(crate) struct AddTeamMemberBody {
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct CloseTeamBody {
+pub struct CloseTeamBody {
     #[serde(default)]
     force: bool,
     #[serde(default)]

@@ -5,7 +5,7 @@ use std::future::Future;
 type Observer = Arc<dyn Fn(Vec<SocketAddr>) + Send + Sync>;
 
 #[derive(Clone, Default)]
-pub(crate) struct ListenerPublication {
+pub struct ListenerPublication {
     state: Arc<Mutex<PublicationState>>,
     publication: Arc<Mutex<()>>,
 }

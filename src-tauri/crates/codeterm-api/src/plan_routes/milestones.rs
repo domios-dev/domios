@@ -11,7 +11,7 @@ use codeterm_service_core::plan::{AgentRef, OrchestratorRef};
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
 
 #[derive(Deserialize)]
-pub(crate) struct MilestoneAddBody {
+pub struct MilestoneAddBody {
     kind: String,
     #[serde(default)]
     text: String,
@@ -47,7 +47,7 @@ pub async fn milestone_add(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct MilestoneUpdateBody {
+pub struct MilestoneUpdateBody {
     #[serde(default)]
     kind: Option<String>,
     #[serde(default)]

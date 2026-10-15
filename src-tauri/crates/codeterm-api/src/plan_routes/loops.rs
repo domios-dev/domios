@@ -11,7 +11,7 @@ use codeterm_service_core::service::plan::PlanError;
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
 
 #[derive(Deserialize)]
-pub(crate) struct LoopCreateBody {
+pub struct LoopCreateBody {
     target: String,
     budget: u32,
     #[serde(default)]
@@ -41,7 +41,7 @@ pub async fn loop_create(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct LoopSetBody {
+pub struct LoopSetBody {
     #[serde(default)]
     budget: Option<u32>,
     #[serde(default)]
@@ -93,7 +93,7 @@ pub async fn loop_status(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct LoopRecordBody {
+pub struct LoopRecordBody {
     note: String,
     #[serde(default)]
     stop: bool,

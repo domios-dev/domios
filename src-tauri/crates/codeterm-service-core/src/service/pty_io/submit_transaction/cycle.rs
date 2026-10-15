@@ -231,7 +231,7 @@ impl Drop for ClaimLease {
 }
 
 #[derive(Clone)]
-pub(crate) struct SubmitCycleClaim {
+pub struct SubmitCycleClaim {
     pty_id: String,
     pub(super) trace_id: Option<String>,
     pub(super) cycle: Arc<SubmitCycle>,

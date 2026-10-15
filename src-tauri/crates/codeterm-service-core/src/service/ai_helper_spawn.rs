@@ -11,7 +11,7 @@ pub struct AiHelperRequest {
 }
 
 impl AiHelperRequest {
-    pub(crate) fn new(title: String, description: String, task: String) -> Result<Self, String> {
+    pub fn new(title: String, description: String, task: String) -> Result<Self, String> {
         let title = title.trim().to_string();
         if title.is_empty() {
             return Err("AI helper spawn requires a title".into());
@@ -36,7 +36,7 @@ pub(crate) struct AiHelperPlacement {
     pub cwd: String,
 }
 
-pub(crate) struct AiHelperLaunch {
+pub struct AiHelperLaunch {
     pub tab_id: String,
     pub workspace_id: String,
     pub ready: Option<tokio::sync::oneshot::Receiver<Result<(), String>>>,

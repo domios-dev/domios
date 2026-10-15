@@ -854,7 +854,7 @@ pub(crate) struct UserDeliveryReadiness {
 }
 
 impl UserDeliveryReadiness {
-    pub(crate) fn new(
+    pub fn new(
         first: UserDeliveryObservation,
         second: UserDeliveryObservation,
     ) -> Result<Self, &'static str> {

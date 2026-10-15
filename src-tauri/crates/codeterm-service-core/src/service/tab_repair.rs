@@ -33,12 +33,12 @@ pub enum TabRepairErrorKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabRepairError {
-    pub(crate) kind: TabRepairErrorKind,
-    pub(crate) message: String,
+    pub kind: TabRepairErrorKind,
+    pub message: String,
 }
 
 impl TabRepairError {
-    pub(crate) fn new(kind: TabRepairErrorKind, message: impl Into<String>) -> Self {
+    pub fn new(kind: TabRepairErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),
@@ -61,7 +61,7 @@ impl TabRepairError {
 
 #[derive(Debug, Clone)]
 pub struct AuthorizedRepairTarget {
-    pub(crate) tab_id: String,
+    pub tab_id: String,
     pub(crate) identity: ProviderIdentityEvidence,
 }
 
@@ -131,7 +131,7 @@ pub(crate) struct SkippedJournalRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct JournalRepairReport {
+pub struct JournalRepairReport {
     pub(crate) restored_from: JournalRecordReport,
     pub(crate) skipped: Vec<SkippedJournalRecord>,
 }
@@ -150,7 +150,7 @@ pub struct TabRepairResponse {
 }
 
 impl TabRepairResponse {
-    pub(crate) fn from_identity_write(
+    pub fn from_identity_write(
         tab_id: String,
         source: TabRepairSource,
         session_before: Option<String>,

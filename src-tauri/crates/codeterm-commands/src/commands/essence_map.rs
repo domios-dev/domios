@@ -157,9 +157,7 @@ fn read_map(root: PathBuf) -> WorkspaceEssenceMapFile {
     }
 }
 
-pub(crate) fn read_workspace_essence_maps_core(
-    project_paths: &[String],
-) -> Vec<WorkspaceEssenceMapFile> {
+pub fn read_workspace_essence_maps_core(project_paths: &[String]) -> Vec<WorkspaceEssenceMapFile> {
     let mut seen = HashSet::new();
     project_paths
         .iter()
@@ -171,7 +169,7 @@ pub(crate) fn read_workspace_essence_maps_core(
         .collect()
 }
 
-pub(crate) fn read_workspace_essence_source_core(
+pub fn read_workspace_essence_source_core(
     project_path: &str,
     source_path: &str,
 ) -> Result<String, String> {

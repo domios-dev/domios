@@ -123,7 +123,7 @@ impl LaunchExitSource {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LaunchExitProof {
+pub struct LaunchExitProof {
     attempt: LaunchAttempt,
     source: LaunchExitSource,
     tree_key: Option<crate::service::process_tree::ProviderTreeKey>,
@@ -386,7 +386,7 @@ static OBSERVATIONS: LazyLock<Observations> = LazyLock::new(|| Observations {
 
 /// Arm the bounded observation for one launch attempt. Replaces any earlier
 /// observation for the tab: only the newest launch is observable.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn arm(attempt: LaunchAttempt) {
     arm_inner(attempt, None, false);
 }
@@ -749,7 +749,7 @@ pub(crate) fn take_published_failure(attempt: &LaunchAttempt) -> Option<String> 
 /// Wait for this launch's own readiness evidence until the bounded deadline.
 /// Event-driven on the evidence notes; the deadline only bounds the failure to
 /// observe anything and is never itself treated as readiness.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn observe(attempt: &LaunchAttempt, deadline: Instant) -> LaunchObservation {
     let mut state = OBSERVATIONS.state.lock();
     loop {

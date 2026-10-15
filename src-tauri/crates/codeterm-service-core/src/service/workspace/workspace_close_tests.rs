@@ -1,3 +1,4 @@
+use super::test_fixture::workspace_with_agent_tab;
 use super::WorkspaceCloseCaller;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -131,15 +132,7 @@ fn protected_workspace() -> (ServiceFixture, String, String) {
     (ServiceFixture::new(mux), workspace_id, coordinator)
 }
 
-fn workspace_with_agent_tab() -> (ServiceFixture, String, String, String) {
-    let (mut mux, caller_tab) = MultiplexerState::new();
-    let workspace_id = mux.create_workspace("Agent workspace".into(), None).id;
-    let tab_id = mux.create_tab(&workspace_id).unwrap();
-    let tab = mux.get_tab_mut(&tab_id).unwrap();
-    tab.agent_type = Some("fixture".into());
-    tab.title = "Release guard agent".into();
-    (ServiceFixture::new(mux), workspace_id, tab_id, caller_tab)
-}
+
 
 #[test]
 fn workspace_close_guard_unconfirmed_agent_tabs_remain() {
@@ -154,18 +147,7 @@ fn workspace_close_guard_unconfirmed_agent_tabs_remain() {
     assert!(mux.get_tab(&tab_id).is_some());
 }
 
-#[test]
-fn optional_body_contract_workspace_agent_guard_is_reported_as_forbidden() {
-    let (fixture, workspace_id, _, caller_tab) = workspace_with_agent_tab();
-    let error = fixture
-        .service
-        .close_workspace_guarded(Some(&caller_tab), &workspace_id, false)
-        .unwrap_err();
-    let (status, message) = crate::api::tab_routes::map_close_error(error);
 
-    assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
-    assert!(message.contains("Release guard agent"));
-}
 
 #[test]
 fn workspace_close_guard_confirmed_agent_tabs_close() {

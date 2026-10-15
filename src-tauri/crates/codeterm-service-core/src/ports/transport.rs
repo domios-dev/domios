@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Clone, Default)]
-pub(crate) struct Selection {
+pub struct Selection {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub resume: Option<String>,

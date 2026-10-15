@@ -10,7 +10,7 @@ use crate::routes::{check_auth, AppState};
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
 
 #[derive(Deserialize)]
-pub(crate) struct LinkBody {
+pub struct LinkBody {
     to: String,
 }
 

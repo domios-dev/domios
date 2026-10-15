@@ -12,7 +12,7 @@ use codeterm_service_core::service::plan::PlanError;
 use super::{emit_plan_changed, epoch_ms, groups_from_csv, plan_err, text_err, PlanRouteResult};
 
 #[derive(Deserialize)]
-pub(crate) struct LayoutSetBody {
+pub struct LayoutSetBody {
     element: String,
     #[serde(default)]
     x: Option<f64>,
@@ -37,7 +37,7 @@ pub async fn layout_set(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct NoteAddBody {
+pub struct NoteAddBody {
     #[serde(default)]
     text: String,
     #[serde(default)]
@@ -65,7 +65,7 @@ pub async fn note_add(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct NoteUpdateBody {
+pub struct NoteUpdateBody {
     #[serde(default)]
     text: String,
 }
@@ -94,7 +94,7 @@ pub async fn note_update(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ElementAddBody {
+pub struct ElementAddBody {
     kind: String,
     #[serde(default)]
     content: Value,
@@ -131,7 +131,7 @@ pub async fn element_add(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct ElementUpdateBody {
+pub struct ElementUpdateBody {
     #[serde(default)]
     kind: Option<String>,
     #[serde(default)]
@@ -193,7 +193,7 @@ pub async fn coverage(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct GroupsSetBody {
+pub struct GroupsSetBody {
     groups: String,
 }
 

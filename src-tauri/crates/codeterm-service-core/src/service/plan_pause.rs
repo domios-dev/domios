@@ -17,7 +17,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab};
 
 /// Side effects a plan pause or resume performs outside the plan record.
-pub(crate) trait PlanPausePorts {
+pub trait PlanPausePorts {
     fn send_notice(&self, tab_id: &str, text: &str) -> Result<(), String>;
     fn schedule_enabled(&self, job_id: &str) -> Option<bool>;
     fn set_schedule_enabled(&self, job_id: &str, enabled: bool) -> Result<(), String>;
@@ -46,7 +46,7 @@ pub(crate) struct PlanLifecyclePreviewSchedule {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub(crate) struct PlanLifecyclePreview {
+pub struct PlanLifecyclePreview {
     pub(crate) kind: PlanLifecycleKind,
     pub(crate) plan_id: String,
     pub(crate) plan_title: String,
@@ -61,12 +61,12 @@ pub(crate) struct PlanLifecyclePreview {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub(crate) struct PlanLifecycleOutcome {
+pub struct PlanLifecycleOutcome {
     pub(crate) kind: PlanLifecycleKind,
     pub(crate) plan_id: String,
     pub(crate) applied: bool,
     pub(crate) mode: PlanMode,
-    pub(crate) stride_id: Option<String>,
+    pub stride_id: Option<String>,
     pub(crate) operation: Option<PlanPauseOperation>,
 }
 
@@ -453,8 +453,8 @@ pub(crate) fn execute_plan_resume(
     Ok(outcome(true, restored_mode, Some(operation)))
 }
 
-struct ServicePlanPausePorts<'a> {
-    svc: &'a ServiceContext,
+pub struct ServicePlanPausePorts<'a> {
+    pub svc: &'a ServiceContext,
 }
 
 impl PlanPausePorts for ServicePlanPausePorts<'_> {
@@ -613,7 +613,5 @@ impl ServiceContext {
     }
 }
 
-#[cfg(test)]
-mod off_runtime_tests;
 #[cfg(test)]
 mod tests;

@@ -16,7 +16,7 @@ const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 100;
 
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct TeamMissionControlQuery {
+pub struct TeamMissionControlQuery {
     #[serde(default)]
     limit: Option<usize>,
     #[serde(default)]
@@ -30,7 +30,7 @@ impl TeamMissionControlQuery {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub(crate) struct TeamMissionControlEvent {
+pub struct TeamMissionControlEvent {
     pub id: String,
     pub plan_id: String,
     pub plan_title: String,
@@ -46,7 +46,7 @@ pub(crate) struct TeamMissionControlEvent {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub(crate) struct TeamMissionControlState {
+pub struct TeamMissionControlState {
     pub team_id: String,
     pub team: Team,
     pub active_plan: Option<Plan>,

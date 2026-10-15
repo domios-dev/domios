@@ -85,7 +85,7 @@ impl DeferredSessionBindingRegistry {
         Ok(binding)
     }
 
-    pub(crate) fn get(&self, tab_id: &str, generation: u64) -> Option<DeferredSessionBinding> {
+    pub fn get(&self, tab_id: &str, generation: u64) -> Option<DeferredSessionBinding> {
         self.entries
             .lock()
             .get(tab_id)

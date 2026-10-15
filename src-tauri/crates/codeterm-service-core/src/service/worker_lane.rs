@@ -93,7 +93,7 @@ pub enum LaneProtection {
 }
 
 impl LaneProtection {
-    pub(crate) fn for_dispatch_intent(intent: &crate::plan::ExecutionIntent) -> Self {
+    pub fn for_dispatch_intent(intent: &crate::plan::ExecutionIntent) -> Self {
         match intent {
             crate::plan::ExecutionIntent::ReadOnly => Self::Waived,
             crate::plan::ExecutionIntent::Mutating | crate::plan::ExecutionIntent::Unspecified => {
@@ -108,9 +108,9 @@ impl LaneProtection {
 }
 
 #[derive(Debug)]
-pub(crate) struct ProvisionedWorkerLane {
+pub struct ProvisionedWorkerLane {
     canonical_cwd: String,
-    pub(crate) cwd: String,
+    pub cwd: String,
     pub(crate) branch: String,
     base: String,
 }
@@ -145,11 +145,11 @@ impl ProvisionedWorkerLane {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkerLaneProvenance {
+pub struct WorkerLaneProvenance {
     pub(crate) canonical_cwd: String,
-    pub(crate) worktree_path: String,
-    pub(crate) branch: String,
-    pub(crate) base: String,
+    pub worktree_path: String,
+    pub branch: String,
+    pub base: String,
     /// The canonical branch the lane integrates into; None for a detached canonical HEAD.
     pub(crate) destination: Option<String>,
 }
@@ -773,7 +773,7 @@ pub(crate) fn verify_worker_lane(
     })
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn provision_lane_for_test(
     project_cwd: &str,
     lane_label: &str,

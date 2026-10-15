@@ -661,3 +661,6 @@ pub fn ensure_planner_task_fields_are_structural(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod test_fixture;

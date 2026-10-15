@@ -149,7 +149,7 @@ pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> Strin
 /// this crate owns — the seam that lets `codeterm-mem`'s shared worker-agent
 /// resolver (used by every memory background-worker call site) reach
 /// provider-model compatibility checking without a reverse crate dependency.
-pub(crate) struct CatalogBackgroundModelPort;
+pub struct CatalogBackgroundModelPort;
 
 impl codeterm_mem::worker_agent::BackgroundModelPort for CatalogBackgroundModelPort {
     fn resolve(&self, provider_id: &str, configured: &str) -> (String, bool) {
