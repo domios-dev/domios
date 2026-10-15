@@ -342,13 +342,11 @@ impl AgentRegistry {
     /// format the frontend reads via `dispatch::Command::ListAgentProviders`.
     ///
     /// Registration says a provider exists; only the launch-binary probe says
-    /// it can run here, so enumeration observes it. `describe()` is pure/cheap
-    /// by contract, so the read lock covers only the iteration and the probe
-    /// runs after it is dropped.
+    /// it can run here, so enumeration observes it outside the registry lock.
     pub fn list_descriptors(&self) -> Vec<crate::agent::provider::ProviderDescriptor> {
-        let guard = self.providers.read();
-        let described: Vec<_> = guard
-            .values()
+        let providers = self.all_provider_arcs();
+        let described: Vec<_> = providers
+            .iter()
             .map(|p| {
                 let descriptor = p.describe();
                 let launch_binary = descriptor
@@ -359,7 +357,6 @@ impl AgentRegistry {
                 (descriptor, launch_binary)
             })
             .collect();
-        drop(guard);
         described
             .into_iter()
             .map(|(mut descriptor, launch_binary)| {
