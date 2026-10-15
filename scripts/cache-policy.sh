@@ -56,7 +56,7 @@ ct_forbid_mutable_cache_dir() {
   [ -z "$1" ] && return 0
   repo_abs="$(ct_abs_path "$(ct_repo_root)")"
   dir_abs="$(ct_abs_path "$1")"
-  for rel in src-tauri/target cli/target dist src-tauri/gen src-tauri/bundled-cli src-tauri/bundled-embed; do
+  for rel in src-tauri/target cli/target dist src-tauri/gen src-tauri/bundled-cli; do
     if ct_path_under "$dir_abs" "$repo_abs/$rel"; then
       echo "[cache-policy] ERROR: SCCACHE_DIR must not live under mutable artifact path: $dir_abs" >&2
       return 2

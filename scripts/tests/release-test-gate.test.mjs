@@ -17,7 +17,8 @@ const builds = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x86_64", "wind
 const dependencies = job => [job.needs].flat();
 
 const fastJobs = ["file-sizes", "plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
-const longJobs = ["rust-tests", "rust-platform", "rust-receipts"];
+const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
+const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
 
 const overlapped = ["macos-arm64", "macos-x64", "linux-arm64", "windows-x64", "windows-arm64"];
 const afterFast = ["linux-x86_64", "tests"];
@@ -86,7 +87,7 @@ test("dry runs use both test stages by default; bundle-only diagnostics explicit
 
 test("file sizes gate every other fast check, and test phases partition every check", () => {
   assert.deepEqual(Object.keys(tests.jobs).sort(), ["changed", "rust-warnings", ...fastJobs, ...longJobs].sort());
-  const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, fmt: { result: "success" }, "rust-tests": { result: "success" }, "rust-platform": { result: "success" } };
+  const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, fmt: { result: "success" }, "rust-tests": { result: "success" }, "rust-platform": { result: "success" }, "rust-embeddings": { result: "success" } };
   for (const id of fastJobs) {
     assert.deepEqual(dependencies(tests.jobs[id]), id === "file-sizes" ? ["changed"] : ["changed", "file-sizes"], id);
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "fast"].includes(phase), `${id}/${phase}`);
@@ -95,7 +96,7 @@ test("file sizes gate every other fast check, and test phases partition every ch
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "long"].includes(phase), `${id}/${phase}`);
   }
   const skipped = { ...needs, fmt: { result: "skipped" } };
-  for (const id of ["rust-tests", "rust-platform"]) assert.ok(condition(tests.jobs[id].if, { needs: skipped, inputs: { phase: "long" } }), id);
+  for (const id of ["rust-tests", "rust-platform", "rust-embeddings"]) assert.ok(condition(tests.jobs[id].if, { needs: skipped, inputs: { phase: "long" } }), id);
   assert.match(tests.concurrency.group, /inputs.phase/);
 });
 
@@ -154,7 +155,7 @@ test("master accepts pull requests only from release branches", () => {
   assert.deepEqual(guard.on.pull_request.branches, ["master"]);
   const script = guard.jobs.source.steps[0].run;
   for (const [head, ok] of [["release/1.14.4", true], ["release/1.15.0", true], ["develop", false], ["lane/pl-x-task-y", false], ["release/next", false]]) {
-    const run = () => execFileSync("bash", ["-euo", "pipefail", "-c", script], { env: { ...process.env, HEAD_REF: head }, stdio: "pipe" });
+    const run = () => execFileSync(bash, ["-euo", "pipefail", "-c", script], { env: { ...process.env, HEAD_REF: head }, stdio: "pipe" });
     if (ok) run(); else assert.throws(run, undefined, head);
   }
 });
@@ -184,7 +185,7 @@ test("release pushes cannot skip an unchanged tree", () => {
     .replaceAll("${{ github.event_name }}", "push");
   // A CI runner's stdout can be a socket, where /dev/stdout is not appendable.
   const output = join(mkdtempSync(join(tmpdir(), "release-gate-")), "output");
-  execFileSync("bash", ["-euo", "pipefail", "-c", script], {
+  execFileSync(bash, ["-euo", "pipefail", "-c", script], {
     encoding: "utf8",
     env: { ...process.env, CI_RELEASE_CALL: "true", GITHUB_OUTPUT: output },
   });
@@ -244,13 +245,16 @@ test("the full suite runs once on the rust-tests pool and each OS runs only its 
   assert.ok(platform.strategy.matrix.include.every(entry => entry.suite === "platform"));
   assert.deepEqual(platform.strategy.matrix.include.map(entry => entry.os).sort(), ["Linux", "Windows", "macOS"]);
   assert.equal(platform.strategy["fail-fast"], false);
-  for (const job of [full, platform]) {
+  const embeddings = tests.jobs["rust-embeddings"];
+  assert.deepEqual(embeddings.strategy.matrix.suite, ["embeddings"]);
+  assert.deepEqual(embeddings["runs-on"], ["self-hosted", "rust-tests"]);
+  for (const job of [full, platform, embeddings]) {
     const runs = job.steps.map(step => step.run ?? "").join(" ; ");
     assert.match(runs, /build\.sh ci-tests \$\{\{ matrix\.suite \}\}/);
     assert.match(runs, /build\.ps1 ci-tests \$\{\{ matrix\.suite \}\}/);
     assert.ok(!job.steps.some(step => step.uses?.startsWith("actions/download-artifact")), "no archive download");
   }
-  assert.deepEqual(new Set(dependencies(tests.jobs["rust-receipts"])), new Set(["changed", "rust-tests", "rust-platform"]));
+  assert.deepEqual(new Set(dependencies(tests.jobs["rust-receipts"])), new Set(["changed", "rust-tests", "rust-platform", "rust-embeddings"]));
 });
 
 test("platform tests expand to one job per OS", () => {
