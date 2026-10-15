@@ -108,7 +108,7 @@ test('links and paths outside the hash root refuse deletion', (t) => {
 
 function trimFixture(t, shared = false) {
   const f = fixture(t);
-  const dir = shared ? path.join(f.root, 'lanes') : f.create('ab', '1');
+  const dir = shared ? path.join(f.root, typeof shared === 'string' ? shared : 'lanes') : f.create('ab', '1');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'CACHEDIR.TAG'), 'Signature: 8a477f597d28d172789f06886806bc55');
   const stale = path.join(dir, 'debug', 'deps', 'libold-aaaaaaaaaaaaaaaa.rlib');
@@ -151,16 +151,36 @@ test('shared lane directory is trimmed once across worktrees and keeps live unit
   const mappings = [{ build: f.dir }, { build: f.dir }];
   let scans = 0;
   const plan = () => { scans++; return [f.stale]; };
-  assert.equal(trimBuildDirectories(mappings, { plan, dryRun: true }), 1);
+  const env = { CODETERM_RUST_CACHE_ROOT: f.root };
+  assert.equal(trimBuildDirectories(mappings, { plan, env, dryRun: true }), 1);
   assert.equal(scans, 1);
   assert.equal(fs.existsSync(f.stale), true);
-  assert.equal(trimBuildDirectories(mappings, { plan }), 1);
+  assert.equal(trimBuildDirectories(mappings, { plan, env }), 1);
   assert.equal(fs.existsSync(f.stale), false);
   assert.equal(fs.existsSync(f.live), true);
   assert.equal(f.trim([path.join(f.dir, 'CACHEDIR.TAG')]).status, 2);
   fs.unlinkSync(path.join(f.dir, 'CACHEDIR.TAG'));
   assert.equal(f.trim([f.live]).status, 2);
 });
+
+for (const [variable, directory] of [['CODETERM_RUST_CACHE_ROOT', 'lanes'], ['CARGO_HOME', 'codeterm-lanes']]) {
+  test(`retention discovers ${variable} lane cache without a Cargo metadata mapping`, (t) => {
+    const f = trimFixture(t, directory);
+    const canonicalTarget = path.join(f.root, 'canonical', 'target');
+    fs.mkdirSync(canonicalTarget, { recursive: true });
+    fs.writeFileSync(path.join(canonicalTarget, 'keep'), 'canonical');
+    const scanned = [];
+    const bytes = trimBuildDirectories([{ build: canonicalTarget }], {
+      env: { [variable]: f.root },
+      plan: (build) => { scanned.push(build); return [f.stale]; },
+    });
+    assert.equal(bytes, 1);
+    assert.deepEqual(scanned, [f.dir]);
+    assert.equal(fs.existsSync(f.stale), false);
+    assert.equal(fs.existsSync(f.live), true);
+    assert.equal(fs.readFileSync(path.join(canonicalTarget, 'keep'), 'utf8'), 'canonical');
+  });
+}
 
 test('a held Cargo lock protects the whole build directory from trim', async (t) => {
   const f = trimFixture(t, true);
