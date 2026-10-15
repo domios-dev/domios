@@ -521,6 +521,7 @@ dependencies = [
  "libc",
  "log",
  "parking_lot",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",

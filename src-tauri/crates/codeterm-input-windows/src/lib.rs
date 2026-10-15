@@ -294,12 +294,12 @@ impl SelectedReportDecoder {
     }
 }
 
-fn split_report_batch<'a>(
+fn split_report_batch(
     report_count: u32,
     report_bytes: u32,
-    payload: &'a [u8],
+    payload: &[u8],
     expected_report_bytes: usize,
-) -> Option<Vec<&'a [u8]>> {
+) -> Option<Vec<&[u8]>> {
     let count = usize::try_from(report_count).ok()?;
     let bytes = usize::try_from(report_bytes).ok()?;
     if count == 0

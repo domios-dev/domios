@@ -21,16 +21,19 @@ The runner spawns the local `claude` CLI in **non-interactive sandbox mode** for
 
 ```bash
 claude -p "<eval prompt>" \
-  --append-system-prompt "$(cat <prompt-under-test>)" \
-  --allowedTools "" \
+  --system-prompt-file "<prompt-under-test>" \
+  --tools "" \
+  --setting-sources "" --strict-mcp-config \
   --output-format json \
   --model sonnet
 ```
 
-- `--append-system-prompt` injects the prompt-under-test on top of Claude Code's default system prompt. The full instruction set under test is what the agent sees.
-- `--allowedTools ""` is **critical**: the agent has zero tools available. It cannot run `Bash`, cannot read files, cannot write — it can only respond in text describing what it WOULD do. This makes evals safe (no real side effects on your machine, no API calls, no fs writes) and parseable (the agent's plan is in plain text, not hidden in tool calls).
+- `--system-prompt-file` replaces the default system prompt with the prompt under test and the runner's trusted evaluation framing.
+- `--tools ""` removes built-in tools; `--setting-sources "" --strict-mcp-config` excludes inherited settings and MCP servers. An empty `--allowedTools` list does not disable tools. Isolated tool-disabled samples use a separate cache salt; empty/error actor envelopes fail before judging or caching.
 - `--output-format json` returns a structured envelope; we read `result.result` for the agent's reply.
 - Each eval is run **3 times** by default to catch non-determinism. 3/3 = ✓, 2/3 = ⚠ flaky, 0/3 = ✗ broken.
+
+Open harness note: worker-handoff cases 5 (unsafe commit) and 8 (busy gateway) produced empty success/end_turn envelopes; case 8 also produced one weak listing of remaining verification. Keep these failures in the evidence: empty envelopes are actor errors, the weak listing remains a behavioral failure. They do not gate a shared plan/task-reference trim when worker_suffix is unchanged. Investigate them separately before claiming those cases stable.
 
 For each eval, every expectation in `expectations[]` is checked by an **LLM judge** — a second `claude -p` call (Haiku by default) that asks "did the response satisfy this expectation? PASS or FAIL". Substring/regex heuristics were considered and dropped: they create false positives (tokens appearing in unrelated context, paraphrased commands, near-misses on negative constraints) and the cost saving over Haiku is negligible. One uniform path is simpler and more reliable.
 

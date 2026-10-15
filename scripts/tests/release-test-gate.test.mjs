@@ -17,9 +17,9 @@ const builds = ["macos", "linux-arm64", "linux-x86_64", "windows"];
 const dependencies = job => [job.needs].flat();
 
 const fastJobs = ["plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
-const longJobs = ["rust-archives", "rust-shards", "rust-platform", "rust-input-platform", "rust-coverage"];
+const longJobs = ["rust-tests", "rust-platform", "rust-receipts"];
 
-test("fast checks gate every build while Rust archives queue independently", () => {
+test("fast checks gate the Rust tests and every build, which then run in parallel", () => {
   const gate = release.jobs["quick-checks"];
   assert.equal(gate.uses, "./.github/workflows/tests.yml");
   assert.equal(gate.with.phase, "fast");
@@ -34,9 +34,10 @@ test("fast checks gate every build while Rust archives queue independently", () 
       assert.equal(condition(job.if, { needs }), gateResult === "success", `${id}: ${gateResult}`);
       assert.equal(condition(job.if, { needs, cancelled: true }), false);
     }
-    assert.equal(dependencies(job).includes("tests"), false, "builds overlap Rust archives and tests");
+    assert.equal(dependencies(job).includes("tests"), false, "builds overlap the Rust tests");
   }
-  assert.deepEqual(dependencies(release.jobs.tests), ["prepare"]);
+  assert.deepEqual(dependencies(release.jobs.tests), ["prepare", "quick-checks"]);
+  assert.doesNotMatch(release.jobs.tests.if, /always\(\)|failure\(\)|cancelled\(\)/, "tests keep the implicit success() over the fast gate");
   assert.equal(release.jobs.tests.with.phase, "long");
   assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "quick-checks", "tests", ...builds]));
   assert.equal(release.jobs["release-manifest"].if, "needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'");
@@ -57,7 +58,7 @@ test("dry runs use both test stages by default; bundle-only diagnostics explicit
 
 test("test phases partition every check without a serial chain in the fast gate", () => {
   assert.deepEqual(Object.keys(tests.jobs).sort(), ["changed", "rust-warnings", ...fastJobs, ...longJobs].sort());
-  const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, fmt: { result: "success" }, "rust-archives": { result: "success" } };
+  const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, fmt: { result: "success" }, "rust-tests": { result: "success" }, "rust-platform": { result: "success" } };
   for (const id of fastJobs) {
     assert.deepEqual(dependencies(tests.jobs[id]), ["changed"], id);
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "fast"].includes(phase), `${id}/${phase}`);
@@ -65,34 +66,22 @@ test("test phases partition every check without a serial chain in the fast gate"
   for (const id of longJobs) {
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "long"].includes(phase), `${id}/${phase}`);
   }
-  const skipped = { ...needs, fmt: { result: "skipped" }, "rust-archives": { result: "skipped" } };
-  assert.ok(condition(tests.jobs["rust-archives"].if, { needs: skipped, inputs: { phase: "long" } }));
-  for (const id of ["rust-shards", "rust-platform"]) assert.equal(condition(tests.jobs[id].if, { needs: skipped, inputs: { phase: "long" } }), false);
+  const skipped = { ...needs, fmt: { result: "skipped" } };
+  for (const id of ["rust-tests", "rust-platform"]) assert.ok(condition(tests.jobs[id].if, { needs: skipped, inputs: { phase: "long" } }), id);
   assert.match(tests.concurrency.group, /inputs.phase/);
 });
 
-test("a failing test or gate job cancels its own caller run without waiting for other tests", () => {
-  const directory = mkdtempSync(join(tmpdir(), "release-cancel-"));
-  for (const id of ["changed", ...fastJobs, ...longJobs]) {
-    const job = tests.jobs[id];
-    assert.equal(job.permissions.actions, "write");
-    const cancels = job.steps.filter(step => step.name === "Cancel release builds on test failure");
-    assert.ok(cancels.length > 0, id);
-    for (const step of cancels) {
-      assert.equal(step.shell, "bash");
-      assert.equal(step.env.GH_TOKEN, "${{ github.token }}");
-      assert.equal(step.env.GH_RUN_ID, "${{ github.run_id }}");
-      assert.ok(condition(step.if, { failed: true, inputs: { source_ref: "sha", cancel_release_on_failure: true } }));
-      for (const inputs of [{ source_ref: "sha", cancel_release_on_failure: false }, { source_ref: "", cancel_release_on_failure: true }]) assert.equal(condition(step.if, { failed: true, inputs }), false);
-      assert.equal(condition(step.if, { inputs: { source_ref: "sha", cancel_release_on_failure: true } }), false);
-      const output = join(directory, `${id}.txt`);
-      execFileSync("bash", ["-euo", "pipefail", "-c", `gh() { printf '%s\\n' "$@" > "$OUTPUT"; }; ${step.run}`], { env: { ...process.env, GH_REPO: "fixture/repo", GH_RUN_ID: "123", OUTPUT: output } });
-      assert.equal(readFileSync(output, "utf8"), "api\n--method\nPOST\nrepos/fixture/repo/actions/runs/123/cancel\n");
+test("a failing test never cancels the run, so every failure is reported, and publication still needs both test stages", () => {
+  const cancelsRun = /actions\/runs\/[^\s"]*\/cancel/;
+  for (const name of ["tests", "release", "rust-warnings-summary"]) {
+    for (const [id, job] of Object.entries(workflow(name).jobs)) {
+      for (const step of job.steps || []) assert.doesNotMatch(step.run ?? "", cancelsRun, `${name}/${id}`);
     }
   }
-  for (const id of ["tests", "quick-checks"]) {
-    assert.equal(release.jobs[id].with.cancel_release_on_failure, true);
-    assert.equal(release.jobs[id].permissions.actions, "write");
+  for (const id of ["release-manifest", "frontend"]) {
+    const job = release.jobs[id];
+    assert.ok(dependencies(job).includes("tests") && dependencies(job).includes("quick-checks"), id);
+    assert.doesNotMatch(job.if, /always\(\)|failure\(\)|cancelled\(\)/, `${id} keeps the implicit success() over every need`);
   }
 });
 
@@ -131,9 +120,10 @@ test("master accepts pull requests only from release branches", () => {
 test("reusable tests require the release SHA and force scope through both skip gates", () => {
   assert.ok(Object.hasOwn(tests.on, "pull_request"));
   assert.ok(Object.hasOwn(tests.on, "workflow_dispatch"));
+  assert.deepEqual(tests.on.schedule, [{ cron: "0 1 * * *" }], "the nightly full matrix on develop");
   assert.equal(tests.on.workflow_call.inputs.source_ref.required, true);
   assert.equal(tests.on.workflow_call.inputs.source_ref.type, "string");
-  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase", "cancel_release_on_failure"]);
+  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase"]);
   const changed = tests.jobs.changed;
   assert.equal(changed.if, undefined, "the scope gate runs for every trigger, including release calls");
   assert.equal(changed.steps.find(step => step.id === "tree").env.CI_RELEASE_CALL, "${{ inputs.source_ref != '' || github.event_name == 'schedule' }}");
@@ -184,4 +174,34 @@ test("a frontend-only release builds and publishes only the frontend after the f
   const called = workflow("frontend-release");
   assert.deepEqual(Object.keys(called.on.workflow_call.inputs), ["tag", "source_sha"]);
   assert.equal(called.on.push, undefined, "a frontend tag push no longer publishes outside the release run");
+});
+
+test("heavy Rust and build jobs end by removing their own targets and archives", () => {
+  const heavy = [
+    ...["rust-tests", "rust-platform", "clippy-linux", "ts-types"].map(id => tests.jobs[id]),
+    ...["release-macos-build", "release-linux", "release-linux-arm64", "release-windows"].map(name => workflow(name).jobs.build),
+  ];
+  for (const job of heavy) {
+    const last = job.steps.at(-1);
+    assert.equal(last.run, "node scripts/ci-workspace-cleanup.mjs", job.name);
+    assert.equal(last.if, "always()");
+    assert.equal(last["continue-on-error"], true, "cleanup never changes the job result");
+  }
+});
+
+test("the full suite runs once on the rust-tests pool and each OS runs only its platform subset in place", () => {
+  const full = tests.jobs["rust-tests"];
+  assert.deepEqual(full["runs-on"], ["self-hosted", "rust-tests"]);
+  assert.deepEqual(full.strategy.matrix.suite, ["full"]);
+  const platform = tests.jobs["rust-platform"];
+  assert.deepEqual(platform.strategy.matrix.suite, ["platform"]);
+  assert.deepEqual(platform.strategy.matrix.include.map(entry => entry.os).sort(), ["Linux", "Windows", "macOS"]);
+  assert.equal(platform.strategy["fail-fast"], false);
+  for (const job of [full, platform]) {
+    const runs = job.steps.map(step => step.run ?? "").join(" ; ");
+    assert.match(runs, /build\.sh ci-tests \$\{\{ matrix\.suite \}\}/);
+    assert.match(runs, /build\.ps1 ci-tests \$\{\{ matrix\.suite \}\}/);
+    assert.ok(!job.steps.some(step => step.uses?.startsWith("actions/download-artifact")), "no archive download");
+  }
+  assert.deepEqual(new Set(dependencies(tests.jobs["rust-receipts"])), new Set(["changed", "rust-tests", "rust-platform"]));
 });

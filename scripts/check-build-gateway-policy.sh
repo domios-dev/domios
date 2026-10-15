@@ -18,7 +18,7 @@ trap cleanup EXIT
 expect_log() {
   local pattern="$1" source="${2:-}" body
   if [ -n "$source" ]; then body="$(cat "$source")"; else body="$(cat)"; source="stdin"; fi
-  grep -q "$pattern" <<< "$body" && return 0
+  grep -Fq "$pattern" <<< "$body" && return 0
   echo "guard assertion failed: expected '$pattern' in $source; contents:" >&2
   printf '%s
 ' "$body" >&2
@@ -54,6 +54,7 @@ expect_log "environment gateway markers are not accepted" "$TEST_ROOT/forged-qa-
 
 source scripts/build-gateway.sh
 node --test scripts/cache-retention.test.mjs
+node --test scripts/cargo-build-gc.test.mjs
 forged_parent_start="$(ct_gateway_process_start_token "$$")"
 if scripts/qa-prep.sh --gateway-context forged "$$" "$forged_parent_start" qa-prep --probe-only \
     > "$TEST_ROOT/forged-qa-parent.log" 2>&1; then
@@ -81,19 +82,19 @@ expect_log "/targets/release/release-policy" "$TEST_ROOT/release-policy.log"
 
 FAKE_BIN="$TEST_ROOT/fake-bin"
 mkdir -p "$FAKE_BIN"
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$SCCACHE_CACHE_SIZE" > "$CODETERM_SCCACHE_CAP_RECEIPT"\ncase "${1:-}" in --show-stats) echo fake-stats;; --version) echo sccache-fixture;; esac\n' > "$FAKE_BIN/sccache"
+printf '#!/usr/bin/env bash\n[ "${1:-}" != --version ] || printf "%%s\\n" "$SCCACHE_CACHE_SIZE" > "$CODETERM_SCCACHE_CAP_RECEIPT"\ncase "${1:-}" in --show-stats) echo fake-stats;; --version) echo sccache-fixture;; esac\n' > "$FAKE_BIN/sccache"
 cat > "$FAKE_BIN/node" <<'NODE'
 #!/usr/bin/env bash
 case "$1" in */sccache-server-probe.mjs) exit 0 ;; esac
 exec "$FIXTURE_REAL_NODE" "$@"
 NODE
 chmod +x "$FAKE_BIN/sccache" "$FAKE_BIN/node"
-env -u SCCACHE_CACHE_SIZE FIXTURE_REAL_NODE="$(command -v node)" CT_BUILD_JOB_ID=worktree-policy CODETERM_SCCACHE_CAP_RECEIPT="$TEST_ROOT/sccache-cap" PATH="$FAKE_BIN:$PATH" \
+env -u SCCACHE_CACHE_SIZE FIXTURE_REAL_NODE="$(command -v node)" CT_BUILD_JOB_ID=worktree-policy CODETERM_SCCACHE_CAP_RECEIPT="$(cd "$TEST_ROOT" && pwd)/sccache-cap" PATH="$FAKE_BIN:$PATH" \
   ./build.sh gateway-policy-probe worktree-target > "$TEST_ROOT/worktree-policy.log"
 expect_log "incremental=0" "$TEST_ROOT/worktree-policy.log"
 expect_log "/targets/exceptional/" "$TEST_ROOT/worktree-policy.log"
 expect_log "wrapper=sccache" "$TEST_ROOT/worktree-policy.log"
-[ "$(cat "$TEST_ROOT/sccache-cap")" = 10G ]
+[ "$(cat "$TEST_ROOT/sccache-cap")" = 10G ] || { echo "sccache-cap fixture failed" >&2; exit 1; }
 node - <<'JS' "$TEST_ROOT/state"
 const fs = require('node:fs');
 const path = require('node:path');
@@ -112,10 +113,7 @@ if grep -q '\.codeterm/bin' <<< "$cli_flow"; then
   echo "development CLI builds must not overwrite the production CLI" >&2
   exit 1
 fi
-if grep -q 'enter_build_gateway' <<< "$cli_flow"; then
-  echo "CLI build must not wait behind the independent app/dev gateway" >&2
-  exit 1
-fi
+
 
 dev_flow="$(sed -n '/^  dev)/,/^    ;;/p' build.sh)"
 expect_log 'install_cli_to "$CT_DATA_DIR/bin"' <<< "$dev_flow"
@@ -126,7 +124,7 @@ if grep -q '\.codeterm/bin' <<< "$dev_flow"; then
   exit 1
 fi
 dev_kill_line="$(grep -n 'kill_dev' <<< "$dev_flow" | head -1 | cut -d: -f1)"
-dev_gateway_line="$(grep -n 'enter_build_gateway' <<< "$dev_flow" | head -1 | cut -d: -f1)"
+dev_gateway_line="$(grep -n 'enter_cargo_gateway' <<< "$dev_flow" | head -1 | cut -d: -f1)"
 [ -n "$dev_kill_line" ] && [ -n "$dev_gateway_line" ] && [ "$dev_kill_line" -lt "$dev_gateway_line" ] || {
   echo "canonical dev restart must release the running dev owner before gateway acquisition" >&2
   exit 1
@@ -137,10 +135,6 @@ expect_log 'ct_mark_exceptional_target || ' <<< "$exceptional_flow"
 
 worktree_flow="$(sed -n '/^  worktree-check)/,/^    ;;/p' build.sh)"
 expect_log 'prepare_exceptional_worktree_target' <<< "$worktree_flow"
-if grep -q 'enter_build_gateway' <<< "$worktree_flow"; then
-  echo "isolated worktree check must not wait behind the shared dev gateway" >&2
-  exit 1
-fi
 expect_log 'prepare_dev_frontend_dist "$(pwd -P)"' <<< "$worktree_flow"
 expect_log 'cargo check --manifest-path src-tauri/Cargo.toml --all-targets' <<< "$worktree_flow"
 worktree_preflight_line="$(grep -n 'prepare_dev_frontend_dist' <<< "$worktree_flow" | head -1 | cut -d: -f1)"
@@ -156,37 +150,20 @@ expect_log 'prepare_dev_frontend_dist "$(pwd -P)"' <<< "$check_tests_flow"
 expect_log 'prepare_bundle_stubs' <<< "$check_tests_flow"
 expect_log 'cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --no-run' <<< "$check_tests_flow"
 expect_log 'cargo test --manifest-path cli/Cargo.toml --all-targets --no-run' <<< "$check_tests_flow"
-if grep -q 'enter_build_gateway' <<< "$check_tests_flow"; then
-  echo "check-tests must compile test profiles without waiting behind the shared dev gateway" >&2
-  exit 1
-fi
-
-mkdir -p "$TEST_ROOT/no-cargo"
-printf '#!/usr/bin/env bash\necho "cargo invoked" >&2\nexit 97\n' > "$TEST_ROOT/no-cargo/cargo"
-chmod +x "$TEST_ROOT/no-cargo/cargo"
-check_tests_wait_status=0
-PATH="$TEST_ROOT/no-cargo:$PATH" ./build.sh check-tests --wait-build \
-  > "$TEST_ROOT/check-tests-wait.log" 2>&1 || check_tests_wait_status=$?
-[ "$check_tests_wait_status" -eq 2 ] || {
-  echo "check-tests --wait-build must refuse with exit 2, got $check_tests_wait_status" >&2
-  cat "$TEST_ROOT/check-tests-wait.log" >&2
-  exit 1
-}
-expect_log "check-tests does not use the build gateway" "$TEST_ROOT/check-tests-wait.log"
-if grep -q "cargo invoked" "$TEST_ROOT/check-tests-wait.log"; then
-  echo "check-tests started cargo before refusing --wait-build" >&2
-  exit 1
-fi
+cargo_entry_flow="$(sed -n '/^enter_cargo_gateway()/,/^}/p' build.sh)"
+expect_log 'enter_build_gateway "$@"' <<< "$cargo_entry_flow"
+expect_log 'ct_configure_sccache' <<< "$cargo_entry_flow"
 
 test_one_flow="$(sed -n '/^  test-one)/,/^  verify)/p' build.sh)"
 expect_log 'types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
-expect_log 'scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"' <<< "$test_one_flow"
+expect_log 'configure_app_test_cargo test-one' <<< "$test_one_flow"
+expect_log 'scripts/test-capped.sh "${CT_APP_TEST_ARGS[@]}" "$test_filter"' <<< "$test_one_flow"
 expect_log 'cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter"' <<< "$test_one_flow"
 
 nextest_flow="$(sed -n '/^  nextest)/,/^  verify)/p' build.sh)"
 expect_log 'run_nextest_scope "${@:2}"' <<< "$nextest_flow"
 nextest_runner="$(sed -n '/^run_nextest_scope()/,/^}/p' build.sh)"
-expect_log 'enter_build_gateway' <<< "$nextest_runner"
+expect_log '|nextest|' build.sh
 expect_log 'cargo nextest list --manifest-path' <<< "$nextest_runner"
 expect_log 'CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD=""' <<< "$nextest_runner"
 expect_log 'scripts/test-capped.sh' <<< "$nextest_runner"

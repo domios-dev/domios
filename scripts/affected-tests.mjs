@@ -10,6 +10,7 @@ const scopeAliases = new Map([
   ["codeterm", "app"],
   ["codeterm-agent-detect", "agent-detect"],
   ["codeterm-analytics", "analytics"],
+  ["codeterm-sentinel", "sentinel"],
   ["codeterm-notification-core", "notification-core"],
   ["codeterm-account", "account"],
   ["codeterm-billing", "billing"],
@@ -191,7 +192,7 @@ function moduleFilter(modulePath) {
 }
 
 function renderRustCommands(groups) {
-  const order = ["app", "plan", "pty", "plugin", "types", "wire", "decision", "provider-signals", "cli", "mem", "mesh", "plugins", "pty-fork"];
+  const order = ["app", "plan", "pty", "plugin", "types", "wire", "sentinel", "decision", "provider-signals", "cli", "mem", "mesh", "plugins", "pty-fork"];
   return [...groups.values()]
     .sort((left, right) => {
       const leftRank = order.indexOf(left.scope);
