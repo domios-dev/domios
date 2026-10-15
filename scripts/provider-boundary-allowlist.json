@@ -7081,7 +7081,7 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/crash/exit.rs",
       "token": "codex_rpc",
-      "count": 2,
+      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
