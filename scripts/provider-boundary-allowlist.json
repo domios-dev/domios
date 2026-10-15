@@ -1313,7 +1313,7 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/schemas.rs",
       "token": "Claude",
-      "count": 16,
+      "count": 15,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
