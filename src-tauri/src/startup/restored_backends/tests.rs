@@ -1,7 +1,79 @@
-use super::{ordered_ids, run_wave, take_next};
+use super::{
+    ordered_ids, run_transport_waves, run_wave, take_next, RestoreBudgets, RestoreTransport,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
+
+#[test]
+fn bounded_transports_progress_independently_without_starving_queued_tabs() {
+    let (entered, observed) = mpsc::channel();
+    let (release_pty, pty_tokens) = mpsc::channel();
+    let (release_chat, chat_tokens) = mpsc::channel();
+    let pty_tokens = Mutex::new(pty_tokens);
+    let chat_tokens = Mutex::new(chat_tokens);
+    let worker = std::thread::spawn(move || {
+        let items = [RestoreTransport::Chat; 6]
+            .into_iter()
+            .chain([RestoreTransport::Pty; 7])
+            .collect::<Vec<_>>();
+        run_transport_waves(
+            &items,
+            RestoreBudgets { pty: 4, chat: 2 },
+            |kind| *kind,
+            || None,
+            |_| Ok(()),
+            |kind| {
+                entered.send(*kind).unwrap();
+                match kind {
+                    RestoreTransport::Pty => pty_tokens.lock().unwrap().recv().unwrap(),
+                    RestoreTransport::Chat => chat_tokens.lock().unwrap().recv().unwrap(),
+                }
+                Ok(())
+            },
+        )
+    });
+    let first = (0..6)
+        .map(|_| observed.recv_timeout(Duration::from_secs(2)).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        first
+            .iter()
+            .filter(|kind| **kind == RestoreTransport::Pty)
+            .count(),
+        4
+    );
+    assert_eq!(
+        first
+            .iter()
+            .filter(|kind| **kind == RestoreTransport::Chat)
+            .count(),
+        2
+    );
+    assert!(matches!(
+        observed.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    for _ in 0..7 {
+        release_pty.send(()).unwrap();
+    }
+    for _ in 0..3 {
+        assert_eq!(
+            observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+            RestoreTransport::Pty
+        );
+    }
+    for _ in 0..6 {
+        release_chat.send(()).unwrap();
+    }
+    for _ in 0..4 {
+        assert_eq!(
+            observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+            RestoreTransport::Chat
+        );
+    }
+    assert_eq!(worker.join().unwrap(), vec![Ok(()); 13]);
+}
 
 #[test]
 fn general_tabs_precede_projects_then_recent_activity_wins() {

@@ -980,6 +980,15 @@ its staging is complete before provenance is written under the gateway.
 
 ## Product and test feature sets
 
+For a CPU embedding parity measurement, retain an old embedding executable before
+removing its build artifacts, then run `./build.sh embedding-parity --old-binary
+<old-executable> --baseline <baseline.json> --output <report.json>`. The standalone
+memory example uses the production embedding worker; the Python oracle compares
+25 fixed English/Russian cases, including truncation and Unicode, and fails below cosine 0.999. To reuse a saved
+baseline, omit `--old-binary`. It reports cold/warm process RSS and warm p95 CPU
+latency; these process measurements do not replace a canonical daemon search
+measurement. Windows uses `build.ps1 embedding-parity` with the same arguments.
+
 DEV and check-queue library Clippy retain default product features, including embeddings. Ordinary `test-one`, `nextest`, `check-tests`, archives and CI use `--no-default-features`. Check-queue does not repeat the separate dev-lib check; its library Clippy pass type-checks the product configuration. Full check-queue also checks service-core tests in the test profile without defaults. The CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, covering the memory crate and service-core memory tests with embeddings enabled. Receipt validation requires this job. Archives use `app-no-embeddings.tar.zst` so old feature-enabled archives cannot be reused.
 
 ## Lane crate checks and shared intermediates
@@ -1008,7 +1017,7 @@ On Cargo 1.95 the measured service-core result is four to three `.rmeta` hashes 
 
 One equivalent two-package cycle on Rust SHA `b6d0ef3e14b3787a9678ff436a6ce6739e0df91e` measured queue phases at 294 seconds before and 181 seconds after (38% lower). This excludes queue wait, initial dev checking and final focused test compilation; it is not a full check-queue timing pair or a general speed guarantee.
 
-Queued build invocations parse the entire driver inside `codeterm_build_main` before waiting for a gateway slot. Editing build.sh while an older shell waited previously changed the unread tail of that shell's script, producing an EOF syntax error after a successful Cargo check. The driver snapshot regression waits on an explicit input event, replaces only a temporary script, and requires its already-parsed dispatch to complete. App nextest configurations also replace the initial target arguments so `--no-default-features` appears once; nextest rejects duplicate occurrences.
+Queued build invocations parse the entire driver inside `codeterm_build_main` before waiting for a gateway slot. Editing build.sh while an older shell waited previously changed the unread tail of that shell's script, producing an EOF syntax error after a successful Cargo check. The driver snapshot regression waits on an explicit input event, replaces only a temporary script, and requires its already-parsed dispatch to complete. App nextest configurations also replace the initial target arguments so `--no-default-features` appears once; nextest rejects duplicate occurrences. The final shell entry call can still be affected when a running driver is edited in place: a successful Cargo phase followed by `ld_main: command not found` is a harness failure, not a compile verdict. Finish driver edits before launching checks, then rerun the affected focused operation from the final file.
 
 Lane-check prompt additions affect both the 5000-byte worker suffix and the 1450-byte worker charter. The charter includes testing_discipline without worker_suffix, so keep the raw check command in that shared fragment while compressing it. Preserve both ceilings and verify all composed surfaces with the focused core prompts selector.
 

@@ -28,6 +28,7 @@ pub mod milestone_gates;
 pub mod mutations;
 pub mod next_actions;
 pub mod paths;
+pub mod pause;
 pub mod pause_operation;
 pub mod peer_mandate;
 pub mod plan_skills;
