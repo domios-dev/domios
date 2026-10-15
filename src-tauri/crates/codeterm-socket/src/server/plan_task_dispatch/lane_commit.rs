@@ -58,7 +58,7 @@ pub(super) fn clear_replaced_lane_routing_fields(lane: &mut TaskLaneMetadata) {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct DispatchEvidence {
+pub(in crate::server) struct DispatchEvidence {
     pub(super) session_id: String,
     pub(super) lane: Option<WorkerLaneProvenance>,
 }
