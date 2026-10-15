@@ -1,7 +1,7 @@
 name: Release
 run-name: Release ${{ inputs.tag || github.ref_name }}
 
-# Fast checks gate builds; Rust archives queue first and cancel the run on test failure.
+# Fast checks gate builds; Rust archives queue first and every test runs to completion.
 # Publication waits for both test stages and every platform. Only owner pushes start releases.
 on:
   push:
@@ -183,7 +183,6 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
       phase: fast
-      cancel_release_on_failure: true
     permissions:
       contents: read
       actions: write
@@ -199,7 +198,6 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
       phase: long
-      cancel_release_on_failure: true
     permissions:
       contents: read
       actions: write

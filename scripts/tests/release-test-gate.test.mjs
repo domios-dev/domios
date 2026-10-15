@@ -71,28 +71,17 @@ test("test phases partition every check without a serial chain in the fast gate"
   assert.match(tests.concurrency.group, /inputs.phase/);
 });
 
-test("a failing test or gate job cancels its own caller run without waiting for other tests", () => {
-  const directory = mkdtempSync(join(tmpdir(), "release-cancel-"));
-  for (const id of ["changed", ...fastJobs, ...longJobs]) {
-    const job = tests.jobs[id];
-    assert.equal(job.permissions.actions, "write");
-    const cancels = job.steps.filter(step => step.name === "Cancel release builds on test failure");
-    assert.ok(cancels.length > 0, id);
-    for (const step of cancels) {
-      assert.equal(step.shell, "bash");
-      assert.equal(step.env.GH_TOKEN, "${{ github.token }}");
-      assert.equal(step.env.GH_RUN_ID, "${{ github.run_id }}");
-      assert.ok(condition(step.if, { failed: true, inputs: { source_ref: "sha", cancel_release_on_failure: true } }));
-      for (const inputs of [{ source_ref: "sha", cancel_release_on_failure: false }, { source_ref: "", cancel_release_on_failure: true }]) assert.equal(condition(step.if, { failed: true, inputs }), false);
-      assert.equal(condition(step.if, { inputs: { source_ref: "sha", cancel_release_on_failure: true } }), false);
-      const output = join(directory, `${id}.txt`);
-      execFileSync("bash", ["-euo", "pipefail", "-c", `gh() { printf '%s\\n' "$@" > "$OUTPUT"; }; ${step.run}`], { env: { ...process.env, GH_REPO: "fixture/repo", GH_RUN_ID: "123", OUTPUT: output } });
-      assert.equal(readFileSync(output, "utf8"), "api\n--method\nPOST\nrepos/fixture/repo/actions/runs/123/cancel\n");
+test("a failing test never cancels the run, so every failure is reported, and publication still needs both test stages", () => {
+  const cancelsRun = /actions\/runs\/[^\s"]*\/cancel/;
+  for (const name of ["tests", "release", "rust-warnings-summary"]) {
+    for (const [id, job] of Object.entries(workflow(name).jobs)) {
+      for (const step of job.steps || []) assert.doesNotMatch(step.run ?? "", cancelsRun, `${name}/${id}`);
     }
   }
-  for (const id of ["tests", "quick-checks"]) {
-    assert.equal(release.jobs[id].with.cancel_release_on_failure, true);
-    assert.equal(release.jobs[id].permissions.actions, "write");
+  for (const id of ["release-manifest", "frontend"]) {
+    const job = release.jobs[id];
+    assert.ok(dependencies(job).includes("tests") && dependencies(job).includes("quick-checks"), id);
+    assert.doesNotMatch(job.if, /always\(\)|failure\(\)|cancelled\(\)/, `${id} keeps the implicit success() over every need`);
   }
 });
 
@@ -133,7 +122,7 @@ test("reusable tests require the release SHA and force scope through both skip g
   assert.ok(Object.hasOwn(tests.on, "workflow_dispatch"));
   assert.equal(tests.on.workflow_call.inputs.source_ref.required, true);
   assert.equal(tests.on.workflow_call.inputs.source_ref.type, "string");
-  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase", "cancel_release_on_failure"]);
+  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase"]);
   const changed = tests.jobs.changed;
   assert.equal(changed.if, undefined, "the scope gate runs for every trigger, including release calls");
   assert.equal(changed.steps.find(step => step.id === "tree").env.CI_RELEASE_CALL, "${{ inputs.source_ref != '' || github.event_name == 'schedule' }}");
