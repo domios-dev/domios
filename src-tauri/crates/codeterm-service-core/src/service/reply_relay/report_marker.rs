@@ -32,15 +32,15 @@ pub(super) fn prepare_completed_reply(
 fn parse_report_marker(answer: &str) -> Option<(ReportStatus, &str)> {
     let (line, body) = answer.split_once('\n')?;
     let line = line.strip_suffix('\r').unwrap_or(line);
-    if !line.starts_with("<domios ") || !line.ends_with('>') {
+    let source = line.strip_prefix("<domios ")?.strip_suffix('>')?;
+    if source.contains('>') {
         return None;
     }
-    let tagged = format!("{}{}</domios>", "<domios from=\"report\"", &line[7..]);
-    let parsed = codeterm_wire::domios::parse_message(&tagged)?;
-    if parsed.attr("type") != Some("report") || !parsed.content.is_empty() {
+    let attrs = codeterm_wire::domios::parse_quoted_attributes(source)?;
+    if attrs.get("type").map(String::as_str) != Some("report") || attrs.contains_key("from") {
         return None;
     }
-    let status = match parsed.attr("status") {
+    let status = match attrs.get("status").map(String::as_str) {
         Some("blocked") => ReportStatus::Blocked,
         Some("partial") => ReportStatus::Partial,
         _ => ReportStatus::InReview,

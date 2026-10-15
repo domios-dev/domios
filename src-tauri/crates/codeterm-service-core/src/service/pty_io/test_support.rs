@@ -3,6 +3,8 @@ use std::sync::{Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+pub(crate) use super::send::readiness::PublicInputReadyDeadline;
+
 pub(crate) const TEST_WAIT_DEADLINE: Duration = Duration::from_secs(10);
 
 pub(crate) fn join<T: Send + 'static>(

@@ -7,29 +7,37 @@ const release = workflow('release');
 const macos = workflow('release-macos-build');
 const linuxArm64 = workflow('release-linux-arm64');
 test('macOS and Linux arm64 have separate jobs, routing variables and manifest dependencies', () => {
-  for (const [id, name] of [['macos', 'release-macos-build'], ['linux-arm64', 'release-linux-arm64']]) {
+  const callers = [
+    ['macos-arm64', 'release-macos-build', 2, 'arm64'], ['macos-x64', 'release-macos-build', 2, 'x86_64'],
+    ['linux-arm64', 'release-linux-arm64', 1, undefined],
+  ];
+  for (const [id, name, callerCount, arch] of callers) {
     const path = `./.github/workflows/${name}.yml`;
     assert.equal(release.jobs[id].uses, path);
-    assert.equal(Object.values(release.jobs).filter(job => job.uses === path).length, 1);
+    assert.equal(Object.values(release.jobs).filter(job => job.uses === path).length, callerCount);
     assert.equal(release.jobs[id].with.platform, undefined);
+    assert.equal(release.jobs[id].with.arch, arch);
     assert.equal(release.jobs[id].secrets, 'inherit');
     const reusable = workflow(name);
     assert.deepEqual(Object.keys(reusable.on), ['workflow_call']);
-    assert.deepEqual(Object.keys(reusable.on.workflow_call.inputs), ['tag', 'source_ref', 'mirror', 'dry_run']);
+    assert.deepEqual(Object.keys(reusable.on.workflow_call.inputs), ['tag', 'source_ref', 'mirror', 'dry_run', ...(arch ? ['arch'] : [])]);
     assert.deepEqual(Object.keys(reusable.jobs), ['build']);
     assert.equal(reusable.jobs.build.if, undefined);
   }
-  assert.equal(release.jobs.macos.name, 'macOS');
+  assert.equal(release.jobs['macos-arm64'].name, 'macOS arm64');
+  assert.equal(release.jobs['macos-x64'].name, 'macOS x64');
   assert.equal(release.jobs['linux-arm64'].name, 'Linux arm64');
-  assert.equal(macos.jobs.build.name, 'build (${{ matrix.arch }})');
+  assert.equal(macos.jobs.build.name, 'build');
   assert.equal(linuxArm64.jobs.build.name, 'build');
-  assert.ok(release.jobs['release-manifest'].needs.includes('macos'));
+  assert.ok(release.jobs['release-manifest'].needs.includes('macos-arm64'));
+  assert.ok(release.jobs['release-manifest'].needs.includes('macos-x64'));
   assert.ok(release.jobs['release-manifest'].needs.includes('linux-arm64'));
   assert.ok(release.jobs['release-manifest'].needs.includes('tests'));
   assert.ok(macos.jobs.build['runs-on'].some(label => label.includes('matrix.runner_label')));
   assert.match(linuxArm64.jobs.build['runs-on'][1], /RELEASE_LINUX_ARM64_LABEL.*codeterm-builder/);
   assert.equal(macos.jobs.build.strategy['fail-fast'], false);
-  assert.deepEqual(macos.jobs.build.strategy.matrix.include.map(entry => entry.arch), ['arm64', 'x86_64']);
+  assert.deepEqual(macos.jobs.build.strategy.matrix.include.map(entry => entry.arch), ['${{ inputs.arch }}']);
+  assert.deepEqual(['macos-arm64', 'macos-x64'].map(id => release.jobs[id].with.arch), ['arm64', 'x86_64']);
   for (const entry of macos.jobs.build.strategy.matrix.include) assert.match(entry.runner_label, /RELEASE_MACOS_.*_LABEL.*codeterm-builder/);
 });
 test('every platform checks its own built bundle before any upload, with independent Windows retries', () => {
@@ -48,7 +56,7 @@ test('every platform checks its own built bundle before any upload, with indepen
   assert.equal(workflow('release-windows').jobs.build.strategy['fail-fast'], false);
 });
 test('production publications serialize and verify draft bytes before becoming public', () => {
-  assert.equal(release.concurrency['cancel-in-progress'], '${{ inputs.dry_run == true }}');
+  assert.equal(release.concurrency['cancel-in-progress'], "${{ inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true' }}");
   assert.match(release.concurrency.group, /release-publication/);
   const steps = workflow('release-manifest-validate').jobs.validate.steps;
   const verify = steps.findIndex(step => step.name === 'Verify draft artifact signatures before publication');
@@ -102,11 +110,11 @@ test('Mac jobs provision secret material before building and always clean up', (
   assert.match(read('scripts/release-macos-x86_64.sh'), /--keychain "\$RELEASE_KEYCHAIN" --sign "\$SIGN_ID"/);
 });
 
-test('platform builds wait only for fast checks while Rust tests queue earlier', () => {
-  for (const build of ['macos', 'linux-arm64', 'linux-x86_64', 'windows']) {
-    assert.deepEqual(release.jobs[build].needs, ['prepare', 'quick-checks']);
+test('builds on machines no fast check uses overlap the fast checks; the rest wait for them', () => {
+  for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'windows-x64', 'windows-arm64']) {
+    assert.deepEqual(release.jobs[build].needs, ['prepare', 'fast-gate']);
   }
-  assert.equal(release.jobs.tests.needs, 'prepare');
+  for (const id of ['linux-x86_64', 'tests']) assert.deepEqual(release.jobs[id].needs, ['prepare', 'quick-checks', 'fast-gate']);
   assert.equal(release.jobs.tests.with.phase, 'long');
   assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
 });
@@ -120,8 +128,9 @@ test('native release processes share a job wrapper and verify before compiling',
     const verify = commands.findIndex(command => /build\.(?:sh|ps1) cache-verify/.test(command));
     const compile = commands.findIndex(command => /mac-bundle|build\.(?:sh|ps1) release-inputs/.test(command));
     assert.ok(verify >= 0 && compile > verify, name);
-    const stats = job.steps.at(-1);
-    assert.equal(stats.if, 'always()');
+    const stats = job.steps.at(-2);
+    assert.equal(stats.if, "${{ always() && steps.compile.outcome != 'skipped' }}");
+    assert.equal(job.steps[compile].id, 'compile', name);
     assert.match(stats.run, /build\.(?:sh|ps1) cache-stats/);
     if (name === 'release-windows') {
       assert.equal(stats.shell, 'pwsh');
@@ -130,13 +139,13 @@ test('native release processes share a job wrapper and verify before compiling',
   }
 });
 
-test('Windows archive invokes the owning build forwarder without a bash shell', () => {
+test('Windows Rust tests invoke the owning build forwarder without a bash shell', () => {
   const steps = Object.values(workflow('tests').jobs).flatMap(job => job.steps || []);
-  const archive = steps.find(step => step.run?.includes('build.ps1 ci-archives'));
+  const archive = steps.find(step => step.run?.includes('build.ps1 ci-tests'));
   assert.ok(archive);
   assert.equal(archive.shell, 'pwsh');
   assert.equal(archive.if, "runner.os == 'Windows'");
-  const unixArchive = steps.find(step => step.run === 'bash build.sh ci-archives');
+  const unixArchive = steps.find(step => step.run === 'bash build.sh ci-tests ${{ matrix.suite }}');
   assert.equal(unixArchive.if, "runner.os != 'Windows'");
 });
 

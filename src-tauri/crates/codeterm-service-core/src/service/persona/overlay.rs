@@ -45,7 +45,7 @@ pub struct CoreFragment {
 pub(crate) const CONTRACT_CORE: &[CoreFragment] = &[
     CoreFragment {
         id: "framework_rule",
-        needle: "You are a Worker: a skilled colleague who owns this one task and its lane.",
+        needle: crate::prompts::WORKER_FRAMEWORK_RULE,
     },
     CoreFragment {
         id: "report_protocol",
@@ -240,7 +240,7 @@ fn parse(path: &str, text: &str) -> Result<OverlayKind, RejectionReason> {
     };
     if let Some(missing) = CONTRACT_CORE
         .iter()
-        .find(|fragment| !contract.contains(fragment.needle))
+        .find(|fragment| !contract.contains(fragment.needle.trim()))
     {
         return Err(RejectionReason::MissingCore {
             fragment: missing.id,

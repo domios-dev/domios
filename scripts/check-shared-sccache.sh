@@ -176,6 +176,22 @@ printf 'PASS unresolved keys never downgrade S3; local-to-S3 needs keys and idle
 printf 'PASS CI verification never configures or refuses busy matching S3\n'
 
 (
+  export FIXTURE_BUSY=1 CODETERM_SCCACHE_VERIFY_ONLY=1
+  curl() { printf 200; }
+  ct_sccache_server_live() { [ -e "$WORK/location" ]; }
+  rm -f "$WORK/events" "$WORK/location"
+  if FIXTURE_SECRET=0 ct_sccache_verify; then exit 1; else [ "$?" = 2 ]; fi
+  [ ! -e "$WORK/events" ]
+  ct_configure_sccache
+  [ "$(cat "$WORK/events")" = start ]
+  [ "$(cat "$WORK/location")" = 's3, name: sccache, prefix: /' ]
+  ct_sccache_verify
+  [ "$(cat "$WORK/events")" = start ]
+) > "$WORK/absent.log" 2>&1
+! rg -q 'fixture-access|fixture-secret' "$WORK/absent.log"
+printf 'PASS CI verification starts shared S3 only when no server is live\n'
+
+(
   codeterm() { printf 'vault-call\n' >> "$WORK/events"; return 1; }
   rm -f "$WORK/events"
   export CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner

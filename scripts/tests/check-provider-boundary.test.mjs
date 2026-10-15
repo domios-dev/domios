@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { allowlistPath, checkBoundary, detectOccurrences, isCoreSource, scanWorkingTree, seedAllowlist, validateAllowlist } from '../check-provider-boundary.mjs';
+import { allowlistPath, checkBoundary, detectOccurrences, isCoreSource, readBaseline, scanWorkingTree, seedAllowlist, validateAllowlist } from '../check-provider-boundary.mjs';
 
 const checker = fileURLToPath(new URL('../check-provider-boundary.mjs', import.meta.url));
 const file = 'src-tauri/src/runtime.rs';
@@ -129,6 +129,37 @@ test('CLI refuses raised counts, overbroad entries and missing baseline refs', (
   source(root, allowlistPath, JSON.stringify(document));
   assert.match(check(base).stderr, /non-exact core source path/);
   assert.equal(check('missing-ref').status, 1);
+}));
+
+test('a branch cut before its base moved a file compares at the fork point', () => repository(({ root, git, commit, check }) => {
+  const fork = commit();
+  git('checkout', '--quiet', '-b', 'moved-base');
+  const moved = 'src-tauri/crates/service-core/src/runtime.rs';
+  mkdirSync(dirname(join(root, moved)), { recursive: true });
+  git('mv', file, moved);
+  source(root, allowlistPath, JSON.stringify(seedAllowlist(scanWorkingTree(root))));
+  commit();
+  git('checkout', '--quiet', '-b', 'release-cut', fork);
+  source(root, 'README.md', 'release work\n');
+  commit();
+  const againstHead = checkBoundary(scanWorkingTree(root), JSON.parse(git('show', `HEAD:${allowlistPath}`)), readBaseline(root, 'moved-base'));
+  assert.ok(againstHead.some(error => error.includes('increased baseline')));
+  const result = check('moved-base');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, new RegExp(`fork point ${fork}`));
+  source(root, 'crates/fixture/src/lib.rs', 'fn codex_leak() {}\n');
+  assert.match(check('moved-base').stderr, /added occurrence/);
+}));
+
+test('CLI refuses a base with no fork point', () => repository(({ root, git, commit, check }) => {
+  const own = commit();
+  git('checkout', '--quiet', '--orphan', 'unrelated');
+  source(root, 'README.md', 'unrelated\n');
+  commit();
+  git('checkout', '--quiet', '--force', own);
+  const result = check('unrelated');
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /no fork point/);
 }));
 
 test('QA source gate propagates either guard failure without masking source-size failure', { skip: process.platform === 'win32' }, () => {

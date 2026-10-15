@@ -138,9 +138,8 @@ mod tests {
     use serde_json::json;
 
     fn advertised_methods() -> Vec<&'static str> {
-        let source = include_str!(
-            "../../../src-tauri/crates/codeterm-socket/src/server/dispatch.rs"
-        );
+        let source =
+            include_str!("../../../src-tauri/crates/codeterm-socket/src/server/dispatch.rs");
         let block = source
             .split_once("let methods = vec![")
             .expect("capability declaration exists")

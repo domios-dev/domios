@@ -68,7 +68,20 @@ fn health_history_is_capped_and_list_reads_latest_snapshot() {
 
     let store = ServicesStore::open_in_memory().unwrap();
     let id = store.create(make_input("history")).unwrap();
-    for probed_at in 1..=SERVICE_HEALTH_RETENTION + 25 {
+    {
+        let conn = store.conn();
+        let mut conn = conn.lock();
+        let tx = conn.transaction().unwrap();
+        for probed_at in 1..=SERVICE_HEALTH_RETENTION {
+            tx.execute(
+                "INSERT INTO service_health (service_id, probed_at, status) VALUES (?1, ?2, 'healthy')",
+                rusqlite::params![id, probed_at],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    for probed_at in SERVICE_HEALTH_RETENTION + 1..=SERVICE_HEALTH_RETENTION + 25 {
         store
             .record_health_snapshot(
                 &id,

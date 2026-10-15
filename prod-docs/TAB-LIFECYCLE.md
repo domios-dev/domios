@@ -13,7 +13,7 @@ codeterm tab new --purpose qa --timeout 30s --cmd "sleep 600"
 codeterm tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disables
 ```
 
-A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status with shell lifetime and command elapsed separately. Deadlines survive both shell and daemon restart; use `tab timeout` to extend a restarted shell. `tab inspect --tab <ID>` exposes `utility_deadline` with epoch-millisecond `started_ms` and `deadline_ms`. The close journal records `utility_timeout`. An unrestorable shell is reported lost. REST: `POST /api/tabs` takes `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
+A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status giving shell lifetime and command elapsed separately. Deadlines survive shell and daemon restarts (`tab timeout` extends a restarted shell); `tab inspect` shows `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms) and the close journal records `utility_timeout`. An unrestorable shell is reported lost. REST: `POST /api/tabs` takes `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
 
 ## Storage authority and recovery
 
@@ -24,7 +24,7 @@ For backup, stop Domios cleanly and copy the complete `storage/` directory, incl
 ## The restore contract
 
 1. Storage loads the committed desk and every tab is rebuilt with its persisted `agent_session_id`, binding nonces, `role`, `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, model provenance, and chatBackend binding intact. Prior binding lineage is restored for every restored tab, whether or not it claims a session.
-2. A PTY agent tab resolves the unique provider whose store owns that tab's claimed session id, then relaunches that provider with the session (`--resume`-style continuation). A missing provider label does not bypass that lookup: a unique owner repairs the label before either visible or lazy restoration claims the launch. The repair preserves the session, rechecks the tab's identity before committing and never replays a historical task. Missing or ambiguous ownership keeps the saved session and refuses materialization. A provider proves ownership from its authoritative per-session record, present from the session's first turn, never only from a later secondary index, so a session not yet indexed still resumes. On an OpenCode resume only the explicit `--session` id is validated; no session is inferred from the latest record for a cwd.
+2. A PTY agent tab resolves the unique provider whose store owns that tab's claimed session id, then relaunches that provider with the session (`--resume`-style continuation). A missing provider label does not bypass that lookup: a unique owner repairs the label before either visible or lazy restoration claims the launch. The repair keeps the session, rechecks the tab's identity before committing and never replays a historical task. Missing or ambiguous ownership keeps the saved session and refuses materialization. A provider proves ownership from its authoritative per-session record, present from the first turn, never only from a later secondary index, so a session not yet indexed still resumes. On an OpenCode resume only the explicit `--session` id is validated; no session is inferred from the latest record for a cwd.
 3. If a claimed session has no unique provider record, the tab comes back as a shell with a null provider label. A snapshot with no claimed session may still fresh-launch its explicitly persisted provider. Restore never chooses a claimed session's provider from another tab, the newest session for a cwd, or the journal.
 4. Pre-journal snapshots restore like everything else. Lineage fields are optional telemetry, not an admission ticket.
 5. A rebuilt record is not a restored agent. The restore report counts a pane as restored only once an agent process is observed live behind it. The persisted report is reconciled whenever lifecycle evidence changes, so a late-live pane replaces its earlier dropped outcome; each pane gets one log line per restore wave. A pane that came back as a bare shell is named with its role and reason (`agent_not_live`), and one whose liveness is not yet observable is reported as `agent_liveness_unobserved` rather than assumed either way.
@@ -156,7 +156,7 @@ jq -c 'select(.record=="checkpoint" and .checkpoint.key.tab_id=="db79d2da")' "$J
 codeterm tab inspect --tab db79d2da --lifecycle
 ```
 
-Session backup list and restore commands read Storage-backed desk projections. Restore is additive: it recreates missing workspaces and tabs under their original ids without changing or closing existing entries. For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a read-only `lifecycle` object with live lineage, ordered transitions, surviving checkpoint, and journal-tail health. The workspace map from plain `tab list` and the scoped tree from `tab list --workspace` remain separate from lifecycle telemetry. The projection is telemetry only; it has no restore or checkpoint-mutation surface.
+Session backup list and restore commands read Storage-backed desk projections. Restore is additive: it recreates missing workspaces and tabs under their original ids without changing or closing existing entries. For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a read-only `lifecycle` object with live lineage, ordered transitions, surviving checkpoint, and journal-tail health. Plain `tab list` and `tab list --workspace` stay separate from this telemetry, which has no restore or checkpoint-mutation surface.
 
 ## Attempt retirement fences a closed tab's dispatch
 
@@ -231,4 +231,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 51 -->
+<!-- revision: 52 -->

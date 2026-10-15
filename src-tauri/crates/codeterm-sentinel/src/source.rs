@@ -120,7 +120,6 @@ pub fn validate_pending_cron_run_scope(
     Ok(())
 }
 
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RunBindOutcome {
     pub changed: bool,

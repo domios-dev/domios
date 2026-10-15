@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-service-core"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 edition = "2021"
 
 [lints]

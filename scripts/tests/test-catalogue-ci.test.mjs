@@ -182,7 +182,7 @@ test("every selected PR entry has an executing PR workflow owner", () => {
 test("heavy Rust jobs are not PR-reachable, including a Rust change", t => {
   const reached = prReachability(workflow, ["cli/src/main.rs"], plugins);
   assert.equal(reached.scope.heavy, false);
-  for (const id of ["rust-archives", "rust-shards", "rust-platform", "rust-input-platform", "rust-coverage", "clippy-linux"]) assert.ok(!reached.jobs.includes(id), id);
+  for (const id of ["rust-tests", "rust-platform", "rust-receipts", "clippy-linux"]) assert.ok(!reached.jobs.includes(id), id);
   assert.ok(reached.jobs.includes("fmt"));
   assert.ok(reached.jobs.includes("release-contracts"));
   t.diagnostic(`GREEN heavy=false; PR jobs for Rust: ${reached.jobs.join(", ")}`);

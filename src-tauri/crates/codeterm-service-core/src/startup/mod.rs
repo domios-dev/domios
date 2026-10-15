@@ -40,6 +40,7 @@ pub use storage::shutdown_bounded;
 pub use storage::StorageAuthority;
 pub use storage::STORAGE_UNAVAILABLE_MESSAGE;
 
+#[cfg(windows)]
 pub use conpty_cleanup::reap_orphaned_hosts_in_background;
 pub use frontend_ready::FRONTEND_READINESS_DEADLINE_ELAPSED;
 

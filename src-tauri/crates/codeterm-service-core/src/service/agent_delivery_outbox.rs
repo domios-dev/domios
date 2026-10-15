@@ -200,7 +200,7 @@ impl ServiceContext {
         if owner.pending_head(tab_id).ok().flatten().is_some() {
             self.schedule_agent_delivery_flush(tab_id);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         test_boundary::finished(tab_id);
     }
 
@@ -798,5 +798,5 @@ fn worker_brief_flagged(role: Option<crate::multiplexer::types::AgentRole>) -> b
 #[path = "agent_delivery_outbox/tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) mod test_boundary;

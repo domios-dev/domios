@@ -46,6 +46,11 @@ use super::usage_tui::ClaudeTuiUsageParser;
 
 static CLAUDE_TUI_USAGE_PARSER: ClaudeTuiUsageParser = ClaudeTuiUsageParser;
 
+const MANIFEST_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../plugins/provider-claude/plugin.json"
+));
+
 /// Claude Code agent provider.
 pub struct ClaudeProvider;
 
@@ -110,12 +115,21 @@ impl AgentProvider for ClaudeProvider {
         struct Manifest {
             cli_compatibility: crate::provider_compat::CompatibilityManifest,
         }
-        serde_json::from_str::<Manifest>(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../plugins/provider-claude/plugin.json"
-        )))
-        .ok()
-        .map(|manifest| manifest.cli_compatibility)
+        serde_json::from_str::<Manifest>(MANIFEST_JSON)
+            .ok()
+            .map(|manifest| manifest.cli_compatibility)
+    }
+
+    fn worker_lane_settings(&self) -> Vec<crate::provider::WorkerLaneSetting> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Manifest {
+            #[serde(default)]
+            worker_lane_settings: Vec<crate::provider::WorkerLaneSetting>,
+        }
+        serde_json::from_str::<Manifest>(MANIFEST_JSON)
+            .map(|manifest| manifest.worker_lane_settings)
+            .unwrap_or_default()
     }
 
     fn id(&self) -> &str {

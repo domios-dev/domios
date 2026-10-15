@@ -340,6 +340,7 @@ impl ServiceContext {
             return;
         };
         self.apply_session_model(tab_id, agent_id, &sid, model, launch_report, None, false);
+        super::boot_wait::notify_boot_changed();
     }
 
     /// The provider named the model this binding runs at session start. That

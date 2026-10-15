@@ -302,7 +302,7 @@ test('every cargo dispatch is covered by the common entry', () => {
   const branches = [...dispatch.matchAll(/^  ([\w:|-]+)\)\n([\s\S]*?)(?=^  [\w:|-]+\)\n|$(?![\s\S]))/gm)];
   for (const [, names, body] of branches) {
     const executable = body.replace(/cat <<'EOF'[\s\S]*?^EOF$/gm, "");
-    if (!/\bcargo (?:build|check|clippy|clean|fmt|test)|scripts\/test-capped\.sh|run_workspace_lib_tests|prepare_release_bundle_inputs|ci-rust-archives/.test(executable)) continue;
+    if (!/\bcargo (?:build|check|clippy|clean|fmt|test)|scripts\/test-capped\.sh|run_workspace_lib_tests|prepare_release_bundle_inputs|ci-rust-tests/.test(executable)) continue;
     for (const name of names.split('|')) {
       assert.ok(centralized.includes(name) || body.includes('enter_cargo_gateway "$CMD'), `${name} bypasses the cargo gateway entry`);
     }

@@ -80,21 +80,21 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "run": "set -euo pipefail\nif [ \"$CI_RELEASE_CALL\" = true ] || [ \"${{ github.event_name }}\" != push ]; then\n  echo \"run=true\" >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\ntree=$(git rev-parse 'HEAD^{tree}')\nfor parent in $(git rev-parse 'HEAD^@'); do\n  if [ \"$(git rev-parse \"$parent^{tree}\")\" = \"$tree\" ]; then\n    echo \"HEAD tree $tree already carried by parent $parent\"\n    echo \"run=false\" >> \"$GITHUB_OUTPUT\"\n    exit 0\n  fi\ndone\necho \"run=true\" >> \"$GITHUB_OUTPUT\"",
     "if": null,
     "reason": "Unchanged tree/scope gate and release cancellation",
-    "job_if": null
+    "job_if": "${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}"
   },
   {
     "job": "changed",
     "run": "node scripts/ci-scope.mjs HEAD^ HEAD",
     "if": "steps.tree.outputs.run == 'true'",
     "reason": "Unchanged tree/scope gate and release cancellation",
-    "job_if": null
+    "job_if": "${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}"
   },
   {
     "job": "changed",
     "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
     "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
     "reason": "Unchanged tree/scope gate and release cancellation",
-    "job_if": null
+    "job_if": "${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}"
   },
   {
     "job": "plugin-metadata",
@@ -421,6 +421,40 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}",
     "entry": "core-journeys-offline",
     "if": "${{ !cancelled() }}"
+  },
+  {
+    "job": "file-sizes",
+    "run": "bash scripts/check-file-sizes.sh --fail",
+    "if": null,
+    "reason": "Source size gate; runs first and gates every other fast check",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+  },
+  {
+    "job": "ts-types",
+    "run": "node scripts/ci-workspace-cleanup.mjs",
+    "if": "always()",
+    "reason": "Removes job outputs and sweeps old Rust targets",
+    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+  },
+  {
+    "job": "release-contracts",
+    "run": "node scripts/check-archive-portable-test-paths.mjs",
+    "if": null,
+    "reason": "Rust test paths stay portable across runners",
+    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
+  },
+  {
+    "job": "frontend-windows",
+    "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
+    "if": null,
+    "reason": "Catalogue selector",
+    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+  },
+  {
+    "job": "frontend-windows",
+    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}",
+    "entry": "frontend-windows-build",
+    "if": null
   }
 ]
 ```
