@@ -175,7 +175,7 @@ impl Default for ChatSendLedgerState {
 }
 
 #[derive(Default)]
-pub(crate) struct ChatSendLedger {
+pub struct ChatSendLedger {
     state: Arc<Mutex<ChatSendLedgerState>>,
     owner: Mutex<Option<Weak<super::ServiceContext>>>,
     admission_restores: Mutex<HashMap<String, Arc<Mutex<bool>>>>,
@@ -203,7 +203,7 @@ impl ChatSendLedger {
         Ok(())
     }
 
-    pub(crate) fn status(&self, send_id: &str) -> Option<ChatSendStatus> {
+    pub fn status(&self, send_id: &str) -> Option<ChatSendStatus> {
         let state = self.state.lock();
         state
             .by_id

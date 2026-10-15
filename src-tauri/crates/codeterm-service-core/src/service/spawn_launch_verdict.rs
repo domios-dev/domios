@@ -67,7 +67,7 @@ pub struct SpawnLaunchFailure {
 }
 
 impl SpawnLaunchFailure {
-    pub(crate) const CODE: &'static str = "launch_failed";
+    pub const CODE: &'static str = "launch_failed";
 
     pub fn message(&self) -> String {
         let mut message = format!(

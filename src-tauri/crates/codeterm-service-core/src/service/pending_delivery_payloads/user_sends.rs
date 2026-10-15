@@ -31,8 +31,8 @@ const MAX_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_DIRECTORY_ENTRIES: usize = (MAX_UNSETTLED + MAX_BODY_LEASES) * 3 + 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct UserSendAuthority {
-    pub(crate) tab_id: String,
+pub struct UserSendAuthority {
+    pub tab_id: String,
     pub(crate) pty_id: Option<String>,
     pub(crate) binding_nonce: String,
     pub(crate) pty_session_generation: Option<u64>,
@@ -54,16 +54,16 @@ pub enum UserSendState {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UserSendRecord {
-    pub(crate) send_id: String,
+    pub send_id: String,
     pub(crate) client_token: Option<String>,
     pub(crate) acceptance_sequence: u64,
     pub(crate) ledger_sequence: u64,
-    pub(crate) authority: UserSendAuthority,
+    pub authority: UserSendAuthority,
     pub(crate) owner_epoch: String,
     pub(crate) reservation: u64,
     #[serde(default = "held_before_readiness_by_default")]
     pub(crate) held_before_readiness: bool,
-    pub(crate) state: UserSendState,
+    pub state: UserSendState,
     pub(crate) handoff_session: Option<String>,
     pub(crate) typed_follow_up: Option<String>,
     #[serde(default)]
@@ -666,7 +666,7 @@ impl UserSendStore {
         Ok(true)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn original(&self, tab_id: &str, send_id: &str) -> Result<String, String> {
         let record = self
             .records(tab_id)?

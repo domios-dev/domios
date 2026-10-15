@@ -402,7 +402,7 @@ pub struct ServiceContext {
     pub plan_store: Arc<crate::service::plan::PlanStore>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
     pub pending_delivery_payloads: Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
-    pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
+    pub chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
     pub deferred_session_bindings: Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
     pub(crate) worker_ack: Arc<worker_ack::WorkerAckRegistry>,
     /// The single optimistic outbound-delivery seam with idempotency.

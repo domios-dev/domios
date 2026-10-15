@@ -110,7 +110,7 @@ impl LaneProtection {
 #[derive(Debug)]
 pub struct ProvisionedWorkerLane {
     canonical_cwd: String,
-    pub(crate) cwd: String,
+    pub cwd: String,
     pub(crate) branch: String,
     base: String,
 }

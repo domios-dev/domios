@@ -30,7 +30,7 @@ pub struct TeamPlanCaller {
 }
 
 impl TeamPlanCreationOutcome {
-    pub(crate) fn apply_to_response(&self, response: &mut serde_json::Value) {
+    pub fn apply_to_response(&self, response: &mut serde_json::Value) {
         response["team_id"] = serde_json::json!(self.team_id);
         response["team_minted"] = serde_json::json!(self.team_minted);
         if !self.team_minted {
