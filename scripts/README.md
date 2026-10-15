@@ -99,19 +99,18 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-script-catalog.sh` | build.sh release-preflight/verify; CI script-catalog.yml |
 | `check-service-core-boundary.sh` | build.sh verify |
 | `check-shared-sccache.sh` | skill build |
-| `check-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-shards.mjs, confirm-slow-unit-tests.mjs; skill build, testing |
+| `check-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-tests.mjs, confirm-slow-unit-tests.mjs; skill build, testing |
 | `check-slow-unit-tests.test.mjs` | skill testing |
 | `check-visual-golden-edits.sh` | build.sh script-guards |
 | `check-windows-dev-cleanup-selection.ps1` | scripts check-build-kill-safety.sh |
 | `check-worktree.mjs` | build.sh check-queue; scripts/check-worktree.test.mjs |
 | `check-worktree.test.mjs` | build.sh script-guards |
 | `ci-runner-paths.mjs` | CI tests.yml; scripts tests/ci-runner-paths.test.mjs; skill build-machine |
-| `ci-rust-archives.mjs` | build.sh ci-archives; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs |
-| `ci-rust-classification.mjs` | scripts ci-rust-archives.mjs, ci-rust-shards.mjs |
+| `ci-rust-classification.mjs` | scripts ci-rust-tests.mjs, tests/ci-rust-tests.test.mjs |
 | `ci-rust-prepare.mjs` | CI tests.yml |
-| `ci-rust-shards.mjs` | CI tests.yml; scripts tests/ci-rust-shards.test.mjs |
+| `ci-rust-tests.mjs` | build.sh ci-tests; scripts tests/ci-rust-tests.test.mjs |
 | `ci-scope.mjs` | CI release.yml, tests.yml; scripts tests/ci-scope.test.mjs; skill github-release |
-| `ci-test-classifier` | scripts ci-rust-archives.mjs |
+| `ci-test-classifier` | scripts ci-rust-tests.mjs |
 | `ci-workspace-cleanup.mjs` | CI tests.yml, release-macos-build.yml, release-linux.yml, release-linux-arm64.yml, release-windows.yml; scripts tests/ci-workspace-cleanup.test.mjs; skill github-release |
 | `clippy-allow.sh` | scripts clippy-gate.sh; build.sh check-queue |
 | `clippy-gate.sh` | build.sh release-preflight; CI tests.yml; scripts test-clippy-gate.sh; skill build, gates, testing |
@@ -182,7 +181,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `sccache-server-probe.mjs` | scripts cache-policy.sh, check-build-gateway-policy.sh, tests/sccache-server-probe.test.mjs |
 | `self-install-local.ps1` | skill github-release |
 | `slow-crate-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs; skill build, testing |
-| `slow-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs, ci-rust-shards.mjs; skill build, testing |
+| `slow-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs; skill build, testing |
 | `split-metrics.py` | skill crate-split; docs/architecture/split-metrics.md |
 | `start-playwright-instance.ts` | package.json script |
 | `submission-matrix.sh` | skill testing |

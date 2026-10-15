@@ -69,7 +69,7 @@ test('report includes per-target/lint/file counts and rendered diagnostics', () 
   assert.match(report, /let mut child/);
 });
 const workflow = name => parse(fs.readFileSync(new URL('../../.github/workflows/' + name + '.yml', import.meta.url), 'utf8'));
-test('every active release compiler and test archive/clippy uploads through the shared action', () => {
+test('every active release compiler, Rust test and clippy job uploads through the shared action', () => {
   for (const name of ['release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows']) {
     const steps = workflow(name).jobs.build.steps;
     const artifact = steps.find(s => s.uses === './.github/actions/rust-warnings');
@@ -77,7 +77,7 @@ test('every active release compiler and test archive/clippy uploads through the 
     assert.equal(artifact['continue-on-error'], true);
     assert.ok(steps.some(s => s.run?.includes('collect-rust-warnings.mjs run')));
   }
-  for (const id of ['rust-archives', 'clippy-linux']) {
+  for (const id of ['rust-tests', 'rust-platform', 'clippy-linux']) {
     assert.ok(workflow('tests').jobs[id].steps.some(s => s.uses === './.github/actions/rust-warnings'));
   }
   assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'quick-checks', 'tests', 'macos', 'linux-arm64', 'linux-x86_64', 'windows']);

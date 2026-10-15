@@ -102,11 +102,11 @@ test('Mac jobs provision secret material before building and always clean up', (
   assert.match(read('scripts/release-macos-x86_64.sh'), /--keychain "\$RELEASE_KEYCHAIN" --sign "\$SIGN_ID"/);
 });
 
-test('platform builds wait only for fast checks while Rust tests queue earlier', () => {
+test('platform builds and the Rust tests both wait only for fast checks', () => {
   for (const build of ['macos', 'linux-arm64', 'linux-x86_64', 'windows']) {
     assert.deepEqual(release.jobs[build].needs, ['prepare', 'quick-checks']);
   }
-  assert.equal(release.jobs.tests.needs, 'prepare');
+  assert.deepEqual(release.jobs.tests.needs, ['prepare', 'quick-checks']);
   assert.equal(release.jobs.tests.with.phase, 'long');
   assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
 });
@@ -130,13 +130,13 @@ test('native release processes share a job wrapper and verify before compiling',
   }
 });
 
-test('Windows archive invokes the owning build forwarder without a bash shell', () => {
+test('Windows Rust tests invoke the owning build forwarder without a bash shell', () => {
   const steps = Object.values(workflow('tests').jobs).flatMap(job => job.steps || []);
-  const archive = steps.find(step => step.run?.includes('build.ps1 ci-archives'));
+  const archive = steps.find(step => step.run?.includes('build.ps1 ci-tests'));
   assert.ok(archive);
   assert.equal(archive.shell, 'pwsh');
   assert.equal(archive.if, "runner.os == 'Windows'");
-  const unixArchive = steps.find(step => step.run === 'bash build.sh ci-archives');
+  const unixArchive = steps.find(step => step.run === 'bash build.sh ci-tests ${{ matrix.suite }}');
   assert.equal(unixArchive.if, "runner.os != 'Windows'");
 });
 
