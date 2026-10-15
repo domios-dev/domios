@@ -19,7 +19,7 @@ pub(crate) struct AgentModelSelection {
 }
 
 impl InvalidModelError {
-    pub(crate) fn rpc_data(&self) -> serde_json::Value {
+    pub fn rpc_data(&self) -> serde_json::Value {
         serde_json::json!({
             "type": if self.ambiguous_providers.is_empty() { "invalid_model" } else { "ambiguous_model" },
             "provider": self.provider_id.clone(),

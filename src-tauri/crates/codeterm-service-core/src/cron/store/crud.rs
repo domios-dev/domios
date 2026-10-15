@@ -378,10 +378,7 @@ impl CronStore {
         })
     }
 
-    pub(crate) fn prepare_create(
-        &self,
-        params: CronCreateParams,
-    ) -> Result<Prepared<CronJob>, String> {
+    pub fn prepare_create(&self, params: CronCreateParams) -> Result<Prepared<CronJob>, String> {
         let job = self.build_job(params)?;
         Ok(Prepared::new(CronChange::Create(job.clone()), job))
     }

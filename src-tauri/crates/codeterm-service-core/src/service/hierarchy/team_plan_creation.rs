@@ -79,7 +79,7 @@ impl ServiceContext {
         Ok(outcome)
     }
 
-    pub(crate) fn create_team_plan_for_caller(
+    pub fn create_team_plan_for_caller(
         &self,
         title: String,
         project_path: String,
@@ -120,7 +120,7 @@ impl ServiceContext {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn create_team_plan_for_caller(
+pub fn create_team_plan_for_caller(
     mux: &MuxState,
     plan_store: &PlanStore,
     title: String,

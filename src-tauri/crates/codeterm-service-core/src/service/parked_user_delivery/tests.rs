@@ -310,7 +310,7 @@ static SUBMIT_BOUNDARIES: std::sync::OnceLock<
 pub struct UserSubmitBoundary(String);
 
 impl UserSubmitBoundary {
-    pub(crate) fn install(tab_id: &str, boundary: SubmitBoundary) -> Self {
+    pub fn install(tab_id: &str, boundary: SubmitBoundary) -> Self {
         SUBMIT_BOUNDARIES
             .get_or_init(Default::default)
             .lock()
@@ -377,7 +377,7 @@ static BEFORE_SUBMIT_BOUNDARIES: std::sync::OnceLock<
 pub(crate) struct BeforeUserSubmitBoundary(String);
 
 impl BeforeUserSubmitBoundary {
-    pub(crate) fn install(tab_id: &str, before_submit: BeforeSubmit) -> Self {
+    pub fn install(tab_id: &str, before_submit: BeforeSubmit) -> Self {
         BEFORE_SUBMIT_BOUNDARIES
             .get_or_init(Default::default)
             .lock()

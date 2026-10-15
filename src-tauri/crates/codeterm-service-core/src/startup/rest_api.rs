@@ -34,8 +34,8 @@ pub enum RestApiDiagnostic {
 pub struct RestApiStatus {
     pub(crate) generation: u64,
     pub(crate) phase: RestApiPhase,
-    pub(crate) diagnostic: Option<RestApiDiagnostic>,
-    pub(crate) message: Option<String>,
+    pub diagnostic: Option<RestApiDiagnostic>,
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,15 +48,15 @@ pub(crate) struct RestApiRecovery {
 /// snapshotted at process start, so a config write cannot move it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PendingBind {
-    pub(crate) live: String,
-    pub(crate) configured: String,
+    pub live: String,
+    pub configured: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct RestApiRuntimePolicy {
-    pub(crate) enabled: bool,
-    pub(crate) cors: bool,
-    pub(crate) cors_allow_origins: Vec<String>,
+    pub enabled: bool,
+    pub cors: bool,
+    pub cors_allow_origins: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -122,7 +122,7 @@ enum GenerationEvent {
 }
 
 impl RestApiControl {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let status = RestApiStatus {
             generation: 0,
             phase: RestApiPhase::Starting,

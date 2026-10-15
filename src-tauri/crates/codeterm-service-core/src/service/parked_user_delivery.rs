@@ -639,7 +639,7 @@ impl super::ServiceContext {
                     break;
                 }
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             tests::notify_owner_idle(&tab_id);
         });
     }
@@ -868,7 +868,7 @@ impl super::ServiceContext {
             write_service.mark_user_send_written(&write_record);
             enqueued();
         });
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(boundary) = tests::queued_boundary::boundary(tab_id) {
             if !pre_write_guard() {
                 return Err(DeliveryError::TabBusyRefused {
@@ -878,7 +878,7 @@ impl super::ServiceContext {
             }
             return boundary(Some(record), text, payload_queued);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(boundary) = tests::submit_boundary(tab_id) {
             tests::run_before_submit(tab_id);
             if !pre_write_guard() {
@@ -936,5 +936,5 @@ impl super::ServiceContext {
 
 mod bootstrap;
 mod degraded;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod tests;

@@ -10,7 +10,7 @@ use crate::service::ServiceContext;
 pub(crate) mod close;
 mod close_busy;
 mod storage_teardown;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use close::close_team_with_state_change;
 #[cfg(test)]
 use close::close_team_with_state_change_using;
@@ -54,7 +54,7 @@ impl TeamMutationCaller {
         }
     }
 
-    pub(crate) fn kind(&self) -> &'static str {
+    pub fn kind(&self) -> &'static str {
         match self {
             Self::AgentTab(_) => "AgentTab",
             Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
@@ -331,7 +331,7 @@ impl ServiceContext {
 
     /// Refuses while a Team task is in progress or a Worker is working unless
     /// `force`; a forced close reports every killed Worker and task.
-    pub(crate) async fn close_team(
+    pub async fn close_team(
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
@@ -628,11 +628,7 @@ impl ServiceContext {
             .map(|outcome| outcome.mode)
     }
 
-    pub(crate) fn unarchive_team_plan(
-        &self,
-        plan_id: &str,
-        now_ms: u64,
-    ) -> Result<(), TeamPlanError> {
+    pub fn unarchive_team_plan(&self, plan_id: &str, now_ms: u64) -> Result<(), TeamPlanError> {
         let mux = self.mux.read();
         self.valid_live_plan_team(&mux, plan_id)?;
         self.plan_store
@@ -643,7 +639,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn transfer_team_plan(
+    pub fn transfer_team_plan(
         &self,
         plan_id: &str,
         to: crate::plan::OrchestratorRef,
@@ -667,7 +663,7 @@ impl ServiceContext {
         Ok(plan)
     }
 
-    pub(crate) fn validate_active_team_plan_bindings(&self) -> Result<(), TeamPlanError> {
+    pub fn validate_active_team_plan_bindings(&self) -> Result<(), TeamPlanError> {
         let mux = self.mux.read();
         let mut claimed_teams = std::collections::BTreeMap::<String, String>::new();
         for plan in self
@@ -689,7 +685,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn validate_plan_team_binding(&self, plan_id: &str) -> Result<(), TeamPlanError> {
+    pub fn validate_plan_team_binding(&self, plan_id: &str) -> Result<(), TeamPlanError> {
         let Some(plan) = self.plan_store.get(plan_id) else {
             return Err(TeamPlanError::Plan(PlanError::NotFound));
         };

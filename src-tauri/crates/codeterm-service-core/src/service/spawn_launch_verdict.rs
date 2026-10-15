@@ -30,7 +30,7 @@ pub enum SpawnLaunchVerdict {
 }
 
 impl SpawnLaunchVerdict {
-    pub(crate) fn launch_state(&self) -> &'static str {
+    pub fn launch_state(&self) -> &'static str {
         match self {
             Self::Ready => "ready",
             Self::Starting { .. } => "starting",
@@ -49,11 +49,7 @@ impl SpawnLaunchVerdict {
     }
 
     /// The spawn's own warning followed by this verdict's, as one response field.
-    pub(crate) fn merged_warning(
-        &self,
-        tab_id: &str,
-        spawn_warning: Option<&str>,
-    ) -> Option<String> {
+    pub fn merged_warning(&self, tab_id: &str, spawn_warning: Option<&str>) -> Option<String> {
         let warnings: Vec<String> = spawn_warning
             .map(str::to_string)
             .into_iter()
@@ -73,7 +69,7 @@ pub struct SpawnLaunchFailure {
 impl SpawnLaunchFailure {
     pub(crate) const CODE: &'static str = "launch_failed";
 
-    pub(crate) fn message(&self) -> String {
+    pub fn message(&self) -> String {
         let mut message = format!(
             "agent launch failed in Tab {}: {}",
             self.tab_id, self.reason
@@ -85,7 +81,7 @@ impl SpawnLaunchFailure {
         message
     }
 
-    pub(crate) fn data(&self) -> serde_json::Value {
+    pub fn data(&self) -> serde_json::Value {
         serde_json::json!({
             "type": Self::CODE,
             "tab_id": self.tab_id,
@@ -136,7 +132,7 @@ pub(crate) fn output_tail(screen: &str) -> Option<String> {
 impl ServiceContext {
     /// Wait on boot-stage transitions for this tab's launch verdict. The
     /// deadline bounds only the wait; reaching it reports `Starting`, never ready.
-    pub(crate) fn await_spawn_launch_verdict(
+    pub fn await_spawn_launch_verdict(
         &self,
         tab_id: &str,
         deadline: Duration,

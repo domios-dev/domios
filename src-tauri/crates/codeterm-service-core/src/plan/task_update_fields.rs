@@ -133,7 +133,7 @@ fn accepted_keys(seam: TaskUpdateSeam) -> Vec<&'static str> {
     keys
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn valid_task_update_payloads(
     parent_task_id: &str,
     dependency_task_id: &str,

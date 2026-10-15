@@ -79,8 +79,8 @@ pub struct LaunchGeneration {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderSessionBinding {
-    pub(crate) pty_id: String,
-    pub(crate) binding_nonce: String,
+    pub pty_id: String,
+    pub binding_nonce: String,
 }
 
 pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {

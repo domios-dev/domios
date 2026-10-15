@@ -114,7 +114,7 @@ pub struct SpawnAgentParams {
     pub can_spawn: Option<bool>,
     pub task: Option<String>,
     #[serde(default, skip)]
-    pub(crate) starter_prompt: crate::agent::provider::StarterPrompt,
+    pub starter_prompt: crate::agent::provider::StarterPrompt,
     /// Bound task id (CODETERM_TASK_ID).
     pub task_id: Option<String>,
     #[serde(default, skip)]
@@ -245,7 +245,7 @@ impl TaskLaunchAuthority {
 }
 
 impl SpawnAgentParams {
-    pub(crate) fn normalize_role_profile(&mut self) -> Result<(), String> {
+    pub fn normalize_role_profile(&mut self) -> Result<(), String> {
         crate::service::role_profile::normalize_spawn_params(self)
     }
 

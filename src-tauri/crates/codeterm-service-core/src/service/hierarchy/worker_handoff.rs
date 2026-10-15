@@ -127,11 +127,7 @@ fn observed_handoff_authority(svc: &ServiceContext, tab_id: &str) -> ReportDetai
 }
 
 impl ServiceContext {
-    pub(crate) fn complete_worker_turn_without_report(
-        &self,
-        tab_id: &str,
-        signal: WorkerTurnSignal,
-    ) {
+    pub fn complete_worker_turn_without_report(&self, tab_id: &str, signal: WorkerTurnSignal) {
         if !take_report_requirement_for_signal(&self.gateway, tab_id, signal) {
             return;
         }

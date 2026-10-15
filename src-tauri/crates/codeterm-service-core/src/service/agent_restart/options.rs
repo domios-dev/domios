@@ -11,7 +11,7 @@ pub struct RestartOptions {
 }
 
 impl ServiceContext {
-    pub(crate) fn agent_restart_observed_with_options(
+    pub fn agent_restart_observed_with_options(
         &self,
         tab_id: &str,
         options: RestartOptions,
