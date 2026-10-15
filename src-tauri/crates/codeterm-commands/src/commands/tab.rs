@@ -78,12 +78,23 @@ fn chat_start_inner(
     tab_id: String,
     subscription_id: String,
 ) -> Result<ChatStartResult, String> {
-    if codeterm_service_core::service::agent_runtime::requested_for_tab(svc, &tab_id) {
+    let attached_at = std::time::Instant::now();
+    let runtime_requested =
+        codeterm_service_core::service::agent_runtime::requested_for_tab(svc, &tab_id);
+    log::debug!(
+        "[chat-attach] tab={tab_id} phase=capability elapsed_ms={} runtime={runtime_requested}",
+        attached_at.elapsed().as_millis()
+    );
+    if runtime_requested {
         let (session, messages) =
             codeterm_service_core::service::agent_runtime::transport::snapshot(svc, &tab_id)?;
         let context = session.context.lock().clone();
         let total = messages.len();
         let start = total.saturating_sub(200);
+        log::debug!(
+            "[chat-attach] tab={tab_id} phase=runtime_snapshot elapsed_ms={} rows={total}",
+            attached_at.elapsed().as_millis()
+        );
         return Ok(ChatStartResult {
             text: String::new(),
             offset_kind: ChatOffsetKind::Items,
