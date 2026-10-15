@@ -9,6 +9,15 @@ struct Probe(u32);
 struct Absent;
 
 #[test]
+fn try_get_distinguishes_present_and_absent_types() {
+    let mut builder = ExtensionsBuilder::default();
+    builder.insert(Probe(7));
+    let extensions = Extensions { map: builder.map };
+    assert_eq!(extensions.try_get::<Probe>(), Some(&Probe(7)));
+    assert!(extensions.try_get::<Absent>().is_none());
+}
+
+#[test]
 fn get_returns_the_inserted_value() {
     let mut builder = ExtensionsBuilder::default();
     builder.insert(Probe(7));

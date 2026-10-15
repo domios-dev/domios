@@ -1,6 +1,6 @@
 use super::ServiceContext;
 use codeterm_plugin::provider::CapabilityProbe;
-use codeterm_supporter::capability_probe::{CapabilityProbeHost, ProbeTarget};
+use codeterm_provider_ops::capability_probe::{CapabilityProbeHost, ProbeTarget};
 use codeterm_types::agent::capability_probe::{ProbeFailure, ProbeSnapshot};
 use std::{
     path::{Path, PathBuf},
@@ -8,14 +8,14 @@ use std::{
 };
 use tauri::Manager;
 
-pub use codeterm_supporter::capability_probe::invalidate_and_rebuild;
+pub use codeterm_provider_ops::capability_probe::invalidate_and_rebuild;
 
 pub fn refresh(svc: &ServiceContext, tab: &str, force: bool) -> ProbeSnapshot {
-    codeterm_supporter::capability_probe::refresh(Arc::new(svc.clone()), tab, force)
+    codeterm_provider_ops::capability_probe::refresh(Arc::new(svc.clone()), tab, force)
 }
 
 pub(crate) fn refresh_tab(svc: &ServiceContext, tab: &str) {
-    codeterm_supporter::capability_probe::refresh_tab(Arc::new(svc.clone()), tab);
+    codeterm_provider_ops::capability_probe::refresh_tab(Arc::new(svc.clone()), tab);
 }
 
 impl CapabilityProbeHost for ServiceContext {

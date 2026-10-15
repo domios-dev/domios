@@ -4,7 +4,7 @@ use codeterm_plugin::{provider::AgentProvider, tab_state::TabStateSnapshot};
 use tauri::Manager;
 
 use super::ServiceContext;
-pub use codeterm_supporter::provider_update::*;
+pub use codeterm_provider_ops::provider_update::*;
 
 mod idle;
 

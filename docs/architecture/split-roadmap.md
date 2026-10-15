@@ -207,4 +207,4 @@ Tests move with those implementations (132 leaf cases in the static inventory). 
 
 ## Service-core capability-probe host port
 
-`codeterm-supporter::capability_probe` owns the cache, executor, initialization protocol, process capture and their tests. `CapabilityProbeHost` supplies request validation, capability-selected binary lookup, matching tabs and snapshot publication; service-core implements it and preserves existing callers through its facade. Canonical selector: `./build.sh nextest codeterm-supporter 'test(/^capability_probe::/)'`.
+`codeterm-provider-ops::capability_probe` owns the cache, executor, initialization protocol, process capture and their tests. `CapabilityProbeHost` supplies request validation, capability-selected binary lookup, matching tabs and snapshot publication; service-core implements it and preserves existing callers through its facade. Canonical selector: `./build.sh nextest codeterm-provider-ops 'test(/^capability_probe::/)'`.

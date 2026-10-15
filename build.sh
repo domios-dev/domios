@@ -2419,6 +2419,7 @@ EOF
     cargo fmt --manifest-path cli/Cargo.toml --all --check
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
+    bash scripts/check-tauri-reach.sh
     bash scripts/check-empty-array-expansion.sh
     node scripts/check-plugin-bundles.mjs
     node scripts/sync-plugin-versions.mjs --check
@@ -2559,6 +2560,7 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     bash scripts/check-service-core-boundary.sh
     node scripts/check-provider-boundary.mjs
+    bash scripts/check-tauri-reach.sh
     bash scripts/check-empty-array-expansion.sh
     ;;
   worktree-check)

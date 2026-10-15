@@ -333,18 +333,18 @@ fn journal(
     label: &str,
     reason: &'static str,
 ) -> bool {
-    crate::runtime()
+    codeterm_supporter::runtime()
         .provider_update_action(
             provider,
             target,
-            crate::ActionRecord {
-                kind: crate::VerdictKind::TabState,
+            codeterm_supporter::ActionRecord {
+                kind: codeterm_supporter::VerdictKind::TabState,
                 tab,
                 label,
                 confidence: 1.0,
-                action: crate::Action::Recovery,
+                action: codeterm_supporter::Action::Recovery,
                 reason,
-                asked: Some(crate::update_questions(label)),
+                asked: Some(codeterm_supporter::update_questions(label)),
             },
         )
         .is_ok()
