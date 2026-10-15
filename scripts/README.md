@@ -142,7 +142,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `nextest-archive.test.mjs` | build.sh script-guards |
 | `pdb_identity.py` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-build-pdb-retention.sh, tests/test_pdb_identity.py, symbolicate-minidump.py; skill build |
 | `playwright-coverage-map.mjs` | package.json script |
-| `plugin-release-metadata.mjs` | scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs |
+| `plugin-release-metadata.mjs` | scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs, sync-plugin-versions.mjs |
 | `plugin-tests.sh` | package.json script; scripts affected-tests.mjs, ci-scope.mjs, run-plugin-tests.mjs; skill provider-authoring, testing |
 | `prepare-cli-stub.js` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; CI qualification.yml; scripts dev-prep.mjs, qa-prep.sh; skill build |
 | `prepare-embed-stub.js` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; CI qualification.yml, release-windows.yml, tests.yml; scripts ci-rust-prepare.mjs, dev-prep.mjs, qa-gates.lib.sh; skill build |
