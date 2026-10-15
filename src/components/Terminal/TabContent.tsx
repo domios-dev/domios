@@ -1,3 +1,4 @@
+import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect } from "react";
 import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingCommands";
@@ -52,6 +53,8 @@ export function TabContent({
   isVisible,
   api,
 }: TabContentProps) {
+  if (tab?.remote_peer_id) configureRemoteTabTransport(api);
+  useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
   const descriptor = useAgentDescriptor(tab?.agent_type);
   const { providers, loading, error } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
@@ -65,7 +68,6 @@ export function TabContent({
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
   if (tab.frozen) return <div role="status" aria-label="Sleeping tab">Sleeping</div>;
-  if (tab.remote_peer_id) configureRemoteTabTransport(api);
 
   if (isFirstRunGeneralTab(tab)) {
     return (
