@@ -142,7 +142,7 @@ fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
         "cwd": project.display().to_string(),
     }));
 
-    let error = dispatch(&params, fixture._app.handle(), &service, 6)
+    let error = dispatch(&params, &service, 6)
         .expect_err("mock launch refusal occurs after lane placement and provisioning");
 
     assert_eq!(error.data.as_ref().unwrap()["stage"], "agent_spawn");

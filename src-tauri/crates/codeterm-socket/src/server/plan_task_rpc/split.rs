@@ -2,7 +2,6 @@ use super::*;
 
 pub(super) fn dispatch_split(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -211,6 +210,6 @@ pub(super) fn dispatch_split(
         "key": store.task_display_key(&plan_id, &id),
         "section_ids": store.get(&plan_id).and_then(|plan| plan.tasks.iter().find(|task| task.id == id).map(|task| task.section_ids.clone())).unwrap_or_default(),
     })).collect::<Vec<_>>();
-    emit_plan_changed(app, &plan_id);
+    emit_plan_changed(svc, &plan_id);
     Ok(json!({"plan_id": plan_id, "parent_task_id": parent_id, "children": created}))
 }

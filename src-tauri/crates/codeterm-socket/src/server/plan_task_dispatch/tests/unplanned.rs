@@ -99,7 +99,6 @@ fn dispatch(harness: &UnplannedFixture, params: &Option<Value>) -> Result<Value,
     let delivered_brief = harness.delivered_brief.clone();
     super::super::unplanned::dispatch_unplanned_with_spawn(
         params,
-        harness.fixture._app.handle(),
         &std::sync::Arc::new(harness.fixture.service.clone()),
         10,
         |service, spawn_params, ready_tx| {
@@ -210,7 +209,6 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
     sibling_params["execution_intent"] = json!("mutating");
     let sibling_error = super::super::dispatch_with_spawn(
         &Some(sibling_params),
-        harness.fixture._app.handle(),
         &std::sync::Arc::new(harness.fixture.service.clone()),
         13,
         |_, _, _| panic!("an unapproved sibling must not inherit the exemption"),
@@ -263,7 +261,6 @@ fn dispatch_refuses_model_absent_from_free_form_providers_live_list() {
     invalid_params["model"] = json!("sonnet");
     let error = super::super::unplanned::dispatch_unplanned_with_spawn(
         &Some(invalid_params),
-        harness.fixture._app.handle(),
         &std::sync::Arc::new(harness.fixture.service.clone()),
         20,
         |_, _, _| panic!("invalid model must be refused before spawn"),
@@ -364,7 +361,7 @@ fn team_close_cleans_up_unplanned_worker() {
             Some(codeterm_service_core::multiplexer::types::AgentRole::Worker)
         );
     }
-    tauri::async_runtime::block_on(harness.fixture.service.close_team(
+    codeterm_service_core::async_runtime::block_on(harness.fixture.service.close_team(
         &harness.team_id,
         TeamMutationCaller::AgentTab(harness.owner_tab.clone()),
         true,
@@ -397,7 +394,6 @@ fn unplanned_worker_dispatch_failure_removes_created_task() {
         .len();
     let error = super::super::unplanned::dispatch_unplanned_with_spawn(
         &params(&harness, "urgent probe"),
-        harness.fixture._app.handle(),
         &std::sync::Arc::new(harness.fixture.service.clone()),
         10,
         |_, _: SpawnAgentParams, _| Err("simulated provider launch failure".into()),
@@ -422,7 +418,6 @@ fn unplanned_worker_refuses_unbound_team() {
     let harness = fixture();
     let error = super::super::unplanned::dispatch_unplanned_with_spawn(
         &Some(json!({ "reason": "urgent probe", "team_id": "unbound-team" })),
-        harness.fixture._app.handle(),
         &std::sync::Arc::new(harness.fixture.service.clone()),
         10,
         |_, _, _| panic!("unbound Team must be refused before launch"),
