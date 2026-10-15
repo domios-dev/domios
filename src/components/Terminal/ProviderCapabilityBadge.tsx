@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import {useCallback, useState} from "react";
 import {invoke} from "../../lib/bridge";
 import {capabilityBadge} from "../../lib/providerCapabilities";
@@ -8,13 +9,13 @@ export function ProviderCapabilityBadge({tabId}:{tabId:string}) {
   const [error,setError]=useState<string | null>(null);
   const label=capabilityBadge(snapshot);
   if (!label) return null;
-  return <span role="status" className="inline-flex items-center gap-2 text-xs">
-    <span>{error ?? label}</span>
+  return <div role="status" className="inline-flex items-center gap-2 text-xs">
+    {error ? <InlineErrorNotice error={error} operation="refreshing agent capabilities" /> : <span>{label}</span>}
     <button type="button" disabled={busy} aria-label="Refresh provider capabilities" onClick={async()=>{
       setBusy(true); setError(null);
       try { await invoke("refresh_provider_capabilities",{tabId}); }
       catch {setError("Provider capabilities unavailable (refresh failed)");}
       finally {setBusy(false);}
     }}>Refresh</button>
-  </span>;
+  </div>;
 }

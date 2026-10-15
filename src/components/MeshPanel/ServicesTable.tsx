@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useMemo, useState } from "react";
 import { ServiceRow, SERVICE_GRID_COLS } from "./ServiceRow";
 import type { Service } from "./types";
@@ -122,7 +123,7 @@ export function ServicesTable({
             data-testid="service-peer-unavailable"
             className="px-2 py-2 text-[11px] text-[var(--ct-yellow)]"
           >
-            {p.name}: services {p.services_error ? `unreachable (${p.services_error})` : "cached / stale"}
+            {p.name}: services {p.services_error ? <InlineErrorNotice error={p.services_error} operation={`reading services on ${p.name}`} /> : "cached / stale"}
           </div>
         ))}
       </div>

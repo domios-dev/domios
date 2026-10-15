@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { BackPill } from "../shared/BackPill";
 /**
  * Extensions — a VS Code-like plugin manager (list + marketplace on the left, detail
@@ -191,13 +192,7 @@ export function ExtensionsView({
           </div>
         )}
         {error && (
-          <div
-            role="alert"
-            data-testid="extensions-error"
-            style={{ fontSize: 12.5, color: "var(--ct-err)", border: "1px solid color-mix(in srgb, var(--ct-err) 40%, transparent)", borderRadius: 8, padding: "9px 12px", marginBottom: 12, flex: "none" }}
-          >
-            {error}
-          </div>
+          <div data-testid="extensions-error"><InlineErrorNotice error={error} operation="loading plugins" blocking /></div>
         )}
         {snapshotState.refreshing && snapshotState.lastSuccessfulSnapshot && (
           <div data-testid="extensions-stale-refresh" style={{ fontSize: 12, color: "var(--ct-muted)", marginBottom: 12, flex: "none" }}>

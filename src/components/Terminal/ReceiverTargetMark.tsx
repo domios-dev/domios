@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import {
@@ -73,7 +74,7 @@ function ReceiverTargetMarkButton({ entry, tabId, surface }: {
         onClose={close}
         onOpenSettings={(id) => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: `view:${id}` } }))}
         footer={<div className="mt-3 border-t pt-2" style={{ borderColor: "var(--ct-border-default)" }}>
-          {error && <div role="alert">{error}</div>}
+          {error && <InlineErrorNotice error={error} operation="changing the recipient" blocking />}
           <button type="button" disabled={detaching} onClick={() => {
             setDetaching(true);
             void runPluginTabMenuItem(entry, tabId).then(close).catch((failure) => setError(String(failure))).finally(() => setDetaching(false));

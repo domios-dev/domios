@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useState } from "react";
 import { Shield } from "lucide-react";
 import { PRODUCT_EVENT_CATALOG, PRODUCT_EVENT_ENUMS } from "../../lib/productAnalytics.generated";
@@ -43,6 +44,6 @@ export function PrivacyTab() {
       <p>Properties are limited to numeric app version, platform, machine and workspace counts, registered provider ID, agent role, update kind, authentication provider, plan, subscription status and a closed feature category. Active days and each feature are counted at most once per local calendar day, with those days saved across restarts. Each event carries a random installation ID, event ID and timestamp. While signed in, events also carry your exact Firebase account UID as the Amplitude user ID; signing out removes it from subsequent events.</p>
       <p>We never collect prompts, messages, terminal output, names, paths, email addresses, session IDs or peer identities. Turning analytics off clears queued events and analytics identifiers and stops analytics network traffic. The installation ID is generated on opt-in and replaced after opting out and back in.</p>
     </section>}
-    {error && <p role="alert">Analytics settings could not be saved or loaded.</p>}
+    {error && <InlineErrorNotice error={{ code: "analytics_settings_unavailable", raw: "" }} />}
   </SettingsCard>;
 }

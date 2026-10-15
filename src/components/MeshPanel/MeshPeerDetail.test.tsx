@@ -75,7 +75,7 @@ async function main() {
   assert(host.querySelector("[data-testid='mesh-peer-drawer']")?.getAttribute("aria-labelledby") === "mesh-peer-drawer-heading", "peer drawer has a labelled dialog heading");
   assert(host.querySelector("[data-testid='mesh-peer-services-section']")?.textContent?.includes("Services (1)"), "Services is a separate discoverable section");
   assert(host.querySelector("[data-testid='mesh-peer-schedules-section']")?.textContent?.includes("Schedules (1)"), "Schedules is a separate discoverable section");
-  assert(host.textContent?.includes("Partial peer fetch failure"), "partial peer failure language is visible");
+  assert(host.querySelector("details pre")?.textContent, "partial peer failure retains diagnostics behind Details");
   assert(host.textContent?.includes("offline · cached"), "offline cached resource language is visible");
   assert(host.textContent?.includes("access denied"), "denied capability language is visible");
   assert(document.activeElement?.id === "mesh-peer-drawer-heading", "opening focuses the labelled drawer heading");

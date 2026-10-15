@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { memoryListControlsVisible } from "./memoryDetailModel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { List, Network } from "lucide-react";
@@ -211,9 +212,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           </div>
         )}
         {activeTab === "inspect" && inspectView === "graph" && snapshotError && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded bg-[var(--ct-red)] text-white text-xs" data-testid="memory-graph-error" role="alert">
-            {snapshotError}
-          </div>
+          <div data-testid="memory-graph-error"><InlineErrorNotice error={snapshotError} operation="loading memory" blocking /></div>
         )}
         {activeTab === "inspect" && inspectView === "graph" && showSnapshotEmpty && (
           <div className="absolute inset-0 flex items-center justify-center">

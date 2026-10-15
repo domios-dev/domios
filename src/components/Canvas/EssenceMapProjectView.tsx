@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useMemo, useState } from "react";
 import { AlertTriangle, FileText } from "lucide-react";
 import { UI_TEXT } from "../shared/design";
@@ -86,6 +87,6 @@ export function EssenceMapProjectView({ project, onActivate }: { project: Essenc
           <span className="sr-only">Source {item.node.source.path}, anchor {item.node.source.anchor}</span>
         </button>;
       })}
-    </div> : <div className="flex min-h-24 items-center gap-3 px-4 py-5 text-xs text-[var(--ct-muted-fg)]" data-testid={`essence-map-project-${project.status}`}>{["malformed", "oversized", "unreadable"].includes(project.status) ? <AlertTriangle size={15} aria-hidden="true" className="shrink-0 text-[var(--ct-yellow)]" /> : <FileText size={15} aria-hidden="true" className="shrink-0" />}<span>{project.error ?? statusLabel(project)}</span></div>}
+    </div> : <div className="flex min-h-24 items-center gap-3 px-4 py-5 text-xs text-[var(--ct-muted-fg)]" data-testid={`essence-map-project-${project.status}`}>{["malformed", "oversized", "unreadable"].includes(project.status) ? <AlertTriangle size={15} aria-hidden="true" className="shrink-0 text-[var(--ct-yellow)]" /> : <FileText size={15} aria-hidden="true" className="shrink-0" />}{project.error ? <InlineErrorNotice error={project.error} operation="reading this project map" /> : <span>{statusLabel(project)}</span>}</div>}
   </div>;
 }

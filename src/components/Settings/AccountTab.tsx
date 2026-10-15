@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UserRound } from "lucide-react";
 import { SettingsCard, SettingsPage } from "./shared";
 import { useAccountPlan } from "./useAccountPlan";
@@ -14,7 +15,7 @@ export function AccountTab() {
         <button type="button" onClick={() => void signOut()}>Sign out</button>
       </div>}
       {model.kind === "pending" && <p role="status">Signing in or loading account…</p>}
-      {model.kind === "error" && <p role="alert">{model.message}</p>}
+      {model.kind === "error" && <InlineErrorNotice error={model.message} operation="signing in" blocking />}
       {(model.kind === "signed_out" || model.kind === "error") && <button type="button" onClick={() => void signIn()}>Sign in</button>}
     </SettingsCard>
     <SettingsCard icon={<UserRound size={16} />} title="Subscription" description="Your Domios plan">
@@ -24,7 +25,7 @@ export function AccountTab() {
         {billing.plan.cancelAtPeriodEnd && <p>Cancels at the end of this period</p>}
         {billing.plan.stale && <p role="status">Plan information is stale</p>}
       </div>}
-      {billing.error && <p role="alert">{billing.error}</p>}
+      {billing.error && <InlineErrorNotice error={billing.error} operation="loading account information" blocking />}
       <button type="button" disabled={model.kind !== "signed_in"} onClick={() => void billing.upgrade("pro")}>Upgrade</button>
       <button type="button" disabled={model.kind !== "signed_in"} onClick={() => void billing.manage()}>Manage subscription</button>
     </SettingsCard>

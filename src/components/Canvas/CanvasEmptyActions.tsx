@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useState } from "react";
 import { Plus } from "lucide-react";
 import type { ApiConfig } from "../../lib/types";
@@ -104,9 +105,7 @@ export function CanvasEmptyActions({ api, projectPath }: CanvasEmptyActionsProps
         {busy ? "Creating…" : "Create Team plan"}
       </button>
       {error && (
-        <div className="text-xs text-center max-w-sm" style={{ color: "var(--ct-red)" }}>
-          {error}
-        </div>
+        <InlineErrorNotice error={error} operation="starting this plan" />
       )}
     </div>
   );

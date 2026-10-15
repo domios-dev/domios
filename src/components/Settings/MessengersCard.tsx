@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { MessageCircle } from "lucide-react";
 import { connectStatus, needsTokenEntry, type BridgeConnectInfo, type BridgePhase } from "@codeterm/chat-ui";
@@ -44,7 +45,7 @@ export function MessengersCard({
       description="Talk to your General Agent from a chat app. Replies go back to the chat you wrote from."
     >
       {snapshot.kind === "loading" && <p className="m-0 text-xs text-[var(--ct-muted-fg)]">Checking the Telegram bridge…</p>}
-      {snapshot.kind === "unavailable" && <p className="m-0 text-xs text-[var(--ct-muted-fg)]">Telegram bridge status unavailable: {snapshot.message}</p>}
+      {snapshot.kind === "unavailable" && <InlineErrorNotice error={snapshot.message} operation="reading Telegram status" />}
       {bridge && <TelegramConnection bridge={bridge} store={store} />}
       <FormRow label="Allowed user IDs" htmlFor={usersId} hint="Comma-separated Telegram user IDs. Empty allows anyone who finds the bot.">
         <input
@@ -128,11 +129,11 @@ function TelegramConnection({ bridge, store }: { bridge: BridgeConnectInfo; stor
         </form>
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="min-w-0 flex-1 text-[var(--ct-fg)]">
+          <div className="min-w-0 flex-1 text-[var(--ct-fg)]">
             {bridge.phase === "connected" && (bridge.identity ? `Connected as ${bridge.identity}.` : "Connected.")}
             {bridge.phase === "connecting" && "Starting. Waiting for Telegram to answer."}
-            {bridge.phase === "failing" && `Telegram is not answering${bridge.error ? `: ${bridge.error}` : "."}`}
-          </span>
+            {bridge.phase === "failing" && <InlineErrorNotice error={bridge.error} operation="connecting Telegram" />}
+          </div>
           {confirming ? (
             <>
               <span className="text-[var(--ct-muted-fg)]">Your General Agent stops answering in Telegram. The token stays saved.</span>
@@ -149,7 +150,7 @@ function TelegramConnection({ bridge, store }: { bridge: BridgeConnectInfo; stor
         </div>
       )}
       <div aria-live="polite" className="empty:hidden text-xs">
-        {outcome.kind === "failed" && <span role="alert" className="text-[var(--ct-red)]">Telegram: {outcome.message}</span>}
+        {outcome.kind === "failed" && <InlineErrorNotice error={outcome.message} operation="connecting Telegram" blocking />}
       </div>
     </div>
   );
