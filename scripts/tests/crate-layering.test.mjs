@@ -113,3 +113,17 @@ test("allows the host runtime to own Tauri adapters", (t) => {
   const result = run();
   assert.equal(result.status, 0, result.stderr);
 });
+
+for (const declaration of [
+  '[dependencies]\ntauri = "2"',
+  '[dev-dependencies]\nrenamed = { package = "tauri", version = "2" }',
+  '[target.\'cfg(windows)\'.dependencies]\ntauri-plugin-shell = "2"',
+]) {
+  test(`rejects service-core framework dependency: ${declaration}`, (t) => {
+    const { write, run } = fixture(t);
+    write("codeterm-service-core", "Cargo.toml", declaration);
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /service core depends on tauri/);
+  });
+}

@@ -214,7 +214,7 @@ pub fn run(
             plugin_manager.set_registrar(agent_registry.clone());
             plugin_manager.set_event_sink(states.event_broadcaster.clone());
 
-            startup::model_catalogue::forward_changes(&app_handle);
+            startup::model_catalogue::forward_changes(ui.clone());
 
             // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
             {
@@ -450,7 +450,6 @@ pub fn run(
             let startup_step = startup::StartupStep::logged("service state construction");
             let svc_ctx = codeterm_service_core::service::build_service_context(
                 &states,
-                &app_handle,
                 ui.clone(),
                 Arc::new(crate::host_ports::TauriShell(app_handle.clone())),
                 codeterm_service_core::async_runtime::handle().clone(),
@@ -694,7 +693,7 @@ pub fn run(
 
             // the React side has time to attach the listener.
             {
-                let app_handle = app.handle().clone();
+                let ui = service_state.ui.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     let new_reports = codeterm_service_core::crash::check_previous_crashes();
@@ -711,8 +710,7 @@ pub fn run(
                             files.len(),
                             dir.display()
                         );
-                        codeterm_host_runtime::events::emit_everywhere(
-                            &app_handle,
+                        ui.emit(
                             "crash_report_available",
                             serde_json::json!({
                                 "dir": dir.to_string_lossy(),

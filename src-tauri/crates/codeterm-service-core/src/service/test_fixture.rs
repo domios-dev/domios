@@ -3,7 +3,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::Manager;
 
 use super::ServiceContext;
 use crate::lock_hold::{TimedMutex, TimedRwLock};
@@ -20,7 +19,6 @@ pub struct ServiceFixture {
     /// The waiter lifetime owner. The registry keeps only a `Weak` of this, so
     /// dropping the fixture is itself the teardown signal.
     _owner: Arc<ServiceContext>,
-    pub _app: crate::app_runtime::App,
     pub temp: tempfile::TempDir,
 }
 
@@ -340,14 +338,9 @@ impl ServiceFixture {
                 mux.attach_closed_store(store);
             }
         }
-        let builder = crate::app_runtime::builder();
-        let app = builder
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
         let mut config = crate::config::schema::AppConfig::default();
         config.agent.full_access = Some(false);
         let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
-        assert!(app.manage(config.clone()));
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         let chatbackend_registry = Arc::new(crate::chatbackend::ChatBackendRegistry::new());
         let provider_registry = Arc::new(crate::provider::ProviderRegistry::new(
@@ -392,6 +385,18 @@ impl ServiceFixture {
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
         extensions.insert_service_slots();
         extensions.insert(config);
+        let (private_key, public_key) = crate::mesh::crown::generate_peer_keypair();
+        extensions.insert::<crate::MeshStateHandle>(Arc::new(Mutex::new(
+            crate::mesh::MeshManager::in_memory(
+                crate::mesh::types::MeshIdentity {
+                    instance_id: uuid::Uuid::new_v4().to_string(),
+                    private_key: Some(private_key),
+                    public_key: Some(public_key),
+                },
+                "fixture".into(),
+                0,
+            ),
+        )));
 
         extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
             Arc::new(parking_lot::Mutex::new(())),
@@ -602,7 +607,6 @@ impl ServiceFixture {
                 crate::notification::store::NotificationStore::new(10)
             })),
             events,
-            app_handle: app.handle().clone(),
             ui: ui.clone(),
             shell: Arc::new(crate::ports::host::NoShell),
             rt: crate::async_runtime::handle().clone(),
@@ -661,7 +665,6 @@ impl ServiceFixture {
             extensions: Arc::new(extensions.finish()),
             host_extensions: Default::default(),
         };
-        assert!(app.manage(Arc::clone(&service.mux)));
         let owner = Arc::new(service.clone());
         assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
         repo_sink.bind_service(Arc::downgrade(&owner));
@@ -670,7 +673,6 @@ impl ServiceFixture {
             service,
             ui,
             _owner: owner,
-            _app: app,
             temp,
         }
     }
@@ -730,6 +732,25 @@ mod tests {
             .upgrade()
             .unwrap();
         assert!(Arc::ptr_eq(&owner, &fixture._owner));
+    }
+
+    #[test]
+    fn fixture_mesh_identity_is_isolated_and_never_persists() {
+        let first = ServiceFixture::new(MultiplexerState::new().0);
+        let second = ServiceFixture::new(MultiplexerState::new().0);
+        let first_mesh = first.service.ext::<crate::MeshStateHandle>();
+        let second_mesh = second.service.ext::<crate::MeshStateHandle>();
+        assert!(!Arc::ptr_eq(first_mesh, second_mesh));
+        let first_mesh = first_mesh.lock();
+        let second_mesh = second_mesh.lock();
+        assert!(!first_mesh.disk_persist);
+        assert!(!second_mesh.disk_persist);
+        assert!(first_mesh.paired_peers.is_empty());
+        assert!(second_mesh.paired_peers.is_empty());
+        assert_ne!(
+            first_mesh.ident.identity.instance_id,
+            second_mesh.ident.identity.instance_id
+        );
     }
 
     #[test]

@@ -341,7 +341,6 @@ pub struct ServiceContext {
     pub screen_state: ScreenStateHandle,
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
-    pub app_handle: crate::app_runtime::AppHandle,
     pub ui: Arc<dyn crate::ports::host::UiEvents>,
     pub shell: Arc<dyn crate::ports::host::Shell>,
     pub rt: tokio::runtime::Handle,
