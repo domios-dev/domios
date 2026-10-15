@@ -52,7 +52,7 @@ pub(crate) fn offer_requires_level(
     })
 }
 
-pub(crate) fn vet_offer(
+pub fn vet_offer(
     svc: &crate::service::ServiceState,
     offer: Option<String>,
     offer_accept: Option<String>,
@@ -78,7 +78,7 @@ pub(crate) fn vet_offer(
 
 /// An unknown level is rejected here rather than degrading to a runtime
 /// string, so an invented level can never be expressed on any transport.
-pub(crate) fn parse_push_intent(
+pub fn parse_push_intent(
     level: Option<&str>,
     event_key: Option<String>,
 ) -> Result<crate::service::notification::PushIntent, String> {
@@ -97,12 +97,12 @@ pub(crate) fn parse_push_intent(
 }
 
 /// A caller's title, trimmed and bounded by the one rule every transport shares.
-pub(crate) fn vet_title(title: &str) -> Result<String, String> {
+pub fn vet_title(title: &str) -> Result<String, String> {
     codeterm_notification_core::contract::validate_title(title).map(str::to_string)
 }
 
 /// A jump target must be a tab on this daemon, or the record would open nothing.
-pub(crate) fn vet_target_tab(
+pub fn vet_target_tab(
     target_tab_id: Option<&str>,
     tab_exists: impl FnOnce(&str) -> bool,
 ) -> Result<(), String> {
@@ -119,7 +119,7 @@ pub(crate) fn vet_target_tab(
 /// Vet a caller-supplied action set. Parsing already closed the kind - and the
 /// type it parsed into has no invoke variant at all; this closes the choice
 /// set, which only makes sense as a whole.
-pub(crate) fn vet_actions(
+pub fn vet_actions(
     actions: Option<Vec<CallerAction>>,
 ) -> Result<Option<Vec<CallerAction>>, String> {
     if let Some(ref actions) = actions {

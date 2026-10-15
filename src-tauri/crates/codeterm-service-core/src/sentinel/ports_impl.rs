@@ -118,8 +118,8 @@ pub fn register_sentinel() {
     crate::ports::sentinel::register_runtime(|| Arc::new(HostRuntime));
 }
 
-#[cfg(test)]
-pub(crate) fn manage_fixture_ports(app: &crate::app_runtime::AppHandle, handle: &Handle) {
+#[cfg(any(test, feature = "test-support"))]
+pub fn manage_fixture_ports(app: &crate::app_runtime::AppHandle, handle: &Handle) {
     use tauri::Manager;
     assert!(app.manage(ports(handle)));
 }

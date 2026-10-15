@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::time::Instant;
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct AuthenticatedPlanCaller {
+pub struct AuthenticatedPlanCaller {
     pub tab_id: Option<String>,
     pub session_id: Option<String>,
     pub binding_nonce: Option<String>,
@@ -16,7 +16,7 @@ pub(crate) struct AuthenticatedPlanCaller {
 
 /// Typed planning-authority failures keep binding and role diagnostics distinct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PlanAuthorityError {
+pub enum PlanAuthorityError {
     PlanNotFound,
     /// Live same-tab, same-session caller holding a pre-relaunch lineage nonce.
     /// Recoverable via `codeterm plan rebind` without a full agent restart.
@@ -40,7 +40,7 @@ pub(crate) enum PlanAuthorityError {
 }
 
 impl PlanAuthorityError {
-    pub(crate) fn diagnostic_type(self) -> &'static str {
+    pub fn diagnostic_type(self) -> &'static str {
         match self {
             Self::PlanNotFound => "plan_not_found",
             Self::BindingStaleAfterRelaunch => "plan_binding_stale_after_relaunch",
@@ -53,11 +53,11 @@ impl PlanAuthorityError {
         }
     }
 
-    pub(crate) fn is_retryable(self) -> bool {
+    pub fn is_retryable(self) -> bool {
         matches!(self, Self::SessionBindingPending)
     }
 
-    fn message(self) -> &'static str {
+    pub fn message(self) -> &'static str {
         match self {
             Self::PlanNotFound => "plan not found",
             Self::BindingStaleAfterRelaunch => {
@@ -96,7 +96,7 @@ impl From<PlanAuthorityError> for String {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RebindOutcome {
+pub struct RebindOutcome {
     pub tab_id: String,
     pub nonce: String,
     /// True when the live binding was actually moved onto the presented nonce;
@@ -105,7 +105,7 @@ pub(crate) struct RebindOutcome {
 }
 
 #[derive(Debug)]
-pub(crate) enum OrchestratorLearningError {
+pub enum OrchestratorLearningError {
     Authority(String),
     Store(PlanError),
 }
@@ -138,7 +138,7 @@ fn binding_failure_class(
     PlanAuthorityError::BindingForeign
 }
 
-pub(crate) fn launch_binding_is_pending(tab: &Tab) -> bool {
+pub fn launch_binding_is_pending(tab: &Tab) -> bool {
     tab.pty_id.is_some()
         && tab.exit_suspected_at.is_none()
         && tab.agent_set_at.is_some_and(|set_at| {
@@ -162,7 +162,7 @@ pub(crate) fn launch_binding_is_pending(tab: &Tab) -> bool {
 }
 
 impl ServiceContext {
-    pub(crate) fn authorize_plan_orchestrator(
+    pub fn authorize_plan_orchestrator(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -193,7 +193,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn grant_plan_evidence_reporter(
+    pub fn grant_plan_evidence_reporter(
         &self,
         plan_id: &str,
         reporter_tab_id: &str,
@@ -269,7 +269,7 @@ impl ServiceContext {
             .map_err(|error| error.to_string())
     }
 
-    pub(crate) fn add_orchestrator_heartbeat_learning(
+    pub fn add_orchestrator_heartbeat_learning(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -292,7 +292,7 @@ impl ServiceContext {
             .map_err(OrchestratorLearningError::Store)
     }
 
-    pub(crate) fn authorize_draft_structure_mutation(
+    pub fn authorize_draft_structure_mutation(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -320,7 +320,7 @@ impl ServiceContext {
     /// Full planning-authority verdict with the typed error preserved so the
     /// socket layer can attach a distinct diagnostic and the rebind path can
     /// tell a recoverable stale binding from a foreign caller.
-    pub(crate) fn classify_planning_caller(
+    pub fn classify_planning_caller(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -443,7 +443,7 @@ impl ServiceContext {
     }
 
     /// Re-sync a nonce proven by the live tab's current-session lineage.
-    pub(crate) fn rebind_stale_planning_session(
+    pub fn rebind_stale_planning_session(
         &self,
         caller: &AuthenticatedPlanCaller,
     ) -> Result<RebindOutcome, String> {
@@ -508,7 +508,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn approve_and_activate_plan(
+    pub fn approve_and_activate_plan(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -530,7 +530,7 @@ impl ServiceContext {
             .map_err(|error| error.to_string())
     }
 
-    pub(crate) fn authorize_execution_action(
+    pub fn authorize_execution_action(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -560,7 +560,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn authorize_task_execution_action(
+    pub fn authorize_task_execution_action(
         &self,
         task_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -584,7 +584,7 @@ impl ServiceContext {
         Ok((detail.plan_id, detail.task.id))
     }
 
-    pub(crate) fn enter_execution_mode(
+    pub fn enter_execution_mode(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -631,7 +631,7 @@ pub(crate) const PLANNER_EXECUTION_FIELDS: &[&str] = &[
 
 /// The execution field this body carries, if any. `None` means it is
 /// structure-only or an explicit labeled block decision.
-pub(crate) fn planner_forbidden_task_field(body: &Value) -> Option<&'static str> {
+pub fn planner_forbidden_task_field(body: &Value) -> Option<&'static str> {
     let block_decision = body.get("status").and_then(Value::as_str) == Some("blocked")
         && body
             .get("status_label")
@@ -644,7 +644,7 @@ pub(crate) fn planner_forbidden_task_field(body: &Value) -> Option<&'static str>
         .find(|field| body.get(field).is_some_and(|value| !value.is_null()))
 }
 
-pub(crate) fn ensure_planner_task_fields_are_structural(
+pub fn ensure_planner_task_fields_are_structural(
     author: &PlanningAuthor,
     body: &Value,
 ) -> Result<(), String> {
@@ -660,4 +660,4 @@ pub(crate) fn ensure_planner_task_fields_are_structural(
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

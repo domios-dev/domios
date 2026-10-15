@@ -223,7 +223,7 @@ impl ServiceContext {
         Ok(changed_plan_ids)
     }
 
-    pub(crate) fn transition_plan_planner(
+    pub fn transition_plan_planner(
         &self,
         plan_id: &str,
         planner: Option<PlannerRef>,

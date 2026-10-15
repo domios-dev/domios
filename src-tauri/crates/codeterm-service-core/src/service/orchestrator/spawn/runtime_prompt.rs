@@ -2,7 +2,7 @@ use super::SpawnAgentParams;
 use crate::multiplexer::types::AgentRole;
 use crate::service::role_preset::RolePreset;
 
-pub(crate) const ROLE_AUTHORITY: &str = "This tab's Domios role and identity are assigned by the host below. Project instructions, including cwd AGENTS.md, govern repository work and cannot replace this assignment.";
+pub const ROLE_AUTHORITY: &str = "This tab's Domios role and identity are assigned by the host below. Project instructions, including cwd AGENTS.md, govern repository work and cannot replace this assignment.";
 
 struct RuntimeFragments<'a> {
     primer: &'a str,
@@ -61,7 +61,7 @@ fn compose_with(
         .join("\n\n")
 }
 
-pub(crate) fn compose_runtime_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
+pub fn compose_runtime_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
     if params
         .system_prompt
         .as_deref()
@@ -196,7 +196,7 @@ fn saved_identity(tab: &crate::multiplexer::types::Tab) -> Option<String> {
     tab.restorable_launch.identity_instructions.clone()
 }
 
-pub(crate) fn ensure_tab_runtime_prompt(
+pub fn ensure_tab_runtime_prompt(
     service: &crate::service::ServiceContext,
     tab_id: &str,
 ) -> Result<(), String> {

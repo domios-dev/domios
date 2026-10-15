@@ -61,13 +61,13 @@ pub(crate) struct PlanLifecyclePreview {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub(crate) struct PlanLifecycleOutcome {
+pub struct PlanLifecycleOutcome {
     pub(crate) kind: PlanLifecycleKind,
     pub(crate) plan_id: String,
-    pub(crate) applied: bool,
+    pub applied: bool,
     pub(crate) mode: PlanMode,
-    pub(crate) stride_id: Option<String>,
-    pub(crate) operation: Option<PlanPauseOperation>,
+    pub stride_id: Option<String>,
+    pub operation: Option<PlanPauseOperation>,
 }
 
 fn non_empty(value: Option<&str>) -> Option<&str> {
@@ -558,7 +558,7 @@ impl ServiceContext {
         Ok(resume_preview(&plan, |agent| live.contains(&agent.tab_id)))
     }
 
-    pub(crate) fn pause_plan_operation(
+    pub fn pause_plan_operation(
         &self,
         plan_id: &str,
         reason: &str,

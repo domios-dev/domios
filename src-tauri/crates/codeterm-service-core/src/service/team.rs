@@ -7,11 +7,11 @@ use crate::multiplexer::types::{AgentRole, TabCloseReason};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
-pub(crate) mod close;
+pub mod close;
 mod close_busy;
 mod storage_teardown;
 #[cfg(test)]
-pub(crate) use close::close_team_with_state_change;
+pub use close::close_team_with_state_change;
 #[cfg(test)]
 use close::close_team_with_state_change_using;
 pub use close::TeamCloseResult;
@@ -20,7 +20,7 @@ use close::{
 };
 
 #[derive(Debug)]
-pub(crate) enum TeamPlanError {
+pub enum TeamPlanError {
     Team(String),
     Plan(PlanError),
 }
@@ -28,7 +28,7 @@ pub(crate) enum TeamPlanError {
 /// Who is asking to mutate a Team. Headerless REST callers need a confirmed
 /// target echo; Tauri and local socket callers carry their own local identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TeamMutationCaller {
+pub enum TeamMutationCaller {
     AgentTab(String),
     AuthenticatedMeshPeer(String),
     Human,
@@ -37,7 +37,7 @@ pub(crate) enum TeamMutationCaller {
 }
 
 impl TeamMutationCaller {
-    pub(crate) fn from_tab(caller_tab_id: Option<&str>) -> Self {
+    pub fn from_tab(caller_tab_id: Option<&str>) -> Self {
         match caller_tab_id.map(str::trim).filter(|id| !id.is_empty()) {
             Some(tab_id) => Self::AgentTab(tab_id.to_string()),
             None => Self::Human,
@@ -89,7 +89,7 @@ impl ServiceContext {
         Ok(changed_plan_ids)
     }
 
-    pub(crate) async fn add_team_member(
+    pub async fn add_team_member(
         &self,
         team_id: &str,
         caller_tab_id: Option<&str>,
@@ -295,7 +295,7 @@ impl ServiceContext {
 
     /// Attach an already-running roleless agent tab to a Team the caller
     /// already belongs to.
-    pub(crate) fn adopt_agent_for_team(
+    pub fn adopt_agent_for_team(
         &self,
         team_id: &str,
         tab_id: &str,
@@ -312,7 +312,7 @@ impl ServiceContext {
         Ok(team)
     }
 
-    pub(crate) fn rename_team(
+    pub fn rename_team(
         &self,
         team_id: &str,
         name: String,
@@ -331,7 +331,7 @@ impl ServiceContext {
 
     /// Refuses while a Team task is in progress or a Worker is working unless
     /// `force`; a forced close reports every killed Worker and task.
-    pub(crate) async fn close_team(
+    pub async fn close_team(
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
@@ -599,7 +599,7 @@ impl ServiceContext {
         .map_err(|error| format!("Team cron and Sentinel teardown task failed: {error}"))?
     }
 
-    pub(crate) fn adopt_plan_for_team(
+    pub fn adopt_plan_for_team(
         &self,
         team_id: &str,
         plan_id: &str,
@@ -619,7 +619,7 @@ impl ServiceContext {
         Ok(plan)
     }
 
-    pub(crate) fn resume_team_plan(
+    pub fn resume_team_plan(
         &self,
         plan_id: &str,
         now_ms: u64,
@@ -628,7 +628,7 @@ impl ServiceContext {
             .map(|outcome| outcome.mode)
     }
 
-    pub(crate) fn unarchive_team_plan(
+    pub fn unarchive_team_plan(
         &self,
         plan_id: &str,
         now_ms: u64,
@@ -643,7 +643,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn transfer_team_plan(
+    pub fn transfer_team_plan(
         &self,
         plan_id: &str,
         to: crate::plan::OrchestratorRef,
@@ -667,7 +667,7 @@ impl ServiceContext {
         Ok(plan)
     }
 
-    pub(crate) fn validate_active_team_plan_bindings(&self) -> Result<(), TeamPlanError> {
+    pub fn validate_active_team_plan_bindings(&self) -> Result<(), TeamPlanError> {
         let mux = self.mux.read();
         let mut claimed_teams = std::collections::BTreeMap::<String, String>::new();
         for plan in self
@@ -689,7 +689,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn validate_plan_team_binding(&self, plan_id: &str) -> Result<(), TeamPlanError> {
+    pub fn validate_plan_team_binding(&self, plan_id: &str) -> Result<(), TeamPlanError> {
         let Some(plan) = self.plan_store.get(plan_id) else {
             return Err(TeamPlanError::Plan(PlanError::NotFound));
         };
@@ -726,7 +726,7 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn rename_team_core(
+pub fn rename_team_core(
     mux: &mut MultiplexerState,
     team_id: &str,
     name: String,
@@ -736,7 +736,7 @@ pub(crate) fn rename_team_core(
     mux.rename_team(team_id, name)
 }
 
-pub(crate) fn rename_team_with_state_change(
+pub fn rename_team_with_state_change(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
     team_id: &str,
@@ -793,7 +793,7 @@ where
     Ok(result)
 }
 
-fn adopt_plan_for_team_core(
+pub fn adopt_plan_for_team_core(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
@@ -823,7 +823,7 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
     .map_err(TeamPlanError::Team)
 }
 
-fn live_team_planner_ref(mux: &MultiplexerState, team_id: &str) -> Option<crate::plan::PlannerRef> {
+pub fn live_team_planner_ref(mux: &MultiplexerState, team_id: &str) -> Option<crate::plan::PlannerRef> {
     let mut planners = mux.all_tabs().filter(|tab| {
         tab.team_id.as_deref() == Some(team_id)
             && tab.role == Some(AgentRole::Manager)
@@ -941,7 +941,7 @@ transfers ownership, then new owner adopts."
 
 /// Resolution is local to the caller's own placement, so several anchors stay
 /// unambiguous without a global "there must be exactly one" scan.
-fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> Option<String> {
+pub fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> Option<String> {
     let mut seen = std::collections::HashSet::new();
     let mut current = caller_tab_id.to_string();
     while seen.insert(current.clone()) {
@@ -956,7 +956,7 @@ fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> O
 
 /// An agent caller resolves through its own chain; a human caller keeps the
 /// plan's existing owner, and is otherwise asked to name one.
-fn team_plan_owner(
+pub fn team_plan_owner(
     mux: &MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
@@ -1134,17 +1134,17 @@ fn authorize_team_mutation(
     authorize_team_manager(mux, team_id, caller)
 }
 
-mod membership;
+pub mod membership;
 pub(crate) use membership::{
     adopt_agent_into_team, apply_team_attachment, apply_team_attachment_under,
     authorize_team_attachment, resolve_inherited_team_attachment, resolve_spawn_attachment,
     AttachmentParent,
 };
 
-mod staffing;
+pub mod staffing;
 #[cfg(test)]
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
-pub(crate) use staffing::{
+pub use staffing::{
     commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, team_member_brief,
     AddTeamMemberParams, AddTeamMemberResult, CartographerAttachLocks, OrchestratorAttachLocks,
 };

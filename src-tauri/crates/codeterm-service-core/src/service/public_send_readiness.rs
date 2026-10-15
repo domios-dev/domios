@@ -94,7 +94,7 @@ fn launch_is_finalized(stage: Option<crate::service::boot_stage::BootStage>) -> 
 }
 
 impl ReadinessRegistry {
-    fn arm(
+    pub fn arm(
         &self,
         tab_id: String,
         expected_turn: Option<String>,
@@ -807,7 +807,7 @@ impl ServiceContext {
         READINESS.bind_attempt(attempt, key);
     }
 
-    pub(crate) fn has_public_send_launch_gate(&self, tab_id: &str) -> bool {
+    pub fn has_public_send_launch_gate(&self, tab_id: &str) -> bool {
         READINESS.state.lock().gates.contains_key(tab_id)
     }
 
@@ -815,7 +815,7 @@ impl ServiceContext {
         READINESS.complete(tab_id, key);
     }
 
-    pub(crate) fn await_public_send_readiness(
+    pub fn await_public_send_readiness(
         &self,
         tab_id: &str,
         timeout: Duration,

@@ -136,7 +136,7 @@ impl RouteFixture {
     }
 }
 
-fn arm(mux: &mut MultiplexerState, tab_id: &str, suffix: &str) {
+pub fn arm(mux: &mut MultiplexerState, tab_id: &str, suffix: &str) {
     let tab = mux.get_tab_mut(tab_id).unwrap();
     tab.agent_type = Some("codex".into());
     tab.chat_view = true;

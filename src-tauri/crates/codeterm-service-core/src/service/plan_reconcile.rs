@@ -201,7 +201,7 @@ impl ServiceContext {
         probe
     }
 
-    pub(crate) fn tab_probe(&self, tab_id: &str) -> TabProbe {
+    pub fn tab_probe(&self, tab_id: &str) -> TabProbe {
         let (
             exists,
             role,

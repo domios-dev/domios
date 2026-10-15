@@ -1,7 +1,7 @@
 use super::{source, storage, Handle, Sentinel, ServiceState};
 
 impl Handle {
-    pub(crate) fn enqueue_text(&self, job: &Sentinel, text: String) -> Result<(), String> {
+    pub fn enqueue_text(&self, job: &Sentinel, text: String) -> Result<(), String> {
         let mut store = self.store.lock();
         store.ensure_available()?;
         let current = store.get(&job.id).ok_or("blueprint not found")?;

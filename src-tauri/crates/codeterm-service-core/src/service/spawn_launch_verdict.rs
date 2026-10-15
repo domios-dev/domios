@@ -12,12 +12,12 @@ mod tests;
 
 /// Bounded below the 30 s forward deadline of a relayed or loopback-HTTP caller,
 /// so a live launch still in progress is never reported as a transport failure.
-pub(crate) const SPAWN_LAUNCH_VERDICT_DEADLINE: Duration = Duration::from_secs(20);
+pub const SPAWN_LAUNCH_VERDICT_DEADLINE: Duration = Duration::from_secs(20);
 const OUTPUT_TAIL_LINES: usize = 20;
 const OUTPUT_TAIL_BYTES: usize = 2048;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SpawnLaunchVerdict {
+pub enum SpawnLaunchVerdict {
     Ready,
     /// The provider is alive but not ready yet: an owner prompt, a provisional
     /// stage, or a launch still in progress at the deadline. Never a success claim.
@@ -30,7 +30,7 @@ pub(crate) enum SpawnLaunchVerdict {
 }
 
 impl SpawnLaunchVerdict {
-    pub(crate) fn launch_state(&self) -> &'static str {
+    pub fn launch_state(&self) -> &'static str {
         match self {
             Self::Ready => "ready",
             Self::Starting { .. } => "starting",
@@ -49,7 +49,7 @@ impl SpawnLaunchVerdict {
     }
 
     /// The spawn's own warning followed by this verdict's, as one response field.
-    pub(crate) fn merged_warning(
+    pub fn merged_warning(
         &self,
         tab_id: &str,
         spawn_warning: Option<&str>,
@@ -64,7 +64,7 @@ impl SpawnLaunchVerdict {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SpawnLaunchFailure {
+pub struct SpawnLaunchFailure {
     pub tab_id: String,
     pub reason: String,
     pub output_tail: Option<String>,
@@ -73,7 +73,7 @@ pub(crate) struct SpawnLaunchFailure {
 impl SpawnLaunchFailure {
     pub(crate) const CODE: &'static str = "launch_failed";
 
-    pub(crate) fn message(&self) -> String {
+    pub fn message(&self) -> String {
         let mut message = format!(
             "agent launch failed in Tab {}: {}",
             self.tab_id, self.reason
@@ -85,7 +85,7 @@ impl SpawnLaunchFailure {
         message
     }
 
-    pub(crate) fn data(&self) -> serde_json::Value {
+    pub fn data(&self) -> serde_json::Value {
         serde_json::json!({
             "type": Self::CODE,
             "tab_id": self.tab_id,
@@ -136,7 +136,7 @@ pub(crate) fn output_tail(screen: &str) -> Option<String> {
 impl ServiceContext {
     /// Wait on boot-stage transitions for this tab's launch verdict. The
     /// deadline bounds only the wait; reaching it reports `Starting`, never ready.
-    pub(crate) fn await_spawn_launch_verdict(
+    pub fn await_spawn_launch_verdict(
         &self,
         tab_id: &str,
         deadline: Duration,
@@ -166,7 +166,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn launch_output_tail(&self, tab_id: &str) -> Option<String> {
+    pub fn launch_output_tail(&self, tab_id: &str) -> Option<String> {
         let pty_id = self.mux.read().get_tab(tab_id)?.pty_id.clone()?;
         let screen = self.screen_state.lock().get_screen_text(&pty_id)?;
         output_tail(&screen)

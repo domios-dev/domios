@@ -46,7 +46,7 @@ pub(super) struct PendingCompletion {
 }
 
 impl RunWatcherRegistry {
-    pub(crate) fn request_cron_completion(
+    pub fn request_cron_completion(
         &self,
         svc: &ServiceContext,
         tab_id: &str,

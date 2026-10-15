@@ -7,7 +7,7 @@ use crate::service::ServiceContext;
 
 impl ServiceContext {
     /// Deletes whole Blueprints in the caller's Team; returns the scenario roots removed.
-    pub(crate) fn blueprint_delete(
+    pub fn blueprint_delete(
         &self,
         caller: &SentinelCaller,
         target: DeleteTarget,

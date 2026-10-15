@@ -37,7 +37,7 @@ pub mod status;
 pub mod structured_prompt;
 pub mod stub_launch;
 pub mod tab_state;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_provider;
 pub mod usage_parser;
 

@@ -368,7 +368,7 @@ pub(super) async fn await_pty_link(state: &AppState, tab_id: &str) -> bool {
     .unwrap_or(false)
 }
 
-async fn await_public_send_readiness(
+pub async fn await_public_send_readiness(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
 ) -> Result<(), SendRejection> {

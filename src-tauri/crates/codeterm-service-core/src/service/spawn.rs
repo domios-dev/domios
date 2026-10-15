@@ -12,7 +12,7 @@ pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
 mod spawn_warnings;
 pub(crate) use spawn_warnings::merge as merge_spawn_warnings;
 
-pub(crate) use super::spawn_cli::{create_cleared_agent_tab, provider_launch_preflight};
+pub use super::spawn_cli::{create_cleared_agent_tab, provider_launch_preflight};
 #[cfg(test)]
 pub(crate) use super::spawn_params::validate_watcher_spawn_target;
 pub(crate) use super::spawn_params::{
@@ -24,11 +24,11 @@ mod spawn_model;
 #[path = "spawn_model_catalogue.rs"]
 mod spawn_model_catalogue;
 pub use spawn_model::ModelFallbackNotice;
-pub(crate) use spawn_model::{
+pub use spawn_model::{
     attach_planned_model, normalize_session_model, persist_model_launch_identity,
     resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
 };
-pub(crate) use spawn_model_catalogue::{
+pub use spawn_model_catalogue::{
     catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
     resolve_agent_model_selection, validate_agent_model, InvalidModelError,
 };
@@ -92,11 +92,11 @@ pub struct SpawnTabSpec {
     pub eager: bool,
     pub command: TabCommand,
     #[serde(skip)]
-    pub(crate) chatbackend_launch: Option<Box<ChatBackendLaunchMetadata>>,
+    pub chatbackend_launch: Option<Box<ChatBackendLaunchMetadata>>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ChatBackendLaunchMetadata {
+pub struct ChatBackendLaunchMetadata {
     pub(crate) agent: AgentSpawnSpec,
     pub(crate) params: super::SpawnAgentParams,
     pub(crate) owner_linkage: Option<RuntimeOwnerLinkage>,
@@ -193,7 +193,7 @@ pub struct AgentSpawnSpec {
 /// the caller's own tab. The focused workspace is a last resort for callers with
 /// no tab identity (UI clicks, external API) — an agent must never land its
 /// children in whatever workspace the user happens to be looking at.
-pub(crate) fn resolve_spawn_workspace_id(
+pub fn resolve_spawn_workspace_id(
     requested_workspace_id: Option<String>,
     parent_tab_id: Option<&str>,
     caller_tab_id: Option<&str>,

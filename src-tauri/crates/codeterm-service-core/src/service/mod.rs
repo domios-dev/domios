@@ -18,7 +18,7 @@ pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
-pub(crate) mod agent_runtime;
+pub mod agent_runtime;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub mod analytics;
@@ -26,8 +26,8 @@ mod analytics_host;
 pub(crate) mod background_work;
 pub(crate) mod background_work_watch;
 pub mod billing;
-mod blueprint_pipeline;
-mod blueprint_portable;
+pub mod blueprint_pipeline;
+pub mod blueprint_portable;
 pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
@@ -45,19 +45,19 @@ pub mod cron;
 pub mod delivery_error;
 pub mod general_agent;
 pub mod health;
-pub(crate) mod hierarchy;
+pub mod hierarchy;
 pub(crate) mod hook_session_binding;
 pub mod inject_verify;
 pub mod input_parser;
 pub(crate) mod input_transport;
 pub(crate) mod instance_env;
 pub(crate) mod integration_silence;
-mod kpi_hooks;
-pub(crate) mod lane_clean;
-pub(crate) mod lane_removal;
-pub(crate) mod lane_stats;
+pub mod kpi_hooks;
+pub mod lane_clean;
+pub mod lane_removal;
+pub mod lane_stats;
 pub(crate) mod launch_artifacts;
-pub(crate) mod launch_delivery;
+pub mod launch_delivery;
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub(crate) mod launch_readiness;
@@ -73,7 +73,7 @@ pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
 pub(crate) mod open_url;
-mod orchestration_pair;
+pub mod orchestration_pair;
 pub(crate) mod orchestrator;
 pub(crate) mod ordered_actions;
 pub(crate) mod parked_user_delivery;
@@ -81,24 +81,23 @@ pub mod post_update;
 pub(crate) mod process_tree;
 pub(crate) mod prompt_resolution;
 pub(crate) mod protocol_recorder;
-pub(crate) mod provider_cli;
-pub(crate) mod provider_cli_actions;
+pub mod provider_cli;
+pub mod provider_cli_actions;
 pub(crate) mod provider_hooks;
 pub(crate) mod provider_signals;
 mod provider_signals_probe;
 pub(crate) mod provider_update;
 pub(crate) mod pty_resize;
 pub(crate) mod public_send_readiness;
-pub(crate) mod sentinel;
+pub mod sentinel;
 pub(crate) mod skill_mirror;
 pub(crate) mod startup_turn;
 pub(crate) mod task_files;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) use orchestrator::tab_relink_signal::await_relink;
-pub(crate) use orchestrator::{
-    build_agent_command_for_service, mark_tab_agent_launch_started, provider_launch_task,
-};
+pub use orchestrator::{build_agent_command_for_service, mark_tab_agent_launch_started};
+pub(crate) use orchestrator::provider_launch_task;
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
 mod folder_trust_carryover;
@@ -111,10 +110,10 @@ pub(crate) mod pending_delivery_payloads;
 pub(crate) mod permission_auto_confirm;
 pub(crate) mod permission_decision;
 pub(crate) mod permission_policy;
-pub(crate) mod persona;
+pub mod persona;
 pub mod plan;
-mod plan_authority;
-pub(crate) mod plan_batch_authority;
+pub mod plan_authority;
+pub mod plan_batch_authority;
 mod plan_pause;
 mod plan_reconcile;
 mod prompt_chain;
@@ -134,15 +133,15 @@ pub mod pty_lifecycle;
 pub(crate) mod pty_ownership;
 pub mod push;
 mod reasoning_effort;
-pub(crate) mod receiver_target;
+pub mod receiver_target;
 pub mod remote_tabs;
 pub mod remote_workers;
 pub mod reply_relay;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
 mod role_identity;
-pub(crate) mod role_preset;
-pub(crate) mod role_profile;
+pub mod role_preset;
+pub mod role_profile;
 mod session_backup;
 pub(crate) mod session_binding_deferral;
 mod session_binding_state;
@@ -155,19 +154,19 @@ pub mod spawn;
 pub(crate) mod spawn_capability;
 mod spawn_chatbackend;
 mod spawn_cli;
-pub(crate) mod spawn_cwd;
+pub mod spawn_cwd;
 mod spawn_factory;
 mod spawn_hidden_launch;
-pub(crate) mod spawn_launch_verdict;
+pub mod spawn_launch_verdict;
 mod spawn_params;
-mod spawn_plan_task;
-pub(crate) mod task_assignment;
+pub mod spawn_plan_task;
+pub mod task_assignment;
 pub(crate) mod unattended_launch;
-pub(crate) use spawn_plan_task::planned_task_title;
+pub use spawn_plan_task::planned_task_title;
 mod spawn_rollback;
 mod spawn_shell;
 pub(crate) mod spawn_title;
-pub(crate) mod startup_lease;
+pub mod startup_lease;
 pub(crate) mod startup_nudge;
 mod status_reconciliation;
 pub(crate) mod stop_execution;
@@ -199,23 +198,23 @@ pub(crate) mod tab_repair;
 pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
-mod team;
+pub mod team;
 #[cfg(test)]
-pub(crate) use team::close_team_with_state_change;
+pub use team::close_team_with_state_change;
 #[cfg(test)]
-pub(crate) use team::rename_team_core;
+pub use team::rename_team_core;
 #[cfg(test)]
-pub(crate) use team::rename_team_with_state_change;
+pub use team::rename_team_with_state_change;
 pub use team::TeamCloseResult;
-mod task_lane_guard;
-pub(crate) use task_lane_guard::{
+pub mod task_lane_guard;
+pub use task_lane_guard::{
     canonical_path_of, classify_mutating_lane, live_canonical_writer, recorded_lane_matches,
     UnsafeMutatingLane,
 };
 // The value-only verdict has no production caller; the routes go through the
 // ServiceContext wrapper instead.
-#[cfg(test)]
-pub(crate) use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
+#[cfg(any(test, feature = "test-support"))]
+pub use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
 #[cfg(test)]
 mod persistence_roundtrip_tests;
 #[cfg(any(test, feature = "test-support"))]
@@ -227,15 +226,15 @@ pub mod transport;
 pub mod watcher;
 pub mod web_access;
 #[cfg(windows)]
-pub(crate) use codeterm_util::windows_job;
-pub(crate) mod worker_ack;
-mod worker_identity;
+pub use codeterm_util::windows_job;
+pub mod worker_ack;
+pub mod worker_identity;
 pub(crate) mod worker_interruption;
-pub(crate) mod worker_lane;
+pub mod worker_lane;
 pub(crate) mod worker_loss;
-#[cfg(test)]
-pub(crate) use worker_lane::provision_lane_for_test;
-pub(crate) use worker_lane::{
+#[cfg(any(test, feature = "test-support"))]
+pub use worker_lane::provision_lane_for_test;
+pub use worker_lane::{
     is_linked_worktree, provision_isolated_lane, same_path, verify_worker_lane, LaneProtection,
     ProvisionedWorkerLane, WorkerLaneProvenance,
 };
@@ -270,18 +269,18 @@ use codeterm_events::EventBroadcaster;
 pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
 pub use hierarchy::TabStatusInfo;
 pub(crate) use hierarchy::WorkerTurnSignal;
-pub(crate) use hierarchy::{TeamPlanCaller, TeamPlanCreationError};
+pub use hierarchy::{TeamPlanCaller, TeamPlanCreationError};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
 };
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
-#[cfg(test)]
-pub(crate) use orchestrator::{
+#[cfg(any(test, feature = "test-support"))]
+pub use orchestrator::{
     arm_provider_session_for_test, launch_waits_for_first_turn_binding, spawn_onboarding_task,
     LaunchGeneration,
 };
-pub(crate) use orchestrator::{
+pub use orchestrator::{
     move_chatbackend_task_to_system_prompt, record_provider_session, ProviderSessionBinding,
     RemoteTaskBinding, TaskLaunchAuthority,
 };
@@ -289,20 +288,20 @@ pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,
 };
-pub(crate) use plan_authority::{
+pub use plan_authority::{
     ensure_planner_task_fields_are_structural, launch_binding_is_pending,
     planner_forbidden_task_field, AuthenticatedPlanCaller, OrchestratorLearningError,
     PlanAuthorityError,
 };
 pub(crate) use session_binding_state::SessionBindingState;
-pub(crate) use spawn_params::starter_prompt_for_role;
+pub use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
-pub(crate) use team::TeamMutationCaller;
-pub(crate) use team::TeamPlanError;
-pub(crate) use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
-pub(crate) use team::{CartographerAttachLocks, OrchestratorAttachLocks};
-pub(crate) use worker_identity::{
+pub use team::TeamMutationCaller;
+pub use team::TeamPlanError;
+pub use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
+pub use team::{CartographerAttachLocks, OrchestratorAttachLocks};
+pub use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
     respawn_title_provenance, restore_attempt_binding_for_caller, restore_attempt_binding_for_mux,
     restore_review_attempt_binding_for_mux, AttemptBindingRestoreResult,
@@ -373,10 +372,10 @@ pub struct ServiceContext {
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
     pub(crate) deferred_session_bindings:
         Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
-    pub(crate) worker_ack: Arc<worker_ack::WorkerAckRegistry>,
+    pub worker_ack: Arc<worker_ack::WorkerAckRegistry>,
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
-    pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
+    pub gateway: Arc<crate::service::message_gateway::MessageGateway>,
     pub(crate) extensions: Arc<Extensions>,
 }
 
@@ -729,7 +728,7 @@ impl ServiceContext {
     /// Emit an empty-payload `mux-state-changed` (frontend does a full refetch).
     /// The socket handlers use this so fault injection (`frozen`) covers EVERY
     /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
-    pub(crate) fn emit_mux_state_changed_empty(&self) {
+    pub fn emit_mux_state_changed_empty(&self) {
         self.output_stream_mux_changed();
         self.ext::<Arc<crate::service::MuxEmitStats>>()
             .requests

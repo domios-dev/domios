@@ -2,7 +2,7 @@ use super::*;
 use tauri::Manager;
 
 impl crate::service::ServiceContext {
-    pub(crate) fn start_chat_send(
+    pub fn start_chat_send(
         &self,
         tab_id: &str,
         text: String,

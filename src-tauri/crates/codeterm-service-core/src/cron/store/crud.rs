@@ -296,7 +296,7 @@ impl CronStore {
     }
 
     /// Legacy JSON path for callers holding the cron lock: apply, then save the file.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn legacy<T>(&mut self, prepared: Result<Prepared<T>, String>) -> Result<T, String> {
         self.backend.require_legacy()?;
         let prepared = prepared?;
@@ -309,7 +309,7 @@ impl CronStore {
         Ok(prepared.value)
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-support")))]
     pub(super) fn legacy<T>(
         &mut self,
         _prepared: Result<Prepared<T>, String>,
