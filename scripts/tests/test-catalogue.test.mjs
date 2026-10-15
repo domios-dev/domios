@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { globToRegExp, renderReadme, runCommands, schemaErrors, selectRunners, validateRepo } from "../test-catalogue.mjs";
+import { globToRegExp, listRepoFiles, renderReadme, runCommands, schemaErrors, selectRunners, validateRepo } from "../test-catalogue.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.join(here, "..", "..");
@@ -14,6 +14,29 @@ const schema = JSON.parse(readFileSync(path.join(repo, "tests", "catalogue.schem
 
 const CASE = 'test("case", () => {});\n';
 const PW_TITLE = "@golden picker keeps its workspace row";
+
+test("inventory through a subst drive keeps Git discovery and excludes ignored artifacts", { skip: process.platform !== "win32" }, (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "catalogue-subst-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const git = (...args) => {
+    const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git("init", "-q");
+  writeFileSync(path.join(root, ".gitignore"), "ignored.txt\n");
+  writeFileSync(path.join(root, "tracked.txt"), "tracked");
+  git("add", ".gitignore", "tracked.txt");
+  writeFileSync(path.join(root, "untracked.txt"), "untracked");
+  writeFileSync(path.join(root, "ignored.txt"), "ignored");
+  const drive = ["Q:", "R:", "S:", "T:"].find(value => {
+    if (existsSync(value + path.sep)) return false;
+    return spawnSync("subst", [value, root]).status === 0;
+  });
+  assert.ok(drive, "a temporary subst drive must be available");
+  t.after(() => assert.equal(spawnSync("subst", [drive, "/D"]).status, 0));
+  assert.deepEqual(listRepoFiles(drive + path.sep), [".gitignore", "tracked.txt", "untracked.txt"]);
+});
+
 const baseCatalogue = () => ({
   version: 1,
   test_looking: {
