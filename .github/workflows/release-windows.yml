@@ -305,6 +305,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build release bundle inputs
+        id: compile
         shell: pwsh
         run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -File build.ps1 release-inputs
 
@@ -416,8 +417,9 @@ jobs:
           platform: release-Windows
           target: ${{ matrix.target }}
 
+      # Without a compile step no sccache server ever started, so there is nothing to report.
       - name: Shared compile cache statistics
-        if: always()
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
         shell: pwsh
         run: |
           & .\build.ps1 cache-stats

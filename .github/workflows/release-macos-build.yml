@@ -129,6 +129,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build signed and notarized macOS bundle
+        id: compile
         run: |
           rm -rf "$ART"
           mkdir -p "$ART"
@@ -164,8 +165,9 @@ jobs:
           platform: release-macOS
           target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
 
+      # Without a compile step no sccache server ever started, so there is nothing to report.
       - name: Shared compile cache statistics
-        if: always()
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
         run: bash build.sh cache-stats
       - name: Remove this job's Rust targets and archives
         if: always()
