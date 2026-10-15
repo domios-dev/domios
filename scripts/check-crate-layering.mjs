@@ -14,7 +14,7 @@ const leafTiers = [
   ["agent-model"],
   ["supporter"],
   ["provider-ops", "recall"],
-  ["surface"],
+  ["surface", "notifications"],
 ];
 const tierByCrate = new Map(leafTiers.flatMap((names, tier) => names.map((name) => [`codeterm-${name}`, tier])));
 // Unlisted foundation crates are tier zero; extracted leaves must never become their dependencies.
