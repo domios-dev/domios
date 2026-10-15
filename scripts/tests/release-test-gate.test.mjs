@@ -17,7 +17,7 @@ const builds = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x86_64", "wind
 const dependencies = job => [job.needs].flat();
 
 const fastJobs = ["file-sizes", "plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
-const longJobs = ["rust-tests", "rust-platform", "rust-receipts"];
+const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
 
 const overlapped = ["macos-arm64", "macos-x64", "linux-arm64", "windows-x64", "windows-arm64"];
 const afterFast = ["linux-x86_64", "tests"];
@@ -95,7 +95,7 @@ test("file sizes gate every other fast check, and test phases partition every ch
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "long"].includes(phase), `${id}/${phase}`);
   }
   const skipped = { ...needs, fmt: { result: "skipped" } };
-  for (const id of ["rust-tests", "rust-platform"]) assert.ok(condition(tests.jobs[id].if, { needs: skipped, inputs: { phase: "long" } }), id);
+  for (const id of ["rust-tests", "rust-platform", "rust-embeddings"]) assert.ok(condition(tests.jobs[id].if, { needs: skipped, inputs: { phase: "long" } }), id);
   assert.match(tests.concurrency.group, /inputs.phase/);
 });
 
@@ -225,7 +225,7 @@ test("a frontend-only release builds and publishes only the frontend after the f
 
 test("heavy Rust and build jobs end by removing their own targets and archives", () => {
   const heavy = [
-    ...["rust-tests", "rust-platform", "clippy-linux", "ts-types"].map(id => tests.jobs[id]),
+    ...["rust-tests", "rust-platform", "rust-embeddings", "clippy-linux", "ts-types"].map(id => tests.jobs[id]),
     ...["release-macos-build", "release-linux", "release-linux-arm64", "release-windows"].map(name => workflow(name).jobs.build),
   ];
   for (const job of heavy) {
@@ -240,6 +240,9 @@ test("the full suite runs once on the rust-tests pool and each OS runs only its 
   const full = tests.jobs["rust-tests"];
   assert.deepEqual(full["runs-on"], ["self-hosted", "rust-tests"]);
   assert.deepEqual(full.strategy.matrix.suite, ["full"]);
+  const embeddings = tests.jobs["rust-embeddings"];
+  assert.deepEqual(embeddings["runs-on"], ["self-hosted", "rust-tests"]);
+  assert.deepEqual(embeddings.strategy.matrix.suite, ["embeddings"]);
   const platform = tests.jobs["rust-platform"];
   assert.ok(platform.strategy.matrix.include.every(entry => entry.suite === "platform"));
   assert.deepEqual(platform.strategy.matrix.include.map(entry => entry.os).sort(), ["Linux", "Windows", "macOS"]);
@@ -250,7 +253,7 @@ test("the full suite runs once on the rust-tests pool and each OS runs only its 
     assert.match(runs, /build\.ps1 ci-tests \$\{\{ matrix\.suite \}\}/);
     assert.ok(!job.steps.some(step => step.uses?.startsWith("actions/download-artifact")), "no archive download");
   }
-  assert.deepEqual(new Set(dependencies(tests.jobs["rust-receipts"])), new Set(["changed", "rust-tests", "rust-platform"]));
+  assert.deepEqual(new Set(dependencies(tests.jobs["rust-receipts"])), new Set(["changed", "rust-tests", "rust-platform", "rust-embeddings"]));
 });
 
 test("platform tests expand to one job per OS", () => {
