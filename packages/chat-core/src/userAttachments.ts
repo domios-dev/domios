@@ -34,6 +34,12 @@ function inlineSegments(content: string): AttachmentSegment[] | null {
   return segments.filter((segment) => !("text" in segment) || segment.text);
 }
 
+/** Unlabeled videos read as video1, video2 in message order, the way images read as image1. */
+export function labelVideos(files: AttachmentMarker[]): AttachmentMarker[] {
+  let count = 0;
+  return files.map((file) => file.kind === "video" && !file.label ? { ...file, label: `video${++count}` } : file);
+}
+
 /** What a user bubble renders: clean text, inline capsules, one image strip from provider-native and marker images, and file chips. */
 export function userMessageAttachments(source: string, attachments: ChatAttachment[] = []): UserMessageAttachments {
   const { reply, text: content } = splitReplyAttachment(source);
@@ -50,7 +56,7 @@ export function userMessageAttachments(source: string, attachments: ChatAttachme
     if (marker.kind !== "image") files.push(marker);
     else images.push({ id: `attachment:${marker.path}`, mimeType: imageMimeType(marker.path), path: marker.path });
   }
-  return { text: userVisibleText(parsed.text, images), images, files, inline: inlineSegments(content), reply };
+  return { text: userVisibleText(parsed.text, images), images, files: labelVideos(files), inline: inlineSegments(content), reply };
 }
 
 export function attachmentFileName(attachment: ChatAttachment): string {

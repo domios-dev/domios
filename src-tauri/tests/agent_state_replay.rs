@@ -7,16 +7,18 @@
 //! Fixtures: tests/fixtures/agent-state/<provider>/<state>/{recording.cast,expected.json}
 //! Run: cargo test --test agent_state_replay -- --nocapture  (or evals/agent-state/run.sh)
 
-#[path = "../src/test_support.rs"]
+#[path = "../crates/codeterm-service-core/src/test_support.rs"]
 mod test_support;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use codeterm_lib::agent::provider::AgentProvider;
-use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals, VolatileHint};
-use codeterm_lib::agent::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
-use codeterm_lib::plugin::js_runtime::{load_one, JsProvider};
+use codeterm_service_core::agent::provider::AgentProvider;
+use codeterm_service_core::agent::signal_extractor::{
+    SignalExtractor, StreamSignals, VolatileHint,
+};
+use codeterm_service_core::agent::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
+use codeterm_service_core::plugin::js_runtime::{load_one, JsProvider};
 use serde::Deserialize;
 use serde_json::Value;
 

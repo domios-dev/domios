@@ -23,6 +23,8 @@ Every failure below happened in the first split waves. Check each one before you
 
 ## Proof
 
-Commit, then `./build.sh check-queue --wait-build` until it reports `errors=0`. Then report the SHA and the test selectors of every moved module with a non-empty filter. `module-graph.md` belongs to the map owner; mark your step done in `split-roadmap.md` only.
+Run rustfmt, `bash scripts/check-file-sizes.sh --fail` and `bash scripts/check-service-core-boundary.sh` in the lane. Commit, then run one `./build.sh check-queue --lane <sha>` and require `errors=0` and `warnings=0`; a busy gateway is a blocker, never polled. Then report the SHA and the test selectors of every moved module with a non-empty filter. `module-graph.md` belongs to the map owner; mark your step done in `split-roadmap.md` only.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
+
+A moved crate adds its test targets to the lane check, except service-core whose tests stay at the batch. Removed crates are dropped using workspace membership at the checked SHA. A batch failure returns to its lane with the integration SHA. Canonical app selectors reuse one ./build.sh nextest-archive <sha> for root and service-core, with the guarded shared default embeddings feature configuration.

@@ -1,0 +1,1017 @@
+//! Tab lifecycle: close, rename, focus.
+
+use super::ServiceContext;
+use crate::multiplexer::types::{AgentRole, TabCloseReason, TitleLevel};
+use crate::plan::peer::{resolve_planner_ref, PeerResolution};
+use crate::service::session_model::spawn_startup_model_refresh;
+use crate::service::session_persist::{self, SessionPersistUrgency};
+use crate::service::worker_loss::{busy_worker_close_warnings, BUSY_WORKER_CLOSE_REFUSAL_PREFIX};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::Manager;
+
+#[path = "tab/lifecycle_exit.rs"]
+mod lifecycle_exit;
+#[cfg(test)]
+#[path = "tab/tests.rs"]
+mod tests;
+#[cfg(any(test, feature = "test-support"))]
+pub use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
+
+pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
+pub const MAX_TAB_TITLE_CHARS: usize = 64;
+pub const TAB_TITLE_ERROR: &str =
+    "tab title must be one word of at most 64 characters with no whitespace or control characters; put descriptive text in description";
+
+pub fn validate_tab_title(title: &str) -> Result<(), String> {
+    if title.is_empty()
+        || title.chars().count() > MAX_TAB_TITLE_CHARS
+        || title.chars().any(|character| {
+            character.is_whitespace()
+                || character.is_control()
+                || matches!(character, '\u{2028}' | '\u{2029}')
+        })
+    {
+        Err(TAB_TITLE_ERROR.to_string())
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) fn normalize_optional_tab_description(
+    value: Option<String>,
+) -> Result<Option<String>, String> {
+    value
+        .as_deref()
+        .map(normalize_tab_description)
+        .transpose()
+        .map(Option::flatten)
+}
+
+/// Prefix on every self-termination refusal so transports can classify it.
+pub const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
+pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
+mod ownership;
+mod rename_guard;
+mod respond_screen;
+mod scrollback;
+
+pub(crate) use rename_guard::refuse_task_bound_rename;
+
+/// A coordinator must not self-terminate. Planner identity comes from the plan
+/// graph, not from the structural role.
+pub(crate) fn is_coordinator(
+    role: Option<AgentRole>,
+    role_profile: Option<&str>,
+    is_plan_owner: bool,
+    is_bound_planner: bool,
+) -> bool {
+    codeterm_types::agent::role_kind::anchors_team(role, role_profile)
+        || is_plan_owner
+        || is_bound_planner
+}
+
+pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> {
+    // Surrounding whitespace, tabs included, is trimmed rather than refused.
+    let trimmed = value.trim();
+    if trimmed
+        .chars()
+        .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
+    {
+        return Err("description must be one line without control characters".into());
+    }
+    if trimmed.chars().count() > MAX_TAB_DESCRIPTION_CHARS {
+        return Err(format!(
+            "description must be {} characters or fewer",
+            MAX_TAB_DESCRIPTION_CHARS
+        ));
+    }
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed.to_string()))
+    }
+}
+
+fn epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+impl ServiceContext {
+    pub(crate) fn release_tab_launch_artifacts(&self, tab_id: &str, provider_id: &str) {
+        let closed_tab = [(tab_id.to_string(), provider_id.to_string())];
+        super::launch_artifacts::release_closed_tabs(&self.agent_registry, &closed_tab);
+    }
+
+    pub(crate) fn tab_launch_artifact_provider(&self, tab_id: &str) -> Option<String> {
+        let mux = self.mux.read();
+        let canonical = mux
+            .resolve_tab_id(tab_id)
+            .unwrap_or_else(|| tab_id.to_string());
+        mux.get_tab(&canonical)?.agent_type.clone()
+    }
+
+    pub(crate) fn prepare_tab_close(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<(), String> {
+        self.pending_delivery_payloads
+            .user_sends
+            .tab(tab_id)
+            .revoked
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.invalidate_guarded_agent_input(tab_id);
+        super::background_work_watch::cancel(tab_id);
+        crate::flow_trace::cancel_tab(tab_id);
+        self.chat_registry.shutdown_tab(tab_id);
+        super::agent_runtime::engine::stop(tab_id);
+        self.deferred_session_bindings.clear(tab_id);
+
+        if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
+            let _ = self.chatbackend_close(&plugin_id, &session_id);
+        }
+
+        log::info!("[tab-close] tab={tab_id} reason={}", reason.label());
+        self.record_lifecycle_end(
+            tab_id,
+            crate::session::lifecycle::LifecycleTransition::Closed {
+                reason: reason.label().to_string(),
+            },
+        );
+        self.discard_pending_delivery(tab_id)
+            .map_err(|error| format!("pending delivery discard failed: {error}"))?;
+        self.release_worker_persona_for_tab(tab_id);
+        Ok(())
+    }
+
+    pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        super::supporter_tab_state::forget_observations(tab_id);
+        crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
+        self.release_managed_tabs(tab_id);
+        self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .close(tab_id);
+        if let Some(ports) = self
+            .app_handle
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
+        {
+            ports.cleanup.cancel_tab_owned_runs(tab_id);
+        }
+        super::task_files::release_tab(self, tab_id);
+        self.cancel_agent_startup_supervision(tab_id);
+        let pad_result = self.revoke_agent_pad(tab_id);
+        self.clear_dead_planner_binding(tab_id);
+        self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
+        self.prompt_detector.lock().remove_tab(tab_id);
+        self.forget_permission_auto_confirm(tab_id);
+        self.forget_directory_trust(tab_id);
+        crate::service::folder_trust_carryover::forget_tab(tab_id);
+        crate::service::structured_prompt::clear_tab(tab_id);
+        self.remote_workers.forget_orchestrator(tab_id);
+        self.forget_receiver_targets_for_tab(tab_id);
+        self.dispose_closed_surface_runtimes();
+        pad_result
+    }
+
+    /// True when `tab_id` is a coordinator (Orchestrator role, plan owner, or
+    /// bound Planner) and so must not close itself. Keys off caller identity in
+    /// the mux + plan graph, never a display name.
+    pub(crate) fn is_self_close_protected(&self, tab_id: &str) -> bool {
+        let (role, role_profile) = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .map(|tab| (tab.role, tab.role_profile.clone()))
+            .unwrap_or_default();
+        if is_coordinator(role, role_profile.as_deref(), false, false) {
+            return true;
+        }
+        for plan in self.plan_store.list_full() {
+            let is_owner = plan.owner.tab_id.as_deref() == Some(tab_id);
+            let is_planner =
+                match resolve_planner_ref(&plan.planner, &plan.owner, |p| self.tab_probe(p)) {
+                    PeerResolution::Planner { tab_id: p } => p == tab_id,
+                    _ => false,
+                };
+            if is_coordinator(None, None, is_owner, is_planner) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Close a tab on behalf of `caller_tab_id`. Refuses coordinator self-close,
+    /// requires caller attribution before closing a coordinator Tab, and makes
+    /// an agent caller pass `force` to close a Worker holding in-progress work.
+    /// Returns the warnings a human close of such a Worker must surface.
+    pub fn close_tab_guarded(
+        &self,
+        caller_tab_id: Option<&str>,
+        target_tab_id: &str,
+        force: bool,
+    ) -> Result<Vec<String>, String> {
+        let (canon_target, canon_caller) = {
+            let mux = self.mux.read();
+            let target = mux
+                .resolve_tab_id(target_tab_id)
+                .unwrap_or_else(|| target_tab_id.to_string());
+            let caller = caller_tab_id.and_then(|c| mux.resolve_tab_id(c));
+            (target, caller)
+        };
+        if self.is_self_close_protected(&canon_target) {
+            match canon_caller.as_deref() {
+                Some(caller) if caller == canon_target => {
+                    return Err(format!(
+                        "{SELF_CLOSE_REFUSAL_PREFIX}: a coordinator cannot close its own Tab \
+                         ({canon_target}) — have your parent or another Tab close it, or move first. \
+                         Workers self-close on report+exit."
+                    ));
+                }
+                None => {
+                    return Err(format!(
+                        "{UNATTRIBUTED_CLOSE_REFUSAL_PREFIX}: caller attribution is required to \
+                         close coordinator Tab ({canon_target}); close it through its Team or \
+                         provide an attributed caller Tab."
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        let assignments = self.in_progress_assignments_for_tab(&canon_target);
+        let agent_caller = caller_tab_id.is_some_and(|caller| !caller.trim().is_empty());
+        if agent_caller && !force && !assignments.is_empty() {
+            let lines: Vec<String> = assignments.iter().map(|loss| loss.refusal_line()).collect();
+            return Err(format!(
+                "{BUSY_WORKER_CLOSE_REFUSAL_PREFIX}: Tab {canon_target} is a Worker with unfinished work: {}. \
+                 Rerun with --force to close it; its Orchestrator is then notified with the recovery command.",
+                lines.join("; ")
+            ));
+        }
+        self.close_tab(target_tab_id)?;
+        Ok(busy_worker_close_warnings(&canon_target, &assignments))
+    }
+
+    /// Warnings for a close that bypassed the caller guard (human surfaces).
+    pub fn busy_worker_close_warnings_for(&self, tab_id: &str) -> Vec<String> {
+        busy_worker_close_warnings(tab_id, &self.in_progress_assignments_for_tab(tab_id))
+    }
+
+    pub async fn close_tab_async(&self, tab_id: &str) -> Result<(), String> {
+        self.close_tab_with_reason_async(tab_id, TabCloseReason::User)
+            .await
+    }
+
+    pub async fn close_tab_with_reason_async(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<(), String> {
+        let svc = self.clone();
+        let tab_id = tab_id.to_string();
+        super::blocking::run(move || svc.close_tab_with_reason(&tab_id, reason)).await
+    }
+
+    pub fn close_tab(&self, tab_id: &str) -> Result<(), String> {
+        self.close_tab_with_reason(tab_id, TabCloseReason::User)
+    }
+
+    /// Close a tab, tagging why. A `PolicyWorker` close of a task-owning hidden
+    /// worker records a restorable recently-closed entry despite `hidden`.
+    pub fn close_tab_with_reason(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<(), String> {
+        let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
+            let mut mux = self.mux.write();
+            let canonical_tab_id = mux
+                .resolve_tab_id(tab_id)
+                .unwrap_or_else(|| tab_id.to_string());
+            let tab = mux.get_tab(&canonical_tab_id);
+            let provider_id = tab.and_then(|tab| tab.agent_type.clone());
+            let session_id = tab.and_then(|tab| tab.agent_session_id.clone());
+            (
+                mux.get_focused_tab_id().map(str::to_string),
+                mux.reserve_tab_close(tab_id)?,
+                provider_id,
+                canonical_tab_id,
+                session_id,
+            )
+        };
+        if let Err(error) = self.prepare_tab_close(tab_id, reason) {
+            self.mux.write().abort_tab_close(&reservation);
+            return Err(error);
+        }
+        if provider_id.is_some() {
+            self.observe_tab_state(
+                &canonical_tab_id,
+                super::supporter_tab_state::ObservationTrigger::TabExit,
+                "tab_close",
+            );
+        }
+        let pty_ids = self
+            .mux
+            .write()
+            .close_reserved_tab_with_reason(reservation, reason)?;
+        if let Err(error) = self.cancel_utility_timeout(&canonical_tab_id) {
+            log::error!("[utility-timeout] closed shell deadline cleanup failed: {error}");
+        }
+        crate::service::prompt_resolution::clear_tab_prompt(None);
+        crate::service::launch_readiness::owner_prompt_cleared(&canonical_tab_id);
+        if let (Some(provider_id), Some(session_id)) =
+            (provider_id.as_deref(), session_id.as_deref())
+        {
+            crate::service::integration_silence::clear_hook_binding_fallback_session(
+                provider_id,
+                session_id,
+            );
+        }
+        let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
+        self.kill_ptys(&pty_ids);
+        self.forget_utility_command(&canonical_tab_id);
+        if let Some(provider_id) = provider_id {
+            self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
+        }
+        self.finish_tab_close(tab_id)?;
+        self.retire_public_send_launch(&canonical_tab_id);
+        self.reap_orphaned_startup_teams();
+        let resolved = {
+            let mut notif = self.notif.lock();
+            // A closed tab has no agent to exit or prompt to answer, so its conditions end with it.
+            let resolved = notif.resolve_tab_conditions(&canonical_tab_id);
+            notif.close_push_scope(&crate::notification::push::tab_scope(tab_id));
+            // An unanswered question outlives its tab as a visibly undeliverable
+            // card, never as buttons that would quietly do nothing.
+            notif.forget_answer_tab(tab_id);
+            resolved
+        };
+        self.announce_resolved(&resolved);
+        self.release_bridge_threads(tab_id);
+        session_persist::persist_session_after_close(self);
+        self.emit_state_changed();
+        if pre_focus != post_focus {
+            if let Some(new) = post_focus {
+                self.emit_tab_focus_changed(&new);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn rename_tab(&self, tab_id: &str, title: &str) -> Result<(), String> {
+        validate_tab_title(title)?;
+        {
+            let mux = self.mux.read();
+            let tab = mux
+                .get_tab(tab_id)
+                .ok_or_else(|| format!("Tab not found: {tab_id}"))?;
+            refuse_task_bound_rename(tab_id, tab.task_binding.as_ref())?;
+        }
+        self.mux.write().rename_tab(tab_id, title)?;
+        self.emit_tab_title_pinned(tab_id, title);
+        self.emit_state_changed();
+        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
+        Ok(())
+    }
+
+    pub fn set_tab_title(&self, tab_id: &str, title: &str) -> Result<(), String> {
+        validate_tab_title(title)?;
+        self.mux
+            .write()
+            .rename_tab_at_level(tab_id, title, TitleLevel::Agent)?;
+        self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
+        Ok(())
+    }
+
+    pub fn set_tab_description(&self, tab_id: &str, description: &str) -> Result<(), String> {
+        let description = normalize_tab_description(description)?;
+        self.mux.write().set_tab_description(tab_id, description)?;
+        self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
+        Ok(())
+    }
+
+    pub fn focus_tab(&self, tab_id: &str) -> Result<(), String> {
+        self.ext::<std::sync::Arc<crate::user_last_activity::UserLastActivity>>()
+            .mark();
+        focus_tab_hot_path(
+            &self.mux,
+            tab_id,
+            |focused| self.emit_tab_focus_changed(focused),
+            || self.schedule_focused_tab_model_refresh(),
+        )
+    }
+
+    pub fn link_pty(&self, tab_id: &str, pty_id: String) -> String {
+        let claim = self.pty_ownership.acquire(tab_id);
+        self.link_pty_with_claim(&claim, tab_id, pty_id, false)
+            .pty_id
+    }
+
+    pub fn link_pty_with_claim(
+        &self,
+        claim: &crate::service::pty_ownership::TabPtyClaim,
+        tab_id: &str,
+        pty_id: String,
+        launch_owned: bool,
+    ) -> crate::service::pty_ownership::PtySelection {
+        claim.settle(
+            pty_id,
+            launch_owned,
+            |candidate| self.pty.lock().get_session(candidate).is_some(),
+            |selected| {
+                self.seed_pending_scrollback_before_link(tab_id, selected);
+                let mut mux = self.mux.write();
+                if mux.get_tab(tab_id).is_none() {
+                    crate::service::pty_ownership::LinkOutcome::TabMissing
+                } else {
+                    crate::service::pty_ownership::LinkOutcome::Linked(
+                        mux.link_pty(tab_id, selected.to_string()),
+                    )
+                }
+            },
+            |orphan| {
+                log::warn!(
+                    "[link_pty] Tab {} rejected orphan pty {}",
+                    tab_id,
+                    &orphan[..orphan.len().min(8)]
+                );
+                self.kill_ptys(&[orphan.to_string()]);
+            },
+            |_| {
+                crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
+                self.emit_state_changed();
+            },
+        )
+    }
+
+    pub fn update_tab_cwd(&self, tab_id: &str, cwd: String) {
+        let changed = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(tab_id).is_some_and(|tab| {
+                let mapped = tab
+                    .shell_profile
+                    .as_ref()
+                    .filter(|profile| profile.wsl_distro.is_some() && cwd.starts_with('/'))
+                    .map(|profile| profile.host_cwd(&cwd))
+                    .transpose();
+                let Ok(mapped) = mapped else {
+                    return false;
+                };
+                let cwd = mapped.unwrap_or(cwd);
+                if tab.cwd.as_deref() == Some(cwd.as_str()) {
+                    return false;
+                }
+                tab.cwd = Some(cwd);
+                true
+            })
+        };
+        if changed {
+            self.emit_state_changed();
+        }
+    }
+
+    pub fn clear_tab_restored_flag(&self, tab_id: &str) {
+        let mut mux = self.mux.write();
+        if let Some(tab) = mux.get_tab_mut(tab_id) {
+            tab.restored_from_snapshot = false;
+        }
+    }
+
+    pub(crate) fn invalidate_guarded_agent_input(&self, tab_id: &str) {
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone());
+        if let Some(pty_id) = pty_id {
+            self.pty.lock().invalidate_guarded_input(&pty_id);
+        }
+    }
+
+    pub(crate) fn reconcile_authenticated_agent_input(&self, tab_id: &str) {
+        let pty_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
+            tab.launch_session_authenticated()
+                .then(|| tab.pty_id.clone())
+                .flatten()
+        });
+        if let Some(pty_id) = pty_id {
+            let _ = self.pty.lock().rearm_guarded_input(&pty_id);
+            crate::service::boot_wait::notify_boot_changed();
+            self.reconcile_boot_stage_with_session_binding(tab_id);
+            if let Ok(authority) = self.user_send_authority(tab_id) {
+                self.latch_user_authority_ready(&authority);
+            }
+            self.wake_parked_user_send(tab_id);
+            self.wake_agent_deliveries_on_state_change(tab_id);
+        }
+    }
+
+    /// Boot path: refresh model once for every tab that already has an
+    /// agent_type. Snapshot restore brings these back without a fresh
+    /// `set_tab_agent_type` transition, so the per-set hook never fires.
+    /// Also kicks the global focused-tab model poller — one thread total.
+    pub fn kick_off_pollers_for_existing_agents(&self) {
+        let restored: Vec<(String, String, bool)> = {
+            let mux = self.mux.read();
+            mux.snapshot()
+                .tabs
+                .values()
+                .filter_map(|p| {
+                    p.agent_type
+                        .clone()
+                        .map(|t| (p.id.clone(), t, p.agent_session_id.is_none()))
+                })
+                .collect()
+        };
+        let mut model_refreshes = Vec::with_capacity(restored.len());
+        for (tab_id, agent_id, needs_session) in restored {
+            if needs_session {
+                let mut mux = self.mux.write();
+                if let Some(tab) = mux.get_tab_mut(&tab_id) {
+                    if tab.agent_session_id.is_none() && tab.agent_set_at.is_none() {
+                        tab.agent_set_at = Some(std::time::Instant::now());
+                    }
+                }
+            }
+            let seeded = {
+                use crate::agent::offline_state_classifier::{
+                    AgentLiveState, TabVerdict, TimelineState,
+                };
+                let idle: AgentLiveState = TabVerdict {
+                    state: TimelineState::Idle,
+                    subtype: None,
+                }
+                .into();
+                let mut mux = self.mux.write();
+                match mux.get_tab_mut(&tab_id) {
+                    Some(tab) if tab.agent_type.is_some() && tab.agent_state.is_none() => {
+                        tab.agent_state = Some(idle);
+                        true
+                    }
+                    _ => false,
+                }
+            };
+            if seeded {
+                self.emit_state_changed();
+            }
+            self.kick_off_session_name_detection(&tab_id, &agent_id);
+            model_refreshes.push((tab_id, agent_id));
+        }
+        let svc = self.clone();
+        if let Err(error) = spawn_startup_model_refresh(move || {
+            for (tab_id, agent_id) in model_refreshes {
+                svc.refresh_session_model_once(&tab_id, &agent_id);
+            }
+        }) {
+            log::warn!("[session-model] failed to start restored-tab refresh: {error}");
+        }
+        self.heal_recovery_state_if_ready();
+        self.start_focused_tab_model_poller();
+    }
+
+    /// Poll the screen for the provider's session display name once the agent
+    /// is settled. Stops as soon as a name is found (or after a budget) so
+    /// the regex doesn't spin on every output chunk. See AgentProvider::
+    /// extract_session_name; Claude returns "vivid-bhabha-1234" etc. (#99).
+    pub(crate) fn kick_off_session_name_detection(&self, tab_id: &str, agent_id: &str) {
+        if tab_id.is_empty() || agent_id.is_empty() {
+            return;
+        }
+        let svc = self.clone();
+        let tab_id = tab_id.to_string();
+        let agent_id = agent_id.to_string();
+        std::thread::spawn(move || {
+            let step = std::time::Duration::from_millis(750);
+            // 30 attempts × 750ms = ~22s — same magnitude as readiness strategy, long enough for the splash to settle on slow hosts.
+            for _ in 0..30u32 {
+                std::thread::sleep(step);
+                let (pty_id, already, current_agent) = {
+                    let mux = svc.mux.read();
+                    let Some(p) = mux.get_tab(&tab_id) else {
+                        return;
+                    };
+                    (
+                        p.pty_id.clone(),
+                        p.agent_session_name.clone(),
+                        p.agent_type.clone(),
+                    )
+                };
+                if already.is_some() {
+                    return;
+                }
+                if current_agent.as_deref() != Some(agent_id.as_str()) {
+                    return;
+                }
+                let Some(pty_id) = pty_id else { continue };
+                let screen = svc
+                    .screen_state
+                    .lock()
+                    .get_screen_text(&pty_id)
+                    .unwrap_or_default();
+                if screen.is_empty() {
+                    continue;
+                }
+                let name = svc
+                    .agent_registry
+                    .with_provider(&agent_id, |p| p.extract_session_name(&screen))
+                    .flatten();
+                if let Some(name) = name {
+                    let mut mux = svc.mux.write();
+                    if let Some(p) = mux.get_tab_mut(&tab_id) {
+                        if p.agent_type.as_deref() == Some(agent_id.as_str())
+                            && p.agent_session_name.is_none()
+                        {
+                            log::info!(
+                                "[session-name] tab={} captured {} (provider={})",
+                                tab_id,
+                                name,
+                                agent_id,
+                            );
+                            p.agent_session_name = Some(name);
+                            drop(mux);
+                            svc.emit_state_changed();
+                        }
+                    }
+                    return;
+                }
+            }
+        });
+    }
+
+    pub(crate) fn replay_inbound_buffer(&self, tab_id: &str, new_type: &str) {
+        let queued = crate::bridge::inbound_buffer::drain(tab_id);
+        if queued.is_empty() {
+            return;
+        }
+        let service = self.clone();
+        let tab_id = tab_id.to_string();
+        let new_type = new_type.to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            log::debug!(
+                "[bridge] admitting {} buffered messages tab={} provider={}",
+                queued.len(),
+                tab_id,
+                new_type
+            );
+            let mut messages = queued.into_iter();
+            while let Some(message) = messages.next() {
+                if let Err(error) = service.start_chat_send(&tab_id, message.clone(), None, None) {
+                    log::warn!("[bridge] buffered message admission held tab={tab_id}: {error}");
+                    crate::bridge::inbound_buffer::push(&tab_id, message);
+                    for remaining in messages {
+                        crate::bridge::inbound_buffer::push(&tab_id, remaining);
+                    }
+                    break;
+                }
+            }
+        });
+    }
+
+    /// Set chat view state on a tab.
+    pub fn set_chat_view(&self, tab_id: &str, enabled: bool) {
+        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.chat_view = enabled;
+        }
+    }
+
+    /// Default prompt navigation: arrow down + Enter (standard ANSI).
+    fn default_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
+        let mut steps = Vec::new();
+        for _ in 0..option_index {
+            steps.push(b"\x1b[B".to_vec());
+        }
+        steps.push(b"\r".to_vec());
+        steps
+    }
+
+    /// Backward-compat alias for `set_agent_session_id`.
+    pub fn set_claude_session_id(&self, tab_id: &str, session_id: Option<String>) {
+        self.set_agent_session_id(tab_id, session_id);
+    }
+
+    /// Clear pending_prompt state without sending anything to PTY.
+    /// Used for test cleanup and state reset.
+    pub fn clear_prompt(&self, tab_id: &str) -> Result<(), String> {
+        if let Some(identity) = self.clear_pending_prompt(tab_id) {
+            self.resolve_prompt_notifications(tab_id, &identity);
+        }
+        // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
+        self.prompt_detector.lock().clear(tab_id);
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    pub fn respond_prompt(
+        &self,
+        tab_id: &str,
+        value: &str,
+    ) -> Result<RespondPromptOutcome, String> {
+        self.respond_prompt_inner(tab_id, value, None)
+    }
+
+    pub fn respond_prompt_with_identity(
+        &self,
+        tab_id: &str,
+        value: &str,
+        identity: &codeterm_types::pty::PromptIdentity,
+    ) -> Result<RespondPromptOutcome, String> {
+        self.respond_prompt_inner(tab_id, value, Some(identity))
+    }
+
+    fn respond_prompt_inner(
+        &self,
+        tab_id: &str,
+        value: &str,
+        expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
+    ) -> Result<RespondPromptOutcome, String> {
+        if let Some(result) =
+            super::agent_runtime::prompt_answers::respond(self, tab_id, value, expected_identity)
+        {
+            return result;
+        }
+        if let Some(result) = crate::service::permission_decision::respond_with_identity(
+            self,
+            tab_id,
+            value,
+            expected_identity,
+        ) {
+            return result.map(|_| RespondPromptOutcome::Structured);
+        }
+        let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
+            return Err(format!("Tab not found: {}", tab_id));
+        };
+        let response_identity = tab.prompt_identity();
+        if let Some(expected) = expected_identity {
+            let current_identity = tab.prompt_identity();
+            if current_identity.as_ref() != Some(expected) {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
+        }
+        let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
+        if tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::Structured)
+            && structured_prompt.is_none()
+        {
+            return Ok(RespondPromptOutcome::StalePrompt);
+        }
+        if let Some(expected) = expected_identity {
+            if expected.kind == codeterm_types::pty::PromptKind::Structured {
+                let current_identity = structured_prompt.as_ref().map(|prompt| {
+                    codeterm_types::pty::PromptIdentity::new(
+                        codeterm_types::pty::PromptKind::Structured,
+                        prompt,
+                    )
+                });
+                if current_identity.as_ref() != Some(expected) {
+                    return Ok(RespondPromptOutcome::StalePrompt);
+                }
+            } else if structured_prompt.is_some() {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
+        }
+        if structured_prompt.is_some() {
+            let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value)
+            else {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            };
+            match result? {
+                crate::service::structured_prompt::StructuredResponse::Advanced => {}
+                crate::service::structured_prompt::StructuredResponse::Answered {
+                    option_index,
+                } => {
+                    if let Some(identity) = response_identity.as_ref() {
+                        self.answer_prompt_notifications(
+                            tab_id,
+                            identity,
+                            option_index,
+                            "tab_respond",
+                        );
+                    }
+                }
+            }
+            self.emit_state_changed();
+            return Ok(RespondPromptOutcome::Structured);
+        }
+        let Some(option_index) = value
+            .parse::<usize>()
+            .ok()
+            .and_then(|index| index.checked_sub(1))
+        else {
+            return Ok(RespondPromptOutcome::InvalidOption);
+        };
+
+        if structured_prompt
+            .as_ref()
+            .or(tab.pending_prompt.as_ref())
+            .is_some_and(|prompt| prompt.multi_select == Some(true))
+        {
+            return Ok(RespondPromptOutcome::InvalidOption);
+        }
+        let pending_option_count = structured_prompt
+            .as_ref()
+            .map(|prompt| prompt.options.len())
+            .or_else(|| {
+                tab.pending_prompt
+                    .as_ref()
+                    .map(|prompt| prompt.options.len())
+            });
+        if pending_option_count.is_some_and(|count| option_index >= count) {
+            return Ok(RespondPromptOutcome::InvalidOption);
+        }
+
+        let Ok(pty_id) = self.resolve_pty_id(tab_id) else {
+            return Ok(RespondPromptOutcome::NoPty);
+        };
+        let screen = {
+            self.screen_state
+                .lock()
+                .get_screen_text(&pty_id)
+                .unwrap_or_default()
+        };
+        let steps = match respond_screen::response_steps(
+            &self.agent_registry,
+            tab.agent_type.as_deref(),
+            &screen,
+            option_index,
+            expected_identity,
+            || self.default_prompt_response(option_index),
+        ) {
+            Ok(steps) => steps,
+            Err(outcome) => {
+                log::debug!("[respond_prompt] Tab {} refused: {:?}", tab_id, outcome);
+                return Ok(outcome);
+            }
+        };
+        let pty = self.pty.clone();
+        std::thread::spawn(move || {
+            for step in steps {
+                let _ = pty.lock().write(&pty_id, &step);
+            }
+        });
+
+        self.mark_prompt_responded(tab_id, option_index, response_identity.as_ref());
+        self.emit_state_changed();
+        Ok(RespondPromptOutcome::Sent)
+    }
+
+    pub fn clear_pending_prompt(
+        &self,
+        tab_id: &str,
+    ) -> Option<codeterm_types::pty::PromptIdentity> {
+        let mut mux = self.mux.write();
+        let tab = mux.get_tab_mut(tab_id)?;
+        let resolved_pty = tab.pending_prompt.as_ref().and(tab.pty_id.clone());
+        let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
+        drop(mux);
+        crate::service::permission_decision::clear_tab(tab_id);
+        if let Some(pty_id) = resolved_pty {
+            self.release_prompt_waiting(tab_id, &pty_id);
+        }
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+        self.release_boot_owner_prompt(tab_id);
+        identity
+    }
+
+    /// A resolved prompt no longer holds its PTY in Waiting; the next output
+    /// re-derives Working from real activity.
+    fn release_prompt_waiting(&self, tab_id: &str, pty_id: &str) {
+        use crate::agent::status::TabStatus;
+        let released = {
+            let mut tracker = self.agent_tracker.lock();
+            let waiting = tracker.get_status_if_tracked(pty_id) == Some(TabStatus::Waiting);
+            if waiting {
+                tracker.set_idle(pty_id);
+            }
+            waiting
+        };
+        if released {
+            let now = self.reconciled_tab_status_for_id(tab_id, TabStatus::Idle);
+            self.emit_tab_status_if_changed(pty_id, TabStatus::Waiting, now);
+            crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+                pty_id,
+                TabStatus::Waiting,
+                TabStatus::Idle,
+            );
+        }
+    }
+
+    fn mark_prompt_responded(
+        &self,
+        tab_id: &str,
+        option_index: usize,
+        identity: Option<&codeterm_types::pty::PromptIdentity>,
+    ) {
+        if let Some(identity) = identity {
+            self.answer_prompt_notifications(tab_id, identity, option_index, "tab_respond");
+            if identity.kind == codeterm_types::pty::PromptKind::Structured {
+                self.push_structured_prompt(tab_id, None);
+            }
+        }
+        if let Some(identity) = self.clear_pending_prompt(tab_id) {
+            self.resolve_prompt_notifications(tab_id, &identity);
+            if crate::service::folder_trust_carryover::should_schedule_owner_clear(Some(
+                identity.kind,
+            )) {
+                let agent_type = self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.agent_type.clone());
+                if let Some(agent_type) = agent_type {
+                    crate::service::folder_trust_carryover::owner_trust_prompt_cleared(
+                        self.clone(),
+                        tab_id,
+                        &agent_type,
+                    );
+                }
+            }
+        }
+        self.prompt_detector.lock().mark_responded(tab_id);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RespondPromptOutcome {
+    Sent,
+    Structured,
+    StalePrompt,
+    PromptNotOnScreen,
+    NoPty,
+    InvalidOption,
+}
+
+#[cfg(test)]
+#[path = "tab/respond_prompt_tests.rs"]
+mod respond_prompt_tests;
+
+pub(crate) fn focus_tab_hot_path(
+    mux: &crate::multiplexer::commands::MuxState,
+    tab_id: &str,
+    emit_focus_changed: impl FnOnce(&str),
+    schedule_model_refresh: impl FnOnce(),
+) -> Result<(), String> {
+    mux.write().set_focused_tab(tab_id)?;
+    emit_focus_changed(tab_id);
+    schedule_model_refresh();
+    Ok(())
+}
+
+#[cfg(test)]
+mod self_close_tests;
+
+#[cfg(test)]
+mod launch_artifact_close_tests {
+    use crate::agent::provider::LaunchArtifactSweepRequest;
+    use crate::agent::test_provider::MockProvider;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+
+    #[test]
+    fn closing_a_codex_tab_releases_its_own_profile() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("codex".into());
+        let fixture = ServiceFixture::new(mux);
+        let releases = Arc::new(Mutex::new(Vec::new()));
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::new("codex").with_launch_artifact_logs(
+                Arc::new(Mutex::new(Vec::<LaunchArtifactSweepRequest>::new())),
+                releases.clone(),
+            ),
+        ));
+
+        fixture.service.close_tab(&tab_id).unwrap();
+
+        let releases = releases.lock();
+        let owner = codeterm_plugin::global_writes::machine_global_write_allowed();
+        assert_eq!(releases.len(), usize::from(owner));
+        if owner {
+            assert_eq!(releases[0].0, tab_id);
+            assert!(!releases[0].1.is_empty());
+        }
+        assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
+    }
+}
+
+#[cfg(test)]
+mod tab_title_tests {
+    use super::{validate_tab_title, TAB_TITLE_ERROR};
+
+    #[test]
+    fn accepts_one_word_and_rejects_prose() {
+        assert!(validate_tab_title("Dalton").is_ok());
+        assert_eq!(
+            validate_tab_title("Warehouse party").unwrap_err(),
+            TAB_TITLE_ERROR
+        );
+        assert_eq!(
+            validate_tab_title("Review\u{00a0}queue").unwrap_err(),
+            TAB_TITLE_ERROR
+        );
+    }
+}

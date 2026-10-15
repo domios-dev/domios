@@ -12,13 +12,31 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `bench-chat-stream.mjs` | scripts bench-chat-stream.md |
 | `bench-chat-stream.tsx` | scripts bench-chat-stream.mjs |
 | `blocking-in-async-allowlist.txt` | scripts check-blocking-in-async.sh |
+| `build-gateway-cache.test.mjs` | build.sh script-guards; skill build |
+| `build-gateway-evidence.mjs` | scripts/build-gateway-state.mjs; scripts/build-gateway-evidence.test.mjs |
+| `build-gateway-evidence.test.mjs` | node --test scripts/build-gateway-evidence.test.mjs |
 | `build-gateway-guard.mjs` | scripts build-gateway-mutex.mjs, build-gateway-mutex.test.mjs |
+| `build-gateway-mutex-evidence.mjs` | scripts/build-gateway-mutex.mjs; scripts/build-gateway-mutex-evidence.test.mjs |
+| `build-gateway-mutex-evidence.test.mjs` | skill build; build.sh script-guards |
 | `build-gateway-mutex.mjs` | scripts build-gateway-mutex.test.mjs, build-gateway.sh |
 | `build-gateway-mutex.test.mjs` | skill build |
+| `build-gateway-output.mjs` | build.sh; scripts/build-gateway-output.test.mjs |
+| `build-gateway-output.test.mjs` | build.sh script-guards |
+| `build-gateway-owner.mjs` | scripts/build-gateway.sh; scripts/build-gateway-owner.test.mjs |
+| `build-gateway-owner.test.mjs` | build.sh script-guards; skill build |
 | `build-gateway-reader-deadline.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe |
+| `build-gateway-record.mjs` | scripts/build-gateway-state.mjs, scripts/build-history.mjs |
+| `build-gateway-record.test.mjs` | skill build |
+| `build-gateway-slot.mjs` | scripts/build-gateway.sh |
+| `build-gateway-slot.test.mjs` | skill build |
 | `build-gateway-state.mjs` | CI build-gateway.yml; scripts build-gateway.sh, check-build-gateway-serialization.sh |
 | `build-gateway.sh` | build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; CI build-gateway.yml; scripts build-gateway-mutex.mjs, build-gateway-mutex.test.mjs, build-gateway-reader-deadline.mjs |
+| `build-history.mjs` | build.sh build-history; scripts/build-history.test.mjs |
+| `build-history.test.mjs` | node --test scripts/build-history.test.mjs |
 | `build-identity.cjs` | scripts check-plugin-bundles.mjs, dev-prep.mjs, tests/build_identity_required.test.mjs |
+| `build-peer-lib.mjs` | scripts build-peer.mjs, build-peer.test.mjs; skill build |
+| `build-peer.mjs` | build.sh check-queue|nextest --peer, check-linux, peer-setup, peer-status, peer-route; scripts build-peer.test.mjs; skill build |
+| `build-peer.test.mjs` | skill build |
 | `build-plugin-ui.mjs` | package.json script; scripts ci-scope.mjs |
 | `build-plugin.mjs` | package.json script; scripts check-plugin-bundles.mjs, check-plugin.mjs, ci-scope.mjs; skill build |
 | `bundle-cli.js` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/install-local/bootstrap/cli; CI release-windows.yml; scripts dev-prep.mjs, prepare-cli-stub.js, qa-prep.sh |
@@ -28,13 +46,17 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `cache-retention.mjs` | scripts cache-policy.sh, cache-retention.test.mjs |
 | `cache-retention.test.mjs` | scripts check-build-gateway-policy.sh |
 | `capture-upgrade-desk.mjs` | skill gates |
+| `cargo-build-gc.mjs` | scripts/cache-retention.mjs, scripts/cargo-build-gc.test.mjs |
+| `cargo-build-gc.py` | scripts/cargo-build-gc.mjs, scripts/cargo-build-gc.test.mjs |
+| `cargo-build-gc.test.mjs` | scripts/check-build-gateway-policy.sh |
 | `certificates` | scripts release-signing-material.py, tests/release_signing_material_test.py |
+| `chat-scroll-trace` | build.sh chat-scroll-trace; skill dev-testing |
 | `check-analytics-catalog.mjs` | scripts check-analytics-catalog.test.mjs |
 | `check-analytics-catalog.test.mjs` | build.sh script-guards |
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
 | `check-api-effect-dependencies.mjs` | build.sh release-preflight/test:all; package.json script |
 | `check-blocking-in-async.sh` | scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh |
-| `check-build-check-queue.sh` |  |
+| `check-build-check-queue.sh` | build.sh script-guards; skill build |
 | `check-build-dev-port-overrides.sh` | build.sh script-guards |
 | `check-build-gateway-mutex-cleanup.sh` | CI build-gateway.yml; skill build |
 | `check-build-gateway-owner-reap.sh` | CI build-gateway.yml; skill build |
@@ -43,6 +65,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-build-isolated-dev-policy.sh` | build.sh script-guards |
 | `check-build-kill-safety.sh` | scripts qa-gates.lib.sh |
 | `check-build-pdb-retention.sh` | build.sh retain-pdb; scripts qa-gates.lib.sh |
+| `check-build-script-head.sh` | build.sh script-guards |
 | `check-cache-provenance.sh` | build.sh script-guards |
 | `check-comment-length.sh` | CI comment-length.yml; scripts qa-gates.lib.sh; skill build |
 | `check-dev-instance-isolation.ps1` | manual: PowerShell dev-instance isolation check (Windows) |
@@ -62,6 +85,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-plugin.mjs` | CI plugin-release.yml, tests.yml; scripts ci-scope.mjs; skill github-release |
 | `check-prompts-doc.sh` | CI docs-source-of-truth.yml; skill build, prompts |
 | `check-provider-boundary.mjs` | build.sh release-preflight/verify; CI file-sizes.yml; scripts qa-gates.lib.sh, tests/check-provider-boundary.test.mjs; skill gates |
+| `check-queue-plan.mjs` | build.sh check-queue; scripts/check-queue-plan.test.mjs |
+| `check-queue-plan.test.mjs` | build.sh script-guards |
 | `check-release-closure.mjs` | CI release-manifest-validate.yml; scripts tests/release-closure-authority.test.mjs, tests/test_release_workflow_contract.py; skill github-release |
 | `check-release-credentials-mac.sh` | CI release-credentials.yml, release-macos-build.yml; scripts tests/release-job-graph.test.mjs; skill github-release |
 | `check-release-locks.mjs` | build.sh release-preflight/build/install-local; CI release.yml; package.json script; skill github-release |
@@ -70,11 +95,14 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-release-source-clean.sh` | CI build-gateway.yml; scripts check-build-gateway-policy.sh |
 | `check-sccache-basedir-isolation.sh` | scripts cache-policy.sh; skill build |
 | `check-script-catalog.sh` | build.sh release-preflight/verify; CI script-catalog.yml |
+| `check-service-core-boundary.sh` | build.sh verify |
 | `check-shared-sccache.sh` | skill build |
 | `check-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-shards.mjs, confirm-slow-unit-tests.mjs; skill build, testing |
 | `check-slow-unit-tests.test.mjs` | skill testing |
 | `check-visual-golden-edits.sh` | build.sh script-guards |
 | `check-windows-dev-cleanup-selection.ps1` | scripts check-build-kill-safety.sh |
+| `check-worktree.mjs` | build.sh check-queue; scripts/check-worktree.test.mjs |
+| `check-worktree.test.mjs` | build.sh script-guards |
 | `ci-runner-paths.mjs` | CI tests.yml; scripts tests/ci-runner-paths.test.mjs; skill build-machine |
 | `ci-rust-archives.mjs` | build.sh ci-archives; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs |
 | `ci-rust-classification.mjs` | scripts ci-rust-archives.mjs, ci-rust-shards.mjs |
@@ -82,12 +110,15 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `ci-rust-shards.mjs` | CI tests.yml; scripts tests/ci-rust-shards.test.mjs |
 | `ci-scope.mjs` | CI release.yml, tests.yml; scripts tests/ci-scope.test.mjs; skill github-release |
 | `ci-test-classifier` | scripts ci-rust-archives.mjs |
+| `clippy-allow.sh` | scripts clippy-gate.sh; build.sh check-queue |
 | `clippy-gate.sh` | build.sh release-preflight; CI tests.yml; scripts test-clippy-gate.sh; skill build, gates, testing |
 | `collect-rust-warnings.mjs` | build.sh ci-archives; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs |
 | `comment-length-allowlist.txt` | CI comment-length.yml; scripts check-comment-length.sh |
 | `confirm-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs |
 | `convert-legacy-parked-tasks.py` | scripts tests/test_convert_legacy_parked_tasks.py |
 | `convert-plan-storage.rs` | scripts dev-prep.mjs |
+| `dev-build-configuration.mjs` | build.sh dev/check-queue; scripts/dev-build-configuration.test.mjs |
+| `dev-build-configuration.test.mjs` | build.sh script-guards |
 | `dev-frontend-ready.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts tests/dev-frontend-ready.test.mjs |
 | `dev-notify.sh` | build.sh helpers; scripts qa-report.sh, tests/qa-report-early-alerts.sh, tests/utility-shell-reports.test.mjs |
 | `dev-prep.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs |
@@ -104,7 +135,9 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `local-install-cache.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts tests/local-install-cache.test.mjs |
 | `merge-latest-json.js` | CI release-macos.yml, release-manifest-validate.yml; scripts tests/updater-manifest.test.mjs |
 | `merge-stack-audit.sh` | scripts test-merge-stack-audit.sh; skill github-release |
-| `module-graph.py` |  |
+| `module-graph.py` | docs architecture module-graph.md and split-roadmap.md (manual generation) |
+| `nextest-archive.sh` | build.sh nextest-archive|nextest|test-one; scripts/nextest-archive.test.mjs |
+| `nextest-archive.test.mjs` | build.sh script-guards |
 | `pdb_identity.py` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-build-pdb-retention.sh, tests/test_pdb_identity.py, symbolicate-minidump.py; skill build |
 | `playwright-coverage-map.mjs` | package.json script |
 | `plugin-release-metadata.mjs` | scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs |
@@ -137,6 +170,9 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `run-plugin-tests.mjs` | build.sh release-preflight; package.json script; skill build, testing |
 | `run-ts-unit-tests.mjs` | build.sh release-preflight; CI frontend-release.yml, tests.yml; package.json script; scripts affected-tests.mjs, aiderrun/RECIPE.md, aiderrun/lane-check.test.ts; skill build |
 | `run-ts-unit-tests.test.mjs` | CI frontend-release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs |
+| `runner-toggle.mjs` | build.sh runner-pause, runner-resume, runner-status |
+| `runner-toggle.test.mjs` | build.sh script-guards (node --test) |
+| `rust-test-inventory.mjs` | crate-split QA (static vs nextest test-count oracle); scripts tests/rust-test-inventory.test.mjs |
 | `rust-warnings-baseline.json` | scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs; skill gates, github-release |
 | `rust-warnings-comment.mjs` | CI rust-warnings-summary.yml |
 | `rust-warnings-report.mjs` | CI rust-warnings-summary.yml; scripts tests/collect-rust-warnings.test.mjs |
@@ -144,6 +180,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `self-install-local.ps1` | skill github-release |
 | `slow-crate-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs; skill build, testing |
 | `slow-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs, ci-rust-shards.mjs; skill build, testing |
+| `split-metrics.py` | skill crate-split; docs/architecture/split-metrics.md |
 | `start-playwright-instance.ts` | package.json script |
 | `submission-matrix.sh` | skill testing |
 | `symbolicate-minidump.py` | scripts pdb_identity.py; skill build |

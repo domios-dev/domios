@@ -1,60 +1,37 @@
-//! Crate startup orchestration: state init, window/tray, background tasks,
-//! CLI install, server boot, logging, bridge.
-//!
-//! Layout matches the order the entry-point in `lib.rs` calls them in.
-
 mod background;
-mod bridge;
-mod cli_install;
 mod cli_shim;
 mod conpty_host;
-pub(crate) mod frontend_bundles;
-mod frontend_ready;
-pub(crate) mod frontend_shell;
 mod logging;
-mod native_notification;
-pub(crate) use native_notification::native_notification;
 pub(crate) mod model_catalogue;
+mod native_notification;
 mod plan_restore;
-mod progress;
-mod rest_api;
-pub(crate) mod restart_stdio;
 mod restore_complete;
 mod servers;
 #[cfg(test)]
 mod stall_tests;
 mod state_incidents;
 mod states;
-mod storage;
 mod user_path;
 mod window;
 mod window_events;
-pub(crate) use window_events::handle_window_event;
 
 pub(crate) use background::start_background_tasks;
-pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_tab_connected_service};
-pub(crate) use cli_install::{install_bundled_cli, refresh_bundled_cli};
 pub(crate) use cli_shim::forward_to_cli_if_invoked;
+pub(crate) use codeterm_service_core::startup::StartupStep;
+pub(crate) use codeterm_service_core::startup::{
+    arm_frontend_readiness, wait_for_frontend_ready_until, RestApiRuntimePolicy,
+};
+pub(crate) use codeterm_service_core::startup::{
+    frontend_shell_application_context, frontend_shell_create_window, frontend_shell_start,
+    install_bundled_cli,
+};
 pub(crate) use conpty_host::setup_conpty_host;
-pub(crate) use frontend_ready::{
-    arm_frontend_readiness, frontend_readiness_generation, mark_frontend_ready,
-    observe_frontend_boot, wait_for_frontend_ready_until,
-};
 pub(crate) use logging::setup_logging;
+pub(crate) use native_notification::native_notification;
 pub(crate) use plan_restore::restore as restore_plans;
-pub(crate) use progress::StartupStep;
-pub(crate) use rest_api::RestApiDiagnostic;
-pub(crate) use rest_api::{
-    RestApiControl, RestApiControlState, RestApiPhase, RestApiRecovery, RestApiRuntimePolicy,
-    RestApiStatus,
-};
 pub(crate) use restore_complete::notify as restore_complete;
 pub(crate) use servers::start_servers;
-#[cfg(test)]
-pub(crate) use servers::FRONTEND_READINESS_DEADLINE_ELAPSED;
 pub(crate) use states::init_states;
-#[cfg(test)]
-pub(crate) use storage::open_instance_storage_at;
-pub(crate) use storage::{shutdown_bounded, StorageAuthority, STORAGE_UNAVAILABLE_MESSAGE};
 pub(crate) use user_path::run_user_path_repair_if_invoked;
 pub(crate) use window::{build_system_tray, setup_window_styling};
+pub(crate) use window_events::handle_window_event;

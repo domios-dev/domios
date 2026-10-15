@@ -4,7 +4,7 @@
 /// Export CODETERM_CONPTY_DIR for this arch's bundled host. Must run before the
 /// first tab/PTY spawn (the fork reads it on first CreatePseudoConsole).
 #[cfg(windows)]
-pub(crate) fn setup_conpty_host(app: &crate::app_runtime::App) {
+pub(crate) fn setup_conpty_host(app: &codeterm_service_core::app_runtime::App) {
     use tauri::Manager;
     let arch = if cfg!(target_arch = "aarch64") {
         "arm64"
@@ -20,11 +20,11 @@ pub(crate) fn setup_conpty_host(app: &crate::app_runtime::App) {
     if dir.join("conpty.dll").exists() {
         std::env::set_var("CODETERM_CONPTY_DIR", &dir);
         log::info!("[conpty] bundled host dir: {}", dir.display());
-        crate::update::conpty_cleanup::reap_orphaned_hosts_in_background();
+        codeterm_service_core::startup::reap_orphaned_hosts_in_background();
     } else {
         log::warn!("[conpty] bundled host missing at {}", dir.display());
     }
 }
 
 #[cfg(not(windows))]
-pub(crate) fn setup_conpty_host(_app: &crate::app_runtime::App) {}
+pub(crate) fn setup_conpty_host(_app: &codeterm_service_core::app_runtime::App) {}

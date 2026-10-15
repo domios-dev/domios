@@ -25,7 +25,7 @@
 #   scripts/check-comment-length.sh
 #   scripts/check-comment-length.sh --fail
 #   scripts/check-comment-length.sh --fail --changed changed-files.txt
-#   scripts/check-comment-length.sh --fail src/foo.ts src-tauri/src/bar.rs
+#   scripts/check-comment-length.sh --fail src/foo.ts src-tauri/crates/codeterm-service-core/src/bar.rs
 
 set -euo pipefail
 
@@ -77,7 +77,7 @@ swept_candidates() {
         -name target -o -name node_modules -o -name dist -o -name build -o \
         -name gen -o -name references -o -name vendor -o -name pty-fork -o \
         -name .git -o -name .claude -o -path "$ROOT/refs" -o \
-        -path "$ROOT/src-tauri/src/service/codex_rpc/schema" \
+        -path "$ROOT/src-tauri/crates/codeterm-service-core/src/service/codex_rpc/schema" \
     \) -prune \) -o \( -type f \( \
         -name '*.rs' -o \
         -name '*.ts' -o \
@@ -107,7 +107,7 @@ scoped_candidates() {
             [A-Za-z]:/*|[A-Za-z]:\\*) abs="$path" ;;
             *) abs="$ROOT/$path" ;;
         esac
-        case "$abs" in "$ROOT/src-tauri/src/service/codex_rpc/schema/"*) continue ;; esac
+        case "$abs" in "$ROOT/src-tauri/crates/codeterm-service-core/src/service/codex_rpc/schema/"*) continue ;; esac
         [ -f "$abs" ] || continue
         case "$seen" in *"|$abs|"*) continue ;; esac
         seen="$seen|$abs|"

@@ -1,0 +1,10 @@
+mod channel_ask_integration;
+mod launch_readiness;
+mod plan_authority;
+mod plan_pause_off_runtime;
+mod plan_reminder_nudge;
+mod respond_prompt;
+mod secrets_guard;
+mod spawn_tab_identity;
+mod team_plan_creation;
+mod workspace_close;

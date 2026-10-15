@@ -1,0 +1,50 @@
+[package]
+name = "codeterm-socket"
+version = "1.14.9-dev.6"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "codeterm_socket"
+
+[dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-sentinel-host = { path = "../codeterm-sentinel-host" }
+codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
+codeterm-bridge = { path = "../codeterm-bridge" }
+codeterm-events = { path = "../codeterm-events" }
+codeterm-mem = { path = "../codeterm-mem", default-features = false }
+codeterm-notification-core = { path = "../codeterm-notification-core" }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-plan = { path = "../codeterm-plan" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-sentinel = { path = "../codeterm-sentinel" }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-util = { path = "../codeterm-util" }
+tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
+tokio = { version = "1", features = ["full", "test-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+interprocess = "2"
+sha2 = "0.10"
+base64 = "0.22"
+axum = { version = "0.8", features = ["multipart"] }
+tower = "0.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
+chrono = { version = "0.4", features = ["serde"] }
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+codeterm-api = { path = "../codeterm-api" }
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
+codeterm-sentinel-host = { path = "../codeterm-sentinel-host", features = ["test-support"] }

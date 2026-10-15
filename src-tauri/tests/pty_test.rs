@@ -1,4 +1,4 @@
-use codeterm_lib::pty::manager::PtyManager;
+use codeterm_service_core::pty::manager::PtyManager;
 use std::collections::HashMap;
 
 #[test]

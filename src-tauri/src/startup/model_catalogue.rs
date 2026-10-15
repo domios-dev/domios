@@ -1,21 +1,17 @@
-use crate::agent;
+use codeterm_service_core::agent;
 
-pub(crate) fn forward_changes(app: &crate::app_runtime::AppHandle) {
+pub(crate) fn forward_changes(app: &codeterm_service_core::app_runtime::AppHandle) {
     let mut changes = agent::model_catalog::subscribe_changes();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         loop {
             match changes.recv().await {
                 Ok(change) => {
-                    crate::api::events::emit_everywhere(&app, "model-catalogue-changed", change)
+                    codeterm_events::emit_everywhere(&app, "model-catalogue-changed", change)
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                     for change in agent::model_catalog::version_snapshot() {
-                        crate::api::events::emit_everywhere(
-                            &app,
-                            "model-catalogue-changed",
-                            change,
-                        );
+                        codeterm_events::emit_everywhere(&app, "model-catalogue-changed", change);
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
@@ -37,6 +33,6 @@ pub(crate) fn refresh_providers(registry: &agent::registry::AgentRegistry) {
     });
 }
 
-pub(crate) fn reconcile_defaults(service: &crate::service::ServiceState) {
-    crate::service::model_defaults::start(service.clone());
+pub(crate) fn reconcile_defaults(service: &codeterm_service_core::service::ServiceState) {
+    codeterm_service_core::service::start_model_defaults(service.clone());
 }

@@ -55,7 +55,7 @@ export interface StatusBubble {
   action?: string;
 }
 
-// ── glanceView (mirrors src-tauri/src/view/mod.rs ViewNode) ──
+// ── glanceView (mirrors src-tauri/crates/codeterm-service-core/src/view/mod.rs ViewNode) ──
 
 export type Tone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
 export type Spacing = "none" | "sm" | "md" | "lg";

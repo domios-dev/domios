@@ -1,0 +1,903 @@
+#!/usr/bin/env node
+// Caller: crate-split QA (static vs nextest test-count oracle); scripts tests/rust-test-inventory.test.mjs
+// Static Rust test inventory, resolved the way rustc resolves modules; never runs cargo.
+//
+// Scan: node scripts/rust-test-inventory.mjs [--root <repo>] [--out <file>]
+//   {"tests": [{"crate", "module_path", "test_name", "cfg"?}], "warnings": [{"kind", "crate", "file", "line", "message"}]}
+//   tests are sorted by crate, module_path, test_name; module_path is "" at a target root and uses "::".
+//   A test appears once per test binary that compiles it. Warning kinds: macro-body, nested-item,
+//   unreachable-file, cfg-gated (+ module_path, cfg), unknown-test-attr, unresolved-module, unresolved-include, parse-error, target-skipped.
+//
+// Diff: node scripts/rust-test-inventory.mjs diff [--target-os windows|macos|linux] [--renames <map>] <before> <after>
+//   Each side is a static inventory or `cargo nextest list --message-format json`. Keys are module_path::test_name,
+//   counted per binary. Exit 1 when a key loses a copy (lost or renamed); a crate change is "moved" and passes.
+//   New keys are "added", or "nextest-only" when a static before is compared with a nextest after. Exit 2 on bad input.
+//   --target-os drops static keys whose cfg gate is false on that OS (a single-OS nextest list never compiles them).
+//   A key that gains or loses one leading module segment (an app module becoming a crate root) is "moved", not lost.
+//   --renames reads a reviewed map, one "old_key -> new_key" per line: a listed lost key whose new key is present passes
+//   as "renamed (reviewed)"; a line whose old key is not lost or whose new key is absent fails.
+//
+// Gate: node scripts/rust-test-inventory.mjs gate --base <ref> [--root <repo>] [--renames <map>]
+//   Statically scans the merge-base of <ref> and HEAD and scans HEAD, both read from git objects, and diffs them.
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const posix = path.posix;
+const OPEN = { "{": "}", "(": ")", "[": "]" };
+const CLOSE = new Set(["}", ")", "]"]);
+const PUNCT2 = new Set(["::", "!=", "==", "=>", "->", "<=", ">=", "&&", "||", ".."]);
+const isIdStart = (c) => c !== undefined && (/[A-Za-z_]/.test(c) || c.charCodeAt(0) > 0x7f);
+const isIdChar = (c) => c !== undefined && (/[A-Za-z0-9_]/.test(c) || c.charCodeAt(0) > 0x7f);
+
+export function lexRust(src) {
+  const toks = [];
+  const n = src.length;
+  let i = 0;
+  let line = 1;
+  const countLines = (from, to) => {
+    for (let k = from; k < to; k++) if (src[k] === "\n") line++;
+  };
+  const quoted = (start, open) => {
+    let j = open + 1;
+    while (j < n && src[j] !== '"') j += src[j] === "\\" ? 2 : 1;
+    if (j >= n) throw new Error(`unterminated string at line ${line}`);
+    const raw = src.slice(open + 1, j);
+    toks.push({ k: "str", v: raw.replace(/\\(.)/g, "$1"), text: src.slice(start, j + 1), line });
+    countLines(start, j + 1);
+    return j + 1;
+  };
+  const rawQuoted = (start, hashStart) => {
+    let j = hashStart;
+    while (src[j] === "#") j++;
+    const close = '"' + "#".repeat(j - hashStart);
+    const end = src.indexOf(close, j + 1);
+    if (end < 0) throw new Error(`unterminated raw string at line ${line}`);
+    toks.push({ k: "str", v: src.slice(j + 1, end), text: src.slice(start, end + close.length), line });
+    countLines(start, end + close.length);
+    return end + close.length;
+  };
+  const charLit = (start, quote) => {
+    let j = quote + 1;
+    if (src[j] === "\\") {
+      j += 2;
+      while (j < n && src[j] !== "'" && src[j] !== "\n") j++;
+    } else {
+      j += src.codePointAt(j) > 0xffff ? 2 : 1;
+    }
+    if (src[j] !== "'") throw new Error(`unterminated char literal at line ${line}`);
+    toks.push({ k: "char", v: src.slice(start, j + 1), text: src.slice(start, j + 1), line });
+    return j + 1;
+  };
+  const isCharAt = (q) => {
+    if (src[q + 1] === "\\") return true;
+    const width = src.codePointAt(q + 1) > 0xffff ? 2 : 1;
+    return src[q + 1] !== undefined && src[q + 1] !== "\n" && src[q + 1 + width] === "'";
+  };
+  while (i < n) {
+    const c = src[i];
+    if (c === "\n") {
+      line++;
+      i++;
+    } else if (/\s/.test(c)) {
+      i++;
+    } else if (c === "/" && src[i + 1] === "/") {
+      while (i < n && src[i] !== "\n") i++;
+    } else if (c === "/" && src[i + 1] === "*") {
+      let depth = 1;
+      i += 2;
+      while (i < n && depth > 0) {
+        if (src[i] === "/" && src[i + 1] === "*") {
+          depth++;
+          i += 2;
+        } else if (src[i] === "*" && src[i + 1] === "/") {
+          depth--;
+          i += 2;
+        } else {
+          if (src[i] === "\n") line++;
+          i++;
+        }
+      }
+      if (depth > 0) throw new Error("unterminated block comment");
+    } else if (c === '"') {
+      i = quoted(i, i);
+    } else if (c === "'") {
+      if (isCharAt(i)) {
+        i = charLit(i, i);
+      } else {
+        let j = i + 1;
+        while (isIdChar(src[j])) j++;
+        toks.push({ k: "lifetime", v: src.slice(i, j), line });
+        i = j;
+      }
+    } else if (isIdStart(c)) {
+      const lit = /^(?:(b|c)?r(#*)"|(b|c)"|b')/.exec(src.slice(i, i + 3 + 64));
+      if (lit && lit[0].endsWith('"') && lit[0].includes("r")) {
+        i = rawQuoted(i, i + lit[0].indexOf("r") + 1);
+      } else if (lit && lit[0].endsWith('"')) {
+        i = quoted(i, i + 1);
+      } else if (lit && lit[0] === "b'") {
+        i = charLit(i, i + 1);
+      } else if (c === "r" && src[i + 1] === "#" && isIdStart(src[i + 2])) {
+        let j = i + 2;
+        while (isIdChar(src[j])) j++;
+        toks.push({ k: "ident", v: src.slice(i, j), raw: true, line });
+        i = j;
+      } else {
+        let j = i;
+        while (isIdChar(src[j])) j++;
+        toks.push({ k: "ident", v: src.slice(i, j), line });
+        i = j;
+      }
+    } else if (/[0-9]/.test(c)) {
+      let j = i;
+      while (isIdChar(src[j]) || (src[j] === "." && /[0-9]/.test(src[j + 1] ?? ""))) j++;
+      toks.push({ k: "num", v: src.slice(i, j), line });
+      i = j;
+    } else {
+      const two = src.slice(i, i + 2);
+      const v = PUNCT2.has(two) ? two : c;
+      toks.push({ k: "punct", v, line });
+      i += v.length;
+    }
+  }
+  return toks;
+}
+
+const tokText = (ts) =>
+  ts
+    .map((t) => t.text ?? t.v)
+    .join(" ")
+    .replace(/ ?(::|\(|\)|,|=) ?/g, "$1")
+    .replace(/,/g, ", ");
+
+export function classifyAttr(ts) {
+  let k = 0;
+  const segs = [];
+  while (k < ts.length && (ts[k].k === "ident" || ts[k].v === "::")) {
+    if (ts[k].k === "ident") segs.push(ts[k].v);
+    k++;
+  }
+  const p = segs.join("::");
+  const attr = {};
+  if (p === "test" || p === "tokio::test") attr.test = true;
+  else if (segs.length > 1 && segs[segs.length - 1] === "test") attr.unknownTest = p;
+  if (p === "cfg" && ts[k]?.v === "(") attr.cfg = tokText(ts.slice(k + 1, -1));
+  if (p === "path" && ts[k]?.v === "=" && ts[k + 1]?.k === "str") attr.path = ts[k + 1].v;
+  if (p === "cfg_attr") {
+    const rest = ts.slice(k);
+    const pathy = rest.some((t, j) => t.v === "path" && rest[j + 1]?.v === "=");
+    const testy = rest.some((t, j) => t.v === "test" && rest[j - 1]?.v === "," && rest[j + 1]?.v !== "(");
+    if (pathy || testy) attr.cfgAttrHazard = tokText(rest.slice(1, -1));
+  }
+  return attr;
+}
+
+function matchClose(toks, open) {
+  let depth = 0;
+  for (let j = open; j < toks.length; j++) {
+    if (OPEN[toks[j].v] && toks[j].k === "punct") depth++;
+    else if (CLOSE.has(toks[j].v) && toks[j].k === "punct" && --depth === 0) return j;
+  }
+  return -1;
+}
+
+const isTestCfg = (cfg) => cfg === "test";
+
+export function parseRustItems(src) {
+  const out = { tests: [], mods: [], includes: [], warnings: [], innerCfgs: [] };
+  let toks;
+  try {
+    toks = lexRust(src);
+  } catch (err) {
+    out.warnings.push({ kind: "parse-error", line: 0, message: err.message });
+    return out;
+  }
+  const root = { kind: "mod", delim: null, cfgs: out.innerCfgs, macro: false };
+  const stack = [root];
+  let attrs = [];
+  let pending = null;
+  const warn = (kind, line, message) => out.warnings.push({ kind, line, message });
+  const inlineMods = () => stack.filter((f) => f.kind === "mod" && f.delim).map((f) => ({ name: f.name, path: f.pathAttr ?? null }));
+  const allMods = () => stack.every((f) => f.kind === "mod");
+  const scopeCfgs = () => stack.flatMap((f) => f.cfgs);
+  const ownCfgs = (list) => list.filter((a) => a.cfg && !isTestCfg(a.cfg)).map((a) => a.cfg);
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    const top = stack[stack.length - 1];
+    if (t.k === "punct" && t.v === "#") {
+      const inner = toks[i + 1]?.v === "!" && toks[i + 2]?.v === "[";
+      const open = inner ? i + 2 : i + 1;
+      if (toks[open]?.v === "[") {
+        const end = matchClose(toks, open);
+        if (end < 0) {
+          warn("parse-error", t.line, "unbalanced attribute");
+          return out;
+        }
+        const attr = { ...classifyAttr(toks.slice(open + 1, end)), line: t.line };
+        i = end;
+        if (top.macro) {
+          if (attr.test || attr.unknownTest) warn("macro-body", t.line, "test attribute inside a macro body; its expansion is not resolved statically");
+        } else if (inner) {
+          if (attr.cfg && !isTestCfg(attr.cfg)) top.cfgs.push(attr.cfg);
+          if (attr.cfgAttrHazard) warn("cfg-gated", t.line, `cfg_attr(${attr.cfgAttrHazard}) changes module resolution or test status`);
+        } else {
+          attrs.push(attr);
+        }
+        continue;
+      }
+    }
+    if (t.k === "ident" && !t.raw) {
+      const next = toks[i + 1];
+      if (t.v === "macro_rules" && next?.v === "!") {
+        pending = "macro";
+        attrs = [];
+        i++;
+        continue;
+      }
+      if (next?.v === "!" && next.k === "punct" && toks[i + 2]?.k === "punct" && OPEN[toks[i + 2].v]) {
+        if (t.v === "include" && !top.macro) {
+          const lit = toks[i + 3];
+          if (toks[i + 2].v === "(" && lit?.k === "str" && toks[i + 4]?.v === ")" && allMods()) {
+            out.includes.push({ file: lit.v, line: t.line, inline: inlineMods(), cfgs: [...scopeCfgs(), ...ownCfgs(attrs)] });
+            attrs = [];
+            i += 4;
+            continue;
+          }
+          warn("unresolved-include", t.line, "include! with a computed path or outside module scope is not scanned");
+        }
+        pending = "macro";
+        attrs = [];
+        i++;
+        continue;
+      }
+      if (t.v === "fn" && next?.k === "ident") {
+        const testAttr = attrs.find((a) => a.test);
+        for (const a of attrs.filter((x) => x.unknownTest)) warn("unknown-test-attr", a.line, `#[${a.unknownTest}] on fn ${next.v} is not a recognised test attribute`);
+        for (const a of attrs.filter((x) => x.cfgAttrHazard)) warn("cfg-gated", a.line, `cfg_attr(${a.cfgAttrHazard}) on fn ${next.v}`);
+        if (testAttr && top.macro) {
+          warn("macro-body", testAttr.line, `test fn ${next.v} inside a macro body`);
+        } else if (testAttr && !allMods()) {
+          warn("nested-item", testAttr.line, `test fn ${next.v} is nested inside a non-module item; libtest cannot name it`);
+        } else if (testAttr) {
+          out.tests.push({ name: next.v, line: testAttr.line, inline: inlineMods(), cfgs: [...scopeCfgs(), ...ownCfgs(attrs)] });
+        }
+        pending = "fn";
+        attrs = [];
+        i++;
+        continue;
+      }
+      if (t.v === "mod" && next?.k === "ident" && (toks[i + 2]?.v === ";" || toks[i + 2]?.v === "{")) {
+        const pathAttr = attrs.find((a) => a.path !== undefined)?.path ?? null;
+        for (const a of attrs.filter((x) => x.cfgAttrHazard)) warn("cfg-gated", a.line, `cfg_attr(${a.cfgAttrHazard}) on mod ${next.v}`);
+        const cfgs = ownCfgs(attrs);
+        attrs = [];
+        if (toks[i + 2].v === ";") {
+          if (!top.macro && allMods()) out.mods.push({ name: next.v, line: t.line, pathAttr, inline: inlineMods(), cfgs: [...scopeCfgs(), ...cfgs] });
+          else if (!top.macro) warn("unresolved-module", t.line, `mod ${next.v}; declared inside a non-module item`);
+        } else {
+          stack.push({ kind: allMods() ? "mod" : "other", delim: "{", name: next.v, pathAttr, cfgs, macro: top.macro });
+        }
+        i += 2;
+        continue;
+      }
+    }
+    if (t.k === "punct" && OPEN[t.v]) {
+      const kind = pending === "fn" && t.v === "{" ? "fn" : "other";
+      stack.push({ kind, delim: t.v, cfgs: [], macro: top.macro || pending === "macro" });
+      if (pending === "macro" || t.v === "{") pending = null;
+      if (t.v === "{") attrs = [];
+      continue;
+    }
+    if (t.k === "punct" && CLOSE.has(t.v)) {
+      const f = stack.pop();
+      if (!f?.delim || OPEN[f.delim] !== t.v) {
+        warn("parse-error", t.line, `unbalanced '${t.v}'`);
+        return out;
+      }
+      if (t.v === "}") attrs = [];
+      continue;
+    }
+    if (t.v === ";" || t.v === ",") {
+      attrs = [];
+      if (t.v === ";") pending = null;
+    }
+  }
+  if (stack.length !== 1) warn("parse-error", toks[toks.length - 1]?.line ?? 0, "unclosed delimiter at end of file");
+  return out;
+}
+
+const stripComment = (line) => {
+  let inStr = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"' && line[i - 1] !== "\\") inStr = !inStr;
+    else if (line[i] === "#" && !inStr) return line.slice(0, i);
+  }
+  return line;
+};
+
+function tomlValue(raw) {
+  const v = raw.trim();
+  if (v.startsWith('"')) return JSON.parse(v.slice(0, v.indexOf('"', 1) + 1));
+  if (v.startsWith("'")) return v.slice(1, v.indexOf("'", 1));
+  if (v === "true" || v === "false") return v === "true";
+  if (v.startsWith("[")) return [...v.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2]);
+  return undefined;
+}
+
+export function parseCargoToml(text) {
+  const manifest = { package: {}, workspace: { members: [], exclude: [] }, lib: null, bins: [], tests: [] };
+  let table = null;
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    let line = stripComment(lines[i]).trim();
+    if (!line) continue;
+    const header = /^(\[\[?)(.*?)\]\]?$/.exec(line);
+    if (header) {
+      const name = header[2].trim();
+      if (header[1] === "[[" && (name === "bin" || name === "test")) {
+        table = {};
+        manifest[name === "bin" ? "bins" : "tests"].push(table);
+      } else if (name === "lib") {
+        table = manifest.lib = {};
+      } else if (name === "package" || name === "workspace") {
+        table = manifest[name];
+      } else {
+        table = null;
+      }
+      continue;
+    }
+    const kv = /^([A-Za-z0-9_-]+)\s*=\s*(.*)$/.exec(line);
+    if (!kv || !table) continue;
+    let raw = kv[2];
+    if (raw.startsWith("[")) {
+      while (!/\]\s*$/.test(raw) && i + 1 < lines.length) raw += " " + stripComment(lines[++i]).trim();
+    }
+    const value = tomlValue(raw);
+    if (value !== undefined) table[kv[1]] = value;
+  }
+  return manifest;
+}
+
+export const nodeFs = {
+  read: (p) => {
+    try {
+      return readFileSync(p, "utf8");
+    } catch {
+      return null;
+    }
+  },
+  isFile: (p) => existsSync(p) && statSync(p).isFile(),
+  isDir: (p) => existsSync(p) && statSync(p).isDirectory(),
+  list: (dir) => {
+    try {
+      return readdirSync(dir, { withFileTypes: true }).map((d) => ({ name: d.name, dir: d.isDirectory() }));
+    } catch {
+      return [];
+    }
+  },
+};
+
+const norm = (p) => posix.normalize(p.replace(/\\/g, "/"));
+
+function listRs(fs, dir) {
+  const files = [];
+  for (const e of fs.list(dir)) {
+    const p = posix.join(dir, e.name);
+    if (e.dir) files.push(...listRs(fs, p));
+    else if (e.name.endsWith(".rs")) files.push(p);
+  }
+  return files;
+}
+
+export function crateTargets(dir, manifest, fs = nodeFs) {
+  const targets = [];
+  const skipped = [];
+  const seen = new Set();
+  const add = (kind, rel, spec = {}) => {
+    const file = norm(posix.join(dir, rel));
+    if (seen.has(file) || !fs.isFile(file)) return;
+    seen.add(file);
+    if (spec.test === false || spec.harness === false) skipped.push({ kind, file, reason: spec.test === false ? "test = false" : "harness = false" });
+    else targets.push({ kind, file });
+  };
+  add("lib", manifest.lib?.path ?? "src/lib.rs", manifest.lib ?? {});
+  for (const b of manifest.bins) add("bin", b.path ?? (b.name ? `src/bin/${b.name}.rs` : "src/main.rs"), b);
+  for (const t of manifest.tests) add("test", t.path ?? `tests/${t.name}.rs`, t);
+  if (manifest.package.autobins !== false) {
+    add("bin", "src/main.rs");
+    for (const e of fs.list(posix.join(dir, "src/bin"))) add("bin", e.dir ? `src/bin/${e.name}/main.rs` : `src/bin/${e.name}`);
+  }
+  if (manifest.package.autotests !== false) {
+    for (const e of fs.list(posix.join(dir, "tests"))) add("test", e.dir ? `tests/${e.name}/main.rs` : `tests/${e.name}`);
+  }
+  return { targets: targets.filter((t) => t.file.endsWith(".rs")), skipped };
+}
+
+export function workspaceCrates(root, fs = nodeFs) {
+  const crates = [];
+  const warnings = [];
+  const seen = new Set();
+  const load = (dir) => {
+    dir = norm(dir);
+    if (seen.has(dir)) return null;
+    seen.add(dir);
+    const text = fs.read(posix.join(dir, "Cargo.toml"));
+    if (text === null) {
+      warnings.push({ kind: "unresolved-module", crate: "", file: posix.join(dir, "Cargo.toml"), line: 0, message: "workspace member manifest is missing" });
+      return null;
+    }
+    const manifest = parseCargoToml(text);
+    if (manifest.package.name) crates.push({ name: manifest.package.name, dir, manifest });
+    return manifest;
+  };
+  for (const ws of ["src-tauri", "cli"]) {
+    const wsDir = norm(posix.join(root, ws));
+    const manifest = load(wsDir);
+    for (const member of manifest?.workspace.members ?? []) {
+      if (member.endsWith("/*")) {
+        const base = posix.join(wsDir, member.slice(0, -2));
+        for (const e of fs.list(base)) if (e.dir && !manifest.workspace.exclude.includes(`${member.slice(0, -2)}/${e.name}`)) load(posix.join(base, e.name));
+      } else if (member !== ".") {
+        load(posix.join(wsDir, member));
+      }
+    }
+  }
+  return { crates, warnings };
+}
+
+export function scanCrate(crate, root, fs = nodeFs) {
+  const tests = [];
+  const warnings = [];
+  const gated = new Map();
+  const reached = new Set();
+  const rel = (p) => (p.startsWith(root + "/") ? p.slice(root.length + 1) : p);
+  const warn = (kind, file, line, message) => warnings.push({ kind, crate: crate.name, file: rel(file), line, message });
+  const exists = (p) => fs.isFile(p);
+
+  const walk = (file, modPath, ctx, cfgs, active, included) => {
+    if (active.includes(file)) return warn("unresolved-module", file, 0, "module cycle through #[path]");
+    const src = fs.read(file);
+    if (src === null) return warn("unresolved-module", file, 0, "module file is missing");
+    reached.add(file);
+    const items = parseRustItems(src);
+    const fileCfgs = [...cfgs, ...items.innerCfgs];
+    for (const w of items.warnings) warn(w.kind, file, w.line, w.message);
+    const segsOf = (inline) => [...modPath, ...inline.map((m) => m.name)];
+    const ctxOf = (inline) => {
+      let c = ctx;
+      for (const m of inline) {
+        c = m.path !== null ? { dir: norm(posix.join(c.dir, m.path)), relative: null } : { dir: posix.join(c.dir, ...(c.relative ? [c.relative] : []), m.name), relative: null };
+      }
+      return c;
+    };
+    for (const t of items.tests) {
+      const module_path = segsOf(t.inline).join("::");
+      const gates = [...new Set([...cfgs, ...t.cfgs])];
+      tests.push({ crate: crate.name, module_path, test_name: t.name, ...(gates.length ? { cfg: gates.join(" && ") } : {}) });
+      if (gates.length) {
+        const key = `${module_path}\u0000${gates.join(" && ")}`;
+        const g = gated.get(key) ?? { file, line: t.line, module_path, cfg: gates.join(" && "), count: 0 };
+        g.count++;
+        gated.set(key, g);
+      }
+    }
+    for (const m of items.mods) {
+      if (included) {
+        warn("unresolved-module", file, m.line, `mod ${m.name}; inside an include!d file is not resolved`);
+        continue;
+      }
+      const c = ctxOf(m.inline);
+      let child;
+      let childCtx;
+      if (m.pathAttr !== null) {
+        child = norm(posix.join(c.dir, m.pathAttr));
+        childCtx = { dir: posix.dirname(child), relative: null };
+      } else {
+        const base = posix.join(c.dir, ...(c.relative ? [c.relative] : []));
+        const flat = posix.join(base, `${m.name}.rs`);
+        const nested = posix.join(base, m.name, "mod.rs");
+        if (exists(flat) && exists(nested)) {
+          warn("unresolved-module", file, m.line, `mod ${m.name}; is ambiguous between ${rel(flat)} and ${rel(nested)}`);
+          continue;
+        }
+        if (exists(flat)) [child, childCtx] = [flat, { dir: base, relative: m.name.replace(/^r#/, "") }];
+        else if (exists(nested)) [child, childCtx] = [nested, { dir: posix.join(base, m.name), relative: null }];
+        else {
+          warn("unresolved-module", file, m.line, `mod ${m.name}; has no file at ${rel(flat)} or ${rel(nested)}`);
+          continue;
+        }
+      }
+      walk(child, segsOf([...m.inline, m]), childCtx, [...fileCfgs, ...m.cfgs.filter((x) => !fileCfgs.includes(x))], [...active, file], false);
+    }
+    for (const inc of items.includes) {
+      const target = norm(posix.join(posix.dirname(file), inc.file));
+      walk(target, segsOf(inc.inline), ctxOf(inc.inline), [...fileCfgs, ...inc.cfgs.filter((x) => !fileCfgs.includes(x))], [...active, file], true);
+    }
+  };
+
+  const { targets, skipped } = crateTargets(crate.dir, crate.manifest, fs);
+  for (const s of skipped) warn("target-skipped", s.file, 0, `${s.kind} target has ${s.reason}; its tests are not listed by libtest`);
+  for (const target of targets) walk(target.file, [], { dir: posix.dirname(target.file), relative: null }, [], [], false);
+  for (const g of gated.values()) {
+    warn("cfg-gated", g.file, g.line, `${g.count} test(s) in ${g.module_path || "<root>"} compile only under cfg(${g.cfg})`);
+    Object.assign(warnings[warnings.length - 1], { module_path: g.module_path, cfg: g.cfg });
+  }
+  for (const sub of ["src", "tests"]) {
+    for (const file of listRs(fs, posix.join(crate.dir, sub))) {
+      if (reached.has(file) || skipped.some((s) => s.file === file)) continue;
+      const src = fs.read(file) ?? "";
+      const hasTests = /#\s*\[\s*(?:tokio\s*::\s*)?test\b/.test(src);
+      warn("unreachable-file", file, 0, `no module declaration reaches this file${hasTests ? "; it contains test attributes" : ""}`);
+    }
+  }
+  return { tests, warnings };
+}
+
+const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+export const compareTests = (a, b) => cmp(a.crate, b.crate) || cmp(a.module_path, b.module_path) || cmp(a.test_name, b.test_name);
+const compareWarnings = (a, b) => cmp(a.crate, b.crate) || cmp(a.file, b.file) || a.line - b.line || cmp(a.kind, b.kind) || cmp(a.message, b.message);
+
+export function scanWorkspace(rootDir, fs = nodeFs) {
+  const root = norm(path.resolve(rootDir));
+  const { crates, warnings } = workspaceCrates(root, fs);
+  const tests = [];
+  for (const crate of crates) {
+    const r = scanCrate(crate, root, fs);
+    tests.push(...r.tests);
+    warnings.push(...r.warnings);
+  }
+  return { tests: tests.sort(compareTests), warnings: warnings.sort(compareWarnings), crates: crates.map((c) => c.name) };
+}
+
+export function formatInventory(inv) {
+  const lines = (xs) => xs.map((x) => "    " + JSON.stringify(x)).join(",\n");
+  return `{\n  "tests": [\n${lines(inv.tests)}\n  ],\n  "warnings": [\n${lines(inv.warnings)}\n  ]\n}\n`;
+}
+
+export const testKey = (t) => (t.module_path ? `${t.module_path}::${t.test_name}` : t.test_name);
+export function splitTestName(name) {
+  const cut = name.lastIndexOf("::");
+  return { module_path: cut < 0 ? "" : name.slice(0, cut), test_name: cut < 0 ? name : name.slice(cut + 2) };
+}
+
+// A crate split turns app module F into a crate root, so one key may gain or lose exactly one leading segment.
+// Crate names play no part; only a unique candidate matches.
+export function facadeMatch(key, candidates) {
+  const tail = (k) => (k.includes("::") ? k.slice(k.indexOf("::") + 2) : null);
+  const hits = [...new Set(candidates)].filter((c) => c !== key && (tail(c) === key || tail(key) === c));
+  return hits.length === 1 ? hits[0] : null;
+}
+const isStaticTest = (t) => t && typeof t.crate === "string" && typeof t.module_path === "string" && typeof t.test_name === "string";
+
+export function loadInventory(json) {
+  const suites = json && !Array.isArray(json) && typeof json === "object" ? json["rust-suites"] : undefined;
+  if (suites && typeof suites === "object") {
+    const tests = [];
+    for (const [id, suite] of Object.entries(suites)) {
+      const crate = suite["package-name"] ?? id.split("::")[0];
+      const cases = Array.isArray(suite.testcases) ? suite.testcases.map((c) => (typeof c === "string" ? c : c.name)) : Object.keys(suite.testcases ?? {});
+      for (const name of cases) {
+        tests.push({ crate, ...splitTestName(name) });
+      }
+    }
+    return { format: "nextest", tests, warnings: [] };
+  }
+  const list = Array.isArray(json) ? json : Array.isArray(json?.tests) ? json.tests : null;
+  if (!list || !list.every(isStaticTest)) {
+    throw new Error("unrecognised inventory: expected a static inventory or `cargo nextest list --message-format json` output");
+  }
+  return { format: "static", tests: list, warnings: Array.isArray(json?.warnings) ? json.warnings : [] };
+}
+
+const multisetMinus = (xs, ys) => {
+  const rest = [...ys];
+  return xs.filter((x) => {
+    const at = rest.indexOf(x);
+    if (at < 0) return true;
+    rest.splice(at, 1);
+    return false;
+  });
+};
+const uniq = (xs) => [...new Set(xs)];
+
+const TARGETS = {
+  linux: { target_os: "linux", target_family: "unix" },
+  macos: { target_os: "macos", target_family: "unix" },
+  windows: { target_os: "windows", target_family: "windows" },
+};
+export const TARGET_OSES = Object.keys(TARGETS);
+
+// Three-valued: true or false where the target decides the gate, null where it does not (features, debug_assertions).
+export function evalCfg(expr, os) {
+  const target = TARGETS[os];
+  if (!target) throw new Error(`unknown target os: ${os}`);
+  const toks = expr.match(/"(?:[^"\\]|\\.)*"|[A-Za-z_][A-Za-z0-9_]*|[(),=]|&&/g) ?? [];
+  let i = 0;
+  const all = (xs) => (xs.includes(false) ? false : xs.includes(null) ? null : true);
+  const any = (xs) => (xs.includes(true) ? true : xs.includes(null) ? null : false);
+  const args = () => {
+    const xs = [];
+    if (toks[i++] !== "(") throw new Error("expected (");
+    while (i < toks.length && toks[i] !== ")") {
+      xs.push(pred());
+      if (toks[i] === ",") i++;
+    }
+    if (toks[i++] !== ")") throw new Error("expected )");
+    return xs;
+  };
+  const pred = () => {
+    const name = toks[i++];
+    if (name === "all") return all(args());
+    if (name === "any") return any(args());
+    if (name === "not") {
+      const [x] = args();
+      return x === null ? null : !x;
+    }
+    if (toks[i] === "=") {
+      const value = JSON.parse(toks[i + 1]);
+      i += 2;
+      return name in target ? target[name] === value : null;
+    }
+    if (name === "test") return true;
+    if (name === "unix" || name === "windows") return target.target_family === name;
+    return null;
+  };
+  try {
+    const parts = [pred()];
+    while (toks[i] === "&&") {
+      i++;
+      parts.push(pred());
+    }
+    return i === toks.length ? all(parts) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Exact per-test cfg when the scan recorded it; otherwise a per-module allowance from cfg-gated warnings.
+export function restrictToTarget(inv, os) {
+  if (inv.format !== "static") return { inv, dropped: [], allowance: new Map() };
+  if (inv.tests.some((t) => typeof t.cfg === "string")) {
+    const keep = [];
+    const dropped = [];
+    for (const t of inv.tests) (typeof t.cfg === "string" && evalCfg(t.cfg, os) === false ? dropped : keep).push(t);
+    return { inv: { ...inv, tests: keep }, dropped, allowance: new Map() };
+  }
+  const allowance = new Map();
+  for (const w of inv.warnings ?? []) {
+    if (w.kind !== "cfg-gated" || w.module_path === undefined || evalCfg(w.cfg, os) !== false) continue;
+    const key = `${w.crate}\u0000${w.module_path}`;
+    allowance.set(key, (allowance.get(key) ?? 0) + Number(/^(\d+) test/.exec(w.message)?.[1] ?? 0));
+  }
+  return { inv, dropped: [], allowance };
+}
+
+// A reviewed rename map: one "old_key -> new_key" per line; blank lines and # comments are ignored.
+export function parseRenames(text) {
+  const renames = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.replace(/#.*/, "").trim();
+    if (!line) return;
+    const m = /^(\S+)\s*->\s*(\S+)$/.exec(line);
+    if (!m) throw new Error(`rename map line ${i + 1} is not "old_key -> new_key": ${raw}`);
+    renames.push({ from: m[1], to: m[2], line: i + 1 });
+  });
+  return renames;
+}
+
+export function diffInventories(before, after, { targetOs, renames } = {}) {
+  let targetDropped = [];
+  let allowance = new Map();
+  if (targetOs) {
+    const b = restrictToTarget(before, targetOs);
+    const a = restrictToTarget(after, targetOs);
+    [before, after] = [b.inv, a.inv];
+    targetDropped = [...b.dropped, ...a.dropped].map((t) => ({ key: testKey(t), crates: [t.crate], count: 1 }));
+    allowance = b.allowance;
+  }
+  const group = (inv) => {
+    const m = new Map();
+    for (const t of inv.tests) {
+      const k = testKey(t);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(t.crate);
+    }
+    return m;
+  };
+  const b = group(before);
+  const a = group(after);
+  const nextestOnlySide = before.format === "static" && after.format === "nextest";
+  const lost = [];
+  const moved = [];
+  const added = [];
+  const nextestOnly = [];
+  const gain = (key, crates, count) => (nextestOnlySide ? nextestOnly : added).push({ key, crates: uniq(crates), count });
+  for (const [key, bc] of b) {
+    const ac = a.get(key) ?? [];
+    const gone = multisetMinus(bc, ac);
+    const fresh = multisetMinus(ac, bc);
+    if (bc.length > ac.length) lost.push({ key, crates: uniq(bc), count: bc.length - ac.length, of: bc.length });
+    else if (gone.length) moved.push({ key, from: uniq(gone), to: uniq(fresh) });
+    if (ac.length > bc.length) gain(key, fresh, ac.length - bc.length);
+  }
+  for (const [key, ac] of a) if (!b.has(key)) gain(key, ac, ac.length);
+  for (const l of [...lost]) {
+    const gains = [...added, ...nextestOnly];
+    const match = facadeMatch(l.key, gains.map((x) => x.key));
+    if (!match) continue;
+    const g = gains.find((x) => x.key === match);
+    const take = Math.min(l.count, g.count);
+    moved.push({ key: l.key, from: l.crates, to: g.crates, as: match });
+    l.count -= take;
+    g.count -= take;
+    if (!l.count) lost.splice(lost.indexOf(l), 1);
+    if (!g.count) for (const xs of [added, nextestOnly]) if (xs.includes(g)) xs.splice(xs.indexOf(g), 1);
+  }
+  for (const l of allowance.size ? [...lost] : []) {
+    const cut = l.key.lastIndexOf("::");
+    const mod = cut < 0 ? "" : l.key.slice(0, cut);
+    for (const crate of l.crates) {
+      const k = `${crate}\u0000${mod}`;
+      const take = Math.min(allowance.get(k) ?? 0, l.count);
+      if (!take) continue;
+      allowance.set(k, allowance.get(k) - take);
+      l.count -= take;
+      targetDropped.push({ key: l.key, crates: [crate], count: take });
+    }
+    if (l.count === 0) lost.splice(lost.indexOf(l), 1);
+  }
+  const renamed = [];
+  const renameErrors = [];
+  for (const r of renames ?? []) {
+    const l = lost.find((x) => x.key === r.from);
+    if (!l) renameErrors.push(`${r.from} -> ${r.to} (line ${r.line}): ${r.from} is not lost`);
+    else if (!a.has(r.to)) renameErrors.push(`${r.from} -> ${r.to} (line ${r.line}): ${r.to} is not in the after inventory`);
+    if (!l || !a.has(r.to)) continue;
+    lost.splice(lost.indexOf(l), 1);
+    renamed.push({ key: r.from, to: r.to, crates: l.crates });
+    for (const xs of [added, nextestOnly]) {
+      const g = xs.find((x) => x.key === r.to);
+      if (g) xs.splice(xs.indexOf(g), 1);
+    }
+  }
+  const gated = before.warnings?.filter((w) => w.kind === "cfg-gated" && w.module_path !== undefined) ?? [];
+  for (const l of lost) {
+    const cut = l.key.lastIndexOf("::");
+    const mod = cut < 0 ? "" : l.key.slice(0, cut);
+    l.candidates = [...added, ...nextestOnly].filter((x) => x.key.lastIndexOf("::") === cut && x.key.slice(0, Math.max(cut, 0)) === mod).map((x) => x.key);
+    l.cfg = uniq(gated.filter((w) => l.crates.includes(w.crate) && w.module_path === mod).map((w) => w.cfg));
+  }
+  const byKey = (x, y) => cmp(x.key, y.key);
+  return {
+    before: { format: before.format, count: before.tests.length },
+    after: { format: after.format, count: after.tests.length },
+    lost: lost.sort(byKey),
+    moved: moved.sort(byKey),
+    added: added.sort(byKey),
+    nextestOnly: nextestOnly.sort(byKey),
+    ...(targetOs ? { targetOs, targetDropped: targetDropped.sort(byKey) } : {}),
+    ...(renames ? { renamed: renamed.sort(byKey), renameErrors } : {}),
+    ok: lost.length === 0 && renameErrors.length === 0,
+  };
+}
+
+export function formatDiff(d) {
+  const out = [
+    `before: ${d.before.format} (${d.before.count} tests)  after: ${d.after.format} (${d.after.count} tests)`,
+    `lost: ${d.lost.length}  moved: ${d.moved.length}  added: ${d.added.length}  nextest-only: ${d.nextestOnly.length}`,
+  ];
+  const section = (title, xs, fmt) => {
+    if (xs.length) out.push(`${title}:`, ...xs.map((x) => `  ${fmt(x)}`));
+  };
+  section("LOST (fails)", d.lost, (l) => {
+    const notes = [l.of > 1 ? `${l.count} of ${l.of} binaries lost it` : "",l.candidates.length ? `rename candidates: ${l.candidates.join(", ")}` : "", l.cfg.length ? `module is cfg-gated: ${l.cfg.join("; ")}` : ""].filter(Boolean);
+    return `${l.key}  [${l.crates.join(", ")}]${notes.length ? "  (" + notes.join("; ") + ")" : ""}`;
+  });
+  section("MOVED", d.moved, (m) => `${m.key}  ${m.from.join(", ")} -> ${m.to.join(", ")}${m.as ? ` as ${m.as}` : ""}`);
+  section("ADDED", d.added, (x) => `${x.key}  [${x.crates.join(", ")}]${x.count > 1 ? ` x${x.count}` : ""}`);
+  section("NEXTEST-ONLY (not failing)", d.nextestOnly, (x) => `${x.key}  [${x.crates.join(", ")}]${x.count > 1 ? ` x${x.count}` : ""}`);
+  if (d.targetOs) {
+    out.splice(2, 0, `target-os: ${d.targetOs}  dropped as foreign-gated: ${d.targetDropped.reduce((n, x) => n + x.count, 0)}`);
+    section(`TARGET-OS DROPPED (not compiled on ${d.targetOs})`, d.targetDropped, (x) => `${x.key}  [${x.crates.join(", ")}]${x.count > 1 ? ` x${x.count}` : ""}`);
+  }
+  if (d.renamed) {
+    out.splice(2, 0, `renamed (reviewed): ${d.renamed.length}  rename map errors: ${d.renameErrors.length}`);
+    section("RENAMED (reviewed)", d.renamed, (x) => `${x.key} -> ${x.to}  [${x.crates.join(", ")}]`);
+    section("RENAME MAP ERRORS (fails)", d.renameErrors, (x) => x);
+  }
+  out.push(d.ok ? "result: PASS" : "result: FAIL");
+  return out.join("\n") + "\n";
+}
+
+export function readInventoryFile(file) {
+  const text = readFileSync(file, "utf8");
+  try {
+    return loadInventory(JSON.parse(text));
+  } catch (err) {
+    const last = text.split(/\r?\n/).filter((l) => l.trimStart().startsWith("{")).pop();
+    if (err instanceof SyntaxError && last) return loadInventory(JSON.parse(last));
+    throw err;
+  }
+}
+
+function argValue(args, flag) {
+  const i = args.indexOf(flag);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+const RUST_PATHSPECS = [":(glob)src-tauri/**/*.rs", ":(glob)src-tauri/**/Cargo.toml", ":(glob)cli/**/*.rs", ":(glob)cli/**/Cargo.toml"];
+
+// Extracts a commit's Rust sources into a temp dir from git objects; the working tree is never touched.
+export function scanCommit(repo, rev) {
+  const dir = mkdtempSync(path.join(tmpdir(), "rti-gate-"));
+  try {
+    const archive = spawnSync("git", ["-C", repo, "-c", "core.autocrlf=false", "archive", "--format=tar", rev, "--", ...RUST_PATHSPECS], { maxBuffer: 1 << 30 });
+    if (archive.status !== 0) throw new Error(`git archive ${rev} failed: ${archive.stderr}`);
+    const tar = spawnSync("tar", ["-x", "-f", "-"], { cwd: dir, input: archive.stdout, maxBuffer: 1 << 26 });
+    if (tar.status !== 0) throw new Error(`tar failed: ${tar.stderr}`);
+    return loadInventory(scanWorkspace(dir));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export function gateDiff(repo, base, options = {}) {
+  const git = (...args) => {
+    const r = spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.trim()}`);
+    return r.stdout.trim();
+  };
+  const mergeBase = git("merge-base", base, "HEAD");
+  const head = git("rev-parse", "HEAD");
+  return { mergeBase, head, diff: diffInventories(scanCommit(repo, mergeBase), scanCommit(repo, head), options) };
+}
+
+function main(args) {
+  if (args[0] === "gate" || args[0] === "diff") {
+    const flags = new Set(["--base", "--root", "--target-os", "--renames"]);
+    const positional = args.slice(1).filter((a, i, xs) => !flags.has(a) && !flags.has(xs[i - 1]));
+    const targetOs = argValue(args, "--target-os");
+    const renamesFile = argValue(args, "--renames");
+    const gate = args[0] === "gate";
+    const usage = gate
+      ? "gate --base <ref> [--root <repo>] [--renames <map>]"
+      : `diff [--target-os ${TARGET_OSES.join("|")}] [--renames <map>] <before.json> <after.json>`;
+    if ((gate ? !argValue(args, "--base") || positional.length : positional.length !== 2) || (args.includes("--target-os") && !TARGET_OSES.includes(targetOs))) {
+      process.stderr.write(`usage: node scripts/rust-test-inventory.mjs ${usage}\n`);
+      return 2;
+    }
+    let d;
+    let header = "";
+    try {
+      const renames = renamesFile ? parseRenames(readFileSync(renamesFile, "utf8")) : undefined;
+      if (gate) {
+        const r = gateDiff(argValue(args, "--root") ?? process.cwd(), argValue(args, "--base"), { renames });
+        header = `gate: merge-base ${r.mergeBase.slice(0, 12)} -> HEAD ${r.head.slice(0, 12)}\n`;
+        d = r.diff;
+      } else {
+        d = diffInventories(readInventoryFile(positional[0]), readInventoryFile(positional[1]), { targetOs, renames });
+      }
+    } catch (err) {
+      process.stderr.write(`rust-test-inventory ${args[0]}: ${err.message}\n`);
+      return 2;
+    }
+    process.stdout.write(header + formatDiff(d));
+    return d.ok ? 0 : 1;
+  }
+  const root = argValue(args, "--root") ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const out = argValue(args, "--out");
+  const inv = scanWorkspace(root);
+  const text = formatInventory(inv);
+  if (out) writeFileSync(out, text);
+  else process.stdout.write(text);
+  process.stderr.write(`crates: ${inv.crates.length}  tests: ${inv.tests.length}  warnings: ${inv.warnings.length}\n`);
+  for (const w of inv.warnings.slice(0, 10)) process.stderr.write(`  ${w.kind} ${w.file}:${w.line} ${w.message}\n`);
+  return 0;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = main(process.argv.slice(2));
+}

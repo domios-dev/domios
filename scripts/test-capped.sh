@@ -184,7 +184,7 @@ detect_requested_filter() {
             --manifest-path) FILTER_MANIFEST="${2:-}"; shift 2 || return 0 ;;
             -p=*|--package=*) FILTER_PACKAGE="${1#*=}"; shift ;;
             --manifest-path=*) FILTER_MANIFEST="${1#*=}"; shift ;;
-            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|-Z|--color)
+            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|-Z|--color|--archive-file|--workspace-remap|--binaries-metadata|--cargo-metadata)
                 shift 2 || return 0 ;;
             -*) shift ;;
             *) REQUESTED_FILTER="$1"; return 0 ;;
@@ -282,9 +282,24 @@ if [ "$EXEC_MODE" -eq 0 ]; then
     fi
 fi
 
-TEST_LOG=$(mktemp)
-trap 'rm -f "$TEST_LOG"' EXIT
-if run_test "$@" 2>&1 | tee "$TEST_LOG"; then
+TEST_RAW_OUTPUT="${TEST_RAW_OUTPUT:-0}"
+if [ "$EXEC_MODE" = 0 ] && [ "$TEST_RAW_OUTPUT" != 1 ] && [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then
+    TEST_LOG=$(mktemp "$CT_BUILD_ARTIFACT_DIR/test.XXXXXX.log")
+else
+    TEST_LOG=$(mktemp)
+    trap 'rm -f "$TEST_LOG"' EXIT
+fi
+capture_test() {
+    if [ "$EXEC_MODE" = 1 ] || [ "$TEST_RAW_OUTPUT" = 1 ] || [ -z "${CT_BUILD_ARTIFACT_DIR:-}" ]; then
+        run_test "$@" 2>&1 | tee "$TEST_LOG"
+    else
+        local status=0
+        run_test "$@" > "$TEST_LOG" 2>&1 || status=$?
+        node "$(dirname "${BASH_SOURCE[0]}")/build-gateway-output.mjs" test-summary "$TEST_LOG" "$status" || true
+        return "$status"
+    fi
+}
+if capture_test "$@"; then
     if [ "$EXEC_MODE" -eq 0 ] && [ -n "$REQUESTED_FILTER" ]; then
         if filtered_run_matched_nothing "$TEST_LOG"; then
             report_zero_match

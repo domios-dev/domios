@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { collectCargoBuilds } from './cargo-build-gc.mjs';
 
 const DAY = 86400000;
 const markerName = '.codeterm-cache.json';
@@ -168,12 +169,16 @@ function sweepCheckout(checkout, dryRun, maxAgeDays, runner) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    if (process.env.CT_CACHE_RETENTION_LOCK_HELD !== '1') throw new Error('use build.sh gc; gateway mutex is required');
+    if (process.env.CT_CACHE_RETENTION_LOCK_HELD !== '1') throw new Error('use build.sh gc; cache retention mutex is required');
     const [operation, gateway, checkout, target] = process.argv.slice(2);
     if (operation === 'mark') mark(gateway, checkout, target);
-    else if (operation === 'gc' || operation === 'auto') retain(gateway, checkout,
-      { automatic: operation === 'auto', dryRun: target === '--dry-run',
+    else if (operation === 'gc' || operation === 'auto') {
+      if (operation === 'gc' && process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture') {
+        collectCargoBuilds(checkout, { dryRun: target === '--dry-run' });
+      }
+      retain(gateway, checkout, { automatic: operation === 'auto', dryRun: target === '--dry-run',
         sweep: process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture' });
+    }
     else throw new Error('unknown cache retention operation');
   } catch (error) { console.error(`[cache-policy] ${error.message}`); process.exitCode = 2; }
 }

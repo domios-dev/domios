@@ -3,7 +3,7 @@
 use tauri::Manager;
 
 /// Set window icon and apply platform-specific styling.
-pub(crate) fn setup_window_styling(window: &crate::app_runtime::WebviewWindow) {
+pub(crate) fn setup_window_styling(window: &codeterm_service_core::app_runtime::WebviewWindow) {
     let icon_bytes = include_bytes!("../../icons/icon.png");
     if let Ok(mut reader) = png::Decoder::new(std::io::Cursor::new(icon_bytes)).read_info() {
         let info = reader.info().clone();
@@ -48,7 +48,7 @@ pub(crate) fn setup_window_styling(window: &crate::app_runtime::WebviewWindow) {
 
 /// Build and configure the system tray icon and menu.
 pub(crate) fn build_system_tray(
-    app: &crate::app_runtime::App,
+    app: &codeterm_service_core::app_runtime::App,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -87,7 +87,7 @@ pub(crate) fn build_system_tray(
         .icon_as_template(cfg!(target_os = "macos"))
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "retry-daemon" => super::frontend_shell::retry(app),
+            "retry-daemon" => codeterm_service_core::startup::frontend_shell_retry(app),
             "show" => {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.show();

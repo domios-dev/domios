@@ -54,7 +54,7 @@ impl Wake for EventWake {
     }
 }
 
-pub(in crate::probe) struct Events {
+pub struct Events {
     wake: Arc<EventWake>,
     registration: Option<Registration>,
 }

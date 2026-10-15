@@ -1,0 +1,179 @@
+//! App-side implementations of [`codeterm_bridge::ports`] traits.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use codeterm_bridge::bridge::manager::PlacementReceipt;
+use codeterm_bridge::bridge::threads::{SenderIdentity, ThreadService, ThreadTabs};
+use codeterm_bridge::ports::{
+    AttachmentStorePort, BridgeTabPort, ChatPreprocessorPort, ChatPreprocessorProvider,
+};
+use codeterm_bridge::transcribe::TranscribeRegistry;
+use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
+
+use crate::service::general_agent;
+use crate::service::ServiceContext;
+
+pub struct AppAttachmentStorePort;
+
+pub fn attachment_store() -> Arc<dyn AttachmentStorePort> {
+    Arc::new(AppAttachmentStorePort)
+}
+
+impl AttachmentStorePort for AppAttachmentStorePort {
+    fn secrets_dir(&self) -> PathBuf {
+        general_agent::secrets_dir()
+    }
+
+    fn evict_downloads(&self, dir: &Path, max_bytes: u64) {
+        crate::attachments::evict(dir, crate::attachments::EvictionPolicy::MaxBytes(max_bytes));
+    }
+
+    fn telegram_allowed_users(&self) -> Vec<String> {
+        crate::config::load_config()
+            .integrations
+            .telegram_allowed_users
+            .clone()
+    }
+}
+
+pub struct ServiceBridgeTabPort(pub ServiceContext);
+
+impl BridgeTabPort for ServiceBridgeTabPort {
+    fn telegram_used(&self) {
+        self.0
+            .record_product_feature(codeterm_analytics::Feature::TelegramBridgeUsed);
+    }
+    fn resolve_general_tab(&self) -> Result<String, String> {
+        self.0
+            .mux
+            .write()
+            .resolve_tab_id(general_agent::GENERAL_ALIAS)
+            .ok_or_else(|| "General Agent not found".to_string())
+    }
+
+    fn tab_agent_type(&self, tab_id: &str) -> Option<String> {
+        self.0
+            .mux
+            .write()
+            .get_tab(tab_id)
+            .and_then(|p| p.agent_type.clone())
+    }
+
+    fn transcribe_registry(&self) -> Arc<TranscribeRegistry> {
+        self.0
+            .ext::<Arc<crate::transcribe::TranscribeRegistry>>()
+            .clone()
+    }
+
+    fn bridge_outbound(&self) -> codeterm_bridge::bridge::manager::OutboundSender {
+        self.0.bridge_outbound.clone()
+    }
+
+    fn voice_transcribe_config(&self) -> VoiceTranscribeConfig {
+        self.0.configuration().integrations.voice_transcribe.clone()
+    }
+
+    fn text_hooks_config(&self) -> TextHooksConfig {
+        self.0.configuration().integrations.text_hooks.clone()
+    }
+
+    fn deliver_inbound(
+        &self,
+        tab_id: &str,
+        prefixed: &str,
+        agent_type: Option<&str>,
+    ) -> Result<(), String> {
+        if agent_type.is_none() {
+            let preview: String = prefixed.chars().take(120).collect();
+            log::info!(
+                "[bridge] queued inbound for tab={} (agent restarting): {}",
+                tab_id,
+                preview,
+            );
+            codeterm_bridge::bridge::inbound_buffer::push(tab_id, prefixed.to_string());
+            return Ok(());
+        }
+
+        if let Some((plugin_id, session_id)) = self.0.tab_chat_backing(tab_id) {
+            return self.0.chatbackend_send(&plugin_id, &session_id, prefixed);
+        }
+
+        self.0
+            .start_chat_send(tab_id, prefixed.to_string(), None, None)
+            .map(|_| ())
+    }
+
+    fn queue_inbound(&self, tab_id: &str, prefixed: String) {
+        codeterm_bridge::bridge::inbound_buffer::push(tab_id, prefixed);
+    }
+
+    fn claim_channel_answer(&self, callback_data: &str) -> bool {
+        self.0.claim_channel_answer(callback_data)
+    }
+
+    fn record_channel_placement(&self, receipt: &PlacementReceipt, locator: &str) {
+        self.0
+            .record_channel_placement(&receipt.tag, &receipt.service, locator);
+    }
+
+    fn telegram_token(&self) -> Option<String> {
+        codeterm_bridge::bridge::telegram::read_token(&AppAttachmentStorePort)
+    }
+
+    fn telegram_token_path(&self) -> PathBuf {
+        codeterm_bridge::bridge::telegram::token_path(&AppAttachmentStorePort)
+    }
+
+    fn threads(&self) -> Arc<ThreadService> {
+        self.0
+            .ext::<Arc<codeterm_bridge::bridge::threads::ThreadService>>()
+            .clone()
+    }
+
+    fn thread_tabs(&self) -> &dyn ThreadTabs {
+        self
+    }
+}
+
+impl ThreadTabs for ServiceBridgeTabPort {
+    fn sender_identity(&self, tab_id: &str) -> Option<SenderIdentity> {
+        self.0.bridge_sender_identity(tab_id)
+    }
+
+    fn live_tab_titles(&self) -> Vec<(String, String)> {
+        self.0.bridge_live_tab_titles()
+    }
+
+    fn is_live_tab(&self, tab_id: &str) -> bool {
+        self.0.bridge_is_live_tab(tab_id)
+    }
+
+    fn is_visible_tab(&self, tab_id: &str) -> bool {
+        self.0
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| !tab.hidden && tab.show_in_tabbar)
+    }
+
+    fn is_general_tab(&self, tab_id: &str) -> bool {
+        self.0.bridge_is_general_tab(tab_id)
+    }
+}
+
+pub struct ServiceChatPreprocessorPort(pub ServiceContext);
+
+impl ChatPreprocessorPort for ServiceChatPreprocessorPort {
+    fn preprocessor_ids(&self) -> Vec<String> {
+        self.0
+            .ext::<crate::chatpreprocessor::ChatPreprocessorRegistryHandle>()
+            .ids()
+    }
+
+    fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
+        self.0
+            .ext::<crate::chatpreprocessor::ChatPreprocessorRegistryHandle>()
+            .active()
+    }
+}

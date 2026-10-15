@@ -12,12 +12,12 @@ use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
     DecisionRequest, TokenMode,
 };
-use codeterm_lib::mem::decision::{
+use codeterm_service_core::mem::decision::{
     rerank::{run_stage, RerankCandidate, StageConfig, StageOutcome, NOUL_INSTRUCTIONS_TEMPLATE},
     token_store::TokenStore,
     typesafe::TypeSafeAdapter,
 };
-use codeterm_lib::mem::{MemManager, SearchHit, SearchQuery};
+use codeterm_service_core::mem::{MemManager, SearchHit, SearchQuery};
 use serde::{Deserialize, Serialize};
 
 use super::{Fixture, SessionCandidateFixture, TestCase};
@@ -174,9 +174,9 @@ pub(super) fn seed_graph(
             .map_err(|e| format!("seed entity {id}: {e}"))?;
         }
         for link in &graph.links {
-            codeterm_lib::mem::graph::insert_relation(
+            codeterm_service_core::mem::graph::insert_relation(
                 conn,
-                &codeterm_lib::mem::Relation {
+                &codeterm_service_core::mem::Relation {
                     from_id: resolve(&link.from),
                     relation_type: "mentions".into(),
                     to_id: resolve(&link.to),
@@ -273,7 +273,7 @@ pub(super) fn prepare_model(
         Mode::Live => {
             let root = data_dir
                 .map(Path::to_path_buf)
-                .unwrap_or_else(codeterm_lib::paths::data_dir);
+                .unwrap_or_else(codeterm_service_core::paths::data_dir);
             let store = TokenStore::new(root.join("supporter"));
             let present = store
                 .load(TypeSafeAdapter::ID)
@@ -298,7 +298,7 @@ fn candidate(hit: &SearchHit) -> RerankCandidate {
     }
 }
 
-fn doc_candidate(doc: &codeterm_lib::mem::docs_source::DocCandidate) -> RerankCandidate {
+fn doc_candidate(doc: &codeterm_service_core::mem::docs_source::DocCandidate) -> RerankCandidate {
     RerankCandidate {
         key: format!("doc:{}#{}", doc.doc_name, doc.anchor),
         title: format!("{} § {}", doc.doc_name, doc.section_title),
@@ -572,8 +572,11 @@ pub(super) fn evaluate(
             None
         };
         let docs_query = if docs > 0 {
-            let additions =
-                codeterm_lib::mem::docs_source::search_with_hybrid(query, docs, docs_hybrid);
+            let additions = codeterm_service_core::mem::docs_source::search_with_hybrid(
+                query,
+                docs,
+                docs_hybrid,
+            );
             let pool_len = hits.len() + additions.len();
             let candidates = hits
                 .iter()
@@ -770,7 +773,7 @@ mod tests {
 
     #[test]
     fn decision_doc_candidate_can_win_under_the_stub() {
-        let section = codeterm_lib::mem::docs_source::DocCandidate {
+        let section = codeterm_service_core::mem::docs_source::DocCandidate {
             doc_name: "SECRETS",
             section_title: "Vault unlock".into(),
             anchor: "vault-unlock".into(),
@@ -869,7 +872,7 @@ mod tests {
     }
     #[test]
     fn decision_graph_additions_skip_pooled_and_cap() {
-        use codeterm_lib::mem::{graph, MemKind, MemScope, NewMemItem, Relation};
+        use codeterm_service_core::mem::{graph, MemKind, MemScope, NewMemItem, Relation};
         let mem = MemManager::open_in_memory().unwrap();
         let ids: Vec<String> = ["pooled one", "graph two", "graph three"]
             .iter()
