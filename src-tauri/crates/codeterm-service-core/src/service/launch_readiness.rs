@@ -34,9 +34,9 @@ pub(crate) const OWNER_PROMPT_DEADLINE: std::time::Duration =
 /// different attempt and can never settle this one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LaunchAttempt {
-    pub(crate) tab_id: String,
-    pub(crate) pty_id: String,
-    pub(crate) binding_nonce: String,
+    pub tab_id: String,
+    pub pty_id: String,
+    pub binding_nonce: String,
 }
 
 impl LaunchAttempt {

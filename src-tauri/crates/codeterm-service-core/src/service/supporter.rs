@@ -32,7 +32,8 @@ pub(crate) use narrative::sentinel as sentinel_questions;
 pub(crate) use narrative::{
     provider_update as update_questions, recovery as recovery_questions, tab_state as tab_questions,
 };
-pub(crate) use narrative::{ActivityContext, QuestionAnswer};
+pub(crate) use narrative::ActivityContext;
+pub use narrative::QuestionAnswer;
 use registry::SupporterRegistry;
 
 #[derive(Default)]

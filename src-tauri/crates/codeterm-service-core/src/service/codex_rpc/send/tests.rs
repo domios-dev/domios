@@ -2,7 +2,8 @@ use super::super::protocol::RpcError;
 use super::*;
 use crate::service::{
     local_recording::leases::{Capture, FrozenTarget},
-    parked_user_delivery::tests::{mark_ready, queue_fixture},
+    parked_user_delivery::test_support::queue_fixture,
+    parked_user_delivery::tests::mark_ready,
     pending_delivery_payloads::user_sends::UserSendAuthority,
     test_fixture::ServiceFixture,
 };
