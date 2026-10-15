@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useState, type CSSProperties } from "react";
 import { Clock3 } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
@@ -68,7 +69,7 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
     ? <BackPill label={backLabel} onBack={onBack} />
     : <BackPill ariaLabel="Close cron details" onBack={() => cronSelectionStore.close()} />;
   if (error) {
-    return <div className="h-full grid place-items-center gap-3 text-sm text-[var(--ct-red)]"><p role="alert">{error}</p>{back}</div>;
+    return <div className="h-full grid place-items-center gap-3 text-sm text-[var(--ct-red)]"><InlineErrorNotice error={error} operation="loading scheduled jobs" blocking />{back}</div>;
   }
   if (!job || !service) return <div className="p-4">{back}</div>;
 
@@ -87,7 +88,7 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
         </div>
         <button type="button" aria-pressed={showAutomation} onClick={() => setShowAutomation(!showAutomation)} className={AUTOMATION_TOOL}>{showAutomation ? "Cron details" : "Automation graph"}</button>
       </header>
-      {showAutomation ? (automation ? <AutomationGraphView {...automation} /> : job.team_id === undefined ? <p role="alert" className="px-4 py-3 sm:px-6">Automation Team scope is unavailable.</p> : <HostAutomationGraph workspace_id={job.workspace_id} team_id={job.team_id} />) : <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-6">
+      {showAutomation ? (automation ? <AutomationGraphView {...automation} /> : job.team_id === undefined ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} /> : <HostAutomationGraph workspace_id={job.workspace_id} team_id={job.team_id} />) : <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-6">
         <CronDrawerSection service={service} machineName="This machine" onUpdate={() => void refresh()} actionAdapter={actionAdapter} />
       </div>}
     </section>

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RestoreStatePanel } from "./RestoreStatePanel";
 import { restoreStageView } from "../../lib/restoreStageView";
 import { useWakeOnOpen } from "./useWakeOnOpen";
@@ -148,7 +149,7 @@ export function TabContent({
         />
         {!isChatBackend && tab.agent_type && !descriptor && (
           <div role="status" data-testid="provider-capability-state" className="px-2 py-1 text-xs">
-            {loading ? "Loading agent capabilities…" : error ?? `Agent capabilities unavailable for ${tab.agent_type}`}
+            {loading ? "Loading agent capabilities…" : <InlineErrorNotice error={error} operation="loading agent capabilities" />}
           </div>
         )}
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>

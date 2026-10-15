@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useMemo } from "react";
 import { PluginView } from "../Extensions/PluginView";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -80,12 +81,7 @@ function SurfaceUnavailable({ title, error, onRetry }: { title: string; error?: 
     <div role="status" data-testid="surface-unavailable" className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-sm text-[var(--ct-muted-fg)]">
       <p>{error ? `${title}: could not reach the surface registry` : `${title}: no surface is registered`}</p>
       {onRetry && <button type="button" onClick={onRetry}>Retry surface lookup</button>}
-      {error && (
-        <details className="max-w-full text-xs">
-          <summary className="cursor-pointer select-none">Details</summary>
-          <code className="mt-1 block break-all">{error}</code>
-        </details>
-      )}
+      {error && <InlineErrorNotice error={error} operation="looking up this surface" />}
     </div>
   );
 }
@@ -170,7 +166,7 @@ export function SurfaceTabView({
         )}
         {plan.kind === "unavailable" && <SurfaceUnavailable title={tab.title || backing.surface_id} error={plan.error} onRetry={onRetry} />}
         {plan.kind === "unsupported" && (
-          <p role="alert" className="p-4 text-sm text-[var(--ct-muted-fg)]">{plan.message}</p>
+          <InlineErrorNotice error={plan.message} operation="opening this surface" blocking />
         )}
       </div>
     </section>

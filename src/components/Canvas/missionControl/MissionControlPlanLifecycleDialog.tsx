@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -144,9 +145,7 @@ export function MissionControlPlanLifecycleDialog({
           {preview && (preview.plan_title || preview.plan_id)}
         </p>
         {state.status === "error" && (
-          <p role="alert" className="mc-lifecycle-error">
-            {state.message}
-          </p>
+          <InlineErrorNotice error={state.message} operation="previewing this plan change" blocking />
         )}
         {preview && !preview.applicable && (
           <p role="status" className="mc-lifecycle-meta" data-testid={`${testId}-not-applicable`}>
@@ -212,9 +211,7 @@ export function MissionControlPlanLifecycleDialog({
           </>
         )}
         {submitError && (
-          <p role="alert" className="mc-lifecycle-error">
-            {submitError}
-          </p>
+          <InlineErrorNotice error={submitError} operation="updating this plan" blocking />
         )}
         <div className="mc-lifecycle-actions">
           <button

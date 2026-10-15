@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MessageBubble } from "@codeterm/chat-ui";
@@ -124,7 +125,7 @@ export function RunChatPopup({
         </div>
 
         <div ref={scrollRef} className="relative flex-1 overflow-auto px-4 py-3">
-          {error && <div className="text-[var(--ct-red)] mb-2 text-[11px]">{error}</div>}
+          {error && <InlineErrorNotice error={error} operation="reading the agent conversation" />}
           {loaded && !error && messages.length === 0 && (
             <div className="text-[var(--ct-muted-fg)] text-[11px]">No transcript for this run.</div>
           )}

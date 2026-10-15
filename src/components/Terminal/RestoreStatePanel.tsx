@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Clock, Moon } from "lucide-react";
 import { AgentIcon } from "../AgentIcon";
 import type { RestoreStageView } from "../../lib/restoreStageView";
@@ -30,7 +31,7 @@ export function RestoreStatePanel({ providerId, view, onRetry, retrying = false 
             {view.steps.map(step => <span key={step.id} aria-hidden="true" data-state={step.state} className="restore-progress-segment"><span /></span>)}
           </div>
         </div>}
-        {view.detail && <p className={`mt-4 max-w-full break-words text-xs leading-relaxed ${view.phase === "failed" ? "text-[var(--ct-danger)]" : "text-[var(--ct-muted-fg)]"}`}>{view.detail}</p>}
+        {view.detail && (view.phase === "failed" ? <InlineErrorNotice error={view.detail} operation="restoring this session" /> : <p className="mt-4 text-xs text-[var(--ct-muted-fg)]">{view.detail}</p>)}
         {view.phase === "failed" && <button type="button" className="ct-btn mt-5 border border-[var(--ct-border)] bg-[var(--ct-surface)] text-xs" disabled={retrying} onClick={onRetry}>Wake again</button>}
       </section>
     </div>

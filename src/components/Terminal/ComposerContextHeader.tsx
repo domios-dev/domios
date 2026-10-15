@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { ChevronUp, CircleCheck, Clock3, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
@@ -294,7 +295,7 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
           <div className="ct-ctx__reveal-inner">{body}</div>
         </div>
       ) : body}
-      {error && !confirming && <span role="alert" className="ct-ctx__error">{error}</span>}
+      {error && !confirming && <InlineErrorNotice error={error} operation="updating the composer context" blocking />}
       {confirming && (() => {
         const copy = deleteJobConfirmation(confirming);
         return (

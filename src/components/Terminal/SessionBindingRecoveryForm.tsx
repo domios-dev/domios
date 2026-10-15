@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState, type FormEvent } from "react";
 import { rebindTabSession } from "./sessionBindingApi";
 
@@ -52,7 +53,7 @@ export function SessionBindingRecoveryForm({
       <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm">
         Cancel
       </button>
-      {error && <span role="alert" className="w-full text-xs text-[var(--ct-danger)]">{error}</span>}
+      {error && <InlineErrorNotice error={error} operation="repairing this session" blocking />}
     </form>
   );
 }

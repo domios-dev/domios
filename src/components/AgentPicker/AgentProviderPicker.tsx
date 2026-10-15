@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import logoUrl from "../../assets/logo.png";
@@ -73,7 +74,7 @@ export function AgentProviderPicker({
       className="flex h-full w-full items-center justify-center p-6 overflow-auto"
     >
       <div className="w-fit max-w-full space-y-6">
-        {installError && <div role="alert" className="text-sm text-[var(--ct-red)]">{installError}</div>}
+        {installError && <InlineErrorNotice error={installError} operation="installing this provider" blocking />}
         <div className="flex items-center gap-3">
           <img src={logoUrl} alt="" className="h-8 w-8 flex-none rounded-lg" />
           <div className="min-w-0">
