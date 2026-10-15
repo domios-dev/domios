@@ -1007,7 +1007,7 @@ JS
 
 prepare_exceptional_worktree_target() {
   local dir identity
-  dir="$(ct_gateway_dir)"
+  dir="$(ct_cache_home)"
   identity="$(printf '%s' "${CT_REAL_WORKTREE:-$(pwd -P)}" | git hash-object --stdin)"
   export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "${CT_REAL_WORKTREE:-$(pwd -P)}" "$dir" "$identity")"
   export CARGO_INCREMENTAL=0
@@ -1025,7 +1025,7 @@ prepare_exceptional_worktree_target() {
 
 prepare_release_target() {
   local dir
-  dir="$(ct_gateway_dir)/targets/release/$CT_BUILD_JOB_ID"
+  dir="$(ct_cache_home)/targets/release/$CT_BUILD_JOB_ID"
   if [ -e "$dir" ]; then
     echo "ERROR: release target is not fresh: $dir" >&2
     exit 2
@@ -1047,7 +1047,7 @@ prepare_local_install_target() {
     exit 2
   fi
   identity="$(printf '%s' "$canonical" | git hash-object --stdin)"
-  dir="$(ct_gateway_dir)/targets/local-install/$identity"
+  dir="$(ct_cache_home)/targets/local-install/$identity"
   node scripts/local-install-cache.mjs "$dir"
   export CARGO_TARGET_DIR="$dir"
   export CARGO_INCREMENTAL=0

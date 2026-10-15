@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { collectCargoBuilds } from './cargo-build-gc.mjs';
+import { collectCargoBuilds, mapCheckouts, trimBuildDirectories } from './cargo-build-gc.mjs';
 
 const DAY = 86400000;
 const markerName = '.codeterm-cache.json';
@@ -82,9 +82,9 @@ function writeJson(file, data) {
   fs.renameSync(temp, file);
 }
 
-export function mark(gateway, checkout, target, now = Date.now(), owner = process.ppid) {
+export function mark(gateway, checkout, target, now = Date.now(), owner = process.ppid, home = gateway) {
   physical(gateway);
-  const root = path.join(gateway, 'targets', 'exceptional');
+  const root = path.join(home, 'targets', 'exceptional');
   const dir = candidate(root, target);
   const repo = physical(checkout);
   const prior = readJson(path.join(dir, markerName));
@@ -96,7 +96,7 @@ export function mark(gateway, checkout, target, now = Date.now(), owner = proces
 export function retain(gateway, checkout, { dryRun = false, automatic = false, now = Date.now(),
   capBytes = Number(process.env.CODETERM_EXCEPTIONAL_CACHE_GB || 40) * 1024 ** 3,
   maxAgeDays = Number(process.env.CODETERM_CACHE_MAX_AGE_DAYS || 3),
-  sweep = true, runner = spawnSync } = {}) {
+  sweep = true, runner = spawnSync, home = gateway } = {}) {
   if (!Number.isFinite(capBytes) || capBytes < 0) throw new Error('invalid CODETERM_EXCEPTIONAL_CACHE_GB');
   if (!Number.isSafeInteger(maxAgeDays) || maxAgeDays < 1) throw new Error('invalid CODETERM_CACHE_MAX_AGE_DAYS');
   gateway = physical(gateway);
@@ -104,7 +104,7 @@ export function retain(gateway, checkout, { dryRun = false, automatic = false, n
   const stamp = path.join(gateway, 'cache-retention.json');
   const last = readJson(stamp)?.lastRun;
   if (automatic && Number.isFinite(last) && now - last >= 0 && now - last < 3600000) return 0;
-  const root = path.join(gateway, 'targets', 'exceptional');
+  const root = path.join(home, 'targets', 'exceptional');
   const records = [];
   const buildingCheckouts = new Set();
   if (fs.existsSync(root)) {
@@ -140,10 +140,20 @@ export function retain(gateway, checkout, { dryRun = false, automatic = false, n
     reclaimed += record.size;
   }
   if (total > capBytes) log(`cap exceeded by protected targets: ${total} bytes retained`);
-  if (sweep) sweepCheckout(checkout, dryRun, maxAgeDays, runner);
+  if (sweep) {
+    sweepCheckout(checkout, dryRun, maxAgeDays, runner);
+    trimCheckoutBuilds(checkout, dryRun, runner);
+  }
   if (!dryRun) writeJson(stamp, { lastRun: now });
   log(`${dryRun ? 'would reclaim' : 'reclaimed'} ${reclaimed} exceptional bytes`);
   return reclaimed;
+}
+
+// cargo-sweep keys on access time, which NTFS keeps fresh, so build directories are trimmed by unit identity instead.
+function trimCheckoutBuilds(checkout, dryRun, runner) {
+  try {
+    trimBuildDirectories(mapCheckouts([checkout], { runner }), { dryRun, runner });
+  } catch (error) { log(`build-directory trim refused: ${error.message}; build continues`); }
 }
 
 function sweepCheckout(checkout, dryRun, maxAgeDays, runner) {
@@ -170,14 +180,14 @@ function sweepCheckout(checkout, dryRun, maxAgeDays, runner) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     if (process.env.CT_CACHE_RETENTION_LOCK_HELD !== '1') throw new Error('use build.sh gc; cache retention mutex is required');
-    const [operation, gateway, checkout, target] = process.argv.slice(2);
-    if (operation === 'mark') mark(gateway, checkout, target);
+    const [operation, gateway, checkout, target, home = gateway] = process.argv.slice(2);
+    if (operation === 'mark') mark(gateway, checkout, target, Date.now(), process.ppid, home);
     else if (operation === 'gc' || operation === 'auto') {
       if (operation === 'gc' && process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture') {
         collectCargoBuilds(checkout, { dryRun: target === '--dry-run' });
       }
       retain(gateway, checkout, { automatic: operation === 'auto', dryRun: target === '--dry-run',
-        sweep: process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture' });
+        sweep: process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture', home });
     }
     else throw new Error('unknown cache retention operation');
   } catch (error) { console.error(`[cache-policy] ${error.message}`); process.exitCode = 2; }
