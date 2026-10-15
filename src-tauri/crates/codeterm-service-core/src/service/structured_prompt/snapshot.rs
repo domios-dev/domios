@@ -6,7 +6,7 @@ use super::opencode_sse::{normalize_chat_part, ChatPartEvent, ChatPartUpdate, Me
 use crate::agent::chat_types::ChatMsg;
 use crate::service::ServiceContext;
 
-pub(crate) const RETAINED_ROWS: usize = 440;
+pub const RETAINED_ROWS: usize = 440;
 
 fn normalize_with(
     session_id: &str,
@@ -66,7 +66,7 @@ fn normalize_with(
     Ok(rows.into_iter().collect())
 }
 
-pub(crate) fn read(svc: &ServiceContext, tab_id: &str) -> Result<Vec<ChatMsg>, String> {
+pub fn read(svc: &ServiceContext, tab_id: &str) -> Result<Vec<ChatMsg>, String> {
     let (base_url, cwd) = super::endpoint_for_tab(tab_id).ok_or("No structured endpoint")?;
     let binding = || {
         let mux = svc.mux.read();

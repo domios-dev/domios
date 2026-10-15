@@ -40,7 +40,7 @@ use super::pending_delivery_payloads::user_sends::{
 };
 use std::sync::atomic::Ordering;
 
-pub(crate) enum UserDrain {
+pub enum UserDrain {
     Idle,
     ZeroWriteRefusal { dispatch_generation: u64 },
 }
@@ -639,8 +639,8 @@ impl super::ServiceContext {
                     break;
                 }
             }
-            #[cfg(test)]
-            tests::notify_owner_idle(&tab_id);
+            #[cfg(any(test, feature = "test-support"))]
+            test_support::notify_owner_idle(&tab_id);
         });
     }
 
@@ -878,9 +878,9 @@ impl super::ServiceContext {
             }
             return boundary(Some(record), text, payload_queued);
         }
-        #[cfg(test)]
-        if let Some(boundary) = tests::submit_boundary(tab_id) {
-            tests::run_before_submit(tab_id);
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(boundary) = test_support::submit_boundary(tab_id) {
+            test_support::run_before_submit(tab_id);
             if !pre_write_guard() {
                 return Err(DeliveryError::TabBusyRefused {
                     tab: tab_id.into(),
@@ -936,5 +936,7 @@ impl super::ServiceContext {
 
 mod bootstrap;
 mod degraded;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 #[cfg(test)]
-pub(crate) mod tests;
+pub mod tests;

@@ -33,7 +33,7 @@ pub(crate) const OWNER_PROMPT_DEADLINE: std::time::Duration =
 /// and that launch's binding nonce. A prior PTY or a rotated nonce is a
 /// different attempt and can never settle this one.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LaunchAttempt {
+pub struct LaunchAttempt {
     pub(crate) tab_id: String,
     pub(crate) pty_id: String,
     pub(crate) binding_nonce: String,
@@ -58,7 +58,7 @@ impl LaunchAttempt {
 
 /// What one bounded observation learned about a launch.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum LaunchEvidence {
+pub enum LaunchEvidence {
     /// The agent named itself on this launch: a nonce-verified session binding.
     Acknowledged,
     /// The observer gave up, carrying the provisional stage and the evidence
@@ -123,7 +123,7 @@ impl LaunchExitSource {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LaunchExitProof {
+pub struct LaunchExitProof {
     attempt: LaunchAttempt,
     source: LaunchExitSource,
     tree_key: Option<crate::service::process_tree::ProviderTreeKey>,
@@ -230,7 +230,7 @@ fn observation_matches_attempt(
 
 /// The result of waiting on one armed observation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum LaunchObservation {
+pub enum LaunchObservation {
     Evidence(LaunchEvidence),
     /// The bounded deadline elapsed with nothing observed.
     Deadline,
@@ -386,7 +386,7 @@ static OBSERVATIONS: LazyLock<Observations> = LazyLock::new(|| Observations {
 
 /// Arm the bounded observation for one launch attempt. Replaces any earlier
 /// observation for the tab: only the newest launch is observable.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn arm(attempt: LaunchAttempt) {
     arm_inner(attempt, None, false);
 }
@@ -749,8 +749,8 @@ pub(crate) fn take_published_failure(attempt: &LaunchAttempt) -> Option<String> 
 /// Wait for this launch's own readiness evidence until the bounded deadline.
 /// Event-driven on the evidence notes; the deadline only bounds the failure to
 /// observe anything and is never itself treated as readiness.
-#[cfg(test)]
-pub(crate) fn observe(attempt: &LaunchAttempt, deadline: Instant) -> LaunchObservation {
+#[cfg(any(test, feature = "test-support"))]
+pub fn observe(attempt: &LaunchAttempt, deadline: Instant) -> LaunchObservation {
     let mut state = OBSERVATIONS.state.lock();
     loop {
         let Some(observed) = state.armed.get_mut(&attempt.tab_id) else {

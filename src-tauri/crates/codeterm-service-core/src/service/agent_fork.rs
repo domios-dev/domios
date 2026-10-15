@@ -1,7 +1,7 @@
 use super::{ServiceContext, SpawnAgentParams};
 
 #[derive(Debug, serde::Serialize)]
-pub(crate) struct ForkResult {
+pub struct ForkResult {
     pub tab_id: String,
     pub source_tab_id: String,
     pub source_session_id: String,
@@ -9,7 +9,7 @@ pub(crate) struct ForkResult {
     pub binding_pending: bool,
 }
 impl ServiceContext {
-    pub(crate) fn agent_fork(&self, source_tab: &str) -> Result<ForkResult, String> {
+    pub fn agent_fork(&self, source_tab: &str) -> Result<ForkResult, String> {
         let (source, workspace) = {
             let mux = self.mux.read();
             let source = mux

@@ -56,7 +56,7 @@ impl ServiceContext {
             .map(|entry| serde_json::to_value(&entry.deadline).unwrap_or_default())
     }
 
-    pub(crate) fn set_utility_timeout(
+    pub fn set_utility_timeout(
         &self,
         tab_id: &str,
         owner: &str,
@@ -130,7 +130,7 @@ impl ServiceContext {
         remove_deadline(self, tab_id, &mut armed)
     }
 
-    pub(crate) fn prepare_utility_command(&self, tab_id: &str, command: &str) {
+    pub fn prepare_utility_command(&self, tab_id: &str, command: &str) {
         {
             let mut mux = self.mux.write();
             if let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| tab.is_utility_shell()) {

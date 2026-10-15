@@ -49,11 +49,7 @@ impl SpawnLaunchVerdict {
     }
 
     /// The spawn's own warning followed by this verdict's, as one response field.
-    pub fn merged_warning(
-        &self,
-        tab_id: &str,
-        spawn_warning: Option<&str>,
-    ) -> Option<String> {
+    pub fn merged_warning(&self, tab_id: &str, spawn_warning: Option<&str>) -> Option<String> {
         let warnings: Vec<String> = spawn_warning
             .map(str::to_string)
             .into_iter()
@@ -71,7 +67,7 @@ pub struct SpawnLaunchFailure {
 }
 
 impl SpawnLaunchFailure {
-    pub(crate) const CODE: &'static str = "launch_failed";
+    pub const CODE: &'static str = "launch_failed";
 
     pub fn message(&self) -> String {
         let mut message = format!(

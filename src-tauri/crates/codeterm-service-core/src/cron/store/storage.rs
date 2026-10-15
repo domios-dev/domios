@@ -107,7 +107,7 @@ impl Default for CronStorageOptions {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CronStage {
+pub enum CronStage {
     /// The change is prepared and the cron lock released; nothing is submitted yet.
     Prepared,
     /// The writer admitted or refused the submission; its outcome is still pending.
@@ -117,7 +117,7 @@ pub(crate) enum CronStage {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) type StageProbe = Arc<dyn Fn(CronStage) + Send + Sync>;
+pub type StageProbe = Arc<dyn Fn(CronStage) + Send + Sync>;
 
 /// Test barrier around the unlocked commit window; compiled to nothing outside tests.
 #[derive(Clone, Default)]
@@ -254,8 +254,8 @@ impl CronStore {
         Ok(store)
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_stage_probe(&mut self, probe: StageProbe) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_stage_probe(&mut self, probe: StageProbe) {
         if let Some(storage) = self.storage_mut() {
             storage.probe = Probe(Some(probe));
         }
@@ -600,7 +600,7 @@ impl CronStore {
 
 /// Legacy JSON applies and saves under the cron lock as before. Storage blocks off-lock
 /// for COMMIT and publishes only what committed: call it off the async runtime.
-pub(crate) fn commit<T>(
+pub fn commit<T>(
     cron: &CronState,
     mut prepare: impl FnMut(&mut CronStore) -> Result<Prepared<T>, String>,
 ) -> Result<CronCommitted<T>, CronCommitError> {

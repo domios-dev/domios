@@ -1,4 +1,4 @@
-pub(crate) async fn run<T: Send + 'static>(
+pub async fn run<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tokio::task::spawn_blocking(work)

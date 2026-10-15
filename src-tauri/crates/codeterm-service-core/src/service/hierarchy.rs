@@ -18,7 +18,7 @@ pub(crate) mod stalled_team;
 mod status;
 pub mod team_plan_creation;
 mod worker_handoff;
-pub(crate) use worker_handoff::WorkerTurnSignal;
+pub use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub(crate) use report_delivery::HierarchyReportDelivery;

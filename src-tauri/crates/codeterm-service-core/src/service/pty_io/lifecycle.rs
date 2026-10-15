@@ -12,7 +12,7 @@ mod empty_session;
 pub(super) mod restore_payload;
 
 #[derive(Clone)]
-pub(crate) struct RestoredLaunch {
+pub struct RestoredLaunch {
     pub provider_id: String,
     pub session_id: Option<String>,
     pub cwd: Option<String>,
@@ -184,7 +184,7 @@ fn require_restored_launch_command(command: &str, session_id: Option<&str>) -> R
     })
 }
 
-pub(crate) fn claim_restored_pty_boot(
+pub fn claim_restored_pty_boot(
     mux: &MuxState,
     tab_id: &str,
 ) -> Result<Option<RestoredLaunch>, String> {
@@ -388,7 +388,7 @@ where
 }
 
 impl ServiceContext {
-    pub(crate) fn recover_missing_restored_provider(&self, tab_id: &str) -> Result<(), String> {
+    pub fn recover_missing_restored_provider(&self, tab_id: &str) -> Result<(), String> {
         use crate::agent::provider_identity::{
             provider_for_restored_session, ProviderIdentityEvidence,
         };
@@ -597,7 +597,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn materialize_restored_agent_with_claim(
+    pub fn materialize_restored_agent_with_claim(
         &self,
         claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {

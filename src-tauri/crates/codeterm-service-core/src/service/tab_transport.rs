@@ -141,7 +141,7 @@ impl ServiceContext {
 
     /// Whether `tab_id` is ready to consume agent input.
     /// Half-launched tabs may have `agent_type` before the provider TUI exists.
-    pub(crate) fn tab_has_agent(&self, tab_id: &str) -> bool {
+    pub fn tab_has_agent(&self, tab_id: &str) -> bool {
         let mux = self.mux.write();
         mux.resolve_tab_id(tab_id)
             .and_then(|resolved| mux.get_tab(&resolved).map(tab_accepts_agent_input))
@@ -149,7 +149,7 @@ impl ServiceContext {
     }
 
     /// Whether a tab is assigned to an agent, regardless of launch readiness.
-    pub(crate) fn tab_has_agent_identity(&self, tab_id: &str) -> bool {
+    pub fn tab_has_agent_identity(&self, tab_id: &str) -> bool {
         let mux = self.mux.write();
         mux.resolve_tab_id(tab_id)
             .and_then(|resolved| mux.get_tab(&resolved).map(tab_has_agent_identity))

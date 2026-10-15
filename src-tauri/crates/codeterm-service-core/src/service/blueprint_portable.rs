@@ -6,7 +6,7 @@ use super::{sentinel::SentinelCaller, ServiceContext};
 use crate::sentinel::{portable, scheduler::Handle};
 
 impl ServiceContext {
-    pub(crate) fn blueprint_import_host(
+    pub fn blueprint_import_host(
         &self,
         tab_id: &str,
         recipe: Recipe,
@@ -23,11 +23,7 @@ impl ServiceContext {
         self.blueprint_import(&caller, recipe, assignments, true)
     }
 
-    pub fn blueprint_export(
-        &self,
-        caller: &SentinelCaller,
-        id: &str,
-    ) -> Result<Recipe, String> {
+    pub fn blueprint_export(&self, caller: &SentinelCaller, id: &str) -> Result<Recipe, String> {
         portable::export(&self.sentinel_show(caller, id)?)
     }
 
@@ -67,7 +63,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn blueprint_export_host(
+    pub fn blueprint_export_host(
         &self,
         workspace: &str,
         team: Option<&str>,

@@ -1,5 +1,5 @@
 mod spawn_input;
-pub(crate) use spawn_input::prepare_spawn_input;
+pub use spawn_input::prepare_spawn_input;
 #[cfg(test)]
 pub(crate) use spawn_input::select_visible_spawn_task;
 
@@ -42,7 +42,7 @@ pub(crate) struct PendingDelivery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FallbackDeliverySpec {
+pub struct FallbackDeliverySpec {
     pub channel: PendingDeliveryChannel,
     pub payload: String,
 }

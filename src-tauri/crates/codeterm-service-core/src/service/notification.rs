@@ -720,7 +720,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn resolve_prompt_notifications(
+    pub fn resolve_prompt_notifications(
         &self,
         tab_id: &str,
         identity: &codeterm_types::pty::PromptIdentity,

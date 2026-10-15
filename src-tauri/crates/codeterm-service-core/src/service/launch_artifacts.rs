@@ -185,7 +185,7 @@ pub(crate) fn release_closed_tabs(registry: &AgentRegistry, agent_providers: &[(
     }
 }
 
-pub(crate) fn release_tab(
+pub fn release_tab(
     registry: &AgentRegistry,
     tab_id: &str,
     provider_id: &str,
@@ -201,7 +201,7 @@ pub(crate) fn release_tab(
         .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
 }
 
-pub(crate) fn sweep_for_owner(
+pub fn sweep_for_owner(
     service: &ServiceContext,
     provider_id: &str,
     confirm: bool,

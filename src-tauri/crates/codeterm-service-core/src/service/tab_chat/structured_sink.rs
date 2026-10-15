@@ -122,7 +122,7 @@ impl StructuredSink for TauriStructuredSink {
     }
 }
 
-pub(crate) fn make_sink(
+pub fn make_sink(
     journal: Arc<TabLifecycleJournal>,
     app: AppHandle,
     mux: MuxState,
@@ -341,7 +341,7 @@ impl FlattenDeltaSink {
     }
 }
 
-pub(crate) fn make_flatten_sink(
+pub fn make_flatten_sink(
     journal: Arc<TabLifecycleJournal>,
     app: AppHandle,
     mux: MuxState,

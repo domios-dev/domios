@@ -4,7 +4,7 @@
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CwdRefusal {
+pub struct CwdRefusal {
     pub path: String,
     pub workspace_id: Option<String>,
     pub workspace_name: Option<String>,
@@ -109,7 +109,7 @@ fn foreign_path_hint(cwd: &str) -> &'static str {
 }
 
 impl super::ServiceContext {
-    pub(crate) fn validate_request_cwd(
+    pub fn validate_request_cwd(
         &self,
         workspace_id: Option<&str>,
         caller_tab_id: Option<&str>,

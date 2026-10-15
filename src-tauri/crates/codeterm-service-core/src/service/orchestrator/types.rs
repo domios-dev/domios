@@ -245,7 +245,7 @@ impl TaskLaunchAuthority {
 }
 
 impl SpawnAgentParams {
-    pub(crate) fn normalize_role_profile(&mut self) -> Result<(), String> {
+    pub fn normalize_role_profile(&mut self) -> Result<(), String> {
         crate::service::role_profile::normalize_spawn_params(self)
     }
 

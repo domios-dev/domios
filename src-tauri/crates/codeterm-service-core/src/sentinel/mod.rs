@@ -9,7 +9,7 @@ mod ports_impl;
 pub use ports_impl::manage_fixture_ports;
 pub use ports_impl::register_sentinel;
 pub(crate) mod classify;
-pub(crate) mod graph;
+pub mod graph;
 mod pipeline;
 mod probe_env;
 pub(crate) mod routes;

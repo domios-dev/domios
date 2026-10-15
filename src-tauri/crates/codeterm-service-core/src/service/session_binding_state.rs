@@ -7,7 +7,7 @@ use codeterm_types::pty::BootStage;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum SessionBindingStateKind {
+pub enum SessionBindingStateKind {
     Healthy,
     DeferredPending,
     Refused,
@@ -17,7 +17,7 @@ pub(crate) enum SessionBindingStateKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct SessionBindingState {
+pub struct SessionBindingState {
     pub tab_id: String,
     pub kind: SessionBindingStateKind,
     pub current_session_id: Option<String>,
@@ -94,7 +94,7 @@ fn classify_session_binding_state(
 }
 
 impl ServiceContext {
-    pub(crate) fn session_binding_state(&self, tab_id: &str) -> Option<SessionBindingState> {
+    pub fn session_binding_state(&self, tab_id: &str) -> Option<SessionBindingState> {
         let (current_session_id, agent_alive, prior_session_binding_nonces) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;
@@ -138,7 +138,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn emit_session_binding_state(&self, tab_id: &str) {
+    pub fn emit_session_binding_state(&self, tab_id: &str) {
         self.retire_resolved_session_binding(tab_id);
         if let Some(state) = self.session_binding_state(tab_id) {
             codeterm_events::emit_everywhere(

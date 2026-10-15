@@ -20,11 +20,13 @@ mod ownership;
 pub(crate) mod plan_warning;
 pub(crate) mod process;
 pub(crate) mod projections;
+pub use projections::latest as projections_latest;
 pub(crate) mod prompt_answers;
 mod question_delivery;
 pub mod questions;
 pub(crate) mod restart;
 pub(crate) mod restore;
+pub use restore::all as restore_all;
 mod restore_attempt;
 mod rpc;
 mod subscriber;
@@ -71,3 +73,5 @@ pub async fn answer_question(
         .await
         .map_err(|reason| reason.to_string())?
 }
+
+pub use restore::tab as restore_tab;

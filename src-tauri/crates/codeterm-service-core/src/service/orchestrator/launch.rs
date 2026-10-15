@@ -79,8 +79,8 @@ pub struct LaunchGeneration {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderSessionBinding {
-    pub(crate) pty_id: String,
-    pub(crate) binding_nonce: String,
+    pub pty_id: String,
+    pub binding_nonce: String,
 }
 
 pub fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
@@ -93,11 +93,7 @@ pub fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -
     recorded
 }
 #[cfg(any(test, feature = "test-support"))]
-pub fn arm_provider_session_for_test(
-    tab_id: &str,
-    pty_id: &str,
-    nonce: &str,
-) -> LaunchGeneration {
+pub fn arm_provider_session_for_test(tab_id: &str, pty_id: &str, nonce: &str) -> LaunchGeneration {
     let launch = LaunchGeneration::begin(tab_id, pty_id.to_string());
     LAUNCH_REGISTRY
         .lock()
@@ -1088,10 +1084,7 @@ pub fn launch_agent_in_background_with_env(
     });
 }
 
-pub fn mark_tab_agent_launch_started(
-    mux: &crate::multiplexer::commands::MuxState,
-    tab_id: &str,
-) {
+pub fn mark_tab_agent_launch_started(mux: &crate::multiplexer::commands::MuxState, tab_id: &str) {
     if let Some(tab) = mux.write().get_tab_mut(tab_id) {
         tab.restored_from_snapshot = false;
         tab.agent_booting = true;

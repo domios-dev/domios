@@ -263,7 +263,7 @@ impl LaunchGeneration {
         registry.owns(self).then(write)
     }
 
-    pub(crate) fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {
+    pub fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {
         let mut ready = self.provider_ack.ready.lock();
         if *ready {
             return true;
