@@ -271,7 +271,7 @@ jobs:
   release-manifest:
     name: release manifest, mirror, and verification
     needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]
-    if: needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    if: vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -283,7 +283,7 @@ jobs:
   frontend:
     name: frontend release
     needs: [prepare, quick-checks, tests]
-    if: needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'
+    if: vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'
     uses: ./.github/workflows/frontend-release.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
