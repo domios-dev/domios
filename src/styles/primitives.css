@@ -134,7 +134,7 @@
 }
 
 .ct-deferred-loader[data-transition-state="present"] {
-  animation: ct-deferred-loader-reveal var(--ct-duration-fast) var(--ct-ease-liquid-settle) var(--ct-duration-normal) both;
+  animation: ct-deferred-loader-reveal var(--ct-duration-fast) var(--ct-ease-liquid-settle) var(--ct-loader-reveal-delay, var(--ct-duration-normal)) both;
 }
 
 .ct-deferred-loader[data-transition-state="exiting"] {
@@ -146,7 +146,34 @@
   to { opacity: 1; }
 }
 
+.ct-deferred-presence[data-phase="waiting"],
+.ct-deferred-presence[data-phase="entering"] {
+  animation: ct-presence-enter var(--ct-duration-liquid-segmented) var(--ct-ease-liquid-settle) 1.2s both;
+}
+.ct-deferred-presence[data-phase="visible"] { opacity: 1; }
+.ct-deferred-presence[data-phase="exiting"] {
+  animation: ct-presence-exit var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+@keyframes ct-presence-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ct-presence-exit { to { opacity: 0; } }
+.ct-loading-material {
+  background: var(--ct-bg);
+  backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+}
+.ct-deferred-presence[data-phase="entering"] .ct-loading-icon {
+  animation: ct-loading-settle var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+.ct-deferred-presence[data-phase="entering"] .ct-loading-copy {
+  animation: ct-loading-settle var(--ct-duration-normal) var(--ct-ease-liquid-settle) var(--ct-duration-instant) both;
+}
+.ct-deferred-presence[data-phase="entering"] .ct-loading-progress {
+  animation: ct-loading-settle var(--ct-duration-normal) var(--ct-ease-liquid-settle) calc(var(--ct-duration-instant) * 2) both;
+}
+@keyframes ct-loading-settle { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+
 @media (prefers-reduced-motion: reduce) {
+  .ct-deferred-presence[data-phase] { animation-duration: 1ms; }
+  .ct-deferred-presence[data-phase] :is(.ct-loading-icon, .ct-loading-copy, .ct-loading-progress) { animation: none; }
   .ct-liquid-segmented__thumb {
     transition: none !important;
     animation: none !important;

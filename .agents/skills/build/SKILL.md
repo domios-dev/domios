@@ -299,7 +299,7 @@ calls; a successful build alone is not cache-hit proof.
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
 
-The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in script-catalog CI.
+The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in the script-catalog CI workflow.
 
 ## Warm check queue for lanes
 
@@ -676,7 +676,9 @@ does not cancel the remaining timing inventory.
 For an explicitly authorized bootstrap measurement, use `NEXTEST_TEST_THREADS=1
 SLOW_UNIT_TESTS_MEASUREMENT=alone` on the exact candidate selector; the runner
 refuses that mode without serial execution. Ordinary suites retain default
-parallelism.
+parallelism. Integration batch checks that only need pass/fail set
+`SLOW_UNIT_TESTS_MEASUREMENT=off`, which skips the serial re-measurement of
+candidates (it can take longer than the tests themselves).
 The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
 crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
 may only shrink after its first landing. Baseline entries are
@@ -786,6 +788,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Tracked modules or CLI manifests vanish through `X:` while another fixture runs | Fake gateway jobs held an isolated fixture slot but remapped the global production `subst` drive. Production release could also unmap that fixture's alias. | Fixture scope now skips both mapping and release; mapping requires the exact production job/pid/start owner, and release checks the mapped job still owns the slot. Verify the stable-drive isolation regression in `scripts/build-gateway-cache.test.mjs`. Never repair a live drive manually. |
 | Warm check reports E0583 for tracked modules or a missing `cli/Cargo.toml` after a rename wave | In-place `git checkout --force` published no verified physical-tree boundary before Cargo. An interrupted switch could leave HEAD/index and disk inconsistent. | The current check prepares a detached staging worktree, verifies requested HEAD tree, index tree and tracked files, then publishes under the exact gateway owner. Its journal recovers interrupted publication on the next job and retains warm target caches. Verify `node --test scripts/check-worktree.test.mjs`; any tree mismatch refuses Cargo with exit 75. |
 | Every `check-queue` exits 75 with `check-worktree publication incomplete; Cargo refused ... check-worktree git worktree failed (128): fatal: '<gateway dir>/check-worktree' is not a working tree` | The live `check-worktree/.git` points at a worktree registration that a `git worktree prune` in the source repository removed, so journal recovery cannot move it and the next job fails the same way | With no gateway job running, move `<gateway dir>/check-worktree` aside (`check-worktree.broken-<ts>`), move its `target/` into the `check-worktree.pending-*` directory named by `check-worktree-publication.json` to keep the warm cache, and rerun `check-queue`; delete the broken copy after a green run |
+| `test-one` fails before compiling with `[cache-policy] ERROR: external CARGO_TARGET_DIR rejected: /x/target-check` while DEV is live | Under the gateway's `X:` mapping `test-capped.sh` places the isolated Windows test target at `$ROOT/target-check` = `/x/target-check`; `pwd -P` keeps the subst drive while `git rev-parse --show-toplevel` returns the real checkout, so the path comparison saw an external target | `ct_verify_target_dir` also accepts a target whose git worktree root is the checkout (`ct_target_in_worktree`); verify with `bash scripts/check-shared-sccache.sh`. Never work around it with `CODETERM_ALLOW_EXTERNAL_TARGET` |
 | Queue updates time out during cache retention | Retention held gateway metadata while measuring/deleting caches and running cargo-sweep. | Retention and target marking now share a separate per-machine mutex. Verify `cache retention holds its own mutex while gateway metadata stays available`; the normal queue can update while cache work owns its lock. |
 | A warm check starts with one guard implementation and finishes with another | Helper paths followed cwd after checking out the requested SHA. | Gateway/cache helper paths are pinned to the launching scripts. Verify `gateway helpers stay pinned to the launching scripts after checkout cwd changes`. |
 | `--wait-build` repeatedly reacquires the metadata mutex while queued | The former slot wait used a sleep loop. | Update the gateway scripts; queue/slot filesystem events now drive the wait after releasing the mutex. The captured slot snapshot closes the release-to-subscribe race; expiry is a failure deadline. Verify with `node --test scripts/build-gateway-slot.test.mjs` (four fixture check-queue clients finish in ticket order). A caller lost without a filesystem update is reaped on the next gateway operation; the wait has a bounded failure deadline. |

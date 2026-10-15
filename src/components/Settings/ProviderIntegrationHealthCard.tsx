@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useState } from "react";
 import { Cable } from "lucide-react";
 import {
@@ -141,9 +142,9 @@ export function ProviderIntegrationHealthCard({
             role="alert"
             data-provider-integration-stale-hooks={staleHooks.join(",")}
             data-provider-integration-action-required={health?.repair_requires_consent === true ? "explicit-consent" : undefined}
-            className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-[var(--ct-fg)]"
+            className="text-xs text-[var(--ct-fg)]"
           >
-            {phase === "absent"
+            <InlineErrorNotice description={{ title: "The provider integration needs attention", cause: phase === "absent"
               ? "The integration is absent. Install it before starting a new agent session."
               : phase === "stale-version"
                 ? "The integration is from an older release. Refresh it before starting a new agent session."
@@ -153,7 +154,7 @@ export function ProviderIntegrationHealthCard({
               ? "The session-start hook is missing or stale. Repair the integration before starting a new agent session."
               : staleStopHook
                 ? "The stop hook is missing or stale. Repair the integration to restore agent stop callbacks."
-                : "The provider hook integration is incomplete and needs repair."}
+                : "The provider hook integration is incomplete and needs repair.", raw: "", actions: [] }} />
           </div>
         )}
 
@@ -161,7 +162,7 @@ export function ProviderIntegrationHealthCard({
           <div
             role="status"
             data-provider-integration-binding-fallback={health.codeterm_binding_fallback_source}
-            className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-[var(--ct-fg)]"
+            className="text-xs text-[var(--ct-fg)]"
           >
             The last session bound through {health.codeterm_binding_fallback_source}; its session hook may not have run.
           </div>
@@ -175,9 +176,7 @@ export function ProviderIntegrationHealthCard({
         )}
 
         {error && (
-          <div role="alert" className="text-[10px] text-[var(--ct-red)]">
-            {error}
-          </div>
+          <InlineErrorNotice error={error} operation="checking provider access" blocking />
         )}
 
         <div className="flex items-center justify-end gap-2">

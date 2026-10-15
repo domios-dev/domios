@@ -8,6 +8,10 @@ const authority = { tabId: "owned", nonce: "binding" };
 const states: AgentRuntimeState["state"][] = ["loading", "loaded", "unloaded", "degraded"];
 
 describe("agent runtime state", () => {
+  it("leaves initial loading to the startup surface while preserving actionable failures", () => {
+    expect(runtimeStatusPresentation({ state: "loading", epoch: 1 }, true)).toBeNull();
+    expect(runtimeStatusPresentation({ state: "degraded", epoch: 1 }, true)?.canRetry).toBe(true);
+  });
   it.each(states.flatMap((from) => states.map((to) => [from, to] as const)))
     ("accepts core transition %s → %s", (from, to) => {
       const result = runtimeStateFromEvent({ state: from, epoch: 2, reason: "old" }, authority, {

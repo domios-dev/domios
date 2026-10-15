@@ -14,8 +14,11 @@ test("images and voice bytes use one browser multipart field with filename and o
   }
 });
 
-test("a truncated browser blob is rejected before a malformed request can be sent", async () => {
+test("multipart hands the Blob directly to FormData without reading or base64 conversion", async () => {
   const file = new Blob(["phone"]);
-  file.arrayBuffer = async () => new ArrayBuffer(0);
-  await assert.rejects(browserUploadBody(file, "phone.png"), TypeError);
+  file.arrayBuffer = async () => assert.fail("must not buffer the Blob");
+  const form = await browserUploadBody(file, "phone.png");
+  const field = form.get("file");
+  assert.ok(field instanceof Blob);
+  assert.equal(await field.text(), "phone");
 });

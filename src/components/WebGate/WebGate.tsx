@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   apiHost,
@@ -175,9 +176,7 @@ export function WebGate({ children }: { children: ReactNode }) {
             className="w-full min-h-[44px] px-3 rounded border border-[var(--ct-border,#30363d)] bg-[var(--ct-bg,#0d1117)] text-sm font-mono outline-none focus:border-[var(--ct-accent,#58a6ff)]"
           />
           {error && (
-            <div data-testid="web-token-error" className="mt-2 text-xs text-red-400">
-              {error}
-            </div>
+            <div data-testid="web-token-error"><InlineErrorNotice error={error} operation="using web gate" /></div>
           )}
           <button
             data-testid="web-token-submit"

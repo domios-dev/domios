@@ -1,26 +1,25 @@
 import { useState } from "react";
-import { FolderX } from "lucide-react";
+import { ErrorNotice, InlineErrorNotice } from "../shared/ErrorNotice";
 import { nativeBridge, nativeFolderDialog } from "../../lib/nativeBridge";
-import { spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import type { Workspace } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
-import { Button } from "../shared/Button";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 
-export function WorkspaceFolderError({ workspace }: { workspace: Workspace }) {
+export function WorkspaceFolderError({ workspace, rawError, cwd, onRelocate }: { workspace: Workspace; rawError?: string | null; cwd?: string | null; onRelocate?: (path: string) => Promise<unknown> }) {
   const { setWorkspaceCwd } = useMultiplexer();
   const [busy, setBusy] = useState(false);
   const [remotePicker, setRemotePicker] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   const relocate = async (path: string) => {
     setRemotePicker(false);
     setBusy(true);
     setError(null);
     try {
-      await setWorkspaceCwd(workspace.id, path);
+      if (onRelocate) await onRelocate(path);
+      else await setWorkspaceCwd(workspace.id, path);
     } catch (error) {
-      setError(spawnErrorMessage(error));
+      setError(error);
     } finally {
       setBusy(false);
     }
@@ -39,19 +38,16 @@ export function WorkspaceFolderError({ workspace }: { workspace: Workspace }) {
       });
       if (path) await relocate(path);
     } catch (error) {
-      setError(spawnErrorMessage(error));
+      setError(error);
     } finally {
       setBusy(false);
     }
   };
 
   return <section aria-label={`Workspace ${workspace.name} folder error`} className="flex h-full flex-col items-center justify-center gap-4 bg-[var(--ct-bg)] p-6 text-center">
-    <FolderX aria-hidden size={28} className="text-[var(--ct-red)]" />
-    <p role="alert" className="max-w-lg break-words text-sm text-[var(--ct-fg)]">
-      Folder not found: {workspace.cwd}. The workspace lost its folder; choose its new location.
-    </p>
-    <Button variant="primary" loading={busy} onClick={() => { void chooseFolder(); }}>Choose folder</Button>
-    {error && <p role="alert" className="max-w-lg break-words text-xs text-[var(--ct-red)]">{error}</p>}
+    <ErrorNotice error={{ code: "workspace_cwd_missing", raw: rawError ?? `Workspace folder unavailable: ${workspace.cwd}` }} cwd={cwd ?? workspace.cwd} blocking
+      actions={[{ label: "Choose folder", disabled: busy, onClick: () => { void chooseFolder(); } }]} />
+    {error != null && <InlineErrorNotice error={error} operation="choosing a workspace folder" blocking />}
     {remotePicker && <RemoteFolderPicker title={`Choose folder for ${workspace.name}`} onCancel={() => setRemotePicker(false)} onSelect={(path) => { void relocate(path); }} />}
   </section>;
 }

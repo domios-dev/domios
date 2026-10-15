@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 // plugin rows (installed + marketplace) with status/update/installed badges.
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useState } from "react";
@@ -396,19 +397,11 @@ function PluginRow({
             {catalogKindLabel(entry)}
             {entry.version ? ` · v${entry.version}` : entry.remoteVersion ? ` · v${entry.remoteVersion}` : ""}
           </div>
-          {entry.loadError && (
-            <div
-              role="alert"
-              data-testid="extensions-plugin-load-error"
-              title={`${entry.loadError.message}\n${entry.loadError.path}`}
-              style={{ fontSize: 10.5, color: "var(--ct-red)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-            >
-              {entry.loadError.message}
-            </div>
-          )}
+
           <PluginActivityInline activity={activity} display={display} compact />
         </div>
       </div>
+      {entry.loadError && <div data-testid="extensions-plugin-load-error"><InlineErrorNotice error={{ code: entry.loadError.keptPrevious ? "plugin_reload_failed" : "plugin_load_failed", raw: `${entry.loadError.message}\n${entry.loadError.path}` }} /></div>}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { invoke } from "../../lib/bridge";
 import { useEffect, useRef, useState } from "react";
 import type { Service } from "./types";
@@ -346,9 +347,7 @@ function PeerResourceSection({
   sectionListClass: string;
   onOpenResource?: (service: Service, resourceKey: string) => void;
 }) {
-  const peerState = peer.services_error
-    ? `Partial peer fetch failure: ${peer.services_error}`
-    : peer.services_stale || !peer.online
+  const peerState = peer.services_stale || !peer.online
       ? peer.online ? "Stale · last known inventory" : "Offline · cached inventory"
       : null;
   return (
@@ -356,7 +355,7 @@ function PeerResourceSection({
       <div id={`mesh-peer-${title.toLowerCase()}-heading`} className={UI_PANEL.sectionLabel}>{title} ({resources.length})</div>
       <div className={sectionListClass}>
         <div className="mb-1 flex items-center justify-between gap-2 text-[9px] text-[var(--ct-muted-fg)]">
-          <span>{peerState ?? "Live inventory"}</span>
+          {peer.services_error ? <InlineErrorNotice error={{ code: "mesh_partial_failure", raw: peer.services_error }} /> : <span>{peerState ?? "Live inventory"}</span>}
           {peer.services_error && <span className="text-[var(--ct-yellow)]">partial</span>}
         </div>
         {resources.length === 0 && <span className="text-[var(--ct-muted)] italic">none registered</span>}

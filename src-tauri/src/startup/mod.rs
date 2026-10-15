@@ -6,6 +6,7 @@ pub(crate) mod model_catalogue;
 mod native_notification;
 mod plan_restore;
 mod restore_complete;
+mod restored_backends;
 mod servers;
 #[cfg(test)]
 mod stall_tests;

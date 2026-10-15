@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useRef, useState } from "react";
 import { FileCode, FileText, Film, FolderOpen, Image } from "lucide-react";
 import { ChatBlockHostProvider, RichMarkdown, localArtifactOpeningAvailable, openLocalArtifact } from "@codeterm/chat-ui";
@@ -45,7 +46,7 @@ export function DocumentsView({ tabId, open }: { tabId: string; open: boolean })
   if (!documents.length && !pins.length) return <PanelPage><PanelEmpty icon={FileText}>Documents the agent shows in this tab appear here.</PanelEmpty></PanelPage>;
   const nodes = buildPathTree(documents.map((document) => ({ id: document.path, path: shortenPath(document.path, home), item: document })));
   return <PanelPage>
-    {error && <p role="alert" className="tab-panel__note">{error}</p>}
+    {error && <InlineErrorNotice error={error} operation="reading this document" blocking />}
     <PinnedBlocks tabId={tabId} pins={pins} />
     {documents.length > 0 && <PanelFileTree label="Documents" nodes={nodes} current={returnTo.current} onOpen={(node) => dispatch({ type: "open", view: "documents", id: node.id })}
       leaf={({ item }) => {

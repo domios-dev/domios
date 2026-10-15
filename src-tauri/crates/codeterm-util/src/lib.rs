@@ -5,6 +5,7 @@ pub mod headless_cli;
 pub mod lock_hold;
 pub mod named_thread;
 pub mod network_host;
+pub mod nonblocking_log;
 pub mod persisted_state;
 pub mod plugin_agent_guide;
 pub mod plugin_config;

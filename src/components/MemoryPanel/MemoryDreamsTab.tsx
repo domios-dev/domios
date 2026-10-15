@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { daemonFetch } from "../../lib/webApi";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { formatDuration, formatUntil } from "../../lib/timeLabels";
@@ -300,9 +301,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
       </div>
 
       {runError && (
-        <div className="mx-5 mb-3 px-3 py-2 rounded-md bg-[#f87171]/15 border border-[#f87171]/40 text-[11px] text-[#fecaca]" data-testid="memory-dream-run-error" role="alert">
-          {runError}
-        </div>
+        <div data-testid="memory-dream-run-error"><InlineErrorNotice error={runError} operation="running memory maintenance" blocking /></div>
       )}
 
       <section className="relative pb-8">
@@ -496,13 +495,7 @@ function RecentSessionsList({
           </span>
         )}
         {run.reason && (
-          <span
-            data-testid="memory-dream-session-reason"
-            className="text-[9px] truncate max-w-[240px]"
-            style={{ color: run.color }}
-          >
-            {run.reason}
-          </span>
+          <div data-testid="memory-dream-session-reason"><InlineErrorNotice error={{ code: "memory_run_incomplete", raw: run.reason }} /></div>
         )}
         <span className="ml-auto text-[10px] tabular-nums text-[var(--ct-muted-fg)]">
           {time.age} · {time.duration}

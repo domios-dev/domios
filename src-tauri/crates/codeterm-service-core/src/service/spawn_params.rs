@@ -260,6 +260,10 @@ impl SpawnTabSpec {
             skip_permissions: None,
             permission_bypass_authorization: None,
             spawned_by_tab_id: agent.spawned_by_tab_id.clone(),
+            user_created: self
+                .chatbackend_launch
+                .as_ref()
+                .is_some_and(|metadata| metadata.params.user_created),
             team_id: self.team_id.clone(),
             creator_tab_id: self.creator_tab_id.clone(),
             ownership: None,
@@ -682,6 +686,23 @@ mod tests {
             rest.starter_prompt,
             crate::agent::provider::StarterPrompt::NoStarter
         );
+    }
+
+    #[test]
+    fn bootstrap_user_creation_origin_survives_spawn_spec_roundtrip() {
+        for user_created in [false, true] {
+            let params = SpawnAgentParams {
+                role: Some("Manager".into()),
+                role_profile: Some("planner".into()),
+                parent_tab_id: Some("orchestrator".into()),
+                user_created,
+                ..Default::default()
+            };
+            let spec = SpawnTabSpec::from_agent_params(params);
+            let restored = spec.to_agent_launch_params(None).unwrap();
+            assert_eq!(restored.user_created, user_created);
+            assert_eq!(restored.parent_tab_id.as_deref(), Some("orchestrator"));
+        }
     }
 
     #[test]

@@ -91,6 +91,7 @@ impl SpawnAgentParams {
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_default(),
             manager_bootstrap: None,
+            user_created: false,
             structured_prompt_server: None,
         };
         out.normalize_role_profile()?;

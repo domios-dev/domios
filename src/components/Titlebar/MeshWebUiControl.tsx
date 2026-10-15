@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -186,10 +187,7 @@ export function MeshWebUiControl({
               <div data-testid="mesh-web-ui-message" className="px-2 pb-1.5 text-[10.5px] text-[var(--ct-muted-fg)]">{message}</div>
             )}
             {!busyLabel && error && (
-              <div data-testid="mesh-web-ui-error" className="flex items-center gap-1 px-2 pb-1.5 text-[10.5px] text-[var(--ct-red)]">
-                <AlertTriangle size={10} className="shrink-0" />
-                {error}
-              </div>
+              <div data-testid="mesh-web-ui-error"><InlineErrorNotice error={error} operation="opening remote access" /></div>
             )}
           </div>
           {openUrl && (

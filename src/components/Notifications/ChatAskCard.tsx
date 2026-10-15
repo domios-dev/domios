@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { SentMessageBubble, pickUiFontScaleValue, sentInvocation } from "@codeterm/chat-ui";
@@ -112,13 +113,7 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
             </div>
           )}
           {state.error && (
-            <div
-              role="alert"
-              className="border-t px-3 py-2 text-[11px]"
-              style={{ ...edge, color: "var(--ct-red)" }}
-            >
-              {state.error}
-            </div>
+            <InlineErrorNotice error={state.error} operation="answering this question" blocking />
           )}
           {state.phase === "resolved" ? (
             <div

@@ -1,3 +1,7 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { RestoreStatePanel } from "./RestoreStatePanel";
+import { DeferredPresence } from "../shared/DeferredPresence";
+import { restorePanelOwnsBody, restoreStageView } from "../../lib/restoreStageView";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect } from "react";
@@ -54,7 +58,7 @@ export function TabContent({
   api,
 }: TabContentProps) {
   if (tab?.remote_peer_id) configureRemoteTabTransport(api);
-  useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
+  const wake = useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
   const descriptor = useAgentDescriptor(tab?.agent_type);
   const { providers, loading, error } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
@@ -67,7 +71,10 @@ export function TabContent({
 
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
-  if (tab.frozen) return <div role="status" aria-label="Sleeping tab">Sleeping</div>;
+  const restore = restoreStageView(tab, wake);
+  const showRestore = restorePanelOwnsBody(tab, wake, restore);
+  const restorePanel = <RestoreStatePanel providerId={tab.agent_type ?? (tab.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null)}
+    view={restore} onRetry={wake.retry} retrying={wake.pending} />;
 
   if (isFirstRunGeneralTab(tab)) {
     return (
@@ -102,7 +109,7 @@ export function TabContent({
     tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
-  const body = tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : isChatBackend ? (
+  const body = tab.frozen && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : isChatBackend ? (
     <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalTab
@@ -142,11 +149,12 @@ export function TabContent({
         />
         {!isChatBackend && tab.agent_type && !descriptor && (
           <div role="status" data-testid="provider-capability-state" className="px-2 py-1 text-xs">
-            {loading ? "Loading agent capabilities…" : error ?? `Agent capabilities unavailable for ${tab.agent_type}`}
+            {loading ? "Loading agent capabilities…" : <InlineErrorNotice error={error} operation="loading agent capabilities" />}
           </div>
         )}
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
-          {body}
+          <div className="h-full" inert={showRestore || undefined} aria-hidden={showRestore || undefined}>{body}</div>
+          <DeferredPresence present={showRestore && isVisible} className="absolute inset-0 z-20">{restorePanel}</DeferredPresence>
         </div>
       </div>
     </TabWrapper>

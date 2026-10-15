@@ -6,6 +6,7 @@ import { acceptModelCatalogueChange, listAgentDescriptors, resetAgentCatalogueVe
 import { EVENT_STREAM_READY, eventStreamVersion, recordProviderCatalogueResponse } from "../lib/eventStreamReady";
 import { shouldRefetch } from "../lib/providerCatalogueModel";
 import { persistProviderIcons } from "../lib/providerIconCache";
+import { createProviderCatalogueResource } from "../lib/providerCatalogueResource";
 
 export function shouldRefreshAgentProviders(eventType: string): boolean {
   return eventType === "contributions-changed" || eventType === "model-catalogue-changed";
@@ -30,6 +31,9 @@ export async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
   recordProviderCatalogueResponse(providers.length);
   return providers;
 }
+
+const catalogueResource = createProviderCatalogueResource(fetchAgentProviders);
+export const invalidateAgentProviders = catalogueResource.invalidate;
 
 export function syncAgentDescriptorCache(
   items: ProviderDescriptor[],
@@ -83,7 +87,7 @@ export function useAgentProviders(): {
   const generation = useRef(0);
   const queued = useRef(false);
   const active = useRef(false);
-  const refetch = useCallback(() => {
+  const load = useCallback(() => {
     generation.current++;
     if (queued.current) return;
     queued.current = true;
@@ -92,7 +96,7 @@ export function useAgentProviders(): {
       if (!active.current) return;
       const current = generation.current;
       setLoading(true);
-      void fetchAgentProviders().then((next) => {
+      void catalogueResource.load().then((next) => {
         if (!active.current || generation.current !== current) return;
         persistProviderIcons(next);
         setItems(next);
@@ -104,6 +108,10 @@ export function useAgentProviders(): {
       });
     });
   }, []);
+  const refetch = useCallback(() => {
+    invalidateAgentProviders();
+    load();
+  }, [load]);
   useEffect(() => {
     active.current = true;
     let disposed = false;
@@ -118,6 +126,7 @@ export function useAgentProviders(): {
       }
     };
     const reset = () => {
+      invalidateAgentProviders();
       generation.current++;
       resetAgentCatalogueVersions();
       setItems([]);
@@ -135,8 +144,8 @@ export function useAgentProviders(): {
       unlisten = dispose;
       // Fetch after registration so a missed boot event cannot leave a stale catalogue.
       version = eventStreamVersion();
-      refetch();
-    }).catch(() => { if (!disposed) refetch(); });
+      load();
+    }).catch(() => { if (!disposed) load(); });
     return () => {
       disposed = true;
       active.current = false;
@@ -147,7 +156,7 @@ export function useAgentProviders(): {
       window.removeEventListener("codeterm-peer-switch-reset", reset);
       window.removeEventListener("codeterm-peer-switch-rebind", ready);
     };
-  }, [refetch]);
+  }, [refetch, load]);
   return { providers: visibleAgentProviders(items, loading, error), loading, error, refetch };
 }
 

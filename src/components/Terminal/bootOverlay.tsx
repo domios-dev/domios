@@ -1,6 +1,8 @@
+import { InlineErrorNotice, type ErrorNoticeAction } from "../shared/ErrorNotice";
+import { TabLaunchFailure } from "./TabLaunchFailure";
 import { tabStartingLabel } from "../Sidebar/tabAttention";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
-import type { Tab } from "../../lib/types";
+import type { Tab, Workspace } from "../../lib/types";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 
@@ -46,7 +48,10 @@ export function tabBootOverlayView(
 }
 
 interface TabBootOverlayProps {
+  tabId?: string;
   view: TabBootOverlayView;
+  workspace?: Workspace;
+  cwd?: string | null;
   shellReady: boolean;
   overlayVisible: boolean;
   onRetry: () => void;
@@ -58,7 +63,10 @@ interface TabBootOverlayProps {
 }
 
 export function TabBootOverlay({
+  tabId,
   view,
+  workspace,
+  cwd,
   shellReady,
   overlayVisible,
   onRetry,
@@ -82,70 +90,11 @@ export function TabBootOverlay({
       }}
     >
       {view.kind === "failed" ? (
-        <div
-          className="absolute bottom-6 left-1/2 max-w-[min(34rem,calc(100%-2rem))] -translate-x-1/2 rounded-md border px-3 py-2 text-center"
-          data-testid="tab-boot-failed"
-          role="alert"
-          style={{
-            borderColor: "color-mix(in srgb, var(--ct-red, #f85149) 55%, transparent)",
-            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 94%, var(--ct-red, #f85149) 6%)",
-            color: "var(--ct-fg, #c9d1d9)",
-          }}
-        >
-          <div className="text-sm font-semibold">Launch failed</div>
-          {view.reason && (
-            <div className="mt-1 break-words text-xs opacity-75">
-              {view.reason}
-            </div>
-          )}
-          <div className="mt-2 flex flex-wrap justify-center gap-2">
-            {view.canStartNewSession && (
-              <button
-                type="button"
-                className="rounded-md bg-[var(--ct-accent)] px-2 py-1 text-xs font-medium text-[var(--ct-bg)]"
-                aria-label="Start new session"
-                disabled={startingNewSession}
-                onClick={onStartNewSession}
-              >
-                {startingNewSession ? "Starting…" : "Start new session"}
-              </button>
-            )}
-            {view.canRetry && (
-              <button
-                type="button"
-                className="rounded-md border px-2 py-1 text-xs font-medium"
-                aria-label="Retry agent launch"
-                title="Retry agent launch"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={onRetry}
-              >
-                Retry
-              </button>
-            )}
-            {view.canStartFreshAgent && (
-              <button
-                type="button"
-                className="rounded-md border px-2 py-1 text-xs font-medium"
-                aria-label="Start a fresh agent"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={onStartFreshAgent}
-              >
-                Start fresh agent
-              </button>
-            )}
-            {view.canKeepShell && (
-              <button
-                type="button"
-                className="rounded-md border px-2 py-1 text-xs font-medium"
-                aria-label="Keep using this shell"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={onKeepShell}
-              >
-                Keep shell
-              </button>
-            )}
-          </div>
-          {actionError && <div role="alert" className="mt-1 text-xs">{actionError}</div>}
+        <div className="absolute bottom-6 left-1/2 w-[min(34rem,calc(100%-2rem))] -translate-x-1/2" data-testid="tab-boot-failed">
+          <TabLaunchFailure tabId={tabId} workspace={workspace} cwd={cwd} reason={view.reason} actions={bootActions(view, {
+              onRetry, onStartFreshAgent, onStartNewSession, onKeepShell, startingNewSession,
+            })} />
+          {actionError && <InlineErrorNotice error={actionError} operation="starting a new session" blocking />}
         </div>
       ) : (
         (view.kind === "starting" || !shellReady && overlayVisible) && (
@@ -156,4 +105,13 @@ export function TabBootOverlay({
       )}
     </div>
   );
+}
+
+function bootActions(view: Extract<TabBootOverlayView, { kind: "failed" }>, props: Pick<TabBootOverlayProps, "onRetry" | "onStartFreshAgent" | "onStartNewSession" | "onKeepShell" | "startingNewSession">): ErrorNoticeAction[] {
+  const actions: ErrorNoticeAction[] = [];
+  if (view.canStartNewSession) actions.push({ label: props.startingNewSession ? "Starting…" : "Start new session", ariaLabel: "Start new session", onClick: props.onStartNewSession, disabled: props.startingNewSession });
+  if (view.canRetry) actions.push({ label: "Retry", ariaLabel: "Retry agent launch", onClick: props.onRetry });
+  if (view.canStartFreshAgent) actions.push({ label: "Start fresh agent", ariaLabel: "Start a fresh agent", onClick: props.onStartFreshAgent });
+  if (view.canKeepShell) actions.push({ label: "Keep shell", ariaLabel: "Keep using this shell", onClick: props.onKeepShell });
+  return actions;
 }
