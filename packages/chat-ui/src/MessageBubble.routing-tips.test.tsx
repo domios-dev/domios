@@ -1,19 +1,16 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test } from "vitest";
-import { projectMessageParts } from "@codeterm/chat-core";
+import type { MessageSegment } from "@codeterm/chat-core";
+import fixtures from "../../../tests/fixtures/message-envelope.json";
 import { enrichTimelineItems } from "../../../src/components/Terminal/chatEnrichment";
 import { MessageBubble } from "./MessageBubble";
 
 test("glued routed and owner sends render separate bodies without agent tips", async () => {
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
-  const content = '<domios from="tab" label="Sender" tab="abc12345">opaque routed body <tip>opaque hidden hint</tip></domios>opaque owner body';
-  const reverse = "opaque owner body" + content.slice(0, content.indexOf("</domios>") + "</domios>".length);
-  const messages = [
-    { id: "glued", type: "user" as const, content },
-    ...projectMessageParts([{ id: "reverse", type: "user" as const, content: reverse, correlationId: "owner" }],
-      [{ content: "opaque owner body", correlationId: "owner" }], "reverse"),
-  ];
+  const messages = (fixtures as Array<{ name: string; raw: string; segments: MessageSegment[] }>).
+    filter((fixture) => ["glued routed then owner", "owner newline routed"].includes(fixture.name)).
+    map((fixture) => ({ id: fixture.name, type: "user" as const, content: fixture.raw, segments: fixture.segments }));
   const host = document.createElement("div");
   const root = createRoot(host);
   try {

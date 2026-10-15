@@ -17,6 +17,7 @@ import { ToolCallBubble } from "./ToolCallBubble";
 import { toolCommandShape } from "./codeterm/commandShape";
 import { AttachmentStrip } from "./AttachmentStrip";
 import { OrderedAttachmentContent } from "./OrderedAttachmentContent";
+import { EnvelopeContent } from "./EnvelopeContent";
 import { InlineAttachmentText } from "./AttachmentCapsule";
 import { ReplyQuote } from "./ReplyQuote";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
@@ -242,7 +243,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           onToggle={() => setExpandedPersistent(!expanded)}
           bodyClassName={`${userText} ${TEXT_WRAP_CLASS}`}
         >
-          <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+          <CompactMessageContent segments={message.segments} text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
         </ChatNoticeCard>
       );
     }
@@ -255,7 +256,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           onOpen={tabSender ? onOriginClick : onOpenJobs}
           openLabel={tabSender ? "Open tab" : "Open job"}
         >
-          <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+          <CompactMessageContent segments={message.segments} text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
         </AutomationCard>
       );
     }
@@ -353,14 +354,16 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const dsTasks = effectiveOrigin ? null : parseDsTasksMessage(message.content);
     const tasksSpec = dsTasks ? tasksSpecFromBlock(dsTasks.block) : null;
     const userContent = dsTasks ? [dsTasks.before, dsTasks.after].filter(Boolean).join(BLOCK_GAP) : message.content;
-    const userAttachments = userMessageAttachments(userContent, attachments);
+    const userAttachments = message.segments ? { text: userContent, images: attachments ?? [], files: [], inline: null, reply: null } : userMessageAttachments(userContent, attachments);
     const visibleUserContent = userAttachments.text;
     const renderUserText = (content: string) => {
+      if (effectiveOrigin?.kind === "command") return <CommandBody commands={effectiveOrigin.commands} body={message.content} />;
+      if (message.segments) return hasPlanRefs(content)
+        ? <LinkedText text={content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+        : renderUserContent(content, false);
       const userAttachments = userMessageAttachments(content, attachments);
       const visibleUserContent = userAttachments.text;
-      const text = effectiveOrigin?.kind === "command" ? (
-          <CommandBody commands={effectiveOrigin.commands} body={message.content} />
-        ) : userAttachments.inline ? (
+      const text = userAttachments.inline ? (
           <InlineAttachmentText segments={userAttachments.inline} />
         ) : hasPlanRefs(visibleUserContent) ? (
           <LinkedText text={visibleUserContent} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
@@ -385,7 +388,9 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             onOpen={onJumpToMessage && quotedId ? () => onJumpToMessage(quotedId) : undefined}
           />
         )}
-        {userProgress ?? <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} />}
+        {userProgress ?? (message.segments
+        ? <EnvelopeContent segments={dsTasks ? [{ type: "text", text: userContent }, ...message.segments.filter((segment) => segment.type === "attachment")] : message.segments} attachments={attachments} renderText={renderUserText} onJumpToMessage={onJumpToMessage} />
+          : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} />)}
         {userFooter}
       </>
     );
@@ -399,6 +404,8 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             <div className="relative min-w-0 w-full">
               {originHeader}
               {showUserBubble && <div
+                role="group"
+                aria-label="User message"
                 className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
               >
                 {userBubbleInner}

@@ -135,6 +135,7 @@ pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
     let mut out = apply_capabilities(rich, rich_to_chat_msgs_blocks(rich, base_id), &base);
     for m in &mut out {
         m.seq = base_id as i64;
+        m.refresh_segments();
     }
     out
 }

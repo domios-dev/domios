@@ -1,5 +1,7 @@
 import { normalizeChatText } from "./normalize";
-import { parseMarker } from "./markers";
+import { markVoice, buildMarker } from "./markers";
+import { formatAttachmentMarker, type AttachmentKind } from "./attachmentMarker";
+import { envelopeText, type MessageSegment } from "./envelope";
 import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 import { userVisibleText } from "./userAttachments";
@@ -23,6 +25,7 @@ const FUZZY_MIN_SHARED_TOKENS = 3;
 export interface OptimisticEcho {
   id: string;
   content: string;
+  segments?: MessageSegment[] | null;
   /** Epoch ms the bubble was sent at (the stable client send time). */
   sentAtMs: number;
   /** Stable client send-correlation token. When the server echoes it onto the
@@ -40,28 +43,26 @@ function fileName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-function markerEchoMatchesParsed(echoContent: string, parsedContent: string): boolean {
-  const echo = parseMarker(echoContent);
-  const parsed = parseMarker(unwrapPastedEnvelope(parsedContent));
-  if (!echo || !parsed || echo.kind !== parsed.kind) return false;
-  const echoFile = echo.attrs.file;
-  const parsedFile = parsed.attrs.file;
-  if (!echoFile || !parsedFile) return false;
-  return echoFile === parsedFile;
-}
-
-function unwrapPastedEnvelope(content: string): string {
-  const envelope = /^\s*<pasted_content id="([^"]+)">([\s\S]*)<\/pasted_content(?: id="\1")?>\s*(?:pasted by Domios)?\s*$/.exec(content);
-  return envelope?.[2].trim() ?? content;
+function markerEchoMatchesParsed(echo: OptimisticEcho, candidate: NormalizedChatMessage): boolean {
+  const attachments = candidate.segments?.filter((segment) => segment.type === "attachment") ?? [];
+  return attachments.some((segment) => {
+    if (segment.kind === "voice" && (attachments.length !== 1 || candidate.segments?.some((part) =>
+      part.type === "frame" || (part.type === "text" && Boolean(part.text.trim())) || (part.type === "paste" && Boolean(part.body.trim()))))) return false;
+    if (echo.segments?.some((own) => own.type === "attachment" && own.kind === segment.kind && own.path === segment.path)) return true;
+    if (segment.kind === "voice") {
+      return echo.content.startsWith(markVoice(segment.path)) || echo.content.startsWith(markVoice(segment.path, null, ""));
+    }
+    return echo.content.startsWith(formatAttachmentMarker(segment.path, segment.kind as AttachmentKind, segment.label ?? undefined))
+      || echo.content.startsWith(buildMarker(segment.kind === "image" ? "photo" : "file", [["file", segment.path]]));
+  });
 }
 
 function matchableContent(content: string): string {
-  return parseMarker(content)?.payload ?? content;
+  return content;
 }
 
-function isFileIdentityMarker(content: string): boolean {
-  const marker = parseMarker(content);
-  return marker?.kind === "voice" || marker?.kind === "photo" || marker?.kind === "file";
+function isFileIdentityMarker(_content: string, segments?: MessageSegment[] | null): boolean {
+  return segments?.some((segment) => segment.type === "attachment") ?? false;
 }
 
 function coverageTokens(content: string): CoverageToken[] {
@@ -151,6 +152,8 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   optimistic: OptimisticEcho[],
   parsedUsers: T[],
 ): { matchedIds: string[]; pendingIds: string[]; claims: Array<{ echoId: string; parsedIndex: number }> } {
+  const sourceRows = parsedUsers;
+  parsedUsers = parsedUsers.map((row) => row.segments ? { ...row, content: envelopeText(row.segments) } : row);
   const claims: Array<{ echoId: string; parsedIndex: number }> = [];
   const consumed = new Array<boolean>(parsedUsers.length).fill(false);
   const idMatched = new Set<string>();
@@ -182,9 +185,10 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
         if (consumed[i]) continue;
         const candidate = parsedUsers[i];
         if (candidate.type !== "user" && candidate.type !== "local_command") continue;
-        const markerMatch = markerEchoMatchesParsed(echo.content, candidate.content);
+        const markerMatch = markerEchoMatchesParsed(echo, candidate);
         if (
           !markerMatch
+          && normalizeChatText(sourceRows[i].content).toLowerCase() !== wanted
           && normalizeChatText(matchableContent(candidate.content)).toLowerCase() !== wanted
           && !attachmentEchoMatches(echo.content, candidate)
         ) {
@@ -264,7 +268,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   const fuzzyMatched = new Set<string>();
   for (const echo of optimistic) {
     if (idMatched.has(echo.id) || exactMatched.has(echo.id) || coveredMatched.has(echo.id)) continue;
-    if (isFileIdentityMarker(echo.content)) continue;
+    if (isFileIdentityMarker(echo.content, echo.segments)) continue;
     const echoTokens = meaningfulTokens(echo.content);
     if (echoTokens.length === 0) continue;
     const echoText = echoTokens.join(" ");
@@ -273,7 +277,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     for (let i = 0; i < parsedUsers.length; i++) {
       if (consumed[i] || coverageClaimed.has(i)) continue;
       const candidate = parsedUsers[i];
-      if ((candidate.type !== "user" && candidate.type !== "local_command") || isFileIdentityMarker(candidate.content)) continue;
+      if ((candidate.type !== "user" && candidate.type !== "local_command") || isFileIdentityMarker(candidate.content, candidate.segments)) continue;
       if (!candidateFollowsEcho(echo, candidate)) continue;
       const candidateTokens = meaningfulTokens(candidate.content);
       if (candidateTokens.length === 0) continue;

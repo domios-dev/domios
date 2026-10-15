@@ -34,7 +34,7 @@ export function InboundMessageCard({ message, sender, model, channel = "tab", ex
       onToggle={onToggle}
       onFocusTab={onFocusTab}
     >
-      <CompactMessageContent text={decodeCliMessageText(message.content)} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+      <CompactMessageContent segments={message.segments} text={decodeCliMessageText(message.content)} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
     </InboundActivityCard>
   );
 }
