@@ -177,6 +177,8 @@ export type BootStage =
 export interface TabBootStageEvent {
   tab_id: string;
   stage: BootStage;
+  agent_booting?: boolean;
+  session_bound?: boolean;
   reason?: string | null;
 }
 
@@ -262,6 +264,7 @@ export interface Tab {
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
+  session_bound?: boolean;
   boot_failure_reason?: string | null;
   /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
   watcher?: WatcherSpec | null;

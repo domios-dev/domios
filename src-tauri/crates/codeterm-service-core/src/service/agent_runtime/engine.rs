@@ -814,7 +814,23 @@ fn bind(svc: &ServiceContext, session: &Session, thread: &str) -> Result<(), Run
     let tab = mux
         .get_tab_mut(&context.tab_id)
         .ok_or(RuntimeFailure::Superseded)?;
-    if tab.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str())
+    commit_runtime_binding(tab, &context.binding_nonce, thread, |tab| {
+        svc.publish_boot_stage_transition(
+            &context.tab_id,
+            tab,
+            codeterm_types::pty::BootStage::AgentReady,
+            None,
+        );
+    })
+}
+
+fn commit_runtime_binding(
+    tab: &mut crate::multiplexer::types::Tab,
+    nonce: &str,
+    thread: &str,
+    publish: impl FnOnce(&crate::multiplexer::types::Tab),
+) -> Result<(), RuntimeFailure> {
+    if tab.session_binding_nonce.as_deref() != Some(nonce)
         || tab
             .agent_session_id
             .as_deref()
@@ -823,14 +839,21 @@ fn bind(svc: &ServiceContext, session: &Session, thread: &str) -> Result<(), Run
         return Err(RuntimeFailure::Superseded);
     }
     tab.agent_session_id = Some(thread.into());
-    tab.reported_session_binding_nonce = Some(context.binding_nonce);
-    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    tab.reported_session_binding_nonce = Some(nonce.into());
+    tab.agent_booting = false;
+    crate::service::boot_stage::apply_boot_stage(
+        tab,
+        codeterm_types::pty::BootStage::AgentReady,
+        None,
+    );
     if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } = &mut tab.backing
     {
         *session_id = thread.into();
     }
+    publish(tab);
     Ok(())
 }
+
 pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
     session.control_changes.send_replace(());
     let context = session.context.lock().clone();
