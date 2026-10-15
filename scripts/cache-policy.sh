@@ -20,6 +20,15 @@ ct_path_under() {
   esac
 }
 
+# pwd -P keeps a subst drive (the gateway's X:), while git resolves a path to its real worktree root.
+ct_target_in_worktree() {
+  local top
+  top="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  [ -n "$top" ] || return 1
+  if command -v cygpath >/dev/null 2>&1; then top="$(cygpath -u "$top")"; fi
+  [ "$top" = "$2" ]
+}
+
 ct_verify_target_dir() {
   local repo target_abs repo_abs
   repo="$(ct_repo_root)"
@@ -29,7 +38,7 @@ ct_verify_target_dir() {
     return 0
   fi
   target_abs="$(ct_abs_path "$CARGO_TARGET_DIR")"
-  if ct_path_under "$target_abs" "$repo_abs"; then
+  if ct_path_under "$target_abs" "$repo_abs" || ct_target_in_worktree "$target_abs" "$repo_abs"; then
     echo "[cache-policy] CARGO_TARGET_DIR isolated: $target_abs"
     return 0
   fi
