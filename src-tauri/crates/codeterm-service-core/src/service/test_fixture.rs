@@ -136,7 +136,7 @@ impl ServiceFixture {
             let mut mux = self.service.mux.write();
             mux.link_pty(tab_id, format!("recorded-{tab_id}"));
             let tab = mux.get_tab_mut(tab_id).expect("recipient tab");
-            tab.agent_type.get_or_insert_with(|| "claude".into());
+            tab.agent_type.get_or_insert_with(|| "alpha".into());
             tab.backing = crate::multiplexer::types::TabBacking::Pty;
             tab.agent_booting = false;
             tab.agent_session_id = Some(session_id.to_string());
