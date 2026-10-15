@@ -471,7 +471,7 @@ pub async fn mesh_relay_to_peer(
     if let Some((report_to, remote_tab, title, model)) =
         spawn_registration_from_relay(&cmd.method, &cmd.path, &cmd.body, &resp)
     {
-        if let Ok(orchestrator) = crate::routes::resolve_tab(&state, &report_to) {
+        if let Ok(orchestrator) = crate::routes::resolve_tab_async(&state, &report_to).await {
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

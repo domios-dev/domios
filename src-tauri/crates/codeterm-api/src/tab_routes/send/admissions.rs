@@ -16,7 +16,9 @@ pub async fn chat_send_admissions(
     SendRejection,
 >{
     check_auth(&state, &headers).map_err(SendRejection::from)?;
-    let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &id)
+        .await
+        .map_err(SendRejection::from)?;
     let svc = state.svc.clone();
     let evidence = tokio::task::spawn_blocking(move || {
         let statuses = svc.reconcile_user_send_statuses(&tab_id)?;

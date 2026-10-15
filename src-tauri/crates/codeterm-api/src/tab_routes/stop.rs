@@ -1,4 +1,4 @@
-use crate::routes::{check_auth, resolve_tab, AppState};
+use crate::routes::{check_auth, AppState};
 use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -11,7 +11,8 @@ pub async fn stop_tab(
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
         .map_err(|(status, message)| (status, message.to_string()))?;
     codeterm_service_core::service::stop_execution_stop_agent_turn((*state.svc).clone(), tab_id)
         .await

@@ -221,20 +221,29 @@ pub async fn mem_wake_up(
     headers: HeaderMap,
     Query(p): Query<WakeUpParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let caller_workspace = crate::tab_routes::caller_tab_header(&headers)
-        .and_then(|tab_id| state.svc.mux.read().find_workspace_for_tab(&tab_id));
-    let opts = wake_up_options_from_params(
-        state.svc.configuration().memory.l1_budget_tokens,
-        &p,
-        caller_workspace,
-    );
-    let text = state
-        .svc
-        .mem
-        .wake_up(&opts)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({ "text": text })))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        let caller_workspace = crate::tab_routes::caller_tab_header(&headers)
+            .and_then(|tab_id| state.svc.mux.read().find_workspace_for_tab(&tab_id));
+        let opts = wake_up_options_from_params(
+            state.svc.configuration().memory.l1_budget_tokens,
+            &p,
+            caller_workspace,
+        );
+        let text = state
+            .svc
+            .mem
+            .wake_up(&opts)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        Ok(Json(serde_json::json!({ "text": text })))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 pub async fn mem_stats(
