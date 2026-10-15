@@ -24,12 +24,12 @@ fn start_runtime(svc: &ServiceContext, tab: &str, nonce: Option<&str>) {
     }
     let starting = Starting { key };
     let svc = svc.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    crate::async_runtime::spawn_blocking(move || {
         let current = svc.mux.read().get_tab(&starting.key.0).is_some_and(|tab| {
             !tab.frozen && tab.session_binding_nonce.as_deref() == Some(&starting.key.1)
         });
         if current {
-            match tauri::async_runtime::block_on(crate::service::agent_runtime::engine::ensure(
+            match crate::async_runtime::block_on(crate::service::agent_runtime::engine::ensure(
                 &svc,
                 &starting.key.0,
             )) {

@@ -117,7 +117,7 @@ impl ServiceContext {
         }
         let service = self.clone();
         let tab = tab_id.to_string();
-        tauri::async_runtime::spawn_blocking(move || service.flush_agent_deliveries(&tab));
+        crate::async_runtime::spawn_blocking(move || service.flush_agent_deliveries(&tab));
     }
 
     pub fn schedule_restored_agent_delivery_reconciliation(&self) {
@@ -135,7 +135,7 @@ impl ServiceContext {
                 continue;
             }
             let service = self.clone();
-            tauri::async_runtime::spawn_blocking(move || {
+            crate::async_runtime::spawn_blocking(move || {
                 service.reconcile_retired_agent_deliveries(&tab_id, &owner);
                 owner.finish_worker(&tab_id);
                 let bound_pending = owner

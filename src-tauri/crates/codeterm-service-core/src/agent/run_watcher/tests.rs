@@ -810,7 +810,7 @@ fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
         .insert(pty_id.clone(), run.clone());
 
     // The timer must be created inside the runtime, so it lives in the async block.
-    let completed = tauri::async_runtime::block_on(async {
+    let completed = crate::async_runtime::block_on(async {
         tokio::time::timeout(
             Duration::from_secs(3),
             watchdog_loop(svc.clone(), run.clone(), 3600),
@@ -990,7 +990,7 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
         .lock()
         .insert(pty_id.clone(), state.clone());
 
-    let completed = tauri::async_runtime::block_on(async {
+    let completed = crate::async_runtime::block_on(async {
         tokio::time::timeout(
             Duration::from_secs(3),
             watchdog_loop(svc.clone(), state.clone(), 0),

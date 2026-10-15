@@ -86,6 +86,6 @@ pub(super) async fn launch(
                 let _ = engine::ensure(&owner, &target).await;
             }
         });
-    tauri::async_runtime::spawn(task);
+    crate::async_runtime::spawn(task);
     Ok(json!({"tabId":utility}))
 }

@@ -248,7 +248,7 @@ impl ServiceContext {
         workspace_id: &str,
         force: bool,
     ) -> Result<(), String> {
-        tauri::async_runtime::block_on(self.close_workspace_guarded_async(
+        crate::async_runtime::block_on(self.close_workspace_guarded_async(
             caller_tab_id,
             workspace_id,
             force,
@@ -299,7 +299,7 @@ impl ServiceContext {
         workspace_id: &str,
         force: bool,
     ) -> Result<(), String> {
-        tauri::async_runtime::block_on(self.close_workspace_from_authenticated_mesh_peer_async(
+        crate::async_runtime::block_on(self.close_workspace_from_authenticated_mesh_peer_async(
             peer_id,
             workspace_id,
             force,
