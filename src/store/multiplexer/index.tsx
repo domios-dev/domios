@@ -366,6 +366,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unlisteners: (() => void)[] = [];
 
+    listen<{ paths: string[]; workspace_id: string }>("close-lanes-preserved", ({ payload }) => {
+      if (!payload.paths.length) return;
+      dispatch({ type: "UPSERT_TOAST", toast: {
+        id: uid(), tab_id: null, workspace_id: payload.workspace_id,
+        title: "Lanes preserved", body: payload.paths.join("\n"),
+        severity: "Info", level: "verbose", timestamp: Date.now(), read: false,
+      } });
+    }).then(unlisten => unlisteners.push(unlisten));
+
     listen<{
       id: string;
       tab_id: string | null;
@@ -689,15 +698,20 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [guardedInvoke]);
 
   const closeWorkspace = useCallback(
-    (id: string, force = false) => {
+    function closeWorkspace(id: string, force = false) {
       const ws = stateRef.current.workspaces.find((w) => w.id === id);
       const tabIds = ws ? [...ws.tabs] : [];
       dispatch({ type: "CLOSE_WORKSPACE", id });
-      // On rejection the workspace still lives — drop its tombstones and restore.
       guardedInvoke("mux_close_workspace", { workspaceId: id, force })
         .then(() => refreshFromBackend())
-        .catch((error) => {
+        .catch(async () => {
+          const current = await invoke<MultiplexerState>("mux_get_state").catch(() => null);
+          if (!current) return;
+          const remaining = current.workspaces.find(workspace => workspace.id === id);
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds });
+          applyBackendState(current);
+          if (!remaining) return;
+          const survivors = remaining.tabs.map(tabId => current.tabs[tabId]?.title || tabId);
           dispatch({
             type: "UPSERT_TOAST",
             toast: {
@@ -705,10 +719,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
               tab_id: null,
               workspace_id: id,
               title: "Workspace close failed",
-              body: error instanceof Error ? error.message : String(error),
+              body: survivors.length ? survivors.join("\n") : remaining.name,
               severity: "Error",
               level: "failure",
               sticky: true,
+              local_actions: [{ label: "Retry", run: () => closeWorkspace(id, true) }],
               timestamp: Date.now(),
               read: false,
             },
@@ -716,7 +731,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           refreshFromBackend();
         });
     },
-    [guardedInvoke, refreshFromBackend],
+    [guardedInvoke, refreshFromBackend, applyBackendState],
   );
 
   const renameWorkspace = useCallback((id: string, name: string) => {

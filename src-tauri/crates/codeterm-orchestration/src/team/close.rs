@@ -332,16 +332,12 @@ pub(super) fn finish_team_lane_cleanup(
             errors.push(format!("{plan_id}/{task_id}: {error}"));
         }
     }
-    if errors.is_empty() {
-        inventory.orphan_branches.sort();
-        inventory.orphan_branches.dedup();
-        Ok(inventory)
-    } else {
-        Err(format!(
-            "Team closed, but lane state updates failed: {}",
-            errors.join("; ")
-        ))
+    for error in errors {
+        log::warn!("[team-close] lane state update failed after close: {error}");
     }
+    inventory.orphan_branches.sort();
+    inventory.orphan_branches.dedup();
+    Ok(inventory)
 }
 
 fn stage_team_close<F>(

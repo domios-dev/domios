@@ -64,6 +64,11 @@ impl TeamExt for ServiceContext {
         caller: TeamMutationCaller,
         force: bool,
     ) -> Result<TeamCloseResult, String> {
+        let force = force
+            || matches!(
+                caller,
+                TeamMutationCaller::Human | TeamMutationCaller::HumanConfirmedHeaderless
+            );
         let caller_kind = caller.kind();
         let workspace = self
             .mux
@@ -81,9 +86,14 @@ impl TeamExt for ServiceContext {
         .map_err(|error| error.to_string())??;
         let result = close_team_inner(self, team_id, caller, force).await;
         let service = self.clone();
-        tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
-            .await
-            .map_err(|error| error.to_string())??;
+        match tokio::task::spawn_blocking(move || {
+            service.settle_close_inventory(inventory.as_deref())
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            other => log::warn!("[team-close] close history settlement failed: {other:?}"),
+        }
         if let Err(error) = &result {
             log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
         }
@@ -491,7 +501,9 @@ async fn close_team_inner(
         svc.emit_plan_changed(&plan_id);
     }
     for tab_id in &cleanup.member_tab_ids {
-        svc.revoke_agent_pad(tab_id)?;
+        if let Err(error) = svc.revoke_agent_pad(tab_id) {
+            log::warn!("[team-close] pad cleanup for {tab_id} failed: {error}");
+        }
     }
     if let Some(teardown) = &storage_teardown {
         storage_teardown::finish_storage_team_teardown(svc, team_id, teardown).await;
