@@ -5,7 +5,7 @@ fn occurrences(haystack: &str, needle: &str) -> usize {
 #[test]
 fn outbound_stages_only_run_at_user_facing_send_seams() {
     let rest = include_str!("../crates/codeterm-api/src/tab_routes/send.rs");
-    let composer = include_str!("../crates/codeterm-service-core/src/commands/tab.rs");
+    let composer = include_str!("../crates/codeterm-commands/src/commands/tab.rs");
     let chat = include_str!("../crates/codeterm-service-core/src/service/tab_transport_chat.rs");
     let batch = include_str!("../crates/codeterm-service-core/src/service/pty_io/send/mod.rs");
     let messenger = include_str!("../crates/codeterm-service-core/src/service/messenger.rs");
