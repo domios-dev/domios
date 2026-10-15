@@ -2,11 +2,10 @@
 # Caller: build.sh lane-check; scripts/tests/lane-check.test.mjs
 
 configure_lane_build_dir() {
-  local root="${CODETERM_RUST_CACHE_ROOT:-}"
-  if [ -n "$root" ]; then
-    if command -v cygpath >/dev/null 2>&1; then root="$(cygpath -m "$root")"; fi
-    export CARGO_BUILD_BUILD_DIR="${root%/}/lanes"
-  fi
+  local directory
+  directory="$(CODETERM_RUST_CACHE_ROOT="${CODETERM_RUST_CACHE_ROOT:-}" CARGO_HOME="${CARGO_HOME:-}" \
+    node "$(dirname "${BASH_SOURCE[0]}")/lane-build-dir.mjs")" || return $?
+  export CARGO_BUILD_BUILD_DIR="$directory"
 }
 
 lane_check() {
