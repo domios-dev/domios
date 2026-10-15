@@ -159,6 +159,15 @@ fn decode_attribute(value: &str) -> Option<String> {
 }
 
 pub(crate) fn parse_attributes(source: &str) -> Option<BTreeMap<String, String>> {
+    parse_attributes_with(source, true)
+}
+
+/// Agent-authored markers keep the strict quoted grammar; only host frames accept bare values.
+pub fn parse_quoted_attributes(source: &str) -> Option<BTreeMap<String, String>> {
+    parse_attributes_with(source, false)
+}
+
+fn parse_attributes_with(source: &str, allow_unquoted: bool) -> Option<BTreeMap<String, String>> {
     let mut attrs = BTreeMap::new();
     let mut rest = source.trim_start();
     while !rest.is_empty() {
@@ -176,13 +185,15 @@ pub(crate) fn parse_attributes(source: &str) -> Option<BTreeMap<String, String>>
         let (raw, tail) = if let Some(quoted) = source.strip_prefix('"') {
             let end = quoted.find('"')?;
             (&quoted[..end], &quoted[end + 1..])
-        } else {
+        } else if allow_unquoted {
             let end = source.find(char::is_whitespace).unwrap_or(source.len());
             let raw = &source[..end];
             if raw.is_empty() || raw.contains(['"', '\'', '<', '>', '`', '=']) {
                 return None;
             }
             (raw, &source[end..])
+        } else {
+            return None;
         };
         let value = decode_attribute(raw)?;
         if attrs.insert(name.to_string(), value).is_some() {
