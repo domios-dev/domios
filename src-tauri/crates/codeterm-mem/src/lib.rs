@@ -128,7 +128,7 @@ impl MemManager {
     }
 
     /// `open` with a caller-supplied embedder and no entity backfill.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "embeddings"))]
     pub(crate) fn open_with_embedder(
         data_dir: &std::path::Path,
         embedder: embed_queue::Embedder,
