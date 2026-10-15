@@ -93,6 +93,16 @@ pub fn stop(tab: &str) {
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
+    if svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|target| target.frozen)
+    {
+        return Err(RuntimeFailure::Refused(
+            "Tab is sleeping; open or address it to wake".into(),
+        ));
+    }
     super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
     let prompt_service = svc.clone();
     let prompt_tab = tab.to_string();
@@ -894,6 +904,18 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
             || target.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str())
         {
             return;
+        }
+        if ["active_turn_started_at_ms", "last_turn_duration_ms"]
+            .iter()
+            .any(|field| {
+                target
+                    .agent_runtime_state
+                    .as_ref()
+                    .and_then(|saved| saved.get(*field))
+                    != value.get(*field)
+            })
+        {
+            target.record_activity();
         }
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = matches!(state.phase, RuntimePhase::Loading);

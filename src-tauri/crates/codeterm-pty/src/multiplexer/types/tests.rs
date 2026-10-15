@@ -103,6 +103,8 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         audience: Default::default(),
         show_in_tabbar: true,
         worker_id: None,
+        frozen: false,
+        last_active_at_ms: None,
         restored_from_snapshot: false,
         scrollback_seed_pending: false,
         pending_scrollback_tail: None,

@@ -13,6 +13,7 @@ pub const MAX_DESK_LEAF_BYTES: usize = 64 * 1024;
 pub const MAX_DESK_CATALOGUE: usize = 65_536;
 
 const LEAF_FIELDS: &[&str] = &[
+    "last_active_at_ms",
     "purpose",
     "icon",
     "utility_created_at",
@@ -148,6 +149,7 @@ fn valid_leaf_value(field: &str, value: &Value) -> bool {
         | "watcher"
         | "surface"
         | "pending_delivery" => value.is_object() || value.is_null(),
+        "last_active_at_ms" => value.is_u64() || value.is_null(),
         _ => false,
     }
 }

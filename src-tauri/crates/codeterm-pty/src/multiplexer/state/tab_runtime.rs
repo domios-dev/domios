@@ -100,6 +100,8 @@ impl MultiplexerState {
             skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
+            frozen: false,
+            last_active_at_ms: None,
             restored_from_snapshot: false,
             scrollback_seed_pending: false,
             pending_scrollback_tail: None,
