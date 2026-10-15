@@ -46,11 +46,7 @@ export function createAttachmentUploads(dependencies: {
   async function run(upload: AttachmentUpload, attach = true) {
     try {
       if (upload.blob.size > MAX_TEMP_FILE_DECODED_BYTES) throw Object.assign(new Error("Attachment exceeds the upload size limit"), { status: 413 });
-      const bytes = await upload.blob.arrayBuffer();
-      if (bytes.byteLength !== upload.blob.size) throw new TypeError("Attachment bytes are unavailable; retry the upload");
-      const snapshot = new Blob([bytes], { type: upload.blob.type });
-      uploads = uploads.map((item) => item.id === upload.id ? { ...item, blob: snapshot } : item);
-      const path = await dependencies.store(snapshot, upload.name);
+      const path = await dependencies.store(upload.blob, upload.name);
       if (!active || !uploads.some((item) => item.id === upload.id)) return;
       if (!path.trim()) throw new Error("Upload returned no attachment path");
       if (attach) await dependencies.attach([path], upload);
