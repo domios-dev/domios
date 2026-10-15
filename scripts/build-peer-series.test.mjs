@@ -40,7 +40,7 @@ test('check run parsing keeps every cargo Finished time, the wall and the gatewa
   const lines = seriesSummary([{ base_label: 'BEFORE', area: 'pty_io', seed: A, edit: A, runs: { warm: run, floor: run, edit: run } }],
     { expected: 2, stopped: null, resultsPath: '/r.json', otherGatewayJobs: [] });
   assert.equal(lines[0], 'series: areas=1/2 stopped=none results=/r.json');
-  assert.match(lines[1], /^BEFORE pty_io seed=aaaaaaaaa edit=aaaaaaaaa warm=42s\[30.25\+65\] floor=42s\[30.25\+65\] edit=42s\[30.25\+65\] exit=0\/0\/0 jobs=J1,J1,J1$/);
+  assert.match(lines[1], /^BEFORE pty_io seed=aaaaaaaaa edit=aaaaaaaaa warm=42s\[30.25\+65\] floor=42s\[30.25\+65\] edit=42s\[30.25\+65\] exit=0\/0\/0 jobs=J1,J1,J1 scope=same\(-p_codeterm-api\)$/);
   assert.equal(lines.at(-1), 'gateway-other=none');
   assert.deepEqual(otherGatewayJobs({ recent: [{ job_id: 'J1', started_at: '2026-01-01T00:00:10Z' }, { job_id: 'X', job: 'nextest', started_at: '2026-01-01T00:00:20Z' },
     { job_id: 'OLD', started_at: '2025-01-01T00:00:00Z' }] }, new Set(['J1']), Date.parse('2026-01-01T00:00:00Z')), ['X:nextest']);
@@ -51,6 +51,7 @@ function seriesFixture(t, buildScript) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.mkdirSync(path.join(dir, 'src'));
   fs.writeFileSync(path.join(dir, 'src/a.rs'), 'pub fn a() {}\n');
+  fs.writeFileSync(path.join(dir, 'src/pre.rs'), '// OLD\n');
   fs.writeFileSync(path.join(dir, 'build.sh'), buildScript);
   git(dir, 'init', '--quiet');
   git(dir, 'add', '-A');
@@ -83,10 +84,10 @@ echo "check-queue: sha=$2 lane=0 packages=-p x cli=0 exit=0 wall=\${n}s full-log
 
 test('series runs seed, floor and edit per area on scratch commits, then leaves the checkout clean at its start', (t) => {
   const fx = seriesFixture(t, FAKE_CHECK);
-  const result = fx.runSeries(spec([
+  const result = fx.runSeries({ ...spec([
     { label: 'BEFORE', sha: fx.before, areas: [{ name: 'a', file: 'src/a.rs' }] },
     { label: 'AFTER', sha: fx.after, areas: [{ name: 'a', file: 'src/moved/a.rs' }] },
-  ]));
+  ]), patches: [{ file: 'src/pre.rs', find: 'OLD', replace: 'NEW' }] });
   assert.equal(result.status, 0, result.stdout.slice(-1500) + result.stderr);
   const runs = fs.readFileSync(fx.env.RUNS_LOG, 'utf8').trim().split('\n').map((l) => l.split(' '));
   assert.equal(runs.length, 6);
@@ -94,8 +95,11 @@ test('series runs seed, floor and edit per area on scratch commits, then leaves 
   assert.equal(runs[0][1], runs[1][1], 'the floor re-checks the seed');
   assert.deepEqual(runs.map((r) => r[2]), ['PROBE_MARK_0', 'PROBE_MARK_0', 'PROBE_MARK_1', 'PROBE_MARK_0', 'PROBE_MARK_0', 'PROBE_MARK_1']);
   assert.equal(git(fx.dir, 'rev-parse', `${runs[2][1]}^`), runs[0][1], 'the edit commit sits on the seed');
-  assert.equal(git(fx.dir, 'rev-parse', `${runs[0][1]}^`), fx.before);
-  assert.equal(git(fx.dir, 'rev-parse', `${runs[3][1]}^`), fx.after);
+  for (const [seed, base] of [[runs[0][1], fx.before], [runs[3][1], fx.after]]) {
+    assert.equal(git(fx.dir, 'rev-parse', `${seed}^^`), base, 'the seed sits on the patched base');
+    assert.equal(git(fx.dir, 'show', `${seed}:src/pre.rs`), '// NEW');
+  }
+  assert.equal(fs.readFileSync(path.join(fx.dir, 'src/pre.rs'), 'utf8'), '// OLD\n', 'the prerequisite never reaches the checkout');
   assert.equal(git(fx.dir, 'rev-parse', 'HEAD'), fx.before);
   assert.equal(git(fx.dir, 'status', '--porcelain', '--untracked-files=no'), '');
   assert.equal(spawnSync('git', ['grep', '-q', 'PROBE_MARK'], { cwd: fx.dir }).status, 1);
@@ -103,8 +107,9 @@ test('series runs seed, floor and edit per area on scratch commits, then leaves 
   const event = fx.event();
   assert.match(event.stdin, /^\[peer-job peer-s\] peer=ubunta verb=check-series sha=\w{40} outcome=passed exit=0/);
   assert.match(event.stdin, /\nseries: areas=2\/2 stopped=none results=\S+peer-s\.series\.json\n/);
-  assert.match(event.stdin, /\nBEFORE a seed=\w{9} edit=\w{9} warm=1s\[1\.5\] floor=2s\[2\.5\] edit=3s\[3\.5\] exit=0\/0\/0 jobs=J1,J2,J3\n/);
-  assert.match(event.stdin, /\nAFTER a .* edit=6s\[6\.5\] exit=0\/0\/0 jobs=J4,J5,J6\n/);
+  assert.match(event.stdin, /\nBEFORE a seed=\w{9} edit=\w{9} warm=1s\[1\.5\] floor=2s\[2\.5\] edit=3s\[3\.5\] exit=0\/0\/0 jobs=J1,J2,J3 scope=same\(-p_x\)\n/);
+  assert.match(event.stdin, /\nAFTER a .* edit=6s\[6\.5\] exit=0\/0\/0 jobs=J4,J5,J6 scope=same\(-p_x\)\n/);
+  assert.match(event.stdin, new RegExp(`\\ncheckout: head=${fx.before} runner=${fx.before} clean=yes scratch-refs=none patches=src/pre\\.rs:"OLD"->"NEW"\\n`));
   const saved = JSON.parse(fs.readFileSync(path.join(fx.dir, '.git/codeterm-peer-jobs/peer-s.series.json'), 'utf8'));
   assert.equal(saved.results[1].runs.edit.finished[0], 6.5);
 });

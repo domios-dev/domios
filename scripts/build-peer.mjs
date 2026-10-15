@@ -315,6 +315,9 @@ async function runSeriesJob(argv) {
   const stopped = crashed ? `error:${crashed.slice(0, 200)}` : outcome.stopped;
   fs.writeFileSync(resultsPath, `${JSON.stringify({ ...outcome, stopped, other_gateway_jobs: others }, null, 2)}\n`);
   const summary = seriesSummary(outcome.results, { expected: outcome.expected || spec.bases.reduce((n, b) => n + b.areas.length, 0), stopped, resultsPath, otherGatewayJobs: others });
+  const dirty = git(['status', '--porcelain', '--untracked-files=no']);
+  summary.push(`checkout: head=${git(['rev-parse', 'HEAD'])} runner=${opts.sha} clean=${dirty ? 'no' : 'yes'} scratch-refs=none`
+    + ` patches=${spec.patches.map((p) => `${p.file}:${JSON.stringify(p.find)}->${JSON.stringify(p.replace)}`).join(';') || 'none'}`);
   const timedOut = Boolean(stopped?.startsWith('deadline:'));
   finishJob(opts, log, started, 'check-series', stopped ? (timedOut ? 124 : 1) : 0, timedOut, () => ({ summary, details: [], gatewayLog: null }), logPath);
 }

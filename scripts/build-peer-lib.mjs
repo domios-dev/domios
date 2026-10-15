@@ -254,8 +254,13 @@ export function parseSeriesSpec(spec) {
   }
   if (probe0 === probe1) fail('probe0 and probe1 must differ');
   if (!Array.isArray(bases) || !bases.length) fail('bases must be a non-empty list');
+  const patches = (spec.patches ?? []).map((patch) => {
+    if (!REPO_FILE.test(patch?.file ?? '') || patch.file.split('/').includes('..')) fail('patch file must be a repository-relative path');
+    if (typeof patch.find !== 'string' || !patch.find || typeof patch.replace !== 'string' || patch.find === patch.replace) fail('patch needs distinct find and replace text');
+    return { file: patch.file, find: patch.find, replace: patch.replace };
+  });
   return {
-    marker, probe0, probe1,
+    marker, probe0, probe1, patches,
     bases: bases.map((base) => {
       if (!SHA.test(base?.sha ?? '')) fail(`base ${base?.label ?? '?'} needs a full SHA`);
       if (!Array.isArray(base.areas) || !base.areas.length) fail(`base ${base.sha} has no areas`);
@@ -301,12 +306,18 @@ function runCell(run) {
   return `${run.wall ?? '?'}s[${run.finished.join('+') || '-'}]`;
 }
 
+function scopeOf(result) {
+  const lists = ['warm', 'floor', 'edit'].map((k) => result.runs[k]?.packages).filter((p) => p != null);
+  if (!lists.length) return 'none';
+  return new Set(lists).size === 1 ? `same(${lists[0].replace(/ /g, '_')})` : `DIFF(${lists.map((p) => p.replace(/ /g, '_')).join('|')})`;
+}
+
 export function seriesSummary(results, { expected, stopped, resultsPath, otherGatewayJobs }) {
   const lines = [`series: areas=${results.length}/${expected} stopped=${stopped ?? 'none'} results=${resultsPath}`];
   for (const r of results) {
     lines.push(`${r.base_label} ${r.area} seed=${r.seed?.slice(0, 9) ?? '-'} edit=${r.edit?.slice(0, 9) ?? '-'} warm=${runCell(r.runs.warm)} floor=${runCell(r.runs.floor)} `
       + `edit=${runCell(r.runs.edit)} exit=${['warm', 'floor', 'edit'].map((k) => r.runs[k]?.exit ?? '-').join('/')} `
-      + `jobs=${['warm', 'floor', 'edit'].map((k) => r.runs[k]?.gatewayJob ?? '-').join(',')}`);
+      + `jobs=${['warm', 'floor', 'edit'].map((k) => r.runs[k]?.gatewayJob ?? '-').join(',')} scope=${scopeOf(r)}`);
   }
   lines.push(`gateway-other=${otherGatewayJobs.length ? otherGatewayJobs.join(' ') : 'none'}`);
   return lines;

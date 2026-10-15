@@ -37,18 +37,28 @@ export async function runSeries({ spec, git, runCheck, results = [], onRun = () 
   const expected = spec.bases.reduce((sum, base) => sum + base.areas.length, 0);
   const commit = scratchCommitter(git);
   let stopped = null;
+  const modeOf = (sha, file) => git(['ls-tree', sha, '--', file]).split(/\s/)[0] || null;
   for (const base of spec.bases) {
+    let start = base.sha;
+    for (const patch of spec.patches ?? []) {
+      const mode = modeOf(start, patch.file);
+      const text = mode ? git(['cat-file', 'blob', `${start}:${patch.file}`], { raw: true }) : '';
+      if (!mode || text.split(patch.find).length !== 2) { stopped = `patch_not_unique:${patch.file}@${base.label}`; break; }
+      start = commit(start, patch.file, mode, text.replace(patch.find, () => patch.replace), `scratch prerequisite ${patch.file}`);
+    }
+    if (stopped) break;
     for (const area of base.areas) {
-      const result = { base_label: base.label, base: base.sha, area: area.name, file: area.file, seed: null, edit: null, revert: null, runs: {} };
+      const result = { base_label: base.label, base: base.sha, patched_base: start, area: area.name, file: area.file, seed: null, edit: null, revert: null, runs: {} };
       results.push(result);
-      const entry = git(['ls-tree', base.sha, '--', area.file]);
-      if (!entry) { stopped = `missing_file:${area.file}@${base.label}`; break; }
-      const mode = entry.split(/\s/)[0];
-      const original = git(['cat-file', 'blob', `${base.sha}:${area.file}`], { raw: true });
+      const mode = modeOf(start, area.file);
+      if (!mode) { stopped = `missing_file:${area.file}@${base.label}`; break; }
+      const original = git(['cat-file', 'blob', `${start}:${area.file}`], { raw: true });
       const seedText = probeText(original, null, spec.probe0);
       const editText = probeText(seedText, spec.probe0, spec.probe1);
-      result.seed = commit(base.sha, area.file, mode, seedText, `scratch seed ${area.name}`);
+      result.seed = commit(start, area.file, mode, seedText, `scratch seed ${area.name}`);
       result.edit = commit(result.seed, area.file, mode, editText, `scratch edit ${area.name}`);
+      result.trees = Object.fromEntries([['base', base.sha], ['patched_base', start], ['seed', result.seed], ['edit', result.edit]]
+        .map(([key, sha]) => [key, git(['rev-parse', `${sha}^{tree}`])]));
       for (const [role, sha] of [['warm', result.seed], ['floor', result.seed], ['edit', result.edit]]) {
         const run = await runCheck(sha);
         const logPath = parseCheckRun(run.output).fullLog;
@@ -63,7 +73,7 @@ export async function runSeries({ spec, git, runCheck, results = [], onRun = () 
       if (stopped) break;
       result.revert = commit(result.edit, area.file, mode, probeText(editText, spec.probe1, null), `scratch revert ${area.name}`);
       if (git(['grep', '-n', spec.marker, result.revert, '--', '.'], { allowFail: true })) { stopped = `probe_left:${area.name}`; break; }
-      if (git(['rev-parse', `${result.revert}^{tree}`]) !== git(['rev-parse', `${base.sha}^{tree}`])) { stopped = `revert_mismatch:${area.name}`; break; }
+      if (git(['rev-parse', `${result.revert}^{tree}`]) !== git(['rev-parse', `${start}^{tree}`])) { stopped = `revert_mismatch:${area.name}`; break; }
     }
     if (stopped) break;
   }
