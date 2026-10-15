@@ -35,6 +35,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `build-history.test.mjs` | node --test scripts/build-history.test.mjs |
 | `build-identity.cjs` | scripts check-plugin-bundles.mjs, dev-prep.mjs, tests/build_identity_required.test.mjs |
 | `build-peer-lib.mjs` | scripts build-peer.mjs, build-peer.test.mjs; skill build |
+| `build-peer-series.mjs` | scripts build-peer.mjs (run-series), build-peer-series.test.mjs; skill build |
+| `build-peer-series.test.mjs` | skill build |
 | `build-peer.mjs` | build.sh check-queue|nextest --peer, check-linux, peer-setup, peer-status, peer-route; scripts build-peer.test.mjs; skill build |
 | `build-peer.test.mjs` | skill build |
 | `build-plugin-ui.mjs` | package.json script; scripts ci-scope.mjs |

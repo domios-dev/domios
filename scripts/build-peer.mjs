@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   LOCK_NAME, VERBS, findPeer, jobEvent, loadPeers, newJobId, outcomeOf, parseDispatchArgs, parseDuration,
   parseJobLog, parseSeriesSpec, parseStatusOutput, pathPrefix, seriesSummary, pickPeer, remoteCommand, STATUS_MARKER, summarizeGateway,
@@ -126,13 +127,13 @@ function writeRecord(stateDir, name, record) {
   fs.writeFileSync(path.join(stateDir, `${name}.json`), `${JSON.stringify(record, null, 2)}\n`);
 }
 
-function launch({ config, peer, verb, sha, runnerTail, deadlineSecs, replyTab, clone, stateDir, recordNames }) {
+function launch({ config, peer, verb, sha, runnerTail, deadlineSecs, replyTab, clone, stateDir, recordNames, prereq = null }) {
   const origin = originIdentity();
   const jobId = newJobId();
   const reply = { peer: origin.id, tab: replyTab };
   const runner = [...runnerTail.head, '--id', jobId, '--peer-name', peer.name, '--verb', verb, '--sha', sha,
     '--reply-peer', reply.peer, '--reply-tab', reply.tab, '--deadline-secs', String(deadlineSecs), ...runnerTail.rest];
-  const command = remoteCommand({ peer, repository: config.repository, jobId, verb, sha, clone, runner, reply });
+  const command = remoteCommand({ peer, repository: config.repository, jobId, verb, sha, clone, runner, reply, prereqB64: prereq?.b64 ?? null });
   // A mesh tab cannot carry --timeout (it needs a local owning agent); the runner and git low-speed aborts bound the job.
   const tabArgs = ['tab', 'new', '--mesh', peer.name, '--json', '--no-team', '--eager', '--purpose', 'build', '--title', 'Peerjob',
     '--description', `${verb} ${sha.slice(0, 9)} for ${origin.name}`];
@@ -142,10 +143,16 @@ function launch({ config, peer, verb, sha, runnerTail, deadlineSecs, replyTab, c
   if (created.status !== 0) throw new Refusal(`peer ${peer.name} refused the job tab: ${(created.stderr || created.stdout).trim().slice(0, 300)}`);
   const tab = parseJson(created.stdout, 'tab new');
   const record = { job_id: jobId, peer: peer.name, verb, sha, remote_tab: tab.tab_id ?? tab.id, reply_tab: replyTab,
-    deadline_secs: deadlineSecs, dispatched_at: new Date().toISOString() };
+    deadline_secs: deadlineSecs, dispatched_at: new Date().toISOString(), prerequisite: prereq ? { file: prereq.file, sha256: prereq.sha256 } : null };
   for (const name of [jobId, ...recordNames]) writeRecord(stateDir, name, record);
   console.log(`peer-job: id=${jobId} peer=${peer.name} verb=${verb} sha=${sha} remote-tab=${record.remote_tab} deadline=${deadlineSecs}s`);
+  if (prereq) console.log(`peer-job: prerequisite ${prereq.file} sha256=${prereq.sha256} is committed locally on the peer on top of ${sha.slice(0, 9)}, never pushed`);
   console.log(`peer-job: completion arrives as one message to tab ${replyTab}; no polling needed`);
+}
+
+function prerequisite(file) {
+  const text = fs.readFileSync(file);
+  return { file: path.basename(file), b64: text.toString('base64'), sha256: createHash('sha256').update(text).digest('hex').slice(0, 16) };
 }
 
 function requireReplyTab(opts) {
@@ -185,8 +192,10 @@ async function dispatch(argv) {
   }
   const peer = opts.peer === 'auto' ? await route(config, opts.os) : findPeer(config.peers, opts.peer);
   if (opts.os && peer.os !== opts.os) throw new Refusal(`peer ${peer.name} is ${peer.os}, not ${opts.os}`);
-  const remoteArgs = verb === 'nextest' ? opts.remoteArgs : [sha, ...opts.remoteArgs];
-  launch({ config, peer, verb, sha, deadlineSecs: parseDuration(opts.deadline), replyTab, clone: false, stateDir, recordNames,
+  const positional = ['nextest', 'test-one'].includes(verb);
+  const remoteArgs = positional ? opts.remoteArgs : [opts.prereq ? 'HEAD' : sha, ...opts.remoteArgs];
+  const prereq = opts.prereq ? prerequisite(opts.prereq) : null;
+  launch({ config, peer, verb, sha, deadlineSecs: parseDuration(opts.deadline), replyTab, clone: false, stateDir, recordNames, prereq,
     runnerTail: { head: ['run-job'], rest: ['--', VERBS[verb].remote, ...remoteArgs] } });
 }
 
