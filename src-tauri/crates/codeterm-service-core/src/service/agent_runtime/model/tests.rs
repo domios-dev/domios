@@ -42,6 +42,10 @@ fn history_and_live_items_reconcile_without_duplicate_or_changed_order() {
     assert_eq!(items[0].content, "completed");
     assert_eq!(items[0].seq, 0);
     assert_eq!(items[1].seq, 1);
+    assert!(cache.tail(0).is_empty());
+    assert_eq!(cache.tail(1)[0].id, "b");
+    assert_eq!(cache.tail(1)[0].seq, 1);
+    assert_eq!(cache.tail(10).len(), 2);
 }
 
 #[test]

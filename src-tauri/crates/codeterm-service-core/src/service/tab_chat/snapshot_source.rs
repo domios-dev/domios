@@ -36,10 +36,12 @@ pub fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<SnapshotSource, Str
         };
         (tab.frozen, session.is_some_and(|id| !id.is_empty()))
     };
+    let tab = { svc.mux.read().get_tab(tab_id).cloned() };
     Ok(snapshot_source(SnapshotState {
         frozen,
         runtime_requested: crate::service::agent_runtime::requested_for_tab(svc, tab_id),
-        runtime_present: crate::service::agent_runtime::engine::for_tab(tab_id).is_some(),
+        runtime_present: tab
+            .is_some_and(|tab| crate::service::agent_runtime::engine::has_live_bound_session(&tab)),
         has_session,
     }))
 }

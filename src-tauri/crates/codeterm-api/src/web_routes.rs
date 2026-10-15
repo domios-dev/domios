@@ -1061,6 +1061,7 @@ pub async fn chat_raw_stop(
 #[derive(Deserialize)]
 pub struct ChatBackfillBody {
     before_offset: u64,
+    offset_kind: Option<codeterm_service_core::service::tab_chat::results::ChatOffsetKind>,
 }
 
 pub async fn chat_raw_backfill(
@@ -1072,7 +1073,7 @@ pub async fn chat_raw_backfill(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        commands::chat_backfill_core(&svc, tab_id, body.before_offset)
+        commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.offset_kind)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

@@ -275,7 +275,16 @@ pub fn snapshot(
     tab: &str,
 ) -> Result<(Arc<Session>, Vec<crate::agent::chat_types::ChatMsg>), String> {
     let started = std::time::Instant::now();
-    let ensured = tauri::async_runtime::block_on(engine::ensure(svc, tab));
+    let cached = engine::for_tab(tab).filter(|session| {
+        session
+            .thread_loaded
+            .load(std::sync::atomic::Ordering::Acquire)
+            && engine::validate_binding(svc, session).is_ok()
+    });
+    let ensured = match cached {
+        Some(session) => Ok(session),
+        None => tauri::async_runtime::block_on(engine::ensure(svc, tab)),
+    };
     log::debug!(
         "[chat-attach] tab={tab} phase=ensure elapsed_ms={} ok={}",
         started.elapsed().as_millis(),

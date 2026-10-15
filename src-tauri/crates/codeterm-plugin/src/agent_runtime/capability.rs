@@ -20,6 +20,8 @@ pub struct AgentRuntimeCommand {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
     #[serde(default)]
+    pub stored_history: bool,
+    #[serde(default)]
     pub usage: bool,
     pub runtime: AgentRuntimeProtocol,
     pub command: AgentRuntimeCommand,
