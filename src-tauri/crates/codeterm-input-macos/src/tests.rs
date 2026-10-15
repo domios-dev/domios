@@ -240,6 +240,7 @@ fn lark_input_macos_wrong_identity_and_collection_fail_closed() {
     );
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn lark_input_macos_non_button_element_is_not_approved() {
     let selected = selection();
