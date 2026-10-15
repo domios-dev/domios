@@ -283,3 +283,15 @@ test('peer job past its deadline is killed and reported as deadline', (t) => {
   assert.match(fx.event().stdin, /outcome=deadline/);
   assert.ok(!fs.existsSync(path.join(fx.dir, '.git/codeterm-peer-job.lock')));
 });
+
+test('peer-setup clones at the requested SHA and forwards the toolchain install request', (t) => {
+  const fx = dispatchFixture(t, {});
+  const setup = (...args) => run(process.execPath, [path.join(root, 'scripts/build-peer.mjs'), 'setup', ...args, '--state-dir', fx.state], { cwd: fx.dir, env: fx.env });
+  assert.equal(setup('ROG', '--sha', fx.sha, '--install-toolchain').status, 0);
+  assert.equal(setup('ubunta', '--sha', fx.sha).status, 0);
+  const [rog, ubunta] = calls(fx.log).filter((c) => c.args[1] === 'new').map((c) => c.args.at(-1));
+  assert.match(rog, /ct_clone\(\)/);
+  assert.match(rog, new RegExp(`'setup-local' .*'--sha' '${fx.sha}' .*'--install-toolchain' '1'; fi; exit$`));
+  assert.doesNotMatch(ubunta, /--install-toolchain/);
+  assert.notEqual(setup('ROG', '--sha', fx.unpushed).status, 0);
+});

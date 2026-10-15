@@ -180,11 +180,14 @@ function setup(argv) {
   const stateDir = takeOption(argv, '--state-dir');
   const replyTab = requireReplyTab({ replyTab: takeOption(argv, '--reply-tab') });
   const ref = takeOption(argv, '--sha') ?? 'origin/develop';
-  if (!stateDir || argv.length !== 1) throw new Refusal('usage: ./build.sh peer-setup <peer> [--sha REF] [--reply-tab TAB]');
+  const install = argv.includes('--install-toolchain');
+  if (install) argv.splice(argv.indexOf('--install-toolchain'), 1);
+  if (!stateDir || argv.length !== 1) throw new Refusal('usage: ./build.sh peer-setup <peer> [--sha REF] [--install-toolchain] [--reply-tab TAB]');
   const config = peersConfig();
   const peer = findPeer(config.peers, argv[0]);
   const sha = resolveSha(ref);
-  const rest = ['--status-title', config.statusTabTitle, ...(peer.shell ? ['--shell', peer.shell] : [])];
+  const rest = ['--status-title', config.statusTabTitle, ...(peer.shell ? ['--shell', peer.shell] : []),
+    ...(install ? ['--install-toolchain', '1'] : [])];
   launch({ config, peer, verb: 'setup', sha, deadlineSecs: parseDuration(VERBS.setup.deadline), replyTab, clone: true,
     stateDir, recordNames: [], runnerTail: { head: ['setup-local'], rest } });
 }
@@ -271,7 +274,8 @@ function setupLocal(argv) {
   const { opts } = jobArgs(argv);
   const started = Date.now();
   const logPath = jobLogPath(opts.id);
-  const toolchain = spawnSync('bash', ['./build.sh', 'peer-toolchain'], { encoding: 'utf8', timeout: 300000, windowsHide: true });
+  const toolchain = spawnSync('bash', ['./build.sh', 'peer-toolchain', ...(opts['install-toolchain'] ? ['--install'] : [])],
+    { encoding: 'utf8', timeout: opts['install-toolchain'] ? 900000 : 300000, windowsHide: true });
   const output = `${toolchain.stdout ?? ''}${toolchain.stderr ?? ''}`;
   fs.writeFileSync(logPath, output);
   const statusTab = ensureStatusTab(opts['status-title'], opts.shell);
