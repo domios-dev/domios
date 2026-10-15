@@ -57,7 +57,7 @@ export function NewSessionPicker({
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const [busy, setBusy] = useState(false);
-  const [spawnError, setSpawnError] = useState<unknown>(null);
+  const [dismissing, setDismissing] = useState(false);
   const [firstAccessFull, setFirstAccessFull] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
@@ -159,19 +159,18 @@ export function NewSessionPicker({
     runner: () => Promise<{ workspaceId: string; tabId: string } | null>,
   ) => {
     setBusy(true);
-    setSpawnError(null);
     try {
       const created = await runner();
       if (created) {
         await selectTabByTab(created.workspaceId, created.tabId).catch(() => {});
-        onClose();
       }
     } catch (e) {
-      setSpawnError(e);
+      addNotification({ tab_id: null, workspace_id: workspaceId, title: "Session could not start",
+        body: e instanceof Error ? e.message : String(e), severity: "Error", level: "failure", sticky: true });
     } finally {
       setBusy(false);
     }
-  }, [onClose, selectTabByTab]);
+  }, [addNotification, workspaceId, selectTabByTab]);
 
   const runProviderSpawn = useCallback(async (
     providerId: string,
@@ -222,7 +221,9 @@ export function NewSessionPicker({
   }, [choice, createOrchestrationPair, disabledProviderIds, finishSpawn, workspaceId, section]);
 
   const handleStart = useCallback(() => {
-    if (busy || selectedWorkspace?.cwd_missing) return;
+    if (busy || dismissing || selectedWorkspace?.cwd_missing) return;
+    setDismissing(true);
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) onClose();
     const start = async () => {
       if (choice.mode === "pair") {
         await runPairSpawn();
@@ -255,6 +256,8 @@ export function NewSessionPicker({
   }, [
     addNotification,
     busy,
+    dismissing,
+    onClose,
     selectedWorkspace?.cwd_missing,
     agentConfig?.full_access,
     choice.mode,
@@ -298,6 +301,8 @@ export function NewSessionPicker({
   return createPortal(
     <div
       data-testid="new-session-picker"
+      data-dismissing={dismissing || undefined}
+      onAnimationEnd={(event) => { if (dismissing && event.target === event.currentTarget) onClose(); }}
       className="new-session-picker fixed inset-0 z-[1000] flex items-start justify-center overflow-y-auto overflow-x-hidden bg-black/55 p-6 backdrop-blur-sm"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
@@ -440,7 +445,6 @@ export function NewSessionPicker({
           </label>
         )}
 
-        {spawnError != null && <InlineErrorNotice error={spawnError} operation="starting this session" blocking />}
         <div className="relative mt-4 flex justify-end">
           <Button
             variant="primary"

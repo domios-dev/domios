@@ -272,7 +272,7 @@ describe("NewSessionPicker modal", () => {
   });
 });
 
-it("keeps a team request open and busy, then renders its backend failure inline", async () => {
+it("dismisses a team request before it resolves and preserves its eventual error", async () => {
   const onClose = vi.fn();
   let reject!: (error: unknown) => void;
   fixture.actions.createOrchestrationPair.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
@@ -282,27 +282,27 @@ it("keeps a team request open and busy, then renders its backend failure inline"
   await act(async () => start.click());
   expect(fixture.actions.createOrchestrationPair).toHaveBeenCalledTimes(1);
   expect(start.disabled).toBe(true);
-  expect(onClose).not.toHaveBeenCalled();
+  await act(async () => document.querySelector('[data-testid="new-session-picker"]')!.dispatchEvent(new Event("animationend", { bubbles: true })));
+  expect(onClose).toHaveBeenCalledTimes(1);
   expect(buttonNamed("Close new session dialog")!.disabled).toBe(true);
   const message = "opaque backend workspace/path/recovery sentence";
   await act(async () => reject(new TransportError(422, "/api/orchestration/new",
     JSON.stringify({ error: { code: "workspace_cwd_missing", message } }))));
-  expect(dialog().querySelector('[role="alert"] details pre')?.textContent).toContain(message);
+  expect(fixture.actions.addNotification).toHaveBeenCalledTimes(1);
+  expect(fixture.actions.addNotification.mock.calls[0][0].body).toContain(message);
   expect(start.disabled).toBe(false);
-  expect(onClose).not.toHaveBeenCalled();
-  expect(fixture.actions.addNotification).not.toHaveBeenCalled();
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-it("renders a single-agent failure inline without a bell notification", async () => {
+it("preserves a single-agent failure after dismissal", async () => {
   const message = "opaque session refusal";
   fixture.actions.spawnAgentTab.mockRejectedValueOnce(new TransportError(422, "/api/agents/spawn",
     JSON.stringify({ error: { message } })));
   const onClose = vi.fn();
   await renderPicker({ fullAccess: false, onClose });
   await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
-  expect(dialog().querySelector('[role="alert"] details pre')?.textContent).toContain(message);
-  expect(onClose).not.toHaveBeenCalled();
-  expect(fixture.actions.addNotification).not.toHaveBeenCalled();
+  expect(fixture.actions.addNotification).toHaveBeenCalledTimes(1);
+  expect(fixture.actions.addNotification.mock.calls[0][0].body).toContain(message);
 });
 
 it("offers folder relocation instead of session or team start for a missing workspace", async () => {

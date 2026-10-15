@@ -67,6 +67,16 @@
   max-height: 100%;
   overflow-y: auto;
 }
+.new-session-picker[data-dismissing="true"] {
+  pointer-events: none;
+  animation: session-picker-dismiss var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+.new-session-picker[data-dismissing="true"] .new-session-picker-card {
+  pointer-events: none;
+  transition: transform var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+  transform: scale(0.98);
+}
+@keyframes session-picker-dismiss { to { opacity: 0; } }
 .ct-msg-sheet-wrap {
   bottom: calc(var(--ct-visual-bottom, 0px) + max(12px, var(--ct-keyboard-safe-bottom, env(safe-area-inset-bottom))));
 }
