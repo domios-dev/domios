@@ -12,7 +12,6 @@ pub use blueprint_pipeline::BlueprintExt;
 pub use blueprint_portable::BlueprintPortableExt;
 #[cfg(any(test, feature = "test-support"))]
 pub use ports_impl::manage_fixture_ports;
-pub use ports_impl::register_sentinel;
 pub use service_adapter::delete::SentinelDeleteExt;
 pub use service_adapter::graph::{AutomationFilesExt, AutomationGraphExt};
 pub use service_adapter::SentinelExt;

@@ -1,3 +1,5 @@
+pub const FRONTEND_READINESS_DEADLINE_ELAPSED: &str = "frontend_readiness_deadline_elapsed";
+
 use std::sync::OnceLock;
 use std::time::Instant;
 

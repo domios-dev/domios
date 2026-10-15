@@ -42,6 +42,24 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 fastembed = { version = "5", optional = true }
 
+codeterm-billing = { path = "crates/codeterm-billing" }
+codeterm-plan = { path = "crates/codeterm-plan" }
+codeterm-plugin = { path = "crates/codeterm-plugin" }
+codeterm-util = { path = "crates/codeterm-util" }
+codeterm-events = { path = "crates/codeterm-events" }
+codeterm-frontend-bundle = { path = "crates/codeterm-frontend-bundle" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+fern = "0.7"
+parking_lot = "0.12"
+png = "0.17"
+dirs = "6"
+url = "2"
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
+
 [features]
 default = ["embeddings"]
 embeddings = ["codeterm-service-core/embeddings", "dep:fastembed"]
