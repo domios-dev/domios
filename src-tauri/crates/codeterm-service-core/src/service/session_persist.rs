@@ -35,7 +35,7 @@ enum WorkerMessage {
     Persist(PersistRequest),
     InstallStorage(crate::session::store::StorageDeskAdapter),
     Unavailable(String),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Flush(Sender<Result<(), String>>),
     Stop(Sender<()>),
 }
@@ -66,7 +66,7 @@ impl PersistenceMailbox {
                 WorkerMessage::Stop(response) => {
                     let _ = response.send(());
                 }
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 WorkerMessage::Flush(response) => {
                     let _ = response.send(Err(error.to_string()));
                 }
@@ -213,7 +213,7 @@ pub fn stop_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
         .map_err(|error| format!("desk persistence worker shutdown was not confirmed: {error}"))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn flush_session_persistence(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     ensure_worker(app)?.flush()
 }
@@ -304,7 +304,7 @@ impl SessionPersistenceWorker {
         self.mailbox.push(message)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn flush(&self) -> Result<(), String> {
         let (response, completion) = mpsc::channel();
         self.configure(WorkerMessage::Flush(response))?;
@@ -444,7 +444,7 @@ fn run_worker(
                 committed_desk = None;
                 mailbox.replay_before_pending(std::mem::take(&mut deferred));
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             WorkerMessage::Flush(response) => {
                 if matches!(&backend, PersistenceBackend::Pending) {
                     deferred.push_back(WorkerMessage::Flush(response));
@@ -463,7 +463,7 @@ fn run_worker(
                                 let _ = response.send(Err(reason.to_string()));
                             }
                         }
-                        #[cfg(test)]
+                        #[cfg(any(test, feature = "test-support"))]
                         WorkerMessage::Flush(response) => {
                             let _ = response.send(Err(reason.to_string()));
                         }

@@ -267,7 +267,7 @@ fn lane_clean_refuses_detached_worktree_and_branch_checked_out_elsewhere() {
 #[test]
 fn lane_clean_inventory_includes_attempts_and_branch_only_lanes_and_defaults_to_head() {
     let root = tempfile::tempdir().unwrap();
-    let store = super::super::plan::PlanStore::new_for_test(root.path());
+    let store = codeterm_service_core::service::plan::PlanStore::new_for_test(root.path());
     let mut plan = Plan::new(
         "plan".into(),
         root.path().display().to_string(),
@@ -277,7 +277,7 @@ fn lane_clean_inventory_includes_attempts_and_branch_only_lanes_and_defaults_to_
     let id = store
         .add_task(
             &plan.id,
-            super::super::plan::NewTask {
+            codeterm_service_core::service::plan::NewTask {
                 name: "task".into(),
                 ..Default::default()
             },

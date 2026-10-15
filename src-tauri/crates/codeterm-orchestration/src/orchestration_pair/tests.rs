@@ -2,7 +2,7 @@ use super::*;
 use crate::OrchestrationPairExt;
 use codeterm_types::team::general_agent_membership::GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION;
 
-use codeterm_service_core::plan::PlannerRef;
+use codeterm_service_core::plan::{OrchestratorRef, PlannerRef};
 use codeterm_service_core::service::plan::PlanStore;
 
 fn store_for_test() -> (tempfile::TempDir, PlanStore) {

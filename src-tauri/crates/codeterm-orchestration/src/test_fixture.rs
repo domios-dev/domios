@@ -1,8 +1,8 @@
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 
-use crate::test_fixture::ServiceFixture as CoreFixture;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
+use codeterm_service_core::service::test_fixture::ServiceFixture as CoreFixture;
 
 /// The core fixture, built after this crate registered its port and extension keys.
 pub(crate) struct ServiceFixture(CoreFixture);
