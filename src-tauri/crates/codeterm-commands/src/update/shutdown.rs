@@ -29,9 +29,14 @@ pub async fn graceful_shutdown(
         .clone();
 
     quiesce_pty_spawns(&svc).await?;
-    let surfaces = codeterm_service_core::service::surface::begin_surface_shutdown(&svc);
-
-    let swept = collect_owned_pty_tabs(&svc);
+    let owner = svc.clone();
+    let (surfaces, swept) = tokio::task::spawn_blocking(move || {
+        let surfaces = codeterm_service_core::service::surface::begin_surface_shutdown(&owner);
+        let swept = collect_owned_pty_tabs(&owner);
+        (surfaces, swept)
+    })
+    .await
+    .map_err(|error| format!("shutdown preflight task failed: {error}"))?;
     log::info!(
         "[updater] graceful_shutdown: preserving authority for {} owned PTY Tab(s)",
         swept.len()
@@ -94,9 +99,10 @@ fn select_owned_pty_tabs<'a>(
 }
 
 async fn quiesce_pty_spawns(svc: &ServiceState) -> Result<(), String> {
-    let spawn_gate = svc.pty.lock().spawn_gate();
-    spawn_gate.quiesce();
+    let svc = svc.clone();
     tokio::task::spawn_blocking(move || {
+        let spawn_gate = svc.pty.lock().spawn_gate();
+        spawn_gate.quiesce();
         spawn_gate.wait_for_idle(std::time::Instant::now() + SPAWN_QUIESCE_TIMEOUT)
     })
     .await
@@ -104,25 +110,32 @@ async fn quiesce_pty_spawns(svc: &ServiceState) -> Result<(), String> {
 }
 
 async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
-    let reapers = svc.pty.lock().begin_shutdown()?;
-    let pty_ids = reapers
-        .iter()
-        .map(|reaper| reaper.pty_id().to_string())
-        .collect::<Vec<_>>();
-    svc.pty_ownership.release_ptys(&pty_ids);
+    let owner = svc.clone();
+    let (reapers, blockers) = tokio::task::spawn_blocking(move || {
+        let svc = owner;
+        let reapers = svc.pty.lock().begin_shutdown()?;
+        let pty_ids = reapers
+            .iter()
+            .map(|reaper| reaper.pty_id().to_string())
+            .collect::<Vec<_>>();
+        svc.pty_ownership.release_ptys(&pty_ids);
 
-    let blockers = svc
-        .mux
-        .read()
-        .snapshot()
-        .tabs
-        .values()
-        .filter_map(|tab| {
-            tab.pty_id
-                .as_ref()
-                .map(|pty| (pty.clone(), format!("Tab {} ({})", tab.title, tab.id)))
-        })
-        .collect::<std::collections::HashMap<_, _>>();
+        let blockers = svc
+            .mux
+            .read()
+            .snapshot()
+            .tabs
+            .values()
+            .filter_map(|tab| {
+                tab.pty_id
+                    .as_ref()
+                    .map(|pty| (pty.clone(), format!("Tab {} ({})", tab.title, tab.id)))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        Ok::<_, String>((reapers, blockers))
+    })
+    .await
+    .map_err(|error| format!("PTY shutdown snapshot task failed: {error}"))??;
     let count = reapers.len();
     let mut set = JoinSet::new();
     for reaper in reapers {
@@ -199,7 +212,10 @@ async fn capture_desk_before<T>(
     svc: &codeterm_service_core::service::ServiceContext,
     teardown: impl std::future::Future<Output = Result<T, String>>,
 ) -> Result<(codeterm_service_core::session::SessionSnapshot, T), String> {
-    let desk = svc.mux.read().to_session_snapshot();
+    let mux = svc.mux.clone();
+    let desk = tokio::task::spawn_blocking(move || mux.read().to_session_snapshot())
+        .await
+        .map_err(|error| format!("desk snapshot task failed: {error}"))?;
     let result = teardown.await?;
     Ok((desk, result))
 }

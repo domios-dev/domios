@@ -13,10 +13,11 @@ pub async fn list_workspaces(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let result = codeterm_service_core::dispatch::dispatch(
-        &codeterm_service_core::dispatch::Command::WorkspaceList,
-        state.svc.as_ref(),
+    let result = codeterm_service_core::dispatch::dispatch_blocking(
+        codeterm_service_core::dispatch::Command::WorkspaceList,
+        state.svc.clone(),
     )
+    .await
     .map_err(|error| {
         if error == codeterm_service_core::startup::STORAGE_UNAVAILABLE_MESSAGE {
             (
@@ -179,7 +180,8 @@ pub async fn rename_workspace(
         workspace_id: id,
         name: body.name,
     };
-    let result = codeterm_service_core::dispatch::dispatch(&cmd, state.svc.as_ref())
+    let result = codeterm_service_core::dispatch::dispatch_blocking(cmd, state.svc.clone())
+        .await
         .map_err(map_rename_error)?;
     Ok(Json(result.into_json()))
 }
@@ -224,8 +226,9 @@ pub async fn list_recently_closed(
     check_auth(&state, &headers)?;
     let cmd =
         codeterm_service_core::dispatch::Command::WorkspaceRecentlyClosed { workspace_id: id };
-    let result =
-        codeterm_service_core::dispatch::dispatch(&cmd, state.svc.as_ref()).map_err(|_| {
+    let result = codeterm_service_core::dispatch::dispatch_blocking(cmd, state.svc.clone())
+        .await
+        .map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to list recently closed",
@@ -252,7 +255,8 @@ pub async fn reopen_closed_tab(
         workspace_id: id,
         index,
     };
-    let result = codeterm_service_core::dispatch::dispatch(&cmd, state.svc.as_ref())
+    let result = codeterm_service_core::dispatch::dispatch_blocking(cmd, state.svc.clone())
+        .await
         .map_err(|_| (StatusCode::NOT_FOUND, "No recently closed Tab"))?;
     Ok(Json(result.into_json()))
 }
@@ -285,19 +289,28 @@ pub async fn move_tab(
     Path((workspace_id, tab_id)): Path<(String, String)>,
     Json(body): Json<MoveTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    state
-        .svc
-        .move_tab(&tab_id, &workspace_id, &body.to_workspace_id)
-        .map_err(|message| {
-            let status = if message.starts_with("Workspace not found:") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::BAD_REQUEST
-            };
-            (status, message)
-        })?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+        state
+            .svc
+            .move_tab(&tab_id, &workspace_id, &body.to_workspace_id)
+            .map_err(|message| {
+                let status = if message.starts_with("Workspace not found:") {
+                    StatusCode::NOT_FOUND
+                } else {
+                    StatusCode::BAD_REQUEST
+                };
+                (status, message)
+            })?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 #[derive(Deserialize)]
@@ -311,12 +324,16 @@ pub async fn reorder_tabs(
     Path(workspace_id): Path<String>,
     Json(body): Json<ReorderTabsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    state
-        .svc
-        .reorder_tab(&workspace_id, &body.ordered_tab_ids)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder tabs"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
+        state
+            .svc
+            .reorder_tab(&workspace_id, &body.ordered_tab_ids)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder tabs"))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 pub async fn reorder_children(
@@ -325,12 +342,16 @@ pub async fn reorder_children(
     Path(parent_tab_id): Path<String>,
     Json(body): Json<ReorderTabsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    state
-        .svc
-        .reorder_child(&parent_tab_id, &body.ordered_tab_ids)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder children"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
+        state
+            .svc
+            .reorder_child(&parent_tab_id, &body.ordered_tab_ids)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder children"))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 pub async fn reorder_display(
@@ -339,12 +360,16 @@ pub async fn reorder_display(
     Path(workspace_id): Path<String>,
     Json(body): Json<ReorderTabsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    state
-        .svc
-        .reorder_display(&workspace_id, &body.ordered_tab_ids)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder display"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
+        state
+            .svc
+            .reorder_display(&workspace_id, &body.ordered_tab_ids)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder display"))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 #[derive(Deserialize)]
@@ -357,12 +382,16 @@ pub async fn reorder_workspaces(
     headers: HeaderMap,
     Json(body): Json<ReorderWorkspacesBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    state
-        .svc
-        .reorder_workspace(&body.ordered_workspace_ids)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder workspaces"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
+        state
+            .svc
+            .reorder_workspace(&body.ordered_workspace_ids)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder workspaces"))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 #[derive(Deserialize)]
@@ -377,13 +406,22 @@ pub async fn rename_tab(
     Json(body): Json<RenameTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    codeterm_service_core::service::tab::validate_tab_title(&body.title)
-        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
-    state
-        .svc
-        .rename_tab(&tab_id, &body.title)
-        .map_err(map_rename_error)?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::tab::validate_tab_title(&body.title)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+        state
+            .svc
+            .rename_tab(&tab_id, &body.title)
+            .map_err(map_rename_error)?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 pub async fn create_tab(
@@ -399,8 +437,17 @@ pub async fn create_tab(
     let mut value = response.0;
     let tab_id = value["tab_id"].as_str().map(str::to_owned);
     if let Some(tab_id) = tab_id {
-        value["title"] =
-            serde_json::Value::String(state.svc.mux.read().display_label_for_tab(&tab_id));
+        let svc = state.svc.clone();
+        value["title"] = serde_json::Value::String(
+            tokio::task::spawn_blocking(move || svc.mux.read().display_label_for_tab(&tab_id))
+                .await
+                .map_err(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "blocking task failed".to_string(),
+                    )
+                })?,
+        );
     }
     Ok(Json(value))
 }

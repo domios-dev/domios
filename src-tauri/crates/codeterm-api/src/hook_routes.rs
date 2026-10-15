@@ -41,6 +41,19 @@ mod review_regressions;
 #[path = "hook_routes/surviving_shell_tests.rs"]
 mod surviving_shell_tests;
 
+async fn resolve_hook_tab_async(
+    state: &AppState,
+    raw_tab_id: &str,
+    event: &str,
+) -> Result<String, (StatusCode, String)> {
+    let state = state.clone();
+    let raw_tab_id = raw_tab_id.to_owned();
+    let event = event.to_owned();
+    tokio::task::spawn_blocking(move || resolve_hook_tab(&state, &raw_tab_id, &event))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
+
 fn resolve_hook_tab(
     state: &AppState,
     raw_tab_id: &str,
@@ -68,31 +81,40 @@ pub async fn release_launch_artifacts_api(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
         .map_err(|(status, message)| (status, message.to_string()))?;
-    let provider_id = state
-        .svc
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.agent_type.clone());
-    let Some(provider_id) = provider_id else {
-        return Ok(Json(serde_json::json!({ "ok": true, "released": false })));
-    };
-    let registry = state.svc.agent_registry.clone();
+    let owner = state.clone();
     let released = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::launch_artifacts::release_tab(
+        let state = owner;
+        let provider_id = state
+            .svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.agent_type.clone());
+        let Some(provider_id) = provider_id else {
+            return Ok(Json(serde_json::json!({ "ok": true, "released": false })));
+        };
+        let registry = state.svc.agent_registry.clone();
+        let released = codeterm_service_core::service::launch_artifacts::release_tab(
             &registry,
             &tab_id,
             &provider_id,
         )
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+        Ok(Json(
+            serde_json::json!({ "ok": true, "released": released }),
+        ))
     })
     .await
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
-    Ok(Json(
-        serde_json::json!({ "ok": true, "released": released }),
-    ))
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?;
+    released
 }
 
 fn can_short_circuit_session_start(
@@ -213,7 +235,8 @@ pub async fn hook_permission(
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tab_id = resolve_hook_tab(&state, &raw_tab_id, "permission")?;
+    let tab_id =
+        crate::hook_routes::resolve_hook_tab_async(&state, &raw_tab_id, "permission").await?;
     record_hook_post(&state, &tab_id, "permission", body.as_ref());
     if let Some(response) = hook_authority::telemetry_response(&tab_id, "permission") {
         return Ok(response);
@@ -223,113 +246,122 @@ pub async fn hook_permission(
             return Ok(Json(response));
         }
     }
-    // Hook firing = authoritative proof that an agent is running in this tab.
-    ensure_agent_state(&state, &tab_id);
+    tokio::task::spawn_blocking(move || {
+        // Hook firing = authoritative proof that an agent is running in this tab.
+        ensure_agent_state(&state, &tab_id);
 
-    // The provider's request metadata is retained separately from screen choices.
-    let permission_request = body
-        .as_ref()
-        .and_then(codeterm_service_core::agent::permission_request::parse_permission_request);
-    let has_permission_request = permission_request.is_some();
-    if let (Some(signal), Some(raw)) = (permission_request, body.as_ref()) {
-        reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
-        state
-            .svc
-            .prompt_detector
-            .lock()
-            .hook_detected_permission_request(&tab_id, signal);
-    }
-
-    let explicit_prompt = if has_permission_request {
-        None
-    } else {
-        body.and_then(|b| {
-            let question = b.get("question")?.as_str()?.to_string();
-            let options = b
-                .get("options")?
-                .as_array()?
-                .iter()
-                .filter_map(|o| {
-                    Some(codeterm_service_core::multiplexer::types::PromptOption {
-                        label: o.get("label")?.as_str()?.to_string(),
-                        value: o.get("value")?.as_str()?.to_string(),
-                    })
-                })
-                .collect::<Vec<_>>();
-            if options.is_empty() {
-                return None;
-            }
-            Some(codeterm_service_core::multiplexer::types::PendingPrompt {
-                request_id: None,
-                question,
-                options,
-                sections: None,
-                multi_select: None,
-                submit_available: None,
-                selected_values: None,
-            })
-        })
-    };
-
-    let decision = if let Some(prompt) = explicit_prompt {
-        state
-            .svc
-            .prompt_detector
-            .lock()
-            .hook_detected_explicit(&tab_id, prompt)
-    } else {
-        let pty_id = state
-            .svc
-            .mux
-            .write()
-            .get_tab(&tab_id)
-            .and_then(|p| p.pty_id.clone());
-        let agent_type = state
-            .svc
-            .mux
-            .write()
-            .get_tab(&tab_id)
-            .and_then(|p| p.agent_type.clone());
-
-        if let Some(pty_id) = pty_id {
-            let at = agent_type
-                .unwrap_or_else(|| state.svc.configuration().general_agent.agent_provider);
-            let registry = &state.svc.agent_registry;
-
-            let clean = state
+        // The provider's request metadata is retained separately from screen choices.
+        let permission_request = body
+            .as_ref()
+            .and_then(codeterm_service_core::agent::permission_request::parse_permission_request);
+        let has_permission_request = permission_request.is_some();
+        if let (Some(signal), Some(raw)) = (permission_request, body.as_ref()) {
+            reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
+            state
                 .svc
-                .screen_state
+                .prompt_detector
                 .lock()
-                .get_screen_text(&pty_id)
-                .unwrap_or_default();
-            log::debug!(
-                "[hook_permission] screen_text len={}, agent_type={:?}",
-                clean.len(),
-                at
-            );
-
-            let parsed = codeterm_service_core::agent::prompt::parse_prompt_safely(|| {
-                registry.parse_prompt(&at, &clean)
-            });
-            state.svc.prompt_detector.lock().hook_detected_parsed(
-                &tab_id,
-                clean.len(),
-                None,
-                parsed,
-            )
-        } else {
-            codeterm_service_core::agent::prompt::PromptDecision::None
+                .hook_detected_permission_request(&tab_id, signal);
         }
-    };
 
-    state.svc.apply_hook_prompt_decision(&tab_id, &decision);
+        let explicit_prompt = if has_permission_request {
+            None
+        } else {
+            body.and_then(|b| {
+                let question = b.get("question")?.as_str()?.to_string();
+                let options = b
+                    .get("options")?
+                    .as_array()?
+                    .iter()
+                    .filter_map(|o| {
+                        Some(codeterm_service_core::multiplexer::types::PromptOption {
+                            label: o.get("label")?.as_str()?.to_string(),
+                            value: o.get("value")?.as_str()?.to_string(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if options.is_empty() {
+                    return None;
+                }
+                Some(codeterm_service_core::multiplexer::types::PendingPrompt {
+                    request_id: None,
+                    question,
+                    options,
+                    sections: None,
+                    multi_select: None,
+                    submit_available: None,
+                    selected_values: None,
+                })
+            })
+        };
 
-    let response = if has_permission_request {
-        serde_json::json!({"ok": true, "ingested": true})
-    } else {
-        serde_json::json!({"ok": true})
-    };
-    Ok(Json(response))
+        let decision = if let Some(prompt) = explicit_prompt {
+            state
+                .svc
+                .prompt_detector
+                .lock()
+                .hook_detected_explicit(&tab_id, prompt)
+        } else {
+            let pty_id = state
+                .svc
+                .mux
+                .write()
+                .get_tab(&tab_id)
+                .and_then(|p| p.pty_id.clone());
+            let agent_type = state
+                .svc
+                .mux
+                .write()
+                .get_tab(&tab_id)
+                .and_then(|p| p.agent_type.clone());
+
+            if let Some(pty_id) = pty_id {
+                let at = agent_type
+                    .unwrap_or_else(|| state.svc.configuration().general_agent.agent_provider);
+                let registry = &state.svc.agent_registry;
+
+                let clean = state
+                    .svc
+                    .screen_state
+                    .lock()
+                    .get_screen_text(&pty_id)
+                    .unwrap_or_default();
+                log::debug!(
+                    "[hook_permission] screen_text len={}, agent_type={:?}",
+                    clean.len(),
+                    at
+                );
+
+                let parsed = codeterm_service_core::agent::prompt::parse_prompt_safely(|| {
+                    registry.parse_prompt(&at, &clean)
+                });
+                state.svc.prompt_detector.lock().hook_detected_parsed(
+                    &tab_id,
+                    clean.len(),
+                    None,
+                    parsed,
+                )
+            } else {
+                codeterm_service_core::agent::prompt::PromptDecision::None
+            }
+        };
+
+        state.svc.apply_hook_prompt_decision(&tab_id, &decision);
+
+        let response = if has_permission_request {
+            serde_json::json!({"ok": true, "ingested": true})
+        } else {
+            serde_json::json!({"ok": true})
+        };
+        Ok(Json(response))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 /// Hook endpoint: provider-reported SessionStart event. Body is the JSON the
@@ -342,9 +374,12 @@ pub async fn hook_session_start(
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
+    let owner = state.clone();
+    let prepared = tokio::task::spawn_blocking(move || {
+        let state = owner;
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "session_start")?;
     if let Some(response) = hook_authority::telemetry_response(&tab_id, "session_start") {
-        return Ok(axum::response::IntoResponse::into_response(response));
+        return Ok(Err(axum::response::IntoResponse::into_response(response)));
     }
     let body = body.unwrap_or(serde_json::Value::Null);
     record_hook_post(&state, &tab_id, "session_start", Some(&body));
@@ -386,9 +421,9 @@ pub async fn hook_session_start(
             source
         );
         state.svc.emit_session_binding_state(&tab_id);
-        return Ok(axum::response::IntoResponse::into_response(Json(
+        return Ok(Err(axum::response::IntoResponse::into_response(Json(
             serde_json::json!({"ok": false, "reason": "no session_id in body"}),
-        )));
+        ))));
     };
 
     let (existing, cwd, current_session_id, live_owner) = state
@@ -464,22 +499,8 @@ pub async fn hook_session_start(
                 false
             };
             if can_short_circuit_session_start(&claim, fallback_pending, fallback_retry_available) {
-                bind_planner_session_after_claim(&state.svc, &tab_id).await?;
-                let response = unchanged_acknowledged_hook_report(
-                    &state.svc,
-                    &tab_id,
-                    &provider_id,
-                    &sid,
-                    &source,
-                    &claim,
-                    report_nonce.as_deref(),
-                );
-                return Ok(reconciliation::after_response(
-                    response,
-                    state.svc,
-                    tab_id,
-                    "session_start_duplicate",
-                ));
+                return Ok(Ok((true, claim, fallback_retry, tab_id, provider_id, sid, report_nonce, source, body)));
+
             }
             claim
         }
@@ -534,7 +555,7 @@ pub async fn hook_session_start(
                 return Err((StatusCode::CONFLICT, reason));
             }
             state.svc.emit_session_binding_state(&tab_id);
-            return Ok(axum::response::IntoResponse::into_response(Json(
+            return Ok(Err(axum::response::IntoResponse::into_response(Json(
                 serde_json::json!({
                     "ok": true,
                     "changed": false,
@@ -542,7 +563,7 @@ pub async fn hook_session_start(
                     "session_id": sid,
                     "current_session_id": premise.previous_session_id,
                 }),
-            )));
+            ))));
         }
         Err((status, message, None)) => {
             let current_session_id = state
@@ -561,6 +582,40 @@ pub async fn hook_session_start(
             return Err((status, message));
         }
     };
+        Ok::<_, (StatusCode, String)>(Ok((false, claim, fallback_retry, tab_id, provider_id, sid, report_nonce, source, body)))
+    }).await.map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
+    let (
+        duplicate,
+        claim,
+        mut fallback_retry,
+        tab_id,
+        provider_id,
+        sid,
+        report_nonce,
+        source,
+        body,
+    ) = match prepared {
+        Ok(prepared) => prepared,
+        Err(response) => return Ok(response),
+    };
+    if duplicate {
+        bind_planner_session_after_claim(&state.svc, &tab_id).await?;
+        let owner = state.clone();
+        return tokio::task::spawn_blocking(move || {
+            let response = unchanged_acknowledged_hook_report(
+                &owner.svc,
+                &tab_id,
+                &provider_id,
+                &sid,
+                &source,
+                &claim,
+                report_nonce.as_deref(),
+            );
+            reconciliation::after_response(response, owner.svc, tab_id, "session_start_duplicate")
+        })
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()));
+    }
     let result = finish_session_binding(
         &state.svc,
         &tab_id,
@@ -637,8 +692,13 @@ async fn complete_deferred_session_binding(
     source: String,
     body: serde_json::Value,
 ) {
+    let owner = state.clone();
+    let target = tab_id.clone();
+    let binding = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let tab_id = target;
     let Some(binding) = state.svc.deferred_session_bindings.get(&tab_id, generation) else {
-        return;
+        return None;
     };
     let current_session = state
         .svc
@@ -659,11 +719,16 @@ async fn complete_deferred_session_binding(
             binding.previous_session_id,
             current_session.as_deref().unwrap_or("-"),
         );
-        return;
+        return None;
     }
     if !binding.transcript_path.is_file() {
-        return;
+        return None;
     }
+        Some(binding)
+    }).await.ok().flatten();
+    let Some(binding) = binding else {
+        return;
+    };
     let evidence_session = binding.session_id.clone();
     let evidence_path = binding.transcript_path.to_string_lossy().into_owned();
     let evidence_recorded = tokio::task::spawn_blocking(move || {
@@ -679,14 +744,26 @@ async fn complete_deferred_session_binding(
         );
         return;
     }
-    match bind_reported_session(
-        &state.svc.mux,
-        state.svc.agent_registry.as_ref(),
-        &tab_id,
-        &binding.provider_id,
-        &binding.session_id,
-        report_nonce.as_deref(),
-    ) {
+    let owner = state.clone();
+    let target = tab_id.clone();
+    let provider = binding.provider_id.clone();
+    let session = binding.session_id.clone();
+    let nonce = report_nonce.clone();
+    let claim = tokio::task::spawn_blocking(move || {
+        bind_reported_session(
+            &owner.svc.mux,
+            state.svc.agent_registry.as_ref(),
+            &target,
+            &provider,
+            &session,
+            nonce.as_deref(),
+        )
+    })
+    .await;
+    let Ok(claim) = claim else {
+        return;
+    };
+    match claim {
         Ok(claim) => {
             let _ = finish_session_binding(
                 &state.svc,
@@ -704,21 +781,24 @@ async fn complete_deferred_session_binding(
             .await;
         }
         Err((_, message, deferrable)) => {
-            if deferrable.is_none() {
-                state.svc.deferred_session_bindings.refuse(
-                    &tab_id,
-                    &binding.session_id,
-                    Some(&binding.previous_session_id),
-                    &message,
+            let _ = tokio::task::spawn_blocking(move || {
+                if deferrable.is_none() {
+                    state.svc.deferred_session_bindings.refuse(
+                        &tab_id,
+                        &binding.session_id,
+                        Some(&binding.previous_session_id),
+                        &message,
+                    );
+                    state.svc.emit_session_binding_state(&tab_id);
+                }
+                log::warn!(
+                    "[session-binding-deferral] sid {} for Tab {} did not bind: {}",
+                    binding.session_id,
+                    tab_id,
+                    message,
                 );
-                state.svc.emit_session_binding_state(&tab_id);
-            }
-            log::warn!(
-                "[session-binding-deferral] sid {} for Tab {} did not bind: {}",
-                binding.session_id,
-                tab_id,
-                message,
-            );
+            })
+            .await;
         }
     }
 }

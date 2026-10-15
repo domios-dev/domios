@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use super::routes::{resolve_tab, AppState};
+use super::routes::AppState;
 use super::session_binding_routes::VerifiedRebindOutcome;
 use codeterm_service_core::service::hook_session_binding::finish_session_binding;
 use codeterm_service_core::service::tab_repair::{
@@ -157,9 +157,11 @@ async fn repair_tab_inner(
     headers: HeaderMap,
     request: TabRepairRequest,
 ) -> Result<TabRepairResponse, ApiRepairError> {
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(status, message)| {
-        ApiRepairError::new(status, "tab_repair_target_not_found", message)
-    })?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|(status, message)| {
+            ApiRepairError::new(status, "tab_repair_target_not_found", message)
+        })?;
     let mode = request.mode()?;
     let caller = crate::tab_routes::authenticated_plan_caller(&headers);
     let target = state

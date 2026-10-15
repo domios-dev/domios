@@ -39,6 +39,20 @@ pub async fn await_relink<T>(mut ready: impl FnMut() -> Option<T>) -> T {
     }
 }
 
+pub async fn await_relink_async<T, F: std::future::Future<Output = Option<T>>>(
+    mut ready: impl FnMut() -> F,
+) -> T {
+    loop {
+        let linked = signal().linked.notified();
+        tokio::pin!(linked);
+        linked.as_mut().enable();
+        if let Some(value) = ready().await {
+            return value;
+        }
+        linked.await;
+    }
+}
+
 #[cfg(test)]
 mod tests;
 

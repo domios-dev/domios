@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, resolve_tab, AppState};
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::multiplexer::types::AgentRole;
 use codeterm_types::agent::role_kind::builtins::PLANNER;
 
@@ -143,8 +143,9 @@ pub async fn record_remote_worker(
             "peer and remote_tab required".into(),
         ));
     }
-    let orchestrator =
-        resolve_tab(&state, &body.orchestrator_tab).map_err(|(s, m)| (s, m.to_string()))?;
+    let orchestrator = crate::routes::resolve_tab_async(&state, &body.orchestrator_tab)
+        .await
+        .map_err(|(s, m)| (s, m.to_string()))?;
     let title = body
         .title
         .as_deref()
@@ -191,7 +192,11 @@ pub async fn forget_remote_worker(
         .orchestrator_tab
         .as_deref()
         .filter(|s| !s.is_empty())
-        .map(|p| resolve_tab(&state, p).map_err(|(s, m)| (s, m.to_string())))
+        .map(|p| {
+            crate::routes::resolve_tab_async(&state, p)
+                .await
+                .map_err(|(s, m)| (s, m.to_string()))
+        })
         .transpose()?;
     let touched = state.svc.remote_workers.forget_by_remote_tab(
         body.remote_tab.trim(),
@@ -378,69 +383,79 @@ pub async fn spawn_agent(
             }
         },
     };
-    let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
-        match state.svc.arm_bound_worker_ack_deadline_for_tab(
-            &result.tab_id,
-            format!("codeterm agent spawn --plan-task {task_ref}"),
-        ) {
-            Ok(true) => None,
-            Ok(false) => Some(format!(
-                "worker ACK tracking was not armed for task-bound tab {}",
-                result.tab_id
-            )),
-            Err(error) => Some(format!(
-                "worker ACK tracking failed for tab {}: {error}",
-                result.tab_id
-            )),
-        }
-    } else {
-        None
-    };
+    tokio::task::spawn_blocking(move || {
+        let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
+            match state.svc.arm_bound_worker_ack_deadline_for_tab(
+                &result.tab_id,
+                format!("codeterm agent spawn --plan-task {task_ref}"),
+            ) {
+                Ok(true) => None,
+                Ok(false) => Some(format!(
+                    "worker ACK tracking was not armed for task-bound tab {}",
+                    result.tab_id
+                )),
+                Err(error) => Some(format!(
+                    "worker ACK tracking failed for tab {}: {error}",
+                    result.tab_id
+                )),
+            }
+        } else {
+            None
+        };
 
-    let mut resp = serde_json::json!({
-        "id": result.tab_id,
-        "tab_id": result.tab_id,
-        "pty_id": result.pty_id,
-        "agent": result.agent,
-        "model": result.model,
-        "planned_model": result.planned_model,
-        "requested_model": result.requested_model,
-        "provider_resolved_model": result.provider_resolved_model,
-        "actual_model": result.actual_model,
-        "reasoning_effort": result.reasoning_effort,
-        "reasoning_effort_provenance": result.reasoning_effort_provenance,
-        "title": result.title,
-        "description": result.description,
-        "role": result.role,
-        "role_profile": result.role_profile,
-    });
-    if require_delivery_ack {
-        resp["delivery_state"] = serde_json::json!("confirmed");
-    }
-    let warning = match launch.as_ref() {
-        Some(launch) => {
-            resp["launch_state"] = serde_json::json!(launch.launch_state());
-            launch.merged_warning(&result.tab_id, result.warning.as_deref())
-        }
-        None => result.warning.clone(),
-    };
-    if let Some(warning) = warning {
-        resp["warning"] = serde_json::json!(warning);
-    }
-    if let Some(warning) = ack_warning {
-        resp["orchestration_incident"] = serde_json::json!({
-            "kind": "worker_ack_tracking_failed",
-            "impact": warning,
-            "fallback": "Inspect the existing tab once. Do not blind-resend.",
+        let mut resp = serde_json::json!({
+            "id": result.tab_id,
+            "tab_id": result.tab_id,
+            "pty_id": result.pty_id,
+            "agent": result.agent,
+            "model": result.model,
+            "planned_model": result.planned_model,
+            "requested_model": result.requested_model,
+            "provider_resolved_model": result.provider_resolved_model,
+            "actual_model": result.actual_model,
+            "reasoning_effort": result.reasoning_effort,
+            "reasoning_effort_provenance": result.reasoning_effort_provenance,
+            "title": result.title,
+            "description": result.description,
+            "role": result.role,
+            "role_profile": result.role_profile,
         });
-    }
-    if let Some(ref fallback) = result.model_fallback {
-        resp["model_fallback"] = serde_json::json!(fallback);
-    }
-    if let Some(ref notice) = result.budget_notice {
-        resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
-    }
-    Ok(Json(resp))
+        if require_delivery_ack {
+            resp["delivery_state"] = serde_json::json!("confirmed");
+        }
+        let warning = match launch.as_ref() {
+            Some(launch) => {
+                resp["launch_state"] = serde_json::json!(launch.launch_state());
+                launch.merged_warning(&result.tab_id, result.warning.as_deref())
+            }
+            None => result.warning.clone(),
+        };
+        if let Some(warning) = warning {
+            resp["warning"] = serde_json::json!(warning);
+        }
+        if let Some(warning) = ack_warning {
+            resp["orchestration_incident"] = serde_json::json!({
+                "kind": "worker_ack_tracking_failed",
+                "impact": warning,
+                "fallback": "Inspect the existing tab once. Do not blind-resend.",
+            });
+        }
+        if let Some(ref fallback) = result.model_fallback {
+            resp["model_fallback"] = serde_json::json!(fallback);
+        }
+        if let Some(ref notice) = result.budget_notice {
+            resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
+        }
+        Ok(Json(resp))
+    })
+    .await
+    .map_err(|_| {
+        SpawnRejection::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "spawn_response_failed",
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 /// A launch that did not acknowledge, or left its first turn pending, is rolled
@@ -450,17 +465,33 @@ pub(crate) async fn verify_spawn_delivery(
     tab_id: &str,
     ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
 ) -> Result<(), SpawnRejection> {
-    let delivery = await_spawn_delivery(ready_rx).await.and_then(|()| {
-        let mux = state.svc.mux.read();
-        let tab = mux
-            .get_tab(tab_id)
-            .ok_or_else(|| "agent launch acknowledged after its Tab disappeared".to_string())?;
-        require_no_pending_delivery(
-            tab.pending_delivery
-                .as_ref()
-                .map(|pending| format!("{:?}", pending.state())),
+    let ready = await_spawn_delivery(ready_rx).await;
+    let owner = state.clone();
+    let target = tab_id.to_owned();
+    let delivery = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let tab_id = target.as_str();
+        let delivery = ready.and_then(|()| {
+            let mux = state.svc.mux.read();
+            let tab = mux
+                .get_tab(tab_id)
+                .ok_or_else(|| "agent launch acknowledged after its Tab disappeared".to_string())?;
+            require_no_pending_delivery(
+                tab.pending_delivery
+                    .as_ref()
+                    .map(|pending| format!("{:?}", pending.state())),
+            )
+        });
+        delivery
+    })
+    .await
+    .map_err(|error| {
+        SpawnRejection::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "delivery_failed",
+            error.to_string(),
         )
-    });
+    })?;
     if let Err(message) = delivery {
         let _ = state
             .svc
@@ -569,107 +600,116 @@ pub async fn set_tab_role(
     Path(id): Path<String>,
     Json(body): Json<SetRoleBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mut role_probe = codeterm_service_core::service::SpawnAgentParams {
-        role: Some(body.role),
-        role_profile: body.role_profile.clone(),
-        ..Default::default()
-    };
-    role_probe
-        .normalize_role_profile()
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    let role = role_probe.role.unwrap_or_else(|| "Worker".into());
-    let (parsed_role, parsed_profile) =
-        codeterm_service_core::service::ServiceContext::parse_role_kind(
-            &role,
-            role_probe.role_profile.as_deref(),
-        )
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    // Same contract as `agent spawn --role Planner` — never an anchor, so
-    // promotion onboarding never applies here.
-    if parsed_role == AgentRole::Manager && parsed_profile.as_deref() == Some(PLANNER) {
-        let plan_id = body.plan_id.clone().ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                "Planner requires a plan_id".to_string(),
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+        let mut role_probe = codeterm_service_core::service::SpawnAgentParams {
+            role: Some(body.role),
+            role_profile: body.role_profile.clone(),
+            ..Default::default()
+        };
+        role_probe
+            .normalize_role_profile()
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        let role = role_probe.role.unwrap_or_else(|| "Worker".into());
+        let (parsed_role, parsed_profile) =
+            codeterm_service_core::service::ServiceContext::parse_role_kind(
+                &role,
+                role_probe.role_profile.as_deref(),
             )
-        })?;
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        // Same contract as `agent spawn --role Planner` — never an anchor, so
+        // promotion onboarding never applies here.
+        if parsed_role == AgentRole::Manager && parsed_profile.as_deref() == Some(PLANNER) {
+            let plan_id = body.plan_id.clone().ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Planner requires a plan_id".to_string(),
+                )
+            })?;
+            state
+                .svc
+                .place_planner_on_plan(&id, &plan_id, body.parent_tab_id.as_deref(), true)
+                .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            return Ok(Json(serde_json::json!({"ok": true})));
+        }
+        if let Some(outcome) = worker_transfer::try_task_bound_worker_transfer(
+            &state.svc,
+            &headers,
+            &id,
+            parsed_role,
+            body.role_profile.as_deref(),
+            body.plan_id.as_deref(),
+            body.parent_tab_id.as_deref(),
+            body.can_spawn,
+        )
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?
+        {
+            return Ok(Json(outcome));
+        }
+        let becomes_anchor = codeterm_types::agent::role_kind::anchors_team(
+            Some(parsed_role),
+            parsed_profile.as_deref(),
+        );
+        let was_orchestrator = {
+            let mux = state.svc.mux.read();
+            mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
+        };
+        let plan_binding: Option<String> = None;
+        let destination = match parsed_role {
+            AgentRole::Manager if becomes_anchor => {
+                codeterm_service_core::service::AgentPlacement::Manager {
+                    role_profile: parsed_profile.clone().unwrap_or_default(),
+                    parent_tab_id: None,
+                    can_spawn: body.can_spawn,
+                }
+            }
+            AgentRole::Worker => codeterm_service_core::service::AgentPlacement::Worker {
+                parent_tab_id: body.parent_tab_id.ok_or_else(|| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        "Worker requires a parent_tab_id".to_string(),
+                    )
+                })?,
+                role_profile: parsed_profile.clone(),
+            },
+            AgentRole::Manager => codeterm_service_core::service::AgentPlacement::Manager {
+                parent_tab_id: Some(body.parent_tab_id.clone().ok_or_else(|| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        "Manager requires a parent_tab_id".to_string(),
+                    )
+                })?),
+                role_profile: parsed_profile.clone().unwrap_or_default(),
+                can_spawn: body.can_spawn,
+            },
+        };
         state
             .svc
-            .place_planner_on_plan(&id, &plan_id, body.parent_tab_id.as_deref(), true)
+            .transition_agent(codeterm_service_core::service::AgentTransitionRequest {
+                tab_id: id.clone(),
+                destination,
+                plan_binding,
+                require_verified_session: true,
+                planner_replacement: None,
+                plan_rebind: None,
+            })
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        return Ok(Json(serde_json::json!({"ok": true})));
-    }
-    if let Some(outcome) = worker_transfer::try_task_bound_worker_transfer(
-        &state.svc,
-        &headers,
-        &id,
-        parsed_role,
-        body.role_profile.as_deref(),
-        body.plan_id.as_deref(),
-        body.parent_tab_id.as_deref(),
-        body.can_spawn,
-    )
-    .map_err(|error| (StatusCode::BAD_REQUEST, error))?
-    {
-        return Ok(Json(outcome));
-    }
-    let becomes_anchor = codeterm_types::agent::role_kind::anchors_team(
-        Some(parsed_role),
-        parsed_profile.as_deref(),
-    );
-    let was_orchestrator = {
-        let mux = state.svc.mux.read();
-        mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
-    };
-    let plan_binding: Option<String> = None;
-    let destination = match parsed_role {
-        AgentRole::Manager if becomes_anchor => {
-            codeterm_service_core::service::AgentPlacement::Manager {
-                role_profile: parsed_profile.clone().unwrap_or_default(),
-                parent_tab_id: None,
-                can_spawn: body.can_spawn,
-            }
+        if becomes_anchor {
+            codeterm_service_core::service::maybe_deliver_orchestrator_promotion_onboarding(
+                &state.svc,
+                &id,
+                was_orchestrator,
+            );
         }
-        AgentRole::Worker => codeterm_service_core::service::AgentPlacement::Worker {
-            parent_tab_id: body.parent_tab_id.ok_or_else(|| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    "Worker requires a parent_tab_id".to_string(),
-                )
-            })?,
-            role_profile: parsed_profile.clone(),
-        },
-        AgentRole::Manager => codeterm_service_core::service::AgentPlacement::Manager {
-            parent_tab_id: Some(body.parent_tab_id.clone().ok_or_else(|| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    "Manager requires a parent_tab_id".to_string(),
-                )
-            })?),
-            role_profile: parsed_profile.clone().unwrap_or_default(),
-            can_spawn: body.can_spawn,
-        },
-    };
-    state
-        .svc
-        .transition_agent(codeterm_service_core::service::AgentTransitionRequest {
-            tab_id: id.clone(),
-            destination,
-            plan_binding,
-            require_verified_session: true,
-            planner_replacement: None,
-            plan_rebind: None,
-        })
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    if becomes_anchor {
-        codeterm_service_core::service::maybe_deliver_orchestrator_promotion_onboarding(
-            &state.svc,
-            &id,
-            was_orchestrator,
-        );
-    }
-    Ok(Json(serde_json::json!({"ok": true})))
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 pub async fn clear_tab_role(
@@ -677,12 +717,21 @@ pub async fn clear_tab_role(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    state
-        .svc
-        .clear_tab_role(&id)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+        state
+            .svc
+            .clear_tab_role(&id)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 pub async fn make_orchestrator(
@@ -690,10 +739,19 @@ pub async fn make_orchestrator(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    codeterm_service_core::service::make_orchestrator(&state.svc, &id)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+        codeterm_service_core::service::make_orchestrator(&state.svc, &id)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 #[derive(Deserialize)]
@@ -707,19 +765,28 @@ pub async fn make_planner(
     Path(id): Path<String>,
     Json(body): Json<MakePlannerBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    state
-        .svc
-        .transition_plan_planner(
-            &body.plan_id,
-            Some(codeterm_service_core::plan::PlannerRef::Tab {
-                tab_id: id,
-                session_id: None,
-                title: None,
-            }),
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+        state
+            .svc
+            .transition_plan_planner(
+                &body.plan_id,
+                Some(codeterm_service_core::plan::PlannerRef::Tab {
+                    tab_id: id,
+                    session_id: None,
+                    title: None,
+                }),
+            )
+            .map_err(|error| (StatusCode::CONFLICT, error))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
         )
-        .map_err(|error| (StatusCode::CONFLICT, error))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    })?
 }
 
 pub async fn get_tab_status(
@@ -728,12 +795,23 @@ pub async fn get_tab_status(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let tab_id = resolve_tab(&state, &id).map_err(|(s, m)| (s, m.to_string()))?;
-    let info = state
-        .svc
-        .get_tab_status(&tab_id)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    Ok(Json(serde_json::to_value(info).unwrap()))
+    let tab_id = crate::routes::resolve_tab_async(&state, &id)
+        .await
+        .map_err(|(s, m)| (s, m.to_string()))?;
+    tokio::task::spawn_blocking(move || {
+        let info = state
+            .svc
+            .get_tab_status(&tab_id)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        Ok(Json(serde_json::to_value(info).unwrap()))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 #[derive(Deserialize)]
@@ -753,55 +831,64 @@ pub async fn submit_report(
     Path(id): Path<String>,
     Json(body): Json<ReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let result = state
-        .svc
-        .submit_report_with_source_outcome(
-            &id,
-            &body.message,
-            body.details,
-            body.plan_id.as_deref(),
-            body.task_id.as_deref(),
-            body.kind.as_deref(),
-            body.report_outcome,
-        )
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let mut response = serde_json::json!({
-        "ok": true,
-        "accepted": true,
-        "state": "recorded",
-        "report_id": result.report_id,
-        "target_tab_id": result.orchestrator_tab_id,
-        "report_outcome": result.report_outcome,
-    });
-    if let Some((plan_id, task_id)) = result.persisted_task {
-        response["task_report"] = serde_json::json!({
-            "persisted": true,
-            "plan_id": plan_id,
-            "task_id": task_id,
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+        let result = state
+            .svc
+            .submit_report_with_source_outcome(
+                &id,
+                &body.message,
+                body.details,
+                body.plan_id.as_deref(),
+                body.task_id.as_deref(),
+                body.kind.as_deref(),
+                body.report_outcome,
+            )
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        let mut response = serde_json::json!({
+            "ok": true,
+            "accepted": true,
+            "state": "recorded",
+            "report_id": result.report_id,
+            "target_tab_id": result.orchestrator_tab_id,
             "report_outcome": result.report_outcome,
         });
-    }
-    if let Some(rejection) = result.rejected_task_transition {
-        response["task_report"] = serde_json::json!({
-            "persisted": false,
-            "plan_id": rejection.plan_id,
-            "task_id": rejection.task_id,
-            "transition_rejected": true,
-            "cause": rejection.cause,
-            "report_outcome": rejection.report_outcome,
-        });
-    }
-    if let Some((plan_id, stride_id)) = result.persisted_plan_evidence {
-        response["plan_report"] = serde_json::json!({
-            "persisted": true,
-            "plan_id": plan_id,
-            "stride_id": stride_id,
-            "task_id": serde_json::Value::Null,
-            "task_transition": false,
-        });
-    }
-    Ok(Json(response))
+        if let Some((plan_id, task_id)) = result.persisted_task {
+            response["task_report"] = serde_json::json!({
+                "persisted": true,
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "report_outcome": result.report_outcome,
+            });
+        }
+        if let Some(rejection) = result.rejected_task_transition {
+            response["task_report"] = serde_json::json!({
+                "persisted": false,
+                "plan_id": rejection.plan_id,
+                "task_id": rejection.task_id,
+                "transition_rejected": true,
+                "cause": rejection.cause,
+                "report_outcome": rejection.report_outcome,
+            });
+        }
+        if let Some((plan_id, stride_id)) = result.persisted_plan_evidence {
+            response["plan_report"] = serde_json::json!({
+                "persisted": true,
+                "plan_id": plan_id,
+                "stride_id": stride_id,
+                "task_id": serde_json::Value::Null,
+                "task_transition": false,
+            });
+        }
+        Ok(Json(response))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 #[derive(Deserialize)]
@@ -832,12 +919,21 @@ pub async fn set_can_spawn(
     Path(id): Path<String>,
     Json(body): Json<CanSpawnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    state
-        .svc
-        .set_can_spawn(&id, body.can_spawn)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+        state
+            .svc
+            .set_can_spawn(&id, body.can_spawn)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 pub async fn respond_prompt(
@@ -847,7 +943,9 @@ pub async fn respond_prompt(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Response, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|(s, m)| (s, m.to_string()))?;
     let value = body
         .get("value")
         .and_then(|v| v.as_str())
@@ -905,47 +1003,8 @@ pub(crate) fn respond_prompt_response(
     (status, Json(body)).into_response()
 }
 
-/// Clear pending_prompt state without sending to PTY (safe for cleanup/reset).
-pub async fn clear_prompt(
-    AxumState(state): AxumState<AppState>,
-    Path(raw_tab_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
-    state
-        .svc
-        .clear_prompt(&tab_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
-}
-
-/// Set agent type on a tab (enables chat view for that agent's provider).
-pub async fn set_agent_type(
-    AxumState(state): AxumState<AppState>,
-    Path(tab_id): Path<String>,
-    headers: HeaderMap,
-    Json(body): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let agent_type = body
-        .get("agent_type")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    match agent_type {
-        Some(agent_type) => {
-            state.svc.write_tab_agent_type_with_origin(
-                &tab_id,
-                agent_type,
-                false,
-                codeterm_service_core::session::lifecycle::AgentTypeWriteOrigin::Ui,
-                crate::tab_routes::caller_tab_header(&headers).as_deref(),
-            );
-        }
-        None => {
-            state.svc.set_tab_agent_type(&tab_id, None);
-        }
-    }
-    state.svc.emit_state_changed();
-    Ok(Json(serde_json::json!({"ok": true})))
-}
+mod identity;
+pub use identity::{clear_prompt, set_agent_type};
 
 /// List all registered agent providers as `ProviderDescriptor`s.
 pub async fn list_agent_providers(

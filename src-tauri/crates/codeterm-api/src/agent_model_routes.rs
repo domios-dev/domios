@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, resolve_tab, AppState};
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::service::agent_restart::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };
@@ -34,7 +34,7 @@ pub async fn agent_model_handler(
     if let Err((status, message)) = check_auth(&state, &headers) {
         return (status, message.to_string()).into_response();
     }
-    let tab_id = match resolve_tab(&state, &raw_tab_id) {
+    let tab_id = match crate::routes::resolve_tab_async(&state, &raw_tab_id).await {
         Ok(tab_id) => tab_id,
         Err((status, message)) => {
             let error = ModelSwitchError::NotFound(message.to_string());
@@ -42,12 +42,12 @@ pub async fn agent_model_handler(
         }
     };
     let svc = state.svc.clone();
-    if body.cancel {
-        svc.cancel_staged_model_switch(&tab_id);
-        return Json(serde_json::json!({"ok": true, "cancelled": true})).into_response();
-    }
     let result = tokio::task::spawn_blocking(move || {
-        svc.agent_switch_model_with_restart_fallback(
+        if body.cancel {
+            svc.cancel_staged_model_switch(&tab_id);
+            return None;
+        }
+        Some(svc.agent_switch_model_with_restart_fallback(
             &tab_id,
             &body.model,
             body.reasoning_effort.as_deref(),
@@ -56,11 +56,14 @@ pub async fn agent_model_handler(
                 force: body.force,
                 restart_resume: body.restart_resume,
             },
-        )
+        ))
     })
     .await;
     let result = match result {
-        Ok(result) => result,
+        Ok(Some(result)) => result,
+        Ok(None) => {
+            return Json(serde_json::json!({"ok": true, "cancelled": true})).into_response()
+        }
         Err(error) => {
             let error =
                 ModelSwitchError::NotSwitchable(format!("model switch worker failed: {error}"));
