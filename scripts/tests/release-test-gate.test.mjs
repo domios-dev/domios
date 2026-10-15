@@ -175,3 +175,16 @@ test("a frontend-only release builds and publishes only the frontend after the f
   assert.deepEqual(Object.keys(called.on.workflow_call.inputs), ["tag", "source_sha"]);
   assert.equal(called.on.push, undefined, "a frontend tag push no longer publishes outside the release run");
 });
+
+test("heavy Rust and build jobs end by removing their own targets and archives", () => {
+  const heavy = [
+    ...["rust-archives", "rust-shards", "rust-input-platform", "rust-platform", "clippy-linux", "ts-types"].map(id => tests.jobs[id]),
+    ...["release-macos-build", "release-linux", "release-linux-arm64", "release-windows"].map(name => workflow(name).jobs.build),
+  ];
+  for (const job of heavy) {
+    const last = job.steps.at(-1);
+    assert.equal(last.run, "node scripts/ci-workspace-cleanup.mjs", job.name);
+    assert.equal(last.if, "always()");
+    assert.equal(last["continue-on-error"], true, "cleanup never changes the job result");
+  }
+});
