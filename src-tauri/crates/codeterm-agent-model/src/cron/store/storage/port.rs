@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use super::super::crud::{CronChange, Prepared};
 use super::super::{CronCreateParams, CronJob, CronStore};
 use super::{commit, Backend, CronCommitError, StorageCron, STAGED_ONLY};
-use crate::cron::scheduler::CronState;
+use crate::cron::CronState;
 use crate::storage::Revision;
 
 /// Definitions as the mem scheduler port sees them while Storage owns persistence; port
@@ -32,7 +32,7 @@ impl PortDraft {
 }
 
 impl CronStore {
-    pub(crate) fn port_jobs(&self) -> &[CronJob] {
+    pub fn port_jobs(&self) -> &[CronJob] {
         match &self.backend {
             Backend::Storage(storage) => storage
                 .draft
@@ -59,7 +59,7 @@ impl CronStore {
     }
 
     /// Legacy: an in-memory edit the port saves later. Storage: an edit of the draft.
-    pub(crate) fn port_update(&mut self, job: CronJob) -> Result<(), String> {
+    pub fn port_update(&mut self, job: CronJob) -> Result<(), String> {
         if let Some(reason) = self.unavailable_reason() {
             return Err(format!("cron storage unavailable: {reason}"));
         }
@@ -77,7 +77,7 @@ impl CronStore {
         Ok(())
     }
 
-    pub(crate) fn port_create(&mut self, params: CronCreateParams) -> Result<(), String> {
+    pub fn port_create(&mut self, params: CronCreateParams) -> Result<(), String> {
         if let Some(reason) = self.unavailable_reason() {
             return Err(format!("cron storage unavailable: {reason}"));
         }
@@ -89,7 +89,7 @@ impl CronStore {
         Ok(())
     }
 
-    pub(crate) fn port_delete(&mut self, id: &str) -> Result<(), String> {
+    pub fn port_delete(&mut self, id: &str) -> Result<(), String> {
         if let Some(reason) = self.unavailable_reason() {
             return Err(format!("cron storage unavailable: {reason}"));
         }
@@ -113,7 +113,7 @@ impl CronStore {
     }
 
     /// Legacy saves the file; Storage commits the draft only at `settle_port`.
-    pub(crate) fn port_save(&mut self) -> Result<(), String> {
+    pub fn port_save(&mut self) -> Result<(), String> {
         if let Some(reason) = self.unavailable_reason() {
             return Err(format!("cron storage unavailable: {reason}"));
         }

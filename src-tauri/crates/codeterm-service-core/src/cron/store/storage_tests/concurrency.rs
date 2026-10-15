@@ -148,7 +148,7 @@ fn storage_cron_shutdown_settles_admitted_work_and_refuses_late_work() {
     let reopened = Storage::open(instance(&f.temp), StorageConfig::default()).expect("reopen");
     let fresh = hydrate(&reopened, &f.temp, &f.clock);
     let cache = f.cron.lock();
-    assert_eq!(fresh.file.jobs, cache.file.jobs);
+    assert_eq!(fresh.list(), cache.list());
     assert_eq!(histories(&fresh), histories(&cache));
 }
 
