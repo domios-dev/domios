@@ -32,7 +32,7 @@ impl PendingTaskStartupAck {
 }
 
 pub struct WorkerAckArm {
-    pub(crate) receiver: Option<Receiver<WorkerAckSignal>>,
+    pub receiver: Option<Receiver<WorkerAckSignal>>,
     pub(crate) starts_supervisor: bool,
     pub(crate) identity_conflict: bool,
 }
