@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import {
-  jobEvent, loadPeers, outcomeOf, parseDispatchArgs, parseJobLog, parseStatusOutput, pickPeer, remoteCommand,
+  findPeer, jobEvent, loadPeers, pathPrefix, outcomeOf, parseDispatchArgs, parseJobLog, parseStatusOutput, pickPeer, remoteCommand,
 } from './build-peer-lib.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -294,4 +294,15 @@ test('peer-setup clones at the requested SHA and forwards the toolchain install 
   assert.match(rog, new RegExp(`'setup-local' .*'--sha' '${fx.sha}' .*'--install-toolchain' '1'; fi; exit$`));
   assert.doesNotMatch(ubunta, /--install-toolchain/);
   assert.notEqual(setup('ROG', '--sha', fx.unpushed).status, 0);
+});
+
+test('a peer path list prefixes the job command and the status probe; node is checked before the runner', () => {
+  const ubunta = findPeer(config.peers, 'ubunta');
+  assert.deepEqual(ubunta.path, ['$HOME/.local/node22/bin']);
+  assert.equal(pathPrefix(findPeer(config.peers, 'ROG')), '');
+  const command = remoteCommand({ peer: ubunta, repository: 'https://example.invalid/r.git', jobId: 'peer-1', verb: 'check-linux',
+    sha: 'a'.repeat(40), clone: false, runner: ['run-job'], reply: { peer: 'origin', tab: 'tab01' } });
+  assert.ok(command.startsWith('export PATH="$HOME/.local/node22/bin:$PATH"; '));
+  assert.ok(command.indexOf('ct_step node_missing command -v node') < command.indexOf('node scripts/build-peer.mjs'));
+  assert.throws(() => loadPeers({ peers: { X: { os: 'linux', checkout: '/x', path: ['/bin; rm -rf /'] } } }), /plain directories/);
 });
