@@ -146,7 +146,15 @@ pub(crate) fn tab_output_frames(
         };
         let mut offset = initial_offset;
         loop {
-            for frame in drain_tab_output(&output_buf, &pty_id, &mut offset) {
+            let buffer = output_buf.clone();
+            let target = pty_id.clone();
+            let Ok((frames, next_offset)) = tokio::task::spawn_blocking(move || {
+                let mut offset = offset;
+                let frames = drain_tab_output(&buffer, &target, &mut offset);
+                (frames, offset)
+            }).await else { return; };
+            offset = next_offset;
+            for frame in frames {
                 yield frame;
             }
             let Some(wake) = wait_for_activity(&mut activity, Some(&pty_id)).await else {
@@ -183,17 +191,24 @@ pub async fn stream_tab_output(
         .ext::<codeterm_service_core::service::output_stream_activity::OutputStreamActivityTx>()
         .0
         .subscribe();
-    let chat = state.svc.tab_chat_backing(&raw_tab_id).is_some();
-    let pty_id = if chat {
-        None
-    } else {
-        Some(resolve_pty_id_with_fallback(&state, &raw_tab_id)?)
-    };
-    let output_buf = state.svc.output_buf.clone();
-    let initial_total = pty_id.as_ref().map_or(0, |pty_id| {
-        let output = output_buf.lock();
-        output.total_written(pty_id)
-    });
+    let owner = state.clone();
+    let (pty_id, output_buf, initial_total) = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let chat = state.svc.tab_chat_backing(&raw_tab_id).is_some();
+        let pty_id = if chat {
+            None
+        } else {
+            Some(resolve_pty_id_with_fallback(&state, &raw_tab_id)?)
+        };
+        let output_buf = state.svc.output_buf.clone();
+        let initial_total = pty_id.as_ref().map_or(0, |pty_id| {
+            let output = output_buf.lock();
+            output.total_written(pty_id)
+        });
+        Ok::<_, (StatusCode, &'static str)>((pty_id, output_buf, initial_total))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))??;
     let offset = tab_output_start_offset(query.from, initial_total);
     let frames = tab_output_frames(activity, output_buf, pty_id, offset);
     let stream = frames.map(|frame| {

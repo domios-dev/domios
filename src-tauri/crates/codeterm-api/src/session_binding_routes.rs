@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 
-use super::routes::{resolve_tab, AppState};
+use super::routes::AppState;
 use codeterm_service_core::service::hook_session_binding::{
     finish_session_binding, SessionBindError, SessionStartClaim,
 };
@@ -34,13 +34,23 @@ pub(crate) async fn binding_state(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<codeterm_service_core::service::SessionBindingState>, (StatusCode, String)> {
-    let tab_id = resolve_tab(&state, &raw_tab_id)
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
         .map_err(|(status, message)| (status, message.to_string()))?;
-    state
-        .svc
-        .session_binding_state(&tab_id)
-        .map(Json)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "Tab not found".to_string()))
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .session_binding_state(&tab_id)
+            .map(Json)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "Tab not found".to_string()))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 pub(crate) async fn rebind_session(
@@ -49,7 +59,8 @@ pub(crate) async fn rebind_session(
     headers: HeaderMap,
     Json(request): Json<RebindSessionRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tab_id = resolve_tab(&state, &raw_tab_id)
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
         .map_err(|(status, message)| (status, message.to_string()))?;
     let requested = request.session_id.trim();
     if requested.is_empty() {
@@ -76,12 +87,22 @@ pub(crate) async fn rebind_session(
             ));
         }
         Err((status, message, _)) => {
-            let previous = state
-                .svc
-                .mux
-                .read()
-                .get_tab(&tab_id)
-                .and_then(|tab| tab.agent_session_id.clone());
+            let owner = state.clone();
+            let target = tab_id.clone();
+            let previous = tokio::task::spawn_blocking(move || {
+                let state = owner;
+                let tab_id = target;
+                let mux = state.svc.mux.read();
+                mux.get_tab(&tab_id)
+                    .and_then(|tab| tab.agent_session_id.clone())
+            })
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "blocking task failed".to_string(),
+                )
+            })?;
             let reason = format!(
                 "Tab {tab_id} remains bound to {}; requested session '{}' was refused: {message}",
                 previous.as_deref().unwrap_or("-"),
@@ -93,7 +114,16 @@ pub(crate) async fn rebind_session(
                 previous.as_deref(),
                 &reason,
             );
-            state.svc.emit_session_binding_state(&tab_id);
+            let owner = state.svc.clone();
+            let target = tab_id.clone();
+            tokio::task::spawn_blocking(move || owner.emit_session_binding_state(&target))
+                .await
+                .map_err(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "blocking task failed".to_string(),
+                    )
+                })?;
             return Err((status, reason));
         }
     };
@@ -159,28 +189,43 @@ pub(crate) async fn validate_and_commit_rebind(
             None,
         ));
     }
-    let (previous_provider, previous_session_id, evidence, binding_nonce, live_owner) = svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .map(|tab| {
-            let evidence =
+    let owner = svc.clone();
+    let target = tab_id.to_owned();
+    let session = session_id.to_owned();
+    let (previous_provider, previous_session_id, evidence, binding_nonce, live_owner) =
+        tokio::task::spawn_blocking(move || {
+            let svc = owner;
+            let tab_id = target.as_str();
+            let session_id = session.as_str();
+            let mux = svc.mux.read();
+            mux.get_tab(tab_id)
+                .map(|tab| {
+                    let evidence =
                 codeterm_service_core::agent::provider_identity::ProviderIdentityEvidence::capture(
                     tab,
                 );
-            (
-                tab.agent_type.clone(),
-                tab.agent_session_id.clone(),
-                evidence,
-                (tab.agent_session_id.as_deref() == Some(session_id)
-                    && tab.session_binding_nonce.is_some()
-                    && tab.session_binding_nonce == tab.reported_session_binding_nonce)
-                    .then(|| tab.session_binding_nonce.clone())
-                    .flatten(),
-                codeterm_service_core::service::tab_has_live_agent(tab),
-            )
+                    (
+                        tab.agent_type.clone(),
+                        tab.agent_session_id.clone(),
+                        evidence,
+                        (tab.agent_session_id.as_deref() == Some(session_id)
+                            && tab.session_binding_nonce.is_some()
+                            && tab.session_binding_nonce == tab.reported_session_binding_nonce)
+                            .then(|| tab.session_binding_nonce.clone())
+                            .flatten(),
+                        codeterm_service_core::service::tab_has_live_agent(tab),
+                    )
+                })
+                .ok_or_else(|| (StatusCode::NOT_FOUND, "Tab not found".to_string(), None))
         })
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "Tab not found".to_string(), None))?;
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "blocking task failed".to_string(),
+                None,
+            )
+        })??;
     let registry = svc.agent_registry.clone();
     let owned_session_id = session_id.to_string();
     let cwd = evidence.cwd.clone().unwrap_or_default();
@@ -204,6 +249,15 @@ pub(crate) async fn validate_and_commit_rebind(
             None,
         )
     })?;
+    let owner = svc.clone();
+    let target = tab_id.to_owned();
+    let session = session_id.to_owned();
+    let caller = caller_tab_id.map(str::to_owned);
+    tokio::task::spawn_blocking(move || {
+let svc = owner;
+        let tab_id = target.as_str();
+        let session_id = session.as_str();
+        let caller_tab_id = caller.as_deref();
     if let Some(owner) = crate::hook_routes::foreign_provider_session_owner(
         previous_provider.as_deref(),
         &provider_id,
@@ -253,4 +307,6 @@ pub(crate) async fn validate_and_commit_rebind(
         claim,
         identity_write,
     }))
+
+}).await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed".to_string(), None))?
 }

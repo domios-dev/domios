@@ -62,28 +62,37 @@ pub async fn tab_focus(
     headers: HeaderMap,
     Path((workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let exists = state
-        .svc
-        .mux
-        .read()
-        .snapshot()
-        .workspaces
-        .into_iter()
-        .find(|ws| ws.id == workspace_id)
-        .is_some_and(|ws| ws.tabs.contains(&tab_id));
-    if !exists {
-        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
-    }
-    state
-        .svc
-        .set_active_tab(&workspace_id, &tab_id)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    state
-        .svc
-        .focus_tab(&tab_id)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        let exists = state
+            .svc
+            .mux
+            .read()
+            .snapshot()
+            .workspaces
+            .into_iter()
+            .find(|ws| ws.id == workspace_id)
+            .is_some_and(|ws| ws.tabs.contains(&tab_id));
+        if !exists {
+            return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
+        }
+        state
+            .svc
+            .set_active_tab(&workspace_id, &tab_id)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        state
+            .svc
+            .focus_tab(&tab_id)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 pub async fn tab_close(
@@ -111,15 +120,24 @@ pub async fn tab_chat_view(
     Path(tab_id): Path<String>,
     Json(body): Json<ChatViewBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state.svc.set_chat_view(&tab_id, body.enabled);
-    // Explicit API request = remote-control command (bridge / agents / tests):
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "tab-chat-view",
-        serde_json::json!({ "tab_id": tab_id, "enabled": body.enabled }),
-    );
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        state.svc.set_chat_view(&tab_id, body.enabled);
+        // Explicit API request = remote-control command (bridge / agents / tests):
+        crate::events::emit_everywhere(
+            &state.svc.app_handle,
+            "tab-chat-view",
+            serde_json::json!({ "tab_id": tab_id, "enabled": body.enabled }),
+        );
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 /// Peer services for the Mesh tab — same cache+failover logic as the

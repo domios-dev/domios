@@ -33,8 +33,9 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
     *svc.bridge_outbound.lock() = Some(tx);
     *svc.ext::<crate::service::BridgeOutboundRx>().0.lock() = None;
 
-    {
-        let mut mux = svc.mux.write();
+    let mux = svc.mux.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut mux = mux.write();
         if let Some(pid) = mux.resolve_tab_id(service::general_agent::GENERAL_ALIAS) {
             if let Some(tab) = mux.get_tab_mut(&pid) {
                 if !tab.connected_services.contains(&"telegram".to_string()) {
@@ -42,7 +43,9 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
                 }
             }
         }
-    }
+    })
+    .await
+    .map_err(|error| format!("bridge connection state task failed: {error}"))?;
 
     svc.ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
         .attach(

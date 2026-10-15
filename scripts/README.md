@@ -55,7 +55,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-analytics-catalog.test.mjs` | build.sh script-guards via tests/catalogue.json node-script-tests-cargo |
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
 | `check-api-effect-dependencies.mjs` | build.sh release-preflight/test:all; package.json script |
-| `check-blocking-in-async.sh` | scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh |
+| `check-blocking-in-async.py` | scripts/check-blocking-in-async.sh, scripts/tests/test_check_blocking_in_async.py |
+| `check-blocking-in-async.sh` | qa-gates.lib.sh, pre-push |
 | `check-build-check-queue.sh` | build.sh script-guards; skill build |
 | `check-build-dev-port-overrides.sh` | build.sh script-guards |
 | `check-build-gateway-mutex-cleanup.sh` | CI build-gateway.yml; skill build |
@@ -126,6 +127,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `dev-screenshot.mjs` | skill dev-testing |
 | `dev-sidecar-ownership.mjs` | scripts reap-dev-sidecars.mjs, tests/dev-sidecar-ownership.test.mjs |
 | `dev-static-server.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1, dev-prep.mjs, tests/dev-static-api.test.mjs |
+| `dev-wheel-probe.mjs` | skill dev-testing |
 | `export-chat-types.mjs` | package.json script |
 | `fixtures` | CI tests.yml, build-gateway.yml; fixture data for scripts/tests and check-*.sh |
 | `frontend-release` | CI frontend-release.yml, release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs, tests/release-job-graph.test.mjs; skill github-release |

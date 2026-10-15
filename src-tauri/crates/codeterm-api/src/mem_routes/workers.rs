@@ -133,61 +133,75 @@ pub async fn workers_report(
     Json(b): Json<WorkerReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let worker_tab_id = state.svc.workers.get(&id).map(|w| w.tab_id.clone());
-    let (pty_id, session_id, run_cwd) = worker_tab_id
-        .as_ref()
-        .map(|pid| {
-            let mux = state.svc.mux.write();
-            let tab = mux.get_tab(pid);
-            (
-                tab.and_then(|p| p.pty_id.clone()),
-                tab.and_then(|p| p.agent_session_id.clone()),
-                tab.and_then(|p| p.cwd.clone()),
-            )
-        })
-        .unwrap_or((None, None, None));
-    if let Some(ref sid) = session_id {
-        state.svc.workers.set_run_session(&id, sid.clone(), run_cwd);
-    }
-
-    if let Some(ref pty_id) = pty_id {
-        let output = state
-            .svc
-            .output_buf
-            .lock()
-            .get_full_text(pty_id)
-            .unwrap_or_default();
-        if !output.is_empty() {
-            match workers::save_worker_log(&id, &output) {
-                Ok(path) => {
-                    state
-                        .svc
-                        .workers
-                        .set_log_path(&id, path.display().to_string());
-                }
-                Err(e) => log::warn!("[graph-workers] save log: {}", e),
-            }
+    let owner = state.clone();
+    let report_id = id.clone();
+    let info = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let id = report_id;
+        let worker_tab_id = state.svc.workers.get(&id).map(|w| w.tab_id.clone());
+        let (pty_id, session_id, run_cwd) = worker_tab_id
+            .as_ref()
+            .map(|pid| {
+                let mux = state.svc.mux.write();
+                let tab = mux.get_tab(pid);
+                (
+                    tab.and_then(|p| p.pty_id.clone()),
+                    tab.and_then(|p| p.agent_session_id.clone()),
+                    tab.and_then(|p| p.cwd.clone()),
+                )
+            })
+            .unwrap_or((None, None, None));
+        if let Some(ref sid) = session_id {
+            state.svc.workers.set_run_session(&id, sid.clone(), run_cwd);
         }
-        // especially on haiku) does not trip the idle reaper and overwrite the just-set "done" status with a Failed.
-        state.svc.run_watcher.mark_completed_externally(pty_id);
-    }
 
-    codeterm_service_core::mem::dream_runs::record_reported_finalization(
-        &state.svc,
-        &id,
-        &codeterm_service_core::mem::dream_runs::ReportedFinalization {
-            diary_id: b.diary,
-            claim: b.finalization,
-            reason: b.reason,
-        },
-    );
-    let info = state
-        .svc
-        .workers
-        .complete(&id, b.summary)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    crate::events::emit_everywhere(&state.svc.app_handle, "graph-worker-reported", &info);
+        if let Some(ref pty_id) = pty_id {
+            let output = state
+                .svc
+                .output_buf
+                .lock()
+                .get_full_text(pty_id)
+                .unwrap_or_default();
+            if !output.is_empty() {
+                match workers::save_worker_log(&id, &output) {
+                    Ok(path) => {
+                        state
+                            .svc
+                            .workers
+                            .set_log_path(&id, path.display().to_string());
+                    }
+                    Err(e) => log::warn!("[graph-workers] save log: {}", e),
+                }
+            }
+            // especially on haiku) does not trip the idle reaper and overwrite the just-set "done" status with a Failed.
+            state.svc.run_watcher.mark_completed_externally(pty_id);
+        }
 
+        codeterm_service_core::mem::dream_runs::record_reported_finalization(
+            &state.svc,
+            &id,
+            &codeterm_service_core::mem::dream_runs::ReportedFinalization {
+                diary_id: b.diary,
+                claim: b.finalization,
+                reason: b.reason,
+            },
+        );
+        let info = state
+            .svc
+            .workers
+            .complete(&id, b.summary)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        crate::events::emit_everywhere(&state.svc.app_handle, "graph-worker-reported", &info);
+
+        Ok::<_, (StatusCode, String)>(info)
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })??;
     if state
         .svc
         .run_watcher
@@ -239,55 +253,65 @@ pub async fn workers_log(
 > {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
-    let worker = state
-        .svc
-        .workers
-        .get(&id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("worker not found: {}", id)))?;
-
-    if !worker.status.is_terminal() {
-        let pty_id = state
+    tokio::task::spawn_blocking(move || {
+        let worker = state
             .svc
-            .mux
-            .write()
-            .get_tab(&worker.tab_id)
-            .and_then(|p| p.pty_id.clone());
-        if let Some(pty_id) = pty_id {
-            let output = state
+            .workers
+            .get(&id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("worker not found: {}", id)))?;
+
+        if !worker.status.is_terminal() {
+            let pty_id = state
                 .svc
-                .output_buf
-                .lock()
-                .get_full_text(&pty_id)
-                .unwrap_or_default();
-            let (cols, rows) = state.svc.pty.lock().size(&pty_id).unwrap_or((120, 50));
-            let clean = codeterm_util::terminal::clean_terminal_output_sized(&output, rows, cols);
+                .mux
+                .write()
+                .get_tab(&worker.tab_id)
+                .and_then(|p| p.pty_id.clone());
+            if let Some(pty_id) = pty_id {
+                let output = state
+                    .svc
+                    .output_buf
+                    .lock()
+                    .get_full_text(&pty_id)
+                    .unwrap_or_default();
+                let (cols, rows) = state.svc.pty.lock().size(&pty_id).unwrap_or((120, 50));
+                let clean =
+                    codeterm_util::terminal::clean_terminal_output_sized(&output, rows, cols);
+                return Ok((
+                    StatusCode::OK,
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/plain; charset=utf-8",
+                    )],
+                    clean,
+                ));
+            }
+        }
+
+        if let Some(ref path) = worker.log_path {
+            let content = std::fs::read_to_string(path).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("read log: {}", e),
+                )
+            })?;
             return Ok((
                 StatusCode::OK,
                 [(
                     axum::http::header::CONTENT_TYPE,
                     "text/plain; charset=utf-8",
                 )],
-                clean,
+                content,
             ));
         }
-    }
 
-    if let Some(ref path) = worker.log_path {
-        let content = std::fs::read_to_string(path).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("read log: {}", e),
-            )
-        })?;
-        return Ok((
-            StatusCode::OK,
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; charset=utf-8",
-            )],
-            content,
-        ));
-    }
-
-    Err((StatusCode::NOT_FOUND, "no log available".into()))
+        Err((StatusCode::NOT_FOUND, "no log available".into()))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
