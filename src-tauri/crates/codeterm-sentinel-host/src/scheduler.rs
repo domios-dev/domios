@@ -60,7 +60,7 @@ pub struct Handle {
     pending_run_bindings: Arc<Mutex<BTreeMap<String, super::run_binding::PendingRunBinding>>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
     pub(super) probe_owner: Arc<probe::owner::ProbeResourceOwner>,
-    app: Option<codeterm_host_runtime::app_runtime::AppHandle>,
+    ui: Option<Arc<dyn codeterm_service_core::ports::host::UiEvents>>,
     _shutdown: Option<Arc<codeterm_service_core::crash::shutdown::ShutdownSubscription>>,
 }
 
@@ -76,8 +76,8 @@ impl Handle {
     }
 
     pub fn notify(&self) {
-        if let Some(app) = &self.app {
-            emit_changes(&self.store, app);
+        if let Some(ui) = &self.ui {
+            emit_changes(&self.store, ui.as_ref());
         }
         let (generation, wake) = &*self.wake;
         if let Ok(mut generation) = generation.lock() {
@@ -153,24 +153,47 @@ impl Handle {
 
 #[cfg(any(test, feature = "test-support"))]
 pub fn fixture_handle(store: Store, app: codeterm_host_runtime::app_runtime::AppHandle) -> Handle {
+    fixture_handle_with_ui(store, Arc::new(HostEvents(app)))
+}
+
+#[cfg(any(test, feature = "test-support"))]
+struct HostEvents(codeterm_host_runtime::app_runtime::AppHandle);
+
+#[cfg(any(test, feature = "test-support"))]
+impl codeterm_service_core::ports::host::UiEvents for HostEvents {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        codeterm_host_runtime::events::emit_everywhere(&self.0, event, payload);
+    }
+
+    fn emit_to(&self, target: &str, event: &str, payload: serde_json::Value) {
+        use tauri::Emitter;
+        let _ = self.0.emit_to(target, event, payload);
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub fn fixture_handle_with_ui(
+    store: Store,
+    ui: Arc<dyn codeterm_service_core::ports::host::UiEvents>,
+) -> Handle {
     Handle {
         store: Arc::new(Mutex::new(store)),
         inbox: Arc::new(Mutex::new(super::terminal::Inbox::default())),
         pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
-        app: Some(app),
+        ui: Some(ui),
         _shutdown: None,
     }
 }
 
 pub(super) fn emit_changes(
     store: &Arc<Mutex<Store>>,
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    ui: &dyn codeterm_service_core::ports::host::UiEvents,
 ) {
     let changes = store.lock().take_changes();
     for change in changes {
-        codeterm_host_runtime::events::emit_everywhere(app, "automation-graph-changed", change);
+        ui.emit("automation-graph-changed", change);
     }
 }
 
@@ -178,6 +201,7 @@ pub fn start(
     svc: ServiceState,
     clock: SharedClock,
     storage: &codeterm_service_core::storage::Storage,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Option<codeterm_service_core::ports::sentinel::SentinelPorts> {
     let _ = super::command::START_TRACE.set(|id| {
         codeterm_service_core::flow_trace::record(id, "blueprint.started", "", "", "command", None);
@@ -188,7 +212,7 @@ pub fn start(
         pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
-        app: Some(svc.app_handle.clone()),
+        ui: Some(svc.ui.clone()),
         _shutdown: None,
     };
     let callback = shutdown_callback(&handle);
@@ -201,12 +225,15 @@ pub fn start(
             return None;
         }
     }
-    crate::service_adapter::graph::install_invalidations(&svc, handle.store.clone());
-    wake::listen_any(svc.clone(), handle.clone());
-    svc.app_handle.manage(handle.clone());
+    crate::service_adapter::graph::install_invalidations(&svc, handle.store.clone(), app);
+    wake::listen_any(svc.clone(), handle.clone(), app);
+    app.manage(handle.clone());
+    assert!(svc
+        .register_host_extension(Arc::new(handle.clone()))
+        .is_ok());
     let ports = super::ports_impl::ports(&handle);
     assert!(svc.set_ext(ports.clone()).is_ok());
-    svc.app_handle.manage(ports.clone());
+    app.manage(ports.clone());
     if let Err(error) = handle.store.lock().ensure_available() {
         log::error!("[blueprint] subsystem unavailable: {error}");
         return Some(ports);
@@ -252,7 +279,7 @@ pub fn start(
                     pending_run_bindings: pending_run_bindings.clone(),
                     wake: wake.clone(),
                     probe_owner: owner.clone(),
-                    app: Some(svc.app_handle.clone()),
+                    ui: Some(svc.ui.clone()),
                     _shutdown: None,
                 };
                 super::run_binding::process_pending(&svc, &run_handle);
@@ -276,7 +303,7 @@ pub fn start(
                                 pending_run_bindings: pending_run_bindings.clone(),
                                 wake: wake.clone(),
                                 probe_owner: owner,
-                                app: Some(svc.app_handle.clone()),
+                                ui: Some(svc.ui.clone()),
                                 _shutdown: None,
                             };
                             if worker_handle.probe_owner.is_closing() {
@@ -308,7 +335,7 @@ pub fn start(
                     log::error!("[blueprint] terminal watcher cleanup failed: {error}");
                 }
             }
-            emit_changes(&store, &svc.app_handle);
+            emit_changes(&store, svc.ui.as_ref());
             if probe_owner.upgrade().is_none_or(|owner| owner.is_closing()) {
                 return;
             }
@@ -699,7 +726,7 @@ pub(super) fn fixture_handle_without_app(store: Store) -> Handle {
         pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
-        app: None,
+        ui: None,
         _shutdown: None,
     }
 }
