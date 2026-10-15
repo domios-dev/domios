@@ -6,7 +6,7 @@ use codeterm_service_core::service::{
 };
 
 fn arm_session(tab: &mut Tab, suffix: &str) {
-    tab.agent_type = Some("codex".into());
+    tab.agent_type = Some("alpha".into());
     tab.agent_session_id = Some(format!("session-{suffix}"));
     tab.session_binding_nonce = Some(format!("nonce-{suffix}"));
     tab.reported_session_binding_nonce = Some(format!("nonce-{suffix}"));
