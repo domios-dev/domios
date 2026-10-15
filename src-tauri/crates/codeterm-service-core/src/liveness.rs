@@ -221,7 +221,7 @@ async fn publish_api_recovery(
     recovery: &crate::startup::RestApiRecovery,
 ) {
     apply_mesh_local_health(mesh, true);
-    codeterm_events::emit_everywhere(app, "mesh-state-changed", serde_json::Value::Null);
+    crate::events::emit_everywhere(app, "mesh-state-changed", serde_json::Value::Null);
     let report = crate::mesh::broadcast_announce(mesh, None).await;
     log::info!(
         "[liveness] local API generation {} recovery transition {} announced; sent={} ok={} errors={}",
@@ -298,7 +298,7 @@ pub fn start_api_liveness_watchdog(
                                 write_liveness_report,
                             );
                             if changed {
-                                codeterm_events::emit_everywhere(
+                                crate::events::emit_everywhere(
                                     &app,
                                     "mesh-state-changed",
                                     serde_json::Value::Null,

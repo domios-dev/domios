@@ -92,7 +92,7 @@ pub fn build_service_context(
     {
         let handle = app_handle.clone();
         kpi.on_commit(move |plan_ids| {
-            codeterm_events::emit_everywhere(
+            crate::events::emit_everywhere(
                 &handle,
                 "kpi-recorded",
                 serde_json::json!({ "plan_ids": plan_ids }),

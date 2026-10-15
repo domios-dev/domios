@@ -18,6 +18,7 @@ pub mod crash;
 pub mod cron;
 pub mod delayed_send;
 pub mod dispatch;
+pub mod events;
 mod fdlimit;
 pub mod flow_trace;
 pub mod frontend_bundle_api_version;

@@ -655,7 +655,7 @@ impl ServiceContext {
         }
         use tauri::Manager;
         *self.app_handle.state::<crate::config::ConfigState>().lock() = cfg.clone();
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app_handle,
             "config-changed",
             serde_json::to_value(&cfg).unwrap_or_default(),

@@ -16,12 +16,12 @@ const SYSTEMD_SERVICES: &[&str] = &[
     "systemd-suspend-then-hibernate.service",
 ];
 
-pub fn start<RT: Runtime>(
+pub fn start<E: StatusEmitter>(
     display: bool,
     duration_secs: Option<u64>,
     stop_rx: std::sync::mpsc::Receiver<()>,
     state: KeepAwakeState,
-    app: AppHandle<RT>,
+    emitter: E,
     session_id: u64,
 ) -> Result<(), String> {
     let mut child = spawn_keepawake_child(display)?;
@@ -43,7 +43,7 @@ pub fn start<RT: Runtime>(
             unregister_child(child_pid);
 
             if !stopped_early {
-                clear_if_owner(&state, session_id, &app);
+                clear_if_owner(&state, session_id, &emitter);
             }
         })
         .map(|_| ())

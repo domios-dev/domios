@@ -602,7 +602,7 @@ impl ServiceContext {
         if let Some(plan_id) =
             self.write_attempt_model_identity(tab_id, agent_id, session_id, Some(model.to_string()))
         {
-            codeterm_events::emit_everywhere(
+            crate::events::emit_everywhere(
                 &self.app_handle,
                 "plan-changed",
                 serde_json::json!({ "plan_id": plan_id }),
@@ -699,7 +699,7 @@ impl ServiceContext {
             if let Some(plan_id) =
                 self.write_attempt_model_identity(tab_id, &agent_id, &session_id, None)
             {
-                codeterm_events::emit_everywhere(
+                crate::events::emit_everywhere(
                     &self.app_handle,
                     "plan-changed",
                     serde_json::json!({ "plan_id": plan_id }),

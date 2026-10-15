@@ -34,7 +34,7 @@ impl ChatSendLedger {
             };
             let status = expire_at(&mut state.lock(), &send_id, Instant::now());
             if let (Some(status), Some(owner)) = (status, owner.upgrade()) {
-                codeterm_events::emit_everywhere(&owner.app_handle, "chat-send-status", &status);
+                crate::events::emit_everywhere(&owner.app_handle, "chat-send-status", &status);
                 owner.wake_user_owner(
                     &status.tab_id,
                     crate::service::parked_user_delivery::UserWake::Housekeeping,

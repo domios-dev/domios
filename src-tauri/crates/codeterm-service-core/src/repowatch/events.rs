@@ -12,7 +12,7 @@ impl TauriRepoEventSink {
 
 impl RepoEventSink for TauriRepoEventSink {
     fn repository_changed(&self, identity: &str) {
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app,
             "repository-changed",
             serde_json::json!({ "identity": identity }),
@@ -30,7 +30,7 @@ impl RepoEventSink for TauriRepoEventSink {
 
     fn repository_unavailable(&self, identity: &str, reason: RepoWatchUnavailable) {
         log::warn!("[repowatch] {identity} unavailable: {}", reason.as_str());
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app,
             "repository-unavailable",
             serde_json::json!({ "identity": identity, "reason": reason.as_str() }),

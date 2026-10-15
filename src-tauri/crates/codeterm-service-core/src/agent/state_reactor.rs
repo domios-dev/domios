@@ -726,7 +726,7 @@ fn surface_to_user(svc: &ServiceContext, tab_id: &str, surface: Option<Surface>)
         Some(s) => (s.kind.clone(), s.payload.clone()),
         None => ("tab_state".to_string(), serde_json::Value::Null),
     };
-    codeterm_events::emit_everywhere(
+    crate::events::emit_everywhere(
         &svc.app_handle,
         "tab-state-surface",
         serde_json::json!({ "tab_id": tab_id, "kind": kind, "payload": payload }),

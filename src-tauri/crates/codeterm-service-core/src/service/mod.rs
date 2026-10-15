@@ -652,7 +652,7 @@ impl ServiceContext {
     /// hook, inbound report) so the sidebar refreshes consistently.
     pub fn emit_remote_workers_changed(&self, orchestrator_tab: &str) {
         // SSE bus, so the web mirror updates live too — not only on next remount.
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app_handle,
             "remote-workers-changed",
             serde_json::json!({
@@ -874,7 +874,7 @@ impl ServiceContext {
     /// OS notifications are NOT sent here — use in-app toasts only.
     pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
         // 1. Native webview + SSE bus (web mirror) through the single seam.
-        codeterm_events::emit_everywhere(&self.app_handle, event_type, &payload);
+        crate::events::emit_everywhere(&self.app_handle, event_type, &payload);
         // 2. External webhooks + websockets (Telegram, Discord, etc.)
         self.events.broadcast(event_type, payload);
     }

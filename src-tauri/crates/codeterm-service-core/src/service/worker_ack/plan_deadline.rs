@@ -422,7 +422,7 @@ impl ServiceContext {
             "agent.report",
             json!({ "target_tab_id": supervisor_tab_id, "report": report.clone() }),
         );
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app_handle,
             "agent-report",
             json!({
@@ -865,7 +865,7 @@ impl ServiceContext {
                 "report": report.clone(),
             }),
         );
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app_handle,
             "agent-report",
             json!({

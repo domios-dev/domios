@@ -657,7 +657,7 @@ fn observe(svc: &ServiceContext, tab: &str, sidecar: &Arc<Sidecar>) {
 }
 
 fn emit(svc: &ServiceContext, status: &ChatSendStatus) {
-    codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+    crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
 }
 
 #[cfg(test)]

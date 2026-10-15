@@ -6,12 +6,18 @@ pub(crate) fn forward_changes(app: &codeterm_service_core::app_runtime::AppHandl
     tauri::async_runtime::spawn(async move {
         loop {
             match changes.recv().await {
-                Ok(change) => {
-                    codeterm_events::emit_everywhere(&app, "model-catalogue-changed", change)
-                }
+                Ok(change) => codeterm_service_core::events::emit_everywhere(
+                    &app,
+                    "model-catalogue-changed",
+                    change,
+                ),
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                     for change in agent::model_catalog::version_snapshot() {
-                        codeterm_events::emit_everywhere(&app, "model-catalogue-changed", change);
+                        codeterm_service_core::events::emit_everywhere(
+                            &app,
+                            "model-catalogue-changed",
+                            change,
+                        );
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
