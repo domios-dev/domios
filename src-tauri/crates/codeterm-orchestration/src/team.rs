@@ -588,7 +588,7 @@ pub fn adopt_plan_for_team(
     let plan =
         adopt_plan_for_team_core(&mut mux, &svc.plan_store, team_id, plan_id, caller, now_ms)?;
     drop(mux);
-    codeterm_service_core::events::emit_everywhere(
+    codeterm_host_runtime::events::emit_everywhere(
         &svc.app_handle,
         "plan-changed",
         serde_json::json!({ "plan_id": plan_id }),

@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::{EffortLinkRel, PlanStatus};
@@ -25,7 +25,7 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 }
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_service_core::events::emit_everywhere(
+    codeterm_host_runtime::events::emit_everywhere(
         app,
         "plan-changed",
         json!({ "plan_id": plan_id }),
@@ -33,7 +33,7 @@ fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
 }
 
 fn emit_spec_changed(app: &AppHandle, spec_id: &str) {
-    codeterm_service_core::events::emit_everywhere(
+    codeterm_host_runtime::events::emit_everywhere(
         app,
         "spec-changed",
         json!({ "spec_id": spec_id }),

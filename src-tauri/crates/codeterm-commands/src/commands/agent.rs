@@ -46,7 +46,7 @@ pub fn install_provider_in_tab_with_fixture_failure(
         let pty_id = svc
             .resolve_pty_id(tab_id)
             .map_err(|error| format!("installer PTY acknowledgement failed: {error}"))?;
-        codeterm_service_core::events::emit_everywhere(
+        codeterm_host_runtime::events::emit_everywhere(
             &svc.app_handle,
             "provider-install-fixture-dispatch-refused",
             serde_json::json!({ "tab_id": tab_id, "pty_id": pty_id }),

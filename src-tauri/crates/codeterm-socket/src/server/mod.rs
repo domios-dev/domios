@@ -63,7 +63,7 @@ pub(crate) use dispatch::{dispatch_mesh_rpc, dispatch_service_rpc};
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde::{Deserialize, Serialize};
 
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};

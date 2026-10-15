@@ -1,4 +1,4 @@
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 pub use codeterm_service_core::keepawake::*;
 use codeterm_service_core::ports::host::UiEvents;
 use std::sync::Arc;
