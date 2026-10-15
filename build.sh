@@ -2185,7 +2185,7 @@ CodeTerm build commands
   nextest <scope> [filterset] --peer <name|auto> [--sha SHA]  Same nextest run in a mesh peer's gateway
   check-linux [sha] [--force]  Once per batch: cargo check --workspace --all-targets on a Linux peer
   check-workspace [sha]       Whole-workspace cargo check of a SHA in this machine's check worktree
-  peer-setup <peer>           Clone/refresh the peer's fetch-only checkout, check its toolchain, open its status tab
+  peer-setup <peer> [--sha R] Clone/refresh the peer's fetch-only checkout, check its toolchain, open its status tab
   peer-route [--os OS]        Show which peer --peer auto would pick
   peer-status                 One PEER_STATUS line: this machine's gateway load (read by --peer auto)
   peer-toolchain              Check rustup/rustc pin, native toolchain, node, nextest and sccache

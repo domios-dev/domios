@@ -310,7 +310,7 @@ Mesh peers run the same verbs in their own gateway, with their own warm cache an
 
 | Verb | What happens |
 |---|---|
-| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `rollacode/codeterm` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop`, runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. |
+| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `rollacode/codeterm` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop` (or `--sha REF`, which must be pushed and contain `scripts/build-peer.mjs`), runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. |
 | `./build.sh check-queue <sha> --peer <name\|auto> [--lane] [--os OS]` | The peer fetches `develop` and the SHA, detaches its checkout at the SHA and runs `./build.sh check-queue <sha> [flags] --wait-build` in its gateway. `--lane`, `--all`, `--touched-only`, `--max-errors` and `--max-warnings` pass through unchanged. |
 | `./build.sh nextest <scope> [filterset] --peer <name\|auto> [--sha SHA]` | Same, running `./build.sh nextest <scope> [filterset] --wait-build` at the SHA (default HEAD). |
 | `./build.sh check-linux [sha] [--force]` | Once per batch: `./build.sh check-workspace <sha>` (`cargo check --workspace --all-targets` for the app workspace and the CLI, any warning fails) on the idle Linux peer, so `cfg(unix)` paths compile. A second call for the same SHA prints the existing receipt; `--force` dispatches again. |
@@ -327,6 +327,7 @@ Measurements (fill from the first real runs): ROG cold first populate of `check-
 Troubleshooting:
 - No completion message arrives and the remote tab is gone: the tab timeout fired before the runner started (the shell never ran the command, for example a Windows peer without the `git-bash` profile). Check `codeterm tab list --mesh <peer>` and the peer's `peers.json` `shell`.
 - `outcome=not_setup stage=checkout_dir`: run `./build.sh peer-setup <peer>` first.
+- `outcome=bootstrap_failed stage=runner_missing`: the SHA predates the peer runner; dispatch a SHA that contains `scripts/build-peer.mjs`.
 - `outcome=bootstrap_failed stage=checkout`: the peer checkout has local changes; it is fetch-only and must stay clean.
 - `peer routing: busy; X=unknown(not_setup)`: the peer has no `Buildpeer` tab; rerun `peer-setup`.
 

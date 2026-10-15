@@ -179,10 +179,11 @@ async function dispatch(argv) {
 function setup(argv) {
   const stateDir = takeOption(argv, '--state-dir');
   const replyTab = requireReplyTab({ replyTab: takeOption(argv, '--reply-tab') });
-  if (!stateDir || argv.length !== 1) throw new Refusal('usage: ./build.sh peer-setup <peer> [--reply-tab TAB]');
+  const ref = takeOption(argv, '--sha') ?? 'origin/develop';
+  if (!stateDir || argv.length !== 1) throw new Refusal('usage: ./build.sh peer-setup <peer> [--sha REF] [--reply-tab TAB]');
   const config = peersConfig();
   const peer = findPeer(config.peers, argv[0]);
-  const sha = resolveSha('origin/develop');
+  const sha = resolveSha(ref);
   const rest = ['--status-title', config.statusTabTitle, ...(peer.shell ? ['--shell', peer.shell] : [])];
   launch({ config, peer, verb: 'setup', sha, deadlineSecs: parseDuration(VERBS.setup.deadline), replyTab, clone: true,
     stateDir, recordNames: [], runnerTail: { head: ['setup-local'], rest } });
