@@ -61,7 +61,7 @@ fn startup_no_global_stall_slow_child_does_not_block_unrelated_caller() {
 
 #[test]
 fn startup_no_global_stall_child_requests_stay_exclusive_and_recycle() {
-    let call_budget = codeterm_service_core::mem::embeddings::EMBED_CHILD_CALL_BUDGET;
+    let call_budget = 8;
     let slot = Mutex::new(Some(TestChild { id: 1, calls: 0 }));
     for expected_calls in 1..=2 {
         let id = codeterm_util::child_slot::request_with_idle(

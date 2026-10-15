@@ -12,6 +12,10 @@ pub mod dreaming;
 pub mod embed_queue;
 #[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
 mod embed_schedule;
+#[cfg(feature = "embeddings")]
+mod embedding_model;
+#[cfg(feature = "embeddings")]
+mod embedding_worker;
 pub mod embeddings;
 pub mod extraction_authority;
 pub mod extraction_retry;
@@ -22,6 +26,8 @@ pub mod graph_repair;
 pub mod ids;
 pub mod layers;
 pub mod learnings;
+#[cfg(feature = "embeddings")]
+mod model_files;
 pub mod ports;
 pub mod precompact_purge;
 pub mod prompt_text;
