@@ -119,10 +119,12 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_platform_jobs_run_in_parallel_before_the_final_manifest_job(self):
         caller = read("release.yml")
         for job, workflow in (
-            ("macos", "release-macos-build.yml"),
+            ("macos-arm64", "release-macos-build.yml"),
+            ("macos-x64", "release-macos-build.yml"),
             ("linux-arm64", "release-linux-arm64.yml"),
             ("linux-x86_64", "release-linux.yml"),
-            ("windows", "release-windows.yml"),
+            ("windows-x64", "release-windows.yml"),
+            ("windows-arm64", "release-windows.yml"),
         ):
             self.assertIn(f"  {job}:\n    name:", caller)
             block = caller[caller.index(f"  {job}:") :].split("\n\n", 1)[0]
@@ -131,14 +133,14 @@ class SingleRunGraphTest(unittest.TestCase):
 
         final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
         self.assertIn(
-            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]", final
+            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]", final
         )
         self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", final)
         self.assertNotIn("if: always()", final)
 
     def test_preparation_creates_drafts_and_cleans_assets_before_parallel_uploads(self):
         caller = read("release.yml")
-        prepare = caller[caller.index("  prepare:") : caller.index("  macos:")]
+        prepare = caller[caller.index("  prepare:") : caller.index("  macos-arm64:")]
         self.assertIn("gh release create", prepare)
         self.assertIn("--draft", prepare)
         self.assertIn("scripts/release-clear-wedged-assets.mjs", prepare)
@@ -279,12 +281,12 @@ class SingleRunGraphTest(unittest.TestCase):
 
     def test_manifest_release_gate_follows_all_parallel_jobs(self):
         caller = read("release.yml")
-        platform_jobs = [caller.index(f"  {name}") for name in ("macos:", "linux-arm64:", "linux-x86_64:", "windows:")]
+        platform_jobs = [caller.index(f"  {name}") for name in ("macos-arm64:", "macos-x64:", "linux-arm64:", "linux-x86_64:", "windows-x64:", "windows-arm64:")]
         manifest_job = caller.index("  release-manifest:")
         self.assertEqual(platform_jobs, sorted(platform_jobs))
         self.assertGreater(manifest_job, max(platform_jobs))
         self.assertIn(
-            "needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]",
+            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]",
             caller[manifest_job:],
         )
 
@@ -309,8 +311,9 @@ class DryRunContractTest(unittest.TestCase):
         drafts = next(s for s in steps(caller) if s.get("name") == "Create draft releases before parallel uploads")
         self.assertIn("dry_run != 'true'", drafts.get("if", ""))
         final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
-        self.assertIn("if: needs.prepare.outputs.dry_run != 'true'", final)
-        for job in ("macos:", "linux-arm64:", "linux-x86_64:", "windows:"):
+        self.assertIn("needs.prepare.outputs.dry_run != 'true'", final)
+        self.assertIn("vars.RELEASE_PUBLISH_ENABLED == 'true'", final)
+        for job in ("macos-arm64:", "macos-x64:", "linux-arm64:", "linux-x86_64:", "windows-x64:", "windows-arm64:"):
             block = caller[caller.index(f"  {job}") :]
             block = block[: block.index("secrets: inherit")]
             self.assertIn("dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}", block, job)

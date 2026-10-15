@@ -13,7 +13,7 @@ function workflow(name) {
 
 const release = workflow("release");
 const tests = workflow("tests");
-const builds = ["macos", "linux-arm64", "linux-x86_64", "windows"];
+const builds = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x86_64", "windows-x64", "windows-arm64"];
 const dependencies = job => [job.needs].flat();
 
 const fastJobs = ["file-sizes", "plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];

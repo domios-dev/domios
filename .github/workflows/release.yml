@@ -175,7 +175,7 @@ jobs:
           fi
 
   quick-checks:
-    name: quick release checks
+    name: Fast checks
     needs: prepare
     if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
@@ -190,7 +190,7 @@ jobs:
     secrets: inherit
 
   tests:
-    name: long release Rust tests
+    name: Rust tests
     needs: [prepare, quick-checks]
     if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
@@ -204,8 +204,8 @@ jobs:
       pull-requests: write
     secrets: inherit
 
-  macos:
-    name: macOS
+  macos-arm64:
+    name: macOS arm64
     needs: [prepare, quick-checks]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
@@ -218,6 +218,24 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      arch: arm64
+    secrets: inherit
+
+  macos-x64:
+    name: macOS x64
+    needs: [prepare, quick-checks]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success'
+      && (needs.quick-checks.result == 'success'
+      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    uses: ./.github/workflows/release-macos-build.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+      mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
+      dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      arch: x86_64
     secrets: inherit
 
   linux-arm64:
@@ -237,7 +255,7 @@ jobs:
     secrets: inherit
 
   linux-x86_64:
-    name: Linux x86_64
+    name: Linux x64
     needs: [prepare, quick-checks]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
@@ -252,8 +270,8 @@ jobs:
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
     secrets: inherit
 
-  windows:
-    name: Windows x64 + arm64
+  windows-x64:
+    name: Windows x64
     needs: [prepare, quick-checks]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
@@ -266,11 +284,29 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      arch: x64
+    secrets: inherit
+
+  windows-arm64:
+    name: Windows arm64
+    needs: [prepare, quick-checks]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success'
+      && (needs.quick-checks.result == 'success'
+      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    uses: ./.github/workflows/release-windows.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+      mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
+      dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      arch: arm64
     secrets: inherit
 
   release-manifest:
     name: release manifest, mirror, and verification
-    needs: [prepare, macos, linux-arm64, linux-x86_64, windows, quick-checks, tests]
+    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]
     if: vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
@@ -354,7 +390,7 @@ jobs:
       contents: read
       actions: write
       pull-requests: write
-    needs: [prepare, quick-checks, tests, macos, linux-arm64, linux-x86_64, windows]
+    needs: [prepare, quick-checks, tests, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
     if: always()
     uses: ./.github/workflows/rust-warnings-summary.yml
     with:
