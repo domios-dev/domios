@@ -2386,7 +2386,7 @@ EOF
     check_workspace_run "${@:2}"
     ;;
   peer-status)
-    node scripts/build-peer.mjs status --gateway-dir "$(ct_gateway_dir)"
+    ct_gateway_peer_status
     ;;
   peer-toolchain)
     peer_toolchain "${@:2}"

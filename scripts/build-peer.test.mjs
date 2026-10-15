@@ -348,3 +348,37 @@ test('a peer path list prefixes the job command and the status probe; node is ch
   assert.ok(command.indexOf('ct_step node_missing command -v node') < command.indexOf('node scripts/build-peer.mjs'));
   assert.throws(() => loadPeers({ peers: { X: { os: 'linux', checkout: '/x', path: ['/bin; rm -rf /'] } } }), /plain directories/);
 });
+
+const SEED_DEAD_OWNER = `set -e
+ct_repo_root() { pwd; }
+source scripts/build-gateway.sh
+pid=4194303
+while [ -r "/proc/$pid/stat" ] || kill -0 "$pid" 2>/dev/null; do pid=$((pid - 1)); done
+ct_gateway_state_tool create --dir "$STATE" --job-id orphan --job release-bundle --command "release-bundle" --owner ci \\
+  --owner-pid "$pid" --owner-start-token 1234567890 --owner-process-command "bash ./build.sh release-bundle" \\
+  --worktree "$PWD" --source-sha fixture --queue-key 0000000000000-0000000000-orphan --queued-at "$(ct_gateway_now)" \\
+  --log-path "$STATE/jobs/orphan.log"
+CT_BUILD_JOB_ID=orphan ct_gateway_update_job running "" "" "$(ct_gateway_now)" ""
+mkdir -p "$STATE/lock"
+for f in pid native_pid; do echo "$pid" > "$STATE/lock/$f"; done
+for f in start_token native_start_token; do echo 1234567890 > "$STATE/lock/$f"; done
+echo orphan > "$STATE/lock/job_id"; echo 0000000000000-0000000000-orphan > "$STATE/lock/queue_key"
+echo release-bundle > "$STATE/lock/command"; echo "$PWD" > "$STATE/lock/worktree"; echo fixture > "$STATE/lock/source_sha"
+`;
+
+test('peer-status reaps a dead CI owner, so a cancelled release job never leaves the slot looking busy', (t) => {
+  const state = tempDir('reap');
+  t.after(() => fs.rmSync(state, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(state, 'jobs'));
+  fs.mkdirSync(path.join(state, 'queue'));
+  const env = { ...process.env, STATE: posixPath(state), CT_BUILD_GATEWAY_SCOPE: 'fixture', CT_BUILD_GATEWAY_FIXTURE_DIR: posixPath(state) };
+  const seeded = run(bash, ['-c', SEED_DEAD_OWNER], { cwd: root, env });
+  assert.equal(seeded.status, 0, seeded.stderr);
+  const result = run(bash, ['-c', 'ct_repo_root() { pwd; }; source scripts/build-gateway.sh; ct_gateway_peer_status'], { cwd: root, env });
+  assert.equal(result.status, 0, result.stderr);
+  const status = parseStatusOutput(result.stdout);
+  assert.equal(status.gateway.active, false, result.stdout);
+  assert.ok(!fs.existsSync(path.join(state, 'lock')));
+  const record = JSON.parse(fs.readFileSync(path.join(state, 'jobs/orphan.json'), 'utf8'));
+  assert.deepEqual([record.state, record.outcome], ['failed', 'owner_lost']);
+});
