@@ -3,7 +3,7 @@ use super::*;
 impl ServiceContext {
     /// Own one launch's bounded readiness observation to its end. Runs on its
     /// own thread so no launch blocks on it.
-    pub(crate) fn observe_launch_readiness(
+    pub fn observe_launch_readiness(
         &self,
         attempt: LaunchAttempt,
         deadline: std::time::Duration,
@@ -14,6 +14,11 @@ impl ServiceContext {
         std::thread::spawn(move || {
             let normal_deadline = Instant::now() + deadline;
             let mut ready_before_prompt = false;
+            let published_settlement = |exit_code| {
+                take_published_failure(&attempt)
+                    .map(|reason| LaunchSettlement::Failed { reason, exit_code })
+                    .unwrap_or(LaunchSettlement::Superseded)
+            };
             let evidence = match observe_with_owner_prompt(&attempt, normal_deadline, |question| {
                 let stage = svc
                     .mux
@@ -39,9 +44,7 @@ impl ServiceContext {
                         exit_code,
                         &proof,
                     );
-                    let settlement = take_published_failure(&attempt)
-                        .map(|reason| LaunchSettlement::Failed { reason, exit_code })
-                        .unwrap_or(LaunchSettlement::Superseded);
+                    let settlement = published_settlement(exit_code);
                     retire_attempt(&attempt);
                     let _ = settled.send(settlement);
                     return;
@@ -77,13 +80,7 @@ impl ServiceContext {
                     reason: SPAWN_READINESS_DEADLINE.to_string(),
                 },
                 LaunchObservation::Retired => {
-                    let settlement = take_published_failure(&attempt)
-                        .map(|reason| LaunchSettlement::Failed {
-                            reason,
-                            exit_code: None,
-                        })
-                        .unwrap_or(LaunchSettlement::Superseded);
-                    let _ = settled.send(settlement);
+                    let _ = settled.send(published_settlement(None));
                     return;
                 }
             };

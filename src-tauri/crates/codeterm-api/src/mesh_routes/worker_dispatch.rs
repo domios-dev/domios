@@ -677,6 +677,7 @@ fn dispatch_authenticated_worker(
         &canonical_cwd,
         &lane_label,
         &request.base_commit,
+        &state.svc.worker_lane_settings(),
     )
     .map_err(|error| {
         (

@@ -444,7 +444,9 @@ impl Store {
         id: &str,
     ) -> Result<
         Option<
-            codeterm_storage::Completion<codeterm_storage::Read<Vec<codeterm_storage::StoredDefinition>>>,
+            codeterm_storage::Completion<
+                codeterm_storage::Read<Vec<codeterm_storage::StoredDefinition>>,
+            >,
         >,
         String,
     > {

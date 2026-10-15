@@ -240,7 +240,7 @@ function commandLabel(command) {
   return clip(compact(`${executableName(parsed.tokens[0])}${rest ? " " + rest : ""}`));
 }
 
-// ../../codeterm/packages/plugin-sdk/src/fileDiffs.ts
+// packages/plugin-sdk/src/fileDiffs.ts
 function recordedPatchDiff(path, patch, kind) {
   if (!path.trim()) return [];
   const hunks = [];

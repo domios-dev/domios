@@ -219,11 +219,14 @@ where
     }
 }
 
+pub(super) const HEALTH_PROOF_DEADLINE: Duration = Duration::from_secs(5);
+
 pub(super) async fn prove_set(
     primary: SocketAddr,
     remote: Option<SocketAddr>,
+    budget: Duration,
 ) -> Result<(), String> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let deadline = tokio::time::Instant::now() + budget;
     prove_health(primary, deadline).await?;
     if let Some(remote) = remote {
         prove_health(remote, deadline).await?;

@@ -1,18 +1,12 @@
-use std::path::Path;
+use std::path::{Component, Path};
 
 use serde_json::{json, Value};
 
-const SETTINGS_FILES: [&str; 4] = [
-    ".claude/settings.json",
-    ".claude/settings.local.json",
-    ".vscode/settings.json",
-    "rust-analyzer.toml",
-];
+use crate::agent::provider::WorkerLaneSetting;
 
-pub(super) fn configure(cwd: &str) -> Result<(), String> {
-    let claude = json!({
-        "enabledPlugins": { "rust-analyzer-lsp@claude-plugins-official": false }
-    });
+const SETTINGS_FILES: [&str; 2] = [".vscode/settings.json", "rust-analyzer.toml"];
+
+pub(super) fn configure(cwd: &str, provider_settings: &[WorkerLaneSetting]) -> Result<(), String> {
     let vscode = json!({
         "rust-analyzer.checkOnSave": false,
         "rust-analyzer.cargo.buildScripts.enable": false,
@@ -30,14 +24,21 @@ pub(super) fn configure(cwd: &str) -> Result<(), String> {
             }
         }
     });
-    for (relative, patch) in [
-        (SETTINGS_FILES[0], &claude),
-        (SETTINGS_FILES[1], &claude),
-        (SETTINGS_FILES[2], &vscode),
-        (SETTINGS_FILES[3], &analyzer),
-    ] {
+    let mut written: Vec<&str> = Vec::new();
+    for (relative, patch) in [(SETTINGS_FILES[0], &vscode), (SETTINGS_FILES[1], &analyzer)]
+        .into_iter()
+        .chain(
+            provider_settings
+                .iter()
+                .map(|setting| (setting.path.as_str(), &setting.patch)),
+        )
+    {
+        refuse_escaping_path(relative)?;
         write_settings(cwd, relative, patch)?;
         hide_tracked_settings(cwd, relative)?;
+        if !written.contains(&relative) {
+            written.push(relative);
+        }
     }
     let ignore = Path::new(cwd).join(".gitignore");
     refuse_symlink_path(cwd, ".gitignore")?;
@@ -45,13 +46,27 @@ pub(super) fn configure(cwd: &str) -> Result<(), String> {
     content.push_str(
         "\n# Worker lane language-server settings stay out of integration.\n/.gitignore\n",
     );
-    for relative in SETTINGS_FILES {
+    for relative in written {
         content.push('/');
         content.push_str(relative);
         content.push('\n');
     }
     std::fs::write(&ignore, content).map_err(|error| format!("{}: {error}", ignore.display()))?;
     hide_tracked_settings(cwd, ".gitignore")
+}
+
+fn refuse_escaping_path(relative: &str) -> Result<(), String> {
+    let path = Path::new(relative);
+    if relative.is_empty()
+        || !path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return Err(format!(
+            "worker lane settings path must stay inside the lane: {relative}"
+        ));
+    }
+    Ok(())
 }
 
 fn hide_tracked_settings(cwd: &str, relative: &str) -> Result<(), String> {

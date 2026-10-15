@@ -96,7 +96,7 @@ pub fn run_with_receipt(
     )
 }
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test, all(feature = "test-support", windows)))]
 fn run_with_runtime_and_receipt(
     command: &str,
     cwd: &Path,

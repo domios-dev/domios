@@ -8,7 +8,10 @@ const directory = process.argv[2] || 'ci-rust-warnings';
 const output = process.argv[3] || 'rust-warnings-report';
 const baseline = JSON.parse(fs.readFileSync('scripts/rust-warnings-baseline.json', 'utf8'));
 try {
-  const previous = JSON.parse(execFileSync('git', ['show', 'origin/develop:scripts/rust-warnings-baseline.json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  const git = args => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  // The fork point, not develop's head: a release cut before develop moved its baseline must not read as a reset.
+  const forkPoint = git(['merge-base', 'HEAD', 'origin/develop']).trim();
+  const previous = JSON.parse(git(['show', `${forkPoint}:scripts/rust-warnings-baseline.json`]));
   assertBaselineShrinks(baseline, previous);
 } catch (error) {
   if (!error.status) throw error;

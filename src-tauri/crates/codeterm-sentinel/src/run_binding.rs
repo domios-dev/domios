@@ -1,4 +1,4 @@
-use crate::source::{self, RunBinding, RunBindOutcome, TabBinding};
+use crate::source::{self, RunBindOutcome, RunBinding, TabBinding};
 use crate::storage::Staged;
 use crate::store::{Sentinel, Store};
 

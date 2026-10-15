@@ -12,13 +12,49 @@ fn git(dir: &Path, args: &[&str]) {
     );
 }
 
+fn git_with_input(dir: &Path, args: &[&str], input: &str) -> String {
+    use std::io::Write;
+    let mut command = Command::new("git");
+    process_util::no_window_std(&mut command);
+    let mut child = command
+        .current_dir(dir)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+// Identity goes straight into the repository config: each `git config` is a process spawn.
+fn identify(git_dir: &Path, name: &str, email: &str) {
+    use std::io::Write;
+    let mut config = std::fs::OpenOptions::new()
+        .append(true)
+        .open(git_dir.join("config"))
+        .unwrap();
+    write!(config, "[user]\n\tname = {name}\n\temail = {email}\n").unwrap();
+}
+
 fn source_only_fixture() -> (tempfile::TempDir, PathBuf) {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("project");
     std::fs::create_dir_all(&project).unwrap();
     git(&project, &["init", "-q"]);
-    git(&project, &["config", "user.email", "test@example.com"]);
-    git(&project, &["config", "user.name", "Test"]);
+    identify(&project.join(".git"), "Test", "test@example.com");
     std::fs::write(project.join("README.md"), "fixture").unwrap();
     git(&project, &["add", "README.md"]);
     git(&project, &["commit", "-qm", "fixture"]);
@@ -27,51 +63,69 @@ fn source_only_fixture() -> (tempfile::TempDir, PathBuf) {
     (root, project)
 }
 
+/// The peer is a bare repository borrowing origin's objects; its lane commit is
+/// built with plumbing and reaches origin only through the bundle.
 fn remote_bundle_fixture() -> (tempfile::TempDir, PathBuf, String, String, Vec<u8>) {
-    let (_root, origin) = source_only_fixture();
+    let (root, origin) = source_only_fixture();
     std::fs::remove_dir_all(origin.join("node_modules")).unwrap();
     let base = git_value(origin.to_str().unwrap(), ["rev-parse", "HEAD"]).unwrap();
-    let peer_root = tempfile::tempdir().unwrap();
-    let peer = peer_root.path().join("peer");
-    let peer_str = peer.to_str().unwrap();
-    let mut clone = Command::new("git");
-    process_util::no_window_std(&mut clone);
-    let output = clone
-        .args(["clone", "-q", "--shared"])
-        .arg(&origin)
-        .arg(&peer)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let peer = root.path().join("peer.git");
+    git(
+        root.path(),
+        &["init", "-q", "--bare", peer.to_str().unwrap()],
     );
-    git(&peer, &["config", "user.email", "peer@example.com"]);
-    git(&peer, &["config", "user.name", "Peer"]);
-    git(&peer, &["switch", "-c", "lane/remote-test"]);
-    std::fs::write(peer.join("remote.txt"), "peer work").unwrap();
-    git(&peer, &["add", "remote.txt"]);
-    git(&peer, &["commit", "-qm", "peer work"]);
-    let lane_tip = git_value(peer_str, ["rev-parse", "HEAD"]).unwrap();
-    let bundle_dir = tempfile::tempdir().unwrap();
-    let bundle_file = bundle_dir.path().join("lane.bundle");
-    let mut bundle = Command::new("git");
-    process_util::no_window_std(&mut bundle);
-    let output = bundle
-        .current_dir(&peer)
-        .args(["bundle", "create"])
-        .arg(&bundle_file)
-        .arg("refs/heads/lane/remote-test")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let origin_objects = origin.join(".git/objects");
+    std::fs::write(
+        peer.join("objects/info/alternates"),
+        origin_objects.to_string_lossy().replace('\\', "/"),
+    )
+    .unwrap();
+    identify(&peer, "Peer", "peer@example.com");
+    let remote = root.path().join("remote.txt");
+    std::fs::write(&remote, "peer work").unwrap();
+    let peer_str = peer.to_str().unwrap();
+    let blobs = git_value(
+        peer_str,
+        [
+            "hash-object",
+            "-w",
+            origin.join("README.md").to_str().unwrap(),
+            remote.to_str().unwrap(),
+        ],
+    )
+    .unwrap();
+    let blobs: Vec<&str> = blobs.lines().map(str::trim).collect();
+    let tree = git_with_input(
+        &peer,
+        &["mktree"],
+        &format!(
+            "100644 blob {}\tREADME.md\n100644 blob {}\tremote.txt\n",
+            blobs[0], blobs[1]
+        ),
+    );
+    let lane_tip = git_value(
+        peer_str,
+        ["commit-tree", &tree, "-p", &base, "-m", "peer work"],
+    )
+    .unwrap();
+    std::fs::create_dir_all(peer.join("refs/heads/lane")).unwrap();
+    std::fs::write(
+        peer.join("refs/heads/lane/remote-test"),
+        format!("{lane_tip}\n"),
+    )
+    .unwrap();
+    let bundle_file = root.path().join("lane.bundle");
+    git(
+        &peer,
+        &[
+            "bundle",
+            "create",
+            bundle_file.to_str().unwrap(),
+            "refs/heads/lane/remote-test",
+        ],
     );
     let bundle_bytes = std::fs::read(&bundle_file).unwrap();
-    (_root, origin, base, lane_tip, bundle_bytes)
+    (root, origin, base, lane_tip, bundle_bytes)
 }
 
 #[test]
@@ -410,7 +464,7 @@ fn lane_provenance_is_a_path_git_accepts_as_a_working_directory() {
     git(&project, &["commit", "-qm", "fixture"]);
 
     let canonical_project = std::fs::canonicalize(&project).unwrap();
-    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test").unwrap();
+    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test", &[]).unwrap();
     let provenance = verify_worker_lane(
         canonical_project.to_str().unwrap(),
         &lane.cwd,
@@ -447,7 +501,7 @@ fn canonical_checkout_provisions_a_sibling_worker_lane() {
     git(&project, &["commit", "-qm", "fixture"]);
 
     let canonical_project = std::fs::canonicalize(&project).unwrap();
-    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test").unwrap();
+    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test", &[]).unwrap();
     let lane_path = PathBuf::from(&lane.cwd);
     assert!(lane_path.is_dir());
     assert_eq!(
@@ -482,7 +536,7 @@ fn worker_lane_verification_reads_back_branch_and_base_commit() {
     git(&project, &["add", "README.md"]);
     git(&project, &["commit", "-qm", "fixture"]);
 
-    let lane = provision_lane(project.to_str().unwrap(), "verify").unwrap();
+    let lane = provision_lane(project.to_str().unwrap(), "verify", &[]).unwrap();
     let provenance = lane.verify().unwrap();
     assert_eq!(provenance.branch, lane.branch);
     assert_eq!(
@@ -516,7 +570,7 @@ fn branch_lookup_reads_attached_and_detached_heads() {
     git(&project, &["add", "README.md"]);
     git(&project, &["commit", "-qm", "fixture"]);
 
-    let lane = provision_lane(project.to_str().unwrap(), "head-shape").unwrap();
+    let lane = provision_lane(project.to_str().unwrap(), "head-shape", &[]).unwrap();
     assert_eq!(current_branch(&lane.cwd).unwrap(), lane.branch);
 
     let head = git_value(&lane.cwd, ["rev-parse", "HEAD"]).unwrap();

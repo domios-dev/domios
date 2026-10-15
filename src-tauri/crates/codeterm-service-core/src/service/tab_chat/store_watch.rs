@@ -126,6 +126,13 @@ fn spawn_store_watch_inner(
                     );
                     return;
                 }
+                #[cfg(test)]
+                if let Some(polls) = test_hook
+                    .as_ref()
+                    .and_then(|hook| hook.absent_polls.as_ref())
+                {
+                    let _ = polls.send(());
+                }
                 thread::sleep(cfg.poll_interval);
             }
         })
@@ -145,6 +152,7 @@ pub(crate) struct StoreWatchTestHook {
     pub store_seen: std::sync::mpsc::SyncSender<()>,
     pub resume_after_store_seen: Arc<std::sync::Barrier>,
     pub authority_rejected: std::sync::mpsc::SyncSender<()>,
+    pub absent_polls: Option<std::sync::mpsc::Sender<()>>,
 }
 
 #[cfg(test)]

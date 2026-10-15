@@ -263,10 +263,12 @@ class ReleaseIssueContractTest(unittest.TestCase):
     def test_publishing_workflow_mutates_no_issue(self):
         """The caller delegates issue closure to its final manifest job."""
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        self.assertIn("macos:", workflow)
+        self.assertIn("macos-arm64:", workflow)
+        self.assertIn("macos-x64:", workflow)
         self.assertIn("linux-arm64:", workflow)
         self.assertIn("linux-x86_64:", workflow)
-        self.assertIn("windows:", workflow)
+        self.assertIn("windows-x64:", workflow)
+        self.assertIn("windows-arm64:", workflow)
         self.assertIn("release-manifest:", workflow)
         self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", workflow)
         self.assertNotIn("gh issue close", workflow)

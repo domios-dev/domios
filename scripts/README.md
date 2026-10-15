@@ -55,6 +55,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-analytics-catalog.test.mjs` | build.sh script-guards via tests/catalogue.json node-script-tests-cargo |
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
 | `check-api-effect-dependencies.mjs` | build.sh release-preflight/test:all; package.json script |
+| `check-archive-portable-test-paths.mjs` | CI tests.yml; scripts tests/check-archive-portable-test-paths.test.mjs; skill gates, github-release |
 | `check-blocking-in-async.sh` | scripts blocking-in-async-allowlist.txt, qa-gates.lib.sh |
 | `check-build-check-queue.sh` | build.sh script-guards; skill build |
 | `check-build-dev-port-overrides.sh` | build.sh script-guards |
@@ -75,6 +76,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-file-sizes.sh` | build.sh release-preflight/verify/install-local; CI file-sizes.yml; scripts qa-gates.lib.sh, task.mjs, tests/check-file-sizes.test.mjs; skill gates |
 | `check-generated-chat-types.mjs` | package.json script |
 | `check-health-identity.sh` | build.sh script-guards |
+| `check-linux-arm64-builder.sh` | CI release-credentials.yml, release-linux-arm64.yml; skill github-release |
 | `check-local-install-continuation.sh` | build.sh script-guards |
 | `check-msvc-cross-env.sh` | scripts qa-gates.lib.sh |
 | `check-msvc-discovery.sh` | skill build |
@@ -90,29 +92,30 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-release-closure.mjs` | CI release-manifest-validate.yml; scripts tests/release-closure-authority.test.mjs, tests/test_release_workflow_contract.py; skill github-release |
 | `check-release-credentials-mac.sh` | CI release-credentials.yml, release-macos-build.yml; scripts tests/release-job-graph.test.mjs; skill github-release |
 | `check-release-locks.mjs` | build.sh release-preflight/build/install-local; CI release.yml; package.json script; skill github-release |
-| `check-release-runners.sh` | skill github-release |
+| `check-release-runners.sh` | CI release-credentials.yml; skill github-release |
 | `check-release-signing.sh` | CI build-gateway.yml; scripts check-build-gateway-policy.sh |
 | `check-release-source-clean.sh` | CI build-gateway.yml; scripts check-build-gateway-policy.sh |
 | `check-sccache-basedir-isolation.sh` | scripts cache-policy.sh; skill build |
 | `check-script-catalog.sh` | build.sh release-preflight/verify; CI script-catalog.yml |
 | `check-service-core-boundary.sh` | build.sh verify |
 | `check-shared-sccache.sh` | skill build |
-| `check-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-shards.mjs, confirm-slow-unit-tests.mjs; skill build, testing |
+| `check-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-tests.mjs, confirm-slow-unit-tests.mjs; skill build, testing |
 | `check-slow-unit-tests.test.mjs` | skill testing |
 | `check-visual-golden-edits.sh` | build.sh script-guards |
 | `check-windows-dev-cleanup-selection.ps1` | scripts check-build-kill-safety.sh |
 | `check-worktree.mjs` | build.sh check-queue; scripts/check-worktree.test.mjs |
 | `check-worktree.test.mjs` | build.sh script-guards |
 | `ci-runner-paths.mjs` | CI tests.yml; scripts tests/ci-runner-paths.test.mjs; skill build-machine |
-| `ci-rust-archives.mjs` | build.sh ci-archives, release-rust; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs |
-| `ci-rust-classification.mjs` | scripts ci-rust-archives.mjs, ci-rust-shards.mjs |
+| `ci-rust-archives.mjs` | build.sh release-rust; scripts ci-rust-tests.mjs, tests/ci-rust-archives.test.mjs |
+| `ci-rust-classification.mjs` | scripts ci-rust-archives.mjs, ci-rust-tests.mjs, tests/ci-rust-tests.test.mjs |
 | `ci-rust-prepare.mjs` | CI tests.yml |
-| `ci-rust-shards.mjs` | CI tests.yml; scripts tests/ci-rust-shards.test.mjs |
+| `ci-rust-tests.mjs` | build.sh ci-tests; scripts tests/ci-rust-tests.test.mjs |
 | `ci-scope.mjs` | CI release.yml, tests.yml; scripts tests/ci-scope.test.mjs; skill github-release |
-| `ci-test-classifier` | scripts ci-rust-archives.mjs |
+| `ci-test-classifier` | scripts ci-rust-tests.mjs |
+| `ci-workspace-cleanup.mjs` | CI tests.yml, release-macos-build.yml, release-linux.yml, release-linux-arm64.yml, release-windows.yml; scripts tests/ci-workspace-cleanup.test.mjs; skill github-release |
 | `clippy-allow.sh` | scripts clippy-gate.sh; build.sh check-queue |
-| `clippy-gate.sh` | build.sh release-preflight; CI tests.yml; scripts test-clippy-gate.sh; skill build, gates, testing |
-| `collect-rust-warnings.mjs` | build.sh ci-archives; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs |
+| `clippy-gate.sh` | build.sh release-preflight|ci-clippy; scripts test-clippy-gate.sh; skill build, gates, testing |
+| `collect-rust-warnings.mjs` | build.sh ci-tests; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs |
 | `comment-length-allowlist.txt` | CI comment-length.yml; scripts check-comment-length.sh |
 | `confirm-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs |
 | `convert-legacy-parked-tasks.py` | scripts tests/test_convert_legacy_parked_tasks.py |
@@ -126,6 +129,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `dev-screenshot.mjs` | skill dev-testing |
 | `dev-sidecar-ownership.mjs` | scripts reap-dev-sidecars.mjs, tests/dev-sidecar-ownership.test.mjs |
 | `dev-static-server.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1, dev-prep.mjs, tests/dev-static-api.test.mjs |
+| `dev-wheel-probe.mjs` | skill dev-testing |
 | `export-chat-types.mjs` | package.json script |
 | `fixtures` | CI tests.yml, build-gateway.yml; fixture data for scripts/tests and check-*.sh |
 | `frontend-release` | CI frontend-release.yml, release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs, tests/release-job-graph.test.mjs; skill github-release |
@@ -140,7 +144,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `nextest-archive.test.mjs` | build.sh script-guards |
 | `pdb_identity.py` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-build-pdb-retention.sh, tests/test_pdb_identity.py, symbolicate-minidump.py; skill build |
 | `playwright-coverage-map.mjs` | package.json script |
-| `plugin-release-metadata.mjs` | scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs |
+| `plugin-release-metadata.mjs` | scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs, sync-plugin-versions.mjs |
 | `plugin-tests.sh` | package.json script; scripts affected-tests.mjs, ci-scope.mjs, run-plugin-tests.mjs; skill provider-authoring, testing |
 | `prepare-cli-stub.js` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; CI qualification.yml; scripts dev-prep.mjs, qa-prep.sh; skill build |
 | `prepare-embed-stub.js` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; CI qualification.yml, release-windows.yml, tests.yml; scripts ci-rust-prepare.mjs, dev-prep.mjs, qa-gates.lib.sh; skill build |
@@ -179,7 +183,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `sccache-server-probe.mjs` | scripts cache-policy.sh, check-build-gateway-policy.sh, tests/sccache-server-probe.test.mjs |
 | `self-install-local.ps1` | skill github-release |
 | `slow-crate-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs; skill build, testing |
-| `slow-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs, ci-rust-shards.mjs; skill build, testing |
+| `slow-unit-tests.json` | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs; skill build, testing |
 | `split-metrics.py` | skill crate-split; docs/architecture/split-metrics.md |
 | `start-playwright-instance.ts` | package.json script |
 | `submission-matrix.sh` | skill testing |

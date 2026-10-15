@@ -40,6 +40,9 @@ class SigningMaterialTests(unittest.TestCase):
         key = directory / 'updater.key'
         self.assertEqual(key.stat().st_mode & 0o777, 0o600)
         self.assertEqual(key.read_text(), os.environ['TAURI_SIGNING_PRIVATE_KEY'])
+        exported = (self.root / 'job.env').read_text().splitlines()
+        self.assertIn(f'TAURI_SIGNING_PRIVATE_KEY={key}', exported)
+        self.assertIn(f'TAURI_SIGNING_PRIVATE_KEY_PATH={key}', exported)
         with patch.dict(os.environ, RELEASE_SIGNING_DIR=str(directory)):
             signing.cleanup()
         self.assertFalse(directory.exists())

@@ -4,7 +4,7 @@ bench-chat-stream.md | doc for bench-chat-stream.mjs (bench)
 blocking-in-async-allowlist.txt | scripts check-blocking-in-async.sh
 chat-scroll-trace | build.sh chat-scroll-trace; skill dev-testing
 certificates | scripts release-signing-material.py, tests/release_signing_material_test.py
-ci-test-classifier | scripts ci-rust-archives.mjs
+ci-test-classifier | scripts ci-rust-tests.mjs
 comment-length-allowlist.txt | CI comment-length.yml; scripts check-comment-length.sh
 fixtures | CI tests.yml, build-gateway.yml; fixture data for scripts/tests and check-*.sh
 frontend-release | CI frontend-release.yml, release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs, tests/release-job-graph.test.mjs; skill github-release
@@ -13,7 +13,7 @@ provider-boundary-allowlist.json | CI file-sizes.yml; scripts check-provider-bou
 qa | build.sh qa-prep, qa-batch; CI qualification.yml, build-gateway.yml
 rust-warnings-baseline.json | scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs; skill gates, github-release
 slow-crate-unit-tests.json | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs; skill build, testing
-slow-unit-tests.json | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs, ci-rust-shards.mjs; skill build, testing
+slow-unit-tests.json | scripts check-slow-unit-tests.mjs, check-slow-unit-tests.test.mjs; skill build, testing
 tests | CI tests.yml, file-sizes.yml, cli-source-of-truth.yml; package.json test scripts; node --test and bash suites for scripts/
 unit-test-benchmarks.json | scripts check-slow-unit-tests.mjs; skill build, testing
 vitest-owned-tests.json | CI frontend-release.yml; scripts affected-tests.mjs, affected-tests.test.mjs, check-plugin.mjs; skill github-release

@@ -156,6 +156,8 @@ async fn health_proof_deadline_fails_the_bound_generation_with_address_diagnosti
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;
     let mut status = control.subscribe_status();
+    // The handler never answers, so the proof fails at any budget.
+    control.set_health_proof_budget(std::time::Duration::from_millis(50));
     let router = axum::Router::new().route(
         "/api/health",
         axum::routing::get(|| std::future::pending::<&'static str>()),

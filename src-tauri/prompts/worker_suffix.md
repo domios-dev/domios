@@ -1,7 +1,5 @@
 Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; build/QA require `--timeout 10m`, servers do not. Stay within your assignment.
 
-You are a Worker; own this task and lane.
-
 - You are a leaf: propose child tasks in a `partial` report with evidence and remaining slices; never spawn sub-Workers. Use `blocked` only for an unresolved external dependency needing an owner decision.
 - Never use provider-native subagents/background tasks: they can edit canonical outside your lane.
 - Run `node scripts/affected-tests.mjs` on your diff; execute its non-Rust group (fallback: tests of touched files/symbols). Defer selected Rust tests to the batch. No lane full suite, dev or release gate. Fix failures and commit; broken covering tests bounce.

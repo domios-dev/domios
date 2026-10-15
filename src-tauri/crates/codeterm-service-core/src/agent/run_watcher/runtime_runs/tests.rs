@@ -204,19 +204,29 @@ impl Scene {
         };
         self.events(tab, events);
     }
-    /// The session cache also emits cron-run-finished, so wait until the run itself settles.
-    fn await_cron_end(&self, ended: &mpsc::Receiver<()>, run: &CronRunInfo) {
+    // cron-run-finished is a generic cron change broadcast (session commits emit it too),
+    // so each event only prompts a re-check of the run's end state.
+    fn await_cron_end(&self, changed: &mpsc::Receiver<()>, run: &CronRunInfo) {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            ended
-                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
-                .unwrap();
+        while !self.cron_end_settled(run) {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            changed
+                .recv_timeout(remaining)
+                .expect("cron run did not settle before the deadline");
+        }
+    }
+    fn cron_end_settled(&self, run: &CronRunInfo) -> bool {
+        let settled = {
             let store = self.cron.lock();
             let (_, history) = store.find_run_by_id(&run.run_id).unwrap();
-            if history.status != CronRunStatus::Running {
-                return;
-            }
-        }
+            history.status != CronRunStatus::Running && history.report_delivery.is_some()
+        };
+        settled
+            && !self
+                .fixture
+                .service
+                .run_watcher
+                .has_runtime_run(run.tab_id.as_ref().unwrap())
     }
     fn assert_cron_end(&self, job: &str, run: &CronRunInfo, status: CronRunStatus) {
         let store = self.cron.lock();

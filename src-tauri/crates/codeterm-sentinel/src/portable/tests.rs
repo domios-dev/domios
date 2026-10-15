@@ -149,8 +149,7 @@ fn blueprint_pipeline_export_round_trip_preserves_trigger_steps_and_result() {
 #[test]
 fn blueprint_import_accepts_legacy_export_handler_keys() {
     let recipe = Recipe::parse(r#"{"schema_version":1,"placeholders":{},"definition":{"create":{"name":"Legacy export","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","handlers":{"done":[{"id":"next","type":"sentinel","parameters":{"target":"sentinel_child"}}]}}}}"#).unwrap();
-    let bound =
-        crate::public_definition::stored_definition(recipe.bind(&[]).unwrap()).unwrap();
+    let bound = crate::public_definition::stored_definition(recipe.bind(&[]).unwrap()).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let store = Store::new(
         dir.path().join("jobs.json"),

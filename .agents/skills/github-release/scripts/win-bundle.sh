@@ -78,7 +78,7 @@ fi
 echo "=== verified $ZIP compression=STORED ===" >&2
 
 echo "=== sign $ZIP ===" >&2
-node_modules/.bin/tauri signer sign "$ZIP" >&2
+env -u TAURI_SIGNING_PRIVATE_KEY node_modules/.bin/tauri signer sign "$ZIP" >&2
 
 [ -f "$SIG" ] || { echo "signer did not produce $SIG" >&2; exit 1; }
 
