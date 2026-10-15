@@ -111,12 +111,18 @@ fn drain_tab_output(
     pty_id: &str,
     offset: &mut u64,
 ) -> Vec<TabOutputFrame> {
+    let buffer = output_buf.lock();
+    drain_buffered_tab_output(&buffer, pty_id, offset)
+}
+
+fn drain_buffered_tab_output(
+    buffer: &codeterm_service_core::pty::manager::OutputBuffer,
+    pty_id: &str,
+    offset: &mut u64,
+) -> Vec<TabOutputFrame> {
     let mut frames = Vec::new();
     loop {
-        let (chunk, total) = {
-            let buffer = output_buf.lock();
-            buffer.read_since(pty_id, *offset)
-        };
+        let (chunk, total) = buffer.read_since(pty_id, *offset);
         if chunk.is_empty() {
             break;
         }
@@ -146,14 +152,23 @@ pub(crate) fn tab_output_frames(
         };
         let mut offset = initial_offset;
         loop {
-            let buffer = output_buf.clone();
-            let target = pty_id.clone();
-            let Ok((frames, next_offset)) = tokio::task::spawn_blocking(move || {
-                let mut offset = offset;
-                let frames = drain_tab_output(&buffer, &target, &mut offset);
-                (frames, offset)
-            }).await else { return; };
-            offset = next_offset;
+            let immediate = output_buf.try_lock().map(|buffer| {
+                drain_buffered_tab_output(&buffer, &pty_id, &mut offset)
+            });
+            let frames = if let Some(frames) = immediate {
+                frames
+            } else {
+                let buffer = std::sync::Arc::downgrade(&output_buf);
+                let target = pty_id.clone();
+                let Ok(Some((frames, next_offset))) = tokio::task::spawn_blocking(move || {
+                    let buffer = buffer.upgrade()?;
+                    let mut offset = offset;
+                    let frames = drain_tab_output(&buffer, &target, &mut offset);
+                    Some((frames, offset))
+                }).await else { return; };
+                offset = next_offset;
+                frames
+            };
             for frame in frames {
                 yield frame;
             }
