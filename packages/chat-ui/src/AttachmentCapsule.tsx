@@ -1,11 +1,12 @@
 import { useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Mic, Diff, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
+import { Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
 import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
 import { LocalArtifactBlock } from "./LocalArtifactBlock";
 import { RichMarkdown } from "./MarkdownBody";
 import { PRE_WRAP_CLASS } from "./CodeBlock";
+import { VideoFullscreen } from "./VideoFullscreen";
 import { ImageFullscreen, REVEAL_UNAVAILABLE, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable } from "./localArtifactLoader";
 import { useLocalImage, type LocalImage } from "./localImage";
@@ -14,6 +15,7 @@ import { useLocalTextPreview } from "./localText";
 export const CAPSULE_ICONS: Record<AttachmentKind, LucideIcon> = {
   voice: Mic,
   image: ImageIcon,
+  video: Film,
   text: ScrollText,
   file: FileIcon,
   folder: Folder,
@@ -24,7 +26,7 @@ export const CAPSULE_ICONS: Record<AttachmentKind, LucideIcon> = {
 };
 
 const KIND_NAMES: Record<AttachmentKind, string> = {
-  voice: "Voice", image: "Image", text: "Pasted text", file: "File", folder: "Folder", quote: "Quote", message: "Messages", diff: "Diff", document: "Document",
+  voice: "Voice", image: "Image", video: "Video", text: "Pasted text", file: "File", folder: "Folder", quote: "Quote", message: "Messages", diff: "Diff", document: "Document",
 };
 /** Kinds whose file is stored context, so the card names the capsule, not its temp file. */
 const STORED_CONTEXT: ReadonlySet<AttachmentKind> = new Set(["quote", "message", "diff"]);
@@ -102,13 +104,14 @@ export function AttachmentCapsule({ attachment, image: nativeImage, labelContent
   const local = useLocalImage(kind === "image" && !inline ? path : undefined);
   const image = inline ? { ...local, src: inline, failed: false } : local;
   const [open, setOpen] = useState<FullscreenImage | null>(null);
+  const [playing, setPlaying] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const anchorRef = useRef<HTMLSpanElement>(null);
   const previewRef = useRef<HTMLSpanElement>(null);
   const close = useCallback(() => setOpen(null), []);
   const canReveal = localArtifactOpeningAvailable();
   const opensImage = kind === "image" && Boolean(image.src);
-  const disabled = kind !== "image" && !canReveal;
+  const disabled = kind !== "image" && kind !== "video" && !canReveal;
   const bounds = previewing ? anchorRef.current?.getBoundingClientRect() : undefined;
   return (
     <span ref={anchorRef} className="relative" onMouseEnter={() => setPreviewing(true)} onMouseLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}>
@@ -119,13 +122,14 @@ export function AttachmentCapsule({ attachment, image: nativeImage, labelContent
         data-attachment-kind={kind}
         data-attachment-path={path}
         data-attachment-label={label}
-        aria-label={kind === "image" ? `Open image ${label}` : `Reveal ${KIND_NAMES[kind].toLowerCase()} ${label}`}
+        aria-label={kind === "image" ? `Open image ${label}` : kind === "video" ? `Play video ${label}` : `Reveal ${KIND_NAMES[kind].toLowerCase()} ${label}`}
         title={disabled ? `${path} (${REVEAL_UNAVAILABLE})` : path}
         disabled={disabled}
         onFocus={() => setPreviewing(true)}
         onBlur={(event) => { if (!previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}
         onClick={() => {
           if (opensImage && image.src) setOpen({ name: nativeImage ? attachmentFileName(nativeImage) : fileName(path), src: image.src, path });
+          else if (kind === "video") setPlaying(true);
           else if (kind === "image") setPreviewing(true);
           else revealLocalFile(path);
         }}
@@ -142,6 +146,7 @@ export function AttachmentCapsule({ attachment, image: nativeImage, labelContent
         </span>, document.body
       )}
       {open && <ImageFullscreen image={open} anchorRef={anchorRef} onClose={close} />}
+      {playing && <VideoFullscreen label={label} path={path} anchorRef={anchorRef} onClose={() => setPlaying(false)} />}
     </span>
   );
 }

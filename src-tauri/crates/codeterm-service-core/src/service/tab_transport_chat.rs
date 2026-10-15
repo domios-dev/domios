@@ -19,7 +19,7 @@ pub(crate) enum ChatBackendInstructionDelivery {
     Blocked { code: &'static str },
 }
 
-pub(crate) fn removed_chatbackend_error(plugin_id: &str) -> String {
+pub fn removed_chatbackend_error(plugin_id: &str) -> String {
     serde_json::json!({
         "code": "chat_backend_plugin_removed",
         "plugin_id": plugin_id,
@@ -437,7 +437,7 @@ impl ServiceContext {
         }
         chatbackend_reopen_transition(
             &self.mux,
-            &self.chatbackend_reopen_guards,
+            self.ext::<Arc<crate::service::tab_transport_chat::TabReopenGuards>>(),
             tab_id,
             |plugin_id, tab_id, old_session| {
                 let path = crate::service::tab_chat::chatbackend_history::session_path(

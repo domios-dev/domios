@@ -68,6 +68,8 @@ export {
   formatAttachmentMarker,
   imageMimeType,
   isImagePath,
+  isVideoPath,
+  videoMimeType,
   parseAttachmentMarkers,
   splitReplyAttachment,
   type AttachmentKind,
@@ -76,6 +78,15 @@ export {
   type ParsedAttachmentMarkers,
   type ReplyAttributes,
 } from "./attachmentMarker";
+export {
+  MAX_VIDEO_BYTES,
+  VIDEO_SNIFF_BYTES,
+  attachmentKindForUpload,
+  sniffVideoContainer,
+  validateAttachment,
+  type AttachmentVerdict,
+  type VideoContainer,
+} from "./attachmentValidation";
 export { fileDiffText, hunkHeader } from "./fileDiffs";
 export {
   attachmentTagsAsLabels,

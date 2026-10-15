@@ -84,7 +84,7 @@ pub(crate) fn classify(
     })
 }
 
-pub(crate) fn apply(
+pub fn apply(
     svc: &ServiceContext,
     tab_id: &str,
     session: &str,
@@ -266,7 +266,7 @@ fn observe_records(
     }
 }
 
-pub(crate) fn apply_structured(
+pub fn apply_structured(
     svc: &ServiceContext,
     tab: &str,
     session: &str,

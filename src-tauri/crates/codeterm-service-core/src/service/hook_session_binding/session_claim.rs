@@ -1,0 +1,428 @@
+use axum::http::StatusCode;
+
+use super::{DeferredBindingPremise, SessionBindError, SessionBindingSource, SessionStartClaim};
+
+struct MaterializationProbe {
+    cwd: String,
+    previous_session_id: Option<String>,
+    requested_materialized: bool,
+    previous_materialized: bool,
+}
+
+pub fn bind_reported_session(
+    mux: &crate::multiplexer::commands::MuxState,
+    registry: &crate::agent::registry::AgentRegistry,
+    tab_id: &str,
+    provider_id: &str,
+    session_id: &str,
+    report_nonce: Option<&str>,
+) -> Result<SessionStartClaim, SessionBindError> {
+    log::debug!(
+        "[session-claim] tab={} provider={} session={} report_nonce_present={}",
+        tab_id,
+        provider_id,
+        session_id,
+        report_nonce.is_some()
+    );
+    bind_session(
+        mux,
+        registry,
+        tab_id,
+        provider_id,
+        session_id,
+        report_nonce,
+        SessionBindingSource::Hook,
+        None,
+    )
+}
+
+/// A session read from this launch's own provider record. It carries the tab's
+/// launch nonce, so a rotated launch or authenticated hook binding refuses it.
+pub fn bind_detected_session(
+    mux: &crate::multiplexer::commands::MuxState,
+    registry: &crate::agent::registry::AgentRegistry,
+    tab_id: &str,
+    provider_id: &str,
+    session_id: &str,
+    binding_nonce: &str,
+) -> Result<SessionStartClaim, SessionBindError> {
+    bind_session(
+        mux,
+        registry,
+        tab_id,
+        provider_id,
+        session_id,
+        Some(binding_nonce),
+        SessionBindingSource::LaunchDetection,
+        None,
+    )
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub fn bind_validated_rebind_session(
+    mux: &crate::multiplexer::commands::MuxState,
+    registry: &crate::agent::registry::AgentRegistry,
+    tab_id: &str,
+    provider_id: &str,
+    session_id: &str,
+    binding_nonce: Option<&str>,
+    expected_evidence: &crate::agent::provider_identity::ProviderIdentityEvidence,
+) -> Result<SessionStartClaim, SessionBindError> {
+    bind_session(
+        mux,
+        registry,
+        tab_id,
+        provider_id,
+        session_id,
+        binding_nonce,
+        SessionBindingSource::ValidatedRebind,
+        Some(expected_evidence),
+    )
+}
+
+pub fn commit_materialized_rebind_session(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    tab_id: &str,
+    provider_id: &str,
+    session_id: &str,
+    binding_nonce: Option<&str>,
+    expected_evidence: &crate::agent::provider_identity::ProviderIdentityEvidence,
+) -> Result<SessionStartClaim, SessionBindError> {
+    let probe = MaterializationProbe {
+        cwd: expected_evidence.cwd.clone().unwrap_or_default(),
+        previous_session_id: expected_evidence.session_id.clone(),
+        requested_materialized: true,
+        previous_materialized: false,
+    };
+    commit_reported_session(
+        mux,
+        tab_id,
+        provider_id,
+        session_id,
+        binding_nonce,
+        &probe,
+        SessionBindingSource::ValidatedRebind,
+        Some(expected_evidence),
+    )?
+    .ok_or_else(|| {
+        log::warn!(
+            "[hook-refusal] tab={} event=session_start reason=evidence_changed source=validated_rebind",
+            tab_id
+        );
+        (
+            StatusCode::CONFLICT,
+            "tab session evidence changed during provider validation".to_string(),
+            None,
+        )
+    })
+}
+
+fn bind_session(
+    mux: &crate::multiplexer::commands::MuxState,
+    registry: &crate::agent::registry::AgentRegistry,
+    tab_id: &str,
+    provider_id: &str,
+    session_id: &str,
+    report_nonce: Option<&str>,
+    source: SessionBindingSource,
+    expected_evidence: Option<&crate::agent::provider_identity::ProviderIdentityEvidence>,
+) -> Result<SessionStartClaim, SessionBindError> {
+    if registry.with_provider(provider_id, |_| ()).is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("unknown provider_id '{}'", provider_id),
+            None,
+        ));
+    }
+
+    // Provider stores may do IO, so probe without the mux lock and commit only
+    // while the tab still matches the probed identity.
+    const MAX_ATTEMPTS: usize = 4;
+    for _ in 0..MAX_ATTEMPTS {
+        let (cwd, previous_session_id) = {
+            let mux = mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
+            };
+            (
+                tab.cwd.clone().unwrap_or_default(),
+                tab.agent_session_id.clone(),
+            )
+        };
+
+        let requested_materialized = registry
+            .with_provider(provider_id, |provider| {
+                provider.session_exists(&cwd, session_id) == Some(true)
+            })
+            .unwrap_or(false);
+        let previous_materialized = if !requested_materialized {
+            match previous_session_id.as_deref() {
+                Some(previous) if previous != session_id => registry
+                    .with_provider(provider_id, |provider| {
+                        provider.session_exists(&cwd, previous) == Some(true)
+                    })
+                    .unwrap_or(false),
+                _ => false,
+            }
+        } else {
+            false
+        };
+        let probe = MaterializationProbe {
+            cwd,
+            previous_session_id,
+            requested_materialized,
+            previous_materialized,
+        };
+
+        let mut mux = mux.write();
+        match commit_reported_session(
+            &mut mux,
+            tab_id,
+            provider_id,
+            session_id,
+            report_nonce,
+            &probe,
+            source,
+            expected_evidence,
+        )? {
+            Some(claim) => return Ok(claim),
+            None => continue,
+        }
+    }
+
+    Err((
+        StatusCode::CONFLICT,
+        "session binding raced concurrent mutation; retry".to_string(),
+        None,
+    ))
+}
+
+fn commit_reported_session(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    tab_id: &str,
+    provider_id: &str,
+    session_id: &str,
+    report_nonce: Option<&str>,
+    probe: &MaterializationProbe,
+    source: SessionBindingSource,
+    expected_evidence: Option<&crate::agent::provider_identity::ProviderIdentityEvidence>,
+) -> Result<Option<SessionStartClaim>, SessionBindError> {
+    let Some(tab) = mux.get_tab(tab_id) else {
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
+    };
+    if !crate::service::ServiceContext::paths_equal(
+        tab.cwd.as_deref().unwrap_or_default(),
+        &probe.cwd,
+    ) || tab.agent_session_id != probe.previous_session_id
+    {
+        return Ok(None);
+    }
+    if source == SessionBindingSource::ValidatedRebind
+        && expected_evidence.is_some_and(|expected| {
+            crate::agent::provider_identity::ProviderIdentityEvidence::capture(tab) != *expected
+        })
+    {
+        log::warn!(
+            "[hook-refusal] tab={} event=session_start reason=evidence_changed source=validated_rebind",
+            tab_id
+        );
+        return Err((
+            StatusCode::CONFLICT,
+            "tab session evidence changed during provider validation".to_string(),
+            None,
+        ));
+    }
+
+    let adopted_nonce = (source == SessionBindingSource::Hook)
+        .then(|| surviving_shell_launch_nonce(tab, report_nonce))
+        .flatten();
+    let launch_nonce = tab.session_binding_nonce.clone().or(adopted_nonce.clone());
+    let acknowledged_nonce = tab.reported_session_binding_nonce.clone();
+    let nonce_already_acknowledged = launch_nonce.is_some() && acknowledged_nonce == launch_nonce;
+    let nonce_verified = if let Some(expected) = launch_nonce.clone() {
+        match report_nonce {
+            Some(reported) if reported != expected => {
+                log::warn!(
+                    "[hook-refusal] tab={} event=session_start reason=nonce_mismatch provider={}",
+                    tab_id,
+                    provider_id,
+                );
+                return Err((
+                    StatusCode::CONFLICT,
+                    "binding nonce mismatch".to_string(),
+                    None,
+                ));
+            }
+            Some(_) => true,
+            None => false,
+        }
+    } else {
+        false
+    };
+
+    if source == SessionBindingSource::LaunchDetection {
+        if !nonce_verified {
+            log::warn!(
+                "[hook-refusal] tab={} event=session_start reason=missing_nonce source=launch_detection",
+                tab_id
+            );
+            return Err((
+                StatusCode::CONFLICT,
+                "launch detection does not carry this tab's launch nonce".to_string(),
+                None,
+            ));
+        }
+        if tab.launch_session_authenticated() {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("Tab {tab_id} already has an authenticated launch binding"),
+                None,
+            ));
+        }
+    }
+
+    if let Some(source_session) = tab.fork_source_session_id.as_deref() {
+        if source_session == session_id || !nonce_verified {
+            return Err((
+                StatusCode::CONFLICT,
+                "fork binding requires a distinct session and this launch's nonce".into(),
+                None,
+            ));
+        }
+    }
+
+    if matches!(
+        source,
+        SessionBindingSource::Hook | SessionBindingSource::LaunchDetection
+    ) {
+        if let Some(existing_provider) = tab.agent_type.as_deref() {
+            if existing_provider != provider_id {
+                return Err((
+                    StatusCode::CONFLICT,
+                    format!(
+                        "Tab provider '{}' does not match report provider '{}'",
+                        existing_provider, provider_id
+                    ),
+                    None,
+                ));
+            }
+        }
+    }
+
+    if !nonce_verified && !probe.requested_materialized {
+        log::warn!(
+            "[hook_session_start] rejecting sid {} for Tab {} provider={}: session does not belong to provider",
+            session_id,
+            tab_id,
+            provider_id,
+        );
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "session_id '{}' is not a known session for provider '{}'",
+                session_id, provider_id
+            ),
+            None,
+        ));
+    }
+
+    if let Some(other) = mux
+        .tab_ids_with_session(session_id)
+        .into_iter()
+        .find(|other| other != tab_id)
+    {
+        log::warn!(
+            "[hook_session_start] rejecting sid {} for Tab {} provider={} already claimed by {}",
+            session_id,
+            tab_id,
+            provider_id,
+            other,
+        );
+        return Err((
+            StatusCode::CONFLICT,
+            format!("session_id already claimed by Tab {}", other),
+            None,
+        ));
+    }
+
+    if probe.previous_materialized {
+        let fresh_authenticated_launch = nonce_verified && !nonce_already_acknowledged;
+        if !fresh_authenticated_launch {
+            log::warn!(
+                "[hook_session_start] rejecting fileless sid {} for Tab {} provider={}: would evict materialized session {:?}",
+                session_id, tab_id, provider_id, probe.previous_session_id,
+            );
+            return Err((
+                StatusCode::CONFLICT,
+                format!(
+                    "session_id '{}' cannot evict materialized session {:?}",
+                    session_id, probe.previous_session_id
+                ),
+                probe
+                    .previous_session_id
+                    .clone()
+                    .map(|previous_session_id| DeferredBindingPremise {
+                        previous_session_id,
+                    }),
+            ));
+        }
+    }
+
+    let Some(tab) = mux.get_tab_mut(tab_id) else {
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
+    };
+    if nonce_verified && adopted_nonce.is_some() {
+        log::info!(
+            "[hook_session_start] tab={} provider={} adopted a provider started in its surviving shell",
+            tab_id,
+            provider_id,
+        );
+        tab.session_binding_nonce = adopted_nonce;
+    }
+    let previous = tab.agent_session_id.clone();
+    let changed = previous.as_deref() != Some(session_id);
+    let pending_model_switch_matches_session = tab
+        .pending_model_switch_observation
+        .as_ref()
+        .is_some_and(|pending| pending.session_id == session_id);
+    if changed {
+        tab.provider_signals = Default::default();
+        tab.context = None;
+        if let Some(previous_session_id) = previous.as_deref() {
+            tab.archive_context_epoch(provider_id, previous_session_id);
+        }
+        tab.agent_session_id = Some(session_id.to_string());
+        if !pending_model_switch_matches_session {
+            crate::service::session_model::clear_runtime_model_evidence(tab);
+        }
+    }
+    tab.reported_session_binding_nonce = if nonce_verified {
+        Some(report_nonce.unwrap_or_default().to_string())
+    } else if !changed {
+        acknowledged_nonce
+    } else {
+        None
+    };
+    Ok(Some(SessionStartClaim {
+        prev: previous,
+        changed,
+        nonce_verified,
+        nonce_already_acknowledged,
+        identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence::capture(tab),
+    }))
+}
+
+/// A provider started by hand in the tab's surviving shell inherits the nonce
+/// its exited launch exported there, which the tab retired as its newest one.
+fn surviving_shell_launch_nonce(
+    tab: &crate::multiplexer::types::Tab,
+    report_nonce: Option<&str>,
+) -> Option<String> {
+    let reported = report_nonce?;
+    let retired = tab.prior_session_binding_nonces.last()?;
+    (tab.session_binding_nonce.is_none()
+        && !tab.agent_booting
+        && tab.pty_id.is_some()
+        && retired.nonce == reported)
+        .then(|| reported.to_string())
+}

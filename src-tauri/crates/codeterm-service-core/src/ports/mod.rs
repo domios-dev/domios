@@ -9,7 +9,10 @@
 //! - Every trait is object-safe and `Send + Sync`, asserted with `assert_port`.
 //! - Doc comments on ports stay within two lines.
 
+pub mod orchestration;
 pub mod rest;
+pub mod sentinel;
+pub mod socket;
 pub mod transport;
 pub mod update;
 

@@ -1,20 +1,20 @@
 pub mod agent;
 pub mod agent_commands;
-mod api;
+pub mod api_support;
 pub mod app_runtime;
 pub use codeterm_util::attachments;
 mod autostart;
+pub use autostart::{
+    disable as disable_autostart, enable as enable_autostart, is_enabled as autostart_is_enabled,
+};
 pub mod bridge;
 pub mod bridge_host;
 pub mod bubble;
 pub mod chatbackend;
 pub mod chatpipeline;
 pub mod chatpreprocessor;
-pub mod clipboard_files;
-pub mod commands;
-mod commands_mesh;
-mod config;
-mod crash;
+pub mod config;
+pub mod crash;
 pub mod cron;
 pub mod delayed_send;
 pub mod dispatch;
@@ -23,21 +23,23 @@ mod flow_trace;
 pub mod frontend_bundle_api_version;
 pub mod glance;
 mod instance_lifetime;
-mod keepawake;
+pub mod keepawake;
 mod liveness;
 pub mod lock_hold;
 pub mod logs;
 pub mod mem;
 pub mod mem_host;
+pub mod mem_ops;
 pub mod mesh;
+pub mod mesh_host;
 pub mod message_markers;
 pub mod multiplexer;
 #[cfg(windows)]
 mod native_resize;
-mod notification;
+pub mod notification;
 pub mod pasteboard;
 pub mod paths;
-pub(crate) mod sentinel;
+pub mod sentinel;
 pub use codeterm_util::persisted_state;
 pub mod plan;
 pub mod plugin;
@@ -48,20 +50,18 @@ pub mod provider;
 pub mod pty;
 pub mod repowatch;
 pub mod resize_owner;
-mod rpc_bridge;
 pub mod runaway_sweeper;
 pub mod secrets;
 pub mod service;
 pub mod session;
 pub mod shell;
-mod socket;
-mod startup;
+pub mod startup;
 pub mod storage;
 #[cfg(test)]
 mod telegram269_wire_contract;
 pub mod transcribe;
 pub mod transcribe_adapter;
-pub mod update;
+pub mod update_state;
 pub mod usage;
 pub mod user_last_activity;
 pub mod view;
@@ -75,7 +75,7 @@ use parking_lot::Mutex;
 use tauri::Manager;
 
 use multiplexer::commands::MuxState;
-use notification::NotifState;
+pub use notification::NotifState;
 use pty::manager::{OutputBuffer, PtyManager};
 use pty::screen_state::ScreenState;
 use service::{ServiceContext, ServiceState};
@@ -88,13 +88,13 @@ pub type ShellCapabilityState = Arc<Mutex<agent::command_detection::ShellCapabil
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
 pub use cron::scheduler::{CronState, CronWake};
-pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
+pub type UpdateStateHandle = Arc<Mutex<update_state::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
-pub fn register_socket() {
-    socket::register_rpc_bridge();
+pub fn register_orchestration() {
+    service::register_orchestration();
 }
 
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
@@ -150,8 +150,8 @@ pub fn run(
     let states = startup::init_states();
 
     // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
-    commands::seed_bundled_skills();
-    commands::mirror_skills_to_providers();
+    crate::service::skill_mirror::seed_bundled_skills();
+    crate::service::skill_mirror::mirror_skills_to_providers();
 
     let mut builder = crate::app_runtime::builder()
         .plugin(tauri_plugin_shell::init())
@@ -252,7 +252,7 @@ pub fn run(
             let graph_node_registry = Arc::new(codeterm_plugin::graph_nodes::GraphNodeRegistry::default());
             let event_source_registry = Arc::new(codeterm_plugin::event_source::EventSourceRegistry::default());
             let graph_event_subscriptions = codeterm_plugin::graph_events::SubscriptionTable::new();
-            let decision_model_registry = crate::api::mem_routes::decision::default_registry();
+            let decision_model_registry = crate::service::supporter::registry::default_registry();
             let glance_registry: crate::glance::GlanceRegistryHandle =
                 Arc::new(crate::glance::GlanceRegistry::new());
             let bubble_registry: crate::bubble::BubbleRegistryHandle =
@@ -324,7 +324,7 @@ pub fn run(
                                 crate::service::sync_watcher::install_bridge_rules_for_all(
                                     &bridge_registry,
                                 );
-                                crate::commands::mirror_skills_to_providers();
+                                crate::service::skill_mirror::mirror_skills_to_providers();
                                 for provider in bridge_registry.all_provider_arcs() {
                                     crate::agent::model_binary_watch::install(provider);
                                 }
@@ -613,16 +613,84 @@ pub fn run(
             let usage_store = crate::usage::UsageStore::open(&crate::paths::data_dir())
                 .expect("usage.db init");
 
+            let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+            extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(Arc::new(parking_lot::Mutex::new(()))));
+            extensions.insert(crate::service::account::AccountCell(Arc::new(tokio::sync::OnceCell::new())));
+            extensions.insert(crate::service::billing::BillingCell(Arc::new(tokio::sync::OnceCell::new())));
+            extensions.insert(crate::service::analytics::AnalyticsCell(Arc::new(tokio::sync::OnceCell::new())));
+            extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new()))));
+            extensions.insert(crate::service::CartographerAttachLocks(Default::default()));
+            extensions.insert(crate::service::OrchestratorAttachLocks(Default::default()));
+            extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
+            extensions.insert::<crate::ShellCapabilityState>(Arc::new(parking_lot::Mutex::new(Default::default())));
+            extensions.insert::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(Arc::new(crate::service::protocol_recorder::ProtocolRecorder::new(
+                    crate::paths::data_dir().join("logs/protocol"),
+                    crate::paths::is_dev_instance(),
+                )));
+            extensions.insert::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>(Arc::new(Default::default()));
+            extensions.insert::<Arc<crate::mem::supervisor::Supervisor>>(mem_supervisor);
+            extensions.insert::<Arc<crate::plugin::activity::PluginActivityRegistry>>(Arc::new(crate::plugin::activity::PluginActivityRegistry::new()));
+            extensions.insert::<Arc<crate::mem::worker_pool::WorkerPool>>(Arc::new(crate::mem::worker_pool::WorkerPool::new(
+                    crate::config::memory_config().workers_per_provider,
+                )));
+            extensions.insert::<Arc<crate::service::process_tree::ProviderTreeWitnesses>>(Arc::new(Default::default()));
+            extensions.insert(crate::service::BridgeOutboundRx(Arc::new(Mutex::new(Some(bridge_outbound_rx)))));
+            extensions.insert::<Arc<crate::bridge::supervisor::BridgeSupervisor>>(Arc::new(bridge::supervisor::BridgeSupervisor::new()));
+            extensions.insert::<Arc<codeterm_bridge::bridge::threads::ThreadService>>(Arc::new(codeterm_bridge::bridge::threads::ThreadService::new(
+                    codeterm_bridge::bridge::threads::ThreadRegistry::load(
+                        crate::service::bridge_threads::registry_path(),
+                    ),
+                )));
+            extensions.insert::<crate::service::agent_restart::RestartTracker>(crate::service::agent_restart::new_restart_tracker());
+            extensions.insert::<crate::delayed_send::DelayedSendQueue>(delayed_send);
+            extensions.insert::<Arc<crate::secrets::SecretRegistry>>(secret_registry.clone());
+            extensions.insert::<Arc<crate::transcribe::TranscribeRegistry>>(transcribe_registry.clone());
+            extensions.insert::<Arc<codeterm_plugin::converter::ConverterRegistry>>(converter_registry.clone());
+            extensions.insert::<Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>(graph_node_registry.clone());
+            extensions.insert::<Arc<codeterm_plugin::event_source::EventSourceRegistry>>(event_source_registry.clone());
+            extensions.insert::<codeterm_plugin::graph_events::SubscriptionTable>(graph_event_subscriptions.clone());
+            extensions.insert::<crate::glance::GlanceRegistryHandle>(glance_registry.clone());
+            extensions.insert::<crate::bubble::BubbleRegistryHandle>(bubble_registry.clone());
+            extensions.insert::<crate::repowatch::RepoWatchRegistryHandle>(repo_watch);
+            extensions.insert::<crate::view_host::ViewRegistryHandle>(view_registry.clone());
+            extensions.insert::<Arc<crate::service::tab_transport_chat::TabReopenGuards>>(Arc::new(Default::default()));
+            extensions.insert::<crate::chatpreprocessor::ChatPreprocessorRegistryHandle>(chat_preprocessor_registry.clone());
+            extensions.insert::<crate::agent_commands::AgentCommandRegistryHandle>(agent_command_registry.clone());
+            extensions.insert::<codeterm_plugin::WebhookRegistryHandle>(webhook_registry.clone());
+            extensions.insert::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>(cap_registries.local_recording.clone());
+            extensions.insert::<Arc<crate::service::local_recording::RecordingSelectionStore>>(Arc::new(crate::service::local_recording::RecordingSelectionStore::open(crate::paths::data_dir().join("local-recording-selections.json"))));
+            extensions.insert(crate::service::receiver_target::LocalRecordingTargets(Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(crate::paths::data_dir().join("local-recording-targets.json")))));
+            extensions.insert::<codeterm_plugin::tab_menu::TabMenuRegistryHandle>(tab_menu_registry.clone());
+            extensions.insert::<codeterm_plugin::surfaces::SurfaceRegistryHandle>(surface_registry);
+            extensions.insert::<Arc<crate::service::surface::SurfaceRuntimeRegistry>>(crate::service::surface::builtin_runtimes());
+            extensions.insert::<Arc<crate::service::surface::SurfaceActivityGate>>(Default::default());
+            extensions.insert(crate::service::receiver_target::ReceiverTargets(Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(
+                    crate::service::receiver_target::ReceiverTargetStore::default_path(),
+                ))));
+            extensions.insert(crate::service::MuxEmitPending(Arc::new(std::sync::atomic::AtomicBool::new(false))));
+            extensions.insert::<Arc<crate::service::MuxEmitStats>>(Arc::new(crate::service::MuxEmitStats::default()));
+            extensions.insert(crate::service::PublishedTabStatuses(Arc::new(Default::default())));
+            extensions.insert(crate::service::output_stream_activity::OutputStreamActivityTx(crate::service::output_stream_activity::channel()));
+            extensions.insert::<crate::pasteboard::PasteboardState>(crate::pasteboard::PasteboardState::new());
+            extensions.insert::<Arc<crate::service::input_parser::InputParser>>(input_parser);
+            extensions.insert::<crate::usage::TabActivity>(crate::usage::TabActivity::new());
+            extensions.insert::<Arc<crate::user_last_activity::UserLastActivity>>(user_last_activity);
+            extensions.insert(crate::usage::poller::UsagePollerSlot(Arc::new(parking_lot::Mutex::new(None))));
+            extensions.insert(crate::service::PlanWatchers(Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new()))));
+            extensions.insert(crate::service::LoadedPlanProjects(Arc::new(parking_lot::Mutex::new(
+                    std::collections::HashSet::new(),
+                ))));
+            extensions.insert(crate::service::PlanStartupLoaded(Arc::new(std::sync::atomic::AtomicBool::new(false))));
+            extensions.insert::<Arc<crate::service::hierarchy::stalled_team::StallEpisodeTracker>>(Arc::new(Default::default()));
+            extensions.insert::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(Arc::new(Default::default()));
+            extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(parking_lot::Mutex::new(
+                    crate::service::WorkerPersonaReservations::default(),
+                ))));
             let svc_ctx = ServiceContext {
                 lifecycle_journal: crate::session::lifecycle::TabLifecycleJournal::shared_arc(),
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
-                workspace_relocation_lock: Arc::new(parking_lot::Mutex::new(())),
-                account: Arc::new(tokio::sync::OnceCell::new()),
-                billing: Arc::new(tokio::sync::OnceCell::new()),
-                analytics: Arc::new(tokio::sync::OnceCell::new()),
                 agent_pad_data_dir: crate::paths::data_dir(),
-                launch_task_files: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
                 output_buf: states.output_buffer.clone(),
@@ -630,107 +698,42 @@ pub fn run(
                 notif: states.notif.clone(),
                 events: states.event_broadcaster.clone(),
                 app_handle: app_handle.clone(),
-                cartographer_attach_locks: Default::default(),
-                orchestrator_attach_locks: Default::default(),
                 agent_tracker: states.agent_tracker.clone(),
-                shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
                 kpi,
-                protocol_recorder: Arc::new(crate::service::protocol_recorder::ProtocolRecorder::new(
-                    crate::paths::data_dir().join("logs/protocol"),
-                    crate::paths::is_dev_instance(),
-                )),
                 plan_store,
                 plan_turn_counter,
                 pending_delivery_payloads,
                 chat_send_ledger: Arc::new(
                     crate::service::chat_send_transaction::ChatSendLedger::default(),
                 ),
-                reply_relays: Arc::new(Default::default()),
                 deferred_session_bindings: Arc::new(Default::default()),
                 agent_registry,
                 mem,
-                mem_supervisor,
                 activity: crate::mem::activity::ActivityRing::new(500),
                 workers,
-                plugin_activity: Arc::new(crate::plugin::activity::PluginActivityRegistry::new()),
-                worker_pool: Arc::new(crate::mem::worker_pool::WorkerPool::new(
-                    crate::config::memory_config().workers_per_provider,
-                )),
                 prompt_detector,
                 pty_ownership: Default::default(),
-                provider_tree_witnesses: Arc::new(Default::default()),
                 agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
                 remote_workers: Arc::new(remote_workers),
                 bridge_outbound: bridge_outbound_tx,
-                bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
-                bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
-                bridge_threads: Arc::new(codeterm_bridge::bridge::threads::ThreadService::new(
-                    codeterm_bridge::bridge::threads::ThreadRegistry::load(
-                        crate::service::bridge_threads::registry_path(),
-                    ),
-                )),
-                restart_tracker: crate::service::agent_restart::new_restart_tracker(),
                 chat_registry: crate::service::tab_chat::ChatRegistry::new(),
-                delayed_send,
-                secret_registry: secret_registry.clone(),
                 secrets,
-                transcribe_registry: transcribe_registry.clone(),
-                converter_registry: converter_registry.clone(),
-                graph_node_registry: graph_node_registry.clone(),
-                event_source_registry: event_source_registry.clone(),
-                graph_event_subscriptions: graph_event_subscriptions.clone(),
                 supporter_models: decision_model_registry,
-                glance_registry: glance_registry.clone(),
-                bubble_registry: bubble_registry.clone(),
-                repo_watch,
-                view_registry: view_registry.clone(),
                 chatbackend_registry: chatbackend_registry.clone(),
-                chatbackend_reopen_guards: Arc::new(Default::default()),
                 provider_registry,
-                chat_preprocessor_registry: chat_preprocessor_registry.clone(),
-                agent_command_registry: agent_command_registry.clone(),
-                webhook_registry: webhook_registry.clone(),
-                local_recording_registry: cap_registries.local_recording.clone(),
                 local_recordings: Arc::new(crate::service::local_recording::RecordingLeases::default()),
-                local_recording_selections: Arc::new(crate::service::local_recording::RecordingSelectionStore::open(crate::paths::data_dir().join("local-recording-selections.json"))),
-                local_recording_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(crate::paths::data_dir().join("local-recording-targets.json"))),
-                tab_menu_registry: tab_menu_registry.clone(),
-                surface_registry,
-                surface_runtimes: crate::service::surface::builtin_runtimes(),
-                surface_activity: Default::default(),
-                receiver_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(
-                    crate::service::receiver_target::ReceiverTargetStore::default_path(),
-                )),
-                mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
-                published_tab_statuses: Arc::new(Default::default()),
-                output_stream_activity: crate::service::output_stream_activity::channel(),
-                session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(services_store),
                 tokens: Arc::new(crate::service::tokens::TokenStore::new()),
-                pasteboard: crate::pasteboard::PasteboardState::new(),
-                input_parser,
                 usage_store,
-                usage_activity: crate::usage::TabActivity::new(),
-                user_last_activity,
-                usage_poller: Arc::new(parking_lot::Mutex::new(None)),
-                plan_watchers: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
-                loaded_plan_projects: Arc::new(parking_lot::Mutex::new(
-                    std::collections::HashSet::new(),
-                )),
-                plan_startup_loaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                stalled_team_nudges: Arc::new(Default::default()),
-                heartbeat_gate: Arc::new(Default::default()),
-                worker_identity_allocator: Arc::new(parking_lot::Mutex::new(
-                    crate::service::WorkerPersonaReservations::default(),
-                )),
                 worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
                 gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
+                extensions: Arc::new(extensions.finish()),
             };
             crate::service::supporter::runtime_with_notifications(&svc_ctx);
             let service_state: ServiceState = Arc::new(svc_ctx);
+            crate::ports::orchestration::install(&service_state);
             service_state.chat_send_ledger.bind_settlement_owner(&service_state);
             {
                 let service = service_state.clone();
@@ -774,8 +777,8 @@ pub fn run(
                     vm.set_service(Arc::downgrade(&host));
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
-                crate::service::plugin_prompt::refresh(&service_state.agent_command_registry);
-                crate::service::plugin_skills::spawn_sync(service_state.mem.clone(), service_state.agent_command_registry.clone());
+                crate::service::plugin_prompt::refresh(service_state.ext::<crate::agent_commands::AgentCommandRegistryHandle>());
+                crate::service::plugin_skills::spawn_sync(service_state.mem.clone(), service_state.ext::<crate::agent_commands::AgentCommandRegistryHandle>().clone());
                 for provider in chatbackend_registry.active() {
                     crate::agent::model_binary_watch::install_chatbackend(
                         provider,
@@ -817,7 +820,7 @@ pub fn run(
 
             // Librarian: hourly file-sync + skill-folder scan, run as a subprocess via the supervisor so a panic / OOM cannot take the daemon down. First fire after a 30s warm-up.
             {
-                let supervisor = service_state.mem_supervisor.clone();
+                let supervisor = service_state.ext::<Arc<crate::mem::supervisor::Supervisor>>().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                     loop {
@@ -878,9 +881,9 @@ pub fn run(
                 let poller = crate::usage::UsagePoller::new(
                     (*service_state).clone(),
                     service_state.usage_store.clone(),
-                    service_state.usage_activity.clone(),
+                    service_state.ext::<crate::usage::TabActivity>().clone(),
                 );
-                *service_state.usage_poller.lock() = Some(poller.clone());
+                *service_state.ext::<crate::usage::poller::UsagePollerSlot>().0.lock() = Some(poller.clone());
                 poller.spawn();
             }
             drop(startup_step);
@@ -892,7 +895,7 @@ pub fn run(
             startup::start_servers(app, &states, &service_state);
             startup::frontend_shell::start(app_handle.clone(), states.rest_api.clone());
             service_state.schedule_restored_agent_delivery_reconciliation();
-            commands::ensure_integrations_for_all(
+            crate::service::provider_hooks::ensure_integrations_for_all(
                 &service_state.agent_registry,
                 &states.config,
                 service_state.clone(),
@@ -1024,5 +1027,8 @@ pub fn run(
 #[path = "../../../vendor/tauri-runtime-wry/src/owner_thread.rs"]
 mod windows_rc_ownership_regression;
 
-#[cfg(test)]
-mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod persistence_test_support;

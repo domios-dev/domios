@@ -4,6 +4,9 @@ use crate::multiplexer::types::ClosedTab;
 use crate::service::ServiceContext;
 
 impl CommandPort for ServiceContext {
+    fn utility_deadline(&self, tab_id: &str) -> Option<serde_json::Value> {
+        self.utility_deadline_snapshot(tab_id)
+    }
     fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad {
         self.lifecycle_journal.load()
     }
@@ -12,7 +15,8 @@ impl CommandPort for ServiceContext {
     }
 
     fn mark_user_activity(&self) {
-        self.user_last_activity.mark();
+        self.ext::<std::sync::Arc<crate::user_last_activity::UserLastActivity>>()
+            .mark();
     }
 
     fn mux_snapshot(&self) -> MultiplexerSnapshot {
@@ -134,7 +138,7 @@ impl CommandPort for ServiceContext {
     }
 
     fn list_agent_providers(&self) -> Vec<serde_json::Value> {
-        crate::api::agent_routes::list_agent_provider_values(&self.provider_registry)
+        crate::provider::values::list_agent_provider_values(&self.provider_registry)
     }
 }
 
@@ -169,7 +173,7 @@ mod tests {
 
     #[test]
     fn gui_launch_keeps_authenticated_tabs_responsive() {
-        use crate::api::access_policy::check_access;
+        use crate::api_support::access_policy::check_access;
         use crate::mesh::types::AccessLevel;
         use axum::http::Method;
 

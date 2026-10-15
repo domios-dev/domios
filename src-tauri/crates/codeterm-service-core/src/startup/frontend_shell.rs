@@ -118,7 +118,7 @@ fn fallback_origin() -> &'static str {
     }
 }
 
-pub(crate) fn declared_frontend_origins(
+pub fn declared_frontend_origins(
     config: &crate::config::schema::ApiConfig,
     dev_url: Option<&Url>,
 ) -> Vec<String> {
@@ -161,7 +161,7 @@ fn open_external_link(url: &Url, origin: Option<&str>) {
         navigation_identity(&url)
     );
     tauri::async_runtime::spawn_blocking(move || {
-        if let Err(error) = crate::commands::open_url(url.into()) {
+        if let Err(error) = crate::service::open_url::open_url(url.into()) {
             log::debug!("[frontend-shell] external link opener failed: {error}");
         }
     });
@@ -386,7 +386,7 @@ async fn frontend_url(app: &crate::app_runtime::AppHandle, origin: &str) -> Resu
     }
 }
 
-pub(crate) fn start(app: crate::app_runtime::AppHandle, control: RestApiControlState) {
+pub fn start(app: crate::app_runtime::AppHandle, control: RestApiControlState) {
     let mut status = control.subscribe_status();
     tauri::async_runtime::spawn(async move {
         loop {

@@ -285,14 +285,18 @@ impl ServiceContext {
         after_turn: bool,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         let _claim = {
-            let mut tracker = self.restart_tracker.lock();
+            let mut tracker = self
+                .ext::<crate::service::agent_restart::RestartTracker>()
+                .lock();
             if !tracker.in_progress.insert(snap.tab_id.clone()) {
                 return Err(ModelSwitchError::NotSwitchable(
                     "a model switch or restart is already in progress".into(),
                 ));
             }
             super::super::RestartClaim {
-                tracker: self.restart_tracker.clone(),
+                tracker: self
+                    .ext::<crate::service::agent_restart::RestartTracker>()
+                    .clone(),
                 tab_id: snap.tab_id.clone(),
             }
         };
@@ -383,10 +387,13 @@ impl ServiceContext {
         }
         let _frame_timing =
             crate::service::pty_frame_timing::Scope::begin(&target.pty_id, &target.tab_id);
-        self.restart_tracker.lock().command_ptys.insert(
-            target.tab_id.clone(),
-            (target.pty_id.clone(), target.binding_nonce.clone()),
-        );
+        self.ext::<crate::service::agent_restart::RestartTracker>()
+            .lock()
+            .command_ptys
+            .insert(
+                target.tab_id.clone(),
+                (target.pty_id.clone(), target.binding_nonce.clone()),
+            );
         let recorded_model = self.mux.read().get_tab(&target.tab_id).and_then(|tab| {
             tab.agent_session_model_identity
                 .as_ref()

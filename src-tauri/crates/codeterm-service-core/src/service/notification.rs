@@ -158,7 +158,7 @@ mod admission;
 use admission::{destination, NoticeDestination, NoticeSource};
 
 #[derive(Debug)]
-pub(crate) enum NotificationAdmission {
+pub enum NotificationAdmission {
     Diagnostic,
     /// Admitted through the agent notify-send boundary.
     Explicit,
@@ -173,7 +173,7 @@ fn notification_severity(severity: Option<&str>) -> NotificationSeverity {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn create_notification_with_delivery(
+pub fn create_notification_with_delivery(
     admission: NotificationAdmission,
     store: &NotifState,
     deliver_native: impl FnOnce(&str, Option<&str>),
@@ -532,7 +532,11 @@ impl ServiceContext {
                     NotificationAdmission::Explicit,
                     &self.notif,
                     |title, body| {
-                        crate::api::os_notify::_send_os_notification(&self.app_handle, title, body)
+                        crate::notification::os_notify::_send_os_notification(
+                            &self.app_handle,
+                            title,
+                            body,
+                        )
                     },
                     title,
                     body,
@@ -716,7 +720,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn resolve_prompt_notifications(
+    pub fn resolve_prompt_notifications(
         &self,
         tab_id: &str,
         identity: &codeterm_types::pty::PromptIdentity,

@@ -9,33 +9,33 @@ use crate::service::plan::{PlanStore, TaskLaneUpdate};
 /// One live tab as the removal preflight sees it: the shell cwd decides
 /// ownership, the title and id are what a refusal has to name.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LiveTabCwd {
+pub struct LiveTabCwd {
     pub(crate) id: String,
     pub(crate) title: String,
     pub(crate) cwd: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LaneRemovalRequest {
-    pub(crate) worktree_path: String,
-    pub(crate) branch: Option<String>,
-    pub(crate) force: bool,
+pub struct LaneRemovalRequest {
+    pub worktree_path: String,
+    pub branch: Option<String>,
+    pub force: bool,
     /// Canonical checkout the lane was branched from. Derived from the lane's
     /// own git common dir when the caller does not name one.
-    pub(crate) canonical_cwd: Option<String>,
+    pub canonical_cwd: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LaneRemovalOutcome {
-    pub(crate) canonical_cwd: String,
-    pub(crate) worktree_path: String,
-    pub(crate) branch: Option<String>,
-    pub(crate) worktree_already_removed: bool,
-    pub(crate) branch_already_removed: bool,
+pub struct LaneRemovalOutcome {
+    pub canonical_cwd: String,
+    pub worktree_path: String,
+    pub branch: Option<String>,
+    pub worktree_already_removed: bool,
+    pub branch_already_removed: bool,
 }
 
 #[derive(Debug)]
-pub(crate) enum CleanupStatusDoneError {
+pub enum CleanupStatusDoneError {
     Refused(String),
     Verification(String),
 }
@@ -44,7 +44,7 @@ const MAX_LANE_WALK_ENTRIES: usize = 100_000;
 const MAX_LANE_WALK_DEPTH: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LinkRemovalKind {
+pub enum LinkRemovalKind {
     Directory,
     File,
 }
@@ -338,7 +338,7 @@ pub(crate) fn remove_lane_worktree(
     remove_lane_residue(path)
 }
 
-pub(crate) fn recorded_lane_remnant(
+pub fn recorded_lane_remnant(
     worktree_path: Option<&str>,
     branch: Option<&str>,
     canonical_cwd: &str,
@@ -707,7 +707,7 @@ pub(crate) fn lane_remove_command(
     command
 }
 
-pub(crate) fn lane_release_command(
+pub fn lane_release_command(
     worktree_path: Option<&str>,
     branch: Option<&str>,
     canonical_cwd: &str,
@@ -725,7 +725,7 @@ pub(crate) fn lane_release_command(
     }
 }
 
-fn clear_removed_task_lane_references(
+pub fn clear_removed_task_lane_references(
     store: &PlanStore,
     outcome: &LaneRemovalOutcome,
 ) -> Result<(), String> {
@@ -766,7 +766,7 @@ fn clear_removed_task_lane_references(
     Ok(())
 }
 
-fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<String> {
+pub fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<String> {
     store.list_full().into_iter().find_map(|plan| {
         plan.tasks
             .iter()
@@ -786,7 +786,7 @@ fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<S
     })
 }
 
-fn remove_lane_and_clear_task_references(
+pub fn remove_lane_and_clear_task_references(
     store: &PlanStore,
     repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
     request: &LaneRemovalRequest,
@@ -801,7 +801,7 @@ fn remove_lane_and_clear_task_references(
     Ok(outcome)
 }
 
-pub(crate) fn finalize_lane_removal(
+pub fn finalize_lane_removal(
     store: &PlanStore,
     repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
     outcome: &LaneRemovalOutcome,
@@ -826,7 +826,7 @@ pub(crate) fn finalize_lane_removal(
     clear_removed_task_lane_references(store, outcome)
 }
 
-pub(crate) fn clear_vanished_lane_on_cleanup_done(
+pub fn clear_vanished_lane_on_cleanup_done(
     store: &PlanStore,
     plan_id: &str,
     task_id: &str,
@@ -876,7 +876,7 @@ pub(crate) fn clear_vanished_lane_on_cleanup_done(
     Ok(Some(update))
 }
 
-fn unix_time_millis() -> u64 {
+pub fn unix_time_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -884,7 +884,7 @@ fn unix_time_millis() -> u64 {
 }
 
 impl ServiceContext {
-    pub(crate) fn live_tab_cwds(&self) -> Vec<LiveTabCwd> {
+    pub fn live_tab_cwds(&self) -> Vec<LiveTabCwd> {
         self.mux
             .read()
             .all_tabs()
@@ -899,13 +899,13 @@ impl ServiceContext {
             .collect()
     }
 
-    pub(crate) fn remove_owned_lane(
+    pub fn remove_owned_lane(
         &self,
         request: &LaneRemovalRequest,
     ) -> Result<LaneRemovalOutcome, String> {
         remove_lane_and_clear_task_references(
             &self.plan_store,
-            &self.repo_watch,
+            self.ext::<crate::repowatch::RepoWatchRegistryHandle>(),
             request,
             &self.live_tab_cwds(),
         )

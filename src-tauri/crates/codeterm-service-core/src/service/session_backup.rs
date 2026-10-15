@@ -20,7 +20,7 @@ impl super::ServiceContext {
         store.list_backups()
     }
 
-    pub(crate) fn export_session_backup(
+    pub fn export_session_backup(
         &self,
         name: &str,
     ) -> Result<crate::session::store::SessionSnapshot, String> {

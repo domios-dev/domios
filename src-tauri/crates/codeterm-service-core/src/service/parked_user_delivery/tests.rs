@@ -1,3 +1,4 @@
+pub(super) use super::test_support::*;
 use super::*;
 use parking_lot::Mutex;
 use std::sync::{
@@ -98,13 +99,12 @@ use crate::service::delivery_error::{DeliveryError, SendOrigin};
 use crate::service::pending_delivery_payloads::user_sends::UserSendStore;
 use crate::service::test_fixture::ServiceFixture;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
-use tauri::{Listener, Manager};
+use std::time::Instant;
+use tauri::Listener;
 
 const FIRST_PAYLOAD: &str = " \topaque-a-41c9\r\n\u{03bb}\t ";
 const SECOND_PAYLOAD: &str = "\topaque-b-8d27\n\u{754c}  ";
 const REFUSAL: &str = "ProviderInputNotReady: opaque-readiness-boundary";
-const TEST_DEADLINE: Duration = Duration::from_secs(10);
 
 #[test]
 fn first_turn_session_capability_allows_readiness_without_a_resume_id() {
@@ -114,27 +114,6 @@ fn first_turn_session_capability_allows_readiness_without_a_resume_id() {
         Some("observed-session"),
         false
     ));
-}
-
-pub(crate) fn pre_ready_fixture() -> (ServiceFixture, String) {
-    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-    let tab = mux.get_tab_mut(&tab_id).unwrap();
-    tab.agent_type = Some("opaque-provider".into());
-    tab.pty_id = Some("opaque-pty".into());
-    tab.agent_session_id = Some("opaque-session".into());
-    tab.session_binding_nonce = Some("opaque-current-nonce".into());
-    tab.reported_session_binding_nonce = Some("opaque-old-nonce".into());
-    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentLaunching);
-    tab.boot_failure_reason = None;
-    let fixture = ServiceFixture::new(mux);
-    let session: crate::session::SessionState = Arc::new(Mutex::new(
-        crate::session::SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
-    ));
-    assert!(fixture._app.manage(session));
-    assert!(fixture
-        ._app
-        .manage(Arc::new(fixture.service.clone()) as crate::service::ServiceState));
-    (fixture, tab_id)
 }
 
 fn admit_current_ledger(
@@ -301,41 +280,6 @@ fn reverse_transport_completion_retains_both_accepted_originals_after_reopen() {
     assert_reopened_originals(&fixture, &[first, second]);
 }
 
-pub(crate) type SubmitBoundary =
-    Arc<dyn Fn(&UserSendRecord, &str) -> Result<(), DeliveryError> + Send + Sync>;
-static SUBMIT_BOUNDARIES: std::sync::OnceLock<
-    Mutex<std::collections::HashMap<String, SubmitBoundary>>,
-> = std::sync::OnceLock::new();
-
-pub(crate) struct UserSubmitBoundary(String);
-
-impl UserSubmitBoundary {
-    pub(crate) fn install(tab_id: &str, boundary: SubmitBoundary) -> Self {
-        SUBMIT_BOUNDARIES
-            .get_or_init(Default::default)
-            .lock()
-            .insert(tab_id.to_string(), boundary);
-        Self(tab_id.to_string())
-    }
-}
-
-impl Drop for UserSubmitBoundary {
-    fn drop(&mut self) {
-        SUBMIT_BOUNDARIES
-            .get_or_init(Default::default)
-            .lock()
-            .remove(&self.0);
-    }
-}
-
-pub(super) fn submit_boundary(tab_id: &str) -> Option<SubmitBoundary> {
-    SUBMIT_BOUNDARIES
-        .get_or_init(Default::default)
-        .lock()
-        .get(tab_id)
-        .cloned()
-}
-
 fn receive_send_status(
     receiver: &mpsc::Receiver<serde_json::Value>,
     send_id: &str,
@@ -366,43 +310,6 @@ fn receive_resolved_status(
         if status["state"].as_str() != Some("held") {
             return Ok(status);
         }
-    }
-}
-
-type BeforeSubmit = Arc<dyn Fn() + Send + Sync>;
-static BEFORE_SUBMIT_BOUNDARIES: std::sync::OnceLock<
-    Mutex<std::collections::HashMap<String, BeforeSubmit>>,
-> = std::sync::OnceLock::new();
-
-pub(crate) struct BeforeUserSubmitBoundary(String);
-
-impl BeforeUserSubmitBoundary {
-    pub(crate) fn install(tab_id: &str, before_submit: BeforeSubmit) -> Self {
-        BEFORE_SUBMIT_BOUNDARIES
-            .get_or_init(Default::default)
-            .lock()
-            .insert(tab_id.into(), before_submit);
-        Self(tab_id.into())
-    }
-}
-
-impl Drop for BeforeUserSubmitBoundary {
-    fn drop(&mut self) {
-        BEFORE_SUBMIT_BOUNDARIES
-            .get_or_init(Default::default)
-            .lock()
-            .remove(&self.0);
-    }
-}
-
-pub(super) fn run_before_submit(tab_id: &str) {
-    if let Some(before_submit) = BEFORE_SUBMIT_BOUNDARIES
-        .get_or_init(Default::default)
-        .lock()
-        .get(tab_id)
-        .cloned()
-    {
-        before_submit();
     }
 }
 
@@ -438,153 +345,6 @@ pub(super) fn bootstrap_boundary(tab_id: &str) -> Option<BootstrapBoundary> {
         .lock()
         .get(tab_id)
         .cloned()
-}
-
-type OwnerIdle = Arc<dyn Fn() + Send + Sync>;
-static OWNER_IDLE_BOUNDARIES: std::sync::OnceLock<
-    Mutex<std::collections::HashMap<String, OwnerIdle>>,
-> = std::sync::OnceLock::new();
-
-struct OwnerIdleBoundary(String);
-
-impl OwnerIdleBoundary {
-    fn install(tab_id: &str, boundary: OwnerIdle) -> Self {
-        OWNER_IDLE_BOUNDARIES
-            .get_or_init(Default::default)
-            .lock()
-            .insert(tab_id.to_string(), boundary);
-        Self(tab_id.to_string())
-    }
-}
-
-impl Drop for OwnerIdleBoundary {
-    fn drop(&mut self) {
-        OWNER_IDLE_BOUNDARIES
-            .get_or_init(Default::default)
-            .lock()
-            .remove(&self.0);
-    }
-}
-
-pub(super) fn notify_owner_idle(tab_id: &str) {
-    let boundary = OWNER_IDLE_BOUNDARIES
-        .get_or_init(Default::default)
-        .lock()
-        .get(tab_id)
-        .cloned();
-    if let Some(boundary) = boundary {
-        boundary();
-    }
-}
-
-struct QueueProvider {
-    root: Option<std::path::PathBuf>,
-    paste_limit: Option<usize>,
-    lazy_session_start: bool,
-}
-
-impl crate::agent::provider::AgentProvider for QueueProvider {
-    fn id(&self) -> &str {
-        "opaque-provider"
-    }
-    fn display_name(&self) -> &str {
-        "Opaque Provider"
-    }
-    fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
-        String::new()
-    }
-    fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
-        crate::agent::provider::ReadinessStrategy::FixedDelay {
-            duration: Duration::ZERO,
-        }
-    }
-    fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
-        crate::agent::provider::TaskDelivery::PtyInput
-    }
-    fn session_starts_on_first_user_turn(&self) -> bool {
-        self.lazy_session_start
-    }
-    fn detect_from_title(&self, _: &str) -> bool {
-        false
-    }
-    fn detect_from_output(&self, _: &str) -> bool {
-        false
-    }
-    fn session_file_path(&self, _: &str, session: &str) -> Option<std::path::PathBuf> {
-        self.root
-            .as_ref()
-            .map(|root| root.join(format!("{session}.jsonl")))
-    }
-    fn session_jsonl_path(&self, cwd: &str, session: &str) -> Option<std::path::PathBuf> {
-        self.session_file_path(cwd, session)
-    }
-    fn session_exists(&self, _: &str, _: &str) -> Option<bool> {
-        Some(true)
-    }
-    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
-        None
-    }
-    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
-        None
-    }
-    fn paste_limit_bytes(&self) -> Option<usize> {
-        self.paste_limit
-    }
-    fn parse_session_delta(
-        &self,
-        path: &std::path::Path,
-        from_offset: u64,
-    ) -> crate::agent::chat_types::SessionDelta {
-        use std::io::{Read, Seek, SeekFrom};
-        let mut file = std::fs::File::open(path).unwrap();
-        file.seek(SeekFrom::Start(from_offset)).unwrap();
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes).unwrap();
-        let messages = bytes
-            .split(|byte| *byte == b'\n')
-            .filter_map(|line| {
-                let value: serde_json::Value = serde_json::from_slice(line).ok()?;
-                Some(crate::agent::chat_types::RichMessage {
-                    role: "user".into(),
-                    blocks: vec![crate::agent::chat_types::MessageBlock {
-                        kind: "text".into(),
-                        data: serde_json::json!({ "text": value["content"].as_str()? }),
-                    }],
-                    ..Default::default()
-                })
-            })
-            .collect();
-        crate::agent::chat_types::SessionDelta {
-            new_offset: from_offset + bytes.len() as u64,
-            messages,
-        }
-    }
-}
-
-pub(crate) fn queue_fixture(anchor: bool, paste_limit: Option<usize>) -> (ServiceFixture, String) {
-    queue_fixture_with_session_mode(anchor, paste_limit, false)
-}
-
-fn queue_fixture_with_session_mode(
-    anchor: bool,
-    paste_limit: Option<usize>,
-    lazy_session_start: bool,
-) -> (ServiceFixture, String) {
-    let (fixture, tab) = pre_ready_fixture();
-    let root = fixture.temp.path().join("transcripts");
-    std::fs::create_dir(&root).unwrap();
-    if anchor {
-        std::fs::write(root.join("opaque-session.jsonl"), b"").unwrap();
-    }
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(QueueProvider {
-            root: Some(root),
-            paste_limit,
-            lazy_session_start,
-        }));
-    (fixture, tab)
 }
 
 pub(crate) fn mark_ready(fixture: &ServiceFixture, tab_id: &str) {
@@ -712,6 +472,55 @@ fn append_turn(fixture: &ServiceFixture, text: &str) {
     writeln!(file, "{}", serde_json::json!({ "content": text })).unwrap();
 }
 
+pub(crate) fn await_owner_stopped(fixture: &ServiceFixture, tab_id: &str) {
+    let owner = fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .tab(tab_id);
+    let (idle_tx, idle_rx) = mpsc::sync_channel(1);
+    let callback_tx = idle_tx.clone();
+    let _boundary = OwnerIdleBoundary::install(
+        tab_id,
+        Arc::new(move || {
+            let _ = callback_tx.try_send(());
+        }),
+    );
+    loop {
+        if !owner.running.load(Ordering::Acquire) {
+            return;
+        }
+        idle_rx
+            .recv_timeout(TEST_DEADLINE)
+            .expect("user owner stops after its held send");
+    }
+}
+
+#[path = "tests/bootstrap_interaction.rs"]
+mod bootstrap_interaction;
+#[path = "tests/capacity.rs"]
+mod capacity;
+#[path = "tests/durable_admission.rs"]
+mod durable_admission;
+#[path = "tests/ended_launch.rs"]
+mod ended_launch;
+mod evidence;
+#[path = "tests/lazy_session.rs"]
+mod lazy_session;
+#[path = "tests/merged_turns.rs"]
+mod merged_turns;
+#[path = "tests/owner_jev.rs"]
+mod owner_jev;
+#[path = "tests/readiness.rs"]
+mod readiness;
+mod recording_contract;
+#[path = "tests/retained_uncertainty.rs"]
+mod retained_uncertainty;
+
+mod ready_order;
+
+pub(super) mod queued_boundary;
+
 fn owner_state(fixture: &ServiceFixture, tab: &str) -> String {
     let store = &fixture.service.pending_delivery_payloads.user_sends;
     let owner = store.tab(tab);
@@ -748,122 +557,3 @@ fn settled_listener(
     });
     (listener, rx)
 }
-
-pub(crate) fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
-    fixture
-        .service
-        .ready_user_send_tasks
-        .wait(tab_id, TEST_DEADLINE);
-    let owner = fixture
-        .service
-        .pending_delivery_payloads
-        .user_sends
-        .tab(tab_id);
-    let (idle_tx, idle_rx) = mpsc::sync_channel(1);
-    let callback_tx = idle_tx.clone();
-    let _boundary = OwnerIdleBoundary::install(
-        tab_id,
-        Arc::new(move || {
-            let _ = callback_tx.try_send(());
-        }),
-    );
-    fixture
-        .service
-        .wake_user_owner(tab_id, super::UserWake::Housekeeping);
-    loop {
-        idle_rx
-            .recv_timeout(TEST_DEADLINE)
-            .expect("user owner reaches its idle boundary");
-        if !owner.running.load(Ordering::Acquire) {
-            fixture
-                .service
-                .ready_user_send_tasks
-                .wait(tab_id, TEST_DEADLINE);
-            return;
-        }
-    }
-}
-
-pub(crate) fn await_owner_stopped(fixture: &ServiceFixture, tab_id: &str) {
-    let owner = fixture
-        .service
-        .pending_delivery_payloads
-        .user_sends
-        .tab(tab_id);
-    let (idle_tx, idle_rx) = mpsc::sync_channel(1);
-    let callback_tx = idle_tx.clone();
-    let _boundary = OwnerIdleBoundary::install(
-        tab_id,
-        Arc::new(move || {
-            let _ = callback_tx.try_send(());
-        }),
-    );
-    loop {
-        if !owner.running.load(Ordering::Acquire) {
-            return;
-        }
-        idle_rx
-            .recv_timeout(TEST_DEADLINE)
-            .expect("user owner stops after its held send");
-    }
-}
-
-pub(crate) fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 {
-    let pty_id = fixture
-        .service
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .unwrap()
-        .pty_id
-        .clone()
-        .unwrap();
-    if let Some(session) = fixture.service.pty.lock().get_session(&pty_id) {
-        return session.generation;
-    }
-    let (_, session) = fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(
-            Some(pty_id.clone()),
-            None,
-            None,
-            120,
-            40,
-            Default::default(),
-        )
-        .expect("spawn the isolated ServiceContext PTY fixture");
-    let generation = session.generation;
-    assert!(fixture
-        .service
-        .screen_state
-        .lock()
-        .bind_pty_generation(&pty_id, generation));
-    generation
-}
-
-#[path = "tests/bootstrap_interaction.rs"]
-mod bootstrap_interaction;
-#[path = "tests/capacity.rs"]
-mod capacity;
-#[path = "tests/durable_admission.rs"]
-mod durable_admission;
-#[path = "tests/ended_launch.rs"]
-mod ended_launch;
-mod evidence;
-#[path = "tests/lazy_session.rs"]
-mod lazy_session;
-#[path = "tests/merged_turns.rs"]
-mod merged_turns;
-#[path = "tests/owner_jev.rs"]
-mod owner_jev;
-#[path = "tests/readiness.rs"]
-mod readiness;
-mod recording_contract;
-#[path = "tests/retained_uncertainty.rs"]
-mod retained_uncertainty;
-
-mod ready_order;
-
-pub(super) mod queued_boundary;

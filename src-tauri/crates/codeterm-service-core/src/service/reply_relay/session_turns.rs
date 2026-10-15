@@ -3,12 +3,12 @@ use crate::service::ServiceContext;
 use serde::Serialize;
 use std::collections::VecDeque;
 
-const MAX_SCAN_TURNS: usize = 256;
-const MAX_TURN_BYTES: usize = 256 * 1024;
-const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+pub const MAX_SCAN_TURNS: usize = 256;
+pub const MAX_TURN_BYTES: usize = 256 * 1024;
+pub const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Serialize)]
-pub(crate) struct SessionTurn {
+pub struct SessionTurn {
     user_turn_id: String,
     user_record_start: u64,
     user_text: String,
@@ -18,7 +18,7 @@ pub(crate) struct SessionTurn {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct SessionTurns {
+pub struct SessionTurns {
     tab_id: String,
     session_id: String,
     turns: Vec<SessionTurn>,
@@ -27,7 +27,7 @@ pub(crate) struct SessionTurns {
     unavailable_reason: Option<String>,
 }
 
-fn may_read_turns(
+pub fn may_read_turns(
     caller: Option<&str>,
     target: &str,
     authenticated: bool,
@@ -43,7 +43,7 @@ fn may_read_turns(
     }
 }
 
-fn collect_turns(
+pub fn collect_turns(
     last: u64,
     after: u64,
     mut read: impl FnMut(u64) -> Option<ReplyRelayEvidence>,
@@ -130,7 +130,7 @@ fn collect_turns(
 }
 
 impl ServiceContext {
-    pub(crate) fn read_tool_less_session_turns(
+    pub fn read_tool_less_session_turns(
         &self,
         target: &str,
         last: u64,

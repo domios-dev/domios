@@ -60,7 +60,7 @@ fn parse<T: for<'de> Deserialize<'de>>(method: &str, args: Value) -> Result<T, S
     serde_json::from_value(args).map_err(|error| format!("{method}: invalid args: {error}"))
 }
 
-pub(super) fn now_ms() -> u128 {
+pub fn now_ms() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis())

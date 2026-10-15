@@ -1,4 +1,5 @@
 use super::*;
+use crate::service::OrchestrationPairExt;
 use codeterm_types::team::general_agent_membership::GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION;
 
 use crate::plan::PlannerRef;
@@ -135,9 +136,10 @@ fn team_planner_bound_at_plan_create() {
             .and_then(|plan| plan.planner),
         expected_planner
     );
-    assert!(!fixture
-        .service
-        .tab_has_pending_paired_planner(&orchestrator_tab_id));
+    assert!(!crate::service::tab_has_pending_paired_planner(
+        &fixture.service,
+        &orchestrator_tab_id
+    ));
     let planner_caller = crate::service::plan_authority::AuthenticatedPlanCaller {
         tab_id: Some(planner_tab_id),
         session_id: Some("planner-session".into()),

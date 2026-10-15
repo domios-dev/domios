@@ -3,7 +3,7 @@ mod cwd;
 mod dispatch_rollback;
 pub(crate) mod runtime_prompt;
 use dispatch_rollback::create_pending_delivery_or_rollback_dispatch;
-pub(crate) use runtime_prompt::{
+pub use runtime_prompt::{
     compose_runtime_system_prompt, ensure_tab_runtime_prompt, ROLE_AUTHORITY,
 };
 
@@ -1073,12 +1073,9 @@ impl ServiceContext {
         if let Some(id) = crate::flow_trace::tab_flow(self, target_tab) {
             crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
-        let (text, pending) = self.reply_relays.spawn_task_message(
-            &self.mux.read(),
-            &self.agent_registry,
-            target_tab,
-            body,
-        )?;
+        let (text, pending) = self
+            .ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .spawn_task_message(&self.mux.read(), &self.agent_registry, target_tab, body)?;
         if let Some(pending) = pending {
             self.trace_spawn_reply_relay(target_tab, &pending);
         }
@@ -1089,7 +1086,7 @@ impl ServiceContext {
 /// A chat backend has no interactive turn to paste a task into, so the launch
 /// brief has to travel in its session config instead. Keyed off the same
 /// spawnable predicate the routing seam uses, so the two cannot disagree.
-pub(crate) fn move_chatbackend_task_to_system_prompt(
+pub fn move_chatbackend_task_to_system_prompt(
     chatbackends: &crate::chatbackend::ChatBackendRegistry,
     agent: &str,
     params: &mut SpawnAgentParams,
@@ -1163,7 +1160,7 @@ fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
 
 mod remote_binding;
 use remote_binding::remote_task_binding_matches;
-pub(crate) use remote_binding::remote_task_binding_matches_authority;
+pub use remote_binding::remote_task_binding_matches_authority;
 
 #[cfg(test)]
 mod tests;

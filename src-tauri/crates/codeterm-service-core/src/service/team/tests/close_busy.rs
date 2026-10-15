@@ -2,6 +2,7 @@ use super::*;
 use crate::plan::{OrchestratorRef, PlanStatus, TaskExecutionAttempt, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
+use crate::service::TeamExt;
 
 fn busy_team_fixture() -> (ServiceFixture, String, String, String, String, String) {
     let (mux, team_id, orchestrator, _, worker) = team_members();
@@ -93,7 +94,7 @@ async fn forced_team_close_reports_killed_work_and_keeps_plan_flagged() {
     let plan = fixture.service.plan_store.get(&plan_id).unwrap();
     assert_eq!(plan.status, PlanStatus::Active);
     assert!(plan.is_orphaned_active());
-    assert!(fixture.service.validate_active_team_plan_bindings().is_ok());
+    assert!(super::validate_active_team_plan_bindings(&fixture.service).is_ok());
 }
 
 #[test]

@@ -142,7 +142,7 @@ fn launch_fixture() -> (ServiceFixture, String, LaunchAttempt) {
     (ServiceFixture::new(mux), tab_id, attempt)
 }
 
-fn arm(readiness: &ReadinessRegistry, tab_id: &str, attempt: LaunchAttempt) {
+pub fn arm(readiness: &ReadinessRegistry, tab_id: &str, attempt: LaunchAttempt) {
     let key = readiness.arm(tab_id.to_string(), Some(STARTER.into()), None, false);
     readiness.bind_attempt(attempt, key);
     assert!(readiness.bound(tab_id, "launch-nonce", "launch-session"));

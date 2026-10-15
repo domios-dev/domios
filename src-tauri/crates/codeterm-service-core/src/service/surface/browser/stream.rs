@@ -15,7 +15,7 @@ fn host_notice(notice: HubNotice) -> SurfaceNotice {
 }
 
 /// State first, the newest frame a late viewer missed, then live events; launching happens in-stream.
-pub(super) async fn connect(
+pub async fn connect(
     runtime: Arc<BrowserRuntime>,
     viewport: Option<ViewportRequest>,
 ) -> SurfaceEvents {

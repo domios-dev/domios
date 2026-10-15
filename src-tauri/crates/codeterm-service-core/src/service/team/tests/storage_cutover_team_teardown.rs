@@ -1,3 +1,4 @@
+use crate::service::TeamExt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -147,6 +148,7 @@ fn team_storage_fixture() -> TeamStorageFixture {
     assert!(service._app.manage(cron.clone()));
     assert!(service._app.manage(wake));
     assert!(service._app.manage(sentinel.clone()));
+    crate::sentinel::manage_fixture_ports(&service._app.handle().clone(), &sentinel);
 
     TeamStorageFixture {
         service,

@@ -35,7 +35,7 @@ fn acquire_inner(tab_id: &str, mut waiting: impl FnMut()) -> TabActivationPermit
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn acquire_with_wait_hook(tab_id: &str, waiting: impl FnMut()) -> TabActivationPermit {
     acquire_inner(tab_id, waiting)
 }

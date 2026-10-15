@@ -14,7 +14,7 @@ export function confirmCandidates(entries, options, run = spawnSync) {
   let exitCode = 0;
   for (const entry of entries) {
     const filter = candidateFilter([entry]);
-    const reuse = options.archive ? ['--archive-file', options.archive, '--workspace-remap', process.cwd()] : ['--binaries-metadata', options.binaries, '--cargo-metadata', options.cargo];
+    const reuse = options.archive ? ['--archive-file', options.archive, '--workspace-remap', resolve('src-tauri')] : ['--binaries-metadata', options.binaries, '--cargo-metadata', options.cargo];
     const result = run('bash', ['scripts/test-capped.sh', ...reuse,
       '--filter-expr', filter, '--test-threads', '1', '--status-level', 'pass',
       '--no-fail-fast', '--no-tests=fail'], {

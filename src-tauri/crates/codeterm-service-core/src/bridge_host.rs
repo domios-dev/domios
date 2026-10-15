@@ -61,7 +61,9 @@ impl BridgeTabPort for ServiceBridgeTabPort {
     }
 
     fn transcribe_registry(&self) -> Arc<TranscribeRegistry> {
-        self.0.transcribe_registry.clone()
+        self.0
+            .ext::<Arc<crate::transcribe::TranscribeRegistry>>()
+            .clone()
     }
 
     fn bridge_outbound(&self) -> codeterm_bridge::bridge::manager::OutboundSender {
@@ -124,7 +126,9 @@ impl BridgeTabPort for ServiceBridgeTabPort {
     }
 
     fn threads(&self) -> Arc<ThreadService> {
-        self.0.bridge_threads.clone()
+        self.0
+            .ext::<Arc<codeterm_bridge::bridge::threads::ThreadService>>()
+            .clone()
     }
 
     fn thread_tabs(&self) -> &dyn ThreadTabs {
@@ -162,10 +166,14 @@ pub struct ServiceChatPreprocessorPort(pub ServiceContext);
 
 impl ChatPreprocessorPort for ServiceChatPreprocessorPort {
     fn preprocessor_ids(&self) -> Vec<String> {
-        self.0.chat_preprocessor_registry.ids()
+        self.0
+            .ext::<crate::chatpreprocessor::ChatPreprocessorRegistryHandle>()
+            .ids()
     }
 
     fn active_preprocessors(&self) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
-        self.0.chat_preprocessor_registry.active()
+        self.0
+            .ext::<crate::chatpreprocessor::ChatPreprocessorRegistryHandle>()
+            .active()
     }
 }

@@ -18,6 +18,8 @@ pub mod host_context;
 pub mod raw_text_sink;
 pub mod registry;
 pub(crate) mod restore_notice;
+pub use restore_notice::snapshot as restore_notice_snapshot;
+pub mod results;
 pub mod session_window;
 pub mod store_watch;
 pub mod structured_poller;
@@ -35,8 +37,6 @@ pub use tailer::{
 
 #[cfg(test)]
 mod command_tests;
-#[cfg(test)]
-mod identity_tests;
 #[cfg(test)]
 mod tailer_tests;
 
@@ -804,3 +804,5 @@ pub fn session_chat_snapshot(
 
 #[cfg(test)]
 mod tests;
+
+pub use restore_notice::append_restore_notice;
