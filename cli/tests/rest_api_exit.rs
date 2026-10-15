@@ -1,3 +1,6 @@
+#[path = "support/codeterm_bin.rs"]
+mod codeterm_bin;
+
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -39,7 +42,7 @@ fn run_rest_api(verb: &str, json_mode: bool, result: Value) -> std::process::Out
         }
     });
     let scratch = tempfile::tempdir().unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_codeterm"));
+    let mut command = Command::new(codeterm_bin::codeterm_bin());
     for (key, _) in std::env::vars() {
         if key.starts_with("CODETERM_") {
             command.env_remove(key);

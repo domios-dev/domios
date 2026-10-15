@@ -803,6 +803,9 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
+      # Release shards run tests from an archive extracted on another machine.
+      - name: Archive-portable Rust test paths
+        run: node scripts/check-archive-portable-test-paths.mjs
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -817,7 +820,7 @@ jobs:
       - name: Release test and publication gate contracts
         run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs scripts/tests/release-job-graph.test.mjs scripts/tests/release-bundle-smoke.test.mjs scripts/tests/release-asset-scope.test.mjs
       - name: Rust shard coverage contracts
-        run: node --test scripts/tests/ci-rust-shards.test.mjs scripts/tests/ci-runner-paths.test.mjs scripts/tests/ci-rust-archives.test.mjs
+        run: node --test scripts/tests/ci-rust-shards.test.mjs scripts/tests/ci-runner-paths.test.mjs scripts/tests/ci-rust-archives.test.mjs scripts/tests/check-archive-portable-test-paths.test.mjs
       - name: Release metadata contract tests
         run: python3 -m unittest scripts.tests.test_release_issue_contract
       - name: Release workflow signature-gate contract tests
