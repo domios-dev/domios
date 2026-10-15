@@ -7,10 +7,10 @@ use codeterm_service_core::KeepAwakeStateHandle;
 use tauri::Manager;
 
 fn persist_storage_desk_snapshot(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    service: &codeterm_service_core::service::ServiceContext,
     mux: &MuxState,
 ) -> Result<(), String> {
-    match codeterm_service_core::service::session_persist::write_session_snapshot(app, mux) {
+    match codeterm_service_core::service::session_persist::write_session_snapshot(service, mux) {
         Ok(SaveOutcome::Saved) => {
             log::info!("[shutdown] Storage desk snapshot committed");
             Ok(())
@@ -33,14 +33,16 @@ fn persist_storage_desk_snapshot(
 pub fn persist_state(app: &codeterm_service_core::app_runtime::AppHandle) {
     log::info!("[shutdown] state persistence started");
     let mut errors = Vec::new();
-    if let Some(mux) = app.try_state::<MuxState>() {
-        if let Err(error) = persist_storage_desk_snapshot(app, mux.inner()) {
+    if let Some(service) = app.try_state::<codeterm_service_core::service::ServiceState>() {
+        if let Err(error) = persist_storage_desk_snapshot(service.inner(), &service.mux) {
             errors.push(error);
         }
-    }
-    if let Err(error) = codeterm_service_core::service::session_persist::stop_worker(app) {
-        log::warn!("[shutdown] desk persistence worker shutdown failed: {error}");
-        errors.push(error);
+        if let Err(error) =
+            codeterm_service_core::service::session_persist::stop_worker(service.inner())
+        {
+            log::warn!("[shutdown] desk persistence worker shutdown failed: {error}");
+            errors.push(error);
+        }
     }
     if let Some(storage) = app.try_state::<codeterm_service_core::startup::StorageAuthority>() {
         if let Err(error) = codeterm_service_core::startup::shutdown_bounded(storage.inner()) {

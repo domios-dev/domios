@@ -312,13 +312,7 @@ pub async fn spawn_pty_core(
             } else {
                 // Build the resume command from the persisted launch inputs.
                 let permission_bypass_authorization =
-                    codeterm_service_core::service::restore_permission_bypass_authorization(
-                        &svc.app_handle,
-                        &svc.agent_registry,
-                        pid,
-                        &provider_id,
-                        &launch_parameters,
-                    )?;
+                    codeterm_service_core::service::restore_permission_bypass_authorization(&svc, &svc.agent_registry, pid, &provider_id, &launch_parameters, )?;
                 let skip_perms = permission_bypass_authorization.is_some();
                 // Reuse the restored-launch seam so identity, model, and effort arguments cannot diverge between launch paths.
                 let input = restored_fresh_launch_input(
@@ -354,13 +348,7 @@ pub async fn spawn_pty_core(
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh;
             let permission_bypass_authorization =
-                codeterm_service_core::service::restore_permission_bypass_authorization(
-                    &svc.app_handle,
-                    &svc.agent_registry,
-                    pid,
-                    &provider_id,
-                    &launch_parameters,
-                )?;
+                codeterm_service_core::service::restore_permission_bypass_authorization(&svc, &svc.agent_registry, pid, &provider_id, &launch_parameters, )?;
             let skip_perms = permission_bypass_authorization.is_some();
             let input = restored_fresh_launch_input(
                 &svc.agent_registry,

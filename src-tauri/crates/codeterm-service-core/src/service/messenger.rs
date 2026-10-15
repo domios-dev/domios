@@ -733,7 +733,7 @@ impl Messenger {
                 })
                 .unwrap_or((None, None));
             crate::service::tab_chat::structured_sink::emit_chat_msgs(
-                &svc.app_handle,
+                svc.ui.as_ref(),
                 to_tab,
                 std::slice::from_ref(&msg),
                 None,

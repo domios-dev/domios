@@ -78,7 +78,10 @@ where
                 },
                 deliver,
             );
-            crate::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+            svc.ui.emit(
+                "cron-run-finished",
+                serde_json::to_value(()).unwrap_or_default(),
+            );
         },
     ))
 }

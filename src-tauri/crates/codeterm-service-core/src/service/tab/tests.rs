@@ -188,7 +188,6 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
         .ownership
         .is_some());
 
-    let app = fixture._app.handle().clone();
     let storage = crate::storage::Storage::open(
         fixture.temp.path().join("ownership-release-storage"),
         crate::storage::StorageConfig::default(),
@@ -199,7 +198,8 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
     adapter
         .import_snapshot(&snapshot, Vec::new())
         .expect("seed the Storage desk before persistence starts");
-    crate::service::session_persist::install_storage_desk_adapter(&app, adapter).unwrap();
+    crate::service::session_persist::install_storage_desk_adapter(&fixture.service, adapter)
+        .unwrap();
     let released = fixture
         .service
         .release_remote_ownership(&tab_id, Some(&orchestrator))
@@ -215,7 +215,7 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
         .ownership
         .is_none());
 
-    crate::service::session_persist::write_session_snapshot(&app, &fixture.service.mux)
+    crate::service::session_persist::write_session_snapshot(&fixture.service, &fixture.service.mux)
         .expect("flush the queued desk snapshot");
     let persisted = crate::session::store::StorageDeskAdapter::from_storage(storage.clone())
         .snapshot()
@@ -255,7 +255,7 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
                         )
             )
         }));
-    crate::service::session_persist::stop_worker(&app).unwrap();
+    crate::service::session_persist::stop_worker(&fixture.service).unwrap();
     storage
         .shutdown()
         .wait(std::time::Duration::from_secs(30))

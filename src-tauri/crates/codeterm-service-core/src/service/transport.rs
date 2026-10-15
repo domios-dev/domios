@@ -400,7 +400,7 @@ impl ServiceContext {
         }
         let permission_bypass =
             crate::service::permission_policy::configured_permission_bypass_for(
-                &self.app_handle,
+                self,
                 &self.agent_registry,
                 provider,
             )?
@@ -443,21 +443,20 @@ impl ServiceContext {
         })?;
         let _ = self.focus_tab(&tab_id);
 
-        let persistence =
-            crate::service::session_persist::write_session_snapshot(&self.app_handle, &self.mux)
-                .and_then(|outcome| match outcome {
-                    crate::session::store::SaveOutcome::Saved => Ok(()),
-                    crate::session::store::SaveOutcome::RefusedReduction(refusal) => {
-                        Err(format!("desk persistence refused the new Tab: {refusal:?}"))
-                    }
-                });
+        let persistence = crate::service::session_persist::write_session_snapshot(self, &self.mux)
+            .and_then(|outcome| match outcome {
+                crate::session::store::SaveOutcome::Saved => Ok(()),
+                crate::session::store::SaveOutcome::RefusedReduction(refusal) => {
+                    Err(format!("desk persistence refused the new Tab: {refusal:?}"))
+                }
+            });
         if let Err(error) = persistence {
             self.rollback_provisional_tab(&ws_id, &tab_id);
             let _ = self.revoke_agent_pad(&tab_id);
             self.emit_state_changed();
             if let Err(rollback_error) =
                 crate::service::session_persist::write_session_snapshot_with_intent(
-                    &self.app_handle,
+                    self,
                     &self.mux,
                     crate::session::store::SaveIntent::AuthorizedReduction,
                 )

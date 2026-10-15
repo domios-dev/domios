@@ -53,7 +53,7 @@ pub struct LogStore {
     conn: Mutex<Connection>,
     ring: Mutex<VecDeque<PendingLog>>,
     db_path: PathBuf,
-    app_handle: Mutex<Option<crate::app_runtime::AppHandle>>,
+    ui: Mutex<Option<std::sync::Arc<dyn crate::ports::host::UiEvents>>>,
 }
 
 #[derive(Clone)]
@@ -101,7 +101,7 @@ impl LogStore {
             conn: Mutex::new(conn),
             ring: Mutex::new(VecDeque::with_capacity(RING_CAP)),
             db_path,
-            app_handle: Mutex::new(None),
+            ui: Mutex::new(None),
         }))
     }
 
@@ -114,7 +114,7 @@ impl LogStore {
             conn: Mutex::new(conn),
             ring: Mutex::new(VecDeque::with_capacity(RING_CAP)),
             db_path: PathBuf::from(":memory:"),
-            app_handle: Mutex::new(None),
+            ui: Mutex::new(None),
         }))
     }
 
@@ -122,8 +122,8 @@ impl LogStore {
         &self.db_path
     }
 
-    pub fn attach_app(&self, handle: crate::app_runtime::AppHandle) {
-        *self.app_handle.lock() = Some(handle);
+    pub fn attach_ui(&self, handle: std::sync::Arc<dyn crate::ports::host::UiEvents>) {
+        *self.ui.lock() = Some(handle);
     }
 
     pub fn push(
@@ -154,7 +154,7 @@ impl LogStore {
         if let Some(d) = dropped {
             let _ = self.persist(std::iter::once(d));
         }
-        if let Some(handle) = self.app_handle.lock().clone() {
+        if let Some(ui) = self.ui.lock().clone() {
             let payload = serde_json::json!({
                 "ts": ts,
                 "level": pending.level,
@@ -162,7 +162,7 @@ impl LogStore {
                 "message": pending.message,
                 "context": context,
             });
-            crate::events::emit_everywhere(&handle, "logs-updated", payload);
+            ui.emit("logs-updated", payload);
         }
     }
 

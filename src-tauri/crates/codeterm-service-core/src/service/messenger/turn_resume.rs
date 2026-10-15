@@ -36,7 +36,10 @@ impl Messenger {
             .map(codeterm_wire::domios::DomiosFrame::to_message)
             .unwrap_or(body);
         let pending = svc.attach_system_send(to_tab, &text)?;
-        crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", &pending);
+        svc.ui.emit(
+            "chat-send-status",
+            serde_json::to_value(&pending).unwrap_or_default(),
+        );
         let result = (|| {
             if let Some(frame) = routed_frame {
                 svc.send_to_authenticated_agent_session_pinned_routed(
@@ -61,7 +64,10 @@ impl Messenger {
             .chat_send_ledger
             .finish(&pending.send_id, result.clone())
         {
-            crate::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
+            svc.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(&status).unwrap_or_default(),
+            );
         }
         result?;
         Ok(Delivery::Pty { text })

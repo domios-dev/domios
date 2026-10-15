@@ -534,7 +534,6 @@ fn idle_poll_stores_provider_prompt_without_notification() {
 
 #[test]
 fn dead_cron_run_is_reaped_on_process_exit() {
-    use tauri::Listener as _;
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
     let pty_id = "cron-process-exit-pty".to_string();
@@ -634,7 +633,7 @@ fn dead_cron_run_is_reaped_on_process_exit() {
         .insert(pty_id.clone(), run.clone());
 
     let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-    let listener = fixture._app.listen("cron-run-finished", move |_| {
+    let listener = fixture.ui.listen("cron-run-finished", move |_| {
         let _ = finished_tx.send(());
     });
     assert!(fixture.service.run_watcher.fail_cron_on_process_exit(
@@ -645,7 +644,7 @@ fn dead_cron_run_is_reaped_on_process_exit() {
     finished_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("process-exit settlement publishes the finished event");
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
 
     assert!(run.completed.load(Ordering::Acquire));
     assert!(!fixture

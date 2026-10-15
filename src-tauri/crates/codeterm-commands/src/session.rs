@@ -4,14 +4,14 @@ use tauri::Manager;
 
 #[tauri::command]
 pub async fn save_session(
-    app: codeterm_service_core::app_runtime::AppHandle,
+    service: tauri::State<'_, codeterm_service_core::service::ServiceState>,
     mux: tauri::State<'_, MuxState>,
     _session: tauri::State<'_, SessionState>,
 ) -> Result<(), String> {
-    let app = app.clone();
+    let service = service.inner().clone();
     let mux = mux.inner().clone();
     let outcome = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::session_persist::write_session_snapshot(&app, &mux)
+        codeterm_service_core::service::session_persist::write_session_snapshot(&service, &mux)
     })
     .await
     .map_err(|error| format!("session persistence task failed: {error}"))??;

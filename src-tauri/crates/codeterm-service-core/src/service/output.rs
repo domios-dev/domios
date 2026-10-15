@@ -640,7 +640,10 @@ impl ServiceContext {
         if let Some(event) =
             crate::service::stream_preview::step(pty_id, &tab_id, &lines, cursor_row)
         {
-            crate::events::emit_everywhere(&self.app_handle, "chat-stream-preview", &event);
+            self.ui.emit(
+                "chat-stream-preview",
+                serde_json::to_value(&event).unwrap_or_default(),
+            );
         }
 
         let status = extract_status_line(&lines);
@@ -989,13 +992,13 @@ impl ServiceContext {
                 };
                 self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
                 self.hold_boot_for_owner_prompt(tab_id);
-                crate::events::emit_everywhere(
-                    &self.app_handle,
+                self.ui.emit(
                     "prompt-state-changed",
-                    serde_json::json!({
+                    serde_json::to_value(serde_json::json!({
                         "tab_id": tab_id,
                         "prompt": prompt,
-                    }),
+                    }))
+                    .unwrap_or_default(),
                 );
                 self.emit_state_changed();
                 if pending_prompt_changed && route_owner_prompt {
@@ -1022,13 +1025,13 @@ impl ServiceContext {
                     }
                     self.resolve_prompt_notifications(tab_id, &identity);
                 }
-                crate::events::emit_everywhere(
-                    &self.app_handle,
+                self.ui.emit(
                     "prompt-state-changed",
-                    serde_json::json!({
+                    serde_json::to_value(serde_json::json!({
                         "tab_id": tab_id,
                         "prompt": null,
-                    }),
+                    }))
+                    .unwrap_or_default(),
                 );
                 self.emit_state_changed();
             }

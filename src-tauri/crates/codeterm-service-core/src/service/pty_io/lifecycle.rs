@@ -648,7 +648,7 @@ impl ServiceContext {
             .flatten();
         let permission_bypass_authorization =
             crate::service::restored_launch::restore_permission_bypass_authorization(
-                &self.app_handle,
+                self,
                 &self.agent_registry,
                 tab_id,
                 &provider_id,

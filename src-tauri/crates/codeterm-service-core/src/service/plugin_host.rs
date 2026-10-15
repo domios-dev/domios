@@ -390,7 +390,10 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn emit_graph_worker_spawned_json(&self, info_json: &str) {
         if let Ok(info) = serde_json::from_str::<workers::GraphWorkerInfo>(info_json) {
-            crate::events::emit_everywhere(&self.app_handle, "graph-worker-spawned", &info);
+            self.ui.emit(
+                "graph-worker-spawned",
+                serde_json::to_value(&info).unwrap_or_default(),
+            );
         }
     }
 
@@ -677,7 +680,10 @@ fn enqueue_agent_turn(
     }
     info.commands = commands;
     svc.workers.register(info.clone());
-    crate::events::emit_everywhere(&svc.app_handle, "graph-worker-spawned", &info);
+    svc.ui.emit(
+        "graph-worker-spawned",
+        serde_json::to_value(&info).unwrap_or_default(),
+    );
 
     let svc_task = svc.clone();
     let worker_id_task = worker_id.clone();

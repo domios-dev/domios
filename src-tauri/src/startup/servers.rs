@@ -236,7 +236,7 @@ pub(crate) fn start_servers(
             reason,
         );
         if let Err(error) = codeterm_service_core::service::session_persist::set_storage_unavailable(
-            &app_handle,
+            service_state,
             reason.to_string(),
         ) {
             log::error!("[session-persist] unavailable backend setup failed: {error}");
@@ -247,7 +247,7 @@ pub(crate) fn start_servers(
         );
         if let Err(error) =
             codeterm_service_core::service::session_persist::install_storage_desk_adapter(
-                &app_handle,
+                service_state,
                 adapter,
             )
         {
@@ -258,7 +258,7 @@ pub(crate) fn start_servers(
     if states.boot_resync && states.storage.storage().is_some() {
         let resync =
             codeterm_service_core::service::session_persist::write_session_snapshot_with_intent(
-                &app_handle,
+                service_state,
                 &states.mux,
                 codeterm_service_core::session::store::SaveIntent::AuthorizedReduction,
             );

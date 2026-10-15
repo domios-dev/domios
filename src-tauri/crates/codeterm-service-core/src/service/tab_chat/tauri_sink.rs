@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use crate::app_runtime::AppHandle;
+use crate::ports::host::UiEvents;
 use serde::Serialize;
 
 use crate::agent::chat_types::RichMessage;
@@ -20,12 +20,12 @@ struct DeltaEvent<'a> {
 }
 
 pub struct TauriDeltaSink {
-    app: AppHandle,
+    ui: Arc<dyn UiEvents>,
 }
 
 impl TauriDeltaSink {
-    pub fn new(app: AppHandle) -> Self {
-        Self { app }
+    pub fn new(ui: Arc<dyn UiEvents>) -> Self {
+        Self { ui }
     }
 }
 
@@ -38,9 +38,7 @@ impl DeltaSink for TauriDeltaSink {
             start_offset,
             offset,
         };
-        // emit_everywhere: webview + SSE bus, so the web mirror's chat streams assistant deltas too.
-        crate::events::emit_everywhere(
-            &self.app,
+        self.ui.emit(
             &event,
             serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
         );
@@ -49,6 +47,6 @@ impl DeltaSink for TauriDeltaSink {
 
 /// Convenience constructor for the common case — wraps a fresh
 /// [`TauriDeltaSink`] in `Arc<dyn DeltaSink>`.
-pub fn make_sink(app: AppHandle) -> Arc<dyn DeltaSink> {
-    Arc::new(TauriDeltaSink::new(app))
+pub fn make_sink(ui: Arc<dyn UiEvents>) -> Arc<dyn DeltaSink> {
+    Arc::new(TauriDeltaSink::new(ui))
 }

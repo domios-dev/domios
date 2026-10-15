@@ -27,10 +27,12 @@ impl ServiceContext {
             })
         };
         if changed {
-            crate::events::emit_everywhere(
-                &self.app_handle,
+            self.ui.emit(
                 "shell-state-changed",
-                serde_json::json!({ "tab_id": tab_id, "pty_id": pty_id, "state": state }),
+                serde_json::to_value(
+                    serde_json::json!({ "tab_id": tab_id, "pty_id": pty_id, "state": state }),
+                )
+                .unwrap_or_default(),
             );
         }
     }
@@ -140,10 +142,12 @@ impl ServiceContext {
                         &sidecar.launch_nonce,
                         "remote TUI exited to shell",
                     );
-                    crate::events::emit_everywhere(
-                        &self.app_handle,
+                    self.ui.emit(
                         "shell-command-changed",
-                        serde_json::json!({ "tab_id": tab_id, "event": event }),
+                        serde_json::to_value(
+                            serde_json::json!({ "tab_id": tab_id, "event": event }),
+                        )
+                        .unwrap_or_default(),
                     );
                     continue;
                 }
@@ -155,10 +159,10 @@ impl ServiceContext {
                     );
                 }
             }
-            crate::events::emit_everywhere(
-                &self.app_handle,
+            self.ui.emit(
                 "shell-command-changed",
-                serde_json::json!({ "tab_id": tab_id, "event": event }),
+                serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "event": event }))
+                    .unwrap_or_default(),
             );
         }
     }

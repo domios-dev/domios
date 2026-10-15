@@ -742,7 +742,7 @@ fn resume_hidden_run(
         return;
     };
     let full_access = match crate::service::permission_policy::configured_permission_bypass_for(
-        &svc.app_handle,
+        &svc,
         &svc.agent_registry,
         &provider,
     ) {

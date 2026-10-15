@@ -3,16 +3,16 @@ use std::sync::Arc;
 use codeterm_mesh::{LastActivityProvider, MeshEventSink};
 
 pub struct AppMeshEventSink<'a> {
-    pub app: &'a crate::app_runtime::AppHandle,
+    pub ui: &'a dyn crate::ports::host::UiEvents,
 }
 
 impl MeshEventSink for AppMeshEventSink<'_> {
     fn emit_mesh_state_changed(&self) {
-        crate::events::emit_everywhere(self.app, "mesh-state-changed", serde_json::Value::Null);
+        self.ui.emit("mesh-state-changed", serde_json::Value::Null);
     }
 
     fn emit_config_changed(&self, snapshot: serde_json::Value) {
-        crate::events::emit_everywhere(self.app, "config-changed", snapshot);
+        self.ui.emit("config-changed", snapshot);
     }
 }
 
