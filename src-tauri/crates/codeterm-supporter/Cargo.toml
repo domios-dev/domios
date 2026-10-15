@@ -10,7 +10,6 @@ workspace = true
 codeterm-decision = { path = "../codeterm-decision" }
 codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-plugin = { path = "../codeterm-plugin" }
-codeterm-agent-model = { path = "../codeterm-agent-model" }
 codeterm-worker-services = { path = "../codeterm-worker-services" }
 codeterm-paths = { path = "../../../crates/codeterm-paths" }
 codeterm-util = { path = "../codeterm-util" }
@@ -23,17 +22,7 @@ parking_lot = "0.12"
 log = "0.4"
 chrono = "0.4"
 regex = "1"
-notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
-dirs = "6"
-wait-timeout = "0.2"
-semver = "1"
 uuid = { version = "1", features = ["v4"] }
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_Security", "Win32_System_IO", "Win32_System_JobObjects", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 toml = "0.8"

@@ -115,17 +115,17 @@ fn update_coordinator_machine_claim_dedupes_concurrent_tabs_and_disk_reload() {
 #[test]
 fn update_coordinator_journal_correlates_provider_target_and_tab() {
     let dir = tempfile::tempdir().unwrap();
-    let runtime = crate::SupporterRuntime::new(dir.path().into());
+    let runtime = codeterm_supporter::SupporterRuntime::new(dir.path().into());
     runtime
         .provider_update_action(
             "fixture",
             Some("2"),
-            crate::ActionRecord {
-                kind: crate::VerdictKind::TabState,
+            codeterm_supporter::ActionRecord {
+                kind: codeterm_supporter::VerdictKind::TabState,
                 tab: Some("tab-a"),
                 label: "resumed",
                 confidence: 1.0,
-                action: crate::Action::Recovery,
+                action: codeterm_supporter::Action::Recovery,
                 reason: "provider_update_restart",
                 asked: None,
             },
