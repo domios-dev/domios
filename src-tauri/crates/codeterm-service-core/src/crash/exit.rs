@@ -4,19 +4,13 @@
 //! asked for; declaring a clean exit (sentinel + keepawake/webview teardown) is
 //! only correct on a genuine quit.
 
-use tauri::Manager;
-
-use crate::multiplexer::commands::MuxState;
-use crate::session::store::SaveOutcome;
-use crate::KeepAwakeStateHandle;
-
 #[cfg(test)]
 mod tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ExitPlan {
-    pub(crate) declare_clean_exit: bool,
-    pub(crate) persist_state: bool,
+pub struct ExitPlan {
+    pub declare_clean_exit: bool,
+    pub persist_state: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -35,14 +29,14 @@ struct ShutdownSidecarLogRecord {
 
 /// macOS delivers `RunEvent::Exit` with no preceding quit request on routes we
 /// never asked for; persist there anyway, but never tear down keepawake children.
-pub(crate) fn plan_run_exit(is_macos: bool, shutting_down: bool) -> ExitPlan {
+pub fn plan_run_exit(is_macos: bool, shutting_down: bool) -> ExitPlan {
     ExitPlan {
         declare_clean_exit: !is_macos || shutting_down,
         persist_state: true,
     }
 }
 
-pub(crate) fn execute_exit_plan<D, P>(plan: ExitPlan, declare: D, persist: P)
+pub fn execute_exit_plan<D, P>(plan: ExitPlan, declare: D, persist: P)
 where
     D: FnOnce(),
     P: FnOnce(),
@@ -55,29 +49,7 @@ where
     }
 }
 
-fn persist_storage_desk_snapshot(
-    app: &crate::app_runtime::AppHandle,
-    mux: &MuxState,
-) -> Result<(), String> {
-    match crate::service::session_persist::write_session_snapshot(app, mux) {
-        Ok(SaveOutcome::Saved) => {
-            log::info!("[shutdown] Storage desk snapshot committed");
-            Ok(())
-        }
-        Ok(SaveOutcome::RefusedReduction(refusal)) => {
-            let error = format!("Storage desk snapshot refused: {refusal}");
-            log::error!("[shutdown] {error}");
-            Err(error)
-        }
-        Err(error) => {
-            let failure = format!("Storage desk snapshot failed: {error}");
-            log::error!("[shutdown] {failure}");
-            Err(failure)
-        }
-    }
-}
-
-fn shutdown_state_persistence_result(errors: &[String]) -> Result<(), String> {
+pub fn shutdown_state_persistence_result(errors: &[String]) -> Result<(), String> {
     if errors.is_empty() {
         Ok(())
     } else {
@@ -136,101 +108,16 @@ fn shutdown_sidecar_log_records(
     records
 }
 
-/// Provider-update waiter join, session snapshot, mem WAL checkpoint. Idempotent
-/// and side-effect-free for process liveness, so every exit signal runs it.
-pub fn persist_state(app: &crate::app_runtime::AppHandle) {
-    log::info!("[shutdown] state persistence started");
-    let mut errors = Vec::new();
-    if let Some(mux) = app.try_state::<MuxState>() {
-        if let Err(error) = persist_storage_desk_snapshot(app, mux.inner()) {
-            errors.push(error);
-        }
-    }
-    if let Err(error) = crate::service::session_persist::stop_worker(app) {
-        log::warn!("[shutdown] desk persistence worker shutdown failed: {error}");
-        errors.push(error);
-    }
-    if let Some(storage) = app.try_state::<crate::startup::StorageAuthority>() {
-        if let Err(error) = crate::startup::shutdown_bounded(storage.inner()) {
-            log::error!("[shutdown] Storage shutdown failed: {error}");
-            errors.push(error.to_string());
-        }
-    }
+use crate::service::codex_rpc::exit::{begin, Shutdown};
 
-    if let Some(svc) = app.try_state::<crate::service::ServiceState>() {
-        match svc.mem.checkpoint_and_close() {
-            Ok((busy, log_frames, checkpointed)) => log::info!(
-                "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",
-                busy,
-                log_frames,
-                checkpointed
-            ),
-            Err(e) => {
-                log::warn!("[shutdown] mem WAL checkpoint failed: {}", e);
-                errors.push(e.to_string());
-            }
-        }
-    }
-    match shutdown_state_persistence_result(&errors) {
-        Ok(()) => log::info!("[shutdown] state persistence completed"),
-        Err(_) => log::error!("[shutdown] state persistence incomplete"),
-    }
+pub struct SidecarShutdown(Shutdown);
+
+pub fn begin_sidecar_shutdown() -> SidecarShutdown {
+    SidecarShutdown(begin())
 }
 
-/// Clean-exit declaration: `.clean_exit` sentinel + keepawake child teardown +
-/// webview reap journal clear. Only a genuine quit may run this.
-pub fn declare_clean_exit(app: &crate::app_runtime::AppHandle) {
-    log::info!("[shutdown] clean-exit declaration started");
-    crate::crash::shutdown::mark_shutting_down();
-    if let Some(state) = app.try_state::<KeepAwakeStateHandle>() {
-        crate::keepawake::cleanup_active_children_for_exit_with_state(&state);
-    } else {
-        crate::keepawake::cleanup_active_children_for_exit();
+impl SidecarShutdown {
+    pub fn wait(self) {
+        self.0.wait();
     }
-    crate::webview2_reap::clear_journal_for_exit();
-    log::info!("[shutdown] clean-exit declaration completed");
-}
-
-/// Starts closing surface browsers so they flush profiles and die with the daemon, not after it.
-fn begin_surface_shutdown(
-    app: &crate::app_runtime::AppHandle,
-) -> Option<crate::service::surface::SurfaceShutdown> {
-    app.try_state::<crate::service::ServiceState>()
-        .map(|svc| crate::service::surface::begin_surface_shutdown(svc.inner()))
-}
-
-/// Signal-driven graceful exit. Tray Quit and the macOS terminate hook reach
-/// `handle_run_exit` instead, so only the unix signal handlers need this.
-#[cfg(unix)]
-pub fn graceful_exit_cleanup(app: &crate::app_runtime::AppHandle) {
-    let sidecars = crate::service::codex_rpc::exit::begin();
-    let surfaces = begin_surface_shutdown(app);
-    declare_clean_exit(app);
-    persist_state(app);
-    if let Some(surfaces) = surfaces {
-        surfaces.wait();
-    }
-    sidecars.wait();
-}
-
-/// `RunEvent::Exit` entry point: always persist, declare only on a genuine quit.
-pub fn handle_run_exit(app: &crate::app_runtime::AppHandle) {
-    log::info!("[shutdown] RunEvent::Exit received");
-    let plan = plan_run_exit(
-        cfg!(target_os = "macos"),
-        crate::crash::shutdown::is_shutting_down(),
-    );
-    if !plan.declare_clean_exit {
-        log::warn!(
-            "[shutdown] unrequested macOS RunEvent::Exit; persisting state without clean-exit declaration"
-        );
-    }
-    let sidecars = crate::service::codex_rpc::exit::begin();
-    let surfaces = begin_surface_shutdown(app);
-    execute_exit_plan(plan, || declare_clean_exit(app), || persist_state(app));
-    if let Some(surfaces) = surfaces {
-        surfaces.wait();
-    }
-    sidecars.wait();
-    log::info!("[shutdown] RunEvent::Exit handler completed");
 }

@@ -87,7 +87,7 @@ pub(crate) fn build_system_tray(
         .icon_as_template(cfg!(target_os = "macos"))
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "retry-daemon" => codeterm_service_core::startup::frontend_shell_retry(app),
+            "retry-daemon" => super::frontend_shell::retry(app),
             "show" => {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.show();

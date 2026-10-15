@@ -47,7 +47,7 @@ fn dev_discovery_override() -> Option<(String, Option<String>, bool)> {
     None
 }
 
-pub(crate) fn navigation_index(bundles: Option<&FrontendBundles>) -> String {
+pub fn navigation_index(bundles: Option<&FrontendBundles>) -> String {
     bundles
         .and_then(FrontendBundles::active_index)
         .unwrap_or_else(|| BUNDLED_INDEX.into())
