@@ -310,3 +310,7 @@ jobs:
       - name: Shared compile cache statistics
         if: always()
         run: bash build.sh cache-stats
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs

@@ -302,6 +302,11 @@ jobs:
       - name: Clean compile fixtures
         if: always()
         run: node scripts/ci-rust-prepare.mjs cleanup
+      - &clean-job-outputs
+        name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs
 
   rust-shards:
     name: rust shard (${{ matrix.shard }}/12)
@@ -354,6 +359,7 @@ jobs:
             ci-rust-receipts/*.json
             ci-rust-receipts/*.log
           if-no-files-found: error
+      - *clean-job-outputs
 
   rust-input-platform:
     name: native recording crates (${{ matrix.os }})
@@ -404,6 +410,7 @@ jobs:
           name: input-platform-${{ matrix.os }}
           path: input-platform.log
           if-no-files-found: error
+      - *clean-job-outputs
 
   rust-platform:
     name: rust platform (${{ matrix.os }})
@@ -462,6 +469,7 @@ jobs:
             ci-rust-receipts/*.json
             ci-rust-receipts/*.log
           if-no-files-found: error
+      - *clean-job-outputs
 
   rust-coverage:
     name: rust complete coverage
@@ -546,6 +554,7 @@ jobs:
       - name: Clean 0-byte stubs
         if: always()
         run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
+      - *clean-job-outputs
 
   ts-static:
     name: ts static checks
@@ -643,6 +652,7 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: types-${{ runner.os }}
           target: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
+      - *clean-job-outputs
 
   ts-unit:
     name: ts unit

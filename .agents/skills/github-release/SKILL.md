@@ -284,6 +284,14 @@ once. Each reusable workflow contains only its own `build` job, with no platform
 skipped placeholder. The graph reads `macOS / build (arm64)`, `macOS / build (x86_64)` and
 `Linux arm64 / build`. The hosted manual fallback remains `release-macos.yml`.
 Runner variables and their existing-label defaults live in the build-machine README.
+Every heavy Rust or bundle job (test archives, shards, platform and recording tests,
+clippy, generated types, each platform build) ends with an `always()`,
+`continue-on-error` step running `scripts/ci-workspace-cleanup.mjs`. It removes only that
+job's workspace-relative outputs (`target`, `src-tauri/target`, `cli/target`,
+`scripts/ci-test-classifier/target`, `ci-rust-archives`, `ci-rust-builds`,
+`ci-rust-receipts`, `release-artifacts`), unlinks a symlinked target without following
+it, refuses anything resolving outside the workspace or into `.git`, and keeps the
+checkout. CI compiles with `CARGO_INCREMENTAL=0`, so sccache S3 carries compile reuse.
 
 For an environmental failure in the same immutable source run, list failed job IDs and rerun
 one selected job (the numeric Actions job ID, not a matrix index):

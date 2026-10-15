@@ -154,3 +154,7 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-Linux
           target: aarch64-unknown-linux-gnu
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs
