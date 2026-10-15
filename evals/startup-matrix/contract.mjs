@@ -6,6 +6,12 @@ import { chatMessages, replyVerdict } from '../core-journeys/lib/oracle.mjs';
 export function validate(dir) {
   const r = JSON.parse(readFileSync(join(dir, 'results.json')));
   const errors = [];
+  if (r.phase === 'preflight' && r.finished_at && r.preflights?.some(p => p.id === 'api_unresponsive' && !p.responded)) {
+    for (const file of ['results.md', 'lock-holds.md', 'preflight-entry.json', 'dev.log'])
+      if (!existsSync(join(dir, file))) errors.push(`Missing ${file}`);
+    if (r.schema !== 1 || readFileSync(join(dir, 'results.md'), 'utf8') !== render(r)) errors.push('Malformed preflight failure result');
+    return { errors, failed: true };
+  }
   if (r.schema !== 1 || !Array.isArray(r.tabs) || !r.tabs.length) errors.push('Missing schema 1 tab matrix');
   for (const file of ['results.md', 'lock-holds.md', 'events.jsonl', 'before-state.json', 'boot-state.json', 'dev.log'])
     if (!existsSync(join(dir, file))) errors.push(`Missing ${file}`);
@@ -29,7 +35,7 @@ export function validate(dir) {
     }
     if ((!t.reply_ok || t.notes.length) && (!t.screenshot || !existsSync(join(dir, t.screenshot)))) errors.push(`${t.id}: failure screenshot absent`);
   }
-  return { errors, failed: r.failures.length > 0 || r.tabs.some(t => !t.reply_ok || t.notes.length) };
+  return { errors, failed: r.failures.length > 0 || r.preflights?.some(p => p.verdict === 'fail') || r.tabs.some(t => !t.reply_ok || t.notes.length) };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const result = validate(resolve(process.argv[2])); console.log(JSON.stringify(result, null, 2));

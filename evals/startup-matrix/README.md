@@ -25,6 +25,17 @@ replay cursor, recording every frame. A 120 s failure deadline bounds restart,
 boot readiness, click wake, and reply observation. Log and DOM events drive waits;
 the three-second timer samples health latency only.
 
+Entry preflight makes one health request with a 30-second failure deadline. A
+response taking more than 5 seconds records an `api_unresponsive` FAILURE row
+with its measured latency, even when it eventually responds. The same response
+proves the default DEV identity before the matrix continues. A response within
+30 seconds allows the matrix to run while preserving the preflight failure and
+nonzero final verdict. No retry or second health request establishes entry.
+If the request never answers, results still contain the failure row and request
+evidence; `phase: preflight` identifies the unavailable tab inventory explicitly.
+Health sampling begins after entry preflight, so it does not add concurrent
+requests to that measurement. All `dc` sends retain the shared lib's own guard.
+
 If restart preflight interrupts the run before any prompts, preserve that directory
 and use `--resume <old-dir>` with a fresh `--out`. This reuses its pre-restart
 inventory and listener proof and attaches to the new boot's replay ring. It is
@@ -56,6 +67,8 @@ Artifacts in `target-check/evals/startup-matrix/<stamp>/`:
 - `results.json`: schema 1, inventory, per-tab policy/state, boot/wake event,
   ready/reply timings, delivery receipt, UI render latency, health samples,
   restart listener proof, coverage, errors and screenshot paths.
+- `preflight-entry.json`: the entry request's latency, 5-second warning threshold,
+  30-second deadline, response or error and measured DEV identity.
 - `results.md`: generated tab table, byte-identical to the JSON rendering.
 - `events.jsonl`, `before-state.json`, `boot-state.json`, `final-state.json`:
   exact API evidence; `transcript-<tab>.json`: baseline IDs and resulting chat.
@@ -78,4 +91,5 @@ or proof of a reply; only the own-session transcript can complete the round trip
 Validate with `node evals/startup-matrix/contract.mjs <dir>`: exit 0 means complete
 passing evidence; 3 means complete evidence with observed failures; 1 means an
 incomplete evidence contract. The driver uses 3 for observed failures. Offline
-checks: `node --test evals/startup-matrix/model.test.mjs`.
+checks: `node --test evals/startup-matrix/*.test.mjs`. An unresponsive entry with
+complete request evidence also exits 3; it does not imply tabs were exercised.

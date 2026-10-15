@@ -14,9 +14,4 @@ if [ "${1:-}" = --dc ]; then
   dc "$@"
   exit $?
 fi
-RESUME=0
-for argument in "$@"; do
-  [ "$argument" != --resume ] || RESUME=1
-done
-[ "$RESUME" = 1 ] || dev_assert_target
 dev_run node "$ROOT/evals/startup-matrix/driver.mjs" "$@"

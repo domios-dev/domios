@@ -55,6 +55,9 @@ const cell = x => String(x ?? '—').replaceAll('|', '\\|').replaceAll('\n', ' '
 export function render(result) {
   return `# Startup matrix\n\nBuild: ${result.build}. Restart: ${result.restart?.verified ?? false}.\n\n` +
     '| tab | provider | policy | observed | ready ms | reply ok | reply ms | SLA | notes |\n|---|---|---|---|---:|---|---:|---|---|\n' +
+    (result.preflights ?? []).map(p => `| ${[p.id, 'REST API', 'health', p.responded ? 'responded' : 'deadline exceeded', '—', '—', '—',
+      `${p.verdict === 'fail' ? 'FAILURE' : 'PASS'} ${p.ms}/${p.threshold_ms} ms`,
+      `${p.phase}; deadline ${p.deadline_ms} ms${p.error ? `; ${p.error}` : ''}`].map(cell).join(' | ')} |\n`).join('') +
     result.tabs.map(t => `| ${[`${t.title} (${t.id})`, t.provider, t.policy, t.observed, t.ready_ms ?? t.wake_ms, t.reply_ok, t.reply_ms,
       t.sla ? `${t.sla.pass ? 'PASS' : 'FAIL'} ${t.sla.measured_ms ?? 'unproven'}/${t.sla.limit_ms} ms` : 'not measured', t.notes.join('; ')].map(cell).join(' | ')} |`).join('\n') +
     `\n\nCoverage: ${result.coverage.join('; ')}\n\nRun failures: ${result.failures.map(cell).join('; ')}\n\nTiming: ready_ms is SSE receipt time minus the new listener's kernel start time. Replayed events give an upper bound; replay gaps are retained.\n`;
