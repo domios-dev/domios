@@ -226,7 +226,7 @@ pub(crate) fn start_servers(
     states: &AppStates,
     service_state: &ServiceState,
 ) {
-    codeterm_commands::update::bind_status_emitter(app.handle().clone());
+    codeterm_commands::update::bind_status_emitter(service_state.ui.clone());
     let app_handle = app.handle().clone();
     super::state_incidents::install_notifier(service_state);
     if let Some(reason) = states.storage.unavailable_reason() {
@@ -383,7 +383,12 @@ pub(crate) fn start_servers(
         .map(|clock| clock as cron::clock::SharedClock)
         .unwrap_or_else(cron::clock::system_clock);
     if let Some(storage) = states.storage.storage() {
-        codeterm_sentinel_host::scheduler::start(service_state.clone(), sentinel_clock, storage);
+        codeterm_sentinel_host::scheduler::start(
+            service_state.clone(),
+            sentinel_clock,
+            storage,
+            app.handle(),
+        );
     }
 
     tauri::async_runtime::block_on(async {
