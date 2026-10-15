@@ -3,7 +3,7 @@ use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
-pub(crate) fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
+pub fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
     if role.is_none() {
         crate::agent::provider::StarterPrompt::NoStarter
     } else {
@@ -284,7 +284,7 @@ impl SpawnTabSpec {
     }
 }
 
-pub(crate) fn chatbackend_spawn_config(
+pub fn chatbackend_spawn_config(
     system_prompt: Option<&str>,
     preset: Option<&str>,
     model: Option<&str>,
@@ -318,9 +318,7 @@ pub(crate) fn chatbackend_spawn_config(
     serde_json::Value::Object(config)
 }
 
-pub(crate) fn reject_direct_watcher_chatbackend_config(
-    config: &serde_json::Value,
-) -> Result<(), String> {
+pub fn reject_direct_watcher_chatbackend_config(config: &serde_json::Value) -> Result<(), String> {
     if config.get("mode").and_then(|v| v.as_str()) == Some("watcher") {
         Err("watcher Tabs spawn via codeterm agent spawn --role Watcher".into())
     } else {
@@ -346,7 +344,7 @@ fn watcher_spec_from_params(params: &SpawnAgentParams) -> Option<WatcherSpec> {
 }
 
 impl ServiceContext {
-    pub(crate) fn require_agent_provider_ready(&self, provider_id: &str) -> Result<(), String> {
+    pub fn require_agent_provider_ready(&self, provider_id: &str) -> Result<(), String> {
         match self.agent_registry.wait_for_provider_startup(provider_id) {
             crate::agent::registry::ProviderStartupStatus::Ready => {
                 super::spawn_cli::provider_launch_preflight(

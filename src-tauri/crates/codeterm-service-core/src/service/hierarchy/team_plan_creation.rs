@@ -8,7 +8,7 @@ use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 
 #[derive(Debug)]
-pub(crate) enum TeamPlanCreationError {
+pub enum TeamPlanCreationError {
     Team(String),
     Plan(PlanError),
     SessionBindingPending,
@@ -16,21 +16,21 @@ pub(crate) enum TeamPlanCreationError {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TeamPlanCreationOutcome {
+pub struct TeamPlanCreationOutcome {
     pub plan: Plan,
     pub team_id: String,
     pub team_minted: bool,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct TeamPlanCaller {
+pub struct TeamPlanCaller {
     pub tab_id: Option<String>,
     pub session_id: Option<String>,
     pub binding_nonce: Option<String>,
 }
 
 impl TeamPlanCreationOutcome {
-    pub(crate) fn apply_to_response(&self, response: &mut serde_json::Value) {
+    pub fn apply_to_response(&self, response: &mut serde_json::Value) {
         response["team_id"] = serde_json::json!(self.team_id);
         response["team_minted"] = serde_json::json!(self.team_minted);
         if !self.team_minted {
@@ -52,7 +52,7 @@ impl TeamPlanCreationOutcome {
 }
 
 impl ServiceContext {
-    pub(crate) fn create_team_plan_for_orchestrator(
+    pub fn create_team_plan_for_orchestrator(
         &self,
         title: String,
         project_path: String,
@@ -79,7 +79,7 @@ impl ServiceContext {
         Ok(outcome)
     }
 
-    pub(crate) fn create_team_plan_for_caller(
+    pub fn create_team_plan_for_caller(
         &self,
         title: String,
         project_path: String,
@@ -100,7 +100,7 @@ impl ServiceContext {
             from_spec,
             now_ms,
         )?;
-        if self
+        if crate::ports::orchestration::installed(&self.extensions)
             .bind_pending_paired_planner(&outcome.plan.id, &outcome.plan.owner, now_ms)
             .map_err(TeamPlanCreationError::Team)?
         {
@@ -120,7 +120,7 @@ impl ServiceContext {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn create_team_plan_for_caller(
+pub fn create_team_plan_for_caller(
     mux: &MuxState,
     plan_store: &PlanStore,
     title: String,
@@ -299,7 +299,7 @@ fn wait_for_team_planner_binding(
     .unwrap_or(Err(TeamPlanCreationError::SessionBindingPending))
 }
 
-pub(crate) fn create_team_plan_for_orchestrator(
+pub fn create_team_plan_for_orchestrator(
     mux: &MuxState,
     plan_store: &PlanStore,
     title: String,
@@ -376,4 +376,4 @@ pub(crate) fn create_team_plan_for_orchestrator(
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

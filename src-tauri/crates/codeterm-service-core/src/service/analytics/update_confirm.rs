@@ -1,6 +1,6 @@
 use codeterm_analytics::{Event, UpdateKind, Worker};
 use std::path::Path;
-pub(crate) fn stage(path: &Path, target: &str) -> Result<(), String> {
+pub fn stage(path: &Path, target: &str) -> Result<(), String> {
     if target == env!("CARGO_PKG_VERSION") {
         return Ok(());
     }
@@ -8,7 +8,7 @@ pub(crate) fn stage(path: &Path, target: &str) -> Result<(), String> {
     std::fs::write(&staging, target).map_err(|e| e.to_string())?;
     std::fs::rename(staging, path).map_err(|e| e.to_string())
 }
-pub(crate) fn stage_app(target: &str) {
+pub fn stage_app(target: &str) {
     if stage(
         &crate::paths::data_dir().join("analytics-update.json"),
         target,

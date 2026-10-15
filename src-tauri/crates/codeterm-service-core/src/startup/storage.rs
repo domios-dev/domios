@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::storage::{ImportOutcome, Storage, StorageConfig};
 
 const STARTUP_DEADLINE: Duration = Duration::from_secs(30);
-pub(crate) const STORAGE_UNAVAILABLE_MESSAGE: &str =
+pub const STORAGE_UNAVAILABLE_MESSAGE: &str =
     "Storage unavailable, your data is preserved, see the incident.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,7 +19,7 @@ impl std::fmt::Display for StorageUnavailableError {
 impl std::error::Error for StorageUnavailableError {}
 
 #[derive(Clone)]
-pub(crate) enum StorageAuthority {
+pub enum StorageAuthority {
     Ready(Storage),
     Unavailable {
         storage: Option<Storage>,
@@ -32,7 +32,7 @@ impl StorageAuthority {
         self.storage().ok_or(StorageUnavailableError)
     }
 
-    pub(crate) fn storage(&self) -> Option<&Storage> {
+    pub fn storage(&self) -> Option<&Storage> {
         match self {
             StorageAuthority::Ready(storage) => Some(storage),
             StorageAuthority::Unavailable { .. } => None,
@@ -46,14 +46,14 @@ impl StorageAuthority {
         }
     }
 
-    pub(crate) fn unavailable_reason(&self) -> Option<&str> {
+    pub fn unavailable_reason(&self) -> Option<&str> {
         match self {
             StorageAuthority::Ready(_) => None,
             StorageAuthority::Unavailable { reason, .. } => Some(reason),
         }
     }
 
-    pub(crate) fn mark_unavailable(&mut self, reason: String) {
+    pub fn mark_unavailable(&mut self, reason: String) {
         if let Some(storage) = self.storage().cloned() {
             *self = StorageAuthority::Unavailable {
                 storage: Some(storage),
@@ -63,7 +63,7 @@ impl StorageAuthority {
     }
 }
 
-pub(crate) fn open_instance_storage() -> StorageAuthority {
+pub fn open_instance_storage() -> StorageAuthority {
     open_instance_storage_at(crate::paths::data_dir())
 }
 
@@ -106,7 +106,7 @@ fn unavailable(storage: Option<Storage>, reason: String) -> StorageAuthority {
     StorageAuthority::Unavailable { storage, reason }
 }
 
-pub(crate) fn shutdown_bounded(authority: &StorageAuthority) -> Result<(), String> {
+pub fn shutdown_bounded(authority: &StorageAuthority) -> Result<(), String> {
     let Some(storage) = authority.shutdown_handle() else {
         return Ok(());
     };

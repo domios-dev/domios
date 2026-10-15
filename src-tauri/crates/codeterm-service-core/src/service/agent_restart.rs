@@ -197,7 +197,7 @@ enum RestartMode {
 }
 
 #[derive(Debug)]
-pub(crate) enum RestartAttemptError {
+pub enum RestartAttemptError {
     Request(AgentRestartError),
     Failed {
         outcome: RestartOutcome,
@@ -1085,15 +1085,16 @@ mod failed_launch;
 mod fresh;
 mod options;
 mod runtime;
-pub(crate) use options::RestartOptions;
+pub use options::RestartOptions;
 mod model_switch;
 mod relaunch;
 mod shutdown;
 pub(crate) mod timing;
 mod unverified_shell;
-pub(crate) use model_switch::{
-    ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
-};
+pub use model_switch::ModelSwitchConfirmation;
+pub use model_switch::ModelSwitchError;
+pub use model_switch::ModelSwitchEvidence;
+pub use model_switch::ModelSwitchOutcome;
 
 #[cfg(test)]
 mod tests;

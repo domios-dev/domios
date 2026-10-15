@@ -27,7 +27,7 @@ pub(crate) fn deliver_refused_report_diagnostic(
 }
 
 impl ServiceContext {
-    pub(crate) fn send_refused_report_diagnostic(
+    pub fn send_refused_report_diagnostic(
         &self,
         reporter_tab_id: &str,
         message: &str,

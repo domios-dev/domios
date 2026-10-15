@@ -8,9 +8,10 @@ pub(crate) mod platform;
 mod receiver_status;
 mod selections;
 
-pub(crate) use admission::LocalRecordingCommitOutcome;
-pub(crate) use clip::CaptureClipDescriptor;
-pub(crate) use leases::{CaptureLeaseView, RecordingLeases};
+pub use admission::LocalRecordingCommitOutcome;
+pub use clip::CaptureClipDescriptor;
+pub(crate) use leases::CaptureLeaseView;
+pub use leases::RecordingLeases;
 pub(crate) use selections::RecordingSelectionStore;
 
 use crate::service::ServiceContext;
@@ -160,16 +161,13 @@ impl ServiceContext {
         codeterm_events::emit_everywhere(&self.app_handle, "local-recording-capture", event);
         Ok(())
     }
-    pub(crate) fn local_recording_status(
-        &self,
-        plugin_id: &str,
-    ) -> Result<RecordingStatus, String> {
+    pub fn local_recording_status(&self, plugin_id: &str) -> Result<RecordingStatus, String> {
         self.ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .status(plugin_id)
             .map_err(str::to_string)
     }
 
-    pub(crate) fn local_recording_set_enabled(
+    pub fn local_recording_set_enabled(
         &self,
         plugin_id: &str,
         enabled: bool,
@@ -202,7 +200,7 @@ impl ServiceContext {
         Ok((status, completion))
     }
 
-    pub(crate) fn local_recording_select_devices(
+    pub fn local_recording_select_devices(
         &self,
         plugin_id: &str,
         devices: SelectedDevices,
@@ -270,11 +268,11 @@ impl ServiceContext {
         )
     }
 
-    pub(crate) fn local_recording_capture_stopped(&self, lease: &str) -> Result<(), String> {
+    pub fn local_recording_capture_stopped(&self, lease: &str) -> Result<(), String> {
         self.local_recordings.stopped(lease)
     }
 
-    pub(crate) fn local_recording_cancel(&self, lease: &str) {
+    pub fn local_recording_cancel(&self, lease: &str) {
         self.local_recordings.cancel(lease);
     }
 

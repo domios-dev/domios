@@ -89,7 +89,7 @@ impl SnipStore {
         id
     }
 
-    pub(crate) fn take(&mut self, id: &str) -> Option<Snip> {
+    pub fn take(&mut self, id: &str) -> Option<Snip> {
         let index = self.pending.iter().position(|snip| snip.id == id)?;
         self.pending.remove(index)
     }

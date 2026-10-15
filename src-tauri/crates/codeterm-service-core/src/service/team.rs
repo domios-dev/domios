@@ -5,13 +5,17 @@ use tauri::Manager;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, TabCloseReason};
 use crate::service::plan::PlanError;
+use crate::service::team_core::{
+    is_remote_team, local_team_anchors, now_ms, remote_team_origin, TeamMutationCaller,
+    TeamPlanError,
+};
 use crate::service::ServiceContext;
 
-pub(crate) mod close;
+pub mod close;
 mod close_busy;
 mod storage_teardown;
-#[cfg(test)]
-pub(crate) use close::close_team_with_state_change;
+#[cfg(any(test, feature = "test-support"))]
+pub use close::close_team_with_state_change;
 #[cfg(test)]
 use close::close_team_with_state_change_using;
 pub use close::TeamCloseResult;
@@ -19,300 +23,23 @@ use close::{
     commit_prepared_team_close, finish_team_lane_cleanup, prepare_team_close, team_close_lanes,
 };
 
-#[derive(Debug)]
-pub(crate) enum TeamPlanError {
-    Team(String),
-    Plan(PlanError),
-}
-
-/// Who is asking to mutate a Team. Headerless REST callers need a confirmed
-/// target echo; Tauri and local socket callers carry their own local identity.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TeamMutationCaller {
-    AgentTab(String),
-    AuthenticatedMeshPeer(String),
-    Human,
-    HumanConfirmedHeaderless,
-    Unattributed,
-}
-
-impl TeamMutationCaller {
-    pub(crate) fn from_tab(caller_tab_id: Option<&str>) -> Self {
-        match caller_tab_id.map(str::trim).filter(|id| !id.is_empty()) {
-            Some(tab_id) => Self::AgentTab(tab_id.to_string()),
-            None => Self::Human,
-        }
-    }
-
-    fn tab_id(&self) -> Option<&str> {
-        match self {
-            Self::AgentTab(tab_id) => Some(tab_id),
-            Self::AuthenticatedMeshPeer(_)
-            | Self::Human
-            | Self::HumanConfirmedHeaderless
-            | Self::Unattributed => None,
-        }
-    }
-
-    pub(crate) fn kind(&self) -> &'static str {
-        match self {
-            Self::AgentTab(_) => "AgentTab",
-            Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
-            Self::Human => "Human",
-            Self::HumanConfirmedHeaderless => "human-attributed (headerless, confirmed)",
-            Self::Unattributed => "Unattributed",
-        }
-    }
-}
-
-impl ServiceContext {
-    pub(crate) fn live_team_ids(&self) -> std::collections::BTreeSet<String> {
-        self.mux
-            .read()
-            .list_teams()
-            .into_iter()
-            .map(|team| team.id)
-            .collect()
-    }
-
-    pub(crate) fn reconcile_dangling_team_plan_bindings(
-        &self,
-        live_team_ids: &std::collections::BTreeSet<String>,
-        now_ms: u64,
-    ) -> Result<Vec<String>, crate::service::plan::PlanError> {
-        let changed_plan_ids = self
-            .plan_store
-            .archive_active_plans_without_live_team(live_team_ids, now_ms)?;
-        for plan_id in &changed_plan_ids {
-            self.emit_plan_changed(plan_id);
-        }
-        Ok(changed_plan_ids)
-    }
-
-    pub(crate) async fn add_team_member(
+pub trait TeamExt {
+    fn rename_team(
         &self,
         team_id: &str,
-        caller_tab_id: Option<&str>,
-        params: AddTeamMemberParams,
-    ) -> Result<AddTeamMemberResult, String> {
-        crate::service::spawn::validate_agent_model(
-            &self.agent_registry,
-            &params.provider,
-            params.model.as_deref(),
-        )
-        .map_err(|error| error.to_string())?;
-        let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
-        let is_orchestrator = params.role.trim().eq_ignore_ascii_case("orchestrator");
-        let _cartographer_guard = if is_cartographer {
-            Some(
-                self.ext::<crate::service::CartographerAttachLocks>()
-                    .0
-                    .for_team(team_id)
-                    .lock_owned()
-                    .await,
-            )
-        } else {
-            None
-        };
-        let _orchestrator_guard = if is_orchestrator {
-            Some(
-                self.ext::<crate::service::OrchestratorAttachLocks>()
-                    .0
-                    .for_team(team_id)
-                    .lock_owned()
-                    .await,
-            )
-        } else {
-            None
-        };
-        let (classified, existing) = {
-            let mux = self.mux.read();
-            let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params.clone())?;
-            let existing = is_cartographer
-                .then(|| staffing::existing_cartographer_attachment(&mux, team_id))
-                .flatten();
-            (prepared, existing)
-        };
-        if let Some(existing) = existing {
-            return self
-                .reuse_cartographer_with_brief(existing, params.task)
-                .await;
-        }
-        self.classify_spawn_target_for_params(
-            classified.spawn_params.agent.as_deref().unwrap_or_default(),
-            &classified.spawn_params,
-        )?;
-        let brief = params.task.clone();
-        let (prepared, detached_failed_anchor, existing) = {
-            let mut mux = self.mux.write();
-            let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params)?;
-            let existing = is_cartographer
-                .then(|| staffing::existing_cartographer_attachment(&mux, team_id))
-                .flatten();
-            let anchors = staffing::role_anchors_team(
-                &prepared.expected_role,
-                prepared.expected_profile.as_deref(),
-            );
-            let detached =
-                anchors && staffing::detach_spawn_failed_team_orchestrators(&mut mux, team_id);
-            (prepared, detached, existing)
-        };
-        if let Some(existing) = existing {
-            return self.reuse_cartographer_with_brief(existing, brief).await;
-        }
-        if detached_failed_anchor {
-            crate::service::publish_mux_state_changed(&self.events);
-            crate::service::session_persist::persist_session_after_close(self);
-            self.emit_state_changed_after_bus_publish();
-        }
-        let mut spawn_params = prepared.spawn_params;
-        self.attach_manager_bootstrap(team_id, caller_tab_id, &mut spawn_params)?;
-        let lane_label = format!("team-{team_id}");
-        let service = self.clone();
-        let (spawn_params, mut lane) = tauri::async_runtime::spawn_blocking(move || {
-            let lane = service.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)?;
-            Ok::<_, String>((spawn_params, lane))
-        })
-        .await
-        .map_err(|error| format!("worker lane provisioning failed: {error}"))??;
-        let spawn = self
-            .spawn_agent_with_state_change(spawn_params, None, false)
-            .await;
-        let (tab_id, spawn_warning) = match spawn {
-            Ok(spawn) => (spawn.tab_id, spawn.warning),
-            Err(error) => {
-                if let Some(lane) = lane.take() {
-                    let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
-                }
-                return Err(error);
-            }
-        };
-        let anchors = staffing::role_anchors_team(
-            &prepared.expected_role,
-            prepared.expected_profile.as_deref(),
-        );
-        let result = {
-            let mut mux = self.mux.write();
-            commit_team_member_with_plan_takeover(
-                &mut mux,
-                &self.events,
-                team_id,
-                caller_tab_id,
-                &tab_id,
-                &prepared.expected_role,
-                &prepared.expected_profile,
-                anchors,
-                |mux| take_over_team_plan(mux, &self.plan_store, team_id, &tab_id, now_ms()),
-            )
-        };
-        let mut result = match result {
-            Ok(result) => result,
-            Err(error) => {
-                // Commit and takeover failures close the spawned member inside
-                // the mux-level transaction; persist at the nearest &self.
-                crate::service::session_persist::persist_session_after_close(self);
-                if let Some(lane) = lane.take() {
-                    let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
-                }
-                return Err(error);
-            }
-        };
-        result.warning = spawn_warning;
-        if let Some(takeover) = result
-            .plan_takeover
-            .as_ref()
-            .filter(|takeover| takeover.error.is_none())
-        {
-            self.emit_plan_changed(&takeover.plan_id);
-        }
-        self.emit_state_changed_after_bus_publish();
-        Ok(result)
-    }
-
-    fn attach_manager_bootstrap(
+        name: String,
+        caller: TeamMutationCaller,
+    ) -> Result<Team, String>;
+    fn close_team(
         &self,
         team_id: &str,
-        caller_tab_id: Option<&str>,
-        params: &mut crate::service::SpawnAgentParams,
-    ) -> Result<(), String> {
-        let role_kind = match params.role_kind() {
-            Some(kind @ (ORCHESTRATOR | PLANNER)) => kind.to_string(),
-            _ => return Ok(()),
-        };
-        let role =
-            role_kind::kind_label(Some(AgentRole::Manager), Some(&role_kind)).unwrap_or("Manager");
-        let (team_name, project) = {
-            let mux = self.mux.read();
-            let team = mux
-                .get_team(team_id)
-                .ok_or_else(|| format!("Team {team_id} not found"))?;
-            // A Team stranded without members still records its workspace, so a
-            // recovery add can name the project it belongs to.
-            let workspace_id = mux
-                .team_workspace(team_id)
-                .unwrap_or_else(|| team.workspace_id.clone());
-            let project = mux
-                .get_workspace(&workspace_id)
-                .map(|workspace| workspace.name.clone())
-                .unwrap_or(workspace_id);
-            (
-                team.name.clone().unwrap_or_else(|| "Unnamed Team".into()),
-                project,
-            )
-        };
-        let plan_id = self
-            .plan_store
-            .list_full()
-            .into_iter()
-            .find(|plan| plan.team_id.as_deref() == Some(team_id))
-            .map(|plan| plan.id)
-            .unwrap_or_else(|| "no bound plan yet".into());
-        // A caller-less add is the bootstrap door and can only place an anchoring role, so there is no counterpart to name and nothing to introduce.
-        let coordination = caller_tab_id
-            .filter(|_| role_kind == PLANNER)
-            .map(|caller_tab_id| {
-                let mux = self.mux.read();
-                let caller_label = mux.display_label_for_tab(caller_tab_id);
-                let planner = crate::service::spawn_factory::Counterpart::new("Planner", "", "");
-                let orchestrator = crate::service::spawn_factory::Counterpart::new(
-                    "Orchestrator",
-                    caller_label,
-                    caller_tab_id,
-                );
-                crate::service::spawn_factory::introduction_body(&planner, &orchestrator)
-            });
-        params.manager_bootstrap = Some(crate::service::role_identity::ManagerBootstrapInputs {
-            role: role.into(),
-            role_kind,
-            team_id: team_id.into(),
-            team_name,
-            plan_id,
-            project,
-            coordination,
-        });
-        Ok(())
-    }
+        caller: TeamMutationCaller,
+        force: bool,
+    ) -> impl std::future::Future<Output = Result<TeamCloseResult, String>> + Send;
+}
 
-    /// Attach an already-running roleless agent tab to a Team the caller
-    /// already belongs to.
-    pub(crate) fn adopt_agent_for_team(
-        &self,
-        team_id: &str,
-        tab_id: &str,
-        caller_tab_id: &str,
-    ) -> Result<Team, String> {
-        let team = {
-            let mut mux = self.mux.write();
-            reject_remote_team_mutation(&mux, team_id)?;
-            let team = adopt_agent_into_team(&mut mux, team_id, tab_id, caller_tab_id)?;
-            crate::service::publish_mux_state_changed(&self.events);
-            team
-        };
-        self.emit_state_changed_after_bus_publish();
-        Ok(team)
-    }
-
-    pub(crate) fn rename_team(
+impl TeamExt for ServiceContext {
+    fn rename_team(
         &self,
         team_id: &str,
         name: String,
@@ -331,7 +58,7 @@ impl ServiceContext {
 
     /// Refuses while a Team task is in progress or a Worker is working unless
     /// `force`; a forced close reports every killed Worker and task.
-    pub(crate) async fn close_team(
+    async fn close_team(
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
@@ -352,7 +79,7 @@ impl ServiceContext {
         })
         .await
         .map_err(|error| error.to_string())??;
-        let result = self.close_team_inner(team_id, caller, force).await;
+        let result = close_team_inner(self, team_id, caller, force).await;
         let service = self.clone();
         tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
             .await
@@ -362,371 +89,618 @@ impl ServiceContext {
         }
         result
     }
+}
 
-    async fn close_team_inner(
-        &self,
-        team_id: &str,
-        caller: TeamMutationCaller,
-        force: bool,
-    ) -> Result<TeamCloseResult, String> {
-        let close_at = now_ms();
-        let (prepared, storage_teardown) =
-            self.prepare_storage_team_teardown(team_id, &caller).await?;
-        let lane_plan_store = std::sync::Arc::clone(&self.plan_store);
-        let plans = tokio::task::spawn_blocking(move || lane_plan_store.list_full())
-            .await
-            .map_err(|error| format!("Team lane inventory task failed: {error}"))?;
-        let lanes = team_close_lanes(&plans, team_id, &prepared.member_tab_ids);
-        let busy = {
-            let mux = self.mux.read();
-            close_busy::team_close_busy(&mux, &plans, team_id, &prepared.member_tab_ids)
-        };
-        if !busy.is_empty() && !force {
-            return Err(busy.refusal(team_id));
+pub fn live_team_ids(svc: &ServiceContext) -> std::collections::BTreeSet<String> {
+    svc.mux
+        .read()
+        .list_teams()
+        .into_iter()
+        .map(|team| team.id)
+        .collect()
+}
+
+pub fn reconcile_dangling_team_plan_bindings_and_emit(
+    svc: &ServiceContext,
+    live_team_ids: &std::collections::BTreeSet<String>,
+    now_ms: u64,
+) -> Result<Vec<String>, crate::service::plan::PlanError> {
+    let changed_plan_ids = svc
+        .plan_store
+        .archive_active_plans_without_live_team(live_team_ids, now_ms)?;
+    for plan_id in &changed_plan_ids {
+        svc.emit_plan_changed(plan_id);
+    }
+    Ok(changed_plan_ids)
+}
+
+pub async fn add_team_member(
+    svc: &ServiceContext,
+    team_id: &str,
+    caller_tab_id: Option<&str>,
+    params: AddTeamMemberParams,
+) -> Result<AddTeamMemberResult, String> {
+    crate::service::spawn::validate_agent_model(
+        &svc.agent_registry,
+        &params.provider,
+        params.model.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
+    let is_orchestrator = params.role.trim().eq_ignore_ascii_case("orchestrator");
+    let _cartographer_guard = if is_cartographer {
+        Some(
+            svc.ext::<crate::service::CartographerAttachLocks>()
+                .0
+                .for_team(team_id)
+                .lock_owned()
+                .await,
+        )
+    } else {
+        None
+    };
+    let _orchestrator_guard = if is_orchestrator {
+        Some(
+            svc.ext::<crate::service::OrchestratorAttachLocks>()
+                .0
+                .for_team(team_id)
+                .lock_owned()
+                .await,
+        )
+    } else {
+        None
+    };
+    let (classified, existing) = {
+        let mux = svc.mux.read();
+        let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params.clone())?;
+        let existing = is_cartographer
+            .then(|| staffing::existing_cartographer_attachment(&mux, team_id))
+            .flatten();
+        (prepared, existing)
+    };
+    if let Some(existing) = existing {
+        return staffing::reuse_cartographer_with_brief(svc, existing, params.task).await;
+    }
+    svc.classify_spawn_target_for_params(
+        classified.spawn_params.agent.as_deref().unwrap_or_default(),
+        &classified.spawn_params,
+    )?;
+    let brief = params.task.clone();
+    let (prepared, detached_failed_anchor, existing) = {
+        let mut mux = svc.mux.write();
+        let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params)?;
+        let existing = is_cartographer
+            .then(|| staffing::existing_cartographer_attachment(&mux, team_id))
+            .flatten();
+        let anchors = staffing::role_anchors_team(
+            &prepared.expected_role,
+            prepared.expected_profile.as_deref(),
+        );
+        let detached =
+            anchors && staffing::detach_spawn_failed_team_orchestrators(&mut mux, team_id);
+        (prepared, detached, existing)
+    };
+    if let Some(existing) = existing {
+        return staffing::reuse_cartographer_with_brief(svc, existing, brief).await;
+    }
+    if detached_failed_anchor {
+        crate::service::publish_mux_state_changed(&svc.events);
+        crate::service::session_persist::persist_session_after_close(svc);
+        svc.emit_state_changed_after_bus_publish();
+    }
+    let mut spawn_params = prepared.spawn_params;
+    attach_manager_bootstrap(svc, team_id, caller_tab_id, &mut spawn_params)?;
+    let lane_label = format!("team-{team_id}");
+    let service = svc.clone();
+    let (spawn_params, mut lane) = tauri::async_runtime::spawn_blocking(move || {
+        let lane = service.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)?;
+        Ok::<_, String>((spawn_params, lane))
+    })
+    .await
+    .map_err(|error| format!("worker lane provisioning failed: {error}"))??;
+    let spawn = svc
+        .spawn_agent_with_state_change(spawn_params, None, false)
+        .await;
+    let (tab_id, spawn_warning) = match spawn {
+        Ok(spawn) => (spawn.tab_id, spawn.warning),
+        Err(error) => {
+            if let Some(lane) = lane.take() {
+                let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
+            }
+            return Err(error);
         }
-        let plan_store = std::sync::Arc::clone(&self.plan_store);
-        let transaction_team_id = team_id.to_string();
-        let transaction_member_ids = prepared.member_tab_ids.clone();
-        let plan_transaction = tokio::task::spawn_blocking(move || {
-            plan_store.close_team_task_attempts_transaction(
-                &transaction_team_id,
-                &transaction_member_ids,
-                close_at,
-            )
-        })
+    };
+    let anchors = staffing::role_anchors_team(
+        &prepared.expected_role,
+        prepared.expected_profile.as_deref(),
+    );
+    let result = {
+        let mut mux = svc.mux.write();
+        commit_team_member_with_plan_takeover(
+            &mut mux,
+            &svc.events,
+            team_id,
+            caller_tab_id,
+            &tab_id,
+            &prepared.expected_role,
+            &prepared.expected_profile,
+            anchors,
+            |mux| take_over_team_plan(mux, &svc.plan_store, team_id, &tab_id, now_ms()),
+        )
+    };
+    let mut result = match result {
+        Ok(result) => result,
+        Err(error) => {
+            // Commit and takeover failures close the spawned member inside
+            // the mux-level transaction; persist at the nearest &self.
+            crate::service::session_persist::persist_session_after_close(svc);
+            if let Some(lane) = lane.take() {
+                let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
+            }
+            return Err(error);
+        }
+    };
+    result.warning = spawn_warning;
+    if let Some(takeover) = result
+        .plan_takeover
+        .as_ref()
+        .filter(|takeover| takeover.error.is_none())
+    {
+        svc.emit_plan_changed(&takeover.plan_id);
+    }
+    svc.emit_state_changed_after_bus_publish();
+    Ok(result)
+}
+
+fn attach_manager_bootstrap(
+    svc: &ServiceContext,
+    team_id: &str,
+    caller_tab_id: Option<&str>,
+    params: &mut crate::service::SpawnAgentParams,
+) -> Result<(), String> {
+    let role_kind = match params.role_kind() {
+        Some(kind @ (ORCHESTRATOR | PLANNER)) => kind.to_string(),
+        _ => return Ok(()),
+    };
+    let role =
+        role_kind::kind_label(Some(AgentRole::Manager), Some(&role_kind)).unwrap_or("Manager");
+    let (team_name, project) = {
+        let mux = svc.mux.read();
+        let team = mux
+            .get_team(team_id)
+            .ok_or_else(|| format!("Team {team_id} not found"))?;
+        // A Team stranded without members still records its workspace, so a
+        // recovery add can name the project it belongs to.
+        let workspace_id = mux
+            .team_workspace(team_id)
+            .unwrap_or_else(|| team.workspace_id.clone());
+        let project = mux
+            .get_workspace(&workspace_id)
+            .map(|workspace| workspace.name.clone())
+            .unwrap_or(workspace_id);
+        (
+            team.name.clone().unwrap_or_else(|| "Unnamed Team".into()),
+            project,
+        )
+    };
+    let plan_id = svc
+        .plan_store
+        .list_full()
+        .into_iter()
+        .find(|plan| plan.team_id.as_deref() == Some(team_id))
+        .map(|plan| plan.id)
+        .unwrap_or_else(|| "no bound plan yet".into());
+    // A caller-less add is the bootstrap door and can only place an anchoring role, so there is no counterpart to name and nothing to introduce.
+    let coordination = caller_tab_id
+        .filter(|_| role_kind == PLANNER)
+        .map(|caller_tab_id| {
+            let mux = svc.mux.read();
+            let caller_label = mux.display_label_for_tab(caller_tab_id);
+            let planner = crate::service::spawn_factory::Counterpart::new("Planner", "", "");
+            let orchestrator = crate::service::spawn_factory::Counterpart::new(
+                "Orchestrator",
+                caller_label,
+                caller_tab_id,
+            );
+            crate::service::spawn_factory::introduction_body(&planner, &orchestrator)
+        });
+    params.manager_bootstrap = Some(crate::service::role_identity::ManagerBootstrapInputs {
+        role: role.into(),
+        role_kind,
+        team_id: team_id.into(),
+        team_name,
+        plan_id,
+        project,
+        coordination,
+    });
+    Ok(())
+}
+
+/// Attach an already-running roleless agent tab to a Team the caller
+/// already belongs to.
+pub fn adopt_agent_for_team(
+    svc: &ServiceContext,
+    team_id: &str,
+    tab_id: &str,
+    caller_tab_id: &str,
+) -> Result<Team, String> {
+    let team = {
+        let mut mux = svc.mux.write();
+        reject_remote_team_mutation(&mux, team_id)?;
+        let team = adopt_agent_into_team(&mut mux, team_id, tab_id, caller_tab_id)?;
+        crate::service::publish_mux_state_changed(&svc.events);
+        team
+    };
+    svc.emit_state_changed_after_bus_publish();
+    Ok(team)
+}
+
+async fn close_team_inner(
+    svc: &ServiceContext,
+    team_id: &str,
+    caller: TeamMutationCaller,
+    force: bool,
+) -> Result<TeamCloseResult, String> {
+    let close_at = now_ms();
+    let (prepared, storage_teardown) =
+        storage_teardown::prepare_storage_team_teardown(svc, team_id, &caller).await?;
+    let lane_plan_store = std::sync::Arc::clone(&svc.plan_store);
+    let plans = tokio::task::spawn_blocking(move || lane_plan_store.list_full())
         .await
-        .map_err(|error| format!("Team plan close task failed: {error}"))?
-        .map_err(|error| error.to_string())?;
-        let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
-        let storage_commit = if let Some(teardown) = &storage_teardown {
-            let completion = teardown.storage.team_teardown(teardown.request.clone());
-            #[cfg(test)]
-            if let Some(probe) = self
-                .app_handle
-                .try_state::<storage_teardown::StorageTeardownSubmitted>()
-            {
-                let _ = probe.0.send(());
-            }
-            match completion.await {
-                Ok(committed) => Some(committed),
-                Err(error) => {
-                    let rollback_store = std::sync::Arc::clone(&self.plan_store);
-                    let rollback = tokio::task::spawn_blocking(move || {
-                        rollback_store.rollback_team_plan_archive(plan_transaction)
-                    })
-                    .await;
-                    let impact = match rollback {
-                        Ok(Ok(())) => error.to_string(),
-                        Ok(Err(rollback)) => {
-                            format!("{error}; plan rollback failed: {rollback}")
-                        }
-                        Err(rollback) => {
-                            format!("{error}; plan rollback task failed: {rollback}")
-                        }
-                    };
-                    self.notify_event(
-                        "coordination-incident",
-                        serde_json::json!({
-                            "kind": "team_teardown_storage_commit_failed",
-                            "impact": impact,
-                            "fallback": "The Team and desk, cron and Sentinel rows remain active; retry after storage recovers."
-                        }),
-                    );
-                    return Err(format!("Team storage teardown failed: {impact}"));
-                }
-            }
-        } else {
-            None
-        };
-        if let (Some(teardown), Some(committed)) = (&storage_teardown, &storage_commit) {
-            {
-                teardown.cron.lock().publish_external(
-                    &teardown.cron_changes,
-                    &committed.value.cron,
-                    committed.receipt.revision,
-                );
-            }
-            let sentinel_commit = crate::storage::Committed {
-                value: committed.value.sentinel.clone(),
-                receipt: committed.receipt,
-            };
-            teardown
-                .sentinel
-                .store
-                .adopt_external_commit(&sentinel_commit)?;
+        .map_err(|error| format!("Team lane inventory task failed: {error}"))?;
+    let lanes = team_close_lanes(&plans, team_id, &prepared.member_tab_ids);
+    let busy = {
+        let mux = svc.mux.read();
+        close_busy::team_close_busy(&mux, &plans, team_id, &prepared.member_tab_ids)
+    };
+    if !busy.is_empty() && !force {
+        return Err(busy.refusal(team_id));
+    }
+    let plan_store = std::sync::Arc::clone(&svc.plan_store);
+    let transaction_team_id = team_id.to_string();
+    let transaction_member_ids = prepared.member_tab_ids.clone();
+    let plan_transaction = tokio::task::spawn_blocking(move || {
+        plan_store.close_team_task_attempts_transaction(
+            &transaction_team_id,
+            &transaction_member_ids,
+            close_at,
+        )
+    })
+    .await
+    .map_err(|error| format!("Team plan close task failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+    let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
+    let storage_commit = if let Some(teardown) = &storage_teardown {
+        let completion = teardown.storage.team_teardown(teardown.request.clone());
+        #[cfg(test)]
+        if let Some(probe) = svc
+            .app_handle
+            .try_state::<storage_teardown::StorageTeardownSubmitted>()
+        {
+            let _ = probe.0.send(());
         }
-        let commit = {
-            let mut mux = self.mux.write();
-            if storage_commit.is_some() {
-                let current = prepare_team_close(&mux, team_id, &caller)?;
-                commit_prepared_team_close(&mut mux, team_id, &caller, &current)
-            } else {
-                commit_prepared_team_close(&mut mux, team_id, &caller, &prepared)
-            }
-        };
-        let (team, cleanup) = match commit {
-            Ok(closed) => closed,
+        match completion.await {
+            Ok(committed) => Some(committed),
             Err(error) => {
-                let rollback_store = std::sync::Arc::clone(&self.plan_store);
-                tokio::task::spawn_blocking(move || {
+                let rollback_store = std::sync::Arc::clone(&svc.plan_store);
+                let rollback = tokio::task::spawn_blocking(move || {
                     rollback_store.rollback_team_plan_archive(plan_transaction)
                 })
-                .await
-                .map_err(|rollback| format!("{error}; plan rollback task failed: {rollback}"))?
-                .map_err(|rollback| format!("{error}; plan rollback failed: {rollback}"))?;
-                return Err(error);
+                .await;
+                let impact = match rollback {
+                    Ok(Ok(())) => error.to_string(),
+                    Ok(Err(rollback)) => {
+                        format!("{error}; plan rollback failed: {rollback}")
+                    }
+                    Err(rollback) => {
+                        format!("{error}; plan rollback task failed: {rollback}")
+                    }
+                };
+                svc.notify_event(
+                    "coordination-incident",
+                    serde_json::json!({
+                        "kind": "team_teardown_storage_commit_failed",
+                        "impact": impact,
+                        "fallback": "The Team and desk, cron and Sentinel rows remain active; retry after storage recovers."
+                    }),
+                );
+                return Err(format!("Team storage teardown failed: {impact}"));
             }
-        };
-        if storage_commit.is_none() {
-            crate::service::publish_mux_state_changed(&self.events);
         }
-        // Persist the authorized reduction before any fallible cleanup can
-        // early-return and leave last.json still holding the member tabs.
-        crate::service::session_persist::persist_session_after_close(self);
-        for tab_id in &cleanup.member_tab_ids {
-            self.chat_registry.shutdown_tab(tab_id);
-        }
-        for (plugin_id, session_id) in &cleanup.chat_backings {
-            let _ = self.chatbackend_close(plugin_id, session_id);
-        }
-        for tab_id in &cleanup.member_tab_ids {
-            self.flag_bound_tasks_for_gone_tab(tab_id, 0);
-            crate::service::prompt_resolution::clear_tab_prompt(None);
-            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
-            self.prompt_detector.lock().remove_tab(tab_id);
-            crate::service::structured_prompt::clear_tab(tab_id);
-            self.remote_workers.forget_orchestrator(tab_id);
-        }
-        self.kill_ptys(&cleanup.pty_ids);
-        self.dispose_closed_surface_runtimes();
-        let registry = std::sync::Arc::clone(&self.agent_registry);
-        let closed_tabs = cleanup.agent_providers;
-        if let Err(error) = tokio::task::spawn_blocking(move || {
-            crate::service::launch_artifacts::release_closed_tabs(&registry, &closed_tabs)
-        })
-        .await
+    } else {
+        None
+    };
+    if let (Some(teardown), Some(committed)) = (&storage_teardown, &storage_commit) {
         {
-            log::warn!("[team-close] launch artifact release task failed: {error}");
-        }
-        let plan_store = std::sync::Arc::clone(&self.plan_store);
-        let lane_cleanup = tokio::task::spawn_blocking(move || {
-            finish_team_lane_cleanup(&plan_store, &lanes, close_at)
-        })
-        .await
-        .map_err(|error| format!("Team lane cleanup task failed: {error}"))
-        .and_then(|result| result);
-        if let Err(error) = &lane_cleanup {
-            log::error!("{error}");
-        }
-        let flagged_plans = changed_plan_ids
-            .iter()
-            .filter_map(|plan_id| self.plan_store.get(plan_id))
-            .filter_map(|plan| {
-                let reason = plan.orphaned.map(|orphan| orphan.reason)?;
-                Some(close_busy::TeamCloseFlaggedPlan {
-                    plan_id: plan.id,
-                    reason,
-                })
-            })
-            .collect();
-        for plan_id in changed_plan_ids {
-            self.emit_plan_changed(&plan_id);
-        }
-        for tab_id in &cleanup.member_tab_ids {
-            self.revoke_agent_pad(tab_id)?;
-        }
-        if let Some(teardown) = &storage_teardown {
-            self.finish_storage_team_teardown(team_id, teardown).await;
-            crate::service::publish_mux_state_changed(&self.events);
-        } else {
-            self.finish_team_teardown(team_id).await?;
-        }
-        let inventory = lane_cleanup?;
-        if !busy.is_empty() {
-            log::warn!(
-                "[team-close] forced close of Team {team_id} killed {} Worker(s) and left {} in-progress task(s)",
-                busy.workers.len(),
-                busy.tasks.len()
+            teardown.cron.lock().publish_external(
+                &teardown.cron_changes,
+                &committed.value.cron,
+                committed.receipt.revision,
             );
         }
-        Ok(TeamCloseResult {
-            team,
-            inventory,
-            killed_workers: busy.workers,
-            unfinished_tasks: busy.tasks,
-            flagged_plans,
-        })
+        let sentinel_commit = crate::storage::Committed {
+            value: committed.value.sentinel.clone(),
+            receipt: committed.receipt,
+        };
+        teardown
+            .sentinel
+            .store
+            .adopt_external_commit(&sentinel_commit)?;
     }
-
-    fn delete_team_crons(&self, team_id: &str) {
-        let Some(cron) = self.app_handle.try_state::<crate::CronState>() else {
-            return;
-        };
-        let Some(wake) = self.app_handle.try_state::<crate::CronWake>() else {
-            return;
-        };
-        let job_ids: Vec<String> = cron
-            .lock()
-            .list_for_team(team_id)
-            .into_iter()
-            .map(|job| job.id.clone())
-            .collect();
-        for job_id in job_ids {
-            if let Err(error) = self.cron_delete(cron.inner(), wake.inner(), &job_id) {
-                log::error!("Failed to delete Team cron {job_id}: {error}");
-            }
+    let commit = {
+        let mut mux = svc.mux.write();
+        if storage_commit.is_some() {
+            let current = prepare_team_close(&mux, team_id, &caller)?;
+            commit_prepared_team_close(&mut mux, team_id, &caller, &current)
+        } else {
+            commit_prepared_team_close(&mut mux, team_id, &caller, &prepared)
         }
+    };
+    let (team, cleanup) = match commit {
+        Ok(closed) => closed,
+        Err(error) => {
+            let rollback_store = std::sync::Arc::clone(&svc.plan_store);
+            tokio::task::spawn_blocking(move || {
+                rollback_store.rollback_team_plan_archive(plan_transaction)
+            })
+            .await
+            .map_err(|rollback| format!("{error}; plan rollback task failed: {rollback}"))?
+            .map_err(|rollback| format!("{error}; plan rollback failed: {rollback}"))?;
+            return Err(error);
+        }
+    };
+    if storage_commit.is_none() {
+        crate::service::publish_mux_state_changed(&svc.events);
     }
-
-    async fn finish_team_teardown(&self, team_id: &str) -> Result<(), String> {
-        let service = self.clone();
-        let team_id = team_id.to_string();
-        tokio::task::spawn_blocking(move || {
-            service.delete_team_crons(&team_id);
-            if let Some(ports) = service
-                .app_handle
-                .try_state::<crate::ports::sentinel::SentinelPorts>()
-            {
-                ports.cleanup.remove_team(&team_id)?;
-            }
-            if let Err(error) = crate::delayed_send::delete_team_series(&service, &team_id) {
-                log::error!("Failed to delete Team delayed series {team_id}: {error}");
-            }
-            service.emit_state_changed_after_bus_publish();
-            Ok(())
+    // Persist the authorized reduction before any fallible cleanup can
+    // early-return and leave last.json still holding the member tabs.
+    crate::service::session_persist::persist_session_after_close(svc);
+    for tab_id in &cleanup.member_tab_ids {
+        svc.chat_registry.shutdown_tab(tab_id);
+    }
+    for (plugin_id, session_id) in &cleanup.chat_backings {
+        let _ = svc.chatbackend_close(plugin_id, session_id);
+    }
+    for tab_id in &cleanup.member_tab_ids {
+        svc.flag_bound_tasks_for_gone_tab(tab_id, 0);
+        crate::service::prompt_resolution::clear_tab_prompt(None);
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+        svc.prompt_detector.lock().remove_tab(tab_id);
+        crate::service::structured_prompt::clear_tab(tab_id);
+        svc.remote_workers.forget_orchestrator(tab_id);
+    }
+    svc.kill_ptys(&cleanup.pty_ids);
+    svc.dispose_closed_surface_runtimes();
+    let registry = std::sync::Arc::clone(&svc.agent_registry);
+    let closed_tabs = cleanup.agent_providers;
+    if let Err(error) = tokio::task::spawn_blocking(move || {
+        crate::service::launch_artifacts::release_closed_tabs(&registry, &closed_tabs)
+    })
+    .await
+    {
+        log::warn!("[team-close] launch artifact release task failed: {error}");
+    }
+    let plan_store = std::sync::Arc::clone(&svc.plan_store);
+    let lane_cleanup = tokio::task::spawn_blocking(move || {
+        finish_team_lane_cleanup(&plan_store, &lanes, close_at)
+    })
+    .await
+    .map_err(|error| format!("Team lane cleanup task failed: {error}"))
+    .and_then(|result| result);
+    if let Err(error) = &lane_cleanup {
+        log::error!("{error}");
+    }
+    let flagged_plans = changed_plan_ids
+        .iter()
+        .filter_map(|plan_id| svc.plan_store.get(plan_id))
+        .filter_map(|plan| {
+            let reason = plan.orphaned.map(|orphan| orphan.reason)?;
+            Some(close_busy::TeamCloseFlaggedPlan {
+                plan_id: plan.id,
+                reason,
+            })
         })
-        .await
-        .map_err(|error| format!("Team cron and Sentinel teardown task failed: {error}"))?
+        .collect();
+    for plan_id in changed_plan_ids {
+        svc.emit_plan_changed(&plan_id);
     }
-
-    pub(crate) fn adopt_plan_for_team(
-        &self,
-        team_id: &str,
-        plan_id: &str,
-        caller: TeamMutationCaller,
-        now_ms: u64,
-    ) -> Result<crate::plan::Plan, TeamPlanError> {
-        let mut mux = self.mux.write();
-        let plan =
-            adopt_plan_for_team_core(&mut mux, &self.plan_store, team_id, plan_id, caller, now_ms)?;
-        drop(mux);
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
-            "plan-changed",
-            serde_json::json!({ "plan_id": plan_id }),
+    for tab_id in &cleanup.member_tab_ids {
+        svc.revoke_agent_pad(tab_id)?;
+    }
+    if let Some(teardown) = &storage_teardown {
+        storage_teardown::finish_storage_team_teardown(svc, team_id, teardown).await;
+        crate::service::publish_mux_state_changed(&svc.events);
+    } else {
+        finish_team_teardown(svc, team_id).await?;
+    }
+    let inventory = lane_cleanup?;
+    if !busy.is_empty() {
+        log::warn!(
+            "[team-close] forced close of Team {team_id} killed {} Worker(s) and left {} in-progress task(s)",
+            busy.workers.len(),
+            busy.tasks.len()
         );
-        self.emit_state_changed();
-        Ok(plan)
     }
+    Ok(TeamCloseResult {
+        team,
+        inventory,
+        killed_workers: busy.workers,
+        unfinished_tasks: busy.tasks,
+        flagged_plans,
+    })
+}
 
-    pub(crate) fn resume_team_plan(
-        &self,
-        plan_id: &str,
-        now_ms: u64,
-    ) -> Result<crate::plan::PlanMode, TeamPlanError> {
-        self.resume_plan_operation(plan_id, now_ms)
-            .map(|outcome| outcome.mode)
-    }
-
-    pub(crate) fn unarchive_team_plan(
-        &self,
-        plan_id: &str,
-        now_ms: u64,
-    ) -> Result<(), TeamPlanError> {
-        let mux = self.mux.read();
-        self.valid_live_plan_team(&mux, plan_id)?;
-        self.plan_store
-            .unarchive(plan_id, now_ms)
-            .map_err(TeamPlanError::Plan)?;
-        drop(mux);
-        self.emit_plan_changed(plan_id);
-        Ok(())
-    }
-
-    pub(crate) fn transfer_team_plan(
-        &self,
-        plan_id: &str,
-        to: crate::plan::OrchestratorRef,
-        reason: &str,
-        caller_tab_id: String,
-        now_ms: u64,
-    ) -> Result<crate::plan::Plan, TeamPlanError> {
-        let mut mux = self.mux.write();
-        let plan = transfer_team_plan_core(
-            &mut mux,
-            &self.plan_store,
-            plan_id,
-            to,
-            reason,
-            TeamMutationCaller::AgentTab(caller_tab_id),
-            now_ms,
-        )?;
-        drop(mux);
-        self.emit_state_changed();
-        self.emit_plan_changed(plan_id);
-        Ok(plan)
-    }
-
-    pub(crate) fn validate_active_team_plan_bindings(&self) -> Result<(), TeamPlanError> {
-        let mux = self.mux.read();
-        let mut claimed_teams = std::collections::BTreeMap::<String, String>::new();
-        for plan in self
-            .plan_store
-            .list_full()
-            .into_iter()
-            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
-            .filter(|plan| !plan.is_orphaned_active())
-        {
-            let team_id = self.valid_live_plan_team(&mux, &plan.id)?;
-            if let Some(existing_plan_id) = claimed_teams.insert(team_id.clone(), plan.id.clone()) {
-                return Err(TeamPlanError::Plan(PlanError::TeamAlreadyHasActivePlan {
-                    team_id,
-                    existing_plan_id,
-                    existing_title: "conflicting active plan".into(),
-                }));
-            }
+fn delete_team_crons(svc: &ServiceContext, team_id: &str) {
+    let Some(cron) = svc.app_handle.try_state::<crate::CronState>() else {
+        return;
+    };
+    let Some(wake) = svc.app_handle.try_state::<crate::CronWake>() else {
+        return;
+    };
+    let job_ids: Vec<String> = cron
+        .lock()
+        .list_for_team(team_id)
+        .into_iter()
+        .map(|job| job.id.clone())
+        .collect();
+    for job_id in job_ids {
+        if let Err(error) = svc.cron_delete(cron.inner(), wake.inner(), &job_id) {
+            log::error!("Failed to delete Team cron {job_id}: {error}");
         }
-        Ok(())
-    }
-
-    pub(crate) fn validate_plan_team_binding(&self, plan_id: &str) -> Result<(), TeamPlanError> {
-        let Some(plan) = self.plan_store.get(plan_id) else {
-            return Err(TeamPlanError::Plan(PlanError::NotFound));
-        };
-        if plan.status == crate::plan::PlanStatus::Archived || plan.is_orphaned_active() {
-            return Ok(());
-        }
-        let mux = self.mux.read();
-        self.valid_live_plan_team(&mux, plan_id).map(|_| ())
-    }
-
-    pub(super) fn valid_live_plan_team(
-        &self,
-        mux: &MultiplexerState,
-        plan_id: &str,
-    ) -> Result<String, TeamPlanError> {
-        let plan = self
-            .plan_store
-            .get(plan_id)
-            .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
-        let team_id = plan
-            .team_id
-            .filter(|team_id| !team_id.trim().is_empty())
-            .ok_or_else(|| {
-                TeamPlanError::Plan(PlanError::ActivePlanRequiresTeam {
-                    plan_id: plan_id.into(),
-                })
-            })?;
-        if mux.get_team(&team_id).is_none() {
-            return Err(TeamPlanError::Team(format!(
-                "Plan {plan_id} references missing Team {team_id}; adopt it into a live Team before resuming"
-            )));
-        }
-        Ok(team_id)
     }
 }
 
-pub(crate) fn rename_team_core(
+async fn finish_team_teardown(svc: &ServiceContext, team_id: &str) -> Result<(), String> {
+    let service = svc.clone();
+    let team_id = team_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        delete_team_crons(&service, &team_id);
+        if let Some(ports) = service
+            .app_handle
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
+        {
+            ports.cleanup.remove_team(&team_id)?;
+        }
+        if let Err(error) = crate::delayed_send::delete_team_series(&service, &team_id) {
+            log::error!("Failed to delete Team delayed series {team_id}: {error}");
+        }
+        service.emit_state_changed_after_bus_publish();
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("Team cron and Sentinel teardown task failed: {error}"))?
+}
+
+pub fn adopt_plan_for_team(
+    svc: &ServiceContext,
+    team_id: &str,
+    plan_id: &str,
+    caller: TeamMutationCaller,
+    now_ms: u64,
+) -> Result<crate::plan::Plan, TeamPlanError> {
+    let mut mux = svc.mux.write();
+    let plan =
+        adopt_plan_for_team_core(&mut mux, &svc.plan_store, team_id, plan_id, caller, now_ms)?;
+    drop(mux);
+    codeterm_events::emit_everywhere(
+        &svc.app_handle,
+        "plan-changed",
+        serde_json::json!({ "plan_id": plan_id }),
+    );
+    svc.emit_state_changed();
+    Ok(plan)
+}
+
+pub fn resume_team_plan(
+    svc: &ServiceContext,
+    plan_id: &str,
+    now_ms: u64,
+) -> Result<crate::plan::PlanMode, TeamPlanError> {
+    svc.resume_plan_operation(plan_id, now_ms)
+        .map(|outcome| outcome.mode)
+}
+
+pub fn unarchive_team_plan(
+    svc: &ServiceContext,
+    plan_id: &str,
+    now_ms: u64,
+) -> Result<(), TeamPlanError> {
+    let mux = svc.mux.read();
+    valid_live_plan_team(svc, &mux, plan_id)?;
+    svc.plan_store
+        .unarchive(plan_id, now_ms)
+        .map_err(TeamPlanError::Plan)?;
+    drop(mux);
+    svc.emit_plan_changed(plan_id);
+    Ok(())
+}
+
+pub fn transfer_team_plan(
+    svc: &ServiceContext,
+    plan_id: &str,
+    to: crate::plan::OrchestratorRef,
+    reason: &str,
+    caller_tab_id: String,
+    now_ms: u64,
+) -> Result<crate::plan::Plan, TeamPlanError> {
+    let mut mux = svc.mux.write();
+    let plan = transfer_team_plan_core(
+        &mut mux,
+        &svc.plan_store,
+        plan_id,
+        to,
+        reason,
+        TeamMutationCaller::AgentTab(caller_tab_id),
+        now_ms,
+    )?;
+    drop(mux);
+    svc.emit_state_changed();
+    svc.emit_plan_changed(plan_id);
+    Ok(plan)
+}
+
+pub fn validate_active_team_plan_bindings(svc: &ServiceContext) -> Result<(), TeamPlanError> {
+    let mux = svc.mux.read();
+    let mut claimed_teams = std::collections::BTreeMap::<String, String>::new();
+    for plan in svc
+        .plan_store
+        .list_full()
+        .into_iter()
+        .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
+        .filter(|plan| !plan.is_orphaned_active())
+    {
+        let team_id = valid_live_plan_team(svc, &mux, &plan.id)?;
+        if let Some(existing_plan_id) = claimed_teams.insert(team_id.clone(), plan.id.clone()) {
+            return Err(TeamPlanError::Plan(PlanError::TeamAlreadyHasActivePlan {
+                team_id,
+                existing_plan_id,
+                existing_title: "conflicting active plan".into(),
+            }));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_plan_team_binding(
+    svc: &ServiceContext,
+    plan_id: &str,
+) -> Result<(), TeamPlanError> {
+    let Some(plan) = svc.plan_store.get(plan_id) else {
+        return Err(TeamPlanError::Plan(PlanError::NotFound));
+    };
+    if plan.status == crate::plan::PlanStatus::Archived || plan.is_orphaned_active() {
+        return Ok(());
+    }
+    let mux = svc.mux.read();
+    valid_live_plan_team(svc, &mux, plan_id).map(|_| ())
+}
+
+pub(super) fn valid_live_plan_team(
+    svc: &ServiceContext,
+    mux: &MultiplexerState,
+    plan_id: &str,
+) -> Result<String, TeamPlanError> {
+    let plan = svc
+        .plan_store
+        .get(plan_id)
+        .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
+    let team_id = plan
+        .team_id
+        .filter(|team_id| !team_id.trim().is_empty())
+        .ok_or_else(|| {
+            TeamPlanError::Plan(PlanError::ActivePlanRequiresTeam {
+                plan_id: plan_id.into(),
+            })
+        })?;
+    if mux.get_team(&team_id).is_none() {
+        return Err(TeamPlanError::Team(format!(
+            "Plan {plan_id} references missing Team {team_id}; adopt it into a live Team before resuming"
+        )));
+    }
+    Ok(team_id)
+}
+
+pub fn rename_team_core(
     mux: &mut MultiplexerState,
     team_id: &str,
     name: String,
@@ -736,7 +710,7 @@ pub(crate) fn rename_team_core(
     mux.rename_team(team_id, name)
 }
 
-pub(crate) fn rename_team_with_state_change(
+pub fn rename_team_with_state_change(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
     team_id: &str,
@@ -793,7 +767,7 @@ where
     Ok(result)
 }
 
-fn adopt_plan_for_team_core(
+pub fn adopt_plan_for_team_core(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
@@ -823,7 +797,10 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
     .map_err(TeamPlanError::Team)
 }
 
-fn live_team_planner_ref(mux: &MultiplexerState, team_id: &str) -> Option<crate::plan::PlannerRef> {
+pub fn live_team_planner_ref(
+    mux: &MultiplexerState,
+    team_id: &str,
+) -> Option<crate::plan::PlannerRef> {
     let mut planners = mux.all_tabs().filter(|tab| {
         tab.team_id.as_deref() == Some(team_id)
             && tab.role == Some(AgentRole::Manager)
@@ -941,7 +918,7 @@ transfers ownership, then new owner adopts."
 
 /// Resolution is local to the caller's own placement, so several anchors stay
 /// unambiguous without a global "there must be exactly one" scan.
-fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> Option<String> {
+pub fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> Option<String> {
     let mut seen = std::collections::HashSet::new();
     let mut current = caller_tab_id.to_string();
     while seen.insert(current.clone()) {
@@ -956,7 +933,7 @@ fn anchor_above(mux: &MultiplexerState, team_id: &str, caller_tab_id: &str) -> O
 
 /// An agent caller resolves through its own chain; a human caller keeps the
 /// plan's existing owner, and is otherwise asked to name one.
-fn team_plan_owner(
+pub fn team_plan_owner(
     mux: &MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
@@ -998,42 +975,6 @@ pub(crate) fn reconcile_dangling_team_plan_bindings(
 ) -> Result<Vec<String>, crate::service::plan::PlanError> {
     let live_team_ids = mux.list_teams().into_iter().map(|team| team.id).collect();
     plan_store.archive_active_plans_without_live_team(&live_team_ids, now_ms)
-}
-
-pub(super) fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-/// Local tabs that anchor this Team. A mirrored (remote) Team has members here
-/// but no anchor, which is what makes it locally immutable.
-fn local_team_anchors(mux: &MultiplexerState, team_id: &str) -> Vec<String> {
-    let mut anchors: Vec<String> = mux
-        .snapshot()
-        .tabs
-        .values()
-        .filter(|tab| tab.team_id.as_deref() == Some(team_id) && tab.anchors_team())
-        .map(|tab| tab.id.clone())
-        .collect();
-    anchors.sort();
-    anchors
-}
-
-/// The peer a Team is anchored on, read from existing `RemoteOwnership`
-/// evidence. `RemoteOwnership` itself is untouched: this only reads it.
-fn remote_team_origin(mux: &MultiplexerState, team_id: &str) -> Option<String> {
-    mux.snapshot().tabs.values().find_map(|tab| {
-        let ownership = tab.ownership.as_ref()?;
-        let team = ownership.team.as_ref()?;
-        let qualified_id = format!("mesh:{}/{}", ownership.peer_id, team.id);
-        (team.id == team_id || qualified_id == team_id).then(|| ownership.peer_name.clone())
-    })
-}
-
-pub(super) fn is_remote_team(mux: &MultiplexerState, team_id: &str) -> bool {
-    local_team_anchors(mux, team_id).is_empty() && remote_team_origin(mux, team_id).is_some()
 }
 
 /// A Team whose anchor lives on another peer is mirrored here for visibility
@@ -1134,17 +1075,17 @@ fn authorize_team_mutation(
     authorize_team_manager(mux, team_id, caller)
 }
 
-mod membership;
+pub mod membership;
 pub(crate) use membership::{
     adopt_agent_into_team, apply_team_attachment, apply_team_attachment_under,
     authorize_team_attachment, resolve_inherited_team_attachment, resolve_spawn_attachment,
     AttachmentParent,
 };
 
-mod staffing;
+pub mod staffing;
 #[cfg(test)]
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
-pub(crate) use staffing::{
+pub use staffing::{
     commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, team_member_brief,
     AddTeamMemberParams, AddTeamMemberResult, CartographerAttachLocks, OrchestratorAttachLocks,
 };

@@ -16,10 +16,10 @@ use crate::service::plan::{PlanError, PlanStore};
 
 /// Machine-readable discriminant for the one refusal class, carried as
 /// `data.type` on the socket and `plan_error.type` over HTTP.
-pub(crate) const STALE_TASK_BINDING_TYPE: &str = "stale_task_binding";
+pub const STALE_TASK_BINDING_TYPE: &str = "stale_task_binding";
 
 /// Why this caller may write. Every entrance states one; there is no default.
-pub(crate) enum BatchAuthority<'a> {
+pub enum BatchAuthority<'a> {
     /// Identified only by the tab id it sent, so every task it names is checked.
     Caller { tab_id: Option<&'a str> },
     /// Established upstream by a path that already authenticated the caller and
@@ -29,15 +29,15 @@ pub(crate) enum BatchAuthority<'a> {
 
 /// The refused attempt, named on both sides so "who set this task done?" stays
 /// answerable from the caller's own error and from the daemon log alike.
-pub(crate) struct BatchRefusal {
-    pub(crate) message: String,
+pub struct BatchRefusal {
+    pub message: String,
     pub(crate) attempting_tab: Option<String>,
     pub(crate) plan_id: String,
     pub(crate) task_id: String,
 }
 
 impl BatchRefusal {
-    pub(crate) fn to_json(&self) -> Value {
+    pub fn to_json(&self) -> Value {
         json!({
             "type": STALE_TASK_BINDING_TYPE,
             "attempted_by_tab": self.attempting_tab,
@@ -47,13 +47,13 @@ impl BatchRefusal {
     }
 }
 
-pub(crate) enum BatchWriteError {
+pub enum BatchWriteError {
     Refused(BatchRefusal),
     Plan(PlanError),
 }
 
 /// The `plan.batch` socket verb carries caller identity in the RPC params.
-pub(crate) fn apply_batch_from_socket(
+pub fn apply_batch_from_socket(
     store: &PlanStore,
     plan_id: &str,
     params: Option<&Value>,
@@ -74,7 +74,7 @@ pub(crate) fn apply_batch_from_socket(
 
 /// `POST /api/plans/{id}/batch` carries it in the JSON body instead. `check_auth`
 /// upstream proves the client is permitted, which is a different question.
-pub(crate) fn apply_batch_from_http(
+pub fn apply_batch_from_http(
     store: &PlanStore,
     plan_id: &str,
     body: &Value,
@@ -91,7 +91,7 @@ pub(crate) fn apply_batch_from_http(
     )
 }
 
-pub(crate) fn apply_batch_with_authority(
+pub fn apply_batch_with_authority(
     store: &PlanStore,
     plan_id: &str,
     request: BatchRequest,
@@ -239,6 +239,3 @@ fn refuse(store: &PlanStore, plan_id: &str, task: &Task, tab_id: Option<&str>) -
         task_id,
     }
 }
-
-#[cfg(test)]
-mod tests;

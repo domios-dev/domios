@@ -5,7 +5,7 @@ use std::future::Future;
 type Observer = Arc<dyn Fn(Vec<SocketAddr>) + Send + Sync>;
 
 #[derive(Clone, Default)]
-pub(crate) struct ListenerPublication {
+pub struct ListenerPublication {
     state: Arc<Mutex<PublicationState>>,
     publication: Arc<Mutex<()>>,
 }
@@ -19,21 +19,21 @@ struct PublicationState {
 }
 
 impl ListenerPublication {
-    pub(crate) fn configure(&self, remote: Option<SocketAddr>, observer: Observer) {
+    pub fn configure(&self, remote: Option<SocketAddr>, observer: Observer) {
         let mut state = self.state.lock();
         state.remote_bind = remote;
         state.observer = Some(observer);
     }
 
-    pub(crate) fn remote_bind(&self) -> Option<SocketAddr> {
+    pub fn remote_bind(&self) -> Option<SocketAddr> {
         self.state.lock().remote_bind
     }
 
-    pub(crate) fn ready(&self) -> Vec<SocketAddr> {
+    pub fn ready(&self) -> Vec<SocketAddr> {
         self.state.lock().ready.clone()
     }
 
-    pub(crate) fn publish(&self, ready: Vec<SocketAddr>) {
+    pub fn publish(&self, ready: Vec<SocketAddr>) {
         self.update_ready(move |state| {
             state.ready = ready;
             state.suspended.clear();
@@ -81,7 +81,7 @@ impl ListenerPublication {
     }
 }
 
-pub(crate) fn additional_bind(
+pub fn additional_bind(
     config: &crate::config::schema::ApiConfig,
     dev_build: bool,
 ) -> Result<Option<SocketAddr>, String> {

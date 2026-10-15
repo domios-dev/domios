@@ -1,12 +1,12 @@
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Boundary {
+pub enum Boundary {
     Started,
     Completed,
 }
 
-pub(crate) struct StartupStep<F = fn(Boundary, &'static str, Option<Duration>)>
+pub struct StartupStep<F = fn(Boundary, &'static str, Option<Duration>)>
 where
     F: Fn(Boundary, &'static str, Option<Duration>),
 {
@@ -16,7 +16,7 @@ where
 }
 
 impl StartupStep {
-    pub(crate) fn logged(name: &'static str) -> Self {
+    pub fn logged(name: &'static str) -> Self {
         Self::with_sink(name, log_boundary)
     }
 }
@@ -25,7 +25,7 @@ impl<F> StartupStep<F>
 where
     F: Fn(Boundary, &'static str, Option<Duration>),
 {
-    pub(crate) fn with_sink(name: &'static str, sink: F) -> Self {
+    pub fn with_sink(name: &'static str, sink: F) -> Self {
         sink(Boundary::Started, name, None);
         Self {
             name,

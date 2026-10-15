@@ -105,7 +105,7 @@ fn now_s() -> i64 {
 /// Startup entry: reap any WebView2 orphans left by a hard crash of a prior
 /// run, then journal THIS process so the next launch can reap us if we crash.
 /// Call before window init. No-op on non-Windows (WebView2 is Windows-only).
-pub(crate) fn reap_orphaned_webview2() {
+pub fn reap_orphaned_webview2() {
     let path = journal_path();
     let prior = load_journal_from(&path);
     let clean_exit_ts = crate::crash::shutdown::clean_exit_timestamp();

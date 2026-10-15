@@ -7,7 +7,7 @@ pub use codeterm_notification_core::channel_ask;
 pub use codeterm_notification_core::channel_placement;
 pub mod channels;
 pub mod os_notify;
-pub(crate) mod vet;
+pub mod vet;
 pub use codeterm_notification_core::dedupe;
 pub use codeterm_notification_core::deep_link;
 #[cfg(test)]

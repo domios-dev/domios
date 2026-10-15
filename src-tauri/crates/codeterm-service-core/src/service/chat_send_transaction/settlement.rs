@@ -10,7 +10,7 @@ pub(super) struct EvidenceDeadline {
 }
 
 impl ChatSendLedger {
-    pub(crate) fn bind_settlement_owner(&self, service: &Arc<crate::service::ServiceContext>) {
+    pub fn bind_settlement_owner(&self, service: &Arc<crate::service::ServiceContext>) {
         *self.owner.lock() = Some(Arc::downgrade(service));
     }
 

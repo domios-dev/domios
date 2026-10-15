@@ -16,7 +16,7 @@ const GIT_COMMAND_DEADLINE: Duration = Duration::from_secs(4);
 const CHECKPOINTS_PER_ATTEMPT: usize = 20;
 const MAX_GIT_OUTPUT_BYTES: usize = 1024 * 1024;
 
-struct LaneAttemptTarget {
+pub struct LaneAttemptTarget {
     plan_id: String,
     task_id: String,
     attempt_id: String,
@@ -26,19 +26,19 @@ struct LaneAttemptTarget {
 }
 
 #[derive(Debug)]
-enum CaptureFailure {
+pub enum CaptureFailure {
     Deadline,
     Git(String),
 }
 
 #[derive(Debug)]
-enum CheckpointResult {
+pub enum CheckpointResult {
     Created(String),
     Refused(LaneCheckpointRefusal),
 }
 
 impl ServiceContext {
-    pub(crate) fn restore_lane_watches(&self) {
+    pub fn restore_lane_watches(&self) {
         for plan in self.plan_store.list_full() {
             let canonical_path = if plan.canonical_project_path.trim().is_empty() {
                 &plan.project_path
@@ -350,7 +350,7 @@ fn create_checkpoint(
     )
 }
 
-struct GitCheckpoint<'a> {
+pub struct GitCheckpoint<'a> {
     cwd: &'a Path,
     deadline: Instant,
     index: Option<tempfile::TempDir>,
@@ -464,7 +464,7 @@ fn has_non_cone_sparse_checkout(cwd: &Path, deadline: Instant) -> Result<bool, C
             .eq_ignore_ascii_case("true"))
 }
 
-pub(crate) fn delete_attempt_checkpoint_refs(cwd: &Path, attempt_id: &str) -> Result<(), String> {
+pub fn delete_attempt_checkpoint_refs(cwd: &Path, attempt_id: &str) -> Result<(), String> {
     if !safe_ref_component(attempt_id) {
         return Ok(());
     }
@@ -626,7 +626,7 @@ fn read_bounded(mut reader: impl std::io::Read) -> std::io::Result<(Vec<u8>, boo
     Ok((output, exceeded_limit))
 }
 
-fn capture_failure_text(error: CaptureFailure) -> String {
+pub fn capture_failure_text(error: CaptureFailure) -> String {
     match error {
         CaptureFailure::Deadline => "git checkpoint operation exceeded its deadline".into(),
         CaptureFailure::Git(error) => error,

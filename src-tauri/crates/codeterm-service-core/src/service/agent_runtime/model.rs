@@ -12,7 +12,7 @@ pub enum RuntimeMode {
     FullAccess,
 }
 
-pub(crate) struct ModelSwitchOptions {
+pub struct ModelSwitchOptions {
     pub force: bool,
     pub restart_resume: bool,
 }

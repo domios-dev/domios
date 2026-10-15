@@ -20,14 +20,14 @@ pub(super) mod staging;
 pub(crate) const MODEL_OBSERVE_TIMEOUT_SECS: u64 = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ModelSwitchEvidence {
+pub enum ModelSwitchEvidence {
     LiveSessionRecord,
     SessionStartReport,
     FirstPostRelaunchTurn,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ModelSwitchConfirmation {
+pub enum ModelSwitchConfirmation {
     Observed {
         model: String,
         evidence: ModelSwitchEvidence,
@@ -37,7 +37,7 @@ pub(crate) enum ModelSwitchConfirmation {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ModelSwitchOutcome {
+pub struct ModelSwitchOutcome {
     pub tab_id: String,
     pub provider: String,
     pub session_id: String,
@@ -82,7 +82,7 @@ struct ModelSwitchObservation {
 }
 
 #[derive(Debug)]
-pub(crate) enum ModelSwitchError {
+pub enum ModelSwitchError {
     BackgroundWork {
         items: Vec<String>,
     },
@@ -317,7 +317,7 @@ impl ModelSwitchLaunch {
 
     /// The tab's spawn record now names the new model, so a daemon restore
     /// relaunches what is actually running.
-    pub(super) fn commit(&self, svc: &ServiceContext, tab_id: &str) {
+    pub fn commit(&self, svc: &ServiceContext, tab_id: &str) {
         if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
             tab.model_fallback = None;
             tab.pending_model_switch_observation =

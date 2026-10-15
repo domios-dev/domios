@@ -5,7 +5,7 @@ use crate::service::local_preview::html_preview::{
     LocalPreviewFiles,
 };
 
-pub(crate) mod html_preview;
+pub mod html_preview;
 mod policy;
 mod references;
 use policy::PreviewPolicy;
@@ -56,7 +56,7 @@ fn tab_policy(
     Ok(policy)
 }
 
-pub(crate) fn read(
+pub fn read(
     svc: &super::ServiceContext,
     tab_id: &str,
     configured: &[String],
@@ -69,7 +69,7 @@ pub(crate) fn read(
     })
 }
 
-pub(crate) fn check(
+pub fn check(
     svc: &super::ServiceContext,
     tab_id: &str,
     configured: &[String],

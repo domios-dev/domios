@@ -215,7 +215,7 @@ pub(crate) fn switch_next_turn(
 }
 
 impl crate::service::ServiceContext {
-    pub(crate) fn agent_switch_model_with_restart_fallback(
+    pub fn agent_switch_model_with_restart_fallback(
         &self,
         tab: &str,
         model: &str,

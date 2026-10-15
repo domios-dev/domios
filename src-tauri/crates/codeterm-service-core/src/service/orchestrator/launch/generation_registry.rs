@@ -78,7 +78,7 @@ impl LaunchRegistry {
         true
     }
 
-    pub(super) fn record_provider_session(
+    pub fn record_provider_session(
         &self,
         tab_id: &str,
         binding: &ProviderSessionBinding,

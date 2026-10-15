@@ -129,7 +129,7 @@ pub fn spawn_tailer(
     spawn_sourced_tailer(cfg, None, registry, sink)
 }
 
-pub(crate) fn spawn_sourced_tailer(
+pub fn spawn_sourced_tailer(
     cfg: TailConfig,
     source: Option<Arc<JsonlSource>>,
     registry: Arc<AgentRegistry>,

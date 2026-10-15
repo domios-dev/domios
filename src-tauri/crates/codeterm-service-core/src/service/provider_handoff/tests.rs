@@ -62,7 +62,7 @@ fn provider_handoff_resets_source_launch_identity_and_permission_state() {
     assert!(!tab.auto_approve);
 }
 
-fn message(kind: &str, content: &str) -> ChatMsg {
+pub fn message(kind: &str, content: &str) -> ChatMsg {
     ChatMsg {
         kind: kind.to_string(),
         content: content.to_string(),

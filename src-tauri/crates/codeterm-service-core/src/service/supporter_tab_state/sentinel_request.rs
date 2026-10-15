@@ -18,13 +18,13 @@ static REQUESTS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Defaul
 static GLOBAL_REQUESTS: LazyLock<Mutex<VecDeque<Instant>>> = LazyLock::new(Default::default);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RequestEffect {
+pub enum RequestEffect {
     Held(Option<u64>),
     AlreadyClaimed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum RequestRefusal {
+pub enum RequestRefusal {
     UnsupportedKind,
     PromptChanged,
     KindMismatch,
@@ -34,7 +34,7 @@ pub(crate) enum RequestRefusal {
 }
 
 impl RequestRefusal {
-    pub(crate) fn reason(&self) -> &'static str {
+    pub fn reason(&self) -> &'static str {
         match self {
             Self::UnsupportedKind => "sentinel_prompt_kind_unsupported",
             Self::PromptChanged => "sentinel_prompt_identity_changed",
@@ -91,7 +91,7 @@ fn claim(tab: &str, identity: &str) -> Result<bool, RequestRefusal> {
 }
 
 impl ServiceContext {
-    pub(crate) fn request_safe_prompt_response(
+    pub fn request_safe_prompt_response(
         &self,
         tab_id: &str,
         kind: &SafeKind,
