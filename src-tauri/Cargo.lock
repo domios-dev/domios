@@ -2080,10 +2080,12 @@ version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-agent-model",
+ "codeterm-config",
  "codeterm-decision",
  "codeterm-mem",
  "codeterm-notification-core",
  "codeterm-paths",
+ "codeterm-plan",
  "codeterm-plugin",
  "codeterm-types",
  "codeterm-util",

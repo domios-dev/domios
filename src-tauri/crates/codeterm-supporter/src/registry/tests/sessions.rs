@@ -1,22 +1,22 @@
 use super::*;
-use crate::config::schema::{MemoryRerankConfig, SupporterConfig};
-use crate::mem::decision::rerank::RerankCandidate;
+use codeterm_mem::decision::rerank::RerankCandidate;
+use codeterm_types::config::{MemoryRerankConfig, SupporterConfig};
 
 fn session_candidate() -> SessionCandidate {
     SessionCandidate {
         hit: json!({
             "source": "session",
             "session_id": "sess-42",
-            "provider": "claude",
+            "provider": "fixture-provider",
             "title": "Release command",
             "excerpt": "Use codeterm sessions get sess-42 to inspect the prior run.",
             "pointer": "codeterm sessions get sess-42",
         }),
         candidate: RerankCandidate {
-            key: "session:claude:sess-42".into(),
+            key: "session:fixture-provider:sess-42".into(),
             title: "Release command".into(),
             kind: "session".into(),
-            body: "title: Release command\nprovider: claude\ndate: Unix timestamp 1\nmatched excerpt: use codeterm sessions get".into(),
+            body: "title: Release command\nprovider: fixture-provider\ndate: Unix timestamp 1\nmatched excerpt: use codeterm sessions get".into(),
         },
     }
 }

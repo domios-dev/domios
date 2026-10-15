@@ -1,16 +1,17 @@
 use std::sync::mpsc::{self, SyncSender, TrySendError};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use serde_json::{json, Value};
 
-use crate::agent::registry::{
-    AgentRegistry, SessionMatchMode, SessionSearchHit, SessionSearchOpts,
+use codeterm_agent_model::agent::registry::{
+    SessionMatchMode, SessionSearchHit, SessionSearchOpts, SessionSearchResult,
 };
-use crate::mem::decision::rerank::RerankCandidate;
+use codeterm_agent_model::agent::registry_search::SessionSearchStats;
+use codeterm_mem::decision::rerank::RerankCandidate;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct SessionCandidate {
+pub struct SessionCandidate {
     pub hit: Value,
     pub candidate: RerankCandidate,
 }
@@ -25,13 +26,18 @@ struct SearchOutput {
 
 static SEARCH_WORKER: OnceLock<Result<SyncSender<SearchJob>, String>> = OnceLock::new();
 
-pub(super) fn search(
-    registry: Arc<AgentRegistry>,
+pub fn search<F>(
+    search: F,
     query: &str,
     limit: usize,
     max_body_chars: usize,
     deadline: Instant,
-) -> Vec<SessionCandidate> {
+) -> Vec<SessionCandidate>
+where
+    F: FnOnce(&SessionSearchOpts) -> Result<(SessionSearchResult, SessionSearchStats), String>
+        + Send
+        + 'static,
+{
     if limit == 0 {
         return Vec::new();
     }
@@ -48,8 +54,7 @@ pub(super) fn search(
         if Instant::now() >= deadline {
             return Err("deadline".into());
         }
-        registry
-            .search_sessions_with_stats(&opts)
+        search(&opts)
             .map(|(result, stats)| SearchOutput {
                 candidates: candidates_from_hits(result.hits, max_body_chars),
                 matched: stats.matched,
@@ -201,84 +206,4 @@ fn truncate_chars(text: &str, max_chars: usize) -> &str {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::mpsc;
-    use std::time::{Duration, Instant};
-
-    use crate::agent::provider::SessionMetadata;
-    use crate::agent::registry::{SessionSearchHit, SessionSnippet};
-
-    use super::{run_bounded_search, session_candidate, session_search_opts};
-
-    #[test]
-    fn decision_sessions_source_uses_any_term_mode() {
-        let opts = session_search_opts("release thread", 2);
-
-        assert_eq!(opts.match_mode, super::SessionMatchMode::AnyTermRanked);
-        assert_eq!(
-            opts.terms,
-            vec!["release".to_string(), "thread".to_string()]
-        );
-    }
-
-    #[test]
-    fn candidate_context_is_bounded_and_excludes_provider_file_paths() {
-        let hit = SessionSearchHit {
-            meta: SessionMetadata {
-                session_id: "s-1".into(),
-                provider: "claude".into(),
-                project_path: None,
-                title: Some("Release plan".into()),
-                summary: None,
-                file_path: "/private/session.jsonl".into(),
-                transcript_path: None,
-                created_ts: None,
-                modified_ts: Some(1_700_000_000),
-            },
-            snippets: vec![SessionSnippet {
-                role: "assistant".into(),
-                text: "Use the codeterm sessions get command".into(),
-                ts: None,
-            }],
-            match_count: 1,
-        };
-
-        let result = session_candidate(hit, 256).unwrap();
-
-        assert!(result.candidate.body.len() <= 256);
-        assert_eq!(result.candidate.kind, "session");
-        assert_eq!(result.hit["source"], "session");
-        assert_eq!(result.hit["session_id"], "s-1");
-        assert_eq!(result.hit["provider"], "claude");
-        assert_eq!(result.hit["title"], "Release plan");
-        assert_eq!(
-            result.hit["excerpt"],
-            "Use the codeterm sessions get command"
-        );
-        assert_eq!(result.hit["pointer"], "codeterm sessions get s-1");
-        assert!(!result.hit.to_string().contains("/private/session.jsonl"));
-    }
-
-    #[test]
-    fn deadline_skips_a_session_search_that_keeps_running() {
-        let (started_tx, started_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
-        let (finished_tx, finished_rx) = mpsc::channel();
-        let deadline = Instant::now() + Duration::from_millis(20);
-        let result = run_bounded_search(deadline, move || -> Result<Vec<()>, String> {
-            started_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
-            finished_tx.send(()).unwrap();
-            Ok(Vec::new())
-        });
-
-        started_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("session worker started");
-        assert_eq!(result.unwrap_err(), "deadline");
-        release_tx.send(()).unwrap();
-        finished_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("timed-out worker released");
-    }
-}
+mod tests;
