@@ -7,7 +7,7 @@ fn capability() -> AgentRuntimeCapability {
         command: AgentRuntimeCommand {
             binary: "node".into(),
             args: vec![format!(
-                "{}/../tests/fixtures/agent-runtime/fake-peer.mjs",
+                "{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",
                 crate::test_support::fixture_manifest_dir().display()
             )],
         },
