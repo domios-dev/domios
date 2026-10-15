@@ -9,6 +9,35 @@ import { devBuildConfiguration, assertAppFeatureConfiguration } from './dev-buil
 const root = path.resolve(import.meta.dirname, '..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 
+test('product feature arguments omit Cargo default markers and enable only selected package features', () => {
+  const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
+  const fn = source.match(/^configure_product_cargo\(\) \{[\s\S]*?^\}/m)[0];
+  const result = spawnSync(bash, ['-c', `
+    set -eu
+    ${fn}
+    CT_DEV_CARGO_FEATURES=opaque
+    configure_product_cargo -p codeterm-service-core -p codeterm-util
+    printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
+    configure_product_cargo -p codeterm
+    printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
+    configure_product_cargo -p codeterm-util
+    printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
+    configure_product_cargo --workspace
+    printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
+    CT_DEV_CARGO_FEATURES=''
+    configure_product_cargo --workspace
+    printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
+  `], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
+    '--no-default-features --features codeterm-service-core/opaque',
+    '--no-default-features --features codeterm/opaque',
+    '--no-default-features',
+    '--no-default-features --features codeterm/opaque --features codeterm-service-core/opaque --features codeterm-mem/opaque',
+    '--no-default-features',
+  ]);
+});
+
 test('dev features follow manifest defaults while custom-protocol stays out of the dev cfg', () => {
   const manifest = '[features]\ndefault = ["opaque-a", "custom-protocol", "opaque-b"]\nopaque-a=[]\n';
   assert.deepEqual(devBuildConfiguration(manifest).features, ['opaque-a', 'opaque-b']);

@@ -1566,6 +1566,19 @@ configure_dev_cargo() {
   CT_DEV_TAURI_ARGS+=(-- --profile "$CT_DEV_CARGO_PROFILE")
 }
 
+configure_product_cargo() {
+  local package feature features=()
+  CT_PRODUCT_CARGO_ARGS=(--no-default-features)
+  IFS=, read -r -a features <<< "$CT_DEV_CARGO_FEATURES"
+  for package in codeterm codeterm-service-core codeterm-mem; do
+    case " $* " in
+      *" --workspace "*|*" -p $package "*)
+        for feature in "${features[@]}"; do CT_PRODUCT_CARGO_ARGS+=(--features "$package/$feature"); done
+        ;;
+    esac
+  done
+}
+
 check_queue_worktree() {
   node "$CT_GATEWAY_SCRIPT_ROOT/scripts/check-worktree.mjs" \
     "$CT_GATEWAY_SCRIPT_ROOT" "$(ct_gateway_dir)" "$1" "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START"
@@ -1718,7 +1731,8 @@ check_queue_run() {
     done < "$plan"
     if grep -q '^codeterm[[:space:]]0' "$plan"; then lane_args+=(--bins); fi
     if [ "${#lane_args[@]}" -gt 0 ]; then
-      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml "${lane_args[@]}" --lib --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
+      configure_product_cargo "${lane_args[@]}"
+      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml "${lane_args[@]}" "${CT_PRODUCT_CARGO_ARGS[@]}" --lib --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
     fi
     for package in "${test_packages[@]}"; do
       local test_args=(--lib --tests)
@@ -1726,8 +1740,9 @@ check_queue_run() {
       CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml -p "$package" "${test_args[@]}" --no-default-features --profile test --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
     done
   elif [ "${#pkg_args[@]}" -gt 0 ]; then
+    configure_product_cargo "${pkg_args[@]}"
     CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml \
-      "${pkg_args[@]}" --lib --bins --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" || status=$?
+      "${pkg_args[@]}" "${CT_PRODUCT_CARGO_ARGS[@]}" --lib --bins --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" || status=$?
   fi
   if [ "$cli" = 1 ]; then
     local cli_targets=(--all-targets)
