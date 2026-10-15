@@ -77,6 +77,22 @@ ct_effective_cache_key_scope() {
   ct_abs_path "$(ct_repo_root)"
 }
 
+# Machine Rust cache root (CODETERM_RUST_CACHE_ROOT) holds gateway targets beside build-dir and sccache.
+ct_cache_home() {
+  local root="${CODETERM_RUST_CACHE_ROOT:-}"
+  if [ -z "$root" ] || [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ]; then
+    ct_gateway_dir
+    return
+  fi
+  if command -v cygpath >/dev/null 2>&1; then root="$(cygpath -u "$root")"; fi
+  root="${root%/}"
+  case "$root" in
+    /?*) ;;
+    *) echo "ERROR: CODETERM_RUST_CACHE_ROOT must be an absolute directory: $root" >&2; return 2 ;;
+  esac
+  printf '%s\n' "$root"
+}
+
 ct_exceptional_target_dir() {
   case "$1" in
     /Users/Shared/domios-ci/work/codeterm|/home/dev/domios-ci/work/codeterm|/home/ci/domios-ci/work/codeterm|/c/domios-ci/work/codeterm)
@@ -371,7 +387,7 @@ ct_cache_retention() {
   mkdir -p "$retention_dir" || return 74
   ct_gateway_mutex_acquire "$retention_dir" || return $?
   CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" \
-    node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-retention.mjs" "$1" "$dir" "${CT_REAL_WORKTREE:-$(pwd -P)}" "${2:-}" || result=$?
+    node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-retention.mjs" "$1" "$dir" "${CT_REAL_WORKTREE:-$(pwd -P)}" "${2:-}" "$(ct_cache_home)" || result=$?
   ct_gateway_mutex_release "$retention_dir" || result=$?
   return "$result"
 }

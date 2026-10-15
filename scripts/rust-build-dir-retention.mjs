@@ -1,10 +1,10 @@
-// Caller: build.sh build-dir-retention; scripts tests/rust-build-dir-retention.test.mjs
+// Caller: build.sh build-dir-retention; scripts cargo-build-gc.mjs, tests/rust-build-dir-retention.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // NTFS keeps last-access fresh for every file Cargo or a scanner reads, so recency is write time.
-export const KEEP = { units: 2, incremental: 4, build: 3 };
+export const KEEP = { units: 2, incremental: 4 };
 const UNIT = /^(.+)-([0-9a-f]{16})$/;
 const SESSION = /^(.+)-([0-9a-z]+)$/;
 const IDENTITY_FIELDS = ['rustc', 'features', 'target', 'profile', 'path', 'rustflags', 'config', 'compile_kind'];
@@ -32,12 +32,10 @@ function groupOverflow(entries, keyOf, keep) {
   return [...groups.values()].flatMap((group) => group.sort(newestFirst).slice(keep));
 }
 
-// Build-script output dirs never join a unit hash and hold native libraries the link reads, so they age per package.
-export function planRetention({ units, sessions, buildDirs }, keep = KEEP) {
+export function planRetention({ units, sessions }, keep = KEEP) {
   return {
-    units: groupOverflow(units.filter((unit) => unit.identity), (unit) => `${unit.profile}\0${unit.name}\0${unit.identity}`, keep.units),
-    sessions: groupOverflow(sessions, (entry) => `${entry.profile}\0${entry.name}`, keep.incremental),
-    buildDirs: groupOverflow(buildDirs, (entry) => `${entry.profile}\0${entry.name}`, keep.build),
+    units: groupOverflow(units.filter((unit) => unit.identity), (unit) => [unit.profile, unit.name, unit.identity].join('\n'), keep.units),
+    sessions: groupOverflow(sessions, (entry) => [entry.profile, entry.name].join('\n'), keep.incremental),
   };
 }
 
@@ -61,7 +59,6 @@ const subdirs = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTyp
 export function scanBuildDir(root) {
   const units = [];
   const sessions = [];
-  const buildDirs = [];
   for (const profile of subdirs(root)) {
     const base = path.join(root, profile);
     const fingerprints = path.join(base, '.fingerprint');
@@ -78,28 +75,21 @@ export function scanBuildDir(root) {
       const match = SESSION.exec(dir);
       if (match) sessions.push({ profile, name: match[1], mtime: newestWrite(path.join(base, 'incremental', dir)), dir: path.join(base, 'incremental', dir) });
     }
-    for (const dir of subdirs(path.join(base, 'build'))) {
-      const match = UNIT.exec(dir);
-      if (match) buildDirs.push({ profile, name: match[1], mtime: newestWrite(path.join(base, 'build', dir)), dir: path.join(base, 'build', dir) });
-    }
   }
-  return { units, sessions, buildDirs };
+  return { units, sessions };
 }
 
-// A unit is its fingerprint plus the deps files carrying its hash; removing both can only cause a rebuild.
+// A unit owns the fingerprint, deps files and build-script dir that carry its hash; removing them only rebuilds.
 export function unitPaths(root, unit) {
-  const deps = path.join(root, unit.profile, 'deps');
-  const files = fs.existsSync(deps) ? fs.readdirSync(deps).filter((name) => name.includes(`-${unit.hash}.`) || name.endsWith(`-${unit.hash}`)) : [];
-  return [unit.dir, ...files.map((name) => path.join(deps, name))];
+  const owned = (dir) => (fs.existsSync(dir)
+    ? fs.readdirSync(dir).filter((name) => name.includes(`-${unit.hash}.`) || name.endsWith(`-${unit.hash}`)).map((name) => path.join(dir, name))
+    : []);
+  return [unit.dir, ...owned(path.join(root, unit.profile, 'deps')), ...owned(path.join(root, unit.profile, 'build'))];
 }
 
 export function retentionPaths(root, keep = KEEP) {
   const plan = planRetention(scanBuildDir(root), keep);
-  return [
-    ...plan.units.flatMap((unit) => unitPaths(root, unit)),
-    ...plan.sessions.map((entry) => entry.dir),
-    ...plan.buildDirs.map((entry) => entry.dir),
-  ];
+  return [...plan.units.flatMap((unit) => unitPaths(root, unit)), ...plan.sessions.map((entry) => entry.dir)];
 }
 
 function main(argv) {
