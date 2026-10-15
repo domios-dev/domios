@@ -11,7 +11,7 @@ import {
   type ComposerCapsule,
 } from "./composerCapsules";
 
-import { canRetryUpload, uploadCardPresence } from "./attachmentUploadModel";
+import { uploadCardPresence } from "./attachmentUploadModel";
 import type { ComposerUpload } from "./composerUploadModel";
 
 interface Hover {
@@ -34,11 +34,10 @@ function PaintedCapsule({ span, capsule, hovered }: { span: CapsuleSpan; capsule
   );
 }
 
-function UploadCard({ upload, span, onRetry, onRemove }: { upload: ComposerUpload; span: CapsuleSpan; onRetry?: (id: number) => void; onRemove: (span: CapsuleSpan) => void }) {
+function UploadCard({ upload, span, onRemove }: { upload: ComposerUpload; span: CapsuleSpan; onRemove: (span: CapsuleSpan) => void }) {
   return (
     <div role="status" className="ct-capsule-button">
-      <span>{upload.state === "uploading" ? "Uploading…" : upload.failure?.message}</span>
-      {canRetryUpload(upload) && <button type="button" aria-label={`Retry attachment ${upload.name}`} onClick={() => onRetry?.(upload.id)}>Retry</button>}
+      <span>Uploading…</span>
       <button type="button" aria-label={`Remove attachment ${upload.name}`} onClick={() => onRemove(span)}>Remove</button>
     </div>
   );
@@ -48,7 +47,7 @@ function UploadCard({ upload, span, onRetry, onRemove }: { upload: ComposerUploa
  * The composer textarea with its capsules painted on an inert mirror; the textarea keeps
  * editing, IME and undo while its own glyphs go transparent under the mirror.
  */
-export function ComposerCapsuleField({ tabId, value, registry, active, textareaRef, marginPx, onRemove, uploads = [], onRetryUpload, children }: {
+export function ComposerCapsuleField({ tabId, value, registry, active, textareaRef, marginPx, onRemove, uploads = [], children }: {
   tabId: string;
   value: string;
   registry: CapsuleRegistry;
@@ -58,7 +57,6 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
   onRemove: (span: CapsuleSpan) => void;
   children: ReactNode;
   uploads?: ComposerUpload[];
-  onRetryUpload?: (id: number) => void;
 }) {
   const fieldRef = useRef<HTMLDivElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
@@ -103,21 +101,19 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
   const hoveredUpload = uploads.find((upload) => upload.id === hoverCapsule?.uploadId);
   const segments = active ? capsuleSegments(value, registry) : [];
   const uploadEntries = uploads.flatMap((upload) => {
+    if (upload.state === "failed") return [];
     const found = capsuleSegments(value, registry).find((segment) => "span" in segment && segment.span.label === upload.label);
     return found && "span" in found ? [{ upload, span: found.span, presence: uploadCardPresence(upload, hoveredUpload?.id === upload.id) }] : [];
   });
   return (
     <div ref={fieldRef} className="relative min-w-0 flex-1 self-center" onMouseMove={track} onMouseLeave={() => setHover(null)}>
       {children}
-      <div className="absolute bottom-full left-0 z-30 flex flex-col gap-1 pb-1.5 empty:hidden">
-        {uploadEntries.filter((entry) => entry.presence === "persistent").map((entry) => <UploadCard key={entry.upload.id} {...entry} onRetry={onRetryUpload} onRemove={onRemove} />)}
-      </div>
-      {uploadEntries.filter((entry) => entry.presence !== "persistent").map((entry) => {
+      {uploadEntries.filter((entry) => entry.presence !== "hidden").map((entry) => {
         const visible = entry.presence === "hover";
         return <div key={entry.upload.id} ref={visible ? cardRef : undefined}
           className={visible ? "absolute z-30 pb-1.5" : "sr-only focus-within:not-sr-only focus-within:absolute focus-within:bottom-full focus-within:z-30"}
           style={visible && hover ? { left: hover.left, bottom: hover.bottom } : undefined}>
-          <UploadCard {...entry} onRetry={onRetryUpload} onRemove={(span) => { onRemove(span); setHover(null); }} />
+          <UploadCard {...entry} onRemove={(span) => { onRemove(span); setHover(null); }} />
         </div>;
       })}
       {active && (

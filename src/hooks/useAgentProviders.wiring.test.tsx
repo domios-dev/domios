@@ -5,9 +5,10 @@ import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { __setInvokeForTest, __setListenForTest } from "../lib/bridge";
 import { signalEventStreamReady } from "../lib/eventStreamReady";
-import { useAgentProviders } from "./useAgentProviders";
+import { invalidateAgentProviders, useAgentProviders } from "./useAgentProviders";
 
 test("reconnect refetches once, retains good data on failure, and accepts the restarted daemon", async () => {
+  invalidateAgentProviders();
   let calls = 0;
   let fail = false;
   let name = "first";
@@ -56,6 +57,7 @@ test("reconnect refetches once, retains good data on failure, and accepts the re
 });
 
 test("initial failure retries on readiness and fetch waits for contribution listener attachment", async () => {
+  invalidateAgentProviders();
   let attach!: (dispose: () => void) => void;
   let calls = 0;
   __setListenForTest(async (event) => {

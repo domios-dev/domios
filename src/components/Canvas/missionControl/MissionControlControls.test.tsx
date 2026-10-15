@@ -205,7 +205,7 @@ describe("Mission Control controls", () => {
       await choose("task", "Delete");
       await press("mission-control-delete-task-dialog-confirm");
       expect(remove).toHaveBeenCalledOnce();
-      expect(byTestId("mission-control-delete-task-dialog-error")?.textContent).toBe(
+      expect(byTestId("mission-control-delete-task-dialog-error")?.querySelector("details pre")?.textContent).toBe(
         "task delete failed: 409 caller rebound",
       );
       expect(byTestId("mission-control-delete-task-dialog")).not.toBeNull();

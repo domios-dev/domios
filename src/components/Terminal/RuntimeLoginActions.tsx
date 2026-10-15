@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { Check, Copy, KeyRound, Monitor, SquareTerminal } from "lucide-react";
 import { useRuntimeLogin } from "./useRuntimeLogin";
@@ -77,7 +78,7 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck }: {
           </>}
         </div>}
 
-        {failure && <p role="alert" className="mt-2 text-sm text-[var(--ct-red)]">{failure}</p>}
+        {failure && <InlineErrorNotice error={failure} operation="signing in to the provider" blocking />}
       </div>
     </div>
   </section>;

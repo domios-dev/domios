@@ -1,6 +1,6 @@
 name: script-catalog
 
-# Every scripts/ entry carries a caller header, has a caller, and README.md is current.
+# Fixture guards for build, gateway, dev and QA scripts, and the test catalogue.
 
 on:
   pull_request:
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Script catalogue and fixture guards
+      - name: Script fixture guards and test catalogue
         env:
           VISUAL_GOLDEN_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: bash build.sh script-guards

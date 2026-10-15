@@ -3,6 +3,10 @@ import { cp, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { exportAttachmentLimits } from "./export-attachment-limits.mjs";
+
+await exportAttachmentLimits();
+if (process.argv.includes("--constants-only")) process.exit(0);
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.join(root, "gen");

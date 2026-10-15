@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus, UsersRound } from "lucide-react";
@@ -421,7 +422,7 @@ function TeamMenu({
               </>}
             </>
           )}
-          {actionError && <div data-testid="team-menu-error" role="alert">{actionError}</div>}
+          {actionError && <div data-testid="team-menu-error"><InlineErrorNotice error={actionError} operation="updating this Team" blocking /></div>}
         </div>,
         document.body,
       )}
@@ -597,7 +598,7 @@ export function TeamUnit({
     ) : (
       <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>
     )}
-    <span className="sidebar-team-title-block">
+    <div className="sidebar-team-title-block">
       {editing ? (
         <input
           autoFocus
@@ -636,8 +637,8 @@ export function TeamUnit({
           )}
         </span>
       )}
-      {renameError && <div data-testid="team-rename-error" role="alert">{renameError}</div>}
-    </span>
+      {renameError && <div data-testid="team-rename-error"><InlineErrorNotice error={renameError} operation="updating this Team" blocking /></div>}
+    </div>
   </>;
 
   return (

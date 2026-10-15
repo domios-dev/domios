@@ -1,7 +1,15 @@
 pub fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
 ) -> Vec<serde_json::Value> {
-    registry
+    let revision = registry.catalogue_revision();
+    if let Some(values) = registry
+        .catalogue_values_cache
+        .lock()
+        .get("providers", &revision)
+    {
+        return values;
+    }
+    let values = registry
         .describe_all()
         .into_iter()
         .filter_map(|descriptor| {
@@ -19,5 +27,12 @@ pub fn list_agent_provider_values(
             }
             Some(value)
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if registry.catalogue_revision() == revision {
+        registry
+            .catalogue_values_cache
+            .lock()
+            .insert("providers".into(), revision, values.clone());
+    }
+    values
 }

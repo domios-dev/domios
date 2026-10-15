@@ -71,12 +71,12 @@ it("hides the side time gutter below the breakpoint and restores it on resize", 
     width = 900;
     await act(async () => resized());
     expect(time.hidden).toBe(false);
-    expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe("56px");
+    expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe("20px");
     width = 700;
     composerLeft = 16;
     await act(async () => resized());
     expect(time.hidden).toBe(true);
-    expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe("16px");
+    expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe("20px");
     expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe(surface.style.getPropertyValue("--ct-chat-composer-inset"));
   } finally { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); }
 });

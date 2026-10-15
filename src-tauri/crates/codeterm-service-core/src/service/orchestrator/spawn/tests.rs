@@ -753,6 +753,56 @@ fn assigned_manager_bootstrap_keeps_the_assigned_task_starter_in_both_modes() {
 }
 
 #[test]
+fn bootstrap_user_created_pair_preserves_system_identity_without_a_handshake() {
+    for role in ["Orchestrator", "Planner"] {
+        let mut params = SpawnAgentParams {
+            role: Some(role.into()),
+            parent_tab_id: Some("pair-orchestrator".into()),
+            spawned_by_tab_id: Some("pair-orchestrator".into()),
+            user_created: true,
+            manager_bootstrap: Some(team_bound_bootstrap(None)),
+            ..Default::default()
+        };
+        let identity = prepare_manager_bootstrap(&mut params, true).unwrap();
+        let task = params.task.clone();
+        apply_startup_handshake(&mut params, true, true);
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+        assert_eq!(params.task, task);
+        assert_eq!(params.task.as_deref(), Some(identity.as_str()));
+    }
+}
+
+#[test]
+fn bootstrap_agent_created_pair_keeps_parent_startup_handshake() {
+    let mut params = SpawnAgentParams {
+        role: Some("Planner".into()),
+        user_created: false,
+        manager_bootstrap: Some(team_bound_bootstrap(None)),
+        ..Default::default()
+    };
+    prepare_manager_bootstrap(&mut params, true);
+    apply_startup_handshake(&mut params, true, true);
+    assert_eq!(
+        params.starter_prompt,
+        crate::agent::provider::StarterPrompt::StartupHandshake
+    );
+}
+
+#[test]
+fn bootstrap_user_creation_origin_cannot_be_supplied_by_wire_input() {
+    let input = serde_json::json!({"user_created": true, "role": "Worker"});
+    assert!(
+        !serde_json::from_value::<SpawnAgentParams>(input.clone())
+            .unwrap()
+            .user_created
+    );
+    assert!(!SpawnAgentParams::from_json(&input).unwrap().user_created);
+}
+
+#[test]
 fn cartographer_attach_injects_handshake_only_with_armed_attempt() {
     let mut params = SpawnAgentParams {
         starter_prompt: crate::agent::provider::StarterPrompt::AssignedTask,

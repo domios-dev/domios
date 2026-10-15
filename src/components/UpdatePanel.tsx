@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "./shared/ErrorNotice";
 import { Download } from "lucide-react";
 import { useUpdatePanel } from "../hooks/useUpdatePanel";
 import { groupUpdates } from "../lib/updatePanelModel";
@@ -28,10 +29,7 @@ export function UpdatePanelContents() {
             </div>)}
           </section>
         ))}
-        {update.error && <div className="text-xs text-[var(--ct-red)]">
-          <div role="alert">{update.error}</div>
-          <details><summary>Details</summary><pre className="whitespace-pre-wrap break-words">{update.errorDetails}</pre></details>
-        </div>}
+        {update.error && <InlineErrorNotice error={update.errorDetails ?? update.error} operation="updating Domios" blocking />}
         {update.information.map(message => <div role="status" aria-label="Installed plugin ahead of channel" key={message} className="text-xs text-[var(--ct-muted)]">{message}</div>)}
         <div className="flex gap-2">
           <Button size="sm" variant="accent" disabled={update.busy || !update.items.length} onClick={() => void update.updateAll()} loading={update.busy}>Update all</Button>

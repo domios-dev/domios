@@ -58,7 +58,7 @@ async function main() {
     assert(chatSetupView(tab("agent_launching")).kind === "starting", "launching is starting");
     assert(chatSetupView(tab("awaiting_owner_prompt")).kind === "starting", "owner prompt keeps launch waiting");
     assert(chatSetupView(tab("delivering_instructions")).kind === "starting", "fallback delivery is starting");
-    assert(chatSetupView(tab("spawn_failed", "boom")).kind === "starting", "spawn_failed keeps loading");
+    assert(chatSetupView(tab("spawn_failed", "boom")).kind === "launch_failed", "spawn_failed leaves loading");
     assert(chatSetupView(tab("pty_reattached")).kind === "none", "a reattached live PTY is not booting");
     assert(chatSetupView(null).kind === "none", "no Tab is none");
   });
@@ -81,16 +81,16 @@ async function main() {
     assert(!host.querySelector('[data-activity-state]'), "startup has no work indicator");
   });
 
-  await test("failed launch remains a neutral provider loader", async () => {
+  await test("failed launch exposes recovery and puts the raw reason in Details", async () => {
     const p = tab("spawn_failed", "SYSTEM REMINDER: secret launch details");
     const host = await render(
       <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" />,
     );
-    assert(host.querySelector('[data-testid="chat-setup-state"]'), "neutral setup loader remains rendered");
-    assert(host.querySelector('[role="status"][aria-label]'), "neutral loading mark remains rendered");
-    assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "no failure card is rendered");
-    assert(!host.textContent?.includes("could not"), "no failure copy is rendered");
-    assert(!host.textContent?.includes("SYSTEM REMINDER"), "raw failure detail is hidden");
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "loading ends on a failure");
+    assert(host.querySelector('[data-testid="chat-launch-failed"]'), "shared failure surface is rendered");
+    assert(host.querySelector('[role="alert"]'), "failure is announced");
+    assert(host.querySelector('details')?.textContent?.includes(p.boot_failure_reason!), "the opaque backend reason stays inside Details");
+    assert(!host.querySelector('details')?.open, "technical details start collapsed");
   });
 
   await test("missing provider art uses the shared loading mark", async () => {
@@ -127,13 +127,13 @@ async function main() {
     assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "no failed card");
   });
 
-  await test("an attached chat is authoritative over a late failed boot stage", async () => {
+  await test("an observed failed boot stage replaces an attached chat with recovery", async () => {
     const p = tab("spawn_failed", "stale launch result");
     const host = await render(
       <ChatSetupState tab={p} view={chatSetupView(p, true)} providerName="Codex" />,
     );
-    assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "attached chat is never covered by a stale failure");
-    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "attached chat has no launch overlay");
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "failure has no loading overlay");
+    assert(host.querySelector('[data-testid="chat-launch-failed"]'), "failure exposes recovery even with cached content");
   });
 
   await test("a reported transcript failure replaces the loader instead of joining it", async () => {

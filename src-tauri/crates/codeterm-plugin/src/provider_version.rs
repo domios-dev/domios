@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -99,6 +100,11 @@ impl VersionCache {
 }
 
 static CACHE: LazyLock<Mutex<VersionCache>> = LazyLock::new(|| Mutex::new(VersionCache::default()));
+static REVISION: AtomicU64 = AtomicU64::new(0);
+
+pub fn revision() -> u64 {
+    REVISION.load(Ordering::Acquire)
+}
 
 pub fn observe(binary: &str) -> VersionObservation {
     let path = match crate::js_runtime::probe_bin(binary).resolution {
@@ -127,12 +133,14 @@ pub fn observe(binary: &str) -> VersionObservation {
                 } else {
                     cache.entries.remove(&identity);
                 }
+                REVISION.fetch_add(1, Ordering::Release);
             });
         if spawned.is_err() {
             CACHE
                 .lock()
                 .entries
                 .insert(reserved, VersionObservation::unknown(ProbeStatus::Failed));
+            REVISION.fetch_add(1, Ordering::Release);
             return VersionObservation::unknown(ProbeStatus::Failed);
         }
     }

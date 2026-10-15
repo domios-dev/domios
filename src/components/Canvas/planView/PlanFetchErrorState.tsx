@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { planFetchShowsFullError } from "./planViewFetchGate";
 import { BusyState } from "../../shared/BusyState";
 
@@ -33,7 +34,7 @@ export function PlanFetchErrorState({
         className={`plan-fetch-state plan-fetch-error flex flex-col items-center gap-2 px-4 text-center text-sm ${className}`.trim()}
         style={{ color: "var(--ct-red)" }}
       >
-        <p>{error}</p>
+        <InlineErrorNotice error={error} operation="loading this plan" />
         {onRetry && (
           <button
             type="button"

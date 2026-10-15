@@ -205,7 +205,7 @@ async function run() {
   assert(pendingChoices.length === 2 && pendingChoices.every((button) => button.disabled), "every choice is disabled while delivery is pending");
   assert(pendingPanel.querySelector('[role="status"]'), "pending delivery has an accessible status");
   const failedPanel = await render({ ...asked, answer_error: "Tab unavailable" });
-  assert(failedPanel.querySelector('[role="alert"]')?.textContent === "Tab unavailable", "delivery errors are readable");
+  assert(failedPanel.querySelector('[role="alert"] details pre')?.textContent === "Tab unavailable", "delivery errors are readable");
   assert(Array.from(failedPanel.querySelectorAll<HTMLButtonElement>("button")).filter((button) => ["Rebase", "Merge"].includes(button.textContent ?? "")).every((button) => !button.disabled), "failed delivery re-enables choices");
 
   await act(async () => root.unmount());

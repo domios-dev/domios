@@ -19,9 +19,9 @@ function fixture(result: unknown = {}) {
 }
 
 describe("capabilities HTTP transport", () => {
-  it("has all 95 lane commands and rejects unregistered schema commands", async () => {
+  it("has all 94 lane commands and rejects unregistered schema commands", async () => {
     const { transport, calls } = fixture();
-    expect(Object.keys(transport)).toHaveLength(95);
+    expect(Object.keys(transport)).toHaveLength(94);
     await expect(invokeCapability(transport, "arbitrary_rust_command")).rejects.toThrow("No audited HTTP route");
     await expect(invokeCapability(transport, "toString")).rejects.toThrow("No audited HTTP route");
     expect(calls).toEqual([]);
@@ -91,11 +91,9 @@ describe("capabilities HTTP transport", () => {
     const { transport, calls } = fixture({ path: "/persisted/attachment" });
     expect(await transport.save_clipboard_image({ bytes: [1, 2], ext: "png" })).toBe("/persisted/attachment");
     expect(await transport.save_clipboard_file({ bytes: [3], filename: "file.txt" })).toBe("/persisted/attachment");
-    expect(await transport.save_temp_file({ data: "AQI=", extension: "bin", name: "a.bin" })).toBe("/persisted/attachment");
     expect(calls).toEqual([
       ["POST", "/api/attachments/clipboard-image", { bytes: [1, 2], ext: "png" }],
       ["POST", "/api/attachments/clipboard-file", { bytes: [3], filename: "file.txt" }],
-      ["POST", "/api/attachments/temp-file", { data: "AQI=", extension: "bin", name: "a.bin" }],
     ]);
     expect(transport).not.toHaveProperty("copy_image_to_clipboard");
   });

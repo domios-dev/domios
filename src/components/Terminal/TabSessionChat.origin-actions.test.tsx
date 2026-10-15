@@ -54,7 +54,9 @@ function muxStateFor(tabs: Record<string, Tab>): ExtendedState {
   return { workspaces: [], tabs, teams: [], active_workspace_id: null, focused_tab_id: Object.keys(tabs)[0] ?? null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
 }
 function originReport(id: string, shortId: string, seq: number) {
-  return { id, type: "user", content: `<domios from="tab" label="Worker" tab="${shortId}">report body ${seq}</domios>`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test" };
+  return { id, type: "user", content: `<domios from="tab" label="Worker" tab="${shortId}">report body ${seq}</domios>`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test",
+    segments: [{ type: "frame", from: "tab", attrs: { from: "tab", label: "Worker", tab: shortId }, body: `report body ${seq}`, tip: null }],
+  };
 }
 
 async function main() {

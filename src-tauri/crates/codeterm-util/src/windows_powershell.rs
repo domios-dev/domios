@@ -5,7 +5,13 @@ pub struct ExecutionPolicyValues {
 }
 
 #[cfg(windows)]
-pub fn read_execution_policy_values() -> ExecutionPolicyValues {
+pub fn read_execution_policy_values() -> &'static ExecutionPolicyValues {
+    static VALUES: std::sync::OnceLock<ExecutionPolicyValues> = std::sync::OnceLock::new();
+    VALUES.get_or_init(load_execution_policy_values)
+}
+
+#[cfg(windows)]
+fn load_execution_policy_values() -> ExecutionPolicyValues {
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     use winreg::RegKey;
 
@@ -26,7 +32,7 @@ pub fn read_execution_policy_values() -> ExecutionPolicyValues {
                     values.enable_scripts[index] = key.get_value("EnableScripts").ok();
                 }
             }
-            Err(error) => log::debug!("PowerShell policy registry read {path}: {error}"),
+            Err(error) => log::trace!("PowerShell policy registry read {path}: {error}"),
         }
     }
     values

@@ -9,7 +9,7 @@ test("interrupted and malformed multipart uploads allow retry, permanent rejecti
   for (const status of [400, 401, 403, 413]) assert.equal(classifyUploadFailure(Object.assign(new Error("rejected"), { status })).retryable, false);
 });
 
-test("retry preserves the captured bytes, suppresses duplicate retries, and attaches once", async () => {
+test("retry preserves the captured Blob, suppresses duplicate retries, and attaches once", async () => {
   let uploads: AttachmentUpload[] = [];
   const paths: string[][] = [];
   let resolve!: (path: string) => void;
@@ -83,7 +83,7 @@ test("a WebKit read failure retains the original file and retries reading before
     ? Promise.reject(new DOMException("The I/O read operation failed.", "NotReadableError")) : read();
   const controller = createAttachmentUploads({
     publish: (next) => { uploads = next; }, attach: (paths) => attached.push(paths),
-    store: async (blob) => { assert.equal(await blob.text(), "image"); return "/uploads/image.png"; },
+    store: async (blob) => { assert.equal(new TextDecoder().decode(await blob.arrayBuffer()), "image"); return "/uploads/image.png"; },
   });
   await controller.add(file, "image.png");
   assert.equal(canRetryUpload(uploads[0]), true);
@@ -111,9 +111,9 @@ test("upload remains pending until its attachment is committed to the draft", as
   assert.deepEqual(uploads, []);
 });
 
-test("a failed upload always shows its card, hover reveals only the others", () => {
-  assert.equal(uploadCardPresence({ state: "failed" }, false), "persistent");
-  assert.equal(uploadCardPresence({ state: "failed" }, true), "persistent");
+test("failed upload cards stay hidden, hover reveals only pending uploads", () => {
+  assert.equal(uploadCardPresence({ state: "failed" }, false), "hidden");
+  assert.equal(uploadCardPresence({ state: "failed" }, true), "hidden");
   assert.equal(uploadCardPresence({ state: "uploading" }, true), "hover");
   assert.equal(uploadCardPresence({ state: "uploading" }, false), "announce");
 });

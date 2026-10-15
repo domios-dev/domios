@@ -227,18 +227,9 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-/** Persist a browser blob where the agent can read it: daemon upload in
- * web mode, local temp file via Tauri in desktop mode. */
+/** Persist a Blob through the shared daemon multipart upload. */
 export async function storeBlob(blob: Blob, filename: string): Promise<string> {
-  if (IS_WEB) {
-    return (await webUpload(blob, filename)).path;
-  }
-  const ext = filename.includes(".") ? filename.split(".").pop()! : "bin";
-  return invoke<string>("save_temp_file", {
-    data: await blobToBase64(blob),
-    extension: ext,
-    name: filename,
-  });
+  return (await webUpload(blob, filename)).path;
 }
 
 export async function storeVoiceBlob(blob: Blob, mime: string): Promise<string[]> {

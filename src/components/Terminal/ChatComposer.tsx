@@ -50,7 +50,7 @@ import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
-import { hasCapsuleTokens } from "./composerCapsules";
+import { capsuleSpans, hasCapsuleTokens } from "./composerCapsules";
 import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { draftHasPendingUploads } from "./composerUploadModel";
 import { classifyAttachmentPaths } from "./composerFiles";
@@ -59,6 +59,7 @@ import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
 import type { ComposerReply } from "./composerReply";
 import { useComposerReply } from "./useComposerReply";
+import { usePublishComposerIssues } from "./ComposerIssuesContext";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -254,6 +255,15 @@ function ChatComposerImpl({
     [showComposerError],
   );
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError });
+  usePublishComposerIssues(capsules.uploads.uploads, {
+    retry: capsules.uploads.retry,
+    remove: id => {
+      const upload = capsules.uploads.uploads.find(item => item.id === id);
+      const span = capsuleSpans(textareaRef.current?.value ?? input).find(item => item.label === upload?.label);
+      if (span) capsules.remove(span);
+      capsules.uploads.remove(id);
+    },
+  });
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
   const pendingUploads = draftHasPendingUploads(input, capsules.registry);
@@ -578,7 +588,6 @@ function ChatComposerImpl({
             marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0}
             onRemove={capsules.remove}
             uploads={capsules.uploads.uploads}
-            onRetryUpload={(id) => void capsules.uploads.retry(id)}
           >
             <ComposerTextInput
               data-testid="chat-composer"
