@@ -18,6 +18,7 @@ pub mod host_context;
 pub mod raw_text_sink;
 pub mod registry;
 pub(crate) mod restore_notice;
+pub mod results;
 pub mod session_window;
 pub mod store_watch;
 pub mod structured_poller;

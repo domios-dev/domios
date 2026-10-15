@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use super::{identity, safe_response, ServiceContext, ShadowHost};
 use crate::agent::tab_state::TabStateSnapshot;
 use crate::multiplexer::types::Tab;
-use crate::sentinel::machine::SafeKind;
+use codeterm_sentinel::machine::SafeKind;
 
 const REQUEST_TABS: usize = 256;
 const GLOBAL_REQUEST_LIMIT: usize = 600;

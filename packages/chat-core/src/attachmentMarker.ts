@@ -1,6 +1,6 @@
 import type { LocalArtifactKind } from "./localArtifactDirective";
 
-export const ATTACHMENT_KINDS = ["voice", "image", "file", "text", "folder", "quote", "message", "diff", "document"] as const;
+export const ATTACHMENT_KINDS = ["voice", "image", "video", "file", "text", "folder", "quote", "message", "diff", "document"] as const;
 /** Context a capsule carries as text the agent reads by path: quoted passages, chat messages, diffs. */
 export const CONTEXT_TEXT_KINDS = ["text", "quote", "message", "diff"] as const;
 /** Clipboard flavour carrying text with attachment tags, so a composer paste rebuilds the capsules. */
@@ -44,6 +44,12 @@ const IMAGE_MIME: Record<string, string> = {
   avif: "image/avif",
   svg: "image/svg+xml",
 };
+const VIDEO_MIME: Record<string, string> = {
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+};
 const DOCUMENT_EXTENSIONS = new Set(["md", "markdown", "txt", "log", "json", "yaml", "yml", "toml", "csv"]);
 
 // Only the typed attachment form matches; a routed `<domios from=...>` frame is provenance, never an attachment.
@@ -62,14 +68,24 @@ export function imageMimeType(path: string): string {
   return IMAGE_MIME[extension(path)] ?? "image/png";
 }
 
+export function isVideoPath(path: string): boolean {
+  return extension(path) in VIDEO_MIME;
+}
+
+export function videoMimeType(path: string): string {
+  return VIDEO_MIME[extension(path)] ?? "video/mp4";
+}
+
 export function attachmentKindForPath(path: string): AttachmentKind {
-  return isImagePath(path) ? "image" : "file";
+  if (isImagePath(path)) return "image";
+  return isVideoPath(path) ? "video" : "file";
 }
 
 /** The local preview kind a Documents list can open, or null when the file has no preview. */
 export function attachmentPreviewKind(attachment: AttachmentMarker): LocalArtifactKind | null {
   const ext = extension(attachment.path);
   if (attachment.kind === "image") return ext in IMAGE_MIME ? "image" : null;
+  if (attachment.kind === "video") return ext in VIDEO_MIME ? "video" : null;
   if (attachment.kind === "folder") return null;
   if ((CONTEXT_TEXT_KINDS as readonly string[]).includes(attachment.kind)) return "document";
   if (ext === "html" || ext === "htm") return "page";

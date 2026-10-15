@@ -160,7 +160,7 @@ fn reconcile_and_wait_for_provider_tree(
     let (sender, receiver) = std::sync::mpsc::channel();
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .report_next_observation(key, sender);
     fixture
         .service
@@ -211,7 +211,7 @@ fn provider_tree_live_readiness_observation_is_seen_before_later_absence() {
     let key = provider_tree_key(&fixture, &tab_id);
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, observed_provider_process());
 
     let observed = reconcile_and_wait_for_provider_tree(&fixture, &tab_id, &key);
@@ -219,10 +219,13 @@ fn provider_tree_live_readiness_observation_is_seen_before_later_absence() {
         observed.state(),
         crate::service::process_tree::ProviderTreeState::Present
     );
-    assert!(fixture.service.provider_tree_witnesses.has_seen(&key));
+    assert!(fixture
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .has_seen(&key));
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     let absent = fixture
         .service
@@ -244,7 +247,7 @@ fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
     let _ = reconcile_and_wait_for_provider_tree(&fixture, &tab_id, &key);
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, observed_provider_process());
     assert!(fixture
         .service
@@ -252,7 +255,7 @@ fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
         .is_some());
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
 
     fixture
@@ -276,7 +279,7 @@ fn restore_contract_in_tab_relaunch_finished_marker_keeps_live_provider_live() {
     let _ = reconcile_and_wait_for_provider_tree(&fixture, &tab_id, &key);
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, observed_provider_process());
     assert!(fixture
         .service
@@ -284,7 +287,7 @@ fn restore_contract_in_tab_relaunch_finished_marker_keeps_live_provider_live() {
         .is_some());
     fixture
         .service
-        .provider_tree_witnesses
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
         .script_snapshot(&key, observed_provider_process());
 
     fixture

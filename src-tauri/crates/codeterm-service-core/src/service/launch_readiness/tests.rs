@@ -881,17 +881,20 @@ fn launch_readiness_shell_exit_marker_emits_the_bounded_failure() {
         .service
         .provider_tree_key_for_tab(&tab_id, &attempt.pty_id)
         .expect("the tab provider exposes its executable capability");
-    harness.service.provider_tree_witnesses.record_for_test(
-        &tree_key,
-        crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
-            [crate::service::process_tree::ProcessIdentity {
-                pid: 900_001,
-                start_token: "synthetic-provider-start".into(),
-            }]
-            .into_iter()
-            .collect(),
-        ),
-    );
+    harness
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .record_for_test(
+            &tree_key,
+            crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
+                [crate::service::process_tree::ProcessIdentity {
+                    pid: 900_001,
+                    start_token: "synthetic-provider-start".into(),
+                }]
+                .into_iter()
+                .collect(),
+            ),
+        );
     arm(attempt);
 
     // Empty command line, shell nonce, then command end: what the live shell sends.
@@ -1047,17 +1050,20 @@ fn post_readiness_shell_exit_retains_status_without_a_bell_entry() {
         .service
         .provider_tree_key_for_tab(&tab_id, &attempt.pty_id)
         .expect("the tab provider exposes its executable capability");
-    harness.service.provider_tree_witnesses.record_for_test(
-        &tree_key,
-        crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
-            [crate::service::process_tree::ProcessIdentity {
-                pid: 900_002,
-                start_token: "synthetic-ready-provider-start".into(),
-            }]
-            .into_iter()
-            .collect(),
-        ),
-    );
+    harness
+        .service
+        .ext::<std::sync::Arc<crate::service::process_tree::ProviderTreeWitnesses>>()
+        .record_for_test(
+            &tree_key,
+            crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
+                [crate::service::process_tree::ProcessIdentity {
+                    pid: 900_002,
+                    start_token: "synthetic-ready-provider-start".into(),
+                }]
+                .into_iter()
+                .collect(),
+            ),
+        );
 
     harness.service.process_pty_output(
         "pty-ready-exit-notification",

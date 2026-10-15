@@ -1092,6 +1092,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "codeterm-bridge",
+ "codeterm-build-info",
  "codeterm-decision",
  "codeterm-mem",
  "codeterm-service-core",
@@ -1617,14 +1618,6 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-sentinel-ports"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]

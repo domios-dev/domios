@@ -912,7 +912,7 @@ impl ServiceContext {
                 log::debug!(
                     "[spawn-token] tab={} injecting CODETERM_API_TOKEN {}",
                     tab_id,
-                    crate::api::auth::token_fp(tok)
+                    crate::service::tokens::token_fp(tok)
                 );
                 env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
             }

@@ -1073,12 +1073,9 @@ impl ServiceContext {
         if let Some(id) = crate::flow_trace::tab_flow(self, target_tab) {
             crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
-        let (text, pending) = self.reply_relays.spawn_task_message(
-            &self.mux.read(),
-            &self.agent_registry,
-            target_tab,
-            body,
-        )?;
+        let (text, pending) = self
+            .ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .spawn_task_message(&self.mux.read(), &self.agent_registry, target_tab, body)?;
         if let Some(pending) = pending {
             self.trace_spawn_reply_relay(target_tab, &pending);
         }

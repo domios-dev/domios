@@ -274,7 +274,7 @@ impl FlattenDeltaSink {
                 .rev()
                 .find_map(|message| message.context_usage.clone())
             {
-                crate::api::hook_routes::context_feed::apply(&svc, tab_id, session, nonce, context);
+                crate::service::context_feed::apply(&svc, tab_id, session, nonce, context);
             }
         }
         let mut out: Vec<ChatMsg> = Vec::new();

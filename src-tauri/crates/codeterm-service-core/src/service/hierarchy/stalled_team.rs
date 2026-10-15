@@ -185,7 +185,7 @@ impl ServiceContext {
             return;
         };
         if !self.configuration().orchestration.plan_reminders {
-            self.stalled_team_nudges.reset(&plan.id);
+            self.ext::<std::sync::Arc<crate::service::hierarchy::stalled_team::StallEpisodeTracker>>().reset(&plan.id);
             return;
         }
         let live_worker_tabs = self.live_task_worker_tabs(plan, gone_tab_id);
@@ -193,7 +193,7 @@ impl ServiceContext {
             plan,
             &live_worker_tabs,
             orchestrator_idle,
-            &self.stalled_team_nudges,
+            self.ext::<std::sync::Arc<crate::service::hierarchy::stalled_team::StallEpisodeTracker>>(),
             |key| {
                 self.deliver_plan_reminder_target(
                     orchestrator_tab_id,

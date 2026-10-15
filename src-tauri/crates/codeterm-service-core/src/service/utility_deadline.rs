@@ -5,7 +5,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-use super::utility_deadline_model::{parse_timeout, DeadlineAction, DeadlineModel};
+use super::utility_deadline_model::{
+    deadline_from_start, elapsed_seconds, parse_timeout, DeadlineAction, DeadlineModel,
+};
 use super::ServiceContext;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -39,13 +41,21 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn path(tab_id: &str) -> std::path::PathBuf {
-    crate::paths::data_dir()
+fn path(service: &ServiceContext, tab_id: &str) -> std::path::PathBuf {
+    service
+        .agent_pad_data_dir
         .join("utility-deadlines")
         .join(format!("{tab_id}.json"))
 }
 
 impl ServiceContext {
+    pub(crate) fn utility_deadline_snapshot(&self, tab_id: &str) -> Option<serde_json::Value> {
+        ARMED
+            .lock()
+            .get(tab_id)
+            .map(|entry| serde_json::to_value(&entry.deadline).unwrap_or_default())
+    }
+
     pub(crate) fn set_utility_timeout(
         &self,
         tab_id: &str,
@@ -83,7 +93,7 @@ impl ServiceContext {
             return Err("timeout requires a live owning agent".into());
         }
         let Some(duration) = duration else {
-            remove_deadline(tab_id, &mut armed)?;
+            remove_deadline(self, tab_id, &mut armed)?;
             return Ok(());
         };
         let started_ms = now_ms();
@@ -92,9 +102,7 @@ impl ServiceContext {
             tab_id: tab_id.into(),
             owner: owner.into(),
             started_ms,
-            deadline_ms: started_ms
-                .checked_add(duration)
-                .ok_or("deadline overflow")?,
+            deadline_ms: deadline_from_start(started_ms, duration)?,
             command_started_ms: current
                 .as_ref()
                 .map(|(_, started)| *started)
@@ -109,7 +117,7 @@ impl ServiceContext {
                     })
             }),
         };
-        persist(&deadline)?;
+        persist(self, &deadline)?;
         arm(self, deadline, &mut armed)?;
         Ok(())
     }
@@ -119,7 +127,7 @@ impl ServiceContext {
         if EXPIRING.lock().contains(tab_id) {
             return Ok(());
         }
-        remove_deadline(tab_id, &mut armed)
+        remove_deadline(self, tab_id, &mut armed)
     }
 
     pub(crate) fn prepare_utility_command(&self, tab_id: &str, command: &str) {
@@ -178,18 +186,24 @@ impl ServiceContext {
         let mut model = DeadlineModel::default();
         model.reset(Some(deadline.deadline_ms));
         let action = model.expire(now_ms().max(deadline.deadline_ms), activity);
-        let result = self.close_tab(&deadline.tab_id);
+        let result = self.close_tab_with_reason(
+            &deadline.tab_id,
+            crate::multiplexer::types::TabCloseReason::UtilityTimeout,
+        );
         if action == Some(DeadlineAction::TerminateAndNotice) || result.is_err() {
             let command = deadline.command;
             let message = format!(
-                "Shell {} ({}) timed out; purpose: {}; running command: {}; elapsed: {:.1}s{}",
+                "Shell {} ({}) timed out; purpose: {}; running command: {}; shell lifetime elapsed: {:.1}s; command elapsed: {}; started_ms: {}; deadline_ms: {}{}",
                 tab.title,
                 tab.id,
                 tab.purpose.as_str(),
                 command.as_deref().unwrap_or("unknown"),
-                now_ms().saturating_sub(deadline.command_started_ms.unwrap_or(deadline.started_ms))
-                    as f64
-                    / 1000.0,
+                elapsed_seconds(deadline.started_ms, now_ms()),
+                deadline.command_started_ms
+                    .map(|started| format!("{:.1}s", elapsed_seconds(started, now_ms())))
+                    .unwrap_or_else(|| "unknown".into()),
+                deadline.started_ms,
+                deadline.deadline_ms,
                 result
                     .err()
                     .map(|error| format!("; close failed: {error}"))
@@ -215,16 +229,20 @@ impl ServiceContext {
     }
 }
 
-fn persist(deadline: &Deadline) -> Result<(), String> {
-    let path = path(&deadline.tab_id);
+fn persist(service: &ServiceContext, deadline: &Deadline) -> Result<(), String> {
+    let path = path(service, &deadline.tab_id);
     std::fs::create_dir_all(path.parent().ok_or("deadline directory missing")?)
         .map_err(|e| e.to_string())?;
     let bytes = serde_json::to_vec(deadline).map_err(|e| e.to_string())?;
     codeterm_util::atomic_write::write_atomic(&path, &bytes).map_err(|e| e.to_string())
 }
 
-fn remove_deadline(tab_id: &str, armed: &mut HashMap<String, Armed>) -> Result<(), String> {
-    match std::fs::remove_file(path(tab_id)) {
+fn remove_deadline(
+    service: &ServiceContext,
+    tab_id: &str,
+    armed: &mut HashMap<String, Armed>,
+) -> Result<(), String> {
+    match std::fs::remove_file(path(service, tab_id)) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.to_string()),
@@ -264,7 +282,7 @@ fn arm(
             drop(armed);
             service.expire_utility_timeout(expired);
             let mut armed = ARMED.lock();
-            if let Err(error) = remove_deadline(&waiting.tab_id, &mut armed) {
+            if let Err(error) = remove_deadline(&service, &waiting.tab_id, &mut armed) {
                 log::error!("[utility-timeout] expired deadline cleanup failed: {error}");
             }
             EXPIRING.lock().remove(&waiting.tab_id);
@@ -277,7 +295,7 @@ fn arm(
 }
 
 pub(crate) fn restore(service: &ServiceContext) {
-    let directory = crate::paths::data_dir().join("utility-deadlines");
+    let directory = service.agent_pad_data_dir.join("utility-deadlines");
     let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
@@ -311,7 +329,7 @@ pub(crate) fn restore(service: &ServiceContext) {
                         deadline.command.as_deref().unwrap_or("unknown")
                     ),
                 );
-                return remove_deadline(&deadline.tab_id, &mut ARMED.lock());
+                return remove_deadline(service, &deadline.tab_id, &mut ARMED.lock());
             }
             deadline.command = None;
             deadline.command_started_ms = None;
@@ -326,3 +344,6 @@ pub(crate) fn restore(service: &ServiceContext) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -61,10 +61,11 @@ fn provider_settings_contract_restore_dispatch_persists_provider_result() {
     std::fs::write(&path, b"modified").unwrap();
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(SettingsProbe { path: path.clone() }));
-    crate::commands::restore_provider_integration_core(&registry, "fixture").unwrap();
+    crate::service::provider_hooks::restore_provider_integration_core(&registry, "fixture")
+        .unwrap();
     assert_eq!(std::fs::read(path).unwrap(), b"original");
     assert_eq!(
-        crate::commands::restore_provider_integration_core(&registry, "unknown"),
+        crate::service::provider_hooks::restore_provider_integration_core(&registry, "unknown"),
         Err("Unknown provider: unknown".into())
     );
 }

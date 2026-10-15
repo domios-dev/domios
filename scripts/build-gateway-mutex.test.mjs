@@ -12,7 +12,7 @@ import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-function contender(directory, timeout = 20000) {
+function contender(directory, timeout = 20000, identityPreload = '') {
   const child = spawn(bash, ['-c', `
     source scripts/build-gateway.sh
     ct_repo_root() { printf '%s\\n' "$PWD"; }
@@ -29,7 +29,7 @@ function contender(directory, timeout = 20000) {
       echo REFUSED
       exit "$rc"
     fi
-  `, 'fixture', directory, String(timeout)], { cwd: root, env: { ...process.env, PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH }, stdio: ['pipe', 'pipe', 'pipe'] });
+  `, 'fixture', directory, String(timeout)], { cwd: root, env: { ...process.env, ...(identityPreload ? { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${pathToFileURL(identityPreload).href}` } : {}), PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH }, stdio: ['pipe', 'pipe', 'pipe'] });
   let errors = '';
   child.stderr.on('data', chunk => errors += chunk);
   const lines = readline.createInterface({ input: child.stdout });
@@ -46,13 +46,32 @@ async function cleanup(directory, workers) {
   fs.rmSync(directory, { recursive: true, force: true });
 }
 
+function contentionIdentityFixture(directory) {
+  const filename = path.join(directory, 'identity-fixture.mjs');
+  fs.writeFileSync(filename, `
+    import cp from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    const original = cp.spawnSync;
+    cp.spawnSync = function(command, args, ...rest) {
+      const pid = command === 'powershell.exe' && args.join(' ').match(/GetProcessById\\((\\d+)\\)/)?.[1];
+      if (!pid) return original.call(this, command, args, ...rest);
+      let present = true;
+      try { process.kill(Number(pid), 0); } catch { present = false; }
+      return { status: 0, stdout: present ? 'fixture-' + pid : 'GONE', stderr: '' };
+    };
+    syncBuiltinESMExports();
+  `);
+  return filename;
+}
+
 for (const mode of ['fresh', 'incomplete']) {
-  test(`${mode}: six concurrent Bash clients all acquire and release in turn`, { timeout: 90000 }, async () => {
+  test(`${mode}: six concurrent Bash clients with fixture identities acquire and release in turn`, { timeout: 90000 }, async () => {
     for (let round = 0; round < 3; round++) {
       const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-contention-'));
       const lock = path.join(directory, 'state.lock');
       if (mode === 'incomplete') fs.mkdirSync(lock);
-      const workers = Array.from({ length: 6 }, () => contender(directory));
+      const identityPreload = contentionIdentityFixture(directory);
+      const workers = Array.from({ length: 6 }, () => contender(directory, 20000, identityPreload));
       let initializationWatcher;
       try {
         await Promise.all(workers.map(worker => worker.ready));
@@ -307,3 +326,94 @@ test('a blocked owner probe leaves publication free and cannot reclaim a replace
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+for (const mode of ['recovers', 'refuses']) {
+test(`Windows publication EPERM ${mode} through ownership events without leaking pending directories`, { timeout: 20000 }, async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-publish-sharing-'));
+  const mutex = path.join(directory, 'state.lock');
+  const preload = path.join(directory, 'publication-sharing.mjs');
+  const attempts = path.join(directory, 'rename-attempts');
+  fs.writeFileSync(preload, `
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import cp from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    const rename = fs.renameSync;
+    let attempts = 0;
+    fs.renameSync = function(from, to) {
+      if (process.env.PUBLICATION_SHARING_MODE && path.basename(from).startsWith('state.lock.pending.') && path.basename(to) === 'state.lock') {
+        attempts++;
+        fs.writeFileSync(${JSON.stringify(attempts)}, String(attempts));
+        if (process.env.PUBLICATION_SHARING_MODE === 'always' || attempts === 1) {
+          queueMicrotask(() => process.stdout.write('PUBLICATION_WAITING\\n'));
+          throw Object.assign(new Error('simulated Windows sharing violation'), { code: 'EPERM' });
+        }
+      }
+      return rename.call(this, from, to);
+    };
+    const spawn = cp.spawnSync;
+    cp.spawnSync = function(command, args, ...rest) {
+      if (command === 'powershell.exe' && args.join(' ').includes('GetProcessById')) return { status: 0, stdout: 'fixture-native-token' };
+      if (args?.[1]?.includes('ct_gateway_identity_alive')) {
+        if (args.at(-2) === '303') { process.stdout.write('FOREIGN_OWNER\\n'); return { status: 0 }; }
+        return { status: 1 };
+      }
+      return spawn.call(this, command, args, ...rest);
+    };
+    syncBuiltinESMExports();
+  `);
+  const helper = path.join(root, 'scripts/build-gateway-mutex.mjs');
+  const workers = [];
+  const start = (operation, pid, token, fault = '') => {
+    const child = spawn(process.execPath, ['--import', pathToFileURL(preload).href, helper, operation, directory, pid, token, fault === 'always' ? '1000' : '15000', 'fixture'], {
+      stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PUBLICATION_SHARING_MODE: fault },
+    });
+    const lines = readline.createInterface({ input: child.stdout });
+    let errors = '';
+    child.stderr.on('data', chunk => { errors += chunk; });
+    const exited = once(child, 'close').then(([code]) => ({ code, errors }));
+    const worker = { child, lines, exited };
+    workers.push(worker);
+    return worker;
+  };
+  const pendingDirectories = () => fs.readdirSync(directory).filter(name => name.startsWith('state.lock.pending.'));
+  const blocked = start('acquire', '202', 'new-token', mode === 'recovers' ? 'once' : 'always');
+  try {
+    assert.equal((await once(blocked.lines, 'line'))[0], 'PUBLICATION_WAITING');
+    assert.equal(fs.existsSync(path.join(directory, 'state.lock.guard')), false, 'sharing violation releases publication exclusivity');
+    assert.equal(pendingDirectories().length, 1);
+    fs.writeFileSync(path.join(directory, 'unrelated-event'), 'not ownership readiness');
+    if (mode === 'recovers') {
+      const observedOwner = once(blocked.lines, 'line');
+      const foreign = start('acquire', '303', 'foreign-token');
+      assert.equal((await foreign.exited).code, 0);
+      assert.equal((await observedOwner)[0], 'FOREIGN_OWNER');
+      assert.equal(fs.readFileSync(path.join(mutex, 'pid'), 'utf8').trim(), '303');
+      assert.equal(fs.readFileSync(attempts, 'utf8'), '1', 'self and unrelated events do not retry publication');
+      const released = start('release', '303', 'foreign-token');
+      assert.equal((await released.exited).code, 0);
+      const result = await blocked.exited;
+      assert.equal(result.code, 0, result.errors);
+      assert.equal(fs.readFileSync(attempts, 'utf8'), '2');
+      assert.equal(fs.readFileSync(path.join(mutex, 'pid'), 'utf8').trim(), '202');
+      assert.equal((await start('release', '202', 'new-token').exited).code, 0);
+    } else {
+      const result = await blocked.exited;
+      assert.equal(result.code, 75, result.errors);
+      assert.match(result.errors, /Timed out acquiring build gateway state mutex/);
+      assert.doesNotMatch(result.errors, /simulated Windows sharing violation|EPERM: operation/);
+      assert.equal(fs.readFileSync(attempts, 'utf8'), '1');
+    }
+    assert.deepEqual(pendingDirectories(), []);
+    assert.equal(fs.existsSync(path.join(directory, 'state.lock.guard')), false);
+    assert.equal(fs.existsSync(mutex), false);
+  } finally {
+    for (const worker of workers) {
+      worker.lines.close();
+      if (worker.child.exitCode === null) worker.child.kill('SIGKILL');
+    }
+    await Promise.all(workers.map(worker => worker.exited));
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+}

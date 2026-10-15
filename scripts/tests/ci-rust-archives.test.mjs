@@ -53,7 +53,7 @@ test('macOS shared shards and all native consumers retain matching archive build
 });
 
 const packagesOf = (args) => args.flatMap((arg, index) => arg === '-p' ? [args[index + 1]] : []);
-const PREVIOUSLY_SKIPPED = ['codeterm-input-macos', 'codeterm-input-windows', 'codeterm-analytics', 'codeterm-sentinel-ports', 'codeterm-browser',
+const PREVIOUSLY_SKIPPED = ['codeterm-input-macos', 'codeterm-input-windows', 'codeterm-analytics', 'codeterm-browser',
   'codeterm-storage', 'codeterm-agent-detect', 'codeterm-notification-core', 'codeterm-repowatch', 'codeterm-usage', 'codeterm-blueprint-types',
   'codeterm-local-recording', 'codeterm-notify-types', 'codeterm-events', 'codeterm-config', 'codeterm-secrets', 'codeterm-keepawake',
   'codeterm-cron', 'codeterm-shutdown'];

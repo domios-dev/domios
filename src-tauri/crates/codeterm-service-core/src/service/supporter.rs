@@ -10,7 +10,6 @@ use codeterm_types::config::SupporterConfig;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::api::mem_routes::decision::SupporterRegistry;
 use crate::mem::decision::token_store::TokenStore;
 
 mod activity;
@@ -20,6 +19,7 @@ mod feed;
 mod journal;
 mod narrative;
 mod physical;
+pub(crate) mod registry;
 pub(crate) mod rerank;
 mod spend;
 mod storage;
@@ -31,6 +31,7 @@ pub(crate) use narrative::{
     provider_update as update_questions, recovery as recovery_questions, tab_state as tab_questions,
 };
 pub(crate) use narrative::{ActivityContext, QuestionAnswer};
+use registry::SupporterRegistry;
 
 #[derive(Default)]
 pub(crate) struct TokenSnapshot {

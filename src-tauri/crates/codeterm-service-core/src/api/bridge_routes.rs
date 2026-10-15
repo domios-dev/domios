@@ -39,7 +39,10 @@ pub async fn bridge_state(
     check_auth(&state, &headers)?;
     ensure_telegram(&q.service)?;
 
-    let snap = state.svc.bridge_supervisor.snapshot();
+    let snap = state
+        .svc
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .snapshot();
     let token_present = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
     let bot_id = bridge::telegram::read_token(&AppAttachmentStorePort)
         .map(|token| codeterm_bridge::bridge::threads::transport::bot_id_from_token(&token))
@@ -98,10 +101,20 @@ pub async fn bridge_stop(
     check_auth(&state, &headers)?;
     ensure_telegram(&body.service)?;
 
-    let _op = state.svc.bridge_supervisor.op_guard().await;
-    state.svc.bridge_threads.detach();
+    let _op = state
+        .svc
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .op_guard()
+        .await;
+    state
+        .svc
+        .ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
+        .detach();
 
-    let was_active = state.svc.bridge_supervisor.is_active();
+    let was_active = state
+        .svc
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .is_active();
     if !was_active {
         persist_telegram_enabled(&state, false);
         return Ok(Json(json!({
@@ -113,7 +126,7 @@ pub async fn bridge_stop(
 
     let elapsed = state
         .svc
-        .bridge_supervisor
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
         .stop(Duration::from_millis(body.timeout_ms))
         .await
         .map_err(|_| (StatusCode::REQUEST_TIMEOUT, "bridge stop timed out"))?;
@@ -154,7 +167,11 @@ pub async fn bridge_start(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     ensure_telegram(&body.service).map_err(|(s, m)| (s, m.to_string()))?;
 
-    let _op = state.svc.bridge_supervisor.op_guard().await;
+    let _op = state
+        .svc
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .op_guard()
+        .await;
 
     let token_file_exists = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
     if copies_vault_token(body.ensure_token, body.replace_token, token_file_exists) {
@@ -182,14 +199,21 @@ pub async fn bridge_start(
         return Err((StatusCode::INTERNAL_SERVER_ERROR, e));
     }
 
-    let claim_anchor = state.svc.bridge_supervisor.snapshot().started_at;
+    let claim_anchor = state
+        .svc
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .snapshot()
+        .started_at;
     let deadline = started + Duration::from_millis(body.wait_for_lock_ms.max(250));
     let poll = Duration::from_millis(250);
     let mut claimed = false;
     let mut last_error: Option<String> = None;
 
     loop {
-        let snap = state.svc.bridge_supervisor.snapshot();
+        let snap = state
+            .svc
+            .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+            .snapshot();
         if let (Some(ok), Some(anchor)) = (snap.last_poll_ok, claim_anchor) {
             if ok >= anchor {
                 claimed = true;
@@ -306,7 +330,11 @@ pub async fn bridge_announce(
             "No chat_id given and no allow-listed bridge users to default to",
         ))?;
 
-    if !state.svc.bridge_supervisor.is_active() {
+    if !state
+        .svc
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .is_active()
+    {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"));
     }
 
