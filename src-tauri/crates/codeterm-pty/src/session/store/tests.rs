@@ -272,6 +272,7 @@ fn desk(specs: &[(&str, &[&str])]) -> SessionSnapshot {
                 tabs: tab_ids
                     .iter()
                     .map(|tab_id| TabSnapshot {
+                        last_active_at_ms: None,
                         id: (*tab_id).into(),
                         title: (*tab_id).into(),
                         description: None,

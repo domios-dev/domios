@@ -105,11 +105,7 @@ pub fn configured_model(
     Some(adapter)
 }
 
-pub(crate) fn restore_model(
-    cfg: &SupporterConfig,
-    id: &str,
-    adapter: &Arc<dyn DecisionModel>,
-) -> bool {
+pub fn restore_model(cfg: &SupporterConfig, id: &str, adapter: &Arc<dyn DecisionModel>) -> bool {
     let model = cfg
         .connection(id)
         .model

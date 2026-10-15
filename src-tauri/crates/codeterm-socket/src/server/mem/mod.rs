@@ -620,7 +620,7 @@ fn mem_worker_report(
     let (pty_id, session_id, run_cwd) = worker_tab_id
         .as_ref()
         .map(|pid| {
-            let mux = svc.mux.write();
+            let mux = svc.mux.read();
             let tab = mux.get_tab(pid);
             (
                 tab.and_then(|p| p.pty_id.clone()),

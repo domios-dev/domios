@@ -11,7 +11,7 @@ use super::{
 
 /// Complete post-state values of one authorized cron change.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum CronChange {
+pub enum CronChange {
     Create(CronJob),
     /// Definition values; a patch never moves the job's last run.
     Patch(CronJob),
@@ -48,7 +48,7 @@ impl CronChange {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum CronScope {
+pub enum CronScope {
     Workspace(String),
     Team(String),
 }

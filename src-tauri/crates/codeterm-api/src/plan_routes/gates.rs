@@ -83,15 +83,30 @@ pub async fn gate_ask(
         }
         return Ok(Json(serde_json::to_value(&gate).unwrap_or_default()));
     }
-    let routed_to = resolve_routed_tab(&state, &id);
-    let caller_session_id = body.asked_by_tab_id.as_deref().and_then(|tab_id| {
-        state
-            .svc
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.agent_session_id.clone())
-    });
+    let owner = state.clone();
+    let plan_id = id.clone();
+    let asking_tab = body.asked_by_tab_id.clone();
+    let (routed_to, caller_session_id) = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let id = plan_id;
+        let routed_to = resolve_routed_tab(&state, &id);
+        let caller_session_id = asking_tab.as_deref().and_then(|tab_id| {
+            state
+                .svc
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .and_then(|tab| tab.agent_session_id.clone())
+        });
+        (routed_to, caller_session_id)
+    })
+    .await
+    .map_err(|_| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed",
+        )
+    })?;
     let (gate, request) = state
         .svc
         .plan_store
@@ -114,60 +129,69 @@ pub async fn gate_ask(
             tokio::task::spawn_blocking(move || svc.replay_planner_requests_if_routable(&tab_id))
                 .await;
     }
-    let request = state
-        .svc
-        .plan_store
-        .get(&id)
-        .and_then(|plan| {
-            plan.planner_requests
-                .into_iter()
-                .find(|item| item.request_id == request_id)
-        })
-        .unwrap_or(request);
-    if !matches!(
-        request.state,
-        codeterm_service_core::plan::PlannerRequestState::Accepted
-            | codeterm_service_core::plan::PlannerRequestState::Completed
-    ) {
-        let plan = state.svc.plan_store.get(&id);
-        let resolution = plan.as_ref().map(|plan| {
-            resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| {
-                state.svc.tab_probe(tab_id)
+    tokio::task::spawn_blocking(move || {
+        let request = state
+            .svc
+            .plan_store
+            .get(&id)
+            .and_then(|plan| {
+                plan.planner_requests
+                    .into_iter()
+                    .find(|item| item.request_id == request_id)
             })
-        });
-        let delivery = plan.as_ref().and_then(|plan| {
-            plan.planner_inbox
-                .iter()
-                .find(|entry| entry.request_id == request.request_id)
-        });
-        let planner_dead = matches!(
-            resolution,
-            Some(PeerResolution::OrchestratorFallback { .. })
-        );
-        let recovery_action = if delivery.is_some_and(|entry| {
-            entry.phase == codeterm_service_core::plan::PlannerDeliveryPhase::DeliveryUncertain
-        }) {
-            "resolve_delivery_uncertain"
-        } else {
-            "replace_or_rebind_planner"
-        };
+            .unwrap_or(request);
+        if !matches!(
+            request.state,
+            codeterm_service_core::plan::PlannerRequestState::Accepted
+                | codeterm_service_core::plan::PlannerRequestState::Completed
+        ) {
+            let plan = state.svc.plan_store.get(&id);
+            let resolution = plan.as_ref().map(|plan| {
+                resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| {
+                    state.svc.tab_probe(tab_id)
+                })
+            });
+            let delivery = plan.as_ref().and_then(|plan| {
+                plan.planner_inbox
+                    .iter()
+                    .find(|entry| entry.request_id == request.request_id)
+            });
+            let planner_dead = matches!(
+                resolution,
+                Some(PeerResolution::OrchestratorFallback { .. })
+            );
+            let recovery_action = if delivery.is_some_and(|entry| {
+                entry.phase == codeterm_service_core::plan::PlannerDeliveryPhase::DeliveryUncertain
+            }) {
+                "resolve_delivery_uncertain"
+            } else {
+                "replace_or_rebind_planner"
+            };
+            emit_plan_changed(&state, &id);
+            return Err((
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "agent_unavailable",
+                    "request_id": request.request_id,
+                    "state": request.state,
+                    "request": request,
+                    "delivery": delivery,
+                    "planner_resolution": resolution,
+                    "planner_dead": planner_dead,
+                    "recovery_action": recovery_action
+                })),
+            ));
+        }
         emit_plan_changed(&state, &id);
-        return Err((
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "agent_unavailable",
-                "request_id": request.request_id,
-                "state": request.state,
-                "request": request,
-                "delivery": delivery,
-                "planner_resolution": resolution,
-                "planner_dead": planner_dead,
-                "recovery_action": recovery_action
-            })),
-        ));
-    }
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::to_value(&gate).unwrap_or_default()))
+        Ok(Json(serde_json::to_value(&gate).unwrap_or_default()))
+    })
+    .await
+    .map_err(|_| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed",
+        )
+    })?
 }
 
 #[derive(Deserialize, Default)]

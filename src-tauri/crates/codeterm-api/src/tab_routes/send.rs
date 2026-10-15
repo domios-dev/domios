@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, resolve_tab};
+use crate::routes::check_auth;
 use codeterm_service_core::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin};
 use codeterm_service_core::service::input_transport::{should_prepend_source, TabInputTransport};
 
@@ -15,6 +15,7 @@ use super::AppState;
 mod dismissal;
 pub use dismissal::{chat_send_delete, chat_send_dismissals};
 mod admissions;
+mod preparation;
 pub use admissions::chat_send_admissions;
 
 fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
@@ -41,45 +42,62 @@ pub async fn chat_send_text(
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<codeterm_service_core::service::agent_pad::ChatSendResult>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
-    let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
-    surface_send_refusal(&state, &tab_id)?;
-    state
-        .svc
-        .require_managed_send_allowed(&tab_id, None)
-        .map_err(|detail| DeliveryError::TabBusyRefused {
-            tab: tab_id.clone(),
-            detail,
-        })?;
-    let has_agent_identity = state.svc.tab_has_agent_identity(&tab_id);
-    if let Some(error) = chat_send_target_refusal(
-        &tab_id,
-        has_agent_identity,
-        state.svc.tab_chat_backing(&tab_id).is_some(),
-    ) {
-        return Err(error.into());
-    }
-    let run_stages =
-        codeterm_service_core::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
-    let reservation = if state.svc.tab_chat_backing(&tab_id).is_none() {
-        Some(
-            state
-                .svc
-                .reserve_user_send_with_replay_only(
-                    &tab_id,
-                    body.client_token.clone(),
-                    body.replay_only,
-                )
-                .map_err(|detail| chat_admission_rejection(&tab_id, detail))?,
-        )
-    } else {
-        if body.replay_only {
-            return Err(chat_admission_rejection(
-                &tab_id,
-                "admission_unknown: replay admission is unavailable for this backing".into(),
-            ));
+    let tab_id = crate::routes::resolve_tab_async(&state, &id)
+        .await
+        .map_err(SendRejection::from)?;
+    let owner = state.clone();
+    let target = tab_id.clone();
+    let client_token = body.client_token.clone();
+    let replay_only = body.replay_only;
+    let (run_stages, reservation) = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let tab_id = target;
+        surface_send_refusal(&state, &tab_id)?;
+        state
+            .svc
+            .require_managed_send_allowed(&tab_id, None)
+            .map_err(|detail| DeliveryError::TabBusyRefused {
+                tab: tab_id.clone(),
+                detail,
+            })?;
+        let has_agent_identity = state.svc.tab_has_agent_identity(&tab_id);
+        if let Some(error) = chat_send_target_refusal(
+            &tab_id,
+            has_agent_identity,
+            state.svc.tab_chat_backing(&tab_id).is_some(),
+        ) {
+            return Err(error.into());
         }
-        None
-    };
+        let run_stages = codeterm_service_core::chatpipeline::is_user_turn_send(
+            false,
+            false,
+            has_agent_identity,
+        );
+        let reservation = if state.svc.tab_chat_backing(&tab_id).is_none() {
+            Some(
+                state
+                    .svc
+                    .reserve_user_send_with_replay_only(&tab_id, client_token.clone(), replay_only)
+                    .map_err(|detail| chat_admission_rejection(&tab_id, detail))?,
+            )
+        } else {
+            if replay_only {
+                return Err(chat_admission_rejection(
+                    &tab_id,
+                    "admission_unknown: replay admission is unavailable for this backing".into(),
+                ));
+            }
+            None
+        };
+        Ok::<_, SendRejection>((run_stages, reservation))
+    })
+    .await
+    .map_err(|_| {
+        SendRejection::from((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "send preflight task failed",
+        ))
+    })??;
     let svc = state.svc.clone();
     let send_tab = tab_id.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -131,7 +149,9 @@ pub async fn chat_send_status(
     SendRejection,
 > {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
-    let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &id)
+        .await
+        .map_err(SendRejection::from)?;
     let svc = state.svc.clone();
     // Ledger read doubles as the closed-chat reconciliation point: scan each
     // unconfirmed send's own session append window before reporting state.
@@ -361,12 +381,12 @@ fn action_preview(actions: &[SendAction]) -> String {
 }
 
 pub(super) async fn await_pty_link(state: &AppState, tab_id: &str) -> bool {
-    if state.svc.tab_chat_backing(tab_id).is_some() {
-        return true;
-    }
     let svc = state.svc.clone();
     let tab = tab_id.to_string();
     tokio::task::spawn_blocking(move || {
+        if svc.tab_chat_backing(&tab).is_some() {
+            return true;
+        }
         svc.await_pty_link_blocking(&tab, std::time::Duration::from_secs(15))
             .is_ok()
     })
@@ -441,41 +461,60 @@ pub async fn send_text(
     }
     // Reachability is the FIRST fallible step and the only one allowed to report
     // a missing tab — everything past it has resolved a real target.
-    let tab_id =
-        resolve_tab(&state, &raw_tab_id).map_err(|_| DeliveryError::TabNotReachableOnPeer {
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|_| DeliveryError::TabNotReachableOnPeer {
             tab: raw_tab_id.clone(),
         })?;
-    surface_send_refusal(&state, &tab_id)?;
+    let owner = state.clone();
+    let target = tab_id.clone();
+    let source_tab = body.source_tab.clone();
+    let source_peer = body.source_peer.clone();
+    let payload_bytes = route_payload_bytes(body.text.as_deref(), body.batch.as_deref());
+    let has_service_token = svc_token_match.is_some();
+    let (origin, transport, target_has_agent) = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let tab_id = target;
+        surface_send_refusal(&state, &tab_id)?;
 
-    state
-        .svc
-        .require_managed_send_allowed(&tab_id, body.source_tab.as_deref())
-        .map_err(|detail| DeliveryError::TabBusyRefused {
-            tab: tab_id.clone(),
-            detail,
-        })?;
+        state
+            .svc
+            .require_managed_send_allowed(&tab_id, source_tab.as_deref())
+            .map_err(|detail| DeliveryError::TabBusyRefused {
+                tab: tab_id.clone(),
+                detail,
+            })?;
 
-    // Refuse over-bound programmatic payloads (16MB bound) before any delivery
-    // machinery runs; user-origin sends keep today's behavior.
-    let origin = route_send_origin(
-        svc_token_match.is_some(),
-        body.source_tab.is_some(),
-        body.source_peer.as_deref().is_some_and(|p| !p.is_empty()),
-    );
-    codeterm_service_core::service::delivery_error::preflight_payload_size(
-        &tab_id,
-        origin,
-        route_payload_bytes(body.text.as_deref(), body.batch.as_deref()),
-    )?;
+        // Refuse over-bound programmatic payloads (16MB bound) before any delivery
+        // machinery runs; user-origin sends keep today's behavior.
+        let origin = route_send_origin(
+            has_service_token,
+            source_tab.is_some(),
+            source_peer.as_deref().is_some_and(|p| !p.is_empty()),
+        );
+        codeterm_service_core::service::delivery_error::preflight_payload_size(
+            &tab_id,
+            origin,
+            payload_bytes,
+        )?;
 
-    let transport = if state.svc.tab_chat_backing(&tab_id).is_some() {
-        TabInputTransport::ChatBackend
-    } else {
-        TabInputTransport::Pty
-    };
-    // The return-address marker is meaningful only to an AGENT reading its input.
-    // A bare shell PTY must run the injected bytes verbatim — never prefix it.
-    let target_has_agent = state.svc.tab_has_agent(&tab_id);
+        let transport = if state.svc.tab_chat_backing(&tab_id).is_some() {
+            TabInputTransport::ChatBackend
+        } else {
+            TabInputTransport::Pty
+        };
+        // The return-address marker is meaningful only to an AGENT reading its input.
+        // A bare shell PTY must run the injected bytes verbatim — never prefix it.
+        let target_has_agent = state.svc.tab_has_agent(&tab_id);
+        Ok::<_, SendRejection>((origin, transport, target_has_agent))
+    })
+    .await
+    .map_err(|_| {
+        SendRejection::from((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "send preflight task failed",
+        ))
+    })??;
 
     if transport == TabInputTransport::Pty
         && target_has_agent
@@ -513,9 +552,16 @@ pub async fn send_text(
 
     let requires_immediate_pty = body.raw || body.actions.is_some() || body.batch.is_some();
     if transport == TabInputTransport::Pty && requires_immediate_pty {
-        state
-            .svc
-            .ensure_tab_pty_for_send(&tab_id)
+        let owner = state.svc.clone();
+        let target = tab_id.clone();
+        tokio::task::spawn_blocking(move || owner.ensure_tab_pty_for_send(&target))
+            .await
+            .map_err(|_| {
+                SendRejection::from((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "PTY preparation task failed",
+                ))
+            })?
             .map_err(|e| DeliveryError::PtyUnavailable {
                 tab: tab_id.clone(),
                 detail: e.to_string(),
@@ -534,52 +580,69 @@ pub async fn send_text(
         "[api/send] tab={tab_id} source_peer={:?} has_source={} agent={target_has_agent} chat_backend={}",
         body.source_peer, body.source_tab.is_some(), transport == TabInputTransport::ChatBackend
     );
-    let source_envelope: Option<codeterm_service_core::service::messenger::MessageEnvelope> =
-        body.source_tab.as_deref().and_then(|src| {
-            match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
-                // the body (resolved on the originating peer), peer-qualified here.
-                Some(peer) => {
-                    let label = body
-                        .source_label
-                        .as_deref()
-                        .filter(|s| !s.trim().is_empty())
-                        .unwrap_or(peer);
-                    let envelope = if body.kind.as_deref() == Some("report") {
-                        codeterm_service_core::service::messenger::MessageEnvelope::report(
-                            label, src,
+    let envelope_state = state.clone();
+    let source_tab = body.source_tab.clone();
+    let source_peer = body.source_peer.clone();
+    let source_label = body.source_label.clone();
+    let kind = body.kind.clone();
+    let source_model = body.source_model.clone();
+    let source_is_agent = body.source_is_agent;
+    let source_envelope = tokio::task::spawn_blocking(move || {
+        let state = envelope_state;
+        let source_envelope: Option<codeterm_service_core::service::messenger::MessageEnvelope> =
+            source_tab.as_deref().and_then(|src| {
+                match source_peer.as_deref().filter(|p| !p.is_empty()) {
+                    // the body (resolved on the originating peer), peer-qualified here.
+                    Some(peer) => {
+                        let label = source_label
+                            .as_deref()
+                            .filter(|s| !s.trim().is_empty())
+                            .unwrap_or(peer);
+                        let envelope = if kind.as_deref() == Some("report") {
+                            codeterm_service_core::service::messenger::MessageEnvelope::report(
+                                label, src,
+                            )
+                        } else {
+                            codeterm_service_core::service::messenger::MessageEnvelope::tab(
+                                label, src,
+                            )
+                        };
+                        Some(
+                            envelope
+                                .model(source_model.clone())
+                                .from_agent(source_is_agent)
+                                .peer(Some(peer.to_string()))
+                                .mesh(Some(peer.to_string())),
                         )
-                    } else {
-                        codeterm_service_core::service::messenger::MessageEnvelope::tab(label, src)
-                    };
-                    Some(
-                        envelope
-                            .model(body.source_model.clone())
-                            .from_agent(body.source_is_agent)
-                            .peer(Some(peer.to_string()))
-                            .mesh(Some(peer.to_string())),
-                    )
-                }
-                // Local delivery: resolve the label/model from the local mux.
-                None => {
-                    let mux = state.svc.mux.write();
-                    let resolved = mux.resolve_tab_id(src)?;
-                    let from_label = mux.display_label_for_tab(&resolved);
-                    let source_tab = mux.get_tab(&resolved);
-                    let from_agent =
-                        source_tab.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
-                    let model = source_tab.and_then(|tab| tab.agent_session_model.clone());
-                    let purpose = source_tab.and_then(utility_shell_purpose);
-                    Some(
-                        codeterm_service_core::service::messenger::MessageEnvelope::tab(
-                            from_label, resolved,
+                    }
+                    // Local delivery: resolve the label/model from the local mux.
+                    None => {
+                        let mux = state.svc.mux.read();
+                        let resolved = mux.resolve_tab_id(src)?;
+                        let from_label = mux.display_label_for_tab(&resolved);
+                        let source_tab = mux.get_tab(&resolved);
+                        let from_agent = source_tab
+                            .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
+                        let model = source_tab.and_then(|tab| tab.agent_session_model.clone());
+                        let purpose = source_tab.and_then(utility_shell_purpose);
+                        Some(
+                            codeterm_service_core::service::messenger::MessageEnvelope::tab(
+                                from_label, resolved,
+                            )
+                            .model(model)
+                            .purpose(purpose)
+                            .from_agent(Some(from_agent)),
                         )
-                        .model(model)
-                        .purpose(purpose)
-                        .from_agent(Some(from_agent)),
-                    )
+                    }
                 }
-            }
-        });
+            });
+
+        source_envelope
+    })
+    .await
+    .map_err(|_| {
+        SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))
+    })?;
     let prefix_source =
         should_prepend_source(source_envelope.is_some(), target_has_agent, transport);
     let prepend = |s: &str| -> String {
@@ -597,13 +660,6 @@ pub async fn send_text(
         body.source_tab.is_some(),
         target_has_agent,
     );
-    let stage = |s: String| -> String {
-        if run_stages {
-            state.svc.run_outbound_stages(&tab_id, s)
-        } else {
-            s
-        }
-    };
 
     if let Some(actions) = body.actions {
         if actions.is_empty() {
@@ -635,12 +691,10 @@ pub async fn send_text(
         }
 
         let raw_text = body.text.clone().unwrap_or_default();
-        let raw_text = stage(raw_text);
+        let raw_text = preparation::stage(&state.svc, &tab_id, raw_text, run_stages).await?;
         let text = prepend(&raw_text);
-        let (raw_text, pad_file) = state
-            .svc
-            .substitute_paste_limited_body(&tab_id, raw_text, text.len())
-            .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
+        let (raw_text, pad_file) =
+            preparation::substitute(&state.svc, &tab_id, raw_text, text.len()).await?;
         let text = prepend(&raw_text);
         if transport == TabInputTransport::ChatBackend {
             if !raw_text.is_empty() {
@@ -746,12 +800,10 @@ pub async fn send_text(
         let mut pad_files = Vec::new();
         let mut items = Vec::with_capacity(batch.len());
         for chunk in batch {
-            let staged = stage(chunk.text);
+            let staged = preparation::stage(&state.svc, &tab_id, chunk.text, run_stages).await?;
             let wrapped = prepend(&staged);
-            let (text, pad_file) = state
-                .svc
-                .substitute_paste_limited_body(&tab_id, staged, wrapped.len())
-                .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
+            let (text, pad_file) =
+                preparation::substitute(&state.svc, &tab_id, staged, wrapped.len()).await?;
             if let Some(path) = pad_file {
                 pad_files.push(path.display().to_string());
                 items.push(codeterm_service_core::service::pty_io::SendBatchItem {
@@ -789,9 +841,14 @@ pub async fn send_text(
         // Byte-for-byte to the PTY (bracket paste + sender prefix skipped, for
         // TUI keystrokes like vim j/k). The caller includes \r to submit.
         let raw_text = body.text.clone().unwrap_or_default();
-        state
-            .svc
-            .write_raw(&tab_id, raw_text.as_bytes())
+        let owner = state.svc.clone();
+        let target = tab_id.clone();
+        let payload = raw_text.clone();
+        tokio::task::spawn_blocking(move || owner.write_raw(&target, payload.as_bytes()))
+            .await
+            .map_err(|_| {
+                SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "raw write task failed"))
+            })?
             .map_err(|e| DeliveryError::PtyUnavailable {
                 tab: tab_id.clone(),
                 detail: e.to_string(),
@@ -805,7 +862,7 @@ pub async fn send_text(
 
     let raw_text = body.text.unwrap_or_default();
     if let Some(envelope) = source_envelope {
-        let raw_text = stage(raw_text);
+        let raw_text = preparation::stage(&state.svc, &tab_id, raw_text, run_stages).await?;
         let svc = state.svc.clone();
         let target = tab_id.clone();
         let payload = raw_text.clone();
@@ -833,24 +890,31 @@ pub async fn send_text(
         return Ok(Json(response));
     }
 
-    let raw_text = stage(raw_text);
+    let raw_text = preparation::stage(&state.svc, &tab_id, raw_text, run_stages).await?;
     let wrapped = prepend(&raw_text);
-    let (raw_text, pad_file) = state
-        .svc
-        .substitute_paste_limited_body(&tab_id, raw_text, wrapped.len())
-        .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
+    let (raw_text, pad_file) =
+        preparation::substitute(&state.svc, &tab_id, raw_text, wrapped.len()).await?;
     let text = prepend(&raw_text);
 
     if origin == SendOrigin::User
         && (target_has_agent || transport == TabInputTransport::ChatBackend)
     {
-        let status = state
-            .svc
-            .start_chat_send(&tab_id, text, None, body.client_token)
-            .map_err(|detail| DeliveryError::TabBusyRefused {
-                tab: tab_id.clone(),
-                detail,
-            })?;
+        let owner = state.svc.clone();
+        let target = tab_id.clone();
+        let token = body.client_token;
+        let status =
+            tokio::task::spawn_blocking(move || owner.start_chat_send(&target, text, None, token))
+                .await
+                .map_err(|_| {
+                    SendRejection::from((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "chat send task failed",
+                    ))
+                })?
+                .map_err(|detail| DeliveryError::TabBusyRefused {
+                    tab: tab_id.clone(),
+                    detail,
+                })?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,

@@ -1,6 +1,75 @@
 use super::*;
 
 #[test]
+fn concurrent_drain_cannot_skip_the_admission_owners_claimed_head() {
+    let (fixture, tab) = queue_fixture(true, None);
+    mark_ready(&fixture, &tab);
+    let (claimed_tx, claimed_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let first_write_tx = writes_tx.clone();
+    let _boundary = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, text| {
+            claimed_tx.send(record.send_id.clone()).unwrap();
+            release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
+            first_write_tx.send(text.to_owned()).unwrap();
+            Ok(())
+        }),
+    );
+    let first = fixture
+        .service
+        .start_chat_send(&tab, "first".into(), None, None)
+        .unwrap();
+    assert_eq!(
+        claimed_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        first.send_id
+    );
+    let second = fixture
+        .service
+        .start_chat_send(&tab, "second".into(), None, None)
+        .unwrap();
+    let owner = fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .tab(&tab);
+    let drain_is_owned = owner.pty_drain.try_lock().is_none();
+    let outcome = fixture
+        .service
+        .drain_user_owner_with(&tab, |_, text, _, _| {
+            writes_tx.send(text.to_owned()).unwrap();
+            Ok(UserWrite::Finished)
+        });
+    let overtaking_write = writes_rx.try_recv();
+    release_tx.send(()).unwrap();
+    assert!(matches!(outcome.unwrap(), UserDrain::Idle));
+    assert!(drain_is_owned);
+    assert!(matches!(overtaking_write, Err(mpsc::TryRecvError::Empty)));
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), "first");
+    assert_eq!(
+        claimed_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        second.send_id
+    );
+    release_tx.send(()).unwrap();
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), "\n\nsecond");
+    await_owner_idle(&fixture, &tab);
+    fixture.service.drain_user_owner(&tab).unwrap();
+    assert!(matches!(
+        writes_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
 fn ready_dispatch_preserves_admission_order_when_wakes_arrive_reversed() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);

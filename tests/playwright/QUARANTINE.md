@@ -1,5 +1,7 @@
 # Playwright quarantine
 
+> Suspended: see `.agents/skills/testing/SKILL.md`; runs only on an explicit owner request. Catalogue runner `playwright` in `tests/catalogue.json` (tier manual, never pr); its stale cases are listed in `tests/README.md`.
+
 Flaky tests are quarantined, not retried to green. A quarantine is allowed only
 when the test title includes `@quarantine` and a filed task reference
 (`task_<id>` or `#<issue>`).

@@ -194,3 +194,11 @@ fn heartbeat_gate_owner_rules_do_not_consume_situational_selection_slots() {
         );
     }
 }
+
+#[test]
+fn heartbeat_gate_actionable_tasks_are_part_of_observation_identity() {
+    let mut snapshot = Snapshot::default();
+    let before = snapshot.hash();
+    snapshot.actionable_tasks.push("task-a".into());
+    assert_ne!(before, snapshot.hash());
+}

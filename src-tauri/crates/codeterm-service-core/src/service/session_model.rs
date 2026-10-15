@@ -3,6 +3,8 @@
 
 use super::ServiceContext;
 
+mod runtime_update;
+
 impl ServiceContext {
     pub(crate) fn record_runtime_controls(
         &self,
@@ -536,120 +538,36 @@ impl ServiceContext {
         binding_nonce: Option<&str>,
         post_relaunch_turn: bool,
     ) {
-        let (
-            current_model,
-            current_model_is_verified,
-            planned_model,
-            requested_model,
-            provider_resolved_model,
-            current_fallback,
-            current_mismatch,
-        ) = {
-            let mux = self.mux.read();
-            let Some(tab) = mux.get_tab(tab_id) else {
-                return;
-            };
-            if !runtime_model_update_matches_binding(tab, agent_id, sid, binding_nonce) {
-                return;
-            }
-            (
-                tab.agent_session_model.clone(),
-                current_session_model_identity(tab, sid).is_some(),
-                tab.agent_planned_model.clone(),
-                tab.agent_requested_model.clone(),
-                tab.agent_provider_resolved_model.clone(),
-                tab.model_fallback.clone(),
-                tab.model_identity_mismatch.clone(),
-            )
-        };
-        let identity_update = model_identity_update(
-            current_model.as_deref(),
-            planned_model.as_deref(),
-            requested_model.as_deref(),
-            provider_resolved_model.as_deref(),
-            current_fallback.clone(),
+        let Some(update) = runtime_update::update(
+            &self.mux,
+            &self.agent_registry,
+            tab_id,
+            agent_id,
+            sid,
             &model,
-            (current_model.is_some()
-                && current_model_is_verified
-                && current_mismatch.is_none()
-                && current_fallback.is_none())
-                || requested_model.as_deref().is_none_or(|requested| {
-                    session_model_matches(&self.agent_registry, agent_id, requested, &model)
-                }),
-        );
-        let mismatch_changed = identity_update.mismatch != current_mismatch;
-        let fallback_changed = identity_update.fallback != current_fallback;
-        if !identity_update.model_changed && !mismatch_changed && !fallback_changed {
-            let model_binding_updated = {
-                let mut mux = self.mux.write();
-                if let Some(tab) = mux.get_tab_mut(tab_id) {
-                    if runtime_model_update_matches_binding(tab, agent_id, sid, binding_nonce) {
-                        let identity = session_model_identity(
-                            tab,
-                            sid,
-                            launch_report.clone(),
-                            post_relaunch_turn,
-                        );
-                        tab.agent_session_model_identity = identity;
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            };
-            if !model_binding_updated {
-                return;
-            }
-            self.persist_attempt_session_model(tab_id, agent_id, sid, &model);
+            launch_report,
+            binding_nonce,
+            post_relaunch_turn,
+        ) else {
             return;
-        }
-        let notice_mismatch = identity_update.mismatch.clone();
-        let mut should_notify = false;
-        let model = Some(model);
-        let updated = {
-            let mut mux = self.mux.write();
-            if let Some(tab) = mux.get_tab_mut(tab_id) {
-                if runtime_model_update_matches_binding(tab, agent_id, sid, binding_nonce) {
-                    if identity_update.model_changed {
-                        log::info!(
-                            "[session-model] tab={} {:?} -> {:?}",
-                            tab_id,
-                            tab.agent_session_model,
-                            model
-                        );
-                    }
-                    should_notify = runtime_mismatch_notice_needed(
-                        tab.model_fallback.as_ref(),
-                        notice_mismatch.as_ref(),
-                    );
-                    tab.agent_session_model = model.clone();
-                    tab.agent_provider_resolved_model = model.clone();
-                    let model_identity =
-                        session_model_identity(tab, sid, launch_report, post_relaunch_turn);
-                    tab.agent_session_model_identity = model_identity;
-                    tab.model_fallback = identity_update.fallback;
-                    tab.model_identity_mismatch = identity_update.mismatch;
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
         };
-        if updated {
-            if should_notify {
-                if let Some(mismatch) = notice_mismatch.as_ref() {
-                    self.notify_session_model_mismatch(tab_id, sid, mismatch);
-                }
-            }
-            self.emit_state_changed();
-            if let Some(model) = model.as_deref() {
-                self.persist_attempt_session_model(tab_id, agent_id, sid, model);
+        if update.model_changed {
+            log::info!(
+                "[session-model] tab={} {:?} -> {:?}",
+                tab_id,
+                update.previous_model,
+                Some(&model)
+            );
+        }
+        if update.should_notify {
+            if let Some(mismatch) = update.mismatch.as_ref() {
+                self.notify_session_model_mismatch(tab_id, sid, mismatch);
             }
         }
+        if update.state_changed {
+            self.emit_state_changed();
+        }
+        self.persist_attempt_session_model(tab_id, agent_id, sid, &model);
     }
 
     fn notify_session_model_mismatch(
@@ -955,23 +873,15 @@ fn session_model_identity(
     launch_report: Option<crate::multiplexer::types::LaunchModelReport>,
     post_relaunch_turn: bool,
 ) -> Option<crate::multiplexer::types::SessionModelIdentity> {
-    let nonce = tab.session_binding_nonce.as_ref()?;
-    let already_confirmed = tab
-        .agent_session_model_identity
-        .as_ref()
-        .is_some_and(|identity| {
-            identity.session_id == session_id
-                && identity.session_binding_nonce == *nonce
-                && identity.model_switch_turn_confirmed
-        });
-    (tab.agent_session_id.as_deref() == Some(session_id)
-        && tab.reported_session_binding_nonce.as_ref() == Some(nonce))
-    .then(|| crate::multiplexer::types::SessionModelIdentity {
-        session_id: session_id.into(),
-        session_binding_nonce: nonce.clone(),
+    runtime_update::bound_identity(
+        tab.agent_session_id.as_deref(),
+        tab.session_binding_nonce.as_deref(),
+        tab.reported_session_binding_nonce.as_deref(),
+        tab.agent_session_model_identity.as_ref(),
+        session_id,
         launch_report,
-        model_switch_turn_confirmed: post_relaunch_turn || already_confirmed,
-    })
+        post_relaunch_turn,
+    )
 }
 
 pub(crate) fn has_current_session_model(

@@ -56,6 +56,7 @@ impl crate::service::ServiceContext {
             Some(crate::multiplexer::types::TabBacking::ChatBackend { .. })
         );
         if is_chatbackend {
+            self.wake_frozen_tab(tab_id)?;
             self.chatbackend_reopen_if_restored(tab_id)?;
         }
         self.bind_planner_session(tab_id);

@@ -88,7 +88,7 @@ pub(super) fn dispatch(
         "plan.resume" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
             authorize_plan_mutation(svc, &id, params)?;
-            let mode = codeterm_service_core::service::resume_team_plan(svc, &id, epoch_ms())
+            let mode = codeterm_orchestration::resume_team_plan(svc, &id, epoch_ms())
                 .map_err(super::team::team_plan_rpc_err)?;
             Ok(json!({ "ok": true, "mode": mode }))
         }

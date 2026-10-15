@@ -666,6 +666,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     backingPluginId(pp) === backingPluginId(np) &&
     backingSessionId(pp) === backingSessionId(np) &&
     pp.protected === np.protected &&
+    pp.frozen === np.frozen &&
     pp.boot_stage === np.boot_stage &&
     pp.boot_failure_reason === np.boot_failure_reason &&
     pp.role_profile === np.role_profile &&

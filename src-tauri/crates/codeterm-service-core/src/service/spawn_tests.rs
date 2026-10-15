@@ -4,6 +4,9 @@ use crate::service::{ServiceContext, SpawnAgentParams};
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[path = "spawn_tests/session_build.rs"]
+mod session_build;
+
 #[path = "spawn_tests/launch_command.rs"]
 mod launch_command;
 #[path = "spawn_tests/model_catalogue.rs"]

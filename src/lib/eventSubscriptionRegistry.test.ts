@@ -13,6 +13,25 @@ function fixture() {
 }
 
 describe("page event subscription ownership", () => {
+  it("signals ready once per connection, catches late subscribers up, and ignores replaced callbacks", () => {
+    const f = fixture();
+    const ready = vi.fn();
+    const lateReady = vi.fn();
+    f.registry.subscribe("/api/events/stream", () => {}, { onReady: ready });
+    expect(ready).not.toHaveBeenCalled();
+    f.connect.mock.calls[0][2]?.onReady?.();
+    f.connect.mock.calls[0][2]?.onReady?.();
+    expect(ready).toHaveBeenCalledTimes(1);
+    f.registry.subscribe("/api/events/stream", () => {}, { onReady: lateReady });
+    expect(lateReady).toHaveBeenCalledTimes(1);
+    const replacement = vi.fn<TransportClient["subscribe"]>(() => vi.fn());
+    f.registry.replace(replacement);
+    f.connect.mock.calls[0][2]?.onReady?.();
+    expect(ready).toHaveBeenCalledTimes(1);
+    replacement.mock.calls[0][2]?.onReady?.();
+    expect(ready).toHaveBeenCalledTimes(2);
+    expect(lateReady).toHaveBeenCalledTimes(2);
+  });
   it("fans out N consumers over one connection and closes only after the last unsubscribe", () => {
     const f = fixture();
     const listeners = Array.from({ length: 20 }, () => vi.fn());

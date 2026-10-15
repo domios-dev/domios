@@ -167,16 +167,8 @@ Pad notes or scalar `--note`; no authored inline.
 
 ### Quiet team heartbeat
 
-Automatic plan reminders (the periodic heartbeat and the mode-change,
-stalled-team, Worker and complete-plan wrap-up reminders) arrive only when the
-connected Supporter approves that reminder with a confident `action_needed`
-choice. Without an adapter, or on a denial, uncertain or invalid answer,
-timeout, error or exhausted cap, none is sent; elapsed silence and hard events
-never force one, and an unchanged observation is never sent twice. Every
-delivered heartbeat names a next step. Reports, owner messages, decisions and
-failure alerts still reach you through their own channels. Record deliberate
-holds with `plan review hold --note-from-pad`.
+Automatic plan reminders use a deterministic rule for both Owners and Workers: an unchanged or healthy unchanged snapshot stays quiet; a new snapshot wakes only when it names a concrete next step from actionable tasks, reports, changed tasks, incidents, owner messages or actionable hard events. Repeated soft wakes of the same class respect the reminder interval, while hard events bypass that cooldown; no Supporter connection or model decision is required. Every delivered heartbeat names its next step, and reports, decisions and failure alerts retain their own delivery channels.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 117 -->
+<!-- revision: 118 -->

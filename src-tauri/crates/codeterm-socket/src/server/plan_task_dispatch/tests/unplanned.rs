@@ -1,9 +1,9 @@
 use super::super::JsonRpcError;
+use codeterm_orchestration::TeamExt;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::plan::{OrchestratorRef, PlanMode, PlanningState, TaskStatus};
 use codeterm_service_core::service::plan::NewTask;
 use codeterm_service_core::service::test_fixture::ServiceFixture;
-use codeterm_service_core::service::TeamExt;
 use codeterm_service_core::service::{SpawnAgentParams, TeamMutationCaller};
 use serde_json::{json, Value};
 

@@ -47,7 +47,7 @@ fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> 
 enum WorkspaceCloseCaller<'a> {
     LocalTab(&'a str),
     AuthenticatedMeshPeer(&'a str),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Human,
     HumanConfirmedHeaderless,
     Unattributed,
@@ -58,7 +58,7 @@ impl WorkspaceCloseCaller<'_> {
         match self {
             Self::LocalTab(_) => "AgentTab",
             Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Self::Human => "Human",
             Self::HumanConfirmedHeaderless => "human-attributed (headerless, confirmed)",
             Self::Unattributed => "Unattributed",
@@ -71,7 +71,7 @@ impl WorkspaceCloseCaller<'_> {
             Self::AuthenticatedMeshPeer(peer_id) => {
                 TeamMutationCaller::AuthenticatedMeshPeer(peer_id.to_string())
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Self::Human => TeamMutationCaller::Human,
             Self::HumanConfirmedHeaderless => TeamMutationCaller::HumanConfirmedHeaderless,
             Self::Unattributed => TeamMutationCaller::Unattributed,
@@ -268,8 +268,8 @@ impl ServiceContext {
             .await
     }
 
-    #[cfg(test)]
-    pub(crate) async fn close_workspace_as_human(
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn close_workspace_as_human(
         &self,
         workspace_id: &str,
         force: bool,
@@ -364,7 +364,7 @@ impl ServiceContext {
                 log::info!("workspace close authorized for mesh peer {peer_id}");
                 false
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             WorkspaceCloseCaller::Human => false,
             WorkspaceCloseCaller::HumanConfirmedHeaderless => false,
             // An empty workspace holds nothing a confirmation would protect.
@@ -407,9 +407,14 @@ impl ServiceContext {
             .close_workspace_members(caller, workspace_id, force)
             .await;
         let service = self.clone();
-        tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
-            .await
-            .map_err(|error| error.to_string())??;
+        match tokio::task::spawn_blocking(move || {
+            service.settle_close_inventory(inventory.as_deref())
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            other => log::warn!("[workspace-close] close history settlement failed: {other:?}"),
+        }
         result
     }
 

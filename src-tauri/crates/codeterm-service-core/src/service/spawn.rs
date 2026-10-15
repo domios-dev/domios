@@ -10,7 +10,7 @@ use crate::agent::registry::AgentRegistry;
 pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
 #[path = "spawn_warnings.rs"]
 mod spawn_warnings;
-pub(crate) use spawn_warnings::merge as merge_spawn_warnings;
+pub use spawn_warnings::merge as merge_spawn_warnings;
 
 pub use super::spawn_cli::{create_cleared_agent_tab, provider_launch_preflight};
 pub use super::spawn_params::chatbackend_spawn_config;
@@ -50,7 +50,7 @@ pub(crate) use spawn_identity::{
     now_unix_secs, params_caller_tab_id, roleless_spawner, spawn_caller_tab_id,
     task_binding_from_spawn,
 };
-pub(crate) use spawn_reasoning_effort::validate_agent_reasoning_effort;
+pub use spawn_reasoning_effort::validate_agent_reasoning_effort;
 
 #[path = "spawn_tab_identity.rs"]
 mod spawn_tab_identity;
@@ -354,7 +354,7 @@ impl ServiceContext {
         }
 
         let (ws_id, ws_cwd, ws_provisioned_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let id = resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
                 spec.parent_tab_id.as_deref(),
@@ -371,7 +371,7 @@ impl ServiceContext {
 
         // Authorized before the tab exists: a non-member caller must never leave
         // an orphan agent behind.
-        let team_attachment = super::team::resolve_spawn_attachment(
+        let team_attachment = super::team_membership::resolve_spawn_attachment(
             &self.mux.read(),
             spec.team_id.as_deref(),
             spec.creator_tab_id.as_deref(),
@@ -549,7 +549,7 @@ impl ServiceContext {
         if let Some(attachment) = &team_attachment {
             let applied = {
                 let mut mux = self.mux.write();
-                super::team::apply_team_attachment(&mut mux, attachment, &tab_id)
+                super::team_membership::apply_team_attachment(&mut mux, attachment, &tab_id)
             };
             if let Err(error) = applied {
                 if tab_created_by_spawn {
@@ -799,7 +799,7 @@ impl ServiceContext {
         }
 
         let ws_id = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             spec.workspace_id
                 .clone()
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
@@ -807,7 +807,7 @@ impl ServiceContext {
                 .ok_or("No workspace for hidden spawn")?
         };
         let (ws_cwd, ws_provisioned_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let workspace = mux.get_workspace(&ws_id);
             (
                 workspace.and_then(|ws| ws.cwd.clone()),
@@ -1076,9 +1076,22 @@ impl ServiceContext {
         cwd: Option<String>,
         env_vars: HashMap<String, String>,
     ) -> Result<String, String> {
+        self.link_hidden_agent_pty_with_builder(tab_id, |gate| {
+            crate::pty::manager::build_session(gate, None, cwd, 120, 40, env_vars)
+        })
+    }
+
+    fn link_hidden_agent_pty_with_builder(
+        &self,
+        tab_id: &str,
+        build: impl FnOnce(
+            crate::pty::manager::PtySpawnGate,
+        ) -> Result<crate::pty::manager::BuiltSession, String>,
+    ) -> Result<String, String> {
         let pty_claim = self.pty_ownership.acquire(tab_id);
-        // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
-        let candidate = self.pty.lock().spawn(None, cwd, 120, 40, env_vars)?.0;
+        let gate = self.pty.lock().spawn_gate();
+        let built = build(gate)?;
+        let candidate = self.pty.lock().register_session(None, built).0;
         super::pty_resize::resize(&self.pty, &self.screen_state, &candidate, None)?;
         let selection = self.link_pty_with_claim(&pty_claim, tab_id, candidate, true);
         if !selection.linked {

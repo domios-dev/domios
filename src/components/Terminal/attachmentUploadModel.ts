@@ -23,6 +23,14 @@ export function canRetryUpload(upload: AttachmentUpload): boolean {
   return upload.state === "failed" && upload.failure?.retryable === true;
 }
 
+export type UploadCardPresence = "persistent" | "hover" | "announce";
+
+/** A failed upload always shows its card so touch users can read it and tap Remove; otherwise only hover reveals it. */
+export function uploadCardPresence(upload: Pick<AttachmentUpload, "state">, hovered: boolean): UploadCardPresence {
+  if (upload.state === "failed") return "persistent";
+  return hovered ? "hover" : "announce";
+}
+
 export function createAttachmentUploads(dependencies: {
   store: (blob: Blob, name: string) => Promise<string>;
   attach: (paths: string[], upload: AttachmentUpload) => unknown;

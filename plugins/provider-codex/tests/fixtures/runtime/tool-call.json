@@ -251,7 +251,7 @@
         "threadId": "thread-fixture",
         "turnId": "turn-a",
         "state": "working",
-        "statusLine": "Running fixture \u00b7 lookup"
+        "statusLine": "fixture \u00b7 lookup"
       },
       {
         "kind": "chatItem",
@@ -281,7 +281,7 @@
         "threadId": "thread-fixture",
         "turnId": "turn-a",
         "state": "working",
-        "statusLine": "Running fixture \u00b7 lookup"
+        "statusLine": "fixture \u00b7 lookup"
       },
       {
         "kind": "chatItem",

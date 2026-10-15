@@ -66,7 +66,7 @@ pub(crate) fn envelope_flow(
     }
 }
 
-pub(crate) fn init() {
+pub fn init() {
     if !crate::paths::is_dev_instance() {
         return;
     }

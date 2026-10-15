@@ -132,7 +132,7 @@ impl ServiceContext {
     }
 
     /// Owner, Team and workspace closes remove surface tabs inside the mux; their runtimes go here.
-    pub(crate) fn dispose_closed_surface_runtimes(&self) {
+    pub fn dispose_closed_surface_runtimes(&self) {
         let closed = self
             .ext::<Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
             .take_closed(|tab_id| self.mux.read().get_tab(tab_id).is_some());

@@ -1,7 +1,7 @@
 use crate::agent::registry::AgentRegistry;
 
 /// Validate against model levels when present and use the provider fallback otherwise.
-pub(crate) fn validate_agent_reasoning_effort(
+pub fn validate_agent_reasoning_effort(
     registry: &AgentRegistry,
     provider_id: &str,
     model: Option<&str>,

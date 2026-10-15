@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
@@ -87,3 +87,49 @@ it("keeps the composer draft and attachment through runtime status changes", asy
   }
 });
 
+
+it("requests one wake when a sleeping tab becomes visible without awaiting materialization", async () => {
+  const tab: Tab = {
+    id: "wake-visible-fixture", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, frozen: true,
+  };
+  const state: ExtendedState = {
+    workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  const calls: string[] = [];
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "wake_tab") {
+      calls.push(String(args?.tabId));
+      return new Promise<T>(() => {});
+    }
+    return Promise.resolve({} as T);
+  });
+  __setListenForTest(async () => () => {});
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const store = createMuxStateStore(() => state);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  const render = (visible: boolean) => act(async () => root.render(
+    <StrictMode><MuxStateStoreContext.Provider value={store}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused={visible} isVisible={visible} onFocusTab={() => {}} onPtySpawned={() => {}}
+          theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider></StrictMode>,
+  ));
+  try {
+    await render(false);
+    expect(calls).toEqual([]);
+    await render(true);
+    expect(calls).toEqual([tab.id]);
+    await render(false);
+    await render(true);
+    expect(calls).toEqual([tab.id]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});

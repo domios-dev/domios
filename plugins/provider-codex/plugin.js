@@ -144,8 +144,35 @@ ${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
   return render(normalized, 0);
 }
 
-// plugins/provider-codex/src/commandLabel.ts
-var MAX_LABEL_CHARS = 160;
+// packages/plugin-sdk/src/fileDiffs.ts
+function recordedPatchDiff(path, patch, kind) {
+  if (!path.trim()) return [];
+  const hunks = [];
+  let current;
+  for (const line of patch.replace(/\n$/, "").split("\n")) {
+    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (header) {
+      current = { oldStart: Number(header[1]), oldLines: Number(header[2] ?? 1), newStart: Number(header[3]), newLines: Number(header[4] ?? 1), lines: [] };
+      hunks.push(current);
+    } else if (current) {
+      if (!/^[ +\-\\]/.test(line)) return [];
+      current.lines.push(line);
+    }
+  }
+  if (hunks.some((h) => h.lines.filter((l) => /^[ -]/.test(l)).length !== h.oldLines || h.lines.filter((l) => /^[ +]/.test(l)).length !== h.newLines)) return [];
+  if (!hunks.length && kind === "modify") return [];
+  const lines = hunks.flatMap((h) => h.lines);
+  return [{
+    path,
+    kind,
+    additions: lines.filter((l) => l.startsWith("+")).length,
+    deletions: lines.filter((l) => l.startsWith("-")).length,
+    hunks
+  }];
+}
+
+// packages/plugin-sdk/src/activityLabel.ts
+var MAX_LABEL_CHARS = 60;
 var POWERSHELL = /* @__PURE__ */ new Set(["pwsh", "powershell"]);
 var POSIX_SHELLS = /* @__PURE__ */ new Set(["bash", "sh", "zsh"]);
 function executableName(token) {
@@ -154,12 +181,13 @@ function executableName(token) {
 }
 function unquoteWhole(value) {
   const trimmed = value.trim();
-  if (trimmed.length < 2 || !trimmed.startsWith('"') || !trimmed.endsWith('"')) return trimmed;
+  if (trimmed.length < 2 || !['"', "'"].includes(trimmed[0]) || trimmed[0] !== trimmed[trimmed.length - 1]) return trimmed;
+  if (!/^"(?:[^"\\]|\\.)*"$/.test(trimmed) && !/^'[^']*'$/.test(trimmed)) return trimmed;
   try {
     const parsed = JSON.parse(trimmed);
     return typeof parsed === "string" ? parsed : trimmed;
   } catch {
-    return trimmed;
+    return trimmed.slice(1, -1);
   }
 }
 function tokenize(source) {
@@ -198,7 +226,7 @@ function tokenize(source) {
   return { tokens, rest: (index) => index < starts.length ? source.slice(starts[index]) : "" };
 }
 function argvParsed(argv) {
-  const display2 = argv.map((argument) => argument === "" || /\s/.test(argument) ? `"${argument}"` : argument);
+  const display2 = argv.map((argument) => argument === "" || /[\s"']/.test(argument) ? JSON.stringify(argument) : argument);
   return { tokens: argv, rest: (index) => display2.slice(index).join(" ") };
 }
 function isCommandSwitch(name, option) {
@@ -218,53 +246,89 @@ function innerCommand(parsed) {
   return null;
 }
 function compact(value) {
-  return value.replace(/\s+/g, " ").trim();
+  return value.split(/\r?\n/, 1)[0].replace(/\s+/g, " ").trim();
 }
 function clip(value) {
   const chars = Array.from(value);
-  return chars.length <= MAX_LABEL_CHARS ? value : chars.slice(0, MAX_LABEL_CHARS - 3).join("").trimEnd() + "...";
+  if (chars.length <= MAX_LABEL_CHARS) return value;
+  const head = chars.slice(0, MAX_LABEL_CHARS - 1).join("");
+  const boundary = head.lastIndexOf(" ");
+  return (boundary > 30 ? head.slice(0, boundary) : head).trimEnd() + "\u2026";
 }
-function commandLabel(command) {
+function unwrapCommand(command, depth = 0) {
   let parsed;
   if (Array.isArray(command) && command.length > 0 && command.every((part) => typeof part === "string")) {
     parsed = argvParsed(command);
   } else if (typeof command === "string") {
-    parsed = tokenize(unquoteWhole(command));
+    parsed = tokenize(unquoteWhole(command).replace(/^&\s+/, ""));
   } else {
     return "";
   }
   if (parsed.tokens.length === 0) return "";
   const inner = innerCommand(parsed);
-  if (inner !== null) return clip(compact(inner));
+  if (inner !== null && depth < 8) return unwrapCommand(inner, depth + 1);
+  const source = parsed.rest(0);
+  const stripped = source.replace(/^(?:Set-Location|cd)\s+(?:"[^"]*"|'[^']*'|[^;&\r\n]+)\s*(?:&&|;)\s*/i, "");
+  if (stripped !== source && depth < 8) return unwrapCommand(stripped, depth + 1);
   const rest = parsed.rest(1);
-  return clip(compact(`${executableName(parsed.tokens[0])}${rest ? " " + rest : ""}`));
+  return compact(`${executableName(parsed.tokens[0])}${rest ? " " + rest : ""}`);
 }
-
-// packages/plugin-sdk/src/fileDiffs.ts
-function recordedPatchDiff(path, patch, kind) {
-  if (!path.trim()) return [];
-  const hunks = [];
-  let current;
-  for (const line of patch.replace(/\n$/, "").split("\n")) {
-    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (header) {
-      current = { oldStart: Number(header[1]), oldLines: Number(header[2] ?? 1), newStart: Number(header[3]), newLines: Number(header[4] ?? 1), lines: [] };
-      hunks.push(current);
-    } else if (current) {
-      if (!/^[ +\-\\]/.test(line)) return [];
-      current.lines.push(line);
-    }
+function record(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function activityCommand(tool) {
+  const input = record(tool.toolInput);
+  const command = input.cmd ?? input.command ?? tool.toolDetail ?? (tool.toolKind === "command" ? tool.toolSummary : void 0);
+  return Array.isArray(command) ? argvParsed(command.map(String)).rest(0) : typeof command === "string" ? command : "";
+}
+function basename(value) {
+  return value.split(/[\\/]/).pop() || "file";
+}
+function activityLabel(tool) {
+  const input = record(tool.toolInput);
+  const name = tool.toolName ?? "";
+  const file = (Array.isArray(tool.fileDiffs) ? record(tool.fileDiffs[0]).path : void 0) ?? input.file_path ?? input.path;
+  if (tool.toolKind === "edit" || /apply_patch|^(?:Edit|Write|MultiEdit)$/i.test(name)) {
+    const patch = typeof tool.toolInput === "string" ? tool.toolInput : String(input.patch ?? input.input ?? "");
+    const path = typeof file === "string" ? file : patch.match(/\*\*\* (?:Update|Add|Delete) File: (.+)/)?.[1] ?? tool.toolSummary;
+    return path ? clip(`Editing ${basename(path.split(/\r?\n/)[0])}`) : "Editing files";
   }
-  if (hunks.some((h) => h.lines.filter((l) => /^[ -]/.test(l)).length !== h.oldLines || h.lines.filter((l) => /^[ +]/.test(l)).length !== h.newLines)) return [];
-  if (!hunks.length && kind === "modify") return [];
-  const lines = hunks.flatMap((h) => h.lines);
-  return [{
-    path,
-    kind,
-    additions: lines.filter((l) => l.startsWith("+")).length,
-    deletions: lines.filter((l) => l.startsWith("-")).length,
-    hunks
-  }];
+  if (tool.toolKind === "read" || /^(?:Read|read_file)$/i.test(name)) {
+    return typeof file === "string" ? clip(`Reading ${basename(file)}`) : "Reading files";
+  }
+  if (tool.toolKind !== "command" && input.cmd === void 0 && input.command === void 0) {
+    return clip(compact(tool.toolTitle || name || "Working"));
+  }
+  const command = activityCommand(tool);
+  if (!command) return clip(compact(tool.toolTitle || name || "Working"));
+  const unwrapped = unwrapCommand(command);
+  const parsed = tokenize(unwrapped);
+  let tokens = parsed.tokens;
+  if (POSIX_SHELLS.has(executableName(tokens[0] ?? "")) && /build\.(?:sh|ps1)$/i.test(tokens[1] ?? "")) tokens = tokens.slice(1);
+  if (["npx", "pnpm", "npm", "yarn", "bun"].includes(executableName(tokens[0] ?? "").toLowerCase())) {
+    tokens = tokens.slice(1);
+    if (["exec", "run", "x"].includes(tokens[0])) tokens = tokens.slice(1);
+  }
+  const exe = executableName(tokens[0] ?? "").toLowerCase();
+  if (exe === "tsc") return "Checking types";
+  if (["vitest", "jest", "test"].includes(exe) || exe === "node" && tokens.includes("--test")) return "Running tests";
+  if (exe === "build.sh" || exe === "build.ps1") return clip(`Build: ${tokens[1] || "build"}`);
+  if (exe === "git") {
+    let index = 1;
+    while (tokens[index]?.startsWith("-")) index += ["-C", "-c", "--git-dir", "--work-tree"].includes(tokens[index]) ? 2 : 1;
+    return clip(`git ${tokens[index] || ""}`.trim());
+  }
+  if (exe === "apply_patch") {
+    const path = command.match(/\*\*\* (?:Update|Add|Delete) File: ([^\r\n]+)/)?.[1];
+    return path ? clip(`Editing ${basename(path)}`) : "Editing files";
+  }
+  if (exe === "rg" || exe === "grep") return "Searching";
+  if (["cat", "get-content"].includes(exe) || exe === "sed" && tokens[1] === "-n") {
+    const args = tokens.slice(exe === "sed" ? 3 : 1);
+    const path = args.find((token) => !token.startsWith("-"));
+    return path ? clip(`Reading ${basename(path)}`) : "Reading files";
+  }
+  return clip(unwrapped) || "Working";
 }
 
 // plugins/provider-codex/src/runtimeDiffs.ts
@@ -516,8 +580,8 @@ function runtimeItem(raw, seq, previous) {
       return { ...row2, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
     case "commandExecution":
       row2.toolKind = "command";
-      row2.toolDetail = String(item.command ?? "");
-      row2.toolSummary = commandLabel(item.command) || row2.toolDetail;
+      row2.toolDetail = activityCommand({ toolInput: item });
+      row2.toolSummary = activityLabel(row2);
       if (typeof item.aggregatedOutput === "string") row2.toolResult = item.aggregatedOutput;
       else if (previous?.toolResult !== void 0) row2.toolResult = previous.toolResult;
       if (typeof item.exitCode === "number") row2.toolExitCode = item.exitCode;
@@ -897,7 +961,7 @@ function pendingCall(state) {
 }
 function runningCallStatus(state) {
   const row2 = pendingCall(state);
-  return row2 ? Array.from(`Running ${row2.toolTitle || row2.toolSummary || row2.toolName || "tool call"}`).slice(0, 160).join("") : void 0;
+  return row2 ? activityLabel(row2) : void 0;
 }
 function abandonOpenTurn(state, threadId, nextTurnId) {
   const previous = state.activeTurnId;
@@ -1672,16 +1736,16 @@ function collectHistoryItems(op, state, turn, entries) {
   let questions = list(state.questions);
   let bytes = serializedBytes({ items, openItems, questions });
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
-    const record4 = object(entries[index]);
-    const rawItem = historyItem(record4.item ?? record4);
+    const record5 = object(entries[index]);
+    const rawItem = historyItem(record5.item ?? record5);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
     const rows = boundHistoryRows(runtimeItems(rawItem, seq + 1));
-    const timestamp = record4.startedAtMs ?? record4.completedAtMs;
+    const timestamp = record5.startedAtMs ?? record5.completedAtMs;
     for (const row2 of rows) {
       row2.toolFlowId = String(turn.id);
       if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
     }
-    const active = turn.status === "inProgress" && turn.startedAt != null && record4.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const active = turn.status === "inProgress" && turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
     if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
@@ -1763,7 +1827,7 @@ function statusCode2(value) {
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
   return null;
 }
-function classifyAccessError(error, record4) {
+function classifyAccessError(error, record5) {
   const detail = object2(error);
   const info = detail?.codexErrorInfo;
   const infoObject = object2(info);
@@ -1778,11 +1842,11 @@ function classifyAccessError(error, record4) {
     typeof info === "string" ? info : null,
     ...Object.keys(infoObject ?? {}),
     ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
-    record4.status,
-    record4.statusCode,
-    record4.status_code,
-    record4.apiErrorStatus,
-    record4.apiErrorCode
+    record5.status,
+    record5.statusCode,
+    record5.status_code,
+    record5.apiErrorStatus,
+    record5.apiErrorCode
   ];
   const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
   const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
@@ -1806,15 +1870,15 @@ function readRetry(value) {
   }
   return null;
 }
-function retryAfterSecs(error, record4) {
-  return readRetry(object2(error)) ?? readRetry(record4);
+function retryAfterSecs(error, record5) {
+  return readRetry(object2(error)) ?? readRetry(record5);
 }
-function observationTurnId(record4) {
+function observationTurnId(record5) {
   for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
-    const value = record4[key];
+    const value = record5[key];
     if (typeof value === "string" && value) return value;
   }
-  const payload = object2(record4.payload);
+  const payload = object2(record5.payload);
   if (!payload) return null;
   for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
     const value = payload[key];
@@ -1822,32 +1886,32 @@ function observationTurnId(record4) {
   }
   return null;
 }
-function observationRetrying(error, record4) {
-  return record4.willRetry === true || object2(error)?.willRetry === true;
+function observationRetrying(error, record5) {
+  return record5.willRetry === true || object2(error)?.willRetry === true;
 }
-function observationExtras(error, record4) {
+function observationExtras(error, record5) {
   const extras = {};
-  const retry = retryAfterSecs(error, record4);
+  const retry = retryAfterSecs(error, record5);
   if (retry != null) extras.retry_after_secs = retry;
-  const turn = observationTurnId(record4);
+  const turn = observationTurnId(record5);
   if (turn) extras.turn_id = turn;
-  if (observationRetrying(error, record4)) extras.retrying = true;
+  if (observationRetrying(error, record5)) extras.retrying = true;
   return extras;
 }
 
 // plugins/provider-codex/src/signals.ts
 function parseSessionObservations(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record4 = value;
-  if (record4.type !== "event_msg" || !record4.payload || typeof record4.payload !== "object" || Array.isArray(record4.payload)) return null;
-  const payload = record4.payload;
+  const record5 = value;
+  if (record5.type !== "event_msg" || !record5.payload || typeof record5.payload !== "object" || Array.isArray(record5.payload)) return null;
+  const payload = record5.payload;
   if (payload.type === "error") {
     const error = payload.error ?? payload;
     return {
       api_error: classifyAccessError(error, payload),
       permission_mode: null,
       clears_api_error: false,
-      ...observationExtras(error, record4)
+      ...observationExtras(error, record5)
     };
   }
   if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
@@ -2721,7 +2785,7 @@ function updateAvailable(current, latest) {
   }
   return false;
 }
-function record(value) {
+function record2(value) {
   if (typeof value !== "string") return null;
   try {
     const parsed = JSON.parse(value);
@@ -2731,7 +2795,7 @@ function record(value) {
   }
 }
 function checkCodexUpdate(host2) {
-  const installed = record(host2.exec(JSON.stringify({
+  const installed = record2(host2.exec(JSON.stringify({
     bin: "codex",
     args: ["--version"],
     timeoutMs: 5e3
@@ -2739,13 +2803,13 @@ function checkCodexUpdate(host2) {
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
   const current = installed.stdout.match(/\d+\.\d+\.\d+/)?.[0];
   if (!current) return null;
-  const response = record(host2.fetch(JSON.stringify({
+  const response = record2(host2.fetch(JSON.stringify({
     url: "https://registry.npmjs.org/@openai%2Fcodex/latest",
     method: "GET",
     timeoutMs: 6e3
   })));
   if (response?.status !== 200 || typeof response.body !== "string") return null;
-  const metadata = record(response.body);
+  const metadata = record2(response.body);
   const latest = metadata?.version;
   return updateAvailable(current, latest) && typeof latest === "string" ? { currentVersion: current, latestVersion: latest } : null;
 }
@@ -2999,7 +3063,7 @@ var AGENT_STATES = {
 function text3(value) {
   return typeof value === "string" ? value.trim() : "";
 }
-function record2(value) {
+function record3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function row(uuid, blocks, ts, timestamp) {
@@ -3029,7 +3093,7 @@ function reasoningItemRow(item, ts, timestamp) {
 function reasoningResponseRow(payload, ts, timestamp) {
   const parts = Array.isArray(payload.summary) ? payload.summary : [];
   const summaries = parts.map((part) => {
-    const entry = record2(part);
+    const entry = record3(part);
     return entry && entry.type === "summary_text" ? entry.text : void 0;
   });
   return thoughtRow(payload.id, summaries, ts, timestamp);
@@ -3044,8 +3108,8 @@ function subAgentRow(item, id, turnId, ts, timestamp) {
 }
 function collabCallRow(item, turnId, ts, timestamp) {
   const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
-  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record2) : [];
-  const states = record2(item.agents_states);
+  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record3) : [];
+  const states = record3(item.agents_states);
   const seen = [];
   const blocks = [];
   for (const receiver of receivers) {
@@ -3053,7 +3117,7 @@ function collabCallRow(item, turnId, ts, timestamp) {
     if (!agentId || seen.indexOf(agentId) !== -1) continue;
     seen.push(agentId);
     const agentPath = text3(agents.find((entry) => entry !== null && text3(entry.thread_id) === agentId)?.agent_path);
-    const state = AGENT_STATES[text3(record2(states?.[agentId])?.status)] ?? "unknown";
+    const state = AGENT_STATES[text3(record3(states?.[agentId])?.status)] ?? "unknown";
     blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
   }
   return row(text3(item.id) ? `collab-${text3(item.id)}` : "", blocks, ts, timestamp);
@@ -3062,7 +3126,7 @@ function agentMessageRow(payload, ts, timestamp) {
   const from = text3(payload.author);
   const to = text3(payload.recipient);
   if (!from || !to || from === to) return null;
-  const turnId = record2(payload.internal_chat_message_metadata_passthrough)?.turn_id;
+  const turnId = record3(payload.internal_chat_message_metadata_passthrough)?.turn_id;
   const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
   return row(text3(payload.id) ? `agent-message-${text3(payload.id)}` : "", [block], ts, timestamp);
 }
@@ -3071,11 +3135,11 @@ function agentMessageRow(payload, ts, timestamp) {
 function text4(value) {
   return typeof value === "string" ? value : "";
 }
-function record3(value) {
+function record4(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function webFields(source) {
-  const action = record3(source.action);
+  const action = record4(source.action);
   const rich = { kind: "web" };
   const query = text4(source.query) || text4(action?.query);
   if (query) rich.query = query;
@@ -3106,7 +3170,7 @@ function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts
   };
 }
 function webSearchEndResult(payload, ts, timestamp) {
-  const source = record3(payload);
+  const source = record4(payload);
   const id = text4(source?.call_id);
   if (!source || !id) return null;
   const rich = webFields(source);
@@ -3115,7 +3179,7 @@ function webSearchEndResult(payload, ts, timestamp) {
   return resultMessage(`result-${id}`, id, "web_search", rich, summary, summary, false, source.turn_id, ts, timestamp);
 }
 function imageGenerationEndResult(payload, ts, timestamp) {
-  const source = record3(payload);
+  const source = record4(payload);
   const id = text4(source?.call_id);
   if (!source || !id) return null;
   const rich = { kind: "image", origin: "generated" };

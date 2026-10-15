@@ -244,7 +244,7 @@ pub(crate) fn refresh_installed_cli_with(
 }
 
 /// Install bundled CLI binary to the active data-dir bin/ on startup (runs in background).
-pub(crate) fn install_bundled_cli(app: &crate::app_runtime::App) {
+pub fn install_bundled_cli(app: &crate::app_runtime::App) {
     if !should_install_bundled_cli(std::env::var("CODETERM_DEV").as_deref() == Ok("1")) {
         log::debug!("[cli-install] Dev CLI is owned by build.sh, skipping bundled refresh");
         return;

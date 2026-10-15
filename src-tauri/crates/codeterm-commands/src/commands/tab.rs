@@ -169,7 +169,7 @@ fn chat_start_inner(
     }
     let (provider_id, cwd, session_id, context_epoch_archives, mux_ms) = {
         let t = std::time::Instant::now();
-        let m = svc.mux.write();
+        let m = svc.mux.read();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;
         let Some(provider) = tab.agent_type.clone() else {
             if tab.agent_booting || tab.boot_stage.is_some() {
@@ -531,7 +531,7 @@ pub fn chat_backfill_core(
         );
     }
     let (provider_id, cwd, session_id, session_binding_nonce) = {
-        let m = svc.mux.write();
+        let m = svc.mux.read();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;
         (
             tab.agent_type.clone().ok_or("no agent_type")?,

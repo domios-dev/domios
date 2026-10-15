@@ -10,7 +10,7 @@ use axum::{
 use base64::Engine as _;
 use serde::Deserialize;
 
-use crate::routes::{check_auth, resolve_tab, AppState};
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::service::mesh_attachment::*;
 
 const ENCODED_MAX_BYTES: usize = (MESH_ATTACHMENT_MAX_BYTES as usize).div_ceil(3) * 4;
@@ -50,7 +50,9 @@ pub async fn ingest(
     Json(req): Json<IngestRequest>,
 ) -> Result<Json<IngestedAttachment>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    resolve_tab(&state, &id).map_err(|(s, e)| (s, e.to_string()))?;
+    crate::routes::resolve_tab_async(&state, &id)
+        .await
+        .map_err(|(s, e)| (s, e.to_string()))?;
     let (name, bytes) = decode_ingest(&req).map_err(|r| (r.status(), r.message()))?;
     let stored = crate::web_routes::store_upload(
         &codeterm_service_core::service::web_access::uploads_dir(),

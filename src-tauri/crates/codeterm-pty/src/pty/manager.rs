@@ -679,30 +679,6 @@ impl PtyManager {
         self.spawn_gate.clone()
     }
 
-    pub fn spawn(
-        &mut self,
-        command: Option<String>,
-        cwd: Option<String>,
-        cols: u16,
-        rows: u16,
-        env_vars: HashMap<String, String>,
-    ) -> Result<(String, Arc<PtySession>), String> {
-        self.spawn_with_id(None, command, cwd, cols, rows, env_vars)
-    }
-
-    pub fn spawn_with_id(
-        &mut self,
-        custom_id: Option<String>,
-        command: Option<String>,
-        cwd: Option<String>,
-        cols: u16,
-        rows: u16,
-        env_vars: HashMap<String, String>,
-    ) -> Result<(String, Arc<PtySession>), String> {
-        let built = build_session(self.spawn_gate.clone(), command, cwd, cols, rows, env_vars)?;
-        Ok(self.register_session(custom_id, built))
-    }
-
     /// Insert a pre-built session into the manager. Holds the manager lock only
     /// long enough to insert into the HashMap — the heavy `openpty` +
     /// `CreateProcess` work has already happened in `build_session`.

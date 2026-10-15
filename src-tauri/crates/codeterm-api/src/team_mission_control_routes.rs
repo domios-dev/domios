@@ -241,13 +241,23 @@ pub async fn state(
     Query(query): Query<TeamMissionControlQuery>,
 ) -> Result<Json<TeamMissionControlState>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let team = state
-        .svc
-        .mux
-        .read()
-        .get_team(&team_id)
-        .cloned()
-        .ok_or((StatusCode::NOT_FOUND, "team not found".to_string()))?;
+    let owner = state.clone();
+    let target = team_id.clone();
+    let team = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let team_id = target;
+        let mux = state.svc.mux.read();
+        mux.get_team(&team_id)
+            .cloned()
+            .ok_or((StatusCode::NOT_FOUND, "team not found".to_string()))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })??;
     let store = state.svc.plan_store.clone();
     let limit = query.bounded_limit();
     let cursor = query.cursor;

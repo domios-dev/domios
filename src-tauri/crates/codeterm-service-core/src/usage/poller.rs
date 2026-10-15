@@ -566,7 +566,7 @@ fn probe_command_for(svc: &ServiceContext, provider: &str) -> Option<String> {
 }
 
 fn visible_tabs_for_provider(svc: &ServiceContext, provider: &str) -> Vec<String> {
-    let mux = svc.mux.write();
+    let mux = svc.mux.read();
     let snap = mux.snapshot();
     snap.tabs
         .values()

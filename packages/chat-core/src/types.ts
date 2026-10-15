@@ -146,13 +146,13 @@ export interface ChatSessionIntent {
 /** Discriminated union, open for future interactive session-event kinds. */
 export type InteractiveElement = InteractiveQuestion;
 
-export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg"> {
+export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg" | "segments"> {
   id: string;
   /** An explicit source identity supplied by a projection adapter. */
   sourceMessageId?: string;
   type: ChatMessageKind;
   content: string;
-  messageParts?: import("./messageParts").MessagePart[];
+  segments?: import("./envelope").MessageSegment[] | null;
   attachments?: ChatAttachment[];
   timestamp?: string;
   /** Monotonic source-order ordinal supplied by the server (JSONL line/rich-message

@@ -755,26 +755,26 @@ export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
   );
 }
 
-export function renderUserContent(rawContent: string): React.ReactNode {
+export function renderUserContent(rawContent: string, parseTransport = true): React.ReactNode {
   const parts = localArtifactTextParts(rawContent);
   if (parts.some((part) => part.directive)) {
     return <>{parts.map((part, index) => part.directive
       ? <RichMarkdown key={index} text={part.text} />
-      : <React.Fragment key={index}>{renderPlainUserContent(part.text)}</React.Fragment>)}</>;
+      : <React.Fragment key={index}>{renderPlainUserContent(part.text, parseTransport)}</React.Fragment>)}</>;
   }
-  return renderPlainUserContent(rawContent);
+  return renderPlainUserContent(rawContent, parseTransport);
 }
 
-function renderPlainUserContent(rawContent: string): React.ReactNode {
+function renderPlainUserContent(rawContent: string, parseTransport: boolean): React.ReactNode {
   const content = decodeCliMessageText(rawContent);
   const discussion = parseAttachedDiscussionDoc(content);
   if (discussion) return <AttachedDiscussionDocView doc={discussion} />;
-  const voice = parseVoiceMessage(content);
+  const voice = parseTransport ? parseVoiceMessage(content) : null;
   if (voice) return <VoiceCard v={voice} />;
-  const pluginConfig = parsePluginConfigMessage(content);
+  const pluginConfig = parseTransport ? parsePluginConfigMessage(content) : null;
   if (pluginConfig) return <PluginConfigCard c={pluginConfig} />;
   // Non-voice attachment markers (photo/document/video/file) → file badge.
-  const mk = parseMarker(content.trim());
+  const mk = parseTransport ? parseMarker(content.trim()) : null;
   if (mk && ["photo", "file", "document", "video", "audio", "sticker"].includes(mk.kind)) {
     const fp = mk.attrs.file ?? "";
     const name = mk.attrs.name || (fp ? fileName(fp) : mk.kind);

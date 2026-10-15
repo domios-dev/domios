@@ -763,8 +763,6 @@ fn assert_payloads_agree(provenance: &WorkerLaneProvenance, project: &Path) {
 fn response_and_dispatch_ready_share_canonical_project_path() {
     let fixture = fixture();
 
-    // A pre-created lane verified against itself still names its owning
-    // repository's primary checkout canonical, resolved through the common git dir.
     let pre_created = fixture.root.path().join("pre-created");
     super::git(
         &fixture.project,
@@ -788,7 +786,8 @@ fn response_and_dispatch_ready_share_canonical_project_path() {
     .unwrap();
     assert!(
         same_dir(&pre_created_provenance.canonical_cwd, &fixture.project),
-        "the precondition: a lane verified against itself names the project canonical"
+        "an existing lane names its owning repository's primary checkout as canonical: {}",
+        pre_created_provenance.canonical_cwd
     );
     assert_payloads_agree(&pre_created_provenance, &fixture.project);
 

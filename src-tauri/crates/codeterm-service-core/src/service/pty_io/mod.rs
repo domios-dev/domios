@@ -58,3 +58,5 @@ mod restore_replay_tests;
 pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;
+
+pub use submit_transaction::notify_submit_cycle_status_transition;

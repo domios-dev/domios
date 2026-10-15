@@ -34,7 +34,8 @@ pub use codeterm_cron::schedule::{
     parse_tz, to_6field, validate_schedule, validate_tz, MAX_CONSECUTIVE_FAILURES, STALE_FIRE_MS,
 };
 
-pub(crate) use crud::{CronChange, CronScope, Prepared, RunSession};
+pub use crud::{CronChange, CronScope};
+pub(crate) use crud::{Prepared, RunSession};
 pub use storage::commit;
 pub(crate) use storage::finish_run;
 pub(crate) use storage::finish_run_with_summary;

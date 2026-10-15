@@ -72,61 +72,93 @@ pub fn apply(
     {
         return;
     }
-    let changed = {
-        let mut mux = svc.mux.write();
-        let Some(tab) = mux.get_tab_mut(tab_id) else {
-            return;
-        };
-        if tab.agent_type.as_deref() != Some(&provider)
-            || tab.agent_session_id.as_deref() != Some(session)
-            || tab.session_binding_nonce.as_deref() != Some(nonce)
-        {
-            return;
-        }
-        let before = tab.provider_signals.background.clone();
-        for record in records {
-            if record
-                .provider_session_id
-                .as_deref()
-                .is_some_and(|id| id != session)
-            {
-                continue;
-            }
-            if tab.fork_source_session_id.is_some()
-                && record.provider_session_id.as_deref() != Some(session)
-            {
-                continue;
-            }
-            for block in &record.blocks {
-                if let Some(id) = block
-                    .data
-                    .get("tool_background_task_id")
-                    .and_then(serde_json::Value::as_str)
-                {
-                    let label = block
-                        .data
-                        .get("tool_summary")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("");
-                    tab.provider_signals.background.observe(
-                        &BackgroundWorkObservation {
-                            id: id.into(),
-                            state: BackgroundWorkState::Running,
-                        },
-                        label,
-                    );
-                }
-            }
-            for observation in &record.background_work {
-                tab.provider_signals.background.observe(observation, "");
-            }
-        }
-        before != tab.provider_signals.background
+    let matches_binding = |tab: &crate::multiplexer::types::Tab| {
+        tab.agent_type.as_deref() == Some(&provider)
+            && tab.agent_session_id.as_deref() == Some(session)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
     };
-    if changed {
-        svc.emit_state_changed();
-        super::provider_update::background_work_changed(svc, tab_id);
+    for _ in 0..2 {
+        let (before, fork_source) = {
+            let mux = svc.mux.read();
+            let Some(tab) = mux.get_tab(tab_id).filter(|tab| matches_binding(tab)) else {
+                return;
+            };
+            (
+                tab.provider_signals.background.clone(),
+                tab.fork_source_session_id.clone(),
+            )
+        };
+        let mut next = observe_background_records(&before, fork_source.is_some(), session, records);
+        let changed = next != before;
+        let committed = {
+            let mut mux = svc.mux.write();
+            let Some(tab) = mux.get_tab_mut(tab_id) else {
+                return;
+            };
+            if matches_binding(tab)
+                && tab.fork_source_session_id == fork_source
+                && tab.provider_signals.background == before
+            {
+                std::mem::swap(&mut tab.provider_signals.background, &mut next);
+                true
+            } else {
+                false
+            }
+        };
+        if committed {
+            if changed {
+                svc.emit_state_changed();
+                super::provider_update::background_work_changed(svc, tab_id);
+            }
+            return;
+        }
     }
+    log::debug!("[background-work] discarded contended update tab={tab_id}");
+}
+
+fn observe_background_records(
+    previous: &codeterm_types::agent::background_work::BackgroundRoster,
+    forked: bool,
+    session: &str,
+    records: &[crate::agent::chat_types::RichMessage],
+) -> codeterm_types::agent::background_work::BackgroundRoster {
+    let mut roster = previous.clone();
+    for record in records {
+        if record
+            .provider_session_id
+            .as_deref()
+            .is_some_and(|id| id != session)
+        {
+            continue;
+        }
+        if forked && record.provider_session_id.as_deref() != Some(session) {
+            continue;
+        }
+        for block in &record.blocks {
+            if let Some(id) = block
+                .data
+                .get("tool_background_task_id")
+                .and_then(serde_json::Value::as_str)
+            {
+                let label = block
+                    .data
+                    .get("tool_summary")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                roster.observe(
+                    &BackgroundWorkObservation {
+                        id: id.into(),
+                        state: BackgroundWorkState::Running,
+                    },
+                    label,
+                );
+            }
+        }
+        for observation in &record.background_work {
+            roster.observe(observation, "");
+        }
+    }
+    roster
 }
 
 pub(crate) fn force_notice(svc: &ServiceContext, tab: &str, items: &[String]) {
@@ -151,18 +183,7 @@ pub(crate) fn force_notice(svc: &ServiceContext, tab: &str, items: &[String]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn restart_guard_refuses_named_work_and_allows_explicit_force() {
-        let items = vec!["shell-fixture".into(), "agent-fixture".into()];
-        assert!(
-            matches!(restart_guard(items.clone(),false),Err(super::super::agent_restart::AgentRestartError::BackgroundWork{items:running}) if running==items)
-        );
-        assert!(restart_guard(items, true).is_ok());
-        assert!(restart_guard(Vec::new(), false).is_ok());
-    }
-}
+mod tests;
 
 pub fn incomplete_snapshot(svc: &ServiceContext, tab_id: &str, session: &str, nonce: &str) {
     let mut mux = svc.mux.write();

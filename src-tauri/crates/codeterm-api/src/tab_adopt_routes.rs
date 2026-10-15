@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use super::routes::{resolve_tab, AppState};
+use super::routes::AppState;
 use codeterm_service_core::service::tab_adopt::{
     TabAdoptError, TabAdoptErrorKind, TabAdoptResponse, TAB_ADOPT_PROVIDER_REQUIRED,
 };
@@ -78,9 +78,11 @@ async fn adopt_agent_inner(
     headers: HeaderMap,
     request: TabAdoptRequest,
 ) -> Result<TabAdoptResponse, ApiAdoptError> {
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(status, message)| {
-        ApiAdoptError::new(status, "tab_adopt_target_not_found", message)
-    })?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|(status, message)| {
+            ApiAdoptError::new(status, "tab_adopt_target_not_found", message)
+        })?;
     let provider = request
         .provider
         .as_deref()

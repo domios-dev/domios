@@ -8,7 +8,7 @@ pub(crate) enum ScrollbackRestoreOutcome {
     Skipped { reason: &'static str },
 }
 
-pub(crate) fn load_restored_scrollback_tails(
+pub fn load_restored_scrollback_tails(
     mux: &mut MultiplexerState,
     session: &SessionState,
 ) -> Vec<(String, &'static str)> {

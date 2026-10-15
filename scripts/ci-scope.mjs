@@ -57,7 +57,7 @@ export function classifyPaths(files, plugins) {
   return { frontend, rust, plugins: frontend || rust ? [] : plugins.filter((entry) => selected.has(entry.id)).map(({ id, path }) => ({ id, path })) };
 }
 
-// Pull requests run fast checks only; the release run and the nightly own the heavy Rust and CLI matrix.
+// Pull requests run fast checks only; release workflow_call and manual dispatch own the heavy Rust and CLI matrix.
 export function scopeForRun(files, plugins, fullMatrix = false, fastOnly = false, frontendOnly = false) {
   if (frontendOnly) return { frontend: true, rust: false, plugins: [], heavy: false };
   const scope = fullMatrix ? { frontend: true, rust: true, plugins: [] } : classifyPaths(files, plugins);

@@ -162,19 +162,19 @@ test("master accepts pull requests only from release branches", () => {
 test("reusable tests require the release SHA and force scope through both skip gates", () => {
   assert.ok(Object.hasOwn(tests.on, "pull_request"));
   assert.ok(Object.hasOwn(tests.on, "workflow_dispatch"));
-  assert.deepEqual(tests.on.schedule, [{ cron: "0 1 * * *" }], "the nightly full matrix on develop");
+  assert.equal(tests.on.schedule, undefined, "no nightly trigger without a scheduled catalogue tier");
   assert.equal(tests.on.workflow_call.inputs.source_ref.required, true);
   assert.equal(tests.on.workflow_call.inputs.source_ref.type, "string");
   assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase"]);
   const changed = tests.jobs.changed;
   assert.equal(changed.if, "${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}", "only a release branch's own pull request skips; release calls inherit the push event");
-  assert.equal(changed.steps.find(step => step.id === "tree").env.CI_RELEASE_CALL, "${{ inputs.source_ref != '' || github.event_name == 'schedule' }}");
+  assert.equal(changed.steps.find(step => step.id === "tree").env.CI_RELEASE_CALL, "${{ inputs.source_ref != '' }}");
   const scopeEnv = changed.steps.find(step => step.id === "scope").env;
-  assert.equal(scopeEnv.CI_FULL_MATRIX, "${{ (inputs.source_ref != '' && inputs.scope != 'frontend') || github.event_name == 'schedule' }}");
+  assert.equal(scopeEnv.CI_FULL_MATRIX, "${{ (inputs.source_ref != '' && inputs.scope != 'frontend') }}");
   assert.equal(scopeEnv.CI_FRONTEND_ONLY, "${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}");
   for (const job of Object.values(tests.jobs)) {
     for (const step of (job.steps || []).filter(step => step.uses?.startsWith("actions/checkout@"))) {
-      assert.equal(step.with.ref, "${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}");
+      assert.equal(step.with.ref, "${{ inputs.source_ref || github.ref }}");
     }
   }
 });

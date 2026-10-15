@@ -505,6 +505,7 @@ impl ServiceContext {
     /// Deliver one user turn to a chatBackend tab, re-opening a restored tab's
     /// dead session first so the raw send doesn't hit a session with no poll loop.
     pub(crate) fn chatbackend_tab_send(&self, tab_id: &str, text: &str) -> Result<(), String> {
+        self.wake_frozen_tab(tab_id)?;
         if super::agent_runtime::requested_for_tab(self, tab_id) {
             return super::agent_runtime::transport::send(self, tab_id, text, None)
                 .map_err(|error| error.ledger_message());

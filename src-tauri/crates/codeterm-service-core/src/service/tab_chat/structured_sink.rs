@@ -39,10 +39,15 @@ pub fn emit_chat_msgs(
     source_session_id: Option<&str>,
     session_binding_nonce: Option<&str>,
 ) {
+    let messages: Vec<_> = messages
+        .iter()
+        .cloned()
+        .map(ChatMsg::with_segments)
+        .collect();
     let event = format!("tab-chat-msg-{}", tab_id);
     let payload = ChatMsgEvent {
         tab_id,
-        messages,
+        messages: &messages,
         cursor,
         start_offset: None,
         offset: None,
@@ -77,6 +82,7 @@ impl StructuredSink for TauriStructuredSink {
     }
 
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
+        let messages: Vec<_> = messages.into_iter().map(ChatMsg::with_segments).collect();
         if let (Some(session_id), Some(binding_nonce)) = (
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
@@ -609,19 +615,19 @@ mod tests {
             tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
         }
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-        fixture
-            .service
-            .pty
-            .lock()
-            .spawn_with_id(
-                Some("pty-current".into()),
-                None,
-                None,
-                120,
-                40,
-                Default::default(),
+        {
+            let gate = fixture.service.pty.lock().spawn_gate();
+            crate::pty::manager::build_session(gate, None, None, 120, 40, Default::default()).map(
+                |built| {
+                    fixture
+                        .service
+                        .pty
+                        .lock()
+                        .register_session(Some("pty-current".into()), built)
+                },
             )
-            .expect("the exact PTY session must be attached before admission");
+        }
+        .expect("the exact PTY session must be attached before admission");
         let service_state = Arc::new(fixture.service.clone()) as crate::service::ServiceState;
         assert!(fixture._app.manage(service_state));
         fixture

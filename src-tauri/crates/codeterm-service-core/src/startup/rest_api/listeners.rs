@@ -19,7 +19,7 @@ struct PublicationState {
 }
 
 impl ListenerPublication {
-    pub(crate) fn configure(&self, remote: Option<SocketAddr>, observer: Observer) {
+    pub fn configure(&self, remote: Option<SocketAddr>, observer: Observer) {
         let mut state = self.state.lock();
         state.remote_bind = remote;
         state.observer = Some(observer);
@@ -81,7 +81,7 @@ impl ListenerPublication {
     }
 }
 
-pub(crate) fn additional_bind(
+pub fn additional_bind(
     config: &crate::config::schema::ApiConfig,
     dev_build: bool,
 ) -> Result<Option<SocketAddr>, String> {
