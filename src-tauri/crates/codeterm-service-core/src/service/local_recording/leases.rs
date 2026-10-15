@@ -57,7 +57,7 @@ pub(crate) struct CaptureLeaseView {
 }
 
 #[derive(Default)]
-pub(crate) struct RecordingLeases {
+pub struct RecordingLeases {
     state: Mutex<LeaseState>,
     write_tickets: Mutex<HashMap<String, WriteTicket>>,
     clips: CaptureClips,
@@ -78,7 +78,7 @@ struct LeaseState {
 }
 
 impl RecordingLeases {
-    pub(crate) fn set_manual_capture(&self, active: bool) -> Result<(), String> {
+    pub fn set_manual_capture(&self, active: bool) -> Result<(), String> {
         let mut state = self.state.lock();
         if active
             && state

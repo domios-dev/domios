@@ -1057,6 +1057,6 @@ pub use plan_pause::{PlanPausePorts, ServicePlanPausePorts};
 pub use worker_ack::STARTUP_BINDING_DEADLINE;
 
 pub use background_work::incomplete_snapshot;
-pub use local_recording::{CaptureClipDescriptor, LocalRecordingCommitOutcome};
+pub use local_recording::{CaptureClipDescriptor, LocalRecordingCommitOutcome, RecordingLeases};
 pub use orchestrator::mark_tab_agent_launch_started;
 pub use pty_ownership::{LinkOutcome, PtyOwnership, PtySelection, TabPtyClaim};
