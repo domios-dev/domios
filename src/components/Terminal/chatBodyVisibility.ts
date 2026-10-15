@@ -18,7 +18,6 @@ export interface ChatBodyInput {
 export function chatBodyView(input: ChatBodyInput): ChatBodyView {
   if (input.hasTranscript) return { kind: "none" };
   if (input.unavailable) return { kind: "failed", reason: input.unavailable };
-  if (input.chatLoading) return { kind: "starting", label: "Starting" };
   return input.bootView;
 }
 

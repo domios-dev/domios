@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 // Run: npx tsx src/store/multiplexer/reducer.test.ts
 // SET_STATE monotonic generation guard (T3 Fix B): a snapshot whose generation
 
@@ -60,6 +61,17 @@ function snapWithTeams(generation: number, teams: Team[]): MultiplexerState {
     teams,
   };
 }
+
+test("AgentReady event clears launching with no snapshot", () => {
+  const state = base();
+  state.tabs.ready = { ...tab("ready"), agent_type: "fixture", agent_booting: true,
+    boot_stage: "agent_launching", backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "" } };
+  assert(tabActivity(state.tabs.ready).launching, "launch starts pending");
+  const next = reducer(state, { type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", agent_booting: false, session_bound: true });
+  assert(next.tabs.ready.agent_booting === false, "event clears booting");
+  assert(next.tabs.ready.session_bound === true, "event binds session");
+  assert(!tabActivity(next.tabs.ready).launching, "event releases launch");
+});
 
 test("SET_STATE copies the exact incoming teams array", () => {
   const teams: Team[] = [{
