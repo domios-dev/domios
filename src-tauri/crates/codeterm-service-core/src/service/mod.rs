@@ -323,6 +323,7 @@ pub(crate) use worker_persona::{WorkerIdentityAllocator, WorkerPersonaReservatio
 
 mod configuration;
 pub(crate) mod extensions;
+mod host_extensions;
 pub(crate) use extensions::Extensions;
 pub use extensions::ExtensionsBuilder;
 
@@ -391,6 +392,7 @@ pub struct ServiceContext {
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub gateway: Arc<crate::service::message_gateway::MessageGateway>,
     pub(crate) extensions: Arc<Extensions>,
+    host_extensions: Arc<host_extensions::HostExtensions>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

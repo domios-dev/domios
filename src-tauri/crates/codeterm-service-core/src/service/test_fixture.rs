@@ -659,11 +659,12 @@ impl ServiceFixture {
             worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
             gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
             extensions: Arc::new(extensions.finish()),
+            host_extensions: Default::default(),
         };
         assert!(app.manage(Arc::clone(&service.mux)));
         let owner = Arc::new(service.clone());
-        repo_sink.bind_service(Arc::downgrade(&owner));
         assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
+        repo_sink.bind_service(Arc::downgrade(&owner));
         crate::ports::orchestration::install_fixture(&owner);
         Self {
             service,

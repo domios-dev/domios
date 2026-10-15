@@ -7,7 +7,9 @@ pub fn register_deep_links(
     use tauri_plugin_deep_link::DeepLinkExt;
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     app.deep_link().register_all()?;
+    let callback_app = app.clone();
     let dispatch = move |urls: Vec<url::Url>| {
+        let app = callback_app.clone();
         let service = service.clone();
         codeterm_service_core::async_runtime::spawn(async move {
             for url in urls {
@@ -20,9 +22,14 @@ pub fn register_deep_links(
                         let _ = service
                             .refresh_billing(codeterm_billing::RefreshEvent::CheckoutReturned)
                             .await;
-                        let shell = service.shell.clone();
+                        let app = app.clone();
                         let _ = tokio::task::spawn_blocking(move || {
-                            let _ = shell.focus_window("main");
+                            use tauri::Manager;
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
                         })
                         .await;
                     }
