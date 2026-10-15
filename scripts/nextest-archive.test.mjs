@@ -11,6 +11,8 @@ const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' 
 test('exact archived selector argv passes nextest parsing and rejects the old Cargo selection', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'archive-argv-'));
   try {
+    fs.mkdirSync(path.join(directory, 'src-tauri'));
+    fs.writeFileSync(path.join(directory, 'src-tauri/Cargo.toml'), '[workspace]\n');
     const capture = spawnSync(bash, ['-c', `
       set -euo pipefail
       source "$1/scripts/nextest-archive.sh"
@@ -25,7 +27,8 @@ test('exact archived selector argv passes nextest parsing and rejects the old Ca
     const argv = fs.readFileSync(path.join(directory, 'argv'), 'utf8').split('\0').slice(0, -1);
     const workspace = fs.readFileSync(path.join(directory, 'workspace'), 'utf8').trim();
     assert.equal(path.posix.basename(workspace), path.basename(directory));
-    assert.deepEqual(argv, ['--archive-file', workspace + '/missing.tar.zst', '--workspace-remap', workspace, '--filter-expr', 'package(=codeterm-service-core) & kind(lib)', '--no-tests=fail', 'opaque selector']);
+    assert.deepEqual(argv, ['--archive-file', workspace + '/missing.tar.zst', '--workspace-remap', workspace + '/src-tauri', '--filter-expr', 'package(=codeterm-service-core) & kind(lib)', '--no-tests=fail', 'opaque selector']);
+    assert.match(fs.readFileSync(path.join(directory, 'src-tauri/Cargo.toml'), 'utf8'), /\[workspace\]/);
     const scoped = fs.readFileSync(path.join(directory, 'scoped-argv'), 'utf8').split('\0').slice(0, -1);
     assert.equal(scoped.at(-1), 'package(=codeterm-service-core) & kind(lib) & (test(opaque) | test(other))');
     const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
@@ -48,6 +51,8 @@ test('one atomic root and core archive per SHA is reused by app selectors withou
     const result = spawnSync(bash, ['-c', `
       set -euo pipefail
       source "$1/scripts/nextest-archive.sh"
+      mkdir src-tauri
+      printf '[workspace]\\n' > src-tauri/Cargo.toml
       head=opaque-sha
       CT_BUILD_JOB_ID=opaque-job
       git() { case "$1" in rev-parse) echo "$head" ;; diff) return 0 ;; esac; }
