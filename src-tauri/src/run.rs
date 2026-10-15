@@ -11,6 +11,7 @@ pub fn run(
         tauri::Builder<codeterm_service_core::app_runtime::Runtime>,
     ) -> tauri::Builder<codeterm_service_core::app_runtime::Runtime>,
 ) {
+    codeterm_service_core::async_runtime::install(tauri::async_runtime::handle().inner().clone());
     // Never automatic: only an explicit `repair-user-path` argv reaches it.
     startup::run_user_path_repair_if_invoked();
 
@@ -447,6 +448,9 @@ pub fn run(
             let svc_ctx = codeterm_service_core::service::build_service_context(
                 &states,
                 &app_handle,
+                Arc::new(crate::host_ports::TauriUiEvents(app_handle.clone())),
+                Arc::new(crate::host_ports::TauriShell(app_handle.clone())),
+                codeterm_service_core::async_runtime::handle().clone(),
                 agent_registry,
                 &chatbackend_registry,
                 mem,
