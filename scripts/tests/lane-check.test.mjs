@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
+import { laneBuildDirectory } from '../lane-build-dir.mjs';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 
@@ -35,9 +36,9 @@ test('machine cache root selects the lane directory without a workspace hash', (
     set -eu
     source scripts/lane-check.sh
     unset CODETERM_RUST_CACHE_ROOT CARGO_BUILD_BUILD_DIR
-    configure_lane_build_dir
-    [ "$CARGO_BUILD_BUILD_DIR" = "\${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes" ]
-    CARGO_HOME="$PWD/cargo-home"
+    CARGO_HOME="$PWD/cache-home"
+    if command -v cygpath >/dev/null 2>&1; then CARGO_HOME="$(cygpath -m "$CARGO_HOME")"; fi
+    export CARGO_HOME
     configure_lane_build_dir
     [ "$CARGO_BUILD_BUILD_DIR" = "$CARGO_HOME/codeterm-lanes" ]
     CODETERM_RUST_CACHE_ROOT="$PWD/cache"
@@ -48,6 +49,17 @@ test('machine cache root selects the lane directory without a workspace hash', (
   `], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.ok(result.stdout.replaceAll('\\', '/').endsWith('/cache/lanes'));
+});
+
+test('shared resolver respects machine root, Cargo home and native home on every platform', () => {
+  for (const platform of ['linux', 'darwin']) {
+    assert.equal(laneBuildDirectory({ env: { CODETERM_RUST_CACHE_ROOT: '/cache', CARGO_HOME: '/cargo' }, platform }), '/cache/lanes');
+    assert.equal(laneBuildDirectory({ env: { CARGO_HOME: '/cargo' }, platform }), '/cargo/codeterm-lanes');
+    assert.equal(laneBuildDirectory({ env: {}, home: '/home/user', platform }), '/home/user/.cargo/codeterm-lanes');
+  }
+  assert.equal(laneBuildDirectory({ env: { CODETERM_RUST_CACHE_ROOT: 'C:\\cache root', CARGO_HOME: 'D:/cargo' }, platform: 'win32' }), 'C:/cache root/lanes');
+  assert.equal(laneBuildDirectory({ env: { CARGO_HOME: '/d/cargo home' }, platform: 'win32' }), 'd:/cargo home/codeterm-lanes');
+  assert.equal(laneBuildDirectory({ env: {}, home: 'C:\\Users\\User', platform: 'win32' }), 'C:/Users/User/.cargo/codeterm-lanes');
 });
 
 test('lane checks cap Cargo jobs, propagate errors and request tests only when needed', () => {
