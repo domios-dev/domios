@@ -2,7 +2,7 @@ use super::approval::{admit, scope_key, scope_keys, ReminderOutcome};
 use super::tests::{plan, task};
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
+use crate::plan::TaskExecutionAttempt;
 use crate::service::hierarchy::heartbeat_gate::{Telemetry, Worker};
 use crate::service::supporter::SupporterRuntime;
 use parking_lot::Mutex;
