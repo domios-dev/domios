@@ -54,7 +54,7 @@ pub(crate) const CONTRACT_CORE: &[CoreFragment] = &[
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OverlayKind {
+pub struct OverlayKind {
     pub id: String,
     pub label: String,
     pub guidance: String,

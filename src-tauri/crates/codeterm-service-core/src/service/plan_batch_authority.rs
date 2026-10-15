@@ -29,7 +29,7 @@ pub(crate) enum BatchAuthority<'a> {
 
 /// The refused attempt, named on both sides so "who set this task done?" stays
 /// answerable from the caller's own error and from the daemon log alike.
-pub(crate) struct BatchRefusal {
+pub struct BatchRefusal {
     pub(crate) message: String,
     pub(crate) attempting_tab: Option<String>,
     pub(crate) plan_id: String,
