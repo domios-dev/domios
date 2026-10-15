@@ -88,8 +88,10 @@ pub(crate) fn contains_exact_user_turn_since(
             };
             let from_offset = cursor.jsonl_offset.unwrap_or(*transcript_offset);
             let Some(delta) = registry.with_provider(&anchor.provider_id, |provider| {
-                provider.parse_session_delta(&path, from_offset)
-            }) else {
+                turn_window::bounded_jsonl_delta(&path, from_offset, |offset| {
+                    provider.parse_session_delta(&path, offset)
+                })
+            }).flatten() else {
                 return false;
             };
             cursor.jsonl_offset = Some(delta.new_offset.max(from_offset));

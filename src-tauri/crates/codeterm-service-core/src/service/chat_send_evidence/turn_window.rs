@@ -1,5 +1,28 @@
 use super::{AgentRegistry, EvidenceWindow, SendEvidenceAnchor};
 
+pub(super) fn bounded_jsonl_delta(
+    path: &std::path::Path,
+    from_offset: u64,
+    parse: impl FnOnce(u64) -> crate::agent::chat_types::SessionDelta,
+) -> Option<crate::agent::chat_types::SessionDelta> {
+    let total = std::fs::metadata(path).ok()?.len();
+    bounded_append_window(from_offset, total, parse)
+}
+
+fn bounded_append_window<T>(from: u64, total: u64, read: impl FnOnce(u64) -> T) -> Option<T> {
+    let available = total.checked_sub(from)?;
+    if available == 0 || available > codeterm_plugin::jsonl_window::DELTA_CHUNK_BYTES {
+        log::debug!(
+            "[session-turn-evidence] skip append window offset={} total={} bytes={}",
+            from,
+            total,
+            available,
+        );
+        return None;
+    }
+    Some(read(from))
+}
+
 #[derive(Clone)]
 pub(super) struct StructuredUserTurn {
     pub(super) id: Option<String>,
@@ -62,8 +85,11 @@ pub(crate) fn window_evidence_records(
             }
             registry
                 .with_provider(&anchor.provider_id, |provider| {
-                    provider.parse_session_delta(&path, *transcript_offset)
+                    bounded_jsonl_delta(&path, *transcript_offset, |offset| {
+                        provider.parse_session_delta(&path, offset)
+                    })
                 })
+                .flatten()
                 .map(|delta| {
                     delta
                         .messages
@@ -192,3 +218,6 @@ pub(super) fn rich_evidence_segments(rich: &crate::agent::chat_types::RichMessag
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;
