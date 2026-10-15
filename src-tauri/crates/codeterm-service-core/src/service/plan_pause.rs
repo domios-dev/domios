@@ -61,7 +61,7 @@ pub(crate) struct PlanLifecyclePreview {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub(crate) struct PlanLifecycleOutcome {
+pub struct PlanLifecycleOutcome {
     pub(crate) kind: PlanLifecycleKind,
     pub(crate) plan_id: String,
     pub(crate) applied: bool,

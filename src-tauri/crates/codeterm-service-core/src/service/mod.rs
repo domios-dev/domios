@@ -275,7 +275,7 @@ pub use inject_verify::{
     InjectionResult, VerifyOpts,
 };
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::{
     arm_provider_session_for_test, launch_waits_for_first_turn_binding, spawn_onboarding_task,
     LaunchGeneration,

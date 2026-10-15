@@ -14,7 +14,7 @@ fn valid_cli_binary(binary: &str) -> bool {
 
 /// Why a launch was refused before anything was created.
 #[derive(Debug, Clone)]
-pub(crate) enum ProviderPreflightError {
+pub enum ProviderPreflightError {
     UnknownProvider {
         provider_id: String,
         available: Vec<String>,
@@ -95,7 +95,7 @@ impl std::fmt::Display for ProviderPreflightError {
 /// Proof that a provider's launch binary was observed BEFORE a tab existed.
 /// `create_cleared_agent_tab` takes one, so a refusal cannot leave a tab behind.
 #[derive(Debug)]
-pub(crate) struct LaunchClearance {
+pub struct LaunchClearance {
     pub(crate) warning: Option<String>,
 }
 
