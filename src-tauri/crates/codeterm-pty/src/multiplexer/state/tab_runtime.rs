@@ -395,7 +395,12 @@ impl MultiplexerState {
     }
 
     fn close_tab_cascade_inner(&mut self, tab_id: &str) -> Result<Vec<String>, String> {
-        let child_ids = self.get_children_ids(tab_id);
+        let team_id = self.tabs.get(tab_id).and_then(|tab| tab.team_id.clone());
+        let child_ids: Vec<_> = self
+            .get_children_ids(tab_id)
+            .into_iter()
+            .filter(|id| self.tabs.get(id).is_some_and(|tab| tab.team_id == team_id))
+            .collect();
         let mut pty_ids = self.close_tab_inner(tab_id)?;
         for child_id in child_ids {
             if self.tabs.contains_key(&child_id) {

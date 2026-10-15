@@ -407,9 +407,14 @@ impl ServiceContext {
             .close_workspace_members(caller, workspace_id, force)
             .await;
         let service = self.clone();
-        tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
-            .await
-            .map_err(|error| error.to_string())??;
+        match tokio::task::spawn_blocking(move || {
+            service.settle_close_inventory(inventory.as_deref())
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            other => log::warn!("[workspace-close] close history settlement failed: {other:?}"),
+        }
         result
     }
 

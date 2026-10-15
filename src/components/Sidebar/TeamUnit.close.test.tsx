@@ -34,9 +34,11 @@ async function main() {
         providers={[]}
         onOpenEffort={() => {}}
         onCloseTeam={() => { closes += 1; }}
+        closing
       />,
     );
   });
+  assert(host.querySelector('[role="status"][aria-busy="true"][aria-label="Closing Team"]'), "closing status has an accessible name");
   await act(async () => (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
   const close = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
     .find((button) => button.textContent?.includes("Close Team")) as HTMLButtonElement;
