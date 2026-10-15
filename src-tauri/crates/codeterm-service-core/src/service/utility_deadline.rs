@@ -9,7 +9,7 @@ use super::utility_deadline_model::{parse_timeout, DeadlineAction, DeadlineModel
 use super::ServiceContext;
 
 #[derive(Clone, Serialize, Deserialize)]
-struct Deadline {
+pub struct Deadline {
     tab_id: String,
     owner: String,
     started_ms: u64,
@@ -19,7 +19,7 @@ struct Deadline {
     command_started_ms: Option<u64>,
 }
 
-struct Armed {
+pub struct Armed {
     deadline: Deadline,
     cancel: mpsc::Sender<()>,
 }

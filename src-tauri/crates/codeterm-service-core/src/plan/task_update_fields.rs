@@ -53,7 +53,7 @@ pub enum TaskUpdateSeam {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct TaskUpdateInputError {
+pub struct TaskUpdateInputError {
     pub unknown_key: Option<String>,
     accepted_keys: Vec<&'static str>,
     message: Option<String>,
