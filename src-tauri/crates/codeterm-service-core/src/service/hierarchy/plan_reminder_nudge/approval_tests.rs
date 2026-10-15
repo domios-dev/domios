@@ -419,7 +419,7 @@ fn plan_reminder_rule_rejects_unbound_worker_and_blocked_task() {
     f.edit_tab(&f.worker, |tab| tab.reported_session_binding_nonce = None);
     assert_eq!(
         f.admit(ReminderKind::Worker, 101),
-        ReminderOutcome::Suppressed("binding_missing")
+        ReminderOutcome::Suppressed("recipient_unavailable")
     );
     assert_eq!(f.emits(), 0);
 }
