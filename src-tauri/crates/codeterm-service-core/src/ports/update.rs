@@ -10,7 +10,7 @@ pub(crate) type CheckFuture<'a> =
     Pin<Box<dyn Future<Output = Result<AvailabilitySnapshot, String>> + Send + 'a>>;
 
 /// Updater entry points startup calls; the root registers them before `run`.
-pub(crate) struct UpdateHooks {
+pub struct UpdateHooks {
     pub(crate) bind_status_emitter: fn(AppHandle),
     pub(crate) check: for<'a> fn(
         &'a AppHandle,

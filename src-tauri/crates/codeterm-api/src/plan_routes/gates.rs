@@ -23,7 +23,7 @@ fn resolve_routed_tab(state: &AppState, plan_id: &str) -> Option<String> {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct GateAskBody {
+pub struct GateAskBody {
     question: String,
     #[serde(default)]
     context: String,
@@ -171,7 +171,7 @@ pub async fn gate_ask(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct GateListQuery {
+pub struct GateListQuery {
     #[serde(default)]
     open_only: Option<bool>,
 }
@@ -192,7 +192,7 @@ pub async fn gate_list(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct GateAnswerBody {
+pub struct GateAnswerBody {
     answer: String,
     #[serde(default)]
     answered_by_tab_id: Option<String>,
@@ -224,7 +224,7 @@ pub async fn gate_answer(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct GateEscalateBody {
+pub struct GateEscalateBody {
     #[serde(default)]
     note: Option<String>,
 }

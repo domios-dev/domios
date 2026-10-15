@@ -12,7 +12,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 pub(crate) mod listeners;
 mod restart;
 mod streams;
-pub(crate) use restart::RestartAcceptance;
+pub use restart::RestartAcceptance;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -31,11 +31,11 @@ pub enum RestApiDiagnostic {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct RestApiStatus {
+pub struct RestApiStatus {
     pub(crate) generation: u64,
     pub(crate) phase: RestApiPhase,
-    pub(crate) diagnostic: Option<RestApiDiagnostic>,
-    pub(crate) message: Option<String>,
+    pub diagnostic: Option<RestApiDiagnostic>,
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,16 +47,16 @@ pub(crate) struct RestApiRecovery {
 /// A configured bind the live socket does not serve. Exists because the bind is
 /// snapshotted at process start, so a config write cannot move it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct PendingBind {
-    pub(crate) live: String,
-    pub(crate) configured: String,
+pub struct PendingBind {
+    pub live: String,
+    pub configured: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct RestApiRuntimePolicy {
-    pub(crate) enabled: bool,
-    pub(crate) cors: bool,
-    pub(crate) cors_allow_origins: Vec<String>,
+    pub enabled: bool,
+    pub cors: bool,
+    pub cors_allow_origins: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -71,7 +71,7 @@ struct RestApiLifecycle {
 
 #[derive(Clone)]
 pub struct RestApiControl {
-    pub(crate) listeners: listeners::ListenerPublication,
+    pub listeners: listeners::ListenerPublication,
     transition: Arc<Mutex<()>>,
     sender: Arc<Mutex<Option<mpsc::UnboundedSender<RestApiCommand>>>>,
     lifecycle: Arc<Mutex<RestApiLifecycle>>,
@@ -122,7 +122,7 @@ enum GenerationEvent {
 }
 
 impl RestApiControl {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let status = RestApiStatus {
             generation: 0,
             phase: RestApiPhase::Starting,

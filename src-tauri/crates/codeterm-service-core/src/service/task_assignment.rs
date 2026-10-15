@@ -4,7 +4,7 @@ use crate::service::plan::interruption::TaskMutationAuthority;
 use crate::service::plan::task_assignment::AssignmentRuntimeBinding;
 use crate::service::plan::{PlanError, PlanStore};
 
-pub(crate) struct ExistingTaskAssignment {
+pub struct ExistingTaskAssignment {
     binding: Option<AssignmentRuntimeBinding>,
     role: Option<String>,
 }

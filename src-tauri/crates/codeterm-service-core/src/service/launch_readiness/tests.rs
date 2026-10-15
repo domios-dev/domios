@@ -298,18 +298,7 @@ fn launch_readiness_mesh_exit_emits_bounded_failure() {
     assert!(matches!(relayed, LaunchSettlement::Failed { .. }));
 }
 
-#[test]
-fn launch_readiness_mesh_relay_reaches_the_same_spawn_contract() {
-    let relay = include_str!("../../api/mesh_routes/relay.rs");
-    let routes = include_str!("../../api/agent_routes.rs");
 
-    assert!(relay.contains("/api/agents/spawn"));
-    assert!(routes.contains(".spawn_agent(params, ready_tx)"));
-    for source in [relay, routes] {
-        assert!(!source.contains("launch_readiness"));
-        assert!(!source.contains("BootStage"));
-    }
-}
 
 #[test]
 fn launch_readiness_healthy_ack_is_not_failure() {

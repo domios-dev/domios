@@ -169,7 +169,7 @@ pub async fn restore_session_backup_api(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct SearchSessionsQuery {
+pub struct SearchSessionsQuery {
     q: String,
     #[serde(default)]
     provider: Option<String>,
@@ -246,7 +246,7 @@ pub async fn get_session_api(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ResumeSessionBody {
+pub struct ResumeSessionBody {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]

@@ -123,7 +123,7 @@ fn evict_oldest_hook_binding_fallback(fallbacks: &mut HookBindingFallbacks) {
     }
 }
 
-pub(crate) struct HookBindingFallbackRetry {
+pub struct HookBindingFallbackRetry {
     provider_id: String,
     session_id: String,
     settled: bool,

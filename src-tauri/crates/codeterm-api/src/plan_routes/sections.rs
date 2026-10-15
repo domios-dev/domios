@@ -13,7 +13,7 @@ use super::{
 };
 
 #[derive(Deserialize)]
-pub(crate) struct SectionAddBody {
+pub struct SectionAddBody {
     #[serde(alias = "name")]
     title: String,
     #[serde(default)]
@@ -60,7 +60,7 @@ pub async fn section_add(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct IngestBody {
+pub struct IngestBody {
     markdown: String,
 }
 
@@ -83,7 +83,7 @@ pub async fn ingest(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct SectionUpdateBody {
+pub struct SectionUpdateBody {
     #[serde(default)]
     #[serde(alias = "name")]
     title: Option<String>,

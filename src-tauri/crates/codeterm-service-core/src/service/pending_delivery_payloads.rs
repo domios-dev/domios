@@ -35,10 +35,10 @@ impl std::fmt::Display for PayloadStoreError {
 impl std::error::Error for PayloadStoreError {}
 
 #[derive(Clone)]
-pub(crate) struct PendingDeliveryPayloadStore {
+pub struct PendingDeliveryPayloadStore {
     dir: PathBuf,
     sink: Arc<dyn LogPayloadEventSink>,
-    pub(crate) user_sends: Arc<user_sends::UserSendStore>,
+    pub user_sends: Arc<user_sends::UserSendStore>,
     pub(crate) agent_deliveries: Arc<agent_deliveries::AgentDeliveryStore>,
     pub(crate) readiness_events:
         Arc<super::output_feed::delivery_readiness::DeliveryReadinessEvents>,

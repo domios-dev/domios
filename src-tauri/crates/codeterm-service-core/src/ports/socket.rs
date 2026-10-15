@@ -28,13 +28,13 @@ pub struct DispatchStartup {
     pub attempt_id: String,
     pub parent_tab_id: String,
     pub worker_title: String,
-    pub(crate) original_task: Task,
-    pub(crate) original_plan_mode: PlanMode,
-    pub(crate) lane_for_commit: TaskLaneMetadata,
+    pub original_task: Task,
+    pub original_plan_mode: PlanMode,
+    pub lane_for_commit: TaskLaneMetadata,
     pub canonical_project_path: String,
     pub provenance: Option<WorkerLaneProvenance>,
     pub provisioned_lane: Option<ProvisionedWorkerLane>,
-    pub(crate) lane_protection: LaneProtection,
+    pub lane_protection: LaneProtection,
     pub spawn_command: String,
 }
 

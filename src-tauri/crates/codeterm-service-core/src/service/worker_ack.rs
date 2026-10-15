@@ -33,7 +33,7 @@ const COLD_START_MEASUREMENT_METHOD: &str =
     "visible-spawn launch to first session binding in lifecycle logs";
 pub(crate) const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
 pub(crate) const ATTEMPT_STATE_FINALIZED: &str = "finalized";
-pub(crate) const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
+pub const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
 pub(crate) const REMOTE_WORKER_ACK_DEADLINE: Duration =
     Duration::from_secs(COLD_START_DEADLINE_SECS * 2);
 const WORKER_ACK_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;

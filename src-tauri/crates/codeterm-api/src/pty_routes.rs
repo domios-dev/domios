@@ -12,7 +12,7 @@ use std::time::Duration;
 use crate::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]
-pub(crate) struct PtySpawnBody {
+pub struct PtySpawnBody {
     command: Option<String>,
     cwd: Option<String>,
     cols: u16,
@@ -45,7 +45,7 @@ pub async fn pty_spawn(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct PtyTailQuery {
+pub struct PtyTailQuery {
     offset: Option<u64>,
 }
 
@@ -88,7 +88,7 @@ pub async fn pty_read(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct PtyWriteBody {
+pub struct PtyWriteBody {
     data: String,
     /// Mirrors the Tauri command: raw=false means "composed text" — bracket
     /// paste + verified Enter for agent tabs. Defaults to true (xterm
@@ -159,7 +159,7 @@ pub async fn pty_write(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct PtyResizeBody {
+pub struct PtyResizeBody {
     cols: u16,
     rows: u16,
     client_id: Option<String>,
@@ -189,7 +189,7 @@ pub async fn pty_resize(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ResizeOwnerBody {
+pub struct ResizeOwnerBody {
     pty_id: String,
     client_id: String,
     cols: u16,
@@ -199,7 +199,7 @@ pub(crate) struct ResizeOwnerBody {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct PtyLaunchCommandBody {
+pub struct PtyLaunchCommandBody {
     command: String,
 }
 

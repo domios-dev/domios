@@ -3,14 +3,14 @@ use crate::session::lifecycle::AgentTypeWriteOrigin;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderIdentityEvidence {
-    pub(crate) cwd: Option<String>,
+    pub cwd: Option<String>,
     pub(crate) session_id: Option<String>,
     pub(crate) configured_nonce: Option<String>,
     pub(crate) reported_nonce: Option<String>,
 }
 
 impl ProviderIdentityEvidence {
-    pub(crate) fn capture(tab: &Tab) -> Self {
+    pub fn capture(tab: &Tab) -> Self {
         Self {
             cwd: tab.cwd.clone(),
             session_id: tab.agent_session_id.clone(),
@@ -19,7 +19,7 @@ impl ProviderIdentityEvidence {
         }
     }
 
-    pub(crate) fn nonce_verified(&self) -> bool {
+    pub fn nonce_verified(&self) -> bool {
         self.session_id.is_some()
             && self.configured_nonce.is_some()
             && self.configured_nonce == self.reported_nonce
@@ -27,7 +27,7 @@ impl ProviderIdentityEvidence {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum ProviderIdentityWrite {
+pub enum ProviderIdentityWrite {
     Applied {
         previous: Option<String>,
         current: String,

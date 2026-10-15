@@ -158,7 +158,7 @@ impl ServiceContext {
     /// The tab's agent turn just settled, which is the one event that means its
     /// provider log grew. Bound to the turn boundary itself and never to a tab
     /// status value: a tab whose status never flips still finishes turns.
-    pub(crate) fn on_agent_turn_settled(&self, tab_id: &str) {
+    pub fn on_agent_turn_settled(&self, tab_id: &str) {
         self.request_kpi_usage_ingest(tab_id);
         self.record_lane_turn_boundary(tab_id);
     }

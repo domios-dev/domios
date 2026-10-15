@@ -97,7 +97,7 @@ pub struct SurfaceOpenRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct SurfaceTabRow {
+pub struct SurfaceTabRow {
     pub tab_id: String,
     pub workspace_id: Option<String>,
     pub plugin_id: String,
@@ -108,7 +108,7 @@ pub(crate) struct SurfaceTabRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct DeclaredSurfaceRow {
+pub struct DeclaredSurfaceRow {
     pub plugin_id: String,
     pub surface_id: String,
     pub title: String,

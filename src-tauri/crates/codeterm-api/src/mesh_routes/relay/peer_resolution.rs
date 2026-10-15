@@ -93,7 +93,7 @@ pub(super) type ResolvedRelayPeer = (
 /// A relay answer that names the peer instance that produced it, so a caller
 /// addressing by name learns which machine actually answered.
 #[derive(serde::Serialize)]
-pub(crate) struct PeerRelayResponse {
+pub struct PeerRelayResponse {
     #[serde(flatten)]
     pub(super) response: codeterm_service_core::mesh::types::RelayResponse,
     pub(super) peer: AnsweringPeer,

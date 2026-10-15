@@ -151,7 +151,7 @@ impl Handle {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn fixture_handle(store: Store, app: crate::app_runtime::AppHandle) -> Handle {
     Handle {
         store: Arc::new(Mutex::new(store)),

@@ -16,7 +16,7 @@ pub enum TeamPlanCreationError {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TeamPlanCreationOutcome {
+pub struct TeamPlanCreationOutcome {
     pub plan: Plan,
     pub team_id: String,
     pub team_minted: bool,
@@ -30,7 +30,7 @@ pub struct TeamPlanCaller {
 }
 
 impl TeamPlanCreationOutcome {
-    pub(crate) fn apply_to_response(&self, response: &mut serde_json::Value) {
+    pub fn apply_to_response(&self, response: &mut serde_json::Value) {
         response["team_id"] = serde_json::json!(self.team_id);
         response["team_minted"] = serde_json::json!(self.team_minted);
         if !self.team_minted {
@@ -79,7 +79,7 @@ impl ServiceContext {
         Ok(outcome)
     }
 
-    pub(crate) fn create_team_plan_for_caller(
+    pub fn create_team_plan_for_caller(
         &self,
         title: String,
         project_path: String,
@@ -120,7 +120,7 @@ impl ServiceContext {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn create_team_plan_for_caller(
+pub fn create_team_plan_for_caller(
     mux: &MuxState,
     plan_store: &PlanStore,
     title: String,

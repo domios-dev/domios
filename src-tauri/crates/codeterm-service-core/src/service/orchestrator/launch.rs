@@ -78,9 +78,9 @@ pub struct LaunchGeneration {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderSessionBinding {
-    pub(crate) pty_id: String,
-    pub(crate) binding_nonce: String,
+pub struct ProviderSessionBinding {
+    pub pty_id: String,
+    pub binding_nonce: String,
 }
 
 pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
@@ -92,7 +92,7 @@ pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBin
     }
     recorded
 }
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn arm_provider_session_for_test(tab_id: &str, pty_id: &str, nonce: &str) -> LaunchGeneration {
     let launch = LaunchGeneration::begin(tab_id, pty_id.to_string());
     LAUNCH_REGISTRY

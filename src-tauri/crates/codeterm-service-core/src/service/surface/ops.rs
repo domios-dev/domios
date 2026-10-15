@@ -13,13 +13,13 @@ use crate::service::team::{
 use crate::service::ServiceContext;
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct SurfaceList {
+pub struct SurfaceList {
     pub declared: Vec<DeclaredSurfaceRow>,
     pub open: Vec<SurfaceTabRow>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct SurfaceClosed {
+pub struct SurfaceClosed {
     pub tab_id: String,
     pub warnings: Vec<String>,
 }

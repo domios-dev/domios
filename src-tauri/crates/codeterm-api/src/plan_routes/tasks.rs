@@ -183,7 +183,7 @@ mod dependency_field_tests {
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct TaskAddBody {
+pub struct TaskAddBody {
     #[serde(default)]
     files: codeterm_service_core::plan::TaskFiles,
     name: String,
@@ -627,7 +627,7 @@ fn task_update_core(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct TaskCloseBody {
+pub struct TaskCloseBody {
     #[serde(default)]
     result: Option<String>,
     #[serde(default)]
@@ -710,7 +710,7 @@ pub async fn task_close(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct TaskAssignBody {
+pub struct TaskAssignBody {
     tab: String,
     #[serde(default)]
     peer: Option<String>,

@@ -25,7 +25,7 @@ pub(crate) fn valid_theme_id(id: &str) -> bool {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct SaveThemeBody {
+pub struct SaveThemeBody {
     id: String,
     toml: String,
 }
@@ -82,7 +82,7 @@ pub async fn delete_theme_api(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ApplyThemeBody {
+pub struct ApplyThemeBody {
     name: String,
 }
 

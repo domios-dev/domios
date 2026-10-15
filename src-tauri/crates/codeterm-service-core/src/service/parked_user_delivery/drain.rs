@@ -5,7 +5,7 @@ impl super::super::ServiceContext {
         self.wake_user_owner(&record.authority.tab_id, UserWake::Admission);
     }
 
-    pub(crate) fn drain_user_owner(&self, tab_id: &str) -> Result<UserDrain, String> {
+    pub fn drain_user_owner(&self, tab_id: &str) -> Result<UserDrain, String> {
         if super::super::agent_runtime::requested_for_tab(self, tab_id) {
             return super::super::agent_runtime::user_delivery::drain(self, tab_id);
         }

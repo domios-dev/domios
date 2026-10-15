@@ -44,7 +44,7 @@ pub async fn serve_status_handler(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct ServeEnableBody {
+pub struct ServeEnableBody {
     https_port: Option<u16>,
 }
 
@@ -99,7 +99,7 @@ pub async fn serve_disable_handler(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct KeepAwakeStartBody {
+pub struct KeepAwakeStartBody {
     duration_secs: Option<u64>,
     display: Option<bool>,
     gnome_policy: Option<bool>,

@@ -95,11 +95,11 @@ pub struct SpawnTabSpec {
     pub eager: bool,
     pub command: TabCommand,
     #[serde(skip)]
-    pub(crate) chatbackend_launch: Option<Box<ChatBackendLaunchMetadata>>,
+    pub chatbackend_launch: Option<Box<ChatBackendLaunchMetadata>>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ChatBackendLaunchMetadata {
+pub struct ChatBackendLaunchMetadata {
     pub(crate) agent: AgentSpawnSpec,
     pub(crate) params: super::SpawnAgentParams,
     pub(crate) owner_linkage: Option<RuntimeOwnerLinkage>,
@@ -1145,3 +1145,6 @@ mod tests_chatbackend;
 #[cfg(test)]
 #[path = "spawn_launch_marker_tests.rs"]
 mod launch_marker_tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use spawn_tab_identity::prepare_tab_identity as prepare_tab_identity_for_test;

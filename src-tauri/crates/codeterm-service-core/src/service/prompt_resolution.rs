@@ -47,9 +47,10 @@ pub(crate) fn resolve_displaced_prompt(
     store.resolve_prompt_notifications(tab_id, &previous)
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests {
     use super::*;
+    #[cfg(test)]
     use crate::notification::store::{Ask, NotificationProvenance, NotificationSeverity};
     use codeterm_notification_core::contract::NotificationAction;
     use codeterm_types::pty::{PendingPrompt, PromptKind, PromptOption};
@@ -73,6 +74,7 @@ pub(crate) mod tests {
         PromptIdentity::new(PromptKind::Provider, prompt)
     }
 
+    #[cfg(test)]
     fn notification(store: &mut NotificationStore, identity: &PromptIdentity) -> String {
         store.add_ext(
             "opaque title".into(),
@@ -121,8 +123,8 @@ pub(crate) mod tests {
         );
     }
 
-    pub(crate) fn pending_prompt_fixture(
-    ) -> (crate::service::test_fixture::ServiceFixture, String, String) {
+    pub fn pending_prompt_fixture() -> (crate::service::test_fixture::ServiceFixture, String, String)
+    {
         let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let previous = prompt("previous", "1");
@@ -190,7 +192,7 @@ pub(crate) mod tests {
         )));
     }
 
-    pub(crate) fn assert_resolved_and_new_prompt_notifies(
+    pub fn assert_resolved_and_new_prompt_notifies(
         fixture: &crate::service::test_fixture::ServiceFixture,
         tab_id: &str,
         previous_id: &str,

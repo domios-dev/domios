@@ -4,7 +4,7 @@ use crate::agent::provider::{ModelCatalogueAuthority, ModelInfo};
 use crate::agent::registry::AgentRegistry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InvalidModelError {
+pub struct InvalidModelError {
     pub provider_id: String,
     pub requested_model: String,
     pub valid_model_ids: Vec<String>,
@@ -19,7 +19,7 @@ pub(crate) struct AgentModelSelection {
 }
 
 impl InvalidModelError {
-    pub(crate) fn rpc_data(&self) -> serde_json::Value {
+    pub fn rpc_data(&self) -> serde_json::Value {
         serde_json::json!({
             "type": if self.ambiguous_providers.is_empty() { "invalid_model" } else { "ambiguous_model" },
             "provider": self.provider_id.clone(),
@@ -165,7 +165,7 @@ pub(crate) fn preserve_context_suffix(resolved: String, requested: &str) -> Stri
     }
 }
 
-pub(crate) fn validate_agent_model(
+pub fn validate_agent_model(
     registry: &AgentRegistry,
     provider_id: &str,
     model: Option<&str>,

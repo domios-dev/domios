@@ -64,14 +64,14 @@ fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct CreateSpecBody {
+pub struct CreateSpecBody {
     title: String,
     #[serde(default)]
     project_path: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct ListSpecsQuery {
+pub struct ListSpecsQuery {
     #[serde(default)]
     project: Option<String>,
     #[serde(default)]
@@ -81,13 +81,13 @@ pub(crate) struct ListSpecsQuery {
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct ShowSpecQuery {
+pub struct ShowSpecQuery {
     #[serde(default, deserialize_with = "de_truthy")]
     full: Option<bool>,
 }
 
 #[derive(Deserialize)]
-pub(crate) struct SectionAddBody {
+pub struct SectionAddBody {
     title: String,
     #[serde(default)]
     body: String,
@@ -102,7 +102,7 @@ pub(crate) struct SectionAddBody {
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct SectionUpdateBody {
+pub struct SectionUpdateBody {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
@@ -116,14 +116,14 @@ pub(crate) struct SectionUpdateBody {
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct SpecLinkBody {
+pub struct SpecLinkBody {
     spec_id: String,
     spec_section_id: String,
     plan_section_id: String,
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct SpecLinkDeleteQuery {
+pub struct SpecLinkDeleteQuery {
     #[serde(default)]
     spec_section_id: Option<String>,
     #[serde(default)]
@@ -131,7 +131,7 @@ pub(crate) struct SpecLinkDeleteQuery {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct EffortLinkBody {
+pub struct EffortLinkBody {
     to: String,
     rel: String,
 }

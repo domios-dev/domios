@@ -46,7 +46,7 @@ fn path(tab_id: &str) -> std::path::PathBuf {
 }
 
 impl ServiceContext {
-    pub(crate) fn set_utility_timeout(
+    pub fn set_utility_timeout(
         &self,
         tab_id: &str,
         owner: &str,
@@ -122,7 +122,7 @@ impl ServiceContext {
         remove_deadline(tab_id, &mut armed)
     }
 
-    pub(crate) fn prepare_utility_command(&self, tab_id: &str, command: &str) {
+    pub fn prepare_utility_command(&self, tab_id: &str, command: &str) {
         {
             let mut mux = self.mux.write();
             if let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| tab.is_utility_shell()) {

@@ -40,7 +40,7 @@ pub struct SearchParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SearchError {
+pub enum SearchError {
     InvalidParams(String),
     Internal(String),
 }
@@ -52,7 +52,7 @@ impl From<String> for SearchError {
 }
 
 impl SearchError {
-    pub(crate) fn into_http(self) -> (StatusCode, String) {
+    pub fn into_http(self) -> (StatusCode, String) {
         match self {
             Self::InvalidParams(message) => (StatusCode::BAD_REQUEST, message),
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),

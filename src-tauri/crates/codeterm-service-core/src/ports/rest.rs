@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use axum::Router;
 
 /// Startup state the REST router is built from; one field per `AppState` field.
-pub(crate) struct RestInputs {
+pub struct RestInputs {
     pub svc: crate::service::ServiceState,
     pub cron: crate::CronState,
     pub cron_wake: crate::CronWake,

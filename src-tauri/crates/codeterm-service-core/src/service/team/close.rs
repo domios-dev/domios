@@ -15,7 +15,7 @@ use crate::service::plan::{PlanStore, TaskLaneUpdate};
 const LANE_BRANCH_PREFIX: &str = "lane/";
 
 #[derive(Debug)]
-pub(crate) struct CloseTeamCleanup {
+pub struct CloseTeamCleanup {
     pub(super) member_tab_ids: Vec<String>,
     pub(super) agent_providers: Vec<(String, String)>,
     pub(super) chat_backings: Vec<(String, String)>,
@@ -47,7 +47,7 @@ struct StagedTeamClose {
     closed_roots: Vec<String>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn close_team_with_state_change(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
@@ -67,7 +67,7 @@ pub fn close_team_with_state_change(
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(super) fn close_team_with_state_change_using<F>(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,

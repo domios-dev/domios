@@ -101,7 +101,7 @@ pub async fn tab_close(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ChatViewBody {
+pub struct ChatViewBody {
     enabled: bool,
 }
 
@@ -213,7 +213,7 @@ pub async fn peer_cron_get(
 
 /// Optional replay cursor: `?since=<boot_id>:<seq>` (D1).
 #[derive(Deserialize)]
-pub(crate) struct EventsStreamQuery {
+pub struct EventsStreamQuery {
     since: Option<String>,
     tab_id: Option<String>,
 }
@@ -354,7 +354,7 @@ pub(crate) fn events_sse(
 // ── PWA manifest — served per-token because installed iOS web apps get a storage container separate from Safari ──
 
 #[derive(Deserialize)]
-pub(crate) struct ManifestQuery {
+pub struct ManifestQuery {
     token: Option<String>,
 }
 
@@ -617,7 +617,7 @@ pub async fn upload(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct SaveTempFileBody {
+pub struct SaveTempFileBody {
     data: String,
     extension: String,
     name: Option<String>,
@@ -640,7 +640,7 @@ pub async fn save_temp_file(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct CopyImageToClipboardBody {
+pub struct CopyImageToClipboardBody {
     path: String,
 }
 
@@ -1115,7 +1115,7 @@ pub async fn chat_raw_stop(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ChatBackfillBody {
+pub struct ChatBackfillBody {
     before_offset: u64,
 }
 

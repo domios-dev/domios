@@ -32,7 +32,7 @@ fn push_hints(value: &mut Value, hints: Vec<String>) {
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct CreatePlanBody {
+pub struct CreatePlanBody {
     pub(crate) title: String,
     #[serde(default)]
     pub(crate) project_path: Option<String>,
@@ -54,7 +54,7 @@ fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct ListPlansQuery {
+pub struct ListPlansQuery {
     #[serde(default)]
     pub(crate) project: Option<String>,
     #[serde(default)]
@@ -227,7 +227,7 @@ pub(crate) fn plan_list_response(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ResolveRefsBody {
+pub struct ResolveRefsBody {
     refs: Vec<ResolveRefRequest>,
 }
 
@@ -732,7 +732,7 @@ pub async fn next(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct ReconcileQuery {
+pub struct ReconcileQuery {
     #[serde(default, deserialize_with = "de_truthy")]
     fix: Option<bool>,
     #[serde(default)]
@@ -759,7 +759,7 @@ pub async fn reconcile(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct UpdatePlanBody {
+pub struct UpdatePlanBody {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
@@ -808,7 +808,7 @@ pub async fn update(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ModeBody {
+pub struct ModeBody {
     mode: String,
 }
 
@@ -944,7 +944,7 @@ pub async fn unarchive(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct PauseBody {
+pub struct PauseBody {
     reason: String,
     #[serde(default)]
     from: OrchestratorRef,
@@ -1036,7 +1036,7 @@ pub async fn resume_preview(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct TransferBody {
+pub struct TransferBody {
     to: OrchestratorRef,
     #[serde(default)]
     reason: String,
@@ -1098,7 +1098,7 @@ pub async fn disown(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ClaimBody {
+pub struct ClaimBody {
     owner: OrchestratorRef,
 }
 
@@ -1119,7 +1119,7 @@ pub async fn claim(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct KindsSetBody {
+pub struct KindsSetBody {
     kinds: String,
 }
 
@@ -1140,7 +1140,7 @@ pub async fn kinds_set(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct TagFacetsSetBody {
+pub struct TagFacetsSetBody {
     facets: Value,
 }
 

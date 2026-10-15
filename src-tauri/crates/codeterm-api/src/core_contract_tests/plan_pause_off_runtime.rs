@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
-use super::{PlanPausePorts, ServicePlanPausePorts};
-use crate::api::cron_routes::off_runtime_gate::StorageCron;
-use crate::multiplexer::state::MultiplexerState;
-use crate::service::test_fixture::ServiceFixture;
+use crate::cron_routes::off_runtime_gate::StorageCron;
+use codeterm_service_core::multiplexer::state::MultiplexerState;
+use codeterm_service_core::service::test_fixture::ServiceFixture;
+use codeterm_service_core::service::{PlanPausePorts, ServicePlanPausePorts};
 
 /// One worker: the unrelated task runs only if the parked schedule write left the worker.
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

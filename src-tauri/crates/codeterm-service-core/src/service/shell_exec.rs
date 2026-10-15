@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ExecCompletion {
+pub enum ExecCompletion {
     CommandFinished { exit_code: Option<i32> },
     ShellExited { exit_code: Option<i32> },
 }
@@ -59,7 +59,7 @@ impl ExecWaiter {
     }
 
     /// `None` when `deadline` elapsed first; elapsed time is a failure, never a completion.
-    pub(crate) async fn wait(mut self, deadline: Duration) -> Option<ExecCompletion> {
+    pub async fn wait(mut self, deadline: Duration) -> Option<ExecCompletion> {
         tokio::time::timeout(deadline, &mut self.rx)
             .await
             .ok()

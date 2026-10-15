@@ -9,7 +9,7 @@ mod tests;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub(crate) struct WorkerTransferOutcome {
+pub struct WorkerTransferOutcome {
     pub status: &'static str,
     pub receipt_id: String,
     pub worker_tab_id: String,

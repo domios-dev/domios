@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::mem::decision::token_store::TokenStore;
 use crate::service::supporter::registry::SupporterRegistry;
 
-pub(crate) static TRANSACTION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+pub static TRANSACTION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 #[derive(Debug, Serialize)]
 pub struct ConnectionError {
@@ -21,7 +21,7 @@ impl ConnectionError {
     fn new(code: &'static str, message: &'static str) -> Self {
         Self { code, message }
     }
-    pub(crate) fn unavailable() -> Self {
+    pub fn unavailable() -> Self {
         Self::new(
             "unavailable",
             "The adapter or local storage is unavailable. Refresh and try again.",

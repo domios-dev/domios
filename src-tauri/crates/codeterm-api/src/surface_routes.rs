@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::routes::{check_auth, AppState};
 use codeterm_service_core::service::browser::viewport::ViewportRequest;
-use codeterm_service_core::service::surface::runtime_sse_payload;
+use codeterm_service_core::service::surface::runtime_sse_payload as sse_payload;
 use codeterm_service_core::service::surface::{
     call_surface, open_surface_stream, CallOrigin, SurfaceCallFailure, SurfaceError,
     SurfaceOpenRequest,

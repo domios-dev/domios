@@ -9,11 +9,13 @@ mod spawn;
 pub mod tab_relink_signal;
 mod types;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use launch::arm_provider_session_for_test;
 #[cfg(test)]
 pub(crate) use launch::launch_waits_for_first_turn_binding;
+#[cfg(test)]
 pub(crate) use launch::skip_local_worker_role;
+#[cfg(test)]
 pub(crate) use launch::AgentRegistry;
 pub use launch::LaunchGeneration;
 pub(crate) use launch::{
@@ -26,6 +28,7 @@ pub(crate) use launch::{
 pub(crate) use prompt_compose::role_launch_task;
 #[cfg(test)]
 pub(crate) use prompt_compose::role_onboarding_task;
+#[cfg(any(test, feature = "test-support"))]
 pub use prompt_compose::spawn_onboarding_task;
 pub(crate) use prompt_compose::{provider_launch_task, restorable_identity_task};
 pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};
