@@ -79,7 +79,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-local-install-continuation.sh` | build.sh script-guards |
 | `check-msvc-cross-env.sh` | scripts qa-gates.lib.sh |
 | `check-msvc-discovery.sh` | skill build |
-| `check-mux-write.sh` | scripts qa-gates.lib.sh |
+| `check-mux-write.mjs` |  |
+| `check-mux-write.sh` |  |
 | `check-no-raw-graph-sql.sh` | build.sh script-guards |
 | `check-playwright-spec-headers.mjs` | package.json script |
 | `check-plugin-bundles.mjs` | build.sh release-preflight; package.json script |
@@ -118,6 +119,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `confirm-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs |
 | `convert-legacy-parked-tasks.py` | scripts tests/test_convert_legacy_parked_tasks.py |
 | `convert-plan-storage.rs` | scripts dev-prep.mjs |
+| `dev-app-process.mjs` | dev-prep.mjs; tests/dev-app-process.test.mjs |
 | `dev-build-configuration.mjs` | build.sh dev/check-queue; scripts/dev-build-configuration.test.mjs |
 | `dev-build-configuration.test.mjs` | build.sh script-guards |
 | `dev-frontend-ready.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts tests/dev-frontend-ready.test.mjs |
@@ -210,6 +212,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `verify-updater-manifest.mjs` | CI release-linux.yml, release-manifest-validate.yml, release-windows.yml; scripts release-publish-platform.mjs, release-verify-windows.mjs, tests/release_signing_material_test.py; skill github-release |
 | `vitest-owned-tests.json` | CI frontend-release.yml; scripts affected-tests.mjs, affected-tests.test.mjs, check-plugin.mjs; skill github-release |
 | `web-memory-probe.mjs` | scripts fixtures/web-memory-probe.md |
+| `windows-dev-app.cs` | scripts/windows-dev-app.ps1 |
+| `windows-dev-app.ps1` | scripts/dev-app-process.mjs |
 | `windows-dev-cleanup.ps1` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1 |
 | `windows-runner-bootstrap.ps1` | skill build-machine |
 | `windows-sccache-archive.ps1` | scripts windows-sccache-session.ps1 |
