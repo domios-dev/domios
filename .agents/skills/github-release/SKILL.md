@@ -18,7 +18,7 @@ description: >-
 | `release/X.Y.Z` | cut from `develop`; release fixes go straight onto it | every push by `rollacode` is the release run |
 | `master` | only released code: the release PR, merged by the release run after publication | `master accepts only release branches` is red for any other source |
 
-1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). The nightly schedule runs the full matrix on `develop`.
+1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). Release CI through `workflow_call` and manual dispatch run the full matrix.
 2. **Cut the release.** Create `release/X.Y.Z` from `develop`, run `npm run sync:versions` for X.Y.Z plus the offline lockfile refresh (step 1 below), push, and open the release PR `release/X.Y.Z` → `master`. Its description is the release notes.
 3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. Parallel fast checks (`tests.yml`, `phase: fast`) gate every bundle build; Rust archives queue independently at preparation completion, then builds queue after the fast gate and overlap Rust tests from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
 4. **Red** publishes nothing: fix on the release branch and push again. **Green**: `release-manifest` stamps `vX.Y.Z`, publishes both releases and the signed `latest.json`; `promote` then merges the release PR into `master`, merges `master` back into `develop`, and deletes the branch.
@@ -89,7 +89,7 @@ bound, SizeLimit and missing attempt identity, alongside post-fix passes. A
 capture/import success is not startup proof. Worker lanes defer live replay to
 the Orchestrator; frontend-only and plugin-only releases are outside this gate.
 
-**Required before `git push origin release/X.Y.Z` and before any owner hotfix build** (a build handed to the owner to install, such as `X.Y.Z-bs.N`): a green [core-journeys](../../../evals/core-journeys/README.md) run on the exact SHA being pushed or built. In canonical, with DEV running that build and its window open, run `bash evals/core-journeys/run.sh all` in a Team-bound QA shell; for an app release also run `CODETERM_INSTANCE=<disposable> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh upgrade --from-checkout <previous-release-checkout> --all-tabs`. Push or hand over only after exit 0 and `Verdict: PASS` in each `results.md`; put the wall times and `results.json` in the release evidence. Any failed journey blocks the push. The gates skill places this step.
+**Required before `git push origin release/X.Y.Z` and before any owner hotfix build** (a build handed to the owner to install, such as `X.Y.Z-bs.N`): a green [core-journeys](../../../evals/core-journeys/README.md) run on the exact SHA being pushed or built. In canonical, with a named isolated instance running that build and its window open, run `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh all --out <run-dir>` in a Team-bound QA shell, then `node evals/core-journeys/lib/evidence-contract.mjs <run-dir>` (`run.sh` refuses ports 7685 and 7686 and an unnamed instance); for an app release also run `CODETERM_INSTANCE=<disposable> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh upgrade --from-checkout <previous-release-checkout> --all-tabs`. Push or hand over only after exit 0 and `Verdict: PASS` in each `results.md`; put the wall times and `results.json` in the release evidence. Any failed journey blocks the push. The gates skill places this step.
 
 ---
 
@@ -256,7 +256,7 @@ A failing test/gate job requests cancellation of this caller run through the Act
 using `GITHUB_TOKEN` with `actions: write`. Rust cancellation runs before receipt uploads,
 so a failed archive or test stops queued and running builds without waiting for sibling
 jobs or the coverage summary. Cancellation also stops remaining tests. The switch is
-explicitly enabled only by release callers; standalone PR/nightly tests retain their
+explicitly enabled only by release callers; standalone PR/dispatch tests retain their
 existing execution. Setup and receipt failures also trigger cancellation.
 `release-manifest` needs every build, `quick-checks` and `tests`; frontend publication
 needs both test stages. Failure, cancellation or a skipped required gate cannot publish.
@@ -793,7 +793,8 @@ git checkout -b fix/<description> && git push origin fix/<description>
 git checkout master && git pull origin master --no-rebase
 
 # 2. Run the core-journeys gate on the merged SHA (see "Application release"); green only:
-bash evals/core-journeys/run.sh all
+CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh all --out <run-dir>
+node evals/core-journeys/lib/evidence-contract.mjs <run-dir>
 
 # 3. Move the release trigger tag:
 git tag -f "release-$VER"

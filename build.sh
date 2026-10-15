@@ -33,7 +33,7 @@ DEV_NOTIFY_TAB=""
 # Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
 # (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
 case "$CMD" in
-  check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|install-local|build|test|verify|fmt-check)
+  qa-lock-storm|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -366,6 +366,9 @@ run_nextest_scope() {
       package="$CT_APP_TEST_PACKAGE"
       targets+=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
+    shell) package="codeterm"; targets+=(--lib --test main) ;;
+    mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets+=(--lib) ;;
+    paths|codeterm-paths) package="codeterm-paths"; targets+=(--lib) ;;
     input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
@@ -397,7 +400,7 @@ run_nextest_scope() {
       ;;
   esac
 
-  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ]; then
+  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ] || [ "$scope" = "shell" ]; then
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     prepare_exceptional_worktree_target
@@ -444,7 +447,7 @@ run_nextest_scope() {
   if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass TEST_RAW_OUTPUT=1 \
     scripts/test-capped.sh \
     "${reuse_args[@]}" \
-    "${filter_args[@]}" --no-fail-fast --no-tests=fail > "$timing_dir/parallel.log" 2>&1; then
+    "${filter_args[@]}" --no-fail-fast --no-tests="${NEXTEST_NO_TESTS_MODE:-fail}" > "$timing_dir/parallel.log" 2>&1; then
     run_exit=0
   else
     run_exit=$?
@@ -484,6 +487,31 @@ run_nextest_scope() {
   [ "$run_exit" -eq 0 ] || return "$run_exit"
   [ "$alone_exit" -eq 0 ] || return "$alone_exit"
   return "$guard_exit"
+}
+
+# Every release-tier Rust runner from tests/catalogue.json, one nextest scope each, no fail-fast across runners.
+run_release_rust_tests() {
+  local plan scope ids budget no_tests filterset status total=0
+  local red=()
+  plan="$(node scripts/ci-rust-archives.mjs release-plan "$@")" || return $?
+  [ -n "$plan" ] || { echo "release-rust: the catalogue selects no release Rust runner" >&2; return 1; }
+  prepare_exceptional_worktree_target
+  while IFS=$'\t' read -r -u 3 scope ids budget no_tests filterset; do
+    total=$((total + 1))
+    echo "== release-rust: $ids (./build.sh nextest $scope${filterset:+ '$filterset'}, cap ${TEST_CAP_SECS:-$budget}s, no-tests=$no_tests)"
+    if TEST_CAP_SECS="${TEST_CAP_SECS:-$budget}" NEXTEST_NO_TESTS_MODE="$no_tests" run_nextest_scope "$scope" ${filterset:+"$filterset"}; then
+      echo "release-rust: GREEN $ids"
+    else
+      status=$?
+      echo "release-rust: RED $ids (exit $status)"
+      red+=("$ids")
+    fi
+  done 3<<< "$plan"
+  if [ "${#red[@]}" -gt 0 ]; then
+    echo "release-rust: ${#red[@]} of $total runner group(s) red: ${red[*]}" >&2
+    return 1
+  fi
+  echo "release-rust: all $total runner group(s) green"
 }
 
 case "$CMD" in
@@ -666,14 +694,14 @@ finish_build_gateway_logging() {
   return "$reader_status"
 }
 
-complete_build_gateway_before_install_handoff() {
+complete_build_gateway_before_handoff() {
   local reader_status=0 finish_status=0 outcome=""
   trap - EXIT INT TERM
   if [ -n "${CT_BUILD_GATEWAY_LOG_PATH:-}" ]; then
     printf 'Build gateway job %s build exit: 0\n' "$CT_BUILD_JOB_ID"
     finish_build_gateway_logging || reader_status=$?
     if [ "$reader_status" -ne 0 ]; then
-      printf 'WARNING: build gateway logging path broke before installer handoff (reader exit %s); build exit remains 0; log: %s\n' \
+      printf 'WARNING: build gateway logging path broke before launch handoff (reader exit %s); build exit remains 0; log: %s\n' \
         "$reader_status" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
       outcome=logging_degraded
     fi
@@ -1737,6 +1765,27 @@ dev_conf_path() {
   echo "$out"
 }
 
+build_and_launch_dev() {
+  local conf build_sha
+  export CODETERM_DEV=1
+  export CODETERM_WEB_DIST="$(pwd -P)/dist"
+  configure_dev_cargo
+  conf="$(dev_conf_path)"
+  node scripts/dev-prep.mjs --no-server
+  local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
+    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
+  if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
+    build_args+=(--features "$CT_DEV_CARGO_FEATURES")
+  fi
+  TAURI_CONFIG="$(cat "$conf")" cargo build "${build_args[@]}"
+  build_sha="$(git rev-parse HEAD)"
+  write_dev_provenance "$build_sha"
+  retain_dev_pdb "$build_sha"
+  complete_build_gateway_before_handoff
+  echo "Build gateway released; launching validated dev artifact."
+  exec bash ./build.sh dev-prebuilt "$@"
+}
+
 ensure_real_embed_bundle() {
   local host exe_ext embed_size
   host=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
@@ -1753,89 +1802,6 @@ ensure_real_embed_bundle() {
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
     CODETERM_DEV=1 node scripts/bundle-embed.js
   fi
-}
-
-start_dev_wait_process() {
-  local log="$1"
-  local conf
-  conf="$(dev_conf_path)"
-  configure_dev_cargo
-  local cmd=(pnpm tauri dev --no-watch --config "$conf" "${CT_DEV_TAURI_ARGS[@]}")
-  if [[ "$OSTYPE" == darwin* ]] && command -v screen >/dev/null 2>&1; then
-    local session="codeterm-dev${CT_SUFFIX}-$$"
-    local root_q log_q conf_q args_q
-    printf -v root_q "%q" "$(pwd)"
-    printf -v log_q "%q" "$log"
-    printf -v conf_q "%q" "$conf"
-    printf -v args_q "%q " "${CT_DEV_TAURI_ARGS[@]}"
-    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config $conf_q $args_q >> $log_q 2>&1"
-    echo "screen:$session"
-    return
-  fi
-  local pid spawn_status
-  set +e
-  case "$OSTYPE" in
-    msys*|cygwin*|win32)
-      "${cmd[@]}" </dev/null >> "$log" 2>&1 &
-      ;;
-    *)
-      nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
-      ;;
-  esac
-  pid=$!
-  spawn_status=$?
-  set -e
-  if [ -z "$pid" ]; then
-    echo "Failed to spawn dev process (status=$spawn_status)" >&2
-    return "${spawn_status:-1}"
-  fi
-  echo "$pid"
-}
-
-dev_wait_process_alive() {
-  local pid="$1"
-  case "$pid" in
-    screen:*)
-      local session="${pid#screen:}"
-      screen -ls 2>/dev/null | grep -q "[.]$session[[:space:]]"
-      ;;
-    *)
-      kill -0 "$pid" 2>/dev/null
-      ;;
-  esac
-}
-
-dev_wait_stage() {
-  local log="$1" stage
-  stage="$(tail -80 "$log" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n1 || true)"
-  if [ -n "$stage" ]; then
-    printf '%s\n' "$stage"
-  else
-    printf '%s\n' 'launcher spawned; waiting for compiler or daemon output'
-  fi
-}
-
-handoff_gateway_to_dev() {
-  local dev_pid="$1" monitor_pid monitor_start lock
-  lock="$(ct_gateway_dir)/lock"
-  mkdir -p "$lock"
-  (
-    trap - EXIT INT TERM
-    CT_GATEWAY_MUTEX_PID="$BASHPID"
-    CT_GATEWAY_PROCESS_START="$(ct_gateway_process_start_token "$BASHPID")"
-    sleep 1
-    while dev_wait_process_alive "$dev_pid"; do
-      sleep 2
-    done
-    CT_GATEWAY_ACTIVE=1
-    ct_gateway_finish 0
-  ) >/dev/null 2>&1 &
-  monitor_pid=$!
-  monitor_start="$(ct_gateway_process_start_token "$monitor_pid")"
-  printf '%s\n' "$monitor_pid" > "$lock/pid"
-  printf '%s\n' "$monitor_start" > "$lock/start_token"
-  CT_GATEWAY_ACTIVE=0
-  echo "Build gateway remains owned by dev monitor $monitor_pid until launcher $dev_pid exits."
 }
 
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
@@ -2167,7 +2133,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  fmt-check|check|check-tests|ci-archives|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  fmt-check|check|check-tests|ci-archives|release-inputs|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
 esac
@@ -2198,10 +2164,11 @@ CodeTerm build commands
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-archives                 Compile and archive test profiles with the shared cache
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <input-macos|input-windows|billing|account|analytics|app|api|socket|commands|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
+  test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
+  release-rust [runner-id...]  Run every release-tier Rust runner of tests/catalogue.json (or the named ones)
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
@@ -2209,10 +2176,11 @@ CodeTerm build commands
                               Scripted iPhone touch scroll over the mounted Chat window; fails on any visual jump
   install-local               Build and install locally (cheap fmt/size/clean gates first)
   script-guards               Run the script catalogue gate and uncalled fixture guards
+  qa-lock-storm [--seconds N] --out FILE  Measure DEV routes and lock holds (default 120s; --notify-tab supported)
   qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
   lane-recover keep|merge ...  Park a wrong-base lane on keep/<lane>, then merge it back
 
-Long operations (check, check-tests, test-one, test, verify, build, install-local, release-preflight)
+Long operations (check, check-tests, test-one, test, verify, build, install-local, release-preflight, release-rust)
 accept --notify-tab <tab> or BUILD_NOTIFY_TAB: one OK or early-failure receipt.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
@@ -2310,7 +2278,7 @@ EOF
         kill -TERM "$$"
         ;;
       handoff-success)
-        complete_build_gateway_before_install_handoff
+        complete_build_gateway_before_handoff
         printf 'HANDOFF_AFTER_GATEWAY\n'
         ;;
     esac
@@ -2422,8 +2390,7 @@ EOF
     cargo check --manifest-path cli/Cargo.toml
     node scripts/check-release-locks.mjs
     bash scripts/clippy-gate.sh
-    run_workspace_lib_tests
-    scripts/test-capped.sh --manifest-path cli/Cargo.toml
+    run_release_rust_tests
     node node_modules/typescript/bin/tsc --noEmit
     node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
     node scripts/check-api-effect-dependencies.mjs
@@ -2439,13 +2406,18 @@ EOF
     node --test scripts/tests/local-install-cache.test.mjs
     node node_modules/@biomejs/biome/bin/biome check .
     ;;
+  release-rust)
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
+    run_release_rust_tests "${@:2}"
+    ;;
   test)
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires billing, account, analytics, app, api, socket, commands, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli}"
+    test_scope="${2:?test-one requires billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -2463,10 +2435,23 @@ EOF
           scripts/test-capped.sh "${CT_APP_TEST_ARGS[@]}" "$test_filter"
         fi
         ;;
+      shell)
+        prepare_dev_frontend_dist "$(pwd -P)"
+        prepare_bundle_stubs
+        prepare_exceptional_worktree_target
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib --test main "$test_filter"
+        ;;
+      mem-store) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
+      paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
       input-macos|input-windows)
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
-      api|socket|commands|codeterm-api|codeterm-socket|codeterm-commands)
+      root)
+        prepare_dev_frontend_dist "$(pwd -P)"
+        prepare_bundle_stubs
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        ;;
+      api|socket|commands|sentinel-host|codeterm-api|codeterm-socket|codeterm-commands|codeterm-sentinel-host)
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-${test_scope#codeterm-}" --lib "$test_filter"
@@ -2517,7 +2502,8 @@ EOF
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, api, socket, commands, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli)" >&2; exit 2 ;;
+      codeterm-*) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$test_scope" --lib "$test_filter" ;;
+      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package)" >&2; exit 2 ;;
     esac
     ;;
   nextest)
@@ -2624,7 +2610,7 @@ EOF
       echo "Post-install continuation: disabled (no calling CodeTerm Tab)"
       INSTALL_ARGS+=(--no-continue)
     fi
-    complete_build_gateway_before_install_handoff
+    complete_build_gateway_before_handoff
     echo "Build gateway released; starting detached installer handoff."
     env \
       -u CODETERM_INSTANCE \
@@ -2643,22 +2629,165 @@ EOF
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run bash scripts/check-script-catalog.sh
-    sg_run node --test --test-concurrency=1 scripts/build-gateway-mutex.test.mjs scripts/build-gateway-slot.test.mjs scripts/build-gateway-record.test.mjs scripts/build-gateway-cache.test.mjs scripts/check-worktree.test.mjs scripts/dev-build-configuration.test.mjs scripts/build-history.test.mjs scripts/build-gateway-evidence.test.mjs
-    sg_run node --test scripts/build-gateway-owner.test.mjs scripts/build-gateway-mutex-evidence.test.mjs scripts/build-gateway-output.test.mjs scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
+    sg_run node scripts/test-catalogue.mjs validate
+    sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
+    sg_run node --test scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
     sg_run bash scripts/check-build-script-head.sh
     sg_run bash scripts/check-shared-sccache.sh
-    sg_run node --test scripts/runner-toggle.test.mjs
     for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
     done
     if [ "$(uname -s)" = Linux ]; then
       sg_run bash scripts/check-build-dev-port-overrides.sh
       sg_run bash scripts/check-cache-provenance.sh
-      sg_run node --test scripts/check-analytics-catalog.test.mjs
+      sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-cargo
     fi
     exit "$sg_failed"
+    ;;
+  qa-lock-storm)
+    storm_seconds=120
+    storm_out=""
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --seconds|--out)
+          [ "$#" -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 2; }
+          case "$1" in --seconds) storm_seconds="$2" ;; --out) storm_out="$2" ;; esac
+          shift 2 ;;
+        *) echo "ERROR: usage: qa-lock-storm [--seconds N] --out FILE" >&2; exit 2 ;;
+      esac
+    done
+    [[ "$storm_seconds" =~ ^[1-9][0-9]*$ ]] && [ "$storm_seconds" -le 3600 ] && [ -n "$storm_out" ] || {
+      echo "ERROR: --seconds must be 1..3600 and --out FILE is required" >&2; exit 2;
+    }
+    source evals/_lib/lib.sh
+    storm_tabs="$(dev_get /api/tabs)"
+    storm_tab="$(printf '%s' "$storm_tabs" | python3 -c 'import json,sys; tabs=json.load(sys.stdin); print(tabs[0]["id"] if tabs else "")')"
+    [ -n "$storm_tab" ] || { echo "ERROR: DEV needs an existing tab" >&2; exit 1; }
+    storm_log="$(dev_data_dir)/logs/codeterm.log"
+    storm_bash="$BASH"
+    if is_windows; then
+      storm_bash="$(cygpath -m "$storm_bash")"
+      storm_log="$(cygpath -m "$storm_log")"
+      storm_out="$(cygpath -m "$storm_out")"
+    fi
+    python3 - "$storm_seconds" "$storm_out" "$storm_tab" "$storm_log" "$storm_bash" <<'LOCK_STORM_PY'
+import collections
+import concurrent.futures
+import datetime
+import json
+import math
+import pathlib
+import re
+import subprocess
+import sys
+import threading
+import time
+
+
+def percentile(values, fraction):
+    return sorted(values)[max(0, math.ceil(len(values) * fraction) - 1)] if values else None
+
+
+def lock_histogram(lines, start, end):
+    locks, sites = collections.Counter(), collections.Counter()
+    unmatched = 0
+    for line in lines:
+        if "[LOCK-HOLD]" not in line:
+            continue
+        stamp = re.search(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", line)
+        if not stamp:
+            continue
+        moment = datetime.datetime.fromisoformat(stamp[0].replace("Z", "+00:00")).timestamp()
+        # The logger has second precision: include both boundary seconds.
+        if not math.floor(start) <= moment <= math.floor(end):
+            continue
+        match = re.search(r"\[LOCK-HOLD\] (.+?)\.\w+\(\) held \d+ms \(waited \d+ms\) at (.+:\d+)", line)
+        if match:
+            locks[match[1]] += 1
+            sites[f"{match[1]} at {match[2]}"] += 1
+        else:
+            unmatched += 1
+    return {"per_lock": dict(locks), "per_site": dict(sites), "unmatched": unmatched}
+
+
+WORKER = r'''
+source evals/_lib/lib.sh
+err="$(mktemp)"
+trap 'rm -f "$err"' EXIT
+while IFS= read -r route; do
+  route="${route%$'\r'}"
+  rc=0
+  CODETERM_HTTP_STATUS_LOG=1 dev_get "$route" > /dev/null 2> "$err" || rc=$?
+  status=transport_error
+  while IFS= read -r line; do
+    if [[ "$line" == "[dev-http] "* && "$line" =~ HTTP\ ([0-9]{3}) ]]; then status="${BASH_REMATCH[1]}"; fi
+  done < "$err"
+  printf '%s %s\n' "$rc" "$status"
+done
+'''
+
+
+def measure(route, deadline):
+    values, statuses = [], collections.Counter()
+    with subprocess.Popen([sys.argv[5], "-c", WORKER], stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE, text=True) as worker:
+        next_tick = time.monotonic()
+        while time.monotonic() < deadline:
+            before = time.monotonic()
+            worker.stdin.write(route + "\n")
+            worker.stdin.flush()
+            response = worker.stdout.readline().split()
+            values.append((time.monotonic() - before) * 1000)
+            if len(response) != 2:
+                raise RuntimeError(f"DEV helper exited for {route}")
+            statuses[response[1]] += 1
+            next_tick += 0.250
+            # Cadence generates load; it never establishes readiness or success.
+            if next_tick < time.monotonic():
+                next_tick = time.monotonic()
+            threading.Event().wait(max(0, min(next_tick, deadline) - time.monotonic()))
+        worker.stdin.close()
+        worker.wait(timeout=35)
+    return {"samples": len(values), "p50_ms": percentile(values, .50),
+            "p95_ms": percentile(values, .95), "max_ms": max(values, default=None),
+            "status_counts": dict(statuses)}
+
+
+def main():
+    seconds, out, tab, log = int(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3], pathlib.Path(sys.argv[4])
+    routes = ["/api/mux/state", "/api/tabs", f"/api/tabs/{tab}/chat"]
+    start, deadline = time.time(), time.monotonic() + seconds
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {route: pool.submit(measure, route, deadline) for route in routes}
+        measurements = {route: future.result() for route, future in futures.items()}
+    end = time.time()
+    with log.open(encoding="utf-8", errors="replace") as stream:
+        holds = lock_histogram(stream, start, end)
+    result = {"start_epoch": start, "end_epoch": end, "requested_seconds": seconds,
+              "cadence_ms": 250, "latency_scope": "dev_get including DEV identity checks",
+              "log_window_precision": "inclusive boundary seconds", "log_path": str(log),
+              "routes": measurements, "lock_holds": holds}
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print("Route                                      n    p50 ms    p95 ms    max ms  statuses")
+    for route, stats in measurements.items():
+        print(f"{route:42} {stats['samples']:4} {stats['p50_ms'] or 0:9.1f} {stats['p95_ms'] or 0:9.1f} {stats['max_ms'] or 0:9.1f}  {stats['status_counts']}")
+    for group in ("per_lock", "per_site"):
+        print(f"LOCK-HOLD {group}:")
+        for name, count in sorted(holds[group].items(), key=lambda item: (-item[1], item[0])):
+            print(f"  {count:5}  {name}")
+        if not holds[group]:
+            print("      0  (none)")
+    print(f"Unmatched LOCK-HOLD lines: {holds['unmatched']}; JSON: {out}")
+    print("Latency includes dev_get checks. Log window includes both boundary seconds.")
+
+
+if __name__ == "__main__":
+    main()
+LOCK_STORM_PY
     ;;
   qa-batch)
     # ./build.sh qa-batch <label> [--notify-tab <tab>] '<cmd>' ... — `check` always runs first.
@@ -2920,141 +3049,8 @@ EOF
     fi
     ensure_real_embed_bundle
     record_dev_target "$(tauri_debug_dir)"
-    echo "Starting dev..."
-    # Mark the daemon as dev: bundle hashes are bypassed (live edits
-    # to <repo>/plugins/<id>/ don't trip the verifier) and the
-    # first-launch embedded extract is skipped so ~/.codeterm/plugins/
-    # doesn't shadow the workspace.
-    export CODETERM_DEV=1
-    configure_dev_cargo
-    export CODETERM_WEB_DIST="$(pwd -P)/dist"
-    export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
-    start_web_watch
-    start_dev_static_server
+    build_and_launch_dev "${@:2}"
 
-    if [ "$CT_DEV_WAIT" -eq 1 ]; then
-      LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
-      DEV_NOTIFY_LOG="$LOG"
-      : > "$LOG"
-      EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
-      PID_FILE="/tmp/codeterm-dev${CT_SUFFIX}.pid.$$"
-      if ! start_dev_wait_process "$LOG" > "$PID_FILE"; then
-        DEV_NOTIFY_STAGE=launcher-start
-        echo "Dev startup failed before the explicit health signal. Last log lines:"
-        tail -25 "$LOG"
-        exit 1
-      fi
-      DEV_PID="$(cat "$PID_FILE")"
-      rm -f "$PID_FILE"
-      echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
-      DEV_NOTIFY_STAGE=launch
-      DEADLINE=$(( $(date +%s) + 600 ))
-      LAST_STAGE=""
-      while : ; do
-        STAGE="$(dev_wait_stage "$LOG")"
-        if [ "$STAGE" != "$LAST_STAGE" ]; then
-          echo "Dev startup stage: $STAGE"
-          LAST_STAGE="$STAGE"
-        fi
-        echo "Dev startup heartbeat: stage=$LAST_STAGE"
-        if [ "$(date +%s)" -gt "$DEADLINE" ]; then
-          DEV_NOTIFY_STAGE=deadline
-          echo "Timeout after 600s during stage: $LAST_STAGE. Last log lines:"
-          tail -25 "$LOG"
-          if [ -f "/tmp/codeterm-web-watch${CT_SUFFIX}.log" ]; then
-            echo "Last web-watch log lines:"
-            tail -25 "/tmp/codeterm-web-watch${CT_SUFFIX}.log"
-          fi
-          exit 1
-        fi
-        if ! dev_wait_process_alive "$DEV_PID"; then
-          DEV_NOTIFY_STAGE=exited
-          echo "Dev process exited before reporting ready during stage: $LAST_STAGE. Last log lines:"
-          tail -25 "$LOG"
-          exit 1
-        fi
-        HEALTH=$(dev_health_status)
-        if [ -n "$HEALTH" ]; then
-          STATUS=$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null | head -n1 || true)
-          if [ "$STATUS" = "ok" ]; then
-            if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH"); then
-              DEV_NOTIFY_STAGE=health
-              echo "$HEALTH"
-              exit 1
-            fi
-            STABLE=1
-            for _ in 1 2 3 4; do
-              sleep 2
-              HEALTH=$(dev_health_status)
-              if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null); then
-                STABLE=0
-                break
-              fi
-            done
-            if [ "$STABLE" != "1" ]; then
-              DEV_NOTIFY_STAGE=unhealthy
-              echo "Dev process became unhealthy immediately after reporting ready. Last log lines:"
-              tail -25 "$LOG"
-              exit 1
-            fi
-            if ! dev_frontend_ready; then
-              DEV_NOTIFY_STAGE=frontend
-              sleep 2
-              continue
-            fi
-            write_dev_provenance "$SHA"
-            retain_dev_pdb "$SHA"
-            echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
-            if [ -n "$DEV_NOTIFY_TAB" ]; then
-              dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
-            fi
-            if [ -n "$CT_INSTANCE" ]; then
-              echo "Named dev ready; shared build gateway handoff skipped."
-            else
-              handoff_gateway_to_dev "$DEV_PID"
-            fi
-            exit 0
-          fi
-        fi
-        sleep 2
-      done
-    else
-      # Retained after the session, not before it: only then is the PDB on disk
-      # the one tauri just linked and ran. Nothing relinks until the next dev, so
-      # a daemon that died leaves its symbols intact for this copy.
-      dev_status=0
-      if [ -n "$DEV_NOTIFY_TAB" ]; then
-        INTERACTIVE_LOG="/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
-        : > "$INTERACTIVE_LOG"
-        DEV_NOTIFY_LOG="$INTERACTIVE_LOG"
-        EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
-        DEV_NOTIFY_STAGE=launch
-        DEV_NOTIFY_WAITER_PID=
-        if pnpm tauri dev --no-watch --config "$(dev_conf_path)" "${CT_DEV_TAURI_ARGS[@]}" 2>&1 | tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev; then
-          DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
-        else
-          DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
-        fi
-        dev_status="${DEV_NOTIFY_PIPE_STATUS[0]}"
-        DEV_NOTIFY_TEE_STATUS="${DEV_NOTIFY_PIPE_STATUS[1]}"
-        if [ "$dev_status" -eq 0 ]; then dev_status="$DEV_NOTIFY_TEE_STATUS"; fi
-        DEV_NOTIFY_SEND_CLAIMED=0
-        if ! dev_notify_is_sent "$DEV_NOTIFY_SENT_MARKER"; then
-          dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" exited "$CT_INSTANCE" "$CT_PORT" "$INTERACTIVE_LOG" "$dev_status"
-        fi
-        if [ "$DEV_NOTIFY_SEND_CLAIMED" = 1 ]; then
-          dev_notify_stop_stream_waiter "$DEV_NOTIFY_WAITER_PID"
-        else
-          wait "$DEV_NOTIFY_WAITER_PID" 2>/dev/null || true
-        fi
-        DEV_NOTIFY_WAITER_PID=
-        DEV_NOTIFY_STAGE=exited
-      else
-        pnpm tauri dev --no-watch --config "$(dev_conf_path)" "${CT_DEV_TAURI_ARGS[@]}" || dev_status=$?
-      fi
-      retain_dev_pdb "$(git rev-parse HEAD 2>/dev/null || true)"
-      exit "$dev_status"
-    fi
     ;;
   e2e)
     export CODETERM_API_URL="http://127.0.0.1:${CT_PORT}"

@@ -120,7 +120,7 @@ impl ServiceContext {
         tauri::async_runtime::spawn_blocking(move || service.flush_agent_deliveries(&tab));
     }
 
-    pub(crate) fn schedule_restored_agent_delivery_reconciliation(&self) {
+    pub fn schedule_restored_agent_delivery_reconciliation(&self) {
         let tab_ids = self
             .mux
             .read()

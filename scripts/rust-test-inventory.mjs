@@ -3,14 +3,15 @@
 // Static Rust test inventory, resolved the way rustc resolves modules; never runs cargo.
 //
 // Scan: node scripts/rust-test-inventory.mjs [--root <repo>] [--out <file>]
-//   {"tests": [{"crate", "module_path", "test_name", "cfg"?}], "warnings": [{"kind", "crate", "file", "line", "message"}]}
-//   tests are sorted by crate, module_path, test_name; module_path is "" at a target root and uses "::".
+//   {"tests": [{"crate", "target"?, "module_path", "test_name", "cfg"?}], "warnings": [{"kind", "crate", "file", "line", "message"}]}
+//   tests are sorted by crate, target, module_path, test_name; module_path is "" at a target root and uses "::".
+//   target names the integration test target (tests/<name>.rs or [[test]] name); lib and bin tests carry none.
 //   A test appears once per test binary that compiles it. Warning kinds: macro-body, nested-item,
 //   unreachable-file, cfg-gated (+ module_path, cfg), unknown-test-attr, unresolved-module, unresolved-include, parse-error, target-skipped.
 //
 // Diff: node scripts/rust-test-inventory.mjs diff [--target-os windows|macos|linux] [--renames <map>] <before> <after>
 //   Each side is a static inventory or `cargo nextest list --message-format json`. Keys are module_path::test_name,
-//   counted per binary. Exit 1 when a key loses a copy (lost or renamed); a crate change is "moved" and passes.
+//   prefixed target@ for an integration target, counted per binary. Exit 1 when a key loses a copy (lost or renamed); a crate change is "moved" and passes.
 //   New keys are "added", or "nextest-only" when a static before is compared with a nextest after. Exit 2 on bad input.
 //   --target-os drops static keys whose cfg gate is false on that OS (a single-OS nextest list never compiles them).
 //   A key that gains or loses one leading module segment (an app module becoming a crate root) is "moved", not lost.
@@ -396,12 +397,12 @@ export function crateTargets(dir, manifest, fs = nodeFs) {
   const targets = [];
   const skipped = [];
   const seen = new Set();
-  const add = (kind, rel, spec = {}) => {
+  const add = (kind, rel, spec = {}, name) => {
     const file = norm(posix.join(dir, rel));
     if (seen.has(file) || !fs.isFile(file)) return;
     seen.add(file);
     if (spec.test === false || spec.harness === false) skipped.push({ kind, file, reason: spec.test === false ? "test = false" : "harness = false" });
-    else targets.push({ kind, file });
+    else targets.push({ kind, file, ...(kind === "test" ? { name: spec.name ?? name ?? posix.basename(rel, ".rs") } : {}) });
   };
   add("lib", manifest.lib?.path ?? "src/lib.rs", manifest.lib ?? {});
   for (const b of manifest.bins) add("bin", b.path ?? (b.name ? `src/bin/${b.name}.rs` : "src/main.rs"), b);
@@ -411,7 +412,7 @@ export function crateTargets(dir, manifest, fs = nodeFs) {
     for (const e of fs.list(posix.join(dir, "src/bin"))) add("bin", e.dir ? `src/bin/${e.name}/main.rs` : `src/bin/${e.name}`);
   }
   if (manifest.package.autotests !== false) {
-    for (const e of fs.list(posix.join(dir, "tests"))) add("test", e.dir ? `tests/${e.name}/main.rs` : `tests/${e.name}`);
+    for (const e of fs.list(posix.join(dir, "tests"))) add("test", e.dir ? `tests/${e.name}/main.rs` : `tests/${e.name}`, {}, e.dir ? e.name : undefined);
   }
   return { targets: targets.filter((t) => t.file.endsWith(".rs")), skipped };
 }
@@ -456,6 +457,7 @@ export function scanCrate(crate, root, fs = nodeFs) {
   const rel = (p) => (p.startsWith(root + "/") ? p.slice(root.length + 1) : p);
   const warn = (kind, file, line, message) => warnings.push({ kind, crate: crate.name, file: rel(file), line, message });
   const exists = (p) => fs.isFile(p);
+  let target;
 
   const walk = (file, modPath, ctx, cfgs, active, included) => {
     if (active.includes(file)) return warn("unresolved-module", file, 0, "module cycle through #[path]");
@@ -476,10 +478,10 @@ export function scanCrate(crate, root, fs = nodeFs) {
     for (const t of items.tests) {
       const module_path = segsOf(t.inline).join("::");
       const gates = [...new Set([...cfgs, ...t.cfgs])];
-      tests.push({ crate: crate.name, module_path, test_name: t.name, ...(gates.length ? { cfg: gates.join(" && ") } : {}) });
+      tests.push({ crate: crate.name, ...(target ? { target } : {}), module_path, test_name: t.name, ...(gates.length ? { cfg: gates.join(" && ") } : {}) });
       if (gates.length) {
-        const key = `${module_path}\u0000${gates.join(" && ")}`;
-        const g = gated.get(key) ?? { file, line: t.line, module_path, cfg: gates.join(" && "), count: 0 };
+        const key = `${target ?? ""}\u0000${module_path}\u0000${gates.join(" && ")}`;
+        const g = gated.get(key) ?? { file, line: t.line, ...(target ? { target } : {}), module_path, cfg: gates.join(" && "), count: 0 };
         g.count++;
         gated.set(key, g);
       }
@@ -520,10 +522,13 @@ export function scanCrate(crate, root, fs = nodeFs) {
 
   const { targets, skipped } = crateTargets(crate.dir, crate.manifest, fs);
   for (const s of skipped) warn("target-skipped", s.file, 0, `${s.kind} target has ${s.reason}; its tests are not listed by libtest`);
-  for (const target of targets) walk(target.file, [], { dir: posix.dirname(target.file), relative: null }, [], [], false);
+  for (const t of targets) {
+    target = t.name;
+    walk(t.file, [], { dir: posix.dirname(t.file), relative: null }, [], [], false);
+  }
   for (const g of gated.values()) {
     warn("cfg-gated", g.file, g.line, `${g.count} test(s) in ${g.module_path || "<root>"} compile only under cfg(${g.cfg})`);
-    Object.assign(warnings[warnings.length - 1], { module_path: g.module_path, cfg: g.cfg });
+    Object.assign(warnings[warnings.length - 1], { ...(g.target ? { target: g.target } : {}), module_path: g.module_path, cfg: g.cfg });
   }
   for (const sub of ["src", "tests"]) {
     for (const file of listRs(fs, posix.join(crate.dir, sub))) {
@@ -537,7 +542,7 @@ export function scanCrate(crate, root, fs = nodeFs) {
 }
 
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
-export const compareTests = (a, b) => cmp(a.crate, b.crate) || cmp(a.module_path, b.module_path) || cmp(a.test_name, b.test_name);
+export const compareTests = (a, b) => cmp(a.crate, b.crate) || cmp(a.target ?? "", b.target ?? "") || cmp(a.module_path, b.module_path) || cmp(a.test_name, b.test_name);
 const compareWarnings = (a, b) => cmp(a.crate, b.crate) || cmp(a.file, b.file) || a.line - b.line || cmp(a.kind, b.kind) || cmp(a.message, b.message);
 
 export function scanWorkspace(rootDir, fs = nodeFs) {
@@ -557,7 +562,13 @@ export function formatInventory(inv) {
   return `{\n  "tests": [\n${lines(inv.tests)}\n  ],\n  "warnings": [\n${lines(inv.warnings)}\n  ]\n}\n`;
 }
 
-export const testKey = (t) => (t.module_path ? `${t.module_path}::${t.test_name}` : t.test_name);
+export const testKey = (t) => `${t.target ? `${t.target}@` : ""}${t.module_path ? `${t.module_path}::${t.test_name}` : t.test_name}`;
+const splitKey = (key) => {
+  const at = key.indexOf("@");
+  const rest = key.slice(at + 1);
+  const cut = rest.lastIndexOf("::");
+  return { target: at < 0 ? "" : key.slice(0, at), rest, module_path: cut < 0 ? "" : rest.slice(0, cut) };
+};
 export function splitTestName(name) {
   const cut = name.lastIndexOf("::");
   return { module_path: cut < 0 ? "" : name.slice(0, cut), test_name: cut < 0 ? name : name.slice(cut + 2) };
@@ -567,7 +578,11 @@ export function splitTestName(name) {
 // Crate names play no part; only a unique candidate matches.
 export function facadeMatch(key, candidates) {
   const tail = (k) => (k.includes("::") ? k.slice(k.indexOf("::") + 2) : null);
-  const hits = [...new Set(candidates)].filter((c) => c !== key && (tail(c) === key || tail(key) === c));
+  const k = splitKey(key);
+  const hits = [...new Set(candidates)].filter((c) => {
+    const o = splitKey(c);
+    return c !== key && o.target === k.target && (tail(o.rest) === k.rest || tail(k.rest) === o.rest);
+  });
   return hits.length === 1 ? hits[0] : null;
 }
 const isStaticTest = (t) => t && typeof t.crate === "string" && typeof t.module_path === "string" && typeof t.test_name === "string";
@@ -579,8 +594,9 @@ export function loadInventory(json) {
     for (const [id, suite] of Object.entries(suites)) {
       const crate = suite["package-name"] ?? id.split("::")[0];
       const cases = Array.isArray(suite.testcases) ? suite.testcases.map((c) => (typeof c === "string" ? c : c.name)) : Object.keys(suite.testcases ?? {});
+      const target = suite.kind === "test" ? suite["binary-name"] : undefined;
       for (const name of cases) {
-        tests.push({ crate, ...splitTestName(name) });
+        tests.push({ crate, ...(target ? { target } : {}), ...splitTestName(name) });
       }
     }
     return { format: "nextest", tests, warnings: [] };
@@ -669,7 +685,7 @@ export function restrictToTarget(inv, os) {
   const allowance = new Map();
   for (const w of inv.warnings ?? []) {
     if (w.kind !== "cfg-gated" || w.module_path === undefined || evalCfg(w.cfg, os) !== false) continue;
-    const key = `${w.crate}\u0000${w.module_path}`;
+    const key = `${w.crate}\u0000${w.target ?? ""}\u0000${w.module_path}`;
     allowance.set(key, (allowance.get(key) ?? 0) + Number(/^(\d+) test/.exec(w.message)?.[1] ?? 0));
   }
   return { inv, dropped: [], allowance };
@@ -737,10 +753,9 @@ export function diffInventories(before, after, { targetOs, renames } = {}) {
     if (!g.count) for (const xs of [added, nextestOnly]) if (xs.includes(g)) xs.splice(xs.indexOf(g), 1);
   }
   for (const l of allowance.size ? [...lost] : []) {
-    const cut = l.key.lastIndexOf("::");
-    const mod = cut < 0 ? "" : l.key.slice(0, cut);
+    const { target, module_path } = splitKey(l.key);
     for (const crate of l.crates) {
-      const k = `${crate}\u0000${mod}`;
+      const k = `${crate}\u0000${target}\u0000${module_path}`;
       const take = Math.min(allowance.get(k) ?? 0, l.count);
       if (!take) continue;
       allowance.set(k, allowance.get(k) - take);
@@ -768,7 +783,8 @@ export function diffInventories(before, after, { targetOs, renames } = {}) {
     const cut = l.key.lastIndexOf("::");
     const mod = cut < 0 ? "" : l.key.slice(0, cut);
     l.candidates = [...added, ...nextestOnly].filter((x) => x.key.lastIndexOf("::") === cut && x.key.slice(0, Math.max(cut, 0)) === mod).map((x) => x.key);
-    l.cfg = uniq(gated.filter((w) => l.crates.includes(w.crate) && w.module_path === mod).map((w) => w.cfg));
+    const at = splitKey(l.key);
+    l.cfg = uniq(gated.filter((w) => l.crates.includes(w.crate) && (w.target ?? "") === at.target && w.module_path === at.module_path).map((w) => w.cfg));
   }
   const byKey = (x, y) => cmp(x.key, y.key);
   return {

@@ -83,7 +83,5 @@ pub mod workspace_routes;
 
 mod capability_probe_routes;
 
-pub use routes::register_rest_hooks;
-
 #[cfg(test)]
 mod core_contract_tests;

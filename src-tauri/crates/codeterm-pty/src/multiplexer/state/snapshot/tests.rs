@@ -81,6 +81,7 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
             protected: false,
             sort_order: 0,
             tabs: vec![TabSnapshot {
+                last_active_at_ms: None,
                 id: "tab".into(),
                 title: "tab".into(),
                 description: None,
@@ -1141,3 +1142,17 @@ fn workspace_provisioned_cwd_round_trips_through_snapshot() {
 // ── Ghost-tab repro harness ───────────────────────────────────────────────
 
 mod visibility;
+
+#[test]
+fn activity_timestamp_survives_snapshot_restore() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().last_active_at_ms = Some(12345);
+    let snapshot = mux.to_session_snapshot();
+    let serialized = serde_json::to_string(&snapshot).unwrap();
+    let decoded = serde_json::from_str(&serialized).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&decoded);
+    assert_eq!(
+        restored.get_tab(&tab_id).unwrap().last_active_at_ms,
+        Some(12345)
+    );
+}

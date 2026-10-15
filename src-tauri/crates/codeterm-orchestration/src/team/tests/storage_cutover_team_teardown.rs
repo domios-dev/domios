@@ -6,11 +6,10 @@ use crate::team::storage_teardown::StorageTeardownSubmitted;
 use crate::team::TeamMutationCaller;
 use crate::test_fixture::ServiceFixture;
 use codeterm_events::SystemEvent;
+use codeterm_sentinel::store::{Create, Owner, Store};
 use codeterm_service_core::cron::clock::MockClock;
 use codeterm_service_core::cron::scheduler::CronState;
 use codeterm_service_core::cron::store::{CronStorageOptions, CronStore};
-use codeterm_service_core::sentinel::scheduler::{self, Handle};
-use codeterm_service_core::sentinel::store::{Create, Owner, Store};
 use codeterm_service_core::storage::{
     CronJobId, CronJobRecord, CronRunId, CronRunRecord, CronRunState, DeskAgentSessionIdentity,
     DeskLayoutNode, DeskLeafFields, DeskSnapshot, DeskTab, DeskTeam, DeskTeamLifecycle,
@@ -25,7 +24,7 @@ struct TeamStorageFixture {
     service: ServiceFixture,
     storage: Storage,
     cron: CronState,
-    sentinel: Handle,
+    sentinel: Arc<Mutex<Store>>,
     team_id: String,
     protected_cron_id: String,
     ordinary_cron_id: String,
@@ -101,9 +100,8 @@ fn team_storage_fixture() -> TeamStorageFixture {
     ));
 
     let sentinel_store = Store::with_storage(&storage, MockClock::starting_at(100));
-    let sentinel = scheduler::fixture_handle(sentinel_store, service._app.handle().clone());
+    let sentinel = Arc::new(Mutex::new(sentinel_store));
     let sentinel_job = sentinel
-        .store
         .lock()
         .prepare(
             Create {
@@ -139,20 +137,15 @@ fn team_storage_fixture() -> TeamStorageFixture {
             false,
         )
         .unwrap();
-    let sentinel_id = codeterm_service_core::sentinel::storage::commit(&sentinel.store, |store| {
-        store.stage_insert(sentinel_job)
-    })
-    .unwrap()
-    .id;
+    let sentinel_id =
+        codeterm_sentinel::storage::commit(&sentinel, |store| store.stage_insert(sentinel_job))
+            .unwrap()
+            .id;
     let wake = Arc::new(std::sync::Condvar::new());
     assert!(service._app.manage(storage.clone()));
     assert!(service._app.manage(cron.clone()));
     assert!(service._app.manage(wake));
-    assert!(service._app.manage(sentinel.clone()));
-    codeterm_service_core::sentinel::manage_fixture_ports(
-        &service._app.handle().clone(),
-        &sentinel,
-    );
+    super::sentinel_fixture::manage(&service._app.handle().clone(), &sentinel);
 
     TeamStorageFixture {
         service,
@@ -324,12 +317,7 @@ fn storage_cutover_team_teardown_commits_all_domains_and_publishes_after_commit(
         .lock()
         .get(&fixture.protected_cron_id)
         .is_some());
-    assert!(fixture
-        .sentinel
-        .store
-        .lock()
-        .get(&fixture.sentinel_id)
-        .is_some());
+    assert!(fixture.sentinel.lock().get(&fixture.sentinel_id).is_some());
     assert!(fixture
         .service
         .service
@@ -359,12 +347,7 @@ fn storage_cutover_team_teardown_commits_all_domains_and_publishes_after_commit(
         .lock()
         .get_history(&fixture.protected_cron_id)
         .is_empty());
-    assert!(fixture
-        .sentinel
-        .store
-        .lock()
-        .get(&fixture.sentinel_id)
-        .is_none());
+    assert!(fixture.sentinel.lock().get(&fixture.sentinel_id).is_none());
     assert!(fixture
         .service
         .service
@@ -415,12 +398,7 @@ async fn storage_cutover_team_teardown_failure_preserves_domains_and_raises_one_
             .len(),
         1
     );
-    assert!(fixture
-        .sentinel
-        .store
-        .lock()
-        .get(&fixture.sentinel_id)
-        .is_some());
+    assert!(fixture.sentinel.lock().get(&fixture.sentinel_id).is_some());
     assert!(fixture
         .service
         .service

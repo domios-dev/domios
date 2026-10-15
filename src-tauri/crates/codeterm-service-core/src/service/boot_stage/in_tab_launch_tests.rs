@@ -129,19 +129,19 @@ fn service_with_live_shell(stage: BootStage) -> (ServiceFixture, String) {
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("claude").with_launch_binary("claude"),
     ));
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(
-            Some("pty-shell".into()),
-            None,
-            None,
-            80,
-            24,
-            Default::default(),
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some("pty-shell".into()), built)
+            },
         )
-        .expect("spawn live backing PTY");
+    }
+    .expect("spawn live backing PTY");
     (fixture, tab_id)
 }
 

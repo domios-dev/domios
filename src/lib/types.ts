@@ -177,6 +177,8 @@ export type BootStage =
 export interface TabBootStageEvent {
   tab_id: string;
   stage: BootStage;
+  agent_booting?: boolean;
+  session_bound?: boolean;
   reason?: string | null;
 }
 
@@ -254,6 +256,8 @@ export interface Tab {
   show_in_tabbar?: boolean;
   worker_id?: string | null;
   agent_booting?: boolean;
+  frozen?: boolean;
+  last_active_at_ms?: number | null;
   /** True only when this visible session explicitly bypasses provider permissions/sandbox. */
   auto_approve?: boolean;
   /** Opt-in: provider-recognized permission prompts are answered with their affirmative option. */
@@ -262,6 +266,7 @@ export interface Tab {
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
+  session_bound?: boolean;
   boot_failure_reason?: string | null;
   /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
   watcher?: WatcherSpec | null;
@@ -606,9 +611,9 @@ export interface KeybindingsConfig {
   zoom_out?: string;
   zoom_reset?: string;
   open_settings?: string;
-  reopen_tab?: string;
+  reopen_tab: string;
   /** Cycle to the next sidebar item (plan entry or tab) in the active workspace. */
-  next_tab?: string;
+  next_tab: string;
   /** Cycle to the previous sidebar item (plan entry or tab) in the active workspace. */
   prev_tab?: string;
 }
@@ -818,6 +823,7 @@ export interface UiConfig {
 }
 
 export interface AppConfig {
+  restore?: { active_window_hours: number };
   updater?: {
     channel?: string;
     allow_provider_updates_in_non_prod?: boolean;

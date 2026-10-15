@@ -476,18 +476,19 @@ fn starting_worker_with_live_pty(
         let workspace = mux.find_workspace_for_tab(owner_tab).unwrap();
         mux.create_tab(&workspace).unwrap()
     };
-    let (worker_pty, _) = fixture
-        .service
-        .pty
-        .lock()
-        .spawn(
+    let (worker_pty, _) = {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        codeterm_service_core::pty::manager::build_session(
+            gate,
             Some(codeterm_service_core::agent::test_provider::test_shell_binary().into()),
             None,
             80,
             24,
             std::collections::HashMap::new(),
         )
-        .unwrap();
+        .map(|built| fixture.service.pty.lock().register_session(None, built))
+    }
+    .unwrap();
     {
         let mut mux = fixture.service.mux.write();
         let worker = mux.get_tab_mut(&worker_tab).unwrap();

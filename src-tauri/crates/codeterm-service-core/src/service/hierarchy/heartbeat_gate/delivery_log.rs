@@ -78,10 +78,10 @@ pub(crate) fn classify_tick(fact: &TickFact) -> (TickOutcome, SpinalVerdict, Str
             SpinalVerdict::Skipped,
             "agent_unavailable".into(),
         ),
-        TickFact::Accepted { decided_by } if decided_by == "cadence" => (
+        TickFact::Accepted { decided_by } if decided_by == "rule" => (
             TickOutcome::Sent,
             SpinalVerdict::Skipped,
-            "actionable_cadence".into(),
+            "actionable_rule".into(),
         ),
         TickFact::Accepted { .. } => (
             TickOutcome::Sent,
@@ -165,11 +165,11 @@ mod tests {
             ),
             (
                 TickFact::Accepted {
-                    decided_by: "cadence".into(),
+                    decided_by: "rule".into(),
                 },
                 TickOutcome::Sent,
                 SpinalVerdict::Skipped,
-                "actionable_cadence",
+                "actionable_rule",
             ),
             (
                 TickFact::NotDue,

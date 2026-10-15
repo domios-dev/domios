@@ -1,6 +1,6 @@
 use crate::plan::{Plan, PlanMode, PlanStatus, Task, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::{
-    self, Decision, Gate, HardWake, Observation, ReminderKind, Scope, Snapshot, Supporter, TickFact,
+    self, Decision, Gate, HardWake, Observation, ReminderKind, Scope, Snapshot, TickFact,
 };
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::plan::reminders::{NudgeKind, TurnCounter};
@@ -116,7 +116,7 @@ fn send_due_plan_time_reminders_noting(
 }
 
 /// One scheduler pass over every automatic producer: mode change, timed Owner
-/// and Worker, and complete-plan wrap-up. Each needs its own Choice approval.
+/// and Worker, and complete-plan wrap-up. Each uses the deterministic gate.
 fn run_reminder_tick(
     host: &impl ReminderHost,
     plans: &[Plan],
@@ -463,8 +463,8 @@ impl ReminderHost for LiveHost<'_> {
             .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
     }
 
-    fn supporter(&self) -> Supporter<'_> {
-        Supporter::live(self.svc)
+    fn journal_runtime(&self) -> std::sync::Arc<crate::service::supporter::SupporterRuntime> {
+        crate::service::supporter::runtime_with_notifications(self.svc)
     }
 
     fn interval(&self) -> u64 {

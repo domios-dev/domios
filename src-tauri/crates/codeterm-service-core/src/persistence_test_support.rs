@@ -1,4 +1,5 @@
 use crate::multiplexer::state::MultiplexerState;
+pub use crate::service::session_persist::persistence_test_support::assert_unavailable_rejects_persistence_without_a_commit;
 use crate::service::test_fixture::ServiceFixture;
 use crate::session::store::StorageDeskAdapter;
 use crate::startup::StorageAuthority;
@@ -11,7 +12,7 @@ const DEADLINE: Duration = Duration::from_secs(30);
 
 pub struct ServiceInstance {
     pub fixture: ServiceFixture,
-    pub(crate) storage: Storage,
+    pub storage: Storage,
     authority: StorageAuthority,
 }
 

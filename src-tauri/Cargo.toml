@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = ["crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-socket", "crates/codeterm-build-info"]
+members = ["crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-build-info"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
@@ -19,6 +19,7 @@ workspace = true
 codeterm-commands = { path = "crates/codeterm-commands" }
 codeterm-api = { path = "crates/codeterm-api" }
 codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false }
+codeterm-sentinel-host = { path = "crates/codeterm-sentinel-host" }
 codeterm-socket = { path = "crates/codeterm-socket" }
 codeterm-orchestration = { path = "crates/codeterm-orchestration" }
 codeterm-build-info = { path = "crates/codeterm-build-info" }
@@ -41,6 +42,24 @@ axum = { version = "0.8", features = ["multipart"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 fastembed = { version = "5", optional = true }
+
+codeterm-billing = { path = "crates/codeterm-billing" }
+codeterm-plan = { path = "crates/codeterm-plan" }
+codeterm-plugin = { path = "crates/codeterm-plugin" }
+codeterm-util = { path = "crates/codeterm-util" }
+codeterm-events = { path = "crates/codeterm-events" }
+codeterm-frontend-bundle = { path = "crates/codeterm-frontend-bundle" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+fern = "0.7"
+parking_lot = "0.12"
+png = "0.17"
+dirs = "6"
+url = "2"
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
 
 [features]
 default = ["embeddings"]
@@ -69,6 +88,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[test]]
 name = "main"
 path = "tests/main.rs"
+
+[[test]]
+name = "bridge_migrate_test"
+path = "tests/bridge_migrate_test.rs"
+test = false
+
+[[test]]
+name = "chatpipeline_seams_test"
+path = "tests/chatpipeline_seams_test.rs"
+test = false
 
 # Deterministic mem-recall bench runner. Reuses the `mem` module from the
 # lib crate directly. Default and stub modes run offline without an LLM

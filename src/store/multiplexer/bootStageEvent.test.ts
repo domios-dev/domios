@@ -29,5 +29,12 @@ test("tab-boot-stage event maps to reducer action with reason", () => {
   assert(action.reason === "provider missing", "reason mapped");
 });
 
+test("AgentReady event forwards booting and session binding", () => {
+  const action = tabBootStageEventAction({ tab_id: "ready", stage: "agent_ready", agent_booting: false, session_bound: true });
+  assert(action.type === "UPDATE_BOOT_STAGE", "action type");
+  assert(action.agent_booting === false, "booting mapped");
+  assert(action.session_bound === true, "binding mapped");
+});
+
 console.log(`bootStageEvent tests: ${failures === 0 ? "all passed" : `${failures} failed`}`);
 if (failures > 0) throw new Error(`${failures} test(s) failed`);

@@ -1,3 +1,6 @@
+use super::persistence_test_support::{
+    desk_delta_snapshot, stop_test_worker, test_snapshot, test_worker,
+};
 use super::*;
 use crate::storage::{Storage, StorageConfig};
 use std::sync::mpsc::TryRecvError;
@@ -6,21 +9,6 @@ use std::sync::Arc;
 fn test_adapter(root: &std::path::Path) -> crate::session::store::StorageDeskAdapter {
     let storage = Storage::open(root, StorageConfig::default()).expect("Storage owner");
     crate::session::store::StorageDeskAdapter::from_storage(storage)
-}
-
-fn test_worker(
-    writer: impl FnMut(u64) -> Result<SaveOutcome, String> + Send + 'static,
-) -> SessionPersistenceWorker {
-    let mailbox = Arc::new(PersistenceMailbox::default());
-    let worker = SessionPersistenceWorker {
-        mailbox: mailbox.clone(),
-        next_revision: Arc::new(AtomicU64::new(0)),
-        submission_order: Arc::new(parking_lot::Mutex::new(())),
-    };
-    std::thread::spawn(move || {
-        run_worker(mailbox, None, PersistenceBackend::Test(Box::new(writer)))
-    });
-    worker
 }
 
 fn pending_worker() -> SessionPersistenceWorker {
@@ -32,34 +20,6 @@ fn pending_worker() -> SessionPersistenceWorker {
     };
     std::thread::spawn(move || run_worker(mailbox, None, PersistenceBackend::Pending));
     worker
-}
-
-fn stop_test_worker(worker: &SessionPersistenceWorker) {
-    let (response, completion) = mpsc::channel();
-    worker.configure(WorkerMessage::Stop(response)).unwrap();
-    completion.recv_timeout(Duration::from_secs(5)).unwrap();
-}
-
-pub(crate) fn assert_unavailable_rejects_persistence_without_a_commit() {
-    let (commit_tx, commit_rx) = mpsc::channel();
-    let worker = test_worker(move |revision| {
-        commit_tx.send(revision).unwrap();
-        Ok(SaveOutcome::Saved)
-    });
-    worker
-        .configure(WorkerMessage::Unavailable("Storage unavailable".into()))
-        .unwrap();
-
-    let error = worker
-        .submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, true)
-        .unwrap_err();
-
-    assert_eq!(error, "Storage unavailable");
-    assert!(matches!(
-        commit_rx.try_recv(),
-        Err(TryRecvError::Empty | TryRecvError::Disconnected)
-    ));
-    stop_test_worker(&worker);
 }
 
 #[test]
@@ -127,12 +87,6 @@ fn mutation_submitted_before_storage_init_is_committed_and_restored_after_restar
         .wait(PERSISTENCE_DEADLINE)
         .expect("close restarted Storage owner");
     drop(restarted_authority);
-}
-
-fn test_snapshot(revision: u64) -> crate::session::SessionSnapshot {
-    let mut snapshot = desk_delta_snapshot(0);
-    snapshot.timestamp = revision;
-    snapshot
 }
 
 #[test]
@@ -505,28 +459,6 @@ fn storage_desk_restores_live_provider_sessions_for_each_provider() {
         assert_eq!(tab.agent_type.as_deref(), Some(provider));
         assert_eq!(tab.agent_session_id.as_deref(), Some(session_id.as_str()));
         assert!(tab.agent_type_locked);
-    }
-}
-
-fn desk_delta_snapshot(workspace_count: usize) -> crate::session::store::SessionSnapshot {
-    crate::session::store::SessionSnapshot {
-        version: "test".into(),
-        timestamp: 17,
-        active_workspace_id: None,
-        teams: vec![],
-        workspaces: (0..workspace_count)
-            .map(|index| crate::session::store::WorkspaceSnapshot {
-                id: format!("ws-{index}"),
-                name: format!("Workspace {index}"),
-                tabs: vec![],
-                active_tab_id: None,
-                cwd: None,
-                provisioned_cwd: None,
-                protected: false,
-                sort_order: index as i32,
-                task_keys: Default::default(),
-            })
-            .collect(),
     }
 }
 

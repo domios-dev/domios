@@ -28,3 +28,4 @@ tempfile = "3"
 
 [dev-dependencies]
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
+codeterm-sentinel = { path = "../codeterm-sentinel", features = ["test-support"] }

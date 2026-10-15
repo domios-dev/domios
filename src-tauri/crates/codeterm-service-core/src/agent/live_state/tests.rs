@@ -24,12 +24,19 @@ fn restored_prompt_without_a_session_is_live_with_a_live_pty() {
         });
     }
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("spawn live backing PTY");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("spawn live backing PTY");
 
     assert_eq!(
         observe_tab_liveness(&fixture.service, &tab_id),
@@ -61,19 +68,19 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
     waiting.boot_stage = Some(crate::service::boot_stage::BootStage::ShellReady);
 
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(
-            Some("resume-live-pty".into()),
-            None,
-            None,
-            80,
-            24,
-            Default::default(),
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some("resume-live-pty".into()), built)
+            },
         )
-        .expect("spawn live backing PTY");
+    }
+    .expect("spawn live backing PTY");
     let restored_ids = [launching_tab_id.clone(), waiting_tab_id.clone()]
         .into_iter()
         .collect::<BTreeSet<_>>();

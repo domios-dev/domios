@@ -54,19 +54,19 @@ import fixtures from "./transportCommandContracts.json";
 import { NATIVE_COMMANDS } from "./nativeCommands";
 
 function registeredContracts() {
-  const routes = readFileSync("src-tauri/crates/codeterm-service-core/src/api/routes.rs", "utf8");
-  const modules = readFileSync("src-tauri/crates/codeterm-service-core/src/api/mod.rs", "utf8");
+  const routes = readFileSync("src-tauri/crates/codeterm-api/src/routes.rs", "utf8");
+  const modules = readFileSync("src-tauri/crates/codeterm-api/src/lib.rs", "utf8");
   const sources = [routes];
   for (const domain of ["transport_tabs", "transport_capabilities", "transport_orchestration", "frontend_shell_routes"]) {
     expect(modules).toContain(`pub mod ${domain};`);
     expect(routes.split(`${domain}::router()`).length - 1, `${domain} registered exactly once`).toBe(1);
     {
       const sourcePath = domain === "frontend_shell_routes" ? `${domain}.rs` : `${domain}/mod.rs`;
-      sources.push(readFileSync(`src-tauri/crates/codeterm-service-core/src/api/${sourcePath}`, "utf8"));
+      sources.push(readFileSync(`src-tauri/crates/codeterm-api/src/${sourcePath}`, "utf8"));
     }
   }
   expect(routes).toContain("tab_agent_routes::mount(router)");
-  sources.push(readFileSync("src-tauri/crates/codeterm-service-core/src/api/tab_agent_routes.rs", "utf8"));
+  sources.push(readFileSync("src-tauri/crates/codeterm-api/src/tab_agent_routes.rs", "utf8"));
   return sources.flatMap(rustRouteContracts);
 }
 

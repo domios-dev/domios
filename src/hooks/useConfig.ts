@@ -37,6 +37,7 @@ export function defaultConfig(): AppConfig {
     },
     keybindings: {
       reopen_tab: "Ctrl+Shift+T",
+      next_tab: "Ctrl+Tab",
     },
     socket: { path: null },
     agent: {

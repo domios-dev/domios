@@ -12,7 +12,7 @@ use crate::service::plan::{PlanStore, TaskLaneUpdate};
 pub struct LiveTabCwd {
     pub id: String,
     pub title: String,
-    pub(crate) cwd: String,
+    pub cwd: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -38,7 +38,7 @@ pub(crate) fn register_extensions(builder: &mut ExtensionsBuilder) {
     extensions(builder);
 }
 
-pub(crate) fn install(svc: &ServiceState) {
+pub fn install(svc: &ServiceState) {
     let (make, _) = FACTORY
         .get()
         .expect("orchestration port is registered before the service starts");
