@@ -23,14 +23,24 @@ impl ServiceContext {
         thread: &str,
         nonce: &str,
     ) -> Result<(), String> {
-        if let Err(reason) = self.try_finalize_runtime_worker_session(tab_id, thread, nonce) {
-            self.warn_runtime_plan_binding(
-                tab_id,
-                crate::service::agent_runtime::plan_warning::PlanBindingWarningStage::Finalization,
-                &reason,
-            );
-        }
+        self.report_runtime_worker_session_finalization(tab_id, thread, nonce);
         Ok(())
+    }
+
+    pub(crate) fn report_runtime_worker_session_finalization(
+        &self,
+        tab_id: &str,
+        thread: &str,
+        nonce: &str,
+    ) -> Option<String> {
+        let reason = self
+            .try_finalize_runtime_worker_session(tab_id, thread, nonce)
+            .err()?;
+        self.warn_runtime_plan_binding(
+            tab_id,
+            crate::service::agent_runtime::plan_warning::PlanBindingWarningStage::Finalization,
+            &reason,
+        )
     }
 
     fn try_finalize_runtime_worker_session(
