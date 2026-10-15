@@ -1,15 +1,12 @@
 //! Agent spawn & batch command orchestration.
 
-mod batch;
 mod launch;
 mod launch_env;
 mod prompt_compose;
-pub mod refresh;
 mod spawn;
 pub mod tab_relink_signal;
 mod types;
 
-pub use batch::batch;
 #[cfg(any(test, feature = "test-support"))]
 pub use launch::arm_provider_session_for_test;
 #[cfg(any(test, feature = "test-support"))]
@@ -32,7 +29,6 @@ pub(crate) use prompt_compose::role_onboarding_task;
 #[cfg(any(test, feature = "test-support"))]
 pub use prompt_compose::spawn_onboarding_task;
 pub(crate) use prompt_compose::{provider_launch_task, restorable_identity_task};
-pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};
 pub use spawn::{
     compose_runtime_system_prompt, ensure_tab_runtime_prompt,
     move_chatbackend_task_to_system_prompt, remote_task_binding_matches_authority, ROLE_AUTHORITY,

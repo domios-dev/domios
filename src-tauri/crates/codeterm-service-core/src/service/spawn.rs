@@ -371,7 +371,7 @@ impl ServiceContext {
 
         // Authorized before the tab exists: a non-member caller must never leave
         // an orphan agent behind.
-        let team_attachment = super::team::resolve_spawn_attachment(
+        let team_attachment = super::team_membership::resolve_spawn_attachment(
             &self.mux.read(),
             spec.team_id.as_deref(),
             spec.creator_tab_id.as_deref(),
@@ -549,7 +549,7 @@ impl ServiceContext {
         if let Some(attachment) = &team_attachment {
             let applied = {
                 let mut mux = self.mux.write();
-                super::team::apply_team_attachment(&mut mux, attachment, &tab_id)
+                super::team_membership::apply_team_attachment(&mut mux, attachment, &tab_id)
             };
             if let Err(error) = applied {
                 if tab_created_by_spawn {

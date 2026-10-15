@@ -67,7 +67,7 @@ pub struct AgentTransitionRequest {
 }
 
 impl AgentTransitionRequest {
-    pub(crate) fn roleless(tab_id: impl Into<String>) -> Self {
+    pub fn roleless(tab_id: impl Into<String>) -> Self {
         Self {
             tab_id: tab_id.into(),
             destination: AgentPlacement::Roleless,
@@ -80,7 +80,7 @@ impl AgentTransitionRequest {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TransitionFailurePoint {
+pub enum TransitionFailurePoint {
     None,
     AfterPlanCommit,
     SkipPlanRebind,
@@ -438,7 +438,7 @@ fn execute_transition(
     execute_transition_at(mux, plan_store, request, failure, epoch_ms())
 }
 
-fn execute_transition_at(
+pub fn execute_transition_at(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     request: AgentTransitionRequest,

@@ -223,14 +223,15 @@ impl ServiceContext {
                 return Err(format!("creator_tab_id: Cron Tab {tab_id} not found"));
             }
         }
-        let inherited_attachment = crate::service::team::resolve_inherited_team_attachment(
-            &self.mux.read(),
-            params.team_id.as_deref(),
-            params.creator_tab_id.as_deref(),
-            &params.workspace_id,
-            params.detach_from_team,
-        )
-        .map_err(|error| format!("team_id/creator_tab_id: {error}"))?;
+        let inherited_attachment =
+            crate::service::team_membership::resolve_inherited_team_attachment(
+                &self.mux.read(),
+                params.team_id.as_deref(),
+                params.creator_tab_id.as_deref(),
+                &params.workspace_id,
+                params.detach_from_team,
+            )
+            .map_err(|error| format!("team_id/creator_tab_id: {error}"))?;
         params.team_id = inherited_attachment.map(|attachment| attachment.team_id);
         self.validate_cron_ownership(&params)?;
         let provider = params

@@ -9,7 +9,7 @@ use tauri::{Emitter, Manager};
 use crate::multiplexer::commands::MuxState;
 use crate::session::store::{SaveIntent, SaveOutcome};
 
-const PERSISTENCE_DEADLINE: Duration = Duration::from_secs(30);
+pub const PERSISTENCE_DEADLINE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SessionPersistUrgency {
@@ -214,7 +214,7 @@ pub fn stop_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
 }
 
 #[cfg(test)]
-pub(crate) fn flush_session_persistence(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
+pub fn flush_session_persistence(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     ensure_worker(app)?.flush()
 }
 
