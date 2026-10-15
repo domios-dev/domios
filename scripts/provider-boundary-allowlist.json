@@ -1235,13 +1235,6 @@
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/model_switch.rs",
-      "token": "Claude",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/agent_claude/provider/model_switch.rs",
       "token": "provider-claude",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
@@ -5133,13 +5126,6 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-types/src/agent/provider_signals.rs",
-      "token": "codexErrorInfo",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
       "file": "src-tauri/crates/codeterm-types/src/config/model_defaults.rs",
       "token": "codex",
       "count": 1,
@@ -7501,14 +7487,14 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/agent_restart/model_switch/live_command/picker/tests.rs",
       "token": "provider-claude",
-      "count": 5,
+      "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/agent_restart/model_switch/live_command/readiness/tests.rs",
       "token": "provider-claude",
-      "count": 5,
+      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },

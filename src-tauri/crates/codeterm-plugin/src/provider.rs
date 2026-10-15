@@ -213,6 +213,7 @@ mod session_content;
 mod settings;
 mod spawn_strategy;
 mod usage_snapshot;
+mod worker_lane_setting;
 pub use agent_provider::*;
 pub use availability::*;
 pub use capabilities::*;
@@ -224,6 +225,7 @@ pub use session_content::*;
 pub use settings::*;
 pub use spawn_strategy::*;
 pub use usage_snapshot::*;
+pub use worker_lane_setting::*;
 
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.

@@ -47,7 +47,7 @@ toolPairing?: string | null,
 /**
  * Source-provided command outcome facts. Missing facts stay absent.
  */
-toolExitCode?: number | null, toolDurationMs?: number | null, toolInterrupted?: boolean | null, toolBackgroundTaskId?: string | null, 
+toolExitCode?: number | null, toolDurationMs?: number | null, toolStatus?: "running" | "completed" | "failed" | "interrupted" | "abandoned" | null, toolStartedAtMs?: number | null, toolCompletedAtMs?: number | null, toolInterrupted?: boolean | null, toolBackgroundTaskId?: string | null, 
 /**
  * Per-file diffs with the exact hunks the provider's own edit record supplied.
  */

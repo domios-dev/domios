@@ -21,6 +21,9 @@ permissions:
   contents: read
 
 env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
   DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
@@ -92,10 +95,7 @@ jobs:
           fi
 
       - name: Verify native Docker builder
-        run: |
-          docker info >/dev/null
-          docker image inspect codeterm-build-linux-arm64 >/dev/null
-          test "$(docker image inspect --format '{{.Architecture}}' codeterm-build-linux-arm64)" = arm64
+        run: bash scripts/check-linux-arm64-builder.sh
 
       - name: Build and smoke Linux arm64 in native container
         run: |
@@ -105,14 +105,13 @@ jobs:
           source scripts/cache-policy.sh
           ct_sccache_storage
           test "$CT_SCCACHE_STORAGE" = shared
-          docker run --rm --pull=never --platform linux/arm64 codeterm-build-linux-arm64 sccache --version
           node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- docker run --rm --pull=never --platform linux/arm64 \
             -v "$ART:/work" -v "$PWD/.codeterm/build-machine/scripts/build-linux.sh:/build-linux.sh:ro" \
             -e DOMIOS_FIREBASE_API_KEY -e DOMIOS_FIREBASE_PROJECT_ID -e DOMIOS_FIREBASE_APP_ID \
             -e DOMIOS_ACCOUNT_REDEEM_URL -e DOMIOS_BILLING_FUNCTIONS_URL \
             -e DOMIOS_AMPLITUDE_API_KEY_TEST -e DOMIOS_AMPLITUDE_API_KEY_PROD \
             -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner \
-            -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 \
+            -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 -e CARGO_BUILD_JOBS=6 \
             -e CARGO_TARGET_DIR=/src/src-tauri/target -e CODETERM_RELEASE_FEATURES=embeddings \
             codeterm-build-linux-arm64 bash /build-linux.sh source deb,appimage
 
@@ -132,7 +131,7 @@ jobs:
       - name: Sign Linux updater bundles
         run: |
           for bundle in "$ART"/out/*.AppImage "$ART"/out/*.deb; do
-            pnpm tauri signer sign "$bundle"
+            env -u TAURI_SIGNING_PRIVATE_KEY pnpm tauri signer sign "$bundle"
           done
 
       - name: Verify updater signatures (including dry run)
@@ -158,3 +157,7 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-Linux
           target: aarch64-unknown-linux-gnu
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs

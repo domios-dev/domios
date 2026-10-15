@@ -76,12 +76,13 @@ struct PlanBindingWarning<'a> {
 }
 
 impl ServiceContext {
+    /// Returns the notice text when the bound plan could not record the warning as a stride.
     pub(crate) fn warn_runtime_plan_binding(
         &self,
         tab_id: &str,
         stage: PlanBindingWarningStage,
         failure: &PlanBindingFailure,
-    ) {
+    ) -> Option<String> {
         let binding = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id).and_then(|tab| {
@@ -141,14 +142,16 @@ impl ServiceContext {
         } else {
             false
         };
-        if !recorded {
+        let notice = (!recorded).then(|| {
             self.log_system_notice(
                 "Runtime plan binding warning".into(),
-                Some(text),
+                Some(text.clone()),
                 Some("warning"),
             );
-        }
+            text
+        });
         self.emit_state_changed();
+        notice
     }
 }
 
@@ -169,24 +172,23 @@ mod tests {
             ..Default::default()
         });
         let fixture = ServiceFixture::new(mux);
-        assert!(fixture
+        let Some(text) = fixture
             .service
-            .finalize_runtime_worker_session(&tab_id, "thread", "nonce")
-            .is_ok());
-        let notifications = fixture.service.notif.lock();
-        let notices = notifications.list(false);
-        let notice = notices
-            .iter()
-            .find_map(|notice| {
-                let payload: serde_json::Value =
-                    serde_json::from_str(notice.body.as_deref()?).ok()?;
-                (payload["kind"] == "runtime_plan_binding_warning").then_some(payload)
-            })
-            .unwrap();
+            .report_runtime_worker_session_finalization(&tab_id, "thread", "nonce")
+        else {
+            panic!("an unavailable plan routes its warning to a system notice");
+        };
+        let notice: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(notice["kind"], "runtime_plan_binding_warning");
         assert_eq!(notice["plan_id"], "unavailable-plan");
         assert_eq!(notice["task_id"], "unavailable-task");
         assert_eq!(notice["attempt_id"], "attempt");
         assert_eq!(notice["stage"], "finalization");
+        assert!(fixture.service.notif.lock().list(false).is_empty());
+        assert!(fixture
+            .service
+            .finalize_runtime_worker_session(&tab_id, "thread", "nonce")
+            .is_ok());
         assert!(fixture
             .service
             .mux

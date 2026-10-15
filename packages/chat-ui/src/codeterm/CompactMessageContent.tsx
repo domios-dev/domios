@@ -1,13 +1,12 @@
 import React from "react";
-import { userMessageAttachments } from "@codeterm/chat-core";
+import { placedAttachmentSegments, userMessageAttachments } from "@codeterm/chat-core";
 import { LinkedText, type OpenPlan, type ResolvedChatPlanRef } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
 import { RichMarkdown } from "../MarkdownBody";
 import { normalizeMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { AttachmentStrip } from "../AttachmentStrip";
-import { OrderedAttachmentContent } from "../OrderedAttachmentContent";
-import { InlineAttachmentText } from "../AttachmentCapsule";
+import { AttachmentCapsule, InlineAttachmentText } from "../AttachmentCapsule";
 import { ReplyQuote } from "../ReplyQuote";
 
 interface Props {
@@ -40,7 +39,9 @@ export function CompactMessageContent({ text, fontScale, onOpenPlan, resolvePlan
   return (
     <div data-testid="codeterm-message-content" className={`min-w-0 ${textSize}`}>
       {parts.reply && <ReplyQuote label={parts.reply.label ?? "Quote"} excerpt={parts.reply.excerpt ?? ""} />}
-      <OrderedAttachmentContent content={text} renderText={renderText} />
+      {placedAttachmentSegments(text).map((segment, index) => ("text" in segment
+        ? <React.Fragment key={index}>{renderText(segment.text)}</React.Fragment>
+        : <AttachmentCapsule key={`${index}:${segment.attachment.path}`} attachment={segment.attachment} />))}
       {collapsible && !parts.inline && (
         <button
           type="button"

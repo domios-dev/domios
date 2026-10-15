@@ -1,4 +1,6 @@
 pub const WORKER_SUFFIX: &str = include_str!("../../../../prompts/worker_suffix.md");
+pub const WORKER_FRAMEWORK_RULE: &str =
+    include_str!("../../../../prompts/worker_framework_rule.md");
 pub const TESTING_DISCIPLINE: &str = include_str!("../../../../prompts/testing_discipline.md");
 pub const QA_PIPELINE_DISCIPLINE: &str =
     include_str!("../../../../prompts/qa_pipeline_discipline.md");
@@ -82,5 +84,7 @@ Plan skills — the plan's own know-how:
 pub const PLAN_SKILLS_WORKER_LINE: &str = "This plan has skills — procedures earlier agents proved out. Check before inventing: `codeterm plan skill list`. Learned something reusable yourself? `codeterm plan skill new <slug>` — future workers inherit it.";
 
 pub fn worker_suffix() -> String {
-    format!("{TESTING_DISCIPLINE}\n{QA_PIPELINE_DISCIPLINE}\n{WORKER_SUFFIX}")
+    format!(
+        "{TESTING_DISCIPLINE}\n{QA_PIPELINE_DISCIPLINE}\n{WORKER_FRAMEWORK_RULE}\n{WORKER_SUFFIX}"
+    )
 }

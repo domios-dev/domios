@@ -139,6 +139,10 @@ fn refuse_and_park_current_send(
 ) {
     let tab_id = accepted.tab_id.clone();
     let send_id = accepted.send_id.clone();
+    // The launch never reaches AgentReady here, so the refusal is the deadline itself.
+    let _deadline = crate::service::pty_io::test_support::PublicInputReadyDeadline::set(
+        std::time::Duration::ZERO,
+    );
     let status = run_chat_send(&svc.chat_send_ledger, accepted, payload, |text| {
         let error = svc.send_chat_text_claimed(&tab_id, text, None).unwrap_err();
         assert!(

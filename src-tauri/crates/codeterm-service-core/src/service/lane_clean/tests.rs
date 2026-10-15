@@ -9,7 +9,10 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
-        let root_path = root.path().canonicalize().unwrap();
+        // Git for Windows cannot create worktrees under a verbatim \\?\ path.
+        let root_path = std::path::PathBuf::from(codeterm_paths::strip_verbatim_prefix(
+            root.path().canonicalize().unwrap().to_str().unwrap(),
+        ));
         let project = root_path.join("project");
         let path = root_path.join("lane");
         std::fs::create_dir(&project).unwrap();

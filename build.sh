@@ -515,7 +515,7 @@ run_release_rust_tests() {
 }
 
 case "$CMD" in
-  gateway-*|help|gc|cache-status|cache-verify|cache-stats|build-history) ;;
+  gateway-*|help|gc|cache-status|cache-verify|cache-stats|build-history|frontend-build) ;;
   *) setup_env ;;
 esac
 
@@ -2083,7 +2083,7 @@ dev_notify_health_proof() {
 
 # Auto-install node deps if lockfile is newer than node_modules
 ensure_deps() {
-  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.package-lock.json ] 2>/dev/null; then
+  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.modules.yaml ] 2>/dev/null; then
     echo "Installing dependencies..."
     CI=true pnpm install --frozen-lockfile 2>/dev/null || CI=true pnpm install
   fi
@@ -2133,8 +2133,11 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  fmt-check|check|check-tests|ci-archives|release-inputs|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
+    ;;
+  frontend-build)
+    enter_build_gateway "$CMD"
     ;;
 esac
 
@@ -2162,7 +2165,9 @@ CodeTerm build commands
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
-  ci-archives                 Compile and archive test profiles with the shared cache
+  ci-tests full|platform      Compile and run the full Rust suite, or this OS's cfg-gated subset, in place
+  ci-clippy                   Run the clippy repo gate through the shared compile cache
+  frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
   worktree-check              Isolated lane-safe Rust compile check
   test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
@@ -2184,7 +2189,7 @@ Long operations (check, check-tests, test-one, test, verify, build, install-loca
 accept --notify-tab <tab> or BUILD_NOTIFY_TAB: one OK or early-failure receipt.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
-  cache-verify                Verify shared S3 configuration and running server without changes
+  cache-verify                Verify shared S3 storage; start the S3 server only when none is live
   cache-stats                 Show counters only from a live sccache server
   gateway-status              Show the machine build owner
   build-history [--last N] [--verb V] [--json]  Build durations, cache hits and rebuild reasons
@@ -2367,8 +2372,16 @@ EOF
     ensure_deps
     pnpm build
     ;;
-  ci-archives)
-    node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-archives.mjs
+  ci-clippy)
+    bash scripts/clippy-gate.sh
+    ;;
+  ci-tests)
+    case "${2:-}" in full|platform) ;; *) echo "Usage: ./build.sh ci-tests full|platform" >&2; exit 2 ;; esac
+    node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
+    ;;
+  frontend-build)
+    ensure_deps
+    pnpm build
     ;;
   release-inputs)
     ensure_deps

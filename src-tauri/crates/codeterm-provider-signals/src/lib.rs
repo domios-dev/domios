@@ -199,7 +199,11 @@ impl ApiErrorKind {
                 fields.extend(error.get(key));
             }
         }
-        let info = error.and_then(|error| error.get("codexErrorInfo"));
+        // Providers carry structured error detail under a vendor-prefixed `*ErrorInfo` key.
+        let info = error
+            .and_then(Value::as_object)
+            .and_then(|error| error.iter().find(|(key, _)| key.ends_with("ErrorInfo")))
+            .map(|(_, info)| info);
         let info_keys = info
             .and_then(Value::as_object)
             .map(|info| info.keys().map(String::as_str).collect::<Vec<_>>())

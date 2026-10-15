@@ -10,6 +10,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | Id | Kind | Lang | Tier | Instance | Live agent | Budget (s) | Discovery | Runner | Owner doc |
 |---|---|---|---|---|---|---|---|---|---|
 | `ts-unit` | unit | ts | pr | no | no | 300 | glob `src/**/*.test.ts` `src/**/*.test.tsx` `packages/**/*.test.ts` `packages/**/*.test.tsx` minus `**/node_modules/**` `**/dist/**` minus `scripts/vitest-owned-tests.json` | `pnpm test:unit` | `.agents/skills/testing/SKILL.md` |
+| `frontend-windows-build` | guard | ts | pr | no | no | 300 | single | `bash build.sh frontend-build` | `.agents/skills/github-release/SKILL.md` |
 | `ts-vitest` | unit | ts | pr | no | no | 180 | list-file `scripts/vitest-owned-tests.json` | `pnpm test:vitest --maxWorkers=4` | `.agents/skills/testing/SKILL.md` |
 | `ts-perf-bench` | eval | ts | manual | no | no | 120 | glob `tests/perf/*.bench.ts` | `npx tsx tests/perf/transcript-churn.bench.ts && npx tsx tests/perf/pty-write-slicing.bench.ts` | `tests/perf/README.md` |
 | `node-script-tests` | contract | js | pr | no | no | 300 | glob `scripts/tests/*.test.mjs` `scripts/*.test.mjs` minus `scripts/build-gateway-*.test.mjs` `scripts/build-history.test.mjs` `scripts/check-worktree.test.mjs` `scripts/dev-build-configuration.test.mjs` `scripts/affected-tests.test.mjs` `scripts/check-analytics-catalog.test.mjs` `scripts/run-ts-unit-tests.test.mjs` | `node scripts/test-catalogue.mjs run --entry node-script-tests` | `.agents/skills/testing/SKILL.md` |
@@ -28,8 +29,8 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `ts-api-effects` | guard | ts | pr | no | no | 120 | single | `pnpm check:api-effects` | `.agents/skills/testing/SKILL.md` |
 | `ts-biome` | guard | ts | pr | no | no | 120 | single | `pnpm lint` | `.agents/skills/testing/SKILL.md` |
 | `ts-generated-types` | guard | mixed | pr | no | no | 120 | single | `pnpm types:check` | `.agents/skills/build/SKILL.md` |
-| `rust-fmt` | guard | rust | pr | no | no | 60 | single | `cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo fmt --manifest-path cli/Cargo.toml --check` | `.agents/skills/gates/SKILL.md` |
-| `rust-clippy` | guard | rust | release | no | no | 600 | single | `bash scripts/clippy-gate.sh` | `.agents/skills/gates/SKILL.md` |
+| `rust-fmt` | guard | rust | pr | no | no | 60 | single | `cargo fmt --manifest-path src-tauri/Cargo.toml --all --check && cargo fmt --manifest-path cli/Cargo.toml --all --check` | `.agents/skills/gates/SKILL.md` |
+| `rust-clippy` | guard | rust | release | no | no | 600 | single | `bash build.sh ci-clippy` | `.agents/skills/gates/SKILL.md` |
 | `rust-check-queue` | guard | rust | manual | no | no | 600 | single | `./build.sh check-queue` | `.agents/skills/gates/SKILL.md` |
 | `rust-warnings-baseline` | guard | js | release | no | no | 600 | single | `node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash scripts/clippy-gate.sh` | `.agents/skills/gates/SKILL.md` |
 | `file-sizes` | guard | bash | pr | no | no | 60 | single | `bash scripts/check-file-sizes.sh --fail` | `AGENTS.md` |

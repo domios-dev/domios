@@ -73,6 +73,12 @@ impl Drop for TestPtyGuard {
     }
 }
 
+/// Authenticated agent submissions captured at the PTY boundary, in order.
+pub struct RecordedAgentDeliveries {
+    _boundary: super::agent_delivery_outbox::test_boundary::Boundary,
+    pub texts: Arc<Mutex<Vec<String>>>,
+}
+
 #[derive(Default)]
 pub struct RecordingHierarchyReportDelivery {
     pub writes: Mutex<Vec<(String, String)>>,
@@ -118,6 +124,50 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
 }
 
 impl ServiceFixture {
+    /// Makes `tab_id` a live, session-bound agent recipient whose submissions are recorded,
+    /// because a bare shell recipient waits out the submit deadlines for turn evidence.
+    pub fn bind_recorded_agent_recipient(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        binding_nonce: &str,
+    ) -> RecordedAgentDeliveries {
+        {
+            let mut mux = self.service.mux.write();
+            mux.link_pty(tab_id, format!("recorded-{tab_id}"));
+            let tab = mux.get_tab_mut(tab_id).expect("recipient tab");
+            tab.agent_type.get_or_insert_with(|| "claude".into());
+            tab.backing = crate::multiplexer::types::TabBacking::Pty;
+            tab.agent_booting = false;
+            tab.agent_session_id = Some(session_id.to_string());
+            tab.session_binding_nonce = Some(binding_nonce.to_string());
+            tab.reported_session_binding_nonce = Some(binding_nonce.to_string());
+            tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        }
+        self.record_agent_deliveries(tab_id)
+    }
+
+    pub fn record_agent_deliveries(&self, tab_id: &str) -> RecordedAgentDeliveries {
+        let texts = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&texts);
+        let boundary = super::agent_delivery_outbox::test_boundary::Boundary::install(
+            tab_id,
+            Arc::new(move |payload| {
+                let text = match &payload.transport {
+                    super::messenger::QueuedAgentPayload::Text { text } => text.clone(),
+                    super::messenger::QueuedAgentPayload::RoutedFrame { body, .. } => body.clone(),
+                };
+                captured.lock().push(text);
+                Ok(())
+            }),
+            Arc::new(|| {}),
+        );
+        RecordedAgentDeliveries {
+            _boundary: boundary,
+            texts,
+        }
+    }
+
     pub fn install_seeded_storage_desk(&self) -> crate::storage::Storage {
         let storage = crate::storage::Storage::open(
             &self.temp.path().join("runtime-desk"),

@@ -113,6 +113,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn worker_lane_settings(&self) -> Vec<crate::provider::WorkerLaneSetting> {
+        Vec::new()
+    }
+
     /// Maximum text body size accepted as an inline paste. `None` means undeclared.
     fn paste_limit_bytes(&self) -> Option<usize> {
         None

@@ -105,8 +105,8 @@ the user, then recover with the named `codeterm plan task respawn` command.
    wave's focused selectors in canonical.
 8. **Let heartbeat follow state.** It derives from plan/task state; answer
    reminders there, never through heartbeat, focus or lane fields.
-9. **Clean up as you go:** when a task is accepted or cancelled, close its Worker tab, utility shells and crons, then run `codeterm plan lanes <plan> --clean --confirm` to remove merged, clean, unoccupied lanes;
-   one-shot completion watchers retire on their own after terminal work settles, and acceptance removes the local Worker’s one-shot watchers. Close idle utility shells, stop their dev processes, and record cleanup.
+9. **Clean up as you go:** when a task is accepted or cancelled, close its Worker tab, crons and idle utility shells (stop dev processes first),
+   prune lanes with `codeterm plan lanes <plan> --clean --confirm`, and record cleanup.
 
 Tab-state hints marked `actionable: false` are observations, never instructions
 to answer, notify or mutate state. An actionable event needs two agreeing strong
@@ -171,4 +171,4 @@ Automatic plan reminders use a deterministic rule for both Owners and Workers: a
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 116 -->
+<!-- revision: 118 -->

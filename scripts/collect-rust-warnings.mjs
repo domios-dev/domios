@@ -1,4 +1,4 @@
-// Caller: build.sh ci-archives; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs
+// Caller: build.sh ci-tests; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -37,7 +37,7 @@ export function parseWarnings(input, { platform, target, crate = 'unknown', root
   for (const block of blocks) {
     const compiling = [...block.matchAll(/^\s*(?:Checking|Compiling) ([\w-]+)/gm)];
     const header = block.match(/^\s*warning(?:\[([^\]]+)\])?:\s*(.+)/);
-    if (header && !/^(?:`[^`]+`.*generated \d+ warning|\d+ warnings? emitted)/.test(header[2])) {
+    if (header && !/^(?:`[^`]+`.*generated \d+ warning|\d+ warnings? emitted|build failed, waiting for other jobs to finish)/.test(header[2])) {
       const location = block.match(/(?:-->|:::)\s+(.+?):(\d+):(\d+)/);
       const lint = header[1] || block.match(/#\[warn\(([^)]+)\)\]/)?.[1] ||
         (/unused imports?/.test(header[2]) ? 'unused_imports' : /does not need to be mutable/.test(header[2]) ? 'unused_mut' : /never used/.test(header[2]) ? 'dead_code' : 'unknown');

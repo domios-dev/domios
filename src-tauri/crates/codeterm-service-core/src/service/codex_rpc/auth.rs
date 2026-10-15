@@ -83,6 +83,7 @@ mod tests {
     #[test]
     fn codex_rpc_access_errors_are_structural_and_clear_only_on_success() {
         use codeterm_provider_signals::ApiErrorKind;
+        let usage_limit = json!({"codexErrorInfo":"usageLimitExceeded"});
         for (error, expected) in [
             (
                 json!({"codexErrorInfo":"authError"}),
@@ -92,10 +93,7 @@ mod tests {
                 json!({"codexErrorInfo":{"httpConnectionFailed":{"httpStatusCode":403}}}),
                 ApiErrorKind::Authentication,
             ),
-            (
-                json!({"codexErrorInfo":"usageLimitExceeded"}),
-                ApiErrorKind::UsageLimit,
-            ),
+            (usage_limit.clone(), ApiErrorKind::UsageLimit),
             (
                 json!({"message":"authentication_error"}),
                 ApiErrorKind::Other,
@@ -117,9 +115,11 @@ mod tests {
             session_observation("turn/completed", &json!({"turn":{"status":"interrupted"}}))
                 .is_none()
         );
+        let mut retry_after = usage_limit;
+        retry_after["retryAfter"] = json!(12);
         let failed = session_observation(
             "turn/completed",
-            &json!({"turn":{"id":"turn-a","status":"failed","error":{"codexErrorInfo":"usageLimitExceeded","retryAfter":12}}}),
+            &json!({"turn":{"id":"turn-a","status":"failed","error":retry_after}}),
         )
         .unwrap();
         assert_eq!(failed.api_error, Some(ApiErrorKind::UsageLimit));

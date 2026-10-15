@@ -2,7 +2,7 @@
 // Caller: build.sh release-preflight; CI release.yml; package.json script; scripts ci-scope.mjs, tests/plugin-releases.test.mjs
 import fs from "node:fs";
 import path from "node:path";
-import { channelPlugins } from "./plugin-release-metadata.mjs";
+import { APP_VERSIONED_CRATES, channelPlugins } from "./plugin-release-metadata.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -32,7 +32,7 @@ updateJsonVersion(path.join(repoRoot, "src-tauri", "tauri.conf.json"));
 
 updateTomlPackageVersion(path.join(repoRoot, "src-tauri", "Cargo.toml"));
 updateTomlPackageVersion(path.join(repoRoot, "cli", "Cargo.toml"));
-for (const crate of ["codeterm-service-core", "codeterm-api", "codeterm-socket", "codeterm-commands", "codeterm-sentinel-host"]) {
+for (const crate of APP_VERSIONED_CRATES) {
   updateTomlPackageVersion(path.join(repoRoot, "src-tauri", "crates", crate, "Cargo.toml"));
 }
 

@@ -16,12 +16,12 @@ use parking_lot::Mutex;
 use super::amend::DefinitionVersion;
 use super::store::{scope_revisions, validate, ScopeKey, Sentinel, Store};
 use codeterm_cron::clock::SharedClock;
-#[cfg(any(test, feature = "test-support"))]
-use codeterm_util::persisted_state::StateFile;
 use codeterm_storage::{
     Committed, Completion, Revision, SentinelCommit, SentinelImport, SentinelRepository, Storage,
     StorageError, StoredDefinition, StoredSentinel,
 };
+#[cfg(any(test, feature = "test-support"))]
+use codeterm_util::persisted_state::StateFile;
 
 /// Failure bound around a commit wait only; expiry is unconfirmed, never failure.
 pub const COMMIT_DEADLINE: Duration = Duration::from_secs(30);
@@ -294,10 +294,7 @@ impl<T: Send + 'static> Staged<T> {
         Staged(Stage::Pending { completion, finish })
     }
 
-    pub fn map<U: Send + 'static>(
-        self,
-        map: impl FnOnce(T) -> U + Send + 'static,
-    ) -> Staged<U> {
+    pub fn map<U: Send + 'static>(self, map: impl FnOnce(T) -> U + Send + 'static) -> Staged<U> {
         match self.0 {
             Stage::Ready(result) => Staged::ready(result.map(map)),
             Stage::Pending { completion, finish } => Staged::pending(
@@ -321,11 +318,7 @@ impl<T: Send + 'static> Staged<T> {
     }
 
     /// Waits for COMMIT with no lock held, then publishes under the store lock.
-    pub fn settle_within(
-        self,
-        store: &Mutex<Store>,
-        deadline: Duration,
-    ) -> Result<T, String> {
+    pub fn settle_within(self, store: &Mutex<Store>, deadline: Duration) -> Result<T, String> {
         match self.0 {
             Stage::Ready(result) => result,
             Stage::Pending { completion, finish } => {
@@ -522,7 +515,8 @@ impl Store {
                 .jobs
                 .iter()
                 .any(|job| job.workspace_id == scope.0 && job.team_id == scope.1);
-            let revision = super::identity::scope_revision(&self.jobs, &scope.0, scope.1.as_deref());
+            let revision =
+                super::identity::scope_revision(&self.jobs, &scope.0, scope.1.as_deref());
             let current = present.then(|| revision.clone());
             if self.committed_revisions.get(&scope) != current.as_ref() {
                 self.changes.insert(scope.clone(), revision);
