@@ -36,8 +36,18 @@ function inlineSegments(content: string): AttachmentSegment[] | null {
 
 /** Unlabeled videos read as video1, video2 in message order, the way images read as image1. */
 export function labelVideos(files: AttachmentMarker[]): AttachmentMarker[] {
+  const next = videoLabeler(files.map((file) => file.label));
+  return files.map((file) => file.kind === "video" && !file.label ? { ...file, label: next() } : file);
+}
+
+function videoLabeler(existing: Iterable<string | undefined>): () => string {
+  const used = new Set(existing);
   let count = 0;
-  return files.map((file) => file.kind === "video" && !file.label ? { ...file, label: `video${++count}` } : file);
+  return () => {
+    do count += 1; while (used.has(`video${count}`));
+    used.add(`video${count}`);
+    return `video${count}`;
+  };
 }
 
 /** What a user bubble renders: clean text, inline capsules, one image strip from provider-native and marker images, and file chips. */
@@ -73,12 +83,18 @@ export function inlineAttachmentSrc(attachment: ChatAttachment): string | null {
   return null;
 }
 
+function labelVideoSegments(segments: AttachmentSegment[]): AttachmentSegment[] {
+  const next = videoLabeler(segments.map((segment) => "attachment" in segment ? segment.attachment.label : undefined));
+  return segments.map((segment) => "attachment" in segment && segment.attachment.kind === "video" && !segment.attachment.label
+    ? { attachment: { ...segment.attachment, label: next() } } : segment);
+}
+
 export type PlacedAttachmentSegment = { text: string } | { attachment: AttachmentMarker; image?: ChatAttachment };
 
 export function placedAttachmentSegments(source: string, attachments: ChatAttachment[] = []): PlacedAttachmentSegment[] {
   const content = userVisibleText(splitReplyAttachment(source).text, attachments);
   if (parseMarker(content)?.kind === "voice") return [{ text: content }];
-  const segments = attachmentMarkerSegments(content);
+  const segments = labelVideoSegments(attachmentMarkerSegments(content));
   const paths = new Set(segments.flatMap((segment) => "attachment" in segment ? [pathKey(segment.attachment.path)] : []));
   const placed: PlacedAttachmentSegment[] = segments.map((segment) => "text" in segment ? segment : {
     attachment: segment.attachment,
