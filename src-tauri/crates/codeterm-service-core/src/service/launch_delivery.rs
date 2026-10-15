@@ -42,7 +42,7 @@ pub(crate) struct PendingDelivery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FallbackDeliverySpec {
+pub struct FallbackDeliverySpec {
     pub channel: PendingDeliveryChannel,
     pub payload: String,
 }

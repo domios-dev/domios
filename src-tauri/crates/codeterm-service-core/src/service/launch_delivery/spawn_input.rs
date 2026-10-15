@@ -109,7 +109,7 @@ pub fn prepare_spawn_input<'a>(
 }
 
 impl SpawnInput<'_> {
-    pub(crate) fn fallback_spec(
+    pub fn fallback_spec(
         &self,
         bootstrap: Option<&str>,
         launch_task: Option<&str>,

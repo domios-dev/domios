@@ -50,7 +50,7 @@ pub struct SupporterRuntime {
 }
 
 impl SupporterRuntime {
-    pub(crate) fn new(dir: PathBuf) -> Self {
+    pub fn new(dir: PathBuf) -> Self {
         let spend = SpendBook::new(dir.clone());
         let journal = Journal::new(dir);
         let loaded = journal.load_calls();

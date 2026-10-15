@@ -40,7 +40,7 @@ use super::pending_delivery_payloads::user_sends::{
 };
 use std::sync::atomic::Ordering;
 
-pub(crate) enum UserDrain {
+pub enum UserDrain {
     Idle,
     ZeroWriteRefusal { dispatch_generation: u64 },
 }
@@ -145,7 +145,7 @@ pub(crate) enum UserWake {
 }
 
 impl super::ServiceContext {
-    pub(crate) fn user_send_authority(&self, tab_id: &str) -> Result<UserSendAuthority, String> {
+    pub fn user_send_authority(&self, tab_id: &str) -> Result<UserSendAuthority, String> {
         let runtime = super::agent_runtime::requested_for_tab(self, tab_id);
         let (pty_id, binding_nonce, provider_id, session_id, observed_session_id, prelaunch) = {
             let mux = self.mux.read();
