@@ -261,7 +261,7 @@ impl ServiceContext {
                     &service.mux,
                     &service.pty,
                     &service.screen_state,
-                    &config,
+                    config,
                     &service.app_handle,
                 );
             }
