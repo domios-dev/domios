@@ -609,19 +609,19 @@ mod tests {
             tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
         }
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-        fixture
-            .service
-            .pty
-            .lock()
-            .spawn_with_id(
-                Some("pty-current".into()),
-                None,
-                None,
-                120,
-                40,
-                Default::default(),
+        {
+            let gate = fixture.service.pty.lock().spawn_gate();
+            crate::pty::manager::build_session(gate, None, None, 120, 40, Default::default()).map(
+                |built| {
+                    fixture
+                        .service
+                        .pty
+                        .lock()
+                        .register_session(Some("pty-current".into()), built)
+                },
             )
-            .expect("the exact PTY session must be attached before admission");
+        }
+        .expect("the exact PTY session must be attached before admission");
         let service_state = Arc::new(fixture.service.clone()) as crate::service::ServiceState;
         assert!(fixture._app.manage(service_state));
         fixture

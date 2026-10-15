@@ -30,6 +30,7 @@ impl crate::service::ServiceContext {
         client_token: Option<String>,
         capture: Option<super::super::local_recording::chat::CapturedChat>,
     ) -> Result<ChatSendStatus, String> {
+        self.wake_frozen_tab(tab_id)?;
         if let Some(capture) = &capture {
             capture
                 .validate(self.captured_chat_identity(tab_id))

@@ -98,12 +98,19 @@ fn restored_opencode_fixture_with_launch(
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("opencode").with_launch_binary("opencode"),
     ));
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.clone()), None, None, 80, 24, Default::default())
-        .expect("spawn the tab's PTY shell");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.clone()), built)
+            },
+        )
+    }
+    .expect("spawn the tab's PTY shell");
     let attempt = LaunchAttempt {
         tab_id: tab_id.clone(),
         pty_id: pty_id.clone(),
@@ -670,12 +677,19 @@ fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
         tab.pty_id = Some(pty_id.into());
     }
     let fixture = ServiceFixture::new(mux);
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("spawn the tab's surviving shell PTY");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("spawn the tab's surviving shell PTY");
     fixture
         .service
         .screen_state

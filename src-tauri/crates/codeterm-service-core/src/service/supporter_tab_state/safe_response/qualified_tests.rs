@@ -508,19 +508,25 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
     let command = format!(
         "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; $global:LASTEXITCODE = 98; $ErrorActionPreference = 'Stop'; try {{ & '{command_path}'; $scriptExit = $global:LASTEXITCODE; if ($scriptExit -eq 98) {{ throw 'fixture script returned without an exit code' }}; [Console]::Out.Flush(); [Console]::Error.Flush(); [System.Environment]::Exit([int]$scriptExit) }} catch {{ try {{ [Console]::Error.WriteLine('SAFE_TEST_SETUP_FAILURE: {{0}}', $_.Exception.Message); [Console]::Error.Flush() }} finally {{ [System.Environment]::Exit(98) }} }}\r"
     );
-    let (_, session) = fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(
-            Some(pty.clone()),
+    let (_, session) = {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(
+            gate,
             Some("powershell.exe".into()),
             None,
             120,
             40,
             Default::default(),
         )
-        .expect("spawn the modal fixture child in the ServiceContext PTY");
+        .map(|built| {
+            fixture
+                .service
+                .pty
+                .lock()
+                .register_session(Some(pty.clone()), built)
+        })
+    }
+    .expect("spawn the modal fixture child in the ServiceContext PTY");
     fixture.service.screen_state.lock().resize(&pty, 120, 40);
     let mut child = PtyChild::new(fixture.service.clone(), pty, tab_id.clone(), session);
     let journal_path = fixture.temp.path().join("supporter/journal.jsonl");
