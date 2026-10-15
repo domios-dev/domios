@@ -552,7 +552,7 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
         .lock()
         .process("pty-user-dir-no-change", screen.as_bytes());
     let status_rows = crate::agent::classify_input::StatusBarRows::resolve(
-        &*fixture.service.agent_registry,
+        &**fixture.service.agent_registry,
         "codex",
     )
     .expect("Codex status rows");
