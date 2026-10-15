@@ -85,8 +85,7 @@ export function smoke(kind, directory, sha, expectedArch) {
     const extracted = files(scratch);
     const app = one(extracted, file => /[/\\](?:codeterm|CodeTerm)(?:\.exe)?$/.test(file) && !/[/\\]cli[/\\]/.test(file), 'app executable');
     const cli = one(extracted, file => /[/\\]cli[/\\]codeterm(?:-[^.]+)?(?:\.exe)?$/.test(file), 'embedded CLI');
-    const embed = one(extracted, file => /[/\\]codeterm-embed(?:-[^.]+)?(?:\.exe)?$/.test(file), 'embed executable');
-    for (const executable of [app, cli, embed]) assertMachine(readFileSync(executable), expectedArch, format);
+    for (const executable of [app, cli]) assertMachine(readFileSync(executable), expectedArch, format);
     checkContents(readFileSync(app), sha);
     one(extracted, file => file.endsWith(`${path.sep}dist${path.sep}index.html`), 'frontend entry point');
     if (kind === 'linux') {
@@ -96,7 +95,7 @@ export function smoke(kind, directory, sha, expectedArch) {
       const debRoot = path.join(scratch, 'deb');
       run('dpkg-deb', ['--extract', deb, debRoot]);
       const debFiles = files(debRoot);
-      for (const executable of [app, cli, embed]) {
+      for (const executable of [app, cli]) {
         const basename = path.basename(executable);
         const inCli = /[/\\]cli[/\\]/.test(executable);
         const packaged = one(debFiles, file => path.basename(file) === basename && /[/\\]cli[/\\]/.test(file) === inCli, `Debian ${basename}`);
@@ -107,7 +106,7 @@ export function smoke(kind, directory, sha, expectedArch) {
       one(debFiles, file => file.endsWith(`${path.sep}dist${path.sep}index.html`), 'Debian frontend entry point');
     }
     if (kind === 'windows') {
-      const statuses = run(process.env.RELEASE_PWSH || 'pwsh', ['-NoProfile', '-File', path.join(root, 'scripts/release-windows-artifact.ps1'), '-App', app, '-Cli', cli, '-Embed', embed, '-Version', version]);
+      const statuses = run(process.env.RELEASE_PWSH || 'pwsh', ['-NoProfile', '-File', path.join(root, 'scripts/release-windows-artifact.ps1'), '-App', app, '-Cli', cli, '-Version', version]);
       console.log(`Authenticode (not required): ${statuses}`);
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Authenticode (not required): ${statuses}\n`);
     }

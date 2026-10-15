@@ -26,7 +26,6 @@ docker run --rm \
     # Host-owned mounts are otherwise refused by git, and the CLI build SHA falls back to unknown.
     git -C / config --global --add safe.directory "*"
     mkdir -p dist
-    node scripts/prepare-embed-stub.js
     mkdir -p src-tauri/bundled-cli
     [ -e src-tauri/bundled-cli/codeterm ] || touch src-tauri/bundled-cli/codeterm
     echo "=== Rust unit tests: src-tauri (linux, $(uname -m)) ==="

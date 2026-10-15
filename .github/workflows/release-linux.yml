@@ -4,10 +4,6 @@ name: Release Linux x86_64 platform
 # self-hosted runner (label `linux-build`). It uploads build assets and updater
 # fragments; the caller's final job assembles and verifies the channel manifests.
 #
-# glibc requirement: Ubuntu 24.04 (glibc 2.39). The pyke/ort prebuilt
-# onnxruntime static lib references symbols (e.g. __isoc23_strtoll) that only
-# exist in glibc >= 2.38; Ubuntu 22.04 (glibc 2.35) fails the link step.
-#
 # The caller creates the private and public draft releases before platform jobs start.
 # Runner provisioning (one-time, on ubunta): register a self-hosted runner with
 # label `linux-build`; install rustup on the repo-pinned channel (1.95.0),

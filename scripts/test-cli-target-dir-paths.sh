@@ -52,7 +52,6 @@ const {
   peMachineForTarget,
   resolveCliSource,
 } = require("./scripts/bundle-cli.js");
-const { resolveEmbedSource } = require("./scripts/bundle-embed.js");
 
 const root = path.resolve("/repo");
 const target = path.resolve("/tmp/codeterm-cli-target");
@@ -62,7 +61,8 @@ assert.strictEqual(
   path.join(root, "cli", "target", "release", "codeterm")
 );
 
-assert.strictEqual(bundledCliName({}, "win32"), "codeterm.exe");
+assert.strictEqual(bundledCliName({}, "win32", "x64"), "codeterm-x86_64-pc-windows-msvc.exe");
+assert.strictEqual(bundledCliName({}, "win32", "arm64"), "codeterm-aarch64-pc-windows-msvc.exe");
 assert.strictEqual(
   bundledCliName({ CARGO_BUILD_TARGET: "x86_64-pc-windows-msvc" }, "win32"),
   "codeterm-x86_64-pc-windows-msvc.exe"
@@ -90,26 +90,6 @@ assert.strictEqual(
   path.join(target, "x86_64-pc-windows-msvc", "release", "codeterm.exe")
 );
 
-assert.strictEqual(
-  resolveEmbedSource({}, root, "codeterm-embed"),
-  path.join(root, "src-tauri", "target", "release", "codeterm-embed")
-);
-assert.strictEqual(
-  resolveEmbedSource({ CARGO_BUILD_TARGET: "aarch64-apple-darwin" }, root, "codeterm-embed"),
-  path.join(root, "src-tauri", "target", "aarch64-apple-darwin", "release", "codeterm-embed")
-);
-assert.strictEqual(
-  resolveEmbedSource({ CARGO_TARGET_DIR: target }, root, "codeterm-embed"),
-  path.join(target, "release", "codeterm-embed")
-);
-assert.strictEqual(
-  resolveEmbedSource(
-    { CARGO_TARGET_DIR: target, CARGO_BUILD_TARGET: "x86_64-pc-windows-msvc" },
-    root,
-    "codeterm-embed.exe"
-  ),
-  path.join(target, "x86_64-pc-windows-msvc", "release", "codeterm-embed.exe")
-);
 NODE
 
-echo "CLI/embed target-dir path tests passed"
+echo "CLI target-dir path tests passed"
