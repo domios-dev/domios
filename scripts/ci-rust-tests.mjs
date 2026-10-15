@@ -162,7 +162,7 @@ export function laneTargetDir(manifest, root) {
   return root ? path.join(root, path.dirname(manifest).replace(/[\/]/g, '-')) : undefined;
 }
 
-const tomlConfig = (filter, listener) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
+const tomlConfig = (filter, listener) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
 
 async function run(mode) {
   const lanes = MODES[mode];
