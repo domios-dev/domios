@@ -1771,7 +1771,7 @@ build_and_launch_dev() {
   export CODETERM_WEB_DIST="$(pwd -P)/dist"
   configure_dev_cargo
   conf="$(dev_conf_path)"
-  node scripts/dev-prep.mjs --no-server
+  node scripts/bundle-cli.js
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
@@ -2941,7 +2941,6 @@ LOCK_STORM_PY
     configure_dev_cargo
     export CODETERM_WEB_DIST="$(pwd -P)/dist"
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
-    node scripts/dev-prep.mjs --no-server
     start_web_watch
     start_dev_static_server
     if [ "$CT_DEV_WAIT" -eq 1 ]; then

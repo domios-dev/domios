@@ -944,3 +944,10 @@ A gateway DEV build records physical artifact paths through the existing provena
 writer, so standalone `dev-prebuilt` verifies after the mapped drive is released.
 For a same-build restart, call `dev-prebuilt --wait` directly: provenance and runtime
 preflight precede dev-only stop. Never prepend `kill` to a prebuilt restart.
+
+DEV Cargo runs at the gateway's Windows `X:` cwd: default target directories are
+`X:/src-tauri/target` and `X:/cli/target` (the physical checkout targets). Named
+`--wait` instances retain their explicit instance target. `check-queue` instead
+uses its own check-worktree `target/app` and `target/cli`, so it does not share
+DEV target directories. `dev-prebuilt` never invokes Cargo or `dev-prep --no-server`;
+its staging is complete before provenance is written under the gateway.
