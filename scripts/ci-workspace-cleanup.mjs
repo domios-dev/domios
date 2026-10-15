@@ -9,19 +9,34 @@ import { fileURLToPath } from 'node:url';
 
 export const JOB_OUTPUTS = ['ci-rust-receipts', 'release-artifacts'];
 export const RUST_PROJECTS = ['.', 'src-tauri', 'cli', 'scripts/ci-test-classifier'];
-export const SWEEP_DAYS = process.env.CI_TARGET_SWEEP_DAYS || '2';
+export const SWEEP_DAYS = process.env.CI_TARGET_SWEEP_DAYS || '7';
 
-export function sweepRustTargets(workspace, run = spawnSync) {
+// Targets kept outside the checkout are named after their workspace directory (src-tauri, cli).
+function externalTargets(workspace, root) {
+  if (!root || !fs.existsSync(root)) return [];
+  return fs.readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory())
+    .map(entry => ({
+      project: [entry.name, entry.name.replace(/-/g, '/')].find(name => fs.existsSync(path.join(workspace, name, 'Cargo.toml'))),
+      target: path.join(root, entry.name),
+    }))
+    .filter(({ project }) => project);
+}
+
+export function sweepRustTargets(workspace, run = spawnSync, root = process.env.CI_TARGET_ROOT) {
   const swept = [];
-  for (const project of RUST_PROJECTS) {
+  const candidates = [
+    ...RUST_PROJECTS.filter(project => fs.existsSync(path.join(workspace, project, 'target'))).map(project => ({ project })),
+    ...externalTargets(workspace, root),
+  ];
+  for (const { project, target } of candidates) {
     const dir = path.resolve(workspace, project);
-    if (!fs.existsSync(path.join(dir, 'target'))) continue;
-    const result = run('cargo', ['sweep', '--time', SWEEP_DAYS, dir], { stdio: 'inherit' });
+    const env = target ? { ...process.env, CARGO_TARGET_DIR: target } : process.env;
+    const result = run('cargo', ['sweep', '--time', SWEEP_DAYS, dir], { stdio: 'inherit', env });
     if (result.error || result.status !== 0) {
       console.log(`cargo-sweep unavailable or failed for ${project}; target kept`);
       continue;
     }
-    swept.push(project);
+    swept.push(target ? `${project} (${target})` : project);
   }
   return swept;
 }

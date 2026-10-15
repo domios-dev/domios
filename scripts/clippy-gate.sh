@@ -8,6 +8,12 @@ cd "$(git rev-parse --show-toplevel)"
 source scripts/clippy-allow.sh
 
 run_clippy_gate() {
+    # CI keeps one warm target per workspace outside the checkout (CI_TARGET_ROOT).
+    if [ -n "${CI_TARGET_ROOT:-}" ]; then
+        local dir
+        dir="$(dirname "$1")"
+        export CARGO_TARGET_DIR="$CI_TARGET_ROOT/${dir//\//-}"
+    fi
     # --all-targets also lints every target in its non-test build, so it catches test-only dead code alone.
     cargo clippy --manifest-path "$1" --workspace --all-targets --locked -- -D warnings "${CLIPPY_ALLOW[@]}"
 }
