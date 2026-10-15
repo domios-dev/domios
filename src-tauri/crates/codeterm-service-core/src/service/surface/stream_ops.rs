@@ -125,6 +125,7 @@ impl ServiceContext {
 
     pub(crate) fn surface_call_ctx(&self, binding: &StreamBinding) -> SurfaceCallCtx {
         SurfaceCallCtx {
+            host: Arc::new(self.clone()),
             owner_tab_id: binding.owner_tab_id.clone(),
             data_dir: self.agent_pad_data_dir.clone(),
             actor: None,

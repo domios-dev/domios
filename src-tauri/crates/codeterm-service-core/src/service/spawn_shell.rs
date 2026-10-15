@@ -77,7 +77,7 @@ impl ServiceContext {
         };
 
         let limit = super::utility_tabs::limit_for(
-            &super::utility_tabs::configured_limits(&self.app_handle),
+            &super::utility_tabs::configured_limits(self.ext::<crate::config::ConfigState>()),
             spec.purpose,
         );
         let reused = if let Some(attachment) = &team_membership {

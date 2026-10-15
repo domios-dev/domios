@@ -23,11 +23,10 @@ pub async fn mesh_refresh(
     codeterm_service_core::mesh::refresh_local_addresses(&state.mesh).await;
     let report = codeterm_service_core::mesh::broadcast_announce(&state.mesh, None).await;
 
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     let mesh = state.mesh.lock();
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -92,11 +91,10 @@ pub async fn mesh_announce_inbound(
                 ann.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>()
             );
             drop(mesh);
-            crate::events::emit_everywhere(
-                &state.svc.app_handle,
-                "mesh-state-changed",
-                serde_json::Value::Null,
-            );
+            state
+                .svc
+                .ui
+                .emit("mesh-state-changed", serde_json::Value::Null);
             Ok(Json(serde_json::json!({ "ok": true, "changed": true })))
         }
         Ok(_) => Ok(Json(serde_json::json!({ "ok": true, "changed": false }))),
@@ -153,10 +151,9 @@ pub async fn mesh_set_peer_addr(
         body.port.map(|p| format!(":{}", p)).unwrap_or_default()
     );
     drop(mesh);
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::json!({ "ok": true, "previous": prev })))
 }

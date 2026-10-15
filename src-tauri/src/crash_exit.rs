@@ -30,7 +30,7 @@ fn persist_storage_desk_snapshot(
 
 /// Provider-update waiter join, session snapshot, mem WAL checkpoint. Idempotent
 /// and side-effect-free for process liveness, so every exit signal runs it.
-pub fn persist_state(app: &codeterm_service_core::app_runtime::AppHandle) {
+pub fn persist_state(app: &codeterm_host_runtime::app_runtime::AppHandle) {
     log::info!("[shutdown] state persistence started");
     let mut errors = Vec::new();
     if let Some(service) = app.try_state::<codeterm_service_core::service::ServiceState>() {
@@ -73,7 +73,7 @@ pub fn persist_state(app: &codeterm_service_core::app_runtime::AppHandle) {
 
 /// Clean-exit declaration: `.clean_exit` sentinel + keepawake child teardown +
 /// webview reap journal clear. Only a genuine quit may run this.
-pub fn declare_clean_exit(app: &codeterm_service_core::app_runtime::AppHandle) {
+pub fn declare_clean_exit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
     log::info!("[shutdown] clean-exit declaration started");
     codeterm_service_core::crash::shutdown::mark_shutting_down();
     if let Some(state) = app.try_state::<KeepAwakeStateHandle>() {
@@ -87,7 +87,7 @@ pub fn declare_clean_exit(app: &codeterm_service_core::app_runtime::AppHandle) {
 
 /// Starts closing surface browsers so they flush profiles and die with the daemon, not after it.
 fn begin_surface_shutdown(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Option<codeterm_service_core::service::surface::SurfaceShutdown> {
     app.try_state::<codeterm_service_core::service::ServiceState>()
         .map(|svc| codeterm_service_core::service::surface::begin_surface_shutdown(svc.inner()))
@@ -96,7 +96,7 @@ fn begin_surface_shutdown(
 /// Signal-driven graceful exit. Tray Quit and the macOS terminate hook reach
 /// `handle_run_exit` instead, so only the unix signal handlers need this.
 #[cfg(unix)]
-pub fn graceful_exit_cleanup(app: &codeterm_service_core::app_runtime::AppHandle) {
+pub fn graceful_exit_cleanup(app: &codeterm_host_runtime::app_runtime::AppHandle) {
     let sidecars = codeterm_service_core::crash::exit::begin_sidecar_shutdown();
     let surfaces = begin_surface_shutdown(app);
     declare_clean_exit(app);
@@ -108,7 +108,7 @@ pub fn graceful_exit_cleanup(app: &codeterm_service_core::app_runtime::AppHandle
 }
 
 /// `RunEvent::Exit` entry point: always persist, declare only on a genuine quit.
-pub fn handle_run_exit(app: &codeterm_service_core::app_runtime::AppHandle) {
+pub fn handle_run_exit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
     log::info!("[shutdown] RunEvent::Exit received");
     let plan = plan_run_exit(
         cfg!(target_os = "macos"),

@@ -1,5 +1,3 @@
-use tauri::Manager;
-
 use super::{caller_is_live, SentinelCaller};
 use crate::delete::{stage_delete, DeleteCaller, DeleteTarget};
 use crate::scheduler::Handle;
@@ -23,8 +21,7 @@ impl SentinelDeleteExt for ServiceContext {
         stop: bool,
     ) -> Result<Vec<String>, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();

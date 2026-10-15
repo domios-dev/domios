@@ -153,11 +153,10 @@ pub async fn mesh_introduce(
     };
 
     if should_notify {
-        crate::events::emit_everywhere(
-            &state.svc.app_handle,
-            "mesh-state-changed",
-            serde_json::Value::Null,
-        );
+        state
+            .svc
+            .ui
+            .emit("mesh-state-changed", serde_json::Value::Null);
         state.svc.log_system_notice(
             "Mesh pairing request".into(),
             Some(format!(

@@ -156,7 +156,7 @@ mod http {
         http::Request,
         middleware,
     };
-    use codeterm_service_core::service::test_fixture::ServiceFixture;
+    use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
     use std::sync::Arc;
     use tower::ServiceExt;
 
@@ -167,6 +167,7 @@ mod http {
             codeterm_service_core::mesh::MeshManager::new("capabilities-contract".into(), 0);
         mesh.disk_persist = false;
         AppState {
+            app: fixture.app.handle().clone(),
             svc: Arc::new(fixture.service.clone()),
             cron: Arc::new(parking_lot::Mutex::new(
                 codeterm_service_core::cron::store::CronStore::new_with_path(

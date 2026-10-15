@@ -208,3 +208,16 @@ Tests move with those implementations (132 leaf cases in the static inventory). 
 ## Service-core capability-probe host port
 
 `codeterm-provider-ops::capability_probe` owns the cache, executor, initialization protocol, process capture and their tests. `CapabilityProbeHost` supplies request validation, capability-selected binary lookup, matching tabs and snapshot publication; service-core implements it and preserves existing callers through its facade. Canonical selector: `./build.sh nextest codeterm-provider-ops 'test(/^capability_probe::/)'`.
+
+
+## Service-core crash split
+
+`codeterm-crash` owns native and Rust panic handlers, dump and process-image reporting, crash recovery epochs, shutdown sentinel state, pure exit policy and liveness probe/report logic. It is a tier-1 leaf beside `codeterm-keepawake`; service-core retains explicit re-exports, the two-phase sidecar shutdown adapter, agent-model restore-report composition and mesh/REST liveness orchestration. No context port is needed before service construction. `crash-handler`, `crash-context` and `minidump-writer` are dependencies of the leaf only.
+
+Canonical selectors: `./build.sh nextest codeterm-crash 'test(/^crash::/) | test(/^liveness::/)'` and `./build.sh nextest codeterm-service-core 'test(/^crash::/) | test(/^liveness::/) | test(/^webview2_reap::/) | test(/^startup::rest_api/)'`. Paired timing and the service-core Cargo start offset belong to the integration batch; no speedup is claimed from lane checks.
+
+## Service-core surface split
+
+`codeterm-surface` owns the surface runtime and browser implementation, surface declaration models, recording clip ownership and selection stores, native input adapters and receiver-target persistence. The leaf asks `SurfaceHost` for a validated agent pad during evidence capture; service-core re-exports that contract and implements it once. Existing core module paths remain explicit facades.
+
+Tab placement and projection, resume persistence, activity emission, receiver liveness and all recording delivery authority and admission remain in service-core. In particular, capture leases stay with `UserSendAuthority`; this cut does not move the delivery boundary. Canonical selectors: `./build.sh nextest codeterm-surface`, plus service-core `service::surface`, `service::local_recording`, `service::receiver_target`, `ports::surface` and `service::persistence_roundtrip_tests::desk`. Performance measurement belongs to the canonical integration batch; no speedup is claimed here.

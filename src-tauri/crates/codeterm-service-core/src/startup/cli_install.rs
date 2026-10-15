@@ -102,14 +102,11 @@ fn should_install_bundled_cli(is_dev: bool) -> bool {
 }
 
 /// Resolve the bundled CLI inside the app's Resources. None in dev (no bundle).
-fn resolve_bundled_cli_src(
-    app: &impl tauri::Manager<crate::app_runtime::Runtime>,
-) -> Option<std::path::PathBuf> {
+fn resolve_bundled_cli_src(shell: &dyn crate::ports::host::Shell) -> Option<std::path::PathBuf> {
+    let resource_dir = shell.resource_dir().ok()?;
     bundled_cli_resource_names().into_iter().find_map(|name| {
-        app.path()
-            .resolve(name, tauri::path::BaseDirectory::Resource)
-            .ok()
-            .filter(|path| path.exists() && bundled_cli_matches_host(path))
+        let path = resource_dir.join(name);
+        (path.exists() && bundled_cli_matches_host(&path)).then_some(path)
     })
 }
 
@@ -244,12 +241,12 @@ pub(crate) fn refresh_installed_cli_with(
 }
 
 /// Install bundled CLI binary to the active data-dir bin/ on startup (runs in background).
-pub fn install_bundled_cli(app: &crate::app_runtime::App) {
+pub fn install_bundled_cli(shell: &dyn crate::ports::host::Shell) {
     if !should_install_bundled_cli(std::env::var("CODETERM_DEV").as_deref() == Ok("1")) {
         log::debug!("[cli-install] Dev CLI is owned by build.sh, skipping bundled refresh");
         return;
     }
-    let Some(src) = resolve_bundled_cli_src(app) else {
+    let Some(src) = resolve_bundled_cli_src(shell) else {
         log::debug!("[cli-install] No bundled CLI found (dev mode?), skipping");
         return;
     };
@@ -270,8 +267,8 @@ pub fn install_bundled_cli(app: &crate::app_runtime::App) {
 /// bundle, so `~/.codeterm/bin/codeterm` matches the freshly-installed app's
 /// resource CLI without waiting for (or depending on) the next cold startup.
 /// Synchronous: the caller is already off the UI hot path (update apply).
-pub fn refresh_bundled_cli(app: &impl tauri::Manager<crate::app_runtime::Runtime>) {
-    let Some(src) = resolve_bundled_cli_src(app) else {
+pub fn refresh_bundled_cli(shell: &dyn crate::ports::host::Shell) {
+    let Some(src) = resolve_bundled_cli_src(shell) else {
         log::debug!("[cli-install] post-update: no bundled CLI in resources, skipping");
         return;
     };

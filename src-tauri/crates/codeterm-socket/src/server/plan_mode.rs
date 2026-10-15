@@ -1,4 +1,3 @@
-use codeterm_service_core::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::{PlanMode, PlanningAuthor, PlanningState};
@@ -23,7 +22,6 @@ pub(super) fn handles(method: &str) -> bool {
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
@@ -61,7 +59,7 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?,
             }
             svc.reconcile_time_reminder_eligibility();
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true }))
         }
         "plan.pause" => {
@@ -94,7 +92,7 @@ pub(super) fn dispatch(
         }
         "plan.session.rebind" => {
             if attempt_binding::is_targeted(params) {
-                return attempt_binding::dispatch(params, app, svc);
+                return attempt_binding::dispatch(params, svc);
             }
             let outcome = svc
                 .rebind_stale_planning_session(&caller(params))
@@ -129,7 +127,7 @@ pub(super) fn dispatch(
                 .set_planning_state(&id, state, by, note.as_deref(), epoch_ms())
                 .map_err(plan_rpc_err)?;
             svc.reconcile_time_reminder_eligibility();
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true, "planning_state": state.as_str() }))
         }
         _ => Err(JsonRpcError {
@@ -223,12 +221,8 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_service_core::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 #[cfg(test)]
