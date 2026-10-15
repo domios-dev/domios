@@ -47,7 +47,7 @@ impl BatchRefusal {
     }
 }
 
-pub(crate) enum BatchWriteError {
+pub enum BatchWriteError {
     Refused(BatchRefusal),
     Plan(PlanError),
 }

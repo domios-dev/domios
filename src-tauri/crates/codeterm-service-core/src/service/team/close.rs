@@ -23,7 +23,7 @@ pub(crate) struct CloseTeamCleanup {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TeamCloseLane {
+pub struct TeamCloseLane {
     pub(crate) plan_id: String,
     pub(crate) task_id: String,
     pub(crate) project_path: String,

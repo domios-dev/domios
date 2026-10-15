@@ -37,7 +37,7 @@ struct Activity {
     token_acl_notices: HashSet<String>,
 }
 
-pub(crate) struct SupporterRuntime {
+pub struct SupporterRuntime {
     activity: Mutex<Activity>,
     backoffs: Mutex<super::backoff::Backoffs>,
     journal: Mutex<Journal>,

@@ -59,7 +59,7 @@ fn interactive_child_pty_recovery(tab_id: &str, attempt_id: &str) -> Value {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WorkerAckSignal {
+pub enum WorkerAckSignal {
     Acknowledged,
     Superseded,
     StartupHeld,

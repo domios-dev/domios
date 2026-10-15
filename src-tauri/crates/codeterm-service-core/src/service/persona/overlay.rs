@@ -116,7 +116,7 @@ pub(crate) struct OverlayRejection {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct OverlayCatalog {
+pub struct OverlayCatalog {
     kinds: BTreeMap<String, OverlayKind>,
     rejected: Vec<OverlayRejection>,
 }

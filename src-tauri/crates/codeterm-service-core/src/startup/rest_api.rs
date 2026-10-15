@@ -346,7 +346,7 @@ impl RestApiControl {
         }
     }
 
-    pub(crate) fn status(&self) -> RestApiStatus {
+    pub fn status(&self) -> RestApiStatus {
         self.lifecycle.lock().status.clone()
     }
 

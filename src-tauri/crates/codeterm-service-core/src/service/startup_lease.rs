@@ -26,7 +26,7 @@ pub(crate) struct StartupTaskIdentity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct StartupAuthority {
+pub struct StartupAuthority {
     pub creator_tab_id: String,
     pub child_tab_id: String,
     pub attempt_id: String,

@@ -9,14 +9,14 @@ use crate::service::plan::{PlanStore, TaskLaneUpdate};
 /// One live tab as the removal preflight sees it: the shell cwd decides
 /// ownership, the title and id are what a refusal has to name.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LiveTabCwd {
+pub struct LiveTabCwd {
     pub(crate) id: String,
     pub(crate) title: String,
     pub(crate) cwd: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LaneRemovalRequest {
+pub struct LaneRemovalRequest {
     pub(crate) worktree_path: String,
     pub(crate) branch: Option<String>,
     pub(crate) force: bool,
@@ -26,7 +26,7 @@ pub(crate) struct LaneRemovalRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LaneRemovalOutcome {
+pub struct LaneRemovalOutcome {
     pub(crate) canonical_cwd: String,
     pub(crate) worktree_path: String,
     pub(crate) branch: Option<String>,
