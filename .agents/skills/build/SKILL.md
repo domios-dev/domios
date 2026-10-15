@@ -976,6 +976,13 @@ its staging is complete before provenance is written under the gateway.
 
 ## Product and test feature sets
 
+If `codeterm-mem` lib tests fail without defaults on unused `open_with_embedder`
+or `submit_chunks`, their test helpers lack the embeddings gate used by their
+callers. Gate the helpers with `cfg(all(test, feature = "embeddings"))`; retain
+the tests and denied warnings. After `source build.sh env`, compile both with
+`cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-mem --lib --no-default-features --no-run`
+and the same command without `--no-default-features` in a Team build shell.
+
 For a CPU embedding parity measurement, retain an old embedding executable before
 removing its build artifacts, then run `./build.sh embedding-parity --old-binary
 <old-executable> --baseline <baseline.json> --output <report.json>`. The standalone

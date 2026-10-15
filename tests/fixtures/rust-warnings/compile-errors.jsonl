@@ -1,0 +1,7 @@
+Compiling fixture v0.1.0
+{"reason":"compiler-message","message":{"level":"warning","message":"fixture warning","rendered":"warning: fixture warning\n","spans":[]}}
+{"reason":"compiler-message","message":{"level":"error","message":"cannot find function `first`","rendered":"error[E0425]: cannot find function `first`\n --> src/lib.rs:3:5\n  |\n3 |     first();\n  |     ^^^^^ not found in this scope\n"}}
+not JSON
+{"reason":"compiler-artifact","message":{"level":"error","rendered":"not a compiler diagnostic"}}
+{"reason":"compiler-message","message":{"level":"error","message":"cannot find function `second`","rendered":"error[E0425]: cannot find function `second`\n --> src/lib.rs:4:5\n  |\n4 |     second();\n  |     ^^^^^^ not found in this scope\n"}}
+{"reason":"build-finished","success":false}
