@@ -8,7 +8,7 @@ pub async fn run<T: Send + 'static>(
 
 #[cfg(test)]
 pub(crate) fn install_test_runtime() {
-    crate::async_runtime::install(tauri::async_runtime::handle().inner().clone());
+    let _ = crate::async_runtime::handle();
 }
 
 #[cfg(test)]

@@ -122,8 +122,7 @@ impl super::ServiceContext {
             .0
             .get_or_try_init(|| async {
                 let value = {
-                    use tauri::Manager;
-                    let config = self.app_handle.state::<crate::config::ConfigState>();
+                    let config = self.ext::<crate::config::ConfigState>();
                     let value = config.lock().account.clone();
                     value
                 };
