@@ -29,9 +29,10 @@ export function UpdateSection({ config, onUpdate }: {
     error,
   } = useUpdate();
 
+  const hasUnifiedPanel = Boolean(unified);
   useEffect(() => {
-    if (!unified) void refresh(true, { silent: true });
-  }, [refresh, unified]);
+    if (!hasUnifiedPanel) void refresh(true, { silent: true });
+  }, [refresh, hasUnifiedPanel]);
 
   const checking = status === "checking" && !installing;
   const updateAvailable = status === "available" && latestVersion && latestVersion !== currentVersion;

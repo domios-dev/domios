@@ -86,10 +86,7 @@ impl Cancellation {
         self.conversion.clone()
     }
 
-    pub fn register(
-        &self,
-        wake: Arc<dyn Wake>,
-    ) -> Result<Registration, &'static str> {
+    pub fn register(&self, wake: Arc<dyn Wake>) -> Result<Registration, &'static str> {
         let mut state = self.state.lock();
         if state.wake.as_ref().and_then(Weak::upgrade).is_some() {
             return Err("probe_cancel_registration_busy");

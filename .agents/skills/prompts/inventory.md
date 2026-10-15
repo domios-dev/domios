@@ -37,6 +37,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
 | `cartographer_suffix.md` | `CARTOGRAPHER_SUFFIX` | Worker subtype contract | - | `prompts.rs` `cartographer_suffix()` - layered on the Worker suffix for the `cartographer` kind via `service/role_preset.rs` |
 | `tool_less.md` | `TOOL_LESS` | Tool-less provider class rules | - | `prompts.rs` `TOOL_LESS` - materialized by `service/tool_less_instructions.rs` for providers declaring the tool-less capability (external delivery as a read-only file, native delivery composed with the assignment) |
+| `worker_framework_rule.md` | `WORKER_FRAMEWORK_RULE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — leads `worker_suffix.md`; the persona overlay core needle |
 | `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
 | `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
 | `planning_compaction.md` | `PLANNING_COMPACTION_CONTRACT` | Shared planning fragment | — | `prompts.rs` — substituted into both `planner_suffix.md` and `orchestrator_suffix.md` so the role that cuts a task graph and the role that judges it share one decomposition contract |

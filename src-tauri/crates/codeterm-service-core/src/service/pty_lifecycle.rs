@@ -972,6 +972,15 @@ mod tests {
     fn in_session_agent_death_without_shutdown_still_prunes_role_tabs() {
         for role in [AgentRole::Worker, AgentRole::Manager] {
             let (fixture, tab, generation) = role_pty_fixture(role);
+            let parent = fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab)
+                .and_then(|tab| tab.parent_tab_id.clone())
+                .expect("role tab parent");
+            let _parent =
+                fixture.bind_recorded_agent_recipient(&parent, "parent-session", "parent-nonce");
             let outcome =
                 super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, None);
             assert_eq!(

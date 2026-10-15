@@ -169,9 +169,10 @@ SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
 
 
 Release-input preparation now calls the same cache policy before invoking Cargo.
-`ci-archives` owns archive compilation through that policy; on Windows use
-`.\build.ps1 ci-archives`, which locates Git Bash explicitly without requiring it
-on PATH. Native release jobs export `RUSTC_WRAPPER=sccache` at job scope so the
+`ci-tests full|platform` owns CI test compilation and execution through that
+policy (full suite, or this OS's cfg-gated subset plus the native input crates); on
+Windows use `.\build.ps1 ci-tests <mode>`, which locates Git Bash explicitly without
+requiring it on PATH. Native release jobs export `RUSTC_WRAPPER=sccache` at job scope so the
 separate Tauri invocation inherits it, verify shared storage before compiling,
 and print `cache-stats` in their final step.
 
@@ -221,21 +222,24 @@ can differ until the next idle setup restarts the server.
 
 CI uses `./build.sh cache-verify` (Windows: `.\build.ps1 cache-verify`). It prints
 configured and actual storage plus endpoint health, exits 0 only when both storage
-checks select the shared S3 bucket, and otherwise exits 2. It never starts or
-restarts a server or checks for an idle machine. Set
+checks select the shared S3 bucket, and otherwise exits 2. It never restarts a
+server or checks for an idle machine. When no server is live and both S3 keys
+resolve, it starts the shared server with `SCCACHE_IDLE_TIMEOUT=0`: sccache
+servers exit after ten idle minutes, so runners otherwise have none between jobs. Set
 `CODETERM_SCCACHE_VERIFY_ONLY=1` in each CI build process so build setup follows
 that same verification path. Provision local-to-S3 storage separately while idle.
 
-BLACKSTAR-CI WSL builds are owned by a Windows runner. That Windows parent runs
-`codeterm mem secret sync`, resolves both vault entries into `AWS_ACCESS_KEY_ID`
-and `AWS_SECRET_ACCESS_KEY`, and sets `CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`.
-Forward these three names through `WSLENV` to the WSL process; append them to any
-existing `WSLENV` list. Values stay exclusively in process environment, never
-runner `.env`, command arguments, files or logs. This explicit source selects
-inherited runner credentials instead of querying an unavailable WSL vault CLI.
-Both values are required. No standalone WSL Worker builds are supported; keep
-Windows interop and mount settings unchanged. Select pinned Rust 1.95.0 only in
-the build process, preserving the machine's default toolchain.
+CI never reads the vault. Every workflow that builds Rust or verifies the cache
+sets workflow-level `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from the repo
+secrets `SCCACHE_AWS_ACCESS_KEY_ID` and `SCCACHE_AWS_SECRET_ACCESS_KEY`, plus
+`CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`, so cache-policy takes the keys from
+the job environment on every runner, including the BLACKSTAR WSL runners that
+have no `codeterm` CLI. Reusable workflows receive them through `secrets: inherit`;
+containerized builds forward the names with bare `-e NAME`. Values stay in process
+environment, never runner `.env`, command arguments, files or logs; both are
+required. The vault entries above remain the source on dev machines and peers.
+Select pinned Rust 1.95.0 only in the build process, preserving the machine's
+default toolchain.
 
 Post-release follow-up: establish a shared Linux user or an approved `/opt` path
 and compare cold/consumer hit and miss data at identical checkout, Cargo and

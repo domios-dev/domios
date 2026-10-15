@@ -1,5 +1,40 @@
 use crate::service::ServiceContext;
 
+const PUBLIC_INPUT_READY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[cfg(test)]
+thread_local! {
+    static PUBLIC_INPUT_READY_DEADLINE_OVERRIDE: std::cell::Cell<Option<std::time::Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Failure deadline for a public send waiting on the current launch's `AgentReady`.
+pub(super) fn public_input_ready_deadline() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(deadline) = PUBLIC_INPUT_READY_DEADLINE_OVERRIDE.with(std::cell::Cell::get) {
+        return deadline;
+    }
+    PUBLIC_INPUT_READY_DEADLINE
+}
+
+#[cfg(test)]
+pub(crate) struct PublicInputReadyDeadline(Option<std::time::Duration>);
+
+#[cfg(test)]
+impl PublicInputReadyDeadline {
+    /// Overrides the deadline for public sends made on the current thread.
+    pub(crate) fn set(deadline: std::time::Duration) -> Self {
+        Self(PUBLIC_INPUT_READY_DEADLINE_OVERRIDE.with(|cell| cell.replace(Some(deadline))))
+    }
+}
+
+#[cfg(test)]
+impl Drop for PublicInputReadyDeadline {
+    fn drop(&mut self) {
+        PUBLIC_INPUT_READY_DEADLINE_OVERRIDE.with(|cell| cell.set(self.0));
+    }
+}
+
 impl ServiceContext {
     pub(crate) fn await_agent_tui_frame_on_screen(
         &self,

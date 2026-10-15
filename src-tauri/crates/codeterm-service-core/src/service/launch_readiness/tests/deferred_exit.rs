@@ -13,7 +13,7 @@ fn attempt(prefix: &str) -> LaunchAttempt {
 
 fn clean_exit_before_provider_seen(attempt: &LaunchAttempt) -> LaunchExitProof {
     let witnesses = ProviderTreeWitnesses::default();
-    let key = provider_tree_key(attempt, "claude");
+    let key = provider_tree_key(attempt, "fixture-agent");
     witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
     let absent = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
     LaunchExitProof::from_finished_marker(attempt, &absent, Some(0), false, Some(false))
@@ -108,7 +108,7 @@ fn unarmed_launch_settles_a_clean_exit_at_once() {
 fn failed_or_witnessed_exits_are_never_deferred() {
     let attempt = attempt("strong-exit");
     let witnesses = ProviderTreeWitnesses::default();
-    let key = provider_tree_key(&attempt, "claude");
+    let key = provider_tree_key(&attempt, "fixture-agent");
     let absent = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
     let failed = LaunchExitProof::from_finished_marker(&attempt, &absent, Some(1), true, None)
         .expect("a non-zero exit is explicit evidence");
@@ -119,7 +119,7 @@ fn failed_or_witnessed_exits_are_never_deferred() {
         ProviderProcessTreeSnapshot::Present(
             [ProcessIdentity {
                 pid: 61_001,
-                start_token: "claude-start".into(),
+                start_token: "fixture-agent-start".into(),
             }]
             .into_iter()
             .collect(),

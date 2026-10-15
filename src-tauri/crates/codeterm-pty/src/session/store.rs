@@ -161,7 +161,7 @@ pub enum SplitNodeSnapshot {
         /// in-place when an `agent_type` was present.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         agent_type_locked: bool,
-        /// Agent session ID for --resume (backward compat: reads "claude_session_id" too).
+        /// Agent session ID for --resume, persisted under `LEAF_SESSION_ID_KEY`.
         #[serde(skip_serializing_if = "Option::is_none", alias = "agent_session_id")]
         claude_session_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -259,6 +259,23 @@ pub enum SplitNodeSnapshot {
         #[serde(default, flatten)]
         extra_fields: serde_json::Map<String, serde_json::Value>,
     },
+}
+
+/// Legacy serialized key of a leaf's agent session id; persisted snapshots keep it.
+pub const LEAF_SESSION_ID_KEY: &str = "claude_session_id";
+
+impl SplitNodeSnapshot {
+    /// Provider id and agent session a leaf resumes, when both are recorded.
+    pub fn agent_session(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Leaf {
+                agent_type: Some(provider),
+                claude_session_id: Some(session),
+                ..
+            } => Some((provider.as_str(), session.as_str())),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -733,8 +750,6 @@ fn collect_agent_session_identities(
             }
         }
         SplitNodeSnapshot::Leaf {
-            agent_type: Some(provider),
-            claude_session_id: Some(session_id),
             agent_identity: Some(binding),
             role,
             role_profile,
@@ -744,12 +759,15 @@ fn collect_agent_session_identities(
         } if binding.session_binding_nonce.is_some()
             && binding.session_binding_nonce == binding.reported_session_binding_nonce =>
         {
+            let Some((provider, session_id)) = node.agent_session() else {
+                return;
+            };
             let key = agent_session_identity_key(provider, session_id);
             if let Some(role) = role {
                 sessions.insert(
                     key,
                     PersistedAgentSessionIdentity {
-                        provider: provider.clone(),
+                        provider: provider.to_string(),
                         role: role.clone(),
                         role_profile: role_profile.clone(),
                         parent_tab_id: parent_tab_id.clone(),

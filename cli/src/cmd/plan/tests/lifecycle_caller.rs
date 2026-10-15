@@ -378,7 +378,9 @@ fn plan_rebind_attempt_rpc_refusal_uses_the_shared_plan_error_renderer() {
     let error = super::super::run_plan(&mut client, true, targeted_rebind_action(Some("pl_exact")))
         .unwrap_err();
     assert_eq!(client.calls.len(), 2);
-    assert!(error.contains("restoration refused"));
+    assert!(error.contains("stale_task_epoch"));
+    assert!(error.contains("request owner epoch must equal the current task owner epoch"));
+    assert!(error.contains("codeterm plan task show pl_exact"));
 }
 
 #[test]

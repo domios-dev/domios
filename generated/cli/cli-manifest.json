@@ -9112,6 +9112,36 @@
           "aliases": [],
           "args": [
             {
+              "name": "clean",
+              "positional": false,
+              "required": false,
+              "value_name": "CLEAN",
+              "possible_values": [],
+              "default": null,
+              "help": "Preview cleanup of merged, clean, unoccupied terminal/review lanes",
+              "aliases": []
+            },
+            {
+              "name": "confirm",
+              "positional": false,
+              "required": false,
+              "value_name": "CONFIRM",
+              "possible_values": [],
+              "default": null,
+              "help": "Execute cleanup instead of previewing it",
+              "aliases": []
+            },
+            {
+              "name": "fetch",
+              "positional": false,
+              "required": false,
+              "value_name": "FETCH",
+              "possible_values": [],
+              "default": null,
+              "help": "Fetch remote refs before assessing lanes (otherwise dry run is offline)",
+              "aliases": []
+            },
+            {
               "name": "plan_id",
               "positional": true,
               "required": false,
@@ -14686,6 +14716,62 @@
           "aliases": [],
           "args": [],
           "subcommands": [
+            {
+              "name": "export",
+              "about": "Export a read-only, sanitized desk snapshot with transcript size evidence",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Unix backup timestamp, or latest for the live desk",
+                  "aliases": []
+                },
+                {
+                  "name": "out",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "OUT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Destination JSON file. Nothing is written to the instance",
+                  "aliases": []
+                },
+                {
+                  "name": "sanitize",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "SANITIZE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Required: message bodies, paths and secrets become same-size filler",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "import",
+              "about": "Replace a disposable named DEV desk with a sanitized fixture",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "file",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FILE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
             {
               "name": "list",
               "about": "List desk snapshot backups, newest first, with workspace/tab counts",

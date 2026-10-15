@@ -118,6 +118,15 @@ export function scanRevision(root, revision) {
   return files.flatMap(file => detectOccurrences(file, git(root, ['show', `${revision}:${file}`])));
 }
 
+// The baseline is where this branch left `base`; later moves on `base` must not read as increases here.
+export function forkPointOf(root, base) {
+  try {
+    return git(root, ['merge-base', 'HEAD', base]).trim();
+  } catch {
+    throw new Error(`no fork point between HEAD and ${base}; fetch full history of both`);
+  }
+}
+
 export function readBaseline(root, revision) {
   const resolved = git(root, ['rev-parse', '--verify', `${revision}^{commit}`]).trim();
   const files = git(root, ['ls-tree', '--name-only', resolved, '--', allowlistPath]).trim();
@@ -146,9 +155,10 @@ function main() {
   const root = git(process.cwd(), ['rev-parse', '--show-toplevel']).trim();
   const document = JSON.parse(readFileSync(resolve(root, allowlistPath), 'utf8'));
   const occurrences = scanWorkingTree(root);
-  const errors = checkBoundary(occurrences, document, readBaseline(root, base));
+  const forkPoint = forkPointOf(root, base);
+  const errors = checkBoundary(occurrences, document, readBaseline(root, forkPoint));
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log(`Provider boundary PASS: ${occurrences.length} occurrences in ${document.entries.length} exact file/token pairs; baseline ${base}.`);
+  console.log(`Provider boundary PASS: ${occurrences.length} occurrences in ${document.entries.length} exact file/token pairs; baseline ${base} at fork point ${forkPoint}.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -36,10 +36,7 @@ fn reconcile_signal(result: io::Result<bool>, snapshot: &[Member]) -> io::Result
     }
 }
 
-pub fn signal_owned_group(
-    ownership: LeaderOwnership,
-    child_id: u32,
-) -> Result<bool, String> {
+pub fn signal_owned_group(ownership: LeaderOwnership, child_id: u32) -> Result<bool, String> {
     let pgid = cancellation_target(ownership, child_id)?;
     checked_group_signal(pgid, libc::SIGKILL)
 }
@@ -92,11 +89,7 @@ fn registration_race_retired(member: &Member, snapshot: &[Member]) -> bool {
         .any(|current| current.pid == member.pid && current.born == member.born && !current.exited)
 }
 
-pub fn retire(
-    ownership: LeaderOwnership,
-    child_id: u32,
-    deadline: Instant,
-) -> Result<(), String> {
+pub fn retire(ownership: LeaderOwnership, child_id: u32, deadline: Instant) -> Result<(), String> {
     let pgid = cancellation_target(ownership, child_id)?;
     let mut exited = BTreeSet::new();
     loop {

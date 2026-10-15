@@ -1,5 +1,7 @@
 //! Mechanism oracles for `mem secret save-master-password`: writes no credential
 //! file, asks the backend before claiming, and never emits the credential.
+#[path = "support/codeterm_bin.rs"]
+mod codeterm_bin;
 
 #[path = "../src/test_support.rs"]
 mod test_support;
@@ -80,7 +82,7 @@ fn contains_secret(dir: &Path) -> bool {
 }
 
 fn run_save_master_password(home: &Path, json: bool) -> (String, String) {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_codeterm"));
+    let mut cmd = Command::new(codeterm_bin::codeterm_bin());
     // Point at a port nothing serves so the command cannot reach a real vault.
     cmd.env_remove("CODETERM_API_TOKEN")
         .env_remove("CODETERM_SOCKET_PATH")

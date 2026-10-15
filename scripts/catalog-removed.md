@@ -24,3 +24,4 @@ Each had zero references (name and, for dev-prep.sh, exact filename) in build.sh
 - `test-motion-integration-invariants.ts` — 0 hits
 - `test-tab-terminology.ts` — 0 hits
 - `test-channels` — 0 hits
+- `ci-rust-shards.mjs` — renamed to `ci-rust-tests.mjs`; hash partitions and the shard coverage proof removed

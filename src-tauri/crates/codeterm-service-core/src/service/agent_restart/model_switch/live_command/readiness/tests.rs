@@ -1,11 +1,21 @@
 use super::*;
 
+fn plugin_manifest() -> std::path::PathBuf {
+    crate::test_support::fixture_manifest_dir().join("../../../plugins/provider-claude/plugin.json")
+}
+
+fn fixture(name: &str) -> String {
+    let path = plugin_manifest()
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/model-switch")
+        .join(name);
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
 fn declared() -> (Arc<CommandReadiness>, String, ComposerInputState) {
-    let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/plugin.json"
-    )))
-    .unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(plugin_manifest()).unwrap()).unwrap();
     let commands =
         serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap();
     let target = CommandTarget {
@@ -19,15 +29,12 @@ fn declared() -> (Arc<CommandReadiness>, String, ComposerInputState) {
         display_name: "Sonnet 5.5".into(),
         readiness: None,
     };
-    let provider = Arc::new(crate::plugin::agent_claude::ClaudeProvider::new());
+    let provider: Arc<dyn crate::agent::provider::AgentProvider> =
+        Arc::new(crate::plugin::js_runtime::load_one(&plugin_manifest()).unwrap());
     let readiness = CommandReadiness::from_declaration(&commands, &target, provider)
         .unwrap()
         .unwrap();
-    let screen = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/tests/fixtures/model-switch/confirmed-ready-frame.txt"
-    ))
-    .to_owned();
+    let screen = fixture("confirmed-ready-frame.txt");
     let row = screen.lines().position(|row| row.trim() == "❯").unwrap() as u16;
     let input = ComposerInputState {
         alternate_screen: false,
@@ -73,8 +80,8 @@ fn declared_dialog_blocks_empty_composer_and_inverse_caret_can_prove_readiness()
     input.inverse_caret_row = Some(input.cursor_row);
     assert!(readiness.matches(&screen, &input));
     for dialog in [
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../plugins/provider-claude/tests/fixtures/model-switch/model-picker.txt")),
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../plugins/provider-claude/tests/fixtures/model-switch/cached-sonnet-confirmation.txt")),
+        fixture("model-picker.txt"),
+        fixture("cached-sonnet-confirmation.txt"),
     ] {
         assert!(!readiness.matches(&format!("{}\n{}", screen, dialog), &input));
     }
@@ -83,11 +90,12 @@ fn declared_dialog_blocks_empty_composer_and_inverse_caret_can_prove_readiness()
 #[test]
 fn accepted_stop_failure_frame_has_ready_empty_input_despite_working_projection() {
     let (readiness, _, mut input) = declared();
-    let screen = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/tests/fixtures/model-switch/accepted-stop-ready-frame.txt"
-    ));
+    let screen = fixture("accepted-stop-ready-frame.txt");
     input.cursor_row = screen.lines().position(|row| row.trim() == "❯").unwrap() as u16;
     input.rows = screen.lines().count() as u16;
-    assert!(input_ready(Some(&readiness), Some((screen, &input)), false));
+    assert!(input_ready(
+        Some(&readiness),
+        Some((&screen, &input)),
+        false
+    ));
 }

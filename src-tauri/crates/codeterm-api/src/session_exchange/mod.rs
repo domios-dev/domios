@@ -90,12 +90,12 @@ pub async fn export(
             for tab in &workspace.tabs { leaves(&tab.split_tree, &mut all); }
         }
         for node in all {
-            let SplitNodeSnapshot::Leaf { tab_id, agent_type, claude_session_id, cwd, .. } = node else { continue };
+            let SplitNodeSnapshot::Leaf { tab_id, cwd, .. } = node else { continue };
             let leaf = serde_json::to_value(node).map_err(|e| e.to_string())?;
             let prompt = leaf.pointer("/agent_identity/agent_runtime_config/systemPrompt").and_then(Value::as_str).unwrap_or_default();
             let identity = leaf.pointer("/agent_identity/restorable_launch/identity_instructions").and_then(Value::as_str).unwrap_or_default();
             let mut messages = Vec::new();
-            if let (Some(provider), Some(session)) = (agent_type, claude_session_id) {
+            if let Some((provider, session)) = node.agent_session() {
                 messages = codeterm_service_core::service::tab_chat::session_chat_snapshot(&svc, provider, cwd.as_deref().unwrap_or_default(), session, 0)
                     .map_err(|error| format!("tab={tab_id}: transcript capture unavailable: {}", sanitize::filler(&error)))?.0;
             }

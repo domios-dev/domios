@@ -11,7 +11,7 @@ MANIFEST="$TEST_ROOT/manifest.json"
 SOURCE_INPUT="$ROOT/.research/build-perf/provenance-source-$$.txt"
 GENERATED_FIXTURE="$ROOT/dist/.provenance-fixture-$$"
 mkdir -p "$TEST_ROOT"
-mkdir -p "$(dirname "$SOURCE_INPUT")"
+mkdir -p "$(dirname "$SOURCE_INPUT")" "$(dirname "$GENERATED_FIXTURE")"
 trap 'rm -rf "$TEST_ROOT"; rm -f "$SOURCE_INPUT" "$GENERATED_FIXTURE"' EXIT
 printf 'fresh artifact\n' > "$ARTIFACT"
 printf 'source revision one\n' > "$SOURCE_INPUT"

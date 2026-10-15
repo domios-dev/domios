@@ -1,4 +1,4 @@
-// Caller: build.sh ci-archives, release-rust; scripts ci-rust-shards.mjs, tests/ci-rust-archives.test.mjs, tests/ci-rust-shards.test.mjs
+// Caller: build.sh release-rust; scripts ci-rust-tests.mjs, tests/ci-rust-archives.test.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -65,7 +65,7 @@ export function verifyArchiveBuilds(builds, receipts) {
     builds.map((b) => '| ' + archivePlatform(b.os, b.arch) + ' | ' + b.runner + ' | ' + b.seconds.toFixed(1) + ' s |').join('\n');
 }
 
-const SHARED_JOB = 'tests.yml:rust-shards';
+const SHARED_JOB = 'tests.yml:rust-tests';
 const NEXTEST_SCOPE = /^\.\/build\.sh nextest ([\w-]+)$/;
 const SAFE_NAME = /^[A-Za-z0-9_:.\/-]+$/;
 const HOST_PLATFORM = { win32: 'windows', darwin: 'macos', linux: 'linux' }[process.platform] ?? process.platform;

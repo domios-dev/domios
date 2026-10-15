@@ -111,10 +111,15 @@ fail; times over 1.0 through 1.25 seconds warn. Existing regressions fail only
 above baseline + max(20%, 0.25 seconds); smaller increases warn.
 `scripts/slow-unit-tests.json` records alone durations;
 its exact identities and recorded times may only shrink against the base ref.
+Release CI skips the serial reruns (they took ~10 minutes, longer than the suite):
+`--policy advisory` without `--alone` prints each candidate's parallel timing against
+its limit as a warning and fails only on baseline-file errors. PR, master and
+nightly runs keep enforcement with serial confirmation.
 
 ```bash
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --candidates CANDIDATES_JSON [--base REF]
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --alone ALONE_LOG [--base REF]
+node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --policy advisory   # parallel-only advice
 node --test scripts/check-slow-unit-tests.test.mjs
 ```
 

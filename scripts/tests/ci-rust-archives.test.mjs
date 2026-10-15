@@ -37,15 +37,6 @@ test('archive runs contain remapping and partition runtime controls without comp
   assert.ok(!args.includes('--test-threads'));
   assert.equal(archiveRunArgs('ARCHIVE', 'SOURCE', 'EXTRACT', 'CONFIG', [], true).at(-1), '1');
 });
-test('only archive builders install Rust; free consumers choose their platform artifact', () => {
-  const workflow = readFileSync(new URL('../../.github/workflows/tests.yml', import.meta.url), 'utf8');
-  const consumers = workflow.slice(workflow.indexOf('  rust-shards:'), workflow.indexOf('  rust-coverage:'));
-  assert.doesNotMatch(consumers, /rust-toolchain|Prepare compile fixtures/);
-  assert.match(consumers, /rust-archive-\$\{\{ runner.os \}\}-\$\{\{ runner.arch \}\}/);
-  assert.match(consumers, /runs-on: \[self-hosted, rust-shard, macOS\]/);
-});
-
-
 test('macOS shared shards and all native consumers retain matching archive builds', () => {
   const native = receipts();
   const shared = Array.from({ length: 12 }, () => ({ ...native[0] }));
@@ -78,7 +69,7 @@ test('the release Rust set comes from the catalogue release tier and leaves pty-
   assert.deepEqual(archiveTargets('cli', runners), ['-p', 'codeterm-cli', '--all-targets']);
 });
 
-const runner = (id, extra = {}) => ({ id, lang: 'rust', kind: 'unit', package: id, manifest: 'src-tauri/Cargo.toml', runner: './build.sh nextest ' + id, budget_secs: 600, ci: ['tests.yml:rust-shards'], ...extra });
+const runner = (id, extra = {}) => ({ id, lang: 'rust', kind: 'unit', package: id, manifest: 'src-tauri/Cargo.toml', runner: './build.sh nextest ' + id, budget_secs: 600, ci: ['tests.yml:rust-tests'], ...extra });
 
 test('native recording packages keep their own CI job outside the shared archive', () => {
   const runners = [runner('codeterm-a'), runner('codeterm-input-macos', { ci: ['tests.yml:rust-input-platform'] })];
