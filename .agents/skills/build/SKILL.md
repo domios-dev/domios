@@ -939,3 +939,8 @@ If an archived selector refuses `workspace root manifest at X:\Cargo.toml does n
 DEV releases its gateway job and closes the build log before invoking the existing
 `dev-prebuilt` provenance validator and launch path. App lifetime and dev-only
 `kill` no longer depend on a gateway job; a rebuild acquires a new job.
+
+A gateway DEV build records physical artifact paths through the existing provenance
+writer, so standalone `dev-prebuilt` verifies after the mapped drive is released.
+For a same-build restart, call `dev-prebuilt --wait` directly: provenance and runtime
+preflight precede dev-only stop. Never prepend `kill` to a prebuilt restart.

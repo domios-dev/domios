@@ -1781,6 +1781,8 @@ build_and_launch_dev() {
   build_sha="$(git rev-parse HEAD)"
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
+  release_stable_build_path
+  record_dev_target "$(tauri_debug_dir)"
   complete_build_gateway_before_handoff
   echo "Build gateway released; launching validated dev artifact."
   exec bash ./build.sh dev-prebuilt "$@"
@@ -3048,7 +3050,6 @@ LOCK_STORM_PY
       export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm.exe"
     fi
     ensure_real_embed_bundle
-    record_dev_target "$(tauri_debug_dir)"
     build_and_launch_dev "${@:2}"
 
     ;;
