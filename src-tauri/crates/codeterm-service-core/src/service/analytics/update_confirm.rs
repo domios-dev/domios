@@ -1,7 +1,7 @@
 use codeterm_analytics::{Event, UpdateKind, Worker};
 use std::path::Path;
 pub fn stage(path: &Path, target: &str) -> Result<(), String> {
-    if target == env!("CARGO_PKG_VERSION") {
+    if target == codeterm_build_info::version() {
         return Ok(());
     }
     let staging = path.with_extension("pending");

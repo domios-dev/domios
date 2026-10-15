@@ -2,9 +2,6 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// Workspace crates released at the app version; every other crate keeps its own.
-export const APP_VERSIONED_CRATES = ["codeterm-service-core", "codeterm-api", "codeterm-socket", "codeterm-commands", "codeterm-sentinel-host", "codeterm-orchestration"];
-
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 export function parseVersion(value) {

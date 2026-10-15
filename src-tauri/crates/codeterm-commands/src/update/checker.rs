@@ -52,7 +52,7 @@ pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateIn
     .next()
     .ok_or("Missing updater endpoint")?;
     let manifest = super::manifest::fetch(&endpoint).await?;
-    let current_str = env!("CARGO_PKG_VERSION");
+    let current_str = codeterm_build_info::version();
     let compatible = super::manifest::current_platform_key()
         .is_some_and(|key| manifest.platforms.contains_key(key));
     let availability = codeterm_plugins::AvailabilityItem::release(

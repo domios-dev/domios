@@ -214,7 +214,7 @@ pub(super) fn scene() -> Scene {
                 .to_string_lossy()
                 .into_owned()
                 .into(),
-            host_version: env!("CARGO_PKG_VERSION").into(),
+            host_version: codeterm_build_info::version().into(),
             ..Default::default()
         }),
         completions: Mutex::new(Default::default()),

@@ -591,7 +591,7 @@ pub fn build_session_with_profile(
     cmd.env("COLORTERM", "truecolor");
     cmd.env("CLICOLOR", "1");
     cmd.env("TERM_PROGRAM", "CodeTerm");
-    cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+    cmd.env("TERM_PROGRAM_VERSION", codeterm_build_info::version());
 
     #[cfg(not(target_os = "windows"))]
     {

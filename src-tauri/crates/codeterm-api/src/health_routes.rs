@@ -24,7 +24,7 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
             if let Some(obj) = json.as_object_mut() {
                 obj.insert(
                     "version".into(),
-                    serde_json::json!(env!("CARGO_PKG_VERSION")),
+                    serde_json::json!(codeterm_build_info::version()),
                 );
                 obj.insert(
                     "build".into(),
@@ -71,7 +71,7 @@ pub async fn identify(
     check_auth(&state, &headers)?;
     Ok(Json(serde_json::json!({
         "name": "CodeTerm",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": codeterm_build_info::version(),
         "platform": std::env::consts::OS,
         "features": IDENTIFY_FEATURES
     })))

@@ -427,7 +427,7 @@ fn is_mutating_user_command(cmd: &Command) -> bool {
 pub fn health_result() -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::json!({
         "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": codeterm_build_info::version(),
         "build": codeterm_build_info::hash(),
         "name": "CodeTerm",
         "platform": std::env::consts::OS,
