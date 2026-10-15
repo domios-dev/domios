@@ -520,7 +520,7 @@ impl OrchestrationPairExt for ServiceContext {
         )?;
 
         let workspace_id = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             params
                 .workspace_id
                 .clone()

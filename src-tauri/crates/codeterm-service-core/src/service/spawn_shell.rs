@@ -35,7 +35,7 @@ impl ServiceContext {
         let profile = self.resolve_shell_profile(spec.shell.as_deref())?;
         let _spawn_guard = super::utility_tabs::SPAWN_LOCK.lock();
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let id = resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
                 spec.parent_tab_id.as_deref(),
@@ -147,7 +147,7 @@ impl ServiceContext {
         let pty_id = if spec.eager || spec.cmd.is_some() || reused.is_some() {
             self.ensure_tab_pty_for_send(&tab_id)?;
             self.mux
-                .write()
+                .read()
                 .get_tab(&tab_id)
                 .and_then(|p| p.pty_id.clone())
         } else {
@@ -186,7 +186,7 @@ impl ServiceContext {
         let profile = self.resolve_shell_profile(spec.shell.as_deref())?;
 
         let ws_id = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             spec.workspace_id
                 .clone()
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
@@ -194,7 +194,7 @@ impl ServiceContext {
                 .ok_or("No workspace for hidden shell")?
         };
         let ws_cwd = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
         };
         let resolved_cwd = spec

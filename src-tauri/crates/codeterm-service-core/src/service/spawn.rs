@@ -354,7 +354,7 @@ impl ServiceContext {
         }
 
         let (ws_id, ws_cwd, ws_provisioned_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let id = resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
                 spec.parent_tab_id.as_deref(),
@@ -799,7 +799,7 @@ impl ServiceContext {
         }
 
         let ws_id = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             spec.workspace_id
                 .clone()
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
@@ -807,7 +807,7 @@ impl ServiceContext {
                 .ok_or("No workspace for hidden spawn")?
         };
         let (ws_cwd, ws_provisioned_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let workspace = mux.get_workspace(&ws_id);
             (
                 workspace.and_then(|ws| ws.cwd.clone()),
