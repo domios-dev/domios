@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::service::plan::PlanError;
@@ -35,7 +35,7 @@ fn learning_error(error: OrchestratorLearningError) -> JsonRpcError {
 }
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_service_core::events::emit_everywhere(
+    codeterm_host_runtime::events::emit_everywhere(
         app,
         "plan-changed",
         json!({ "plan_id": plan_id }),

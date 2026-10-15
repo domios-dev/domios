@@ -28,7 +28,7 @@ pub fn list_saved_sessions(session: tauri::State<'_, SessionState>) -> Result<Ve
 
 #[tauri::command]
 pub fn load_session(
-    app: codeterm_service_core::app_runtime::AppHandle,
+    app: codeterm_host_runtime::app_runtime::AppHandle,
     session: tauri::State<'_, SessionState>,
     name: Option<String>,
 ) -> Result<Option<SessionSnapshot>, String> {

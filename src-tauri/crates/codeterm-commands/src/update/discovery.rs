@@ -6,7 +6,7 @@ use codeterm_service_core::update_state::AvailabilitySnapshot;
 static LAST: parking_lot::Mutex<Option<AvailabilitySnapshot>> = parking_lot::Mutex::new(None);
 
 pub async fn check(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     state: &codeterm_service_core::UpdateStateHandle,
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
@@ -66,7 +66,7 @@ static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 mod cache;
 
 async fn refresh(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     state: &codeterm_service_core::UpdateStateHandle,
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
@@ -134,7 +134,7 @@ async fn refresh(
 }
 
 pub fn publish(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     snapshot: &AvailabilitySnapshot,
 ) {
     let changed = {
@@ -147,7 +147,7 @@ pub fn publish(
         }
     };
     if changed {
-        codeterm_service_core::events::emit_everywhere(
+        codeterm_host_runtime::events::emit_everywhere(
             app,
             "update-availability-changed",
             snapshot,
@@ -164,7 +164,7 @@ pub fn replace_plugins(snapshot: &mut AvailabilitySnapshot, items: Vec<Availabil
 }
 
 pub fn publish_plugins(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     items: Vec<AvailabilityItem>,
 ) {
     let next = {
@@ -179,7 +179,7 @@ pub fn publish_plugins(
         }
     };
     if let Some(snapshot) = next {
-        codeterm_service_core::events::emit_everywhere(
+        codeterm_host_runtime::events::emit_everywhere(
             app,
             "update-availability-changed",
             snapshot,
@@ -188,7 +188,7 @@ pub fn publish_plugins(
 }
 
 pub async fn plugins_changed(
-    app: codeterm_service_core::app_runtime::AppHandle,
+    app: codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let inventory = codeterm_plugins::update_inventory(
@@ -208,7 +208,7 @@ pub async fn plugins_changed(
 }
 
 pub fn publish_plugin_snapshot(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     snapshot: &serde_json::Value,
 ) {
     let items = snapshot["plugins"]
@@ -270,7 +270,7 @@ mod tests {
     }
 }
 
-pub fn frontend_installed(app: &codeterm_service_core::app_runtime::AppHandle, installed: &str) {
+pub fn frontend_installed(app: &codeterm_host_runtime::app_runtime::AppHandle, installed: &str) {
     let next = {
         let mut last = LAST.lock();
         let Some(snapshot) = last.as_mut() else {
@@ -301,7 +301,7 @@ pub fn frontend_installed(app: &codeterm_service_core::app_runtime::AppHandle, i
         }
     };
     if let Some(snapshot) = next {
-        codeterm_service_core::events::emit_everywhere(
+        codeterm_host_runtime::events::emit_everywhere(
             app,
             "update-availability-changed",
             snapshot,
@@ -319,7 +319,7 @@ pub fn replace_frontend(snapshot: &mut AvailabilitySnapshot, item: AvailabilityI
 }
 
 pub fn publish_frontend(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     item: AvailabilityItem,
 ) {
     let next = {
@@ -334,7 +334,7 @@ pub fn publish_frontend(
         }
     };
     if let Some(snapshot) = next {
-        codeterm_service_core::events::emit_everywhere(
+        codeterm_host_runtime::events::emit_everywhere(
             app,
             "update-availability-changed",
             snapshot,

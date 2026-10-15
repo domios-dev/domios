@@ -1,16 +1,11 @@
 use crate::multiplexer::types::{ShellActivity, ShellPurpose, Tab};
-use tauri::Manager;
 
 pub(super) static SPAWN_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 pub(super) fn configured_limits(
-    app: &crate::app_runtime::AppHandle,
+    config: &crate::config::ConfigState,
 ) -> crate::config::schema::UtilityTabLimits {
-    app.state::<crate::config::ConfigState>()
-        .lock()
-        .utility_tabs
-        .max_per_team
-        .clone()
+    config.lock().utility_tabs.max_per_team.clone()
 }
 
 pub(super) fn normalize_icon(icon: Option<String>) -> Result<Option<String>, String> {

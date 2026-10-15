@@ -2,7 +2,7 @@
 //! manual trigger for the daemon-side S1..S5 refresh cycle. The CLI twin is
 //! `codeterm orchestrator refresh`.
 
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_orchestration::{RefreshOutcome, RefreshRequest, RefreshTrigger};

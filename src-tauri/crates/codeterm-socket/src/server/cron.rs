@@ -1,6 +1,6 @@
 //! `cron.*` JSON-RPC handlers.
 
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::Value;
 use tauri::Manager;
 
@@ -79,7 +79,7 @@ pub(super) fn dispatch_complete(
                         summary: &completion.summary,
                     },
                 );
-                codeterm_service_core::events::emit_everywhere(
+                codeterm_host_runtime::events::emit_everywhere(
                     &svc.app_handle,
                     "cron-run-finished",
                     (),
