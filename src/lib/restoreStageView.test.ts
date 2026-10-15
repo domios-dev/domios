@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { restorePanelOwnsBody, restoreStageView } from "./restoreStageView";
+import { restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "./restoreStageView";
 import type { Tab } from "./types";
 
 const tab: Partial<Tab> = { agent_type: "fixture", agent_session_id: "saved", frozen: true,
   boot_stage: "agent_ready", agent_runtime_state: { state: "loaded", epoch: 1 } };
 assert.equal(restoreStageView(tab).phase, "sleeping");
+for (const frozen of [true, false]) {
+  const shell: Partial<Tab> = { backing: { kind: "pty" }, frozen, boot_stage: "pty_starting" };
+  assert.equal(restorePanelOwnsBody(shell, { requested: true }, restoreStageView(shell)), false);
+}
 const queued = restoreStageView(tab, { requested: true });
 assert.equal(queued.phase, "restoring");
 assert.equal(queued.current, -1);
@@ -16,6 +20,10 @@ for (const [boot_stage, current] of [["pty_starting", 0], ["reader_ready", 0], [
   assert.equal(view.current, current);
 }
 assert.equal(restoreStageView(awake).phase, "ready");
+const transcriptPending = transcriptLoadingStageView(awake);
+assert.equal(transcriptPending.phase, "restoring");
+assert.equal(transcriptPending.steps[transcriptPending.steps.length - 1]?.state, "pending");
+assert.equal(transcriptPending.steps[transcriptPending.current].state, "current");
 assert.equal(restoreStageView(awake, { error: "RPC response lost" }).phase, "ready");
 assert(restoreStageView(awake).steps.every(step => step.state === "complete"));
 assert.equal(restoreStageView({ ...awake, boot_stage: "awaiting_owner_prompt" }).phase, "attention");

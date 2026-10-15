@@ -2,7 +2,6 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Clock, Moon } from "lucide-react";
 import { AgentIcon } from "../AgentIcon";
 import type { RestoreStageView } from "../../lib/restoreStageView";
-import "./RestoreStatePanel.css";
 
 export function RestoreStatePanel({ providerId, view, onRetry, retrying = false }: {
   providerId?: string | null;
@@ -12,15 +11,15 @@ export function RestoreStatePanel({ providerId, view, onRetry, retrying = false 
 }) {
   const currentLabel = view.steps[Math.max(0, view.current)]?.label ?? view.label;
   return (
-    <div className="flex h-full min-h-0 w-full items-center justify-center overflow-auto bg-[var(--ct-bg)] px-6 py-10">
+    <div className="ct-loading-material flex h-full min-h-0 w-full items-center justify-center overflow-auto px-6 py-10">
       <section role="status" aria-live="polite" aria-label={view.label}
         className="flex w-full max-w-xs flex-col items-center text-center text-[var(--ct-fg)]">
-        <div className="relative mb-6 flex h-24 w-24 items-center justify-center rounded-3xl border border-[var(--ct-border)] bg-[var(--ct-surface)]">
+        <div className="ct-loading-icon relative mb-6 flex h-24 w-24 items-center justify-center rounded-3xl border border-[var(--ct-border)] bg-[var(--ct-surface)]">
           <AgentIcon providerId={providerId} className="text-[56px] leading-none" ariaLabel="Session provider icon" />
           <span aria-hidden="true" className="absolute -right-2 -bottom-2 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2 text-[var(--ct-muted-fg)]">{view.phase === "sleeping" ? <Moon size={16} /> : <Clock size={16} />}</span>
         </div>
-        <h2 className="text-base font-medium tracking-tight">{view.label}</h2>
-        {view.phase !== "sleeping" && <div className="mt-5 w-full">
+        <h2 className="ct-loading-copy text-base font-medium tracking-tight">{view.label}</h2>
+        {view.phase !== "sleeping" && <div className="ct-loading-progress mt-5 w-full">
           <div aria-hidden="true" className="restore-progress-labels mb-3 text-xs text-[var(--ct-muted-fg)]">
             {view.steps.map((step, index) => <span key={step.id} data-current={index === Math.max(0, view.current)}>{step.label}</span>)}
           </div>
@@ -31,7 +30,7 @@ export function RestoreStatePanel({ providerId, view, onRetry, retrying = false 
             {view.steps.map(step => <span key={step.id} aria-hidden="true" data-state={step.state} className="restore-progress-segment"><span /></span>)}
           </div>
         </div>}
-        {view.detail && (view.phase === "failed" ? <InlineErrorNotice error={view.detail} operation="restoring this session" /> : <p className="mt-4 text-xs text-[var(--ct-muted-fg)]">{view.detail}</p>)}
+        {view.detail && view.phase === "failed" && <InlineErrorNotice error={view.detail} operation="restoring this session" />}
         {view.phase === "failed" && <button type="button" className="ct-btn mt-5 border border-[var(--ct-border)] bg-[var(--ct-surface)] text-xs" disabled={retrying} onClick={onRetry}>Wake again</button>}
       </section>
     </div>

@@ -58,8 +58,9 @@ export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: st
   return { ...current, state: "degraded", reason: reason.trim() || current.reason || "Agent runtime unavailable" };
 }
 
-export function runtimeStatusPresentation(state: AgentRuntimeState | null) {
+export function runtimeStatusPresentation(state: AgentRuntimeState | null, startupOwned = false) {
   if (!state || state.state === "loaded") return null;
+  if (startupOwned && state.state === "loading") return null;
   const loading = state.state === "loading";
   return {
     severity: loading ? "transient" as const : "action_needed" as const,

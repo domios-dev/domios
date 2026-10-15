@@ -316,7 +316,7 @@ test("normal chat_backend Tab keeps composer and hides read-only bar", async () 
   await act(async () => root.unmount());
 });
 
-test("bound-session pending snapshot renders chat loading without starting", async () => {
+test("bound-session pending snapshot uses the shared loading door", async () => {
   const tabId = "recovering-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
@@ -326,8 +326,8 @@ test("bound-session pending snapshot renders chat loading without starting", asy
     state,
     () => ({ text: "", offset: 0, pending: true }),
   );
-  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "transcript loading does not mean starting");
-  assert(host.querySelector('[role="img"][aria-label$="loading chat"]'), "chat loading is visible");
+  assert(host.querySelector('[data-testid="chat-setup-state"] [role="progressbar"]'), "snapshot loading uses the shared progress panel");
+  assert(!host.querySelector('[data-chat-window-row]'), "unloaded rows cannot paint");
   assert(!host.querySelector('[data-testid="chat-recovering-state"]'), "duplicate recovery loader absent");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "false empty state absent");
   assert(host.querySelector('[data-testid="chat-composer"]'), "chat remains interactive");
@@ -533,8 +533,7 @@ test("snapshot failure stays on the chat loading row", async () => {
   const { host, root } = await renderTabSessionChat(tabId, state, () => {
     throw new Error("snapshot unavailable");
   });
-  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "snapshot failure does not mean starting");
-  assert(host.querySelector('[role="img"][aria-label$="loading chat"]'), "chat loading remains visible");
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "unloaded snapshot keeps the shared door");
   assert(!host.querySelector('[data-testid="chat-recovery-error"]'), "error state is not rendered");
   assert(!host.querySelector('[data-testid="chat-retry"]'), "inline retry is not rendered");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "failure is not shown as empty");
@@ -556,8 +555,7 @@ test("mount failure remains loading without releasing a shared tailer", async ()
       messages: [{ id: "history-1", type: "assistant", content: "restored history" }],
     };
   });
-  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "mount failure does not mean starting");
-  assert(host.querySelector('[role="img"][aria-label$="loading chat"]'), "chat loading remains visible");
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "unloaded snapshot keeps the shared door");
   assert(!host.querySelector('[data-testid="chat-retry"]'), "no inline reconnect surface remains");
   assert(commands.filter((command) => command === "chat_stop").length === 0, "manual reconnect never releases another view lease");
   assert(commands.filter((command) => command === "chat_start").length === 1, "mount performs one attach attempt");

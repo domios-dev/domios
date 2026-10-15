@@ -8,7 +8,7 @@ import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { useComposerIssues, type ActionableComposerIssue } from "./ComposerIssuesContext";
 
-export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null }) {
+export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
   const issues = useComposerIssues();
   if (tabId && state?.auth === "signedOut" && state.loginMethods?.length) {
     return <>
@@ -16,7 +16,7 @@ export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg }: { tabId?:
       <RuntimeLoginActions key={`${tabId}:${state.epoch}`} tabId={tabId} state={state} iconSvg={iconSvg} onCheck={onRetry} />
     </>;
   }
-  const view = runtimeStatusPresentation(state);
+  const view = runtimeStatusPresentation(state, startupOwned);
   return <RuntimeStatusBadge view={view} issues={issues} onRetry={onRetry} />;
 }
 
