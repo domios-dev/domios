@@ -994,7 +994,7 @@ function TabSessionChatBody({
       ) : (
       <>
       <div ref={setContextSlot} className="ct-ctx-slot" />
-      <div className="ct-composer-status w-full" style={{ paddingInlineStart: "calc(var(--ct-composer-gutter-x) + 2rem)" }}>
+      <div className="ct-composer-status w-full">
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}

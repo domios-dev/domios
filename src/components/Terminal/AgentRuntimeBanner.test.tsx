@@ -29,7 +29,11 @@ it("opens the accessible runtime badge and wires Retry once, with outside and Es
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     await act(async () => badge.click());
     await act(async () => root.render(<AgentRuntimeBanner state={{ state: "loaded", epoch: 2 }} onRetry={retry} />));
-    expect(host.childElementCount).toBe(0);
+    expect(badge.disabled).toBe(true);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => root.render(<AgentRuntimeBanner state={{ state: "degraded", epoch: 3, reason: "another-fault" }} onRetry={retry} />));
+    expect(host.querySelector('button[aria-haspopup="dialog"]')).toBe(badge);
+    expect(badge.disabled).toBe(false);
   } finally {
     await act(async () => root.unmount());
     host.remove();
