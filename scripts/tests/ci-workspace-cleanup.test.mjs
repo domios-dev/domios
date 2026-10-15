@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { removeJobOutputs } from '../ci-workspace-cleanup.mjs';
+import { removeJobOutputs, sweepRustTargets } from '../ci-workspace-cleanup.mjs';
 
 function workspace() {
   const root = mkdtempSync(join(tmpdir(), 'domios-ci-cleanup-'));
@@ -14,13 +14,24 @@ function workspace() {
   return { root, ws };
 }
 
-test('removes job targets and archives and keeps the checkout', () => {
+test('removes job archives and keeps the checkout and the warm Rust targets', () => {
   const { root, ws } = workspace();
   try {
-    const removed = removeJobOutputs(ws);
-    assert.deepEqual(removed, ['src-tauri/target', 'cli/target', 'ci-rust-receipts']);
-    for (const gone of ['src-tauri/target', 'cli/target', 'ci-rust-receipts']) assert.equal(existsSync(join(ws, gone)), false, gone);
-    for (const kept of ['.git', 'src/main.rs']) assert.ok(existsSync(join(ws, kept)), kept);
+    assert.deepEqual(removeJobOutputs(ws), ['ci-rust-receipts']);
+    assert.equal(existsSync(join(ws, 'ci-rust-receipts')), false);
+    for (const kept of ['.git', 'src/main.rs', 'src-tauri/target/debug', 'cli/target']) assert.ok(existsSync(join(ws, kept)), kept);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('sweeps each existing Rust target by age and keeps a target when cargo-sweep is missing', () => {
+  const { root, ws } = workspace();
+  try {
+    const calls = [];
+    const swept = sweepRustTargets(ws, (command, args) => { calls.push([command, ...args]); return { status: 0 }; });
+    assert.deepEqual(swept, ['src-tauri', 'cli']);
+    assert.deepEqual(calls.map(call => call.slice(0, 4)), [['cargo', 'sweep', '--time', '2'], ['cargo', 'sweep', '--time', '2']]);
+    assert.deepEqual(sweepRustTargets(ws, () => ({ error: new Error('missing') })), []);
+    assert.ok(existsSync(join(ws, 'src-tauri/target/debug')));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
