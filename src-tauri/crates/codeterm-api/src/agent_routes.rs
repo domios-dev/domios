@@ -577,7 +577,7 @@ pub async fn batch_commands(
             id: c.id,
         })
         .collect();
-    let results = codeterm_service_core::service::batch(&state.svc, ops).await;
+    let results = codeterm_orchestration::batch(&state.svc, ops).await;
     Ok(Json(serde_json::json!({"results": results})))
 }
 
@@ -693,7 +693,7 @@ pub async fn set_tab_role(
             })
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
         if becomes_anchor {
-            codeterm_service_core::service::maybe_deliver_orchestrator_promotion_onboarding(
+            codeterm_orchestration::maybe_deliver_orchestrator_promotion_onboarding(
                 &state.svc,
                 &id,
                 was_orchestrator,
@@ -739,7 +739,7 @@ pub async fn make_orchestrator(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
         check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-        codeterm_service_core::service::make_orchestrator(&state.svc, &id)
+        codeterm_orchestration::make_orchestrator(&state.svc, &id)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
         Ok(Json(serde_json::json!({"ok": true})))
     })

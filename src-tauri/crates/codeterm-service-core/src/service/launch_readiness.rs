@@ -619,7 +619,7 @@ fn owner_prompt_pending_until(tab_id: &str, question: &str, deadline: Instant) {
     );
 }
 
-pub(crate) fn owner_prompt_cleared(tab_id: &str) {
+pub fn owner_prompt_cleared(tab_id: &str) {
     let mut state = OBSERVATIONS.state.lock();
     update_owner_prompt_locked(&mut state, tab_id, None);
     let wake = state.input_wakes.get(tab_id).and_then(|(attempt, signal)| {

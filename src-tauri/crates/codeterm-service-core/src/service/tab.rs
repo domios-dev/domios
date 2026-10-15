@@ -100,7 +100,7 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
-    pub(crate) fn release_tab_launch_artifacts(&self, tab_id: &str, provider_id: &str) {
+    pub fn release_tab_launch_artifacts(&self, tab_id: &str, provider_id: &str) {
         let closed_tab = [(tab_id.to_string(), provider_id.to_string())];
         super::launch_artifacts::release_closed_tabs(&self.agent_registry, &closed_tab);
     }

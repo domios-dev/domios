@@ -289,7 +289,7 @@ impl ServiceContext {
         .await
     }
 
-    pub(crate) async fn spawn_agent_with_state_change(
+    pub async fn spawn_agent_with_state_change(
         &self,
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,

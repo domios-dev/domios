@@ -10,7 +10,7 @@ use crate::agent::registry::AgentRegistry;
 pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
 #[path = "spawn_warnings.rs"]
 mod spawn_warnings;
-pub(crate) use spawn_warnings::merge as merge_spawn_warnings;
+pub use spawn_warnings::merge as merge_spawn_warnings;
 
 pub use super::spawn_cli::{create_cleared_agent_tab, provider_launch_preflight};
 pub use super::spawn_params::chatbackend_spawn_config;
@@ -50,7 +50,7 @@ pub(crate) use spawn_identity::{
     now_unix_secs, params_caller_tab_id, roleless_spawner, spawn_caller_tab_id,
     task_binding_from_spawn,
 };
-pub(crate) use spawn_reasoning_effort::validate_agent_reasoning_effort;
+pub use spawn_reasoning_effort::validate_agent_reasoning_effort;
 
 #[path = "spawn_tab_identity.rs"]
 mod spawn_tab_identity;
@@ -371,7 +371,7 @@ impl ServiceContext {
 
         // Authorized before the tab exists: a non-member caller must never leave
         // an orphan agent behind.
-        let team_attachment = super::team::resolve_spawn_attachment(
+        let team_attachment = super::team_membership::resolve_spawn_attachment(
             &self.mux.read(),
             spec.team_id.as_deref(),
             spec.creator_tab_id.as_deref(),
@@ -549,7 +549,7 @@ impl ServiceContext {
         if let Some(attachment) = &team_attachment {
             let applied = {
                 let mut mux = self.mux.write();
-                super::team::apply_team_attachment(&mut mux, attachment, &tab_id)
+                super::team_membership::apply_team_attachment(&mut mux, attachment, &tab_id)
             };
             if let Err(error) = applied {
                 if tab_created_by_spawn {
