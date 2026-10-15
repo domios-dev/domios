@@ -12,6 +12,8 @@ async function api(route, body) {
 }
 const prs = await api(`commits/${sha}/pulls`);
 const report = fs.readFileSync(process.argv[2], 'utf8');
+const counts = report.match(/(\d+) unique warnings?\. (\d+) new; (\d+) removed/);
+if (counts && counts.slice(1).every(count => count === '0')) process.exit(0);
 const link = `${process.env.GITHUB_SERVER_URL}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 for (const pr of prs.filter(pr => pr.head?.ref?.startsWith('release/'))) {
   await api(`issues/${pr.number}/comments`, { body: `Rust warning report: [full report and diagnostics](${link})\n\n` + report.split('\n### Diagnostics')[0].slice(0, 50000) });
