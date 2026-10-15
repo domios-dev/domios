@@ -86,10 +86,10 @@ test('one atomic root and core archive per SHA is reused by app selectors withou
     const calls = fs.readFileSync(path.join(directory, 'calls.log'), 'utf8').trim().split('\n');
     const builds = calls.filter(line => line.startsWith('nextest archive'));
     assert.equal(builds.length, 1);
-    assert.match(builds[0], /-p codeterm-service-core -p codeterm --lib --cargo-profile test/);
+    assert.match(builds[0], /-p codeterm-service-core -p codeterm --lib --no-default-features --cargo-profile test/);
     assert.match(builds[0], /opaque-job\.tar\.zst/);
-    assert.equal(fs.readFileSync(path.join(directory, 'gateway/test-archives/opaque-sha/app.tar.zst'), 'utf8'), 'artifact');
-    assert.ok(calls.some(line => /^RUN --archive-file .*app\.tar\.zst --workspace-remap .* --filter-expr package\(=codeterm-service-core\) & kind\(lib\) --no-tests=fail opaque-selector$/.test(line)));
+    assert.equal(fs.readFileSync(path.join(directory, 'gateway/test-archives/opaque-sha/app-no-embeddings.tar.zst'), 'utf8'), 'artifact');
+    assert.ok(calls.some(line => /^RUN --archive-file .*app-no-embeddings\.tar\.zst --workspace-remap .* --filter-expr package\(=codeterm-service-core\) & kind\(lib\) --no-tests=fail opaque-selector$/.test(line)));
     assert.match(result.stdout, /selector=opaque-a exit=0 wall=\d+s/);
     assert.match(result.stdout, /selector=opaque-b exit=0 wall=\d+s/);
     assert.match(result.stdout, /selector=opaque-selector exit=0 wall=\d+s/);

@@ -15,7 +15,9 @@ python .agents/skills/prompt-evaluator/runner.py \
 
 ## Pass
 
-The report shows all six cases passing for all three samples and the runner
+The report shows all cases passing for all three samples and the runner
 exits zero.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
+
+The lane scenarios require a crate check with four Cargo jobs before committing and one post-commit integration Clippy check; Rust execution tests remain deferred to canonical.

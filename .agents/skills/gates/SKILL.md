@@ -54,11 +54,7 @@ node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
-In a Worker lane only the isolated non-Rust checks run: `tsc`, a single node test file,
-rustfmt, the file-size and service-core-boundary scripts, then one
-`./build.sh check-queue --lane <sha>`. `check`, `check-tests` and Rust tests compile the
-app crate in the lane, a full rebuild; report them as deferred selectors for the
-Orchestrator's canonical wave batch.
+In a Worker lane, type-check each touched Rust library before committing with `CARGO_BUILD_JOBS=4 cargo check --manifest-path src-tauri/Cargo.toml -p <crate> --lib`; add `--tests` for changed tests. On Windows use `./build.sh lane-check <crate> [--tests]` to load MSVC and stage resources. Build setup shares `$CODETERM_RUST_CACHE_ROOT/lanes` per machine (fallback `{cargo-cache-home}/codeterm-lanes`); Cargo's build-dir lock serializes checks without a gateway slot. Keep target directories separate. Run affected non-Rust checks, rustfmt and boundary guards, then commit and run one `./build.sh check-queue --lane <sha>` for integration Clippy. Defer Rust execution tests, app builds and broad gates to the Orchestrator's canonical batch.
 
 ## Check before tests
 
@@ -84,7 +80,7 @@ count=N` line per warned crate and `warnings=N shown=M failing=<crates>`.
 Warnings count as errors: any rustc or clippy warning in a touched crate fails
 the run, and a Worker reports only with `errors=0` and `warnings=0`.
 check-queue, check-tests and clippy --all-targets type-check the bin against MockRuntime.
-The Wry world is checked by clippy --workspace in the full gate, by check-queue's dev-lib check and by every dev and production build.
+The Wry world is checked by product library Clippy in check-queue and by every dev and production build.
 `--all` lints the whole app workspace and the CLI and fails on any warning.
 `./build.sh check` ends with one `warnings crate=` line per warned crate and a
 `check: warnings=N` total; canonical expects `warnings=0`. Every workspace crate
@@ -214,7 +210,7 @@ instance. Offline node tests do not replace the live run. Frontend-only and
 plugin-only releases are outside this gate.
 
 
-<!-- revision: 7 -->
+<!-- revision: 9 -->
 
 ## Rust warning inventory and cleanup
 
@@ -241,4 +237,6 @@ Focused collector verification: `node --test scripts/tests/collect-rust-warnings
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
 
-Lane verification runs touched libraries with Clippy, root bins only when touched, and touched leaf test targets; service-core tests stay at the batch. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` with default embeddings. Root dev/default, core default and app test features must agree; divergence refuses compilation. A batch failure in a lane's files is a bounce naming the integration SHA.
+Lane verification runs touched libraries with Clippy, root bins only when touched, and touched leaf test targets; service-core tests stay at the batch. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` without default features. Root dev/default and core defaults remain aligned for the product; ordinary tests explicitly disable defaults. A batch failure in a lane's files is a bounce naming the integration SHA.
+
+Product DEV and check-queue library Clippy retain embeddings. Ordinary test profiles disable default features, including archives and CI. The required `rust-embeddings` CI job alone runs memory tests with embeddings enabled (`./build.sh ci-tests embeddings`). Full check-queue checks the ordinary service-core test profile and no longer repeats a dev-lib cargo check.

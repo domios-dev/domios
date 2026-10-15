@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { mapCheckouts, orphanCandidates, worktrees } from './cargo-build-gc.mjs';
+import { mapCheckouts, orphanCandidates, trimBuildDirectories, worktrees } from './cargo-build-gc.mjs';
 
 const python = ['python3', 'python'].find((name) => spawnSync(name, ['--version']).status === 0);
 const helper = path.resolve('scripts/cargo-build-gc.py');
@@ -106,9 +106,11 @@ test('links and paths outside the hash root refuse deletion', (t) => {
   assert.equal(spawnSync(python, [helper, f.root, outside]).status, 2);
 });
 
-function trimFixture(t) {
+function trimFixture(t, shared = false) {
   const f = fixture(t);
-  const dir = f.create('ab', '1');
+  const dir = shared ? path.join(f.root, 'lanes') : f.create('ab', '1');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CACHEDIR.TAG'), 'Signature: 8a477f597d28d172789f06886806bc55');
   const stale = path.join(dir, 'debug', 'deps', 'libold-aaaaaaaaaaaaaaaa.rlib');
   const live = path.join(dir, 'debug', 'deps', 'libold-bbbbbbbbbbbbbbbb.rlib');
   const session = path.join(dir, 'debug', 'incremental', 'old-1x2y');
@@ -144,8 +146,24 @@ test('trim refuses paths outside the hash directory and Cargo bookkeeping files'
   assert.equal(fs.existsSync(outside), true);
 });
 
+test('shared lane directory is trimmed once across worktrees and keeps live units', (t) => {
+  const f = trimFixture(t, true);
+  const mappings = [{ build: f.dir }, { build: f.dir }];
+  let scans = 0;
+  const plan = () => { scans++; return [f.stale]; };
+  assert.equal(trimBuildDirectories(mappings, { plan, dryRun: true }), 1);
+  assert.equal(scans, 1);
+  assert.equal(fs.existsSync(f.stale), true);
+  assert.equal(trimBuildDirectories(mappings, { plan }), 1);
+  assert.equal(fs.existsSync(f.stale), false);
+  assert.equal(fs.existsSync(f.live), true);
+  assert.equal(f.trim([path.join(f.dir, 'CACHEDIR.TAG')]).status, 2);
+  fs.unlinkSync(path.join(f.dir, 'CACHEDIR.TAG'));
+  assert.equal(f.trim([f.live]).status, 2);
+});
+
 test('a held Cargo lock protects the whole build directory from trim', async (t) => {
-  const f = trimFixture(t);
+  const f = trimFixture(t, true);
   const lock = path.join(f.dir, 'debug', '.cargo-lock');
   const code = 'import importlib.util,sys; s=importlib.util.spec_from_file_location("gc",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)\nwith m.cargo_lock(sys.argv[2]):\n print("ready",flush=True)\n sys.stdin.read(1)';
   const child = spawn(python, ['-c', code, helper, lock], { stdio: ['pipe', 'pipe', 'inherit'] });
