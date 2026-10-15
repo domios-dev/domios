@@ -33,7 +33,7 @@ impl DeadlineModel {
     }
 }
 
-pub(crate) fn parse_timeout(value: &str) -> Result<Option<u64>, String> {
+pub fn parse_timeout(value: &str) -> Result<Option<u64>, String> {
     if value == "none" {
         return Ok(None);
     }
@@ -50,6 +50,16 @@ pub(crate) fn parse_timeout(value: &str) -> Result<Option<u64>, String> {
         .filter(|ms| *ms > 0 && *ms <= 365 * 24 * 3_600_000)
         .map(Some)
         .ok_or_else(|| "timeout must be positive and at most 365 days".into())
+}
+
+pub(crate) fn deadline_from_start(started_ms: u64, duration_ms: u64) -> Result<u64, String> {
+    started_ms
+        .checked_add(duration_ms)
+        .ok_or_else(|| "deadline overflow".into())
+}
+
+pub(crate) fn elapsed_seconds(started_ms: u64, now_ms: u64) -> f64 {
+    now_ms.saturating_sub(started_ms) as f64 / 1000.0
 }
 
 #[cfg(test)]
@@ -104,5 +114,23 @@ mod tests {
         for invalid in ["0s", "30", "-1s", "18446744073709551615h", "366d"] {
             assert!(parse_timeout(invalid).is_err());
         }
+    }
+
+    #[test]
+    fn requested_lifetime_and_command_elapsed_use_their_own_starts() {
+        let started = 1_792_013_689_000;
+        let duration = parse_timeout("30m").unwrap().unwrap();
+        let deadline = deadline_from_start(started, duration).unwrap();
+        assert_eq!(deadline, started + 1_800_000);
+        assert_eq!(elapsed_seconds(started, deadline), 1800.0);
+        assert_eq!(elapsed_seconds(deadline - 197_000, deadline), 197.0);
+        let mut model = DeadlineModel::default();
+        model.reset(Some(deadline));
+        assert_eq!(model.expire(deadline - 1, ShellActivity::Running), None);
+        assert_eq!(
+            model.expire(deadline, ShellActivity::Running),
+            Some(DeadlineAction::TerminateAndNotice)
+        );
+        assert!(deadline_from_start(u64::MAX, duration).is_err());
     }
 }

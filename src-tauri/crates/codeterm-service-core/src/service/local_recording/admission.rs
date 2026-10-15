@@ -50,7 +50,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) async fn local_recording_commit(
+    pub async fn local_recording_commit(
         &self,
         lease: &str,
         clip_handle: &str,
@@ -80,7 +80,7 @@ impl ServiceContext {
         let original = super::completion::complete_voice_capture(
             &capture,
             path_text,
-            &self.transcribe_registry,
+            self.ext::<std::sync::Arc<crate::transcribe::TranscribeRegistry>>(),
             &active_id,
             || self.validate_recording_target(&capture),
         )

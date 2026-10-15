@@ -42,7 +42,37 @@ impl Drop for WorkspaceCloseGuard {
 struct Resources {
     plans: Vec<crate::plan::Plan>,
     crons: Vec<crate::cron::store::CronJob>,
-    blueprints: Vec<crate::sentinel::store::Sentinel>,
+    blueprints: Vec<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct SavedScope {
+    id: String,
+    workspace_id: String,
+    team_id: Option<String>,
+}
+
+fn saved_blueprint(
+    definition: &serde_json::Value,
+) -> Result<crate::ports::sentinel::BlueprintRecord, String> {
+    let scope = SavedScope::deserialize(definition).map_err(|error| error.to_string())?;
+    Ok(crate::ports::sentinel::BlueprintRecord {
+        id: scope.id,
+        workspace_id: scope.workspace_id,
+        team_id: scope.team_id,
+        scenario_root: false,
+        definition: definition.clone(),
+    })
+}
+
+/// Restore is all-or-nothing, so every saved blueprint must parse before any effect runs.
+fn validate_saved_blueprints(resources: &Resources) -> Result<(), String> {
+    for saved in &resources.blueprints {
+        saved_blueprint(saved)?;
+        serde_json::from_value::<crate::sentinel::store::Sentinel>(saved.clone())
+            .map_err(|error| format!("Saved blueprint is unreadable: {error}"))?;
+    }
+    Ok(())
 }
 
 impl ServiceContext {
@@ -78,7 +108,7 @@ impl ServiceContext {
             workspace,
             team,
             id.clone(),
-            super::team::now_ms(),
+            super::team_core::now_ms(),
         )?;
         let team_ids: HashSet<_> = record.teams.iter().map(|team| team.id.as_str()).collect();
         let plans = self
@@ -112,15 +142,14 @@ impl ServiceContext {
             .unwrap_or_default();
         let blueprints = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
-            .map(|handle| {
-                handle
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
+            .map(|ports| {
+                ports
                     .store
-                    .lock()
-                    .list()
-                    .iter()
+                    .records()
+                    .into_iter()
                     .filter(|job| in_scope(&job.workspace_id, job.team_id.as_deref()))
-                    .cloned()
+                    .map(|job| job.definition)
                     .collect()
             })
             .unwrap_or_default();
@@ -165,12 +194,14 @@ impl ServiceContext {
         }
         if let Some(blueprints) = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
-            changed |= resources
-                .blueprints
-                .iter()
-                .any(|saved| blueprints.store.lock().get(&saved.id).is_none());
+            for saved in &resources.blueprints {
+                changed |= blueprints
+                    .store
+                    .scope_of(&saved_blueprint(saved)?.id)
+                    .is_none();
+            }
         }
         let mux = self.mux.read();
         if changed {
@@ -203,6 +234,7 @@ impl ServiceContext {
         }
         let resources: Resources =
             serde_json::from_value(record.resources.clone()).map_err(|error| error.to_string())?;
+        validate_saved_blueprints(&resources)?;
         for plan in &resources.plans {
             if self.plan_store.get(&plan.id).is_none() {
                 self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))
@@ -273,7 +305,7 @@ impl ServiceContext {
     fn restore_history_plans(&self, resources: &Resources) -> Result<(), String> {
         for saved in &resources.plans {
             self.plan_store
-                .with_plan(&saved.id, super::team::now_ms(), |current| {
+                .with_plan(&saved.id, super::team_core::now_ms(), |current| {
                     restore_plan_metadata(current, saved);
                     Ok(())
                 })
@@ -315,15 +347,15 @@ impl ServiceContext {
             self.emit_cron_changed();
         }
         if !resources.blueprints.is_empty() {
-            let handle = self
+            let ports = self
                 .app_handle
-                .try_state::<crate::sentinel::scheduler::Handle>()
+                .try_state::<crate::ports::sentinel::SentinelPorts>()
                 .ok_or("Blueprint store unavailable")?;
-            for job in &resources.blueprints {
-                let existing = handle.store.lock().get(&job.id).cloned();
-                if let Some(existing) = existing {
-                    if existing.workspace_id != job.workspace_id || existing.team_id != job.team_id
-                    {
+            for saved in &resources.blueprints {
+                let job = saved_blueprint(saved)?;
+                let existing = ports.store.scope_of(&job.id);
+                if let Some((workspace_id, team_id)) = existing {
+                    if workspace_id != job.workspace_id || team_id != job.team_id {
                         return Err(format!(
                             "Blueprint identity {} belongs to another scope",
                             job.id
@@ -331,11 +363,9 @@ impl ServiceContext {
                     }
                     continue;
                 }
-                crate::sentinel::storage::commit(&handle.store, |store| {
-                    store.stage_insert(job.clone())
-                })?;
+                ports.store.insert_restored(&job)?;
             }
-            handle.notify();
+            ports.wake.notify();
         }
         Ok(())
     }

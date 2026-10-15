@@ -1,7 +1,7 @@
 //! A minimal `AgentProvider` for tests, now that the native codex/opencode
 //! providers are gone (everything-as-plugins). Lets registry/dispatch tests
 //! register several distinct providers without a real plugin VM.
-#![cfg(test)]
+#![cfg(any(test, feature = "test-support"))]
 
 use std::path::PathBuf;
 use std::sync::Arc;

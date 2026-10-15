@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde_json::Value;
 
-pub(crate) const TASK_UPDATE_KEYS: &[&str] = &[
+pub const TASK_UPDATE_KEYS: &[&str] = &[
     "acceptance_criteria",
     "acceptance_criteria_replace",
     "body",
@@ -47,14 +47,14 @@ const SOCKET_CONTEXT_KEYS: &[&str] = &[
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TaskUpdateSeam {
+pub enum TaskUpdateSeam {
     Rest,
     Socket,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct TaskUpdateInputError {
-    pub(crate) unknown_key: Option<String>,
+pub struct TaskUpdateInputError {
+    pub unknown_key: Option<String>,
     accepted_keys: Vec<&'static str>,
     message: Option<String>,
 }
@@ -77,7 +77,7 @@ impl fmt::Display for TaskUpdateInputError {
     }
 }
 
-pub(crate) fn validate_task_update_fields(
+pub fn validate_task_update_fields(
     body: &Value,
     seam: TaskUpdateSeam,
 ) -> Result<(), TaskUpdateInputError> {
@@ -133,8 +133,8 @@ fn accepted_keys(seam: TaskUpdateSeam) -> Vec<&'static str> {
     keys
 }
 
-#[cfg(test)]
-pub(crate) fn valid_task_update_payloads(
+#[cfg(any(test, feature = "test-support"))]
+pub fn valid_task_update_payloads(
     parent_task_id: &str,
     dependency_task_id: &str,
 ) -> Vec<(&'static str, Value)> {

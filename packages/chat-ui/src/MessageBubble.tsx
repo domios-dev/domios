@@ -399,7 +399,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             <div className="relative min-w-0 w-full">
               {originHeader}
               {showUserBubble && <div
-                className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 px-4 py-2 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
+                className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
               >
                 {userBubbleInner}
               </div>}

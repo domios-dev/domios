@@ -10,7 +10,7 @@ const MAX_JOURNAL_BYTES: u64 = 1_048_576;
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum VerdictKind {
+pub enum VerdictKind {
     Rerank,
     TabState,
     #[serde(rename = "blueprint")]
@@ -19,7 +19,7 @@ pub(crate) enum VerdictKind {
 }
 
 impl VerdictKind {
-    pub(crate) fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::Rerank => "rerank",
             Self::TabState => "tab_state",
@@ -31,7 +31,7 @@ impl VerdictKind {
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum Action {
+pub enum Action {
     SpawnOk,
     #[serde(rename = "strong_action")]
     Strong,
@@ -42,15 +42,15 @@ pub(crate) enum Action {
 }
 
 #[derive(Serialize)]
-pub(crate) struct ActionRecord<'a> {
-    pub(crate) kind: VerdictKind,
-    pub(crate) tab: Option<&'a str>,
-    pub(crate) label: &'a str,
-    pub(crate) confidence: f64,
-    pub(crate) action: Action,
-    pub(crate) reason: &'static str,
+pub struct ActionRecord<'a> {
+    pub kind: VerdictKind,
+    pub tab: Option<&'a str>,
+    pub label: &'a str,
+    pub confidence: f64,
+    pub action: Action,
+    pub reason: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) asked: Option<Vec<super::narrative::QuestionAnswer>>,
+    pub asked: Option<Vec<super::narrative::QuestionAnswer>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -70,7 +70,7 @@ impl Journal {
         }
     }
 
-    pub(super) fn feed(&self, limit: usize, team: Option<&str>) -> io::Result<Vec<Value>> {
+    pub fn feed(&self, limit: usize, team: Option<&str>) -> io::Result<Vec<Value>> {
         let limit = limit.min(super::feed::MAX_ENTRIES);
         if limit == 0 {
             return Ok(Vec::new());
@@ -136,7 +136,7 @@ impl Journal {
         Ok(true)
     }
 
-    pub(super) fn append(&self, value: &Value) -> io::Result<()> {
+    pub fn append(&self, value: &Value) -> io::Result<()> {
         let mut value = value.clone();
         if let Some(asked) = value.get("asked") {
             let asked = if value["kind"] == "tab_state" {

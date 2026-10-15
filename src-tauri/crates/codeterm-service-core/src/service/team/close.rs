@@ -15,7 +15,7 @@ use crate::service::plan::{PlanStore, TaskLaneUpdate};
 const LANE_BRANCH_PREFIX: &str = "lane/";
 
 #[derive(Debug)]
-pub(crate) struct CloseTeamCleanup {
+pub struct CloseTeamCleanup {
     pub(super) member_tab_ids: Vec<String>,
     pub(super) agent_providers: Vec<(String, String)>,
     pub(super) chat_backings: Vec<(String, String)>,
@@ -23,7 +23,7 @@ pub(crate) struct CloseTeamCleanup {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TeamCloseLane {
+pub struct TeamCloseLane {
     pub(crate) plan_id: String,
     pub(crate) task_id: String,
     pub(crate) project_path: String,
@@ -34,11 +34,11 @@ pub(crate) struct TeamCloseLane {
     pub(crate) hold_reason: Option<String>,
 }
 
-pub(super) struct PreparedTeamClose {
+pub struct PreparedTeamClose {
     pub(super) member_tab_ids: Vec<String>,
 }
 
-struct StagedTeamClose {
+pub struct StagedTeamClose {
     team: Team,
     member_tab_ids: Vec<String>,
     agent_providers: Vec<(String, String)>,
@@ -47,8 +47,8 @@ struct StagedTeamClose {
     closed_roots: Vec<String>,
 }
 
-#[cfg(test)]
-pub(crate) fn close_team_with_state_change(
+#[cfg(any(test, feature = "test-support"))]
+pub fn close_team_with_state_change(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
     plan_store: &PlanStore,
@@ -67,7 +67,7 @@ pub(crate) fn close_team_with_state_change(
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(super) fn close_team_with_state_change_using<F>(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
@@ -146,7 +146,7 @@ pub(super) fn team_close_lanes(
     collect_lanes(plans, Some((team_id, member_tab_ids)))
 }
 
-pub(crate) fn plan_cleanup_lanes(plan: &Plan) -> Vec<TeamCloseLane> {
+pub fn plan_cleanup_lanes(plan: &Plan) -> Vec<TeamCloseLane> {
     collect_lanes(std::slice::from_ref(plan), None)
 }
 

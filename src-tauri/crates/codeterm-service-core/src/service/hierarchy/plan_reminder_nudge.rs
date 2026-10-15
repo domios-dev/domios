@@ -459,7 +459,8 @@ impl<'a> LiveHost<'a> {
 
 impl ReminderHost for LiveHost<'_> {
     fn gate(&self) -> &Gate {
-        &self.svc.heartbeat_gate
+        self.svc
+            .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
     }
 
     fn supporter(&self) -> Supporter<'_> {
@@ -541,33 +542,33 @@ impl ReminderHost for LiveHost<'_> {
     ) -> Result<bool, String> {
         let tab_id = scope.tab_id.as_str();
         self.svc
-            .heartbeat_gate
+            .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
             .remember_body(tab_id, plan_id, &emission.text);
         match &emission.transport {
             Transport::Heartbeat {
                 learning_ids,
                 plain,
                 mode_transition,
-            } => crate::service::orchestrator_digests::deliver_gated_heartbeat_exact(
-                self.svc,
-                plan_id,
-                tab_id,
-                &emission.text,
-                learning_ids.as_deref(),
-                *plain,
-                *mode_transition,
-                observer,
-            )
-            .map(|delivery| {
-                if delivery.is_written() {
-                    self.svc.record_kpi_event(
-                        tab_id,
-                        crate::agent::kpi_ledger::KpiEventKind::Nudge,
-                        emission.text.len(),
-                    );
-                }
-                delivery.is_written()
-            }),
+            } => crate::ports::orchestration::installed(&self.svc.extensions)
+                .deliver_gated_heartbeat_exact(
+                    plan_id,
+                    tab_id,
+                    &emission.text,
+                    learning_ids.as_deref(),
+                    *plain,
+                    *mode_transition,
+                    observer,
+                )
+                .map(|delivery| {
+                    if delivery.is_written() {
+                        self.svc.record_kpi_event(
+                            tab_id,
+                            crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                            emission.text.len(),
+                        );
+                    }
+                    delivery.is_written()
+                }),
             Transport::Automated => {
                 self.svc
                     .deliver_automated_plan_reminder(tab_id, &emission.text, observer)
@@ -587,7 +588,10 @@ impl ServiceContext {
         tab_id: &str,
         worker: bool,
     ) -> String {
-        if let Some(text) = self.heartbeat_gate.last_body(tab_id, &plan.id) {
+        if let Some(text) = self
+            .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
+            .last_body(tab_id, &plan.id)
+        {
             return text;
         }
         let scope = Scope {
@@ -638,7 +642,7 @@ impl ServiceContext {
     /// Lifecycle mutations use this to clear only deadlines that became
     /// ineligible (paused, complete, parked/closed with no open work, or
     /// archived). Active execution owners keep their original deadline.
-    pub(crate) fn reconcile_time_reminder_eligibility(&self) {
+    pub fn reconcile_time_reminder_eligibility(&self) {
         let plans = self.plan_store.list_full_reminder_candidates();
         let counter = &self.plan_turn_counter;
         counter.retain_time_reminders(&deadline_tabs(&plans, counter));
@@ -735,11 +739,8 @@ impl ServiceContext {
                         text = format!("{defer}\n\n{text}");
                     }
                 }
-                let digests = crate::service::orchestrator_digests::collect_digest_lines(
-                    self,
-                    plan,
-                    if preview { None } else { Some(tab_id) },
-                );
+                let digests = crate::ports::orchestration::installed(&self.extensions)
+                    .collect_digest_lines(plan, if preview { None } else { Some(tab_id) });
                 let heartbeat = if plain {
                     String::new()
                 } else {
@@ -981,4 +982,4 @@ fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
 }
 
 #[cfg(test)]
-mod tests;
+pub mod tests;

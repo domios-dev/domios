@@ -39,7 +39,7 @@ impl ServicesStore {
         })
     }
 
-    pub(crate) fn conn(&self) -> Arc<Mutex<Connection>> {
+    pub fn conn(&self) -> Arc<Mutex<Connection>> {
         self.conn.clone()
     }
 }

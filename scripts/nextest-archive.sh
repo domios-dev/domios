@@ -48,14 +48,22 @@ build_app_test_archive() {
   for selector in "$@"; do run_archived_app_test "$selector" || return $?; done
 }
 
+configure_app_archive_run() {
+  local filterset='package(=codeterm-service-core) & kind(lib)' workspace
+  workspace="$(cd src-tauri && pwd -P)" || return $?
+  [ -f "$workspace/Cargo.toml" ] || { echo 'ERROR: archive workspace remap has no Cargo.toml' >&2; return 2; }
+  [ -z "${1:-}" ] || filterset="$filterset & ($1)"
+  CT_APP_ARCHIVE_RUN_ARGS=(--archive-file "$CT_APP_TEST_ARCHIVE" --workspace-remap "$workspace" --filter-expr "$filterset")
+}
+
 run_archived_app_test() {
   local filter="${1:?archived app test requires a selector}" started status=0
   started="$(date +%s)"
   local capped=scripts/test-capped.sh
   [ -z "${CT_GATEWAY_SCRIPT_ROOT:-}" ] || capped="$CT_GATEWAY_SCRIPT_ROOT/scripts/test-capped.sh"
+  configure_app_archive_run || return $?
   CARGO_TEST_CMD='cargo nextest run' CARGO_TEST_BUILD_CMD='' "$capped" \
-    --archive-file "$CT_APP_TEST_ARCHIVE" --workspace-remap "$(pwd -P)" \
-    -p codeterm-service-core --lib --no-tests=fail "$filter" || status=$?
+    "${CT_APP_ARCHIVE_RUN_ARGS[@]}" --no-tests=fail "$filter" || status=$?
   echo "nextest-archive: selector=$filter exit=$status wall=$(( $(date +%s) - started ))s"
   return "$status"
 }

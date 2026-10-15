@@ -8,6 +8,82 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 const OWNER_EVENT_DEADLINE: Duration = Duration::from_secs(3);
+const PROBE_COMPLETION_SCHEDULING_MARGIN: Duration = Duration::from_secs(3);
+
+#[test]
+fn sentinel_probe_bounded_runtime_and_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = Arc::new(ProbeResourceOwner::new());
+    #[cfg(unix)]
+    let stalled = "exec cat /dev/zero";
+    #[cfg(windows)]
+    let stalled = "while ($true) { [Console]::Out.Write('x') }";
+    let run_ready = |command: Option<&str>, limit| {
+        let ready = super::test_readiness::Readiness::new();
+        let (signal, receipts) = ready.signal(limit, PROBE_RUNTIME);
+        let command = command.map_or_else(
+            || ready.output_command(),
+            |command| ready.command_after_ready(command),
+        );
+        let cwd = dir.path().to_path_buf();
+        let owner = owner.clone();
+        let (completed_tx, completed_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = super::run_cancellable(&command, &cwd, limit, &owner, &signal);
+            completed_tx.send((result, Instant::now())).unwrap();
+        });
+        let receipt = receipts
+            .recv_timeout(
+                super::test_readiness::SETUP_DEADLINE + PROBE_COMPLETION_SCHEDULING_MARGIN,
+            )
+            .expect("probe child readiness receipt before setup deadline");
+        assert_eq!(receipt.duration, limit.min(PROBE_RUNTIME));
+        let completion_deadline = receipt.hard + PROBE_COMPLETION_SCHEDULING_MARGIN;
+        let (result, completed_at) = completed_rx
+            .recv_timeout(completion_deadline.saturating_duration_since(Instant::now()))
+            .expect("probe completion before readiness-anchored deadline");
+        assert!(
+            completed_at <= completion_deadline,
+            "probe completed {:?} after readiness with runtime {:?} and scheduling margin {:?}",
+            completed_at.duration_since(receipt.admitted),
+            receipt.duration,
+            PROBE_COMPLETION_SCHEDULING_MARGIN,
+        );
+        worker.join().unwrap();
+        (result, receipt)
+    };
+    let (trivial, receipt) = run_ready(Some("echo ok"), PROBE_RUNTIME);
+    let trivial = trivial.unwrap_or_else(|error| {
+        panic!(
+            "trivial probe failed after readiness with runtime {:?}: {error}",
+            receipt.duration,
+        )
+    });
+    assert_eq!(
+        i32::from_le_bytes(trivial.bytes[..4].try_into().unwrap()),
+        0
+    );
+    let normalized = trivial.text.replace("\r\n", "\n");
+    assert!(
+        normalized.contains("stdout:\nok\n"),
+        "unexpected formatted probe output: {:?}",
+        trivial.text
+    );
+    let (output, receipt) = run_ready(None, PROBE_RUNTIME);
+    let output = output.unwrap_or_else(|error| {
+        panic!(
+            "large probe failed after readiness with runtime {:?}: {error}",
+            receipt.duration,
+        )
+    });
+    assert!(output.bytes.len() <= super::MAX_OUTPUT_BYTES + 12);
+    assert!(output.bytes.len() >= super::MAX_OUTPUT_BYTES / 2);
+    assert!(output.stdout.truncated);
+    assert!(output.stdout.total_bytes >= 1_000_000);
+    assert_eq!(output.exit_code, Some(0));
+    let (result, _) = run_ready(Some(stalled), Duration::from_millis(200));
+    assert_eq!(result.unwrap_err().primary, "probe_timeout");
+}
 
 #[cfg(windows)]
 #[test]

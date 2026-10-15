@@ -58,7 +58,7 @@ pub fn new_restart_tracker() -> RestartTracker {
 impl ServiceContext {
     pub(crate) fn model_command_owns_prompt(&self, tab_id: &str) -> bool {
         let owner = self
-            .restart_tracker
+            .ext::<crate::service::agent_restart::RestartTracker>()
             .lock()
             .command_ptys
             .get(tab_id)
@@ -197,7 +197,7 @@ enum RestartMode {
 }
 
 #[derive(Debug)]
-pub(crate) enum RestartAttemptError {
+pub enum RestartAttemptError {
     Request(AgentRestartError),
     Failed {
         outcome: RestartOutcome,
@@ -710,7 +710,11 @@ impl ServiceContext {
         tab_id: &str,
         automatic: bool,
     ) -> Result<RestartClaim, AgentRestartError> {
-        claim_restart_attempt(&self.restart_tracker, tab_id, automatic)
+        claim_restart_attempt(
+            self.ext::<crate::service::agent_restart::RestartTracker>(),
+            tab_id,
+            automatic,
+        )
     }
 
     fn session_file_present(&self, snap: &TabRestartSnapshot) -> bool {
@@ -1081,15 +1085,16 @@ mod failed_launch;
 mod fresh;
 mod options;
 mod runtime;
-pub(crate) use options::RestartOptions;
+pub use options::RestartOptions;
 mod model_switch;
 mod relaunch;
 mod shutdown;
 pub(crate) mod timing;
 mod unverified_shell;
-pub(crate) use model_switch::{
-    ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
-};
+pub use model_switch::ModelSwitchConfirmation;
+pub use model_switch::ModelSwitchError;
+pub use model_switch::ModelSwitchEvidence;
+pub use model_switch::ModelSwitchOutcome;
 
 #[cfg(test)]
 mod tests;

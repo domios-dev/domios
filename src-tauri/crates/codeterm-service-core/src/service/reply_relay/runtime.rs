@@ -219,7 +219,10 @@ impl ServiceContext {
         };
         let id = pending.delivery_id.clone();
         if pending.session_id.is_empty() {
-            let mut staged = self.reply_relays.staged.lock();
+            let mut staged = self
+                .ext::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+                .staged
+                .lock();
             let staged = staged.entry(target).or_default();
             if staged.len() < MAX_TRACKED_RELAY_DELIVERIES {
                 staged.push(pending);
@@ -249,7 +252,10 @@ impl ServiceContext {
 
     pub(crate) fn arm_spawn_reply_relay(&self, target: &str, nonce: &str) {
         self.stage_worker_restart(target);
-        if let Some(first) = self.reply_relays.arm_spawn(target, nonce) {
+        if let Some(first) = self
+            .ext::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .arm_spawn(target, nonce)
+        {
             self.retain_spawn_worker_brief(target, &first.sender_tab, &first.user_text);
         }
     }
@@ -257,11 +263,14 @@ impl ServiceContext {
     pub(crate) fn activate_bound_reply_relays(&self, target: &str) {
         let binding = self.current_reply_relay_binding(target);
         let Some(binding) = binding else { return };
-        if let Err(error) = self.reply_relays.ensure(self, target, binding.clone()) {
+        if let Err(error) = self
+            .ext::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .ensure(self, target, binding.clone())
+        {
             log::warn!("[reply-relay] target={target} binding observer failed: {error}");
         }
         let pending = self
-            .reply_relays
+            .ext::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
             .staged
             .lock()
             .remove(target)
@@ -277,11 +286,17 @@ impl ServiceContext {
             }
         }
         self.restore_worker_after_binding(target);
-        self.reply_relays.wake(target);
+        self.ext::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .wake(target);
     }
 
     pub(crate) fn reconcile_tool_less_worker_ack(&self, target: &str) {
-        let entry = self.reply_relays.entries.lock().get(target).cloned();
+        let entry = self
+            .ext::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .entries
+            .lock()
+            .get(target)
+            .cloned();
         let Some(entry) = entry else { return };
         let pending = entry.worker.lock().pending();
         for pending in pending {
@@ -359,7 +374,9 @@ impl ServiceContext {
             return Err("relay binding changed".into());
         }
         self.remember_worker_turn(target, &pending)?;
-        let entry = self.reply_relays.ensure(self, target, binding)?;
+        let entry = self
+            .ext::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
+            .ensure(self, target, binding)?;
         let unavailable = { entry.model.lock().unavailable_reason().map(str::to_string) };
         if let Some(reason) = unavailable {
             self.send_reply_relay_action(

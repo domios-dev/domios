@@ -8,7 +8,7 @@ use tauri::Manager;
 use crate::sentinel::scheduler::Handle;
 
 impl super::ServiceContext {
-    pub(crate) fn blueprint_log(
+    pub fn blueprint_log(
         &self,
         caller: &super::sentinel::SentinelCaller,
         id: &str,
@@ -34,16 +34,17 @@ impl super::ServiceContext {
             .map_err(|error| error.to_string())
     }
 
-    pub(crate) fn blueprint_pipeline_validate(
+    pub fn blueprint_pipeline_validate(
         &self,
         caller: &super::sentinel::SentinelCaller,
         spec: BlueprintSpec,
     ) -> Result<Value, String> {
         let errors = self.pipeline_validation_errors(&spec)?;
         let trigger_available = match &spec.trigger {
-            Trigger::Event { kind, .. } => {
-                self.event_source_registry.select_provider(kind).is_some()
-            }
+            Trigger::Event { kind, .. } => self
+                .ext::<std::sync::Arc<codeterm_plugin::event_source::EventSourceRegistry>>()
+                .select_provider(kind)
+                .is_some(),
             trigger => !codeterm_blueprint_types::blueprint_pipeline::trigger_unavailable(trigger),
         };
         let mut checks = vec![
@@ -113,7 +114,7 @@ impl super::ServiceContext {
         }))
     }
 
-    pub(crate) fn blueprint_pipeline_create(
+    pub fn blueprint_pipeline_create(
         &self,
         caller: &super::sentinel::SentinelCaller,
         spec: BlueprintSpec,
@@ -181,7 +182,7 @@ impl super::ServiceContext {
         }))
     }
 
-    pub(crate) fn blueprint_pipeline_validate_update(
+    pub fn blueprint_pipeline_validate_update(
         &self,
         caller: &super::sentinel::SentinelCaller,
         id: &str,
@@ -206,7 +207,7 @@ impl super::ServiceContext {
         Ok(preview)
     }
 
-    pub(crate) fn blueprint_pipeline_update(
+    pub fn blueprint_pipeline_update(
         &self,
         caller: &super::sentinel::SentinelCaller,
         id: &str,
@@ -300,7 +301,7 @@ impl super::ServiceContext {
         Ok(current)
     }
 
-    pub(crate) fn blueprint_pipeline_nodes(&self) -> Value {
+    pub fn blueprint_pipeline_nodes(&self) -> Value {
         let mut nodes = Trigger::DESCRIPTORS
             .iter()
             .chain(StepKind::DESCRIPTORS)
@@ -308,7 +309,10 @@ impl super::ServiceContext {
             .chain(codeterm_blueprint_types::blueprint_catalog::SOURCES_AND_MODES)
             .map(codeterm_blueprint_types::blueprint_catalog::NodeDescriptor::value)
             .collect::<Vec<_>>();
-        for (_, conversion) in self.converter_registry.available() {
+        for (_, conversion) in self
+            .ext::<std::sync::Arc<codeterm_plugin::converter::ConverterRegistry>>()
+            .available()
+        {
             nodes.push(json!({
                 "role":"step",
                 "kind":"converter",
@@ -326,7 +330,9 @@ impl super::ServiceContext {
         {
             nodes.push(json!({"role":"agent", "kind":"agent_provider", "type":provider.id(), "title":provider.display_name(), "profiles":provider.list_presets().unwrap_or_default()}));
         }
-        let event_sources = self.graph_node_registry.event_sources();
+        let event_sources = self
+            .ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>()
+            .event_sources();
         for source in &event_sources {
             let schemas = source.to_value();
             nodes.push(json!({
@@ -361,7 +367,10 @@ impl super::ServiceContext {
         if encoded.len() > codeterm_plugin::graph_events::MAX_EVENT_BYTES {
             return Err("trigger.params: exceeds 64 KiB".into());
         }
-        if let Some(provider) = self.event_source_registry.select_provider(kind) {
+        if let Some(provider) = self
+            .ext::<std::sync::Arc<codeterm_plugin::event_source::EventSourceRegistry>>()
+            .select_provider(kind)
+        {
             if let Some(schema) = provider.params_schema(kind) {
                 schema
                     .validate_instance(params)
@@ -383,7 +392,7 @@ impl super::ServiceContext {
             }]);
         }
         let converters = self
-            .converter_registry
+            .ext::<std::sync::Arc<codeterm_plugin::converter::ConverterRegistry>>()
             .available()
             .into_iter()
             .map(|(_, edge)| ConverterEdge {
@@ -409,7 +418,10 @@ impl super::ServiceContext {
             }
             if let StepKind::Convert { from, to } = &step.kind {
                 let field = format!("steps[{index}].convert");
-                if self.converter_registry.plan(*from, *to).is_err()
+                if self
+                    .ext::<std::sync::Arc<codeterm_plugin::converter::ConverterRegistry>>()
+                    .plan(*from, *to)
+                    .is_err()
                     && !errors.iter().any(|error| error.field == field)
                 {
                     errors.push(ValidationError {
@@ -423,7 +435,7 @@ impl super::ServiceContext {
     }
 }
 
-fn field_check(field: &str, errors: &[ValidationError]) -> Value {
+pub fn field_check(field: &str, errors: &[ValidationError]) -> Value {
     let failures = errors
         .iter()
         .filter(|error| {
@@ -542,7 +554,7 @@ fn chain_summary(spec: &BlueprintSpec) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;

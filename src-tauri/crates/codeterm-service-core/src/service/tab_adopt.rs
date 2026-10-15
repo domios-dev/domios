@@ -16,10 +16,10 @@ pub(crate) const TAB_ADOPT_NOT_AUTHORIZED: &str = "tab_adopt_not_authorized";
 pub(crate) const TAB_ADOPT_LIVE_PTY_REQUIRED: &str = "tab_adopt_live_pty_required";
 pub(crate) const TAB_ADOPT_AGENT_TUI_REQUIRED: &str = "tab_adopt_agent_tui_required";
 pub(crate) const TAB_ADOPT_UNKNOWN_PROVIDER: &str = "tab_adopt_unknown_provider";
-pub(crate) const TAB_ADOPT_PROVIDER_REQUIRED: &str = "tab_adopt_provider_required";
+pub const TAB_ADOPT_PROVIDER_REQUIRED: &str = "tab_adopt_provider_required";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TabAdoptErrorKind {
+pub enum TabAdoptErrorKind {
     NotFound,
     NotAuthorized,
     LivePtyRequired,
@@ -29,9 +29,9 @@ pub(crate) enum TabAdoptErrorKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TabAdoptError {
-    pub(crate) kind: TabAdoptErrorKind,
-    pub(crate) message: String,
+pub struct TabAdoptError {
+    pub kind: TabAdoptErrorKind,
+    pub message: String,
 }
 
 impl TabAdoptError {
@@ -42,7 +42,7 @@ impl TabAdoptError {
         }
     }
 
-    pub(crate) fn code(&self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self.kind {
             TabAdoptErrorKind::NotFound => "tab_adopt_target_not_found",
             TabAdoptErrorKind::NotAuthorized => TAB_ADOPT_NOT_AUTHORIZED,
@@ -55,7 +55,7 @@ impl TabAdoptError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct TabAdoptResponse {
+pub struct TabAdoptResponse {
     pub(crate) ok: bool,
     pub(crate) tab_id: String,
     pub(crate) pty_id: String,
@@ -172,7 +172,7 @@ impl ServiceContext {
         Ok(pty_id)
     }
 
-    pub(crate) fn adopt_live_pty_as_agent(
+    pub fn adopt_live_pty_as_agent(
         &self,
         tab_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -285,9 +285,9 @@ fn not_authorized(tab_id: &str) -> TabAdoptError {
 mod tests {
     use super::*;
     use crate::agent::test_provider::MockProvider;
-    use crate::api::tab_routes::{should_prepend_source, TabInputTransport};
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
+    use crate::service::input_transport::{should_prepend_source, TabInputTransport};
 
     fn tui_screen() -> &'static str {
         "╭─ agent ─╮\n│ ready   │\n╰─────────╯"

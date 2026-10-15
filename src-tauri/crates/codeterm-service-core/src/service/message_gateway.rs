@@ -261,7 +261,7 @@ impl super::ServiceContext {
     /// Deliver an enveloped machine/system message through the optimistic gateway.
     /// Delivery never starts a worker turn or touches its report obligation.
     /// Task dispatch arms that obligation explicitly.
-    pub(crate) fn gateway_deliver(
+    pub fn gateway_deliver(
         &self,
         target: &str,
         envelope: MessageEnvelope,
@@ -272,7 +272,7 @@ impl super::ServiceContext {
             .map(|(delivery, _)| delivery)
     }
 
-    pub(crate) fn gateway_deliver_with_pad_file(
+    pub fn gateway_deliver_with_pad_file(
         &self,
         target: &str,
         envelope: MessageEnvelope,
@@ -419,7 +419,7 @@ impl MessageGateway {
         }
     }
 
-    pub(crate) fn require_worker_report(&self, tab_id: &str) {
+    pub fn require_worker_report(&self, tab_id: &str) {
         self.worker_report_required
             .lock()
             .insert(tab_id.to_string());

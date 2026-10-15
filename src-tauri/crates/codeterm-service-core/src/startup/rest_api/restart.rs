@@ -2,12 +2,12 @@ use super::{RestApiCommand, RestApiControl, RestApiPhase};
 use std::time::Duration;
 use tokio::sync::oneshot;
 
-pub(crate) struct RestartAcceptance {
-    pub(crate) generation: u64,
-    pub(crate) response_complete: oneshot::Sender<()>,
+pub struct RestartAcceptance {
+    pub generation: u64,
+    pub response_complete: oneshot::Sender<()>,
 }
 
-pub(super) fn accept(
+pub fn accept(
     control: &RestApiControl,
     accepted: oneshot::Sender<Result<u64, String>>,
     response_complete: oneshot::Receiver<()>,

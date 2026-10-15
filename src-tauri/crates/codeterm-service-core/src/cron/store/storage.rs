@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -107,7 +107,7 @@ impl Default for CronStorageOptions {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CronStage {
+pub enum CronStage {
     /// The change is prepared and the cron lock released; nothing is submitted yet.
     Prepared,
     /// The writer admitted or refused the submission; its outcome is still pending.
@@ -116,34 +116,34 @@ pub(crate) enum CronStage {
     Committed,
 }
 
-#[cfg(test)]
-pub(crate) type StageProbe = Arc<dyn Fn(CronStage) + Send + Sync>;
+#[cfg(any(test, feature = "test-support"))]
+pub type StageProbe = Arc<dyn Fn(CronStage) + Send + Sync>;
 
 /// Test barrier around the unlocked commit window; compiled to nothing outside tests.
 #[derive(Clone, Default)]
-struct Probe(#[cfg(test)] Option<StageProbe>);
+struct Probe(#[cfg(any(test, feature = "test-support"))] Option<StageProbe>);
 
 impl Probe {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn hit(&self, stage: CronStage) {
         if let Some(probe) = &self.0 {
             probe(stage);
         }
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-support")))]
     fn hit(&self, _stage: CronStage) {}
 }
 
 pub(super) enum Backend {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Legacy(PathBuf),
     Storage(Box<StorageCron>),
     Unavailable(String),
 }
 
 impl Backend {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn legacy_path(&self) -> Result<&Path, String> {
         match self {
             Backend::Legacy(path) => Ok(path),
@@ -154,7 +154,7 @@ impl Backend {
 
     pub(super) fn require_legacy(&self) -> Result<(), String> {
         match self {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Legacy(_) => Ok(()),
             Backend::Storage(_) => Err(STAGED_ONLY.to_string()),
             Backend::Unavailable(reason) => Err(reason.clone()),
@@ -213,7 +213,7 @@ impl CronStore {
         match &self.backend {
             Backend::Unavailable(reason) => Some(reason),
             Backend::Storage(storage) => storage.unavailable.as_deref(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Legacy(_) => None,
         }
     }
@@ -254,8 +254,8 @@ impl CronStore {
         Ok(store)
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_stage_probe(&mut self, probe: StageProbe) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_stage_probe(&mut self, probe: StageProbe) {
         if let Some(storage) = self.storage_mut() {
             storage.probe = Probe(Some(probe));
         }
@@ -296,7 +296,7 @@ impl CronStore {
                 storage.draft = None;
             }
             Backend::Unavailable(unavailable) => *unavailable = reason,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Legacy(_) => {}
         }
     }
@@ -315,7 +315,7 @@ impl CronStore {
         match &self.backend {
             Backend::Storage(storage) => Some(storage),
             Backend::Unavailable(_) => None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Legacy(_) => None,
         }
     }
@@ -324,7 +324,7 @@ impl CronStore {
         match &mut self.backend {
             Backend::Storage(storage) => Some(storage),
             Backend::Unavailable(_) => None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Backend::Legacy(_) => None,
         }
     }
@@ -600,17 +600,17 @@ impl CronStore {
 
 /// Legacy JSON applies and saves under the cron lock as before. Storage blocks off-lock
 /// for COMMIT and publishes only what committed: call it off the async runtime.
-pub(crate) fn commit<T>(
+pub fn commit<T>(
     cron: &CronState,
     mut prepare: impl FnMut(&mut CronStore) -> Result<Prepared<T>, String>,
 ) -> Result<CronCommitted<T>, CronCommitError> {
     {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         let mut store = cron.lock();
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "test-support")))]
         let store = cron.lock();
         if store.backend.require_legacy().is_ok() {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             {
                 let prepared = prepare(&mut store).map_err(CronCommitError::Refused)?;
                 let removed = legacy_removed(&store, &prepared.changes);
@@ -626,7 +626,7 @@ pub(crate) fn commit<T>(
                     receipt: None,
                 });
             }
-            #[cfg(not(test))]
+            #[cfg(not(any(test, feature = "test-support")))]
             {
                 return Err(CronCommitError::NotApplied(
                     "legacy cron backend is test-only".to_string(),
@@ -740,7 +740,7 @@ pub(crate) fn commit<T>(
     ))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn legacy_removed(store: &CronStore, changes: &[CronChange]) -> Vec<String> {
     let mut removed = Vec::new();
     for change in changes {

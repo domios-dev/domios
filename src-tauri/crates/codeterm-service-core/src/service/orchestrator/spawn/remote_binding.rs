@@ -1,4 +1,4 @@
-pub(crate) fn remote_task_binding_matches_authority(
+pub fn remote_task_binding_matches_authority(
     remote: Option<&super::super::types::RemoteTaskBinding>,
     authority: Option<&super::super::types::TaskLaunchAuthority>,
 ) -> bool {

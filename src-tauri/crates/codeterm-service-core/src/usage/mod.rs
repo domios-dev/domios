@@ -7,7 +7,7 @@ pub use probe::{ProbeError, UsageProbe, UsageProbeOutcome};
 pub use projection::{ProjectionResponse, SessionProjection, WeeklyProjection};
 pub use store::{DailyRollup, UsageSnapshotRow, UsageStore, UsageStoreHandle};
 
-pub(crate) fn allowance_remaining_pct(snapshot: &UsageSnapshotRow) -> f32 {
+pub fn allowance_remaining_pct(snapshot: &UsageSnapshotRow) -> f32 {
     let consumed = snapshot
         .session_pct
         .into_iter()
@@ -22,7 +22,7 @@ pub(crate) fn allowance_remaining_pct(snapshot: &UsageSnapshotRow) -> f32 {
     }
 }
 
-fn spend_genuinely_exhausted(snapshot: &UsageSnapshotRow) -> bool {
+pub fn spend_genuinely_exhausted(snapshot: &UsageSnapshotRow) -> bool {
     snapshot
         .spend_remaining_cents
         .zip(snapshot.spend_limit_cents)

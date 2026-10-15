@@ -14,7 +14,7 @@ fn respawn_requires_git_lane(
         || (*execution_intent != ExecutionIntent::ReadOnly && task_intent.requires_repository())
 }
 
-pub(crate) fn verify_respawn_lane(
+pub fn verify_respawn_lane(
     canonical_cwd: &str,
     task: &Task,
     draft: &TaskRespawnDraft,

@@ -59,12 +59,29 @@ fn automation_inventory_round_trip_preserves_enabled_and_paused_states() {
     let original = Resources {
         plans: vec![],
         crons: vec![cron],
-        blueprints: vec![blueprint],
+        blueprints: vec![serde_json::to_value(&blueprint).unwrap()],
     };
     let json = serde_json::to_value(&original).unwrap();
     let restored: Resources = serde_json::from_value(json.clone()).unwrap();
     assert_eq!(serde_json::to_value(&restored).unwrap(), json);
     assert!(!restored.crons[0].enabled);
-    assert!(restored.blueprints[0].machine.paused);
-    assert!(!restored.blueprints[0].machine.stopped);
+    let restored_blueprint: crate::sentinel::store::Sentinel =
+        serde_json::from_value(restored.blueprints[0].clone()).unwrap();
+    assert!(restored_blueprint.machine.paused);
+    assert!(!restored_blueprint.machine.stopped);
+}
+
+#[test]
+fn restore_refuses_a_corrupt_saved_blueprint_before_any_effect() {
+    let corrupt = Resources {
+        blueprints: vec![serde_json::json!({"id": "b", "workspace_id": "w", "team_id": null})],
+        ..Default::default()
+    };
+    assert!(validate_saved_blueprints(&corrupt).is_err());
+    let unscoped = Resources {
+        blueprints: vec![serde_json::json!({"cwd": "/project"})],
+        ..Default::default()
+    };
+    assert!(validate_saved_blueprints(&unscoped).is_err());
+    assert!(validate_saved_blueprints(&Resources::default()).is_ok());
 }
