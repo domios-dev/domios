@@ -126,6 +126,7 @@ function packageForPath(repoRoot, file, packages) {
 
 function packageScope(pkg, file) {
   if (file.startsWith("src-tauri/pty-fork/")) return "pty-fork";
+  if (pkg.name === "codeterm") return "shell";
   return scopeAliases.get(pkg.name) || pkg.name;
 }
 
