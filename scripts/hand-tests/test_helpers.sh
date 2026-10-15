@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
+# Caller: manual: hand-tests/README.md
 # CodeTerm manual testing helpers — source this file, then use functions.
-# Usage: source tests/manual/test_helpers.sh
+# Usage: source scripts/hand-tests/test_helpers.sh
 
 set -euo pipefail
 
