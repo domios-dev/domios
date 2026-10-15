@@ -73,3 +73,8 @@
   background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
   color: color-mix(in srgb, var(--ct-accent) 85%, var(--ct-fg));
 }
+
+/* overflow:hidden labels become wheel-capturing scrollers; clip keeps the ellipsis without that. */
+.sidebar-tab .truncate {
+  overflow: clip;
+}
