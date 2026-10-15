@@ -510,7 +510,10 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
     let sink = Arc::new(Collector {
         msgs: Mutex::new(vec![]),
     });
-    let watch = spawn_store_watch(
+    let (store_seen, _store_seen_rx) = std::sync::mpsc::sync_channel(1);
+    let (authority_rejected, _authority_rejected_rx) = std::sync::mpsc::sync_channel(1);
+    let (absent_polls, absent_polls_rx) = std::sync::mpsc::channel();
+    let watch = spawn_store_watch_with_test_hook(
         StoreWatchConfig {
             tab_id: "p-pending".into(),
             provider_id: "delayed-store".into(),
@@ -522,13 +525,23 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
         Arc::new(agent_registry),
         chat_registry.clone(),
         sink.clone() as Arc<dyn DeltaSink>,
+        StoreWatchTestHook {
+            store_seen,
+            resume_after_store_seen: Arc::new(std::sync::Barrier::new(1)),
+            authority_rejected,
+            absent_polls: Some(absent_polls),
+        },
     );
     assert!(watch.register(&chat_registry, "desktop".into()));
 
-    std::thread::sleep(Duration::from_millis(3100));
+    for _ in 0..3 {
+        absent_polls_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the watch keeps polling while the store is missing");
+    }
     assert!(
         sink.msgs.lock().is_empty(),
-        "the missing store emits nothing after more than three seconds"
+        "the missing store emits nothing across repeated polls"
     );
     assert!(
         chat_registry.is_running("p-pending"),
@@ -587,6 +600,7 @@ fn pending_store_watch_needs_registration_authority_before_promotion() {
             store_seen: store_seen_tx,
             resume_after_store_seen: resume_after_store_seen.clone(),
             authority_rejected: authority_rejected_tx,
+            absent_polls: None,
         },
     );
 
