@@ -356,6 +356,9 @@ var DOMIOS_PASTED_MARKER = "pasted by Domios";
 var PASTED_MARKER_TAIL = `
 ${DOMIOS_PASTED_MARKER}`;
 
+// packages/chat-core/src/attachmentValidation.ts
+var MAX_VIDEO_BYTES = 200 * 1024 * 1024;
+
 // packages/chat-core/src/shellLexer.ts
 var POSIX_ESCAPABLE = /* @__PURE__ */ new Set([..." 	\"'\\$`|&;<>(){}#*?[]~!"]);
 
