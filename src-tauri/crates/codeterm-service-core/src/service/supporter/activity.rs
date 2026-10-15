@@ -399,7 +399,7 @@ impl SupporterRuntime {
         (hour.len(), free_at)
     }
 
-    pub(crate) fn reserve(
+    pub fn reserve(
         &self,
         cap: usize,
         kind: VerdictKind,

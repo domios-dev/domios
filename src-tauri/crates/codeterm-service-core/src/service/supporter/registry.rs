@@ -33,7 +33,7 @@ const DEFAULT_RECALL_LIMIT: usize = 5;
 const MAX_POOL: usize = 50;
 const ENVELOPE_KEY: &str = "supporter";
 
-pub(crate) fn supporter_token_dir() -> PathBuf {
+pub fn supporter_token_dir() -> PathBuf {
     codeterm_paths::data_dir().join("supporter")
 }
 

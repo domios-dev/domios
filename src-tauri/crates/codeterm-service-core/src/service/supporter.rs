@@ -32,7 +32,7 @@ pub use narrative::sentinel as sentinel_questions;
 pub(crate) use narrative::{
     provider_update as update_questions, recovery as recovery_questions, tab_state as tab_questions,
 };
-pub(crate) use narrative::ActivityContext;
+pub use narrative::ActivityContext;
 pub use narrative::QuestionAnswer;
 use registry::SupporterRegistry;
 
@@ -87,7 +87,7 @@ pub fn supporter_connected(
         .is_some_and(|model| model.token_mode() != TokenMode::Required || token_store.usable)
 }
 
-pub(crate) fn configured_model(
+pub fn configured_model(
     cfg: &SupporterConfig,
     registry: &SupporterRegistry,
 ) -> Option<Arc<dyn DecisionModel>> {
@@ -161,11 +161,11 @@ pub fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<SupporterR
     runtime
 }
 
-pub(crate) fn criteria_hash(bytes: &[u8]) -> String {
+pub fn criteria_hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-pub(crate) fn budgeted_model_with_activity(
+pub fn budgeted_model_with_activity(
     model: Arc<dyn DecisionModel>,
     runtime: Arc<SupporterRuntime>,
     cap: usize,
