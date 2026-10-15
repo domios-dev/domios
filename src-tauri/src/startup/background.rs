@@ -2,16 +2,16 @@
 
 use tauri::Manager;
 
-use crate::{keepawake, mesh};
+use codeterm_service_core::{keepawake, mesh};
 
-use super::states::AppStates;
+use codeterm_service_core::startup::AppStates;
 
 /// Start the persistence worker and background monitoring threads.
 pub(crate) fn start_background_tasks(
-    app_handle: &crate::app_runtime::AppHandle,
+    app_handle: &codeterm_service_core::app_runtime::AppHandle,
     states: &AppStates,
 ) {
-    if let Err(error) = crate::service::session_persist::start_worker(app_handle) {
+    if let Err(error) = codeterm_service_core::service::session_persist::start_worker(app_handle) {
         log::error!("[session-persist] worker startup failed: {error}");
     }
     keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
@@ -238,7 +238,7 @@ pub(crate) fn start_background_tasks(
             .map(|bundles| bundles.inner().clone());
         tauri::async_runtime::spawn(async move {
             if let Err(error) =
-                (crate::ports::update::hooks().check)(&app_h, &update_st, bundles, true).await
+                codeterm_commands::update::discovery::check(&app_h, &update_st, bundles, true).await
             {
                 log::warn!("[update-discovery] startup check failed: {error}");
             }
@@ -286,7 +286,7 @@ pub(crate) fn start_background_tasks(
                 }; // tracker lock released here
 
                 for (pty_id, raw_prev, raw_now) in changed {
-                    crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+                    codeterm_service_core::service::pty_io::notify_submit_cycle_status_transition(
                         &pty_id, raw_prev, raw_now,
                     );
                     let tab_id = mux.write().tab_id_for_pty(&pty_id);
@@ -298,7 +298,7 @@ pub(crate) fn start_background_tasks(
                             pid
                         );
                         if let Some(service) =
-                            app_handle.try_state::<crate::service::ServiceState>()
+                            app_handle.try_state::<codeterm_service_core::service::ServiceState>()
                         {
                             let prev = service.reconciled_tab_status_for_id(&pid, raw_prev);
                             let now = service.reconciled_tab_status_for_id(&pid, raw_now);
@@ -323,7 +323,7 @@ pub(crate) fn start_background_tasks(
             loop {
                 let runaway_cfg = cfg.lock().runaway.clone();
                 if runaway_cfg.enabled {
-                    crate::runaway_sweeper::sweep_once(&runaway_cfg);
+                    codeterm_service_core::runaway_sweeper::sweep_once(&runaway_cfg);
                 }
                 std::thread::sleep(std::time::Duration::from_secs(60));
             }

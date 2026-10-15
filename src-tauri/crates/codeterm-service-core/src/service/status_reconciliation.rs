@@ -133,7 +133,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn reconciled_tab_status_for_id(&self, tab_id: &str, raw: TabStatus) -> TabStatus {
+    pub fn reconciled_tab_status_for_id(&self, tab_id: &str, raw: TabStatus) -> TabStatus {
         self.mux
             .read()
             .get_tab(tab_id)

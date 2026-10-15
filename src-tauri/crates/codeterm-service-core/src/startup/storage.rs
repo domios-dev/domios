@@ -46,14 +46,14 @@ impl StorageAuthority {
         }
     }
 
-    pub(crate) fn unavailable_reason(&self) -> Option<&str> {
+    pub fn unavailable_reason(&self) -> Option<&str> {
         match self {
             StorageAuthority::Ready(_) => None,
             StorageAuthority::Unavailable { reason, .. } => Some(reason),
         }
     }
 
-    pub(crate) fn mark_unavailable(&mut self, reason: String) {
+    pub fn mark_unavailable(&mut self, reason: String) {
         if let Some(storage) = self.storage().cloned() {
             *self = StorageAuthority::Unavailable {
                 storage: Some(storage),
@@ -63,7 +63,7 @@ impl StorageAuthority {
     }
 }
 
-pub(crate) fn open_instance_storage() -> StorageAuthority {
+pub fn open_instance_storage() -> StorageAuthority {
     open_instance_storage_at(crate::paths::data_dir())
 }
 

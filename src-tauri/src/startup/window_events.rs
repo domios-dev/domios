@@ -1,12 +1,15 @@
-use crate::multiplexer::commands::MuxState;
-use crate::session::SessionState;
+use codeterm_service_core::multiplexer::commands::MuxState;
+use codeterm_service_core::session::SessionState;
 use tauri::Manager;
 
-pub(crate) fn handle_window_event(window: &crate::app_runtime::Window, event: &tauri::WindowEvent) {
+pub(crate) fn handle_window_event(
+    window: &codeterm_service_core::app_runtime::Window,
+    event: &tauri::WindowEvent,
+) {
     if matches!(event, tauri::WindowEvent::Focused(true)) && window.label() == "main" {
         if let Some(service) = window
             .app_handle()
-            .try_state::<crate::service::ServiceState>()
+            .try_state::<codeterm_service_core::service::ServiceState>()
         {
             let service = service.inner().clone();
             tauri::async_runtime::spawn(async move {
@@ -25,11 +28,13 @@ pub(crate) fn handle_window_event(window: &crate::app_runtime::Window, event: &t
         if let (Some(mux), Some(_session)) =
             (app.try_state::<MuxState>(), app.try_state::<SessionState>())
         {
-            if let Err(error) = crate::service::session_persist::submit_session_snapshot_with_intent(
-                app,
-                mux.inner(),
-                crate::session::store::SaveIntent::PreserveDesk,
-            ) {
+            if let Err(error) =
+                codeterm_service_core::service::session_persist::submit_session_snapshot_with_intent(
+                    app,
+                    mux.inner(),
+                    codeterm_service_core::session::store::SaveIntent::PreserveDesk,
+                )
+            {
                 log::error!("Failed to submit close-to-tray session snapshot: {error}");
             } else {
                 log::info!("Session snapshot submitted (close-to-tray)");
