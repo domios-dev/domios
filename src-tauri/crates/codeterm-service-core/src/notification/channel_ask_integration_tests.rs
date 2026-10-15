@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 use super::channel_ask::*;
 use crate::notification::answer::AnswerAdmission;
 use crate::notification::answer_delivery::AnswerDeliveryPlan;
-use crate::notification::authority::{self, SurfaceOffer};
+use crate::notification::authority::SurfaceOffer;
 use crate::notification::channels::{self, telegram, ChannelHost, PushChannel};
 use crate::notification::push;
 use crate::notification::store::{

@@ -1,8 +1,7 @@
 use super::test_fixture::fixture;
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::AgentRole;
-use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskStatus};
+use crate::plan::{PlanMode, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 use codeterm_types::pty::BootStage;
