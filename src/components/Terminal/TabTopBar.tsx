@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { tabActivity } from "../../lib/tabActivity";
 import { ComposerContextMeter } from "./ComposerContextMeter";
 import { DocumentsButton } from "./DocumentsPanel";
@@ -227,13 +228,9 @@ export function TabTopBar({
       </div>
       <div className="ml-auto flex min-w-0 shrink items-center gap-1 sm:gap-1.5">
         {reconnectError && (
-          <span
-            data-testid="chat-reconnect-error"
-            className="max-w-48 truncate text-[10px]"
-            style={{ color: "var(--ct-red)" }}
-          >
-            {reconnectError}
-          </span>
+          <div data-testid="chat-reconnect-error" className="max-w-72">
+            <InlineErrorNotice error={reconnectError} operation="reconnecting this tab" />
+          </div>
         )}
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
