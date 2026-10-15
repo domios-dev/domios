@@ -33,7 +33,7 @@ DEV_NOTIFY_TAB=""
 # Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
 # (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
 case "$CMD" in
-  qa-lock-storm|lane-check|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  qa-lock-storm|feature-cycle|lane-check|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -2148,7 +2148,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2167,6 +2167,7 @@ CodeTerm build commands
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
   lane-check <package> [--tests]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
+  feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
   check-queue <sha> --peer <name|auto> [--lane] [--os OS]  Same check in a mesh peer's gateway; result returns as one message
   nextest <scope> [filterset] --peer <name|auto> [--sha SHA]  Same nextest run in a mesh peer's gateway
@@ -2378,6 +2379,10 @@ EOF
     ;;
   lane-check)
     lane_check "${@:2}"
+    ;;
+  feature-cycle)
+    source scripts/feature-cycle.sh
+    feature_cycle "${@:2}"
     ;;
   check-tests)
     prepare_exceptional_worktree_target

@@ -922,7 +922,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 34 -->
+<!-- revision: 35 -->
 
 ### Lane and batch scopes
 
@@ -974,3 +974,9 @@ GC maps the shared directory through Cargo metadata and trims it once under Carg
 | Dedicated CI mode fails at catalogue inventory with ENOENT on the Windows stable drive root | Git reports the physical checkout while discovery compared it to a subst alias, then tried walking the drive root. | Catalogue discovery resolves the root with `realpathSync.native` before Git identity and file enumeration. Verify the temporary-subst regression with `node --test scripts/tests/test-catalogue.test.mjs`, then run the dedicated CI mode under the normal gateway alias. |
 
 Product check-queue Clippy disables Cargo defaults and explicitly enables the selected root/core/mem package product features. This keeps embeddings enabled while avoiding the extra synthetic `default` feature marker that direct core selection otherwise adds. Ordinary tests still disable defaults without product features. The embedding-worker imports, protocol types and ORT setup are feature-gated so shell test targets compile without embeddings under denied warnings.
+
+## Repeatable core feature measurements
+
+In a temporary worktree on one fixed Rust SHA, run `./build.sh feature-cycle before mem::dream_status_tests::wip_placeholder_does_not_imply_running` and then the same command with `after`. Both run under the normal gateway. The dev phase is an equivalent product library `cargo check`, without launching DEV; the queue phases use the original all-target/default/test configuration or the aligned product/ordinary-test configuration. One focused core test executes through test-capped after compilation. This is an equivalent-configuration cycle, not a DEV app build or full check-queue timing.
+
+Each job retains phase logs, wall times and `units.json` under its artifact directory. The collector counts distinct completed service-core artifact hashes, including fresh reused units, separately from distinct feature sets; never infer that two feature sets means two Cargo unit hashes. Compare actual full check-queue runs separately, loading the old/new build driver against the same committed source SHA in a temporary worktree. Do not clean shared caches for a measurement or include queue wait in a reported Cargo/check-queue wall time.
