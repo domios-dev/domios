@@ -258,12 +258,12 @@ The test jobs get an earlier queue position on shared runners. GitHub queue orde
 best effort, not strict priority; the live overlap map lives in the build-machine README.
 Workflow concurrency includes phase so the fast and long calls cannot supersede each other.
 
-A failing test/gate job requests cancellation of this caller run through the Actions API
-using `GITHUB_TOKEN` with `actions: write`. Rust cancellation runs before receipt uploads,
-so a failed archive or test stops queued and running builds without waiting for sibling
-jobs or the coverage summary. Cancellation also stops remaining tests. The switch is
-explicitly enabled only by release callers; standalone PR/nightly tests retain their
-existing execution. Setup and receipt failures also trigger cancellation.
+No test, shard, platform, archive or warning job cancels the run on failure: every
+test finishes, so one red run reports every failing test instead of hiding the rest
+behind the first (whole-run cancellation once cost ~10 serial 40-60 minute rounds).
+Dependents of a failed job are skipped by the graph itself: a failed archive skips its
+shards, a failed fast gate skips every bundle build. Bundle builds already running
+alongside a failing long test stage finish, but cannot publish.
 `release-manifest` needs every build, `quick-checks` and `tests`; frontend publication
 needs both test stages. Failure, cancellation or a skipped required gate cannot publish.
 Dry runs with tests use the same graph; `dry_run_tests: false` explicitly skips both

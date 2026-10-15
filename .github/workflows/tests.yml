@@ -21,11 +21,6 @@ on:
         required: false
         default: all
         type: string
-      cancel_release_on_failure:
-        description: Cancel the caller release run immediately when a Rust job fails
-        required: false
-        default: false
-        type: boolean
   pull_request:
   push:
     branches: [master]
@@ -124,16 +119,6 @@ jobs:
           CI_FRONTEND_ONLY: ${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
-      - &cancel-release-on-failure
-        name: Cancel release builds on test failure
-        id: cancel-release
-        if: ${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          GH_RUN_ID: ${{ github.run_id }}
-        run: gh api --method POST "repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel"
 
   plugin-metadata:
     name: plugin release contracts
@@ -154,7 +139,6 @@ jobs:
           node-version: '22.22.0'
       - run: node scripts/release-plugin.mjs check
       - run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
-      - *cancel-release-on-failure
 
   plugins:
     name: plugin (${{ matrix.plugin.id }})
@@ -188,7 +172,6 @@ jobs:
   # Formatting is platform-independent, so it does not belong inside a platform
   # lane: gating that lane off silences the check with it, which is how 22 files
   # drifted unseen. Its own job on any free light runner, seconds long.
-      - *cancel-release-on-failure
 
   fmt:
     name: fmt
@@ -216,7 +199,6 @@ jobs:
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
           cargo fmt --manifest-path cli/Cargo.toml --check
-      - *cancel-release-on-failure
 
   rust-archives:
     name: rust archive (${{ matrix.os }} ${{ matrix.arch }})
@@ -292,7 +274,6 @@ jobs:
         if: always() && runner.os != 'Windows'
         shell: bash
         run: bash build.sh cache-stats
-      - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           overwrite: true
@@ -319,15 +300,6 @@ jobs:
       - name: Clean compile fixtures
         if: always()
         run: node scripts/ci-rust-prepare.mjs cleanup
-      - &cancel-release-after-receipts
-        name: Cancel release builds on test failure
-        if: ${{ failure() && steps.cancel-release.outcome != 'success' && inputs.cancel_release_on_failure && inputs.source_ref != '' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          GH_RUN_ID: ${{ github.run_id }}
-        run: gh api --method POST "repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel"
 
   rust-shards:
     name: rust shard (${{ matrix.shard }}/12)
@@ -371,7 +343,6 @@ jobs:
           CI_RUNNER_ARCH: ${{ runner.arch }}
           CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
         run: node scripts/ci-rust-shards.mjs shared ${{ matrix.shard }} 12
-      - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -381,7 +352,6 @@ jobs:
             ci-rust-receipts/*.json
             ci-rust-receipts/*.log
           if-no-files-found: error
-      - *cancel-release-after-receipts
 
   rust-input-platform:
     name: native recording crates (${{ matrix.os }})
@@ -425,7 +395,6 @@ jobs:
         run: |
           set -o pipefail
           ./build.sh nextest input-platform 2>&1 | tee input-platform.log
-      - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -433,7 +402,6 @@ jobs:
           name: input-platform-${{ matrix.os }}
           path: input-platform.log
           if-no-files-found: error
-      - *cancel-release-after-receipts
 
   rust-platform:
     name: rust platform (${{ matrix.os }})
@@ -483,7 +451,6 @@ jobs:
           CI_RUNNER_ARCH: ${{ runner.arch }}
           CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
         run: node scripts/ci-rust-shards.mjs platform
-      - *cancel-release-on-failure
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -493,7 +460,6 @@ jobs:
             ci-rust-receipts/*.json
             ci-rust-receipts/*.log
           if-no-files-found: error
-      - *cancel-release-after-receipts
 
   rust-coverage:
     name: rust complete coverage
@@ -531,7 +497,6 @@ jobs:
         run: node -e "if (process.env.ARCHIVES_RESULT !== 'success' || process.env.SHARDS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success' || process.env.INPUT_PLATFORM_RESULT !== 'success') process.exit(1)"
       - name: Prove exhaustive coverage and report runners
         run: node scripts/ci-rust-shards.mjs verify ci-rust-receipts ci-rust-builds
-      - *cancel-release-on-failure
 
   clippy-linux:
     name: clippy (linux)
@@ -579,7 +544,6 @@ jobs:
       - name: Clean 0-byte stubs
         if: always()
         run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
-      - *cancel-release-on-failure
 
   ts-static:
     name: ts static checks
@@ -626,7 +590,6 @@ jobs:
       - name: Biome (TS lint)
         if: ${{ !cancelled() }}
         run: pnpm lint
-      - *cancel-release-on-failure
 
   ts-types:
     name: ts generated types
@@ -678,7 +641,6 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: types-${{ runner.os }}
           target: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
-      - *cancel-release-on-failure
 
   ts-unit:
     name: ts unit
@@ -711,7 +673,6 @@ jobs:
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Run TS unit tests
         run: pnpm test:unit
-      - *cancel-release-on-failure
 
   ts-vitest:
     name: ts vitest
@@ -747,7 +708,6 @@ jobs:
       # Light runners share a 16 GiB BLACKSTAR WSL VM with a heavy runner; bound the worker fanout.
       - name: Run vitest-owned TS tests
         run: pnpm test:vitest --maxWorkers=4
-      - *cancel-release-on-failure
 
   ts-plugins:
     name: plugin bundles + tests
@@ -783,7 +743,6 @@ jobs:
       - name: Run plugin tests
         if: ${{ !cancelled() }}
         run: pnpm test:plugins
-      - *cancel-release-on-failure
 
   release-contracts:
     name: release contract tests
@@ -835,7 +794,6 @@ jobs:
       - name: Release notes synchronization tests
         if: ${{ !cancelled() }}
         run: node --test scripts/tests/release-notes-sync.test.mjs
-      - *cancel-release-on-failure
 
   rust-warnings:
     permissions:
@@ -848,5 +806,4 @@ jobs:
     with:
       source_ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
       report_name: ${{ format('rust-warnings-tests-{0}-report', inputs.phase || 'all') }}
-      cancel_release_on_failure: ${{ inputs.cancel_release_on_failure }}
       artifacts: ${{ needs.changed.outputs.heavy == 'true' && (inputs.phase == 'fast' && '["rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]' || inputs.phase == 'long' && '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc"]' || '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]') || '[]' }}

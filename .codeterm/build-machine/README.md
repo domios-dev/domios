@@ -44,8 +44,8 @@ Rust archives and the parallel fast checks queue together; archives have no fast
 prerequisite. When the fast gate is green, all four artifact callers queue immediately,
 with no archive-completion dependency. A free runner matching a build's labels may
 start it while archives/tests still run. Shards and native tests queue as soon as
-archives complete, followed by coverage. Any failed Rust test requests cancellation
-before receipt upload; a failed gate also cancels the caller run.
+archives complete, followed by coverage. A failed test never cancels the run: every
+test finishes and reports, and publication still needs both test stages green.
 
 GitHub has no runner queue priority. Earlier archive submission gives tests a head
 start on shared machines; queue order is best effort, not a guarantee. Builds are
