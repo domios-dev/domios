@@ -216,16 +216,25 @@ fn rpc_turn_status_owner_updates_api_and_publishes_once() {
     service.agent_tracker.lock().set_idle("rpc-status-pty");
     service.publish_authoritative_tab_statuses();
     let mut receiver = service.events.subscribe();
-    for (event, expected) in [("turn/started", "Working"), ("turn/completed", "Idle")] {
-        super::super::codex_rpc::status::observe_event(service, &tab_id, "own-rpc-thread", event);
-        let mut statuses = Vec::new();
-        while let Ok(event) = receiver.try_recv() {
-            if let SystemEvent::Generic { event_type, data } = event.event {
-                if event_type == "tab-status-changed" {
-                    statuses.push(data);
+    let status_payloads =
+        |receiver: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>| {
+            let mut statuses = Vec::new();
+            while let Ok(event) = receiver.try_recv() {
+                if let SystemEvent::Generic { event_type, data } = event.event {
+                    if event_type == "tab-status-changed" {
+                        statuses.push(data);
+                    }
                 }
             }
-        }
+            statuses
+        };
+    let (mux_tx, mux_rx) = std::sync::mpsc::channel();
+    fixture.ui.listen("mux-state-changed", move |_| {
+        let _ = mux_tx.send(());
+    });
+    for (event, expected) in [("turn/started", "Working"), ("turn/completed", "Idle")] {
+        super::super::codex_rpc::status::observe_event(service, &tab_id, "own-rpc-thread", event);
+        let statuses = status_payloads(&mut receiver);
         assert_eq!(
             statuses,
             [serde_json::json!({"tab_id":tab_id,"status":expected})]
@@ -234,11 +243,15 @@ fn rpc_turn_status_owner_updates_api_and_publishes_once() {
             service.get_tab_status(&tab_id).unwrap().status,
             expected.to_lowercase()
         );
+        mux_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("coalesced snapshot is published");
+        assert!(status_payloads(&mut receiver).is_empty());
         if event == "turn/started" {
             service.agent_tracker.lock().set_idle("rpc-status-pty");
             service.publish_authoritative_tab_statuses();
             assert_eq!(service.get_tab_status(&tab_id).unwrap().status, "working");
-            assert!(receiver.try_recv().is_err());
+            assert!(status_payloads(&mut receiver).is_empty());
         }
     }
 }
