@@ -43,10 +43,15 @@ pub async fn exec_in_tab(
         ));
     }
 
-    state
-        .svc
-        .ensure_tab_pty_for_send(&tab_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
+    let owner = state.svc.clone();
+    let target = tab_id.clone();
+    tokio::task::spawn_blocking(move || {
+        owner.wake_frozen_tab(&target)?;
+        owner.ensure_tab_pty_for_send(&target)
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Exec wake task failed"))?
+    .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
     if !await_pty_link(&state, &tab_id).await {
         return Err((StatusCode::NOT_FOUND, "Tab not found or PTY did not start"));
     }
@@ -111,10 +116,11 @@ pub async fn exec_in_tab(
 fn tab_shell_exited(state: &AppState, tab_id: &str) -> bool {
     let mux = state.svc.mux.read();
     mux.get_tab(tab_id).is_some_and(|tab| {
-        codeterm_service_core::multiplexer::state::effective_tab_status(
-            tab,
-            state.svc.resolved_tab_status(tab),
-        ) == codeterm_service_core::agent::status::TabStatus::Dead
+        !tab.frozen
+            && codeterm_service_core::multiplexer::state::effective_tab_status(
+                tab,
+                state.svc.resolved_tab_status(tab),
+            ) == codeterm_service_core::agent::status::TabStatus::Dead
     })
 }
 

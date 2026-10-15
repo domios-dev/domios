@@ -27,6 +27,11 @@ pub fn send(
             tab: tab.into(),
             detail,
         })?;
+    svc.wake_frozen_tab(tab)
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab.into(),
+            detail,
+        })?;
     let expected = svc
         .mux
         .read()

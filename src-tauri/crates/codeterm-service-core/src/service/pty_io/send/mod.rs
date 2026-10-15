@@ -599,6 +599,11 @@ impl ServiceContext {
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
+        self.wake_frozen_tab(tab_id)
+            .map_err(|detail| DeliveryError::PtyUnavailable {
+                tab: tab_id.into(),
+                detail,
+            })?;
         if self.tab_chat_backing(tab_id).is_some() {
             return self
                 .chatbackend_tab_send(tab_id, text)
@@ -626,6 +631,11 @@ impl ServiceContext {
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
+        self.wake_frozen_tab(tab_id)
+            .map_err(|detail| DeliveryError::PtyUnavailable {
+                tab: tab_id.into(),
+                detail,
+            })?;
         self.ensure_tab_pty_for_send(tab_id)
             .map_err(|detail| DeliveryError::PtyUnavailable {
                 tab: tab_id.to_string(),
@@ -998,6 +1008,7 @@ impl ServiceContext {
 
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
     pub fn write_raw(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
+        self.wake_frozen_tab(tab_id)?;
         let pty_id = self.resolve_pty_id(tab_id)?;
         let data = self
             .encode_provider_control_key(&pty_id, data)
