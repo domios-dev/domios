@@ -5,14 +5,17 @@
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_CASTS } from "./replay-cast.mjs";
+import { KNOWN_STUB_PROVIDERS } from "./replay-style.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const replay = path.join(here, "replay.mjs");
+const repo = path.join(here, "..", "..", "..", "..");
 
 function run(provider, args, input = "") {
   const result = spawnSync(
@@ -107,4 +110,42 @@ test("Codex consumes Enter from the same stream as its bracketed paste", async (
   assert.match(atomic, /ack atomic-red/);
   assert.match(separated, /ack separated-green/);
   assert.match(fragmented, /ack fragmented-green/);
+});
+
+function health(replayPath) {
+  return spawnSync(process.execPath, [replayPath, "--health"], { encoding: "utf8" });
+}
+
+test("--health prints one ok receipt naming every stub provider", () => {
+  const result = health(replay);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const lines = result.stdout.trim().split("\n");
+  assert.equal(lines.length, 1);
+  const receipt = JSON.parse(lines[0]);
+  assert.equal(receipt.ok, true);
+  assert.deepEqual(receipt.providers, [...KNOWN_STUB_PROVIDERS].sort());
+});
+
+test("--health fails with the missing cast path when a default cast is absent", () => {
+  const scratch = mkdtempSync(path.join(os.tmpdir(), "ct-replay-health-"));
+  const stubDir = path.join(scratch, "tests", "playwright", "fixtures", "stub-agent");
+  const [missing, ...present] = Object.keys(DEFAULT_CASTS);
+  try {
+    cpSync(here, stubDir, { recursive: true });
+    for (const provider of present) {
+      const target = path.join(scratch, DEFAULT_CASTS[provider]);
+      mkdirSync(path.dirname(target), { recursive: true });
+      cpSync(path.join(repo, DEFAULT_CASTS[provider]), target);
+    }
+    const result = health(path.join(stubDir, "replay.mjs"));
+    assert.notEqual(result.status, 0);
+    const receipt = JSON.parse(result.stdout.trim());
+    assert.equal(receipt.ok, false);
+    assert.ok(
+      receipt.reason.includes(path.join(scratch, DEFAULT_CASTS[missing])),
+      receipt.reason,
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
