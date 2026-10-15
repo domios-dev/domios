@@ -312,7 +312,7 @@ pub fn run(
                 #[cfg(debug_assertions)]
                 use std::path::PathBuf;
                 agent_registry.begin_startup_provider_loading(
-                    codeterm_service_core::plugin::system_plugins::SYSTEM_PLUGIN_HASHES
+                    codeterm_service_core::plugin::system_plugins::hashes()
                         .iter()
                         .map(|(id, _)| *id),
                 );
