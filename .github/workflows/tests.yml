@@ -522,8 +522,7 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      # frontend-build installs through the bundle's own ensure_deps, from the mapped path.
       - name: Build the release frontend from the stable build path
         run: bash build.sh frontend-build
 

@@ -2117,7 +2117,7 @@ dev_notify_health_proof() {
 
 # Auto-install node deps if lockfile is newer than node_modules
 ensure_deps() {
-  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.package-lock.json ] 2>/dev/null; then
+  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.modules.yaml ] 2>/dev/null; then
     echo "Installing dependencies..."
     CI=true pnpm install --frozen-lockfile 2>/dev/null || CI=true pnpm install
   fi
