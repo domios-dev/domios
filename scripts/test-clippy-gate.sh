@@ -10,8 +10,6 @@ for lint in dead-code unused-imports unused-mut unused-variables; do
         exit 1
     fi
 done
-grep -Fq -- '--lib --bins --examples' "$gate"
-grep -Fq -- 'cli/Cargo.toml --bins --examples' "$gate"
 grep -Fq -- '--all-targets' "$gate"
 
 fixture="$(mktemp -d)"
@@ -35,12 +33,8 @@ printf '%s\n' "$*" >>"$CARGO_CALL_LOG"
 EOF
 export CARGO_CALL_LOG="$fixture/cargo-calls.log"
 PATH="$fixture/bin:$PATH" bash "$gate"
-cli_production_call="$(
-    grep -- '--manifest-path cli/Cargo.toml' "$CARGO_CALL_LOG" |
-        grep -- '--bins --examples'
-)"
-if grep -Fq -- '--lib' <<<"$cli_production_call"; then
-    echo "CLI production clippy pass requested its nonexistent library target" >&2
+if [ "$(grep -c -- '--all-targets' "$CARGO_CALL_LOG")" != 2 ] || [ "$(wc -l <"$CARGO_CALL_LOG")" != 2 ]; then
+    echo "clippy gate must run exactly one --all-targets pass per workspace" >&2
     exit 1
 fi
 

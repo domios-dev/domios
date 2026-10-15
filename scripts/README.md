@@ -113,7 +113,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `ci-test-classifier` | scripts ci-rust-tests.mjs |
 | `ci-workspace-cleanup.mjs` | CI tests.yml, release-macos-build.yml, release-linux.yml, release-linux-arm64.yml, release-windows.yml; scripts tests/ci-workspace-cleanup.test.mjs; skill github-release |
 | `clippy-allow.sh` | scripts clippy-gate.sh; build.sh check-queue |
-| `clippy-gate.sh` | build.sh release-preflight; CI tests.yml; scripts test-clippy-gate.sh; skill build, gates, testing |
+| `clippy-gate.sh` | build.sh release-preflight|ci-clippy; scripts test-clippy-gate.sh; skill build, gates, testing |
 | `collect-rust-warnings.mjs` | build.sh ci-archives; CI action.yml, release-linux-arm64.yml, release-linux.yml; scripts rust-warnings-report.mjs, tests/collect-rust-warnings.test.mjs |
 | `comment-length-allowlist.txt` | CI comment-length.yml; scripts check-comment-length.sh |
 | `confirm-slow-unit-tests.mjs` | build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs |
