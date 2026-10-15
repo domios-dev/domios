@@ -8,6 +8,9 @@ pub mod agent_verbs;
 pub mod audit;
 pub mod bubble;
 pub mod bundle_hash;
+#[cfg(any(test, feature = "test-support"))]
+mod bundle_test_support;
+pub mod bundled;
 pub mod capability;
 pub mod chatbackend_provider;
 pub mod chatpreprocessor;

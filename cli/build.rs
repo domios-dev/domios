@@ -1,6 +1,10 @@
+#[path = "../src-tauri/build/plugin_bundles.rs"]
+mod plugin_bundles;
+
 use std::process::Command;
 
 fn main() {
+    plugin_bundles::generate_system_plugin_hashes();
     for path in ["HEAD", "packed-refs"] {
         if let Some(path) = git_output(&["rev-parse", "--git-path", path]) {
             println!("cargo:rerun-if-changed={path}");
