@@ -209,6 +209,7 @@ fn flatten_rich(rich: &RichMessage, fallback_base: &str, seq: i64) -> Vec<ChatMs
     );
     for m in &mut out {
         m.seq = seq;
+        m.refresh_segments();
     }
     out
 }
@@ -769,7 +770,11 @@ fn chatbackend_snapshot_from(
         from_disk
     };
     let total = all.len();
-    let slice = all.into_iter().skip(since).collect();
+    let slice = all
+        .into_iter()
+        .skip(since)
+        .map(ChatMsg::with_segments)
+        .collect();
     Ok((slice, total))
 }
 
@@ -807,7 +812,11 @@ pub fn session_chat_snapshot(
     };
 
     let total = all.len();
-    let slice = all.into_iter().skip(since).collect();
+    let slice = all
+        .into_iter()
+        .skip(since)
+        .map(ChatMsg::with_segments)
+        .collect();
     Ok((slice, total))
 }
 

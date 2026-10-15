@@ -1026,6 +1026,7 @@ fn build_chatbackend_inbound(
         id: message_id,
         kind: "user".into(),
         content: body.to_string(),
+        segments: Some(codeterm_wire::envelope::parse_envelope(&marked)),
         timestamp: Some(chrono::Utc::now().to_rfc3339()),
         from_label: Some(clean_name(&envelope.from_label)).filter(|s| !s.is_empty()),
         from_tab: Some(short_id(&envelope.from_tab).to_string()).filter(|s| !s.is_empty()),

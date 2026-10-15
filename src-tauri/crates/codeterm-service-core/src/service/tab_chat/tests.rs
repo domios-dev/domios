@@ -4,6 +4,24 @@ use crate::agent::provider::ModelInfo;
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
 use serde_json::json;
 
+#[test]
+fn envelope_segments_are_identical_in_snapshot_live_and_plugin_rows() {
+    let rich = RichMessage {
+        role: "user".into(),
+        blocks: vec![MessageBlock {
+            kind: "text".into(),
+            data: json!({"text": "owner\n<domios from=\"tab\" tab=\"a\">routed</domios>"}),
+        }],
+        ..Default::default()
+    };
+    let snapshot = rich_to_chat_msgs_at(&rich, RowOrigin::at(0, 0));
+    let live = rich_to_chat_msgs_live(&rich, 0);
+    let plugin = codeterm_plugin::rich_to_chat::rich_to_chat_msgs(&rich, 0);
+    assert_eq!(snapshot[0].segments, live[0].segments);
+    assert_eq!(snapshot[0].segments, plugin[0].segments);
+    assert_eq!(snapshot[0].segments.as_ref().unwrap().len(), 2);
+}
+
 /// Cumulative-transcript backend (like the lmstudio plugin): `poll` with no
 /// cursor returns the FULL transcript, so the snapshot can slice it.
 struct SnapshotBackend {
