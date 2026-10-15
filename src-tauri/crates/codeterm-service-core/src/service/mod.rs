@@ -12,6 +12,8 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
+mod construct;
+pub use construct::build_service_context;
 pub mod account;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
@@ -334,7 +336,7 @@ pub use team::{
     transfer_team_plan, unarchive_team_plan, validate_active_team_plan_bindings,
     validate_plan_team_binding, TeamExt,
 };
-pub(crate) use team::{live_team_ids, reconcile_dangling_team_plan_bindings_and_emit};
+pub use team::{live_team_ids, reconcile_dangling_team_plan_bindings_and_emit};
 pub use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
 pub use team::{CartographerAttachLocks, OrchestratorAttachLocks};
 pub use team_core::TeamMutationCaller;
@@ -475,7 +477,7 @@ fn wall_now_ms() -> u64 {
         .as_millis() as u64
 }
 
-pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
+pub fn start_plan_reminder_scheduler(svc: ServiceState) {
     hierarchy::start_plan_reminder_scheduler(svc);
 }
 
@@ -1087,3 +1089,11 @@ pub use structured_endpoint::sse as structured_endpoint_sse;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use pty_ownership::OwnershipEvent;
+
+pub use model_defaults::start as start_model_defaults;
+pub use provider_update::check_available as check_provider_update_available;
+pub use restore_exited_member::{apply_restore_decisions, mark_legacy_role_shell_failures};
+pub use skill_mirror::{mirror_skills_to_providers, seed_bundled_skills};
+pub use utility_deadline::restore as restore_utility_deadlines;
+
+pub use supporter_notify::record_launch as supporter_record_launch;

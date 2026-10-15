@@ -102,7 +102,7 @@ fn normalized_windows_path(path: &Path) -> String {
 /// `Orphaned` is load-bearing here: this races our own first PTY spawns, and a
 /// host born now has us as a live parent, so a wider selection would kill it.
 #[cfg(windows)]
-pub(crate) fn reap_orphaned_hosts_in_background() {
+pub fn reap_orphaned_hosts_in_background() {
     std::thread::spawn(|| {
         let Some(dir) = std::env::var_os("CODETERM_CONPTY_DIR") else {
             return;

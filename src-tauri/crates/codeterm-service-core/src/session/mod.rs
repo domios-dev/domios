@@ -124,3 +124,5 @@ mod storage_cutover_tests {
         assert_eq!(error, crate::startup::STORAGE_UNAVAILABLE_MESSAGE,);
     }
 }
+
+pub use scrollback_restore::load_restored_scrollback_tails;

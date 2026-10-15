@@ -71,7 +71,7 @@ fn has_live_provider_process_evidence(
     crate::service::process_tree::may_have_named_process(root_pid, &binary_name)
 }
 
-pub(crate) fn sweep_after_restore(service: &ServiceContext) {
+pub fn sweep_after_restore(service: &ServiceContext) {
     for error in super::codex_rpc::process::sweep(
         &crate::paths::data_dir().join("codex-rpc"),
         crate::paths::codeterm_instance_id(),

@@ -7,7 +7,7 @@ use std::time::Duration;
 const REGISTRATION: &str = "codeterm-instance-lifetime-v1";
 const PREDECESSOR_EXIT_DEADLINE: Duration = Duration::from_secs(30);
 
-pub(crate) struct InstanceLifetime {
+pub struct InstanceLifetime {
     _lock: File,
 }
 
@@ -43,7 +43,7 @@ fn real_directory(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_dir())
 }
 
-pub(crate) fn acquire() -> io::Result<InstanceLifetime> {
+pub fn acquire() -> io::Result<InstanceLifetime> {
     acquire_at(
         &registry_dir()?,
         crate::paths::codeterm_instance_id(),

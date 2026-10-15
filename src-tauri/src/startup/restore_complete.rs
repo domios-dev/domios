@@ -1,5 +1,7 @@
 /// The sweep walks provider plugin VMs and the disk, so it runs off the startup-critical path.
-pub(crate) fn notify(service: &crate::service::ServiceState) -> std::thread::JoinHandle<()> {
+pub(crate) fn notify(
+    service: &codeterm_service_core::service::ServiceState,
+) -> std::thread::JoinHandle<()> {
     let service = service.clone();
     std::thread::Builder::new()
         .name("launch-artifact-sweep".into())
@@ -14,18 +16,18 @@ pub(crate) fn notify(service: &crate::service::ServiceState) -> std::thread::Joi
         .expect("spawn launch artifact sweep thread")
 }
 
-fn sweep(service: &crate::service::ServiceContext) {
-    crate::service::utility_deadline::restore(service);
-    crate::service::launch_artifacts::sweep_after_restore(service);
+fn sweep(service: &codeterm_service_core::service::ServiceContext) {
+    codeterm_service_core::service::restore_utility_deadlines(service);
+    codeterm_service_core::service::launch_artifacts::sweep_after_restore(service);
 }
 
 #[cfg(test)]
 mod tests {
     use super::sweep;
-    use crate::agent::provider::LaunchArtifactSweepRequest;
-    use crate::agent::test_provider::MockProvider;
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::service::test_fixture::ServiceFixture;
+    use codeterm_service_core::agent::provider::LaunchArtifactSweepRequest;
+    use codeterm_service_core::agent::test_provider::MockProvider;
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
     use parking_lot::Mutex;
     use std::sync::Arc;
 
@@ -43,14 +45,20 @@ mod tests {
         let failed_restore = mux.get_tab_mut(&failed_tab_id).unwrap();
         failed_restore.agent_type = Some("sweep-probe".into());
         failed_restore.pty_id = Some("pty-failed-restore-shell".into());
-        failed_restore.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
+        failed_restore.boot_stage =
+            Some(codeterm_service_core::service::boot_stage::BootStage::SpawnFailed);
         let disproved_failure = mux.get_tab_mut(&disproved_failure_tab_id).unwrap();
         disproved_failure.agent_type = Some("sweep-probe".into());
         disproved_failure.agent_session_id = Some("live-session".into());
         disproved_failure.session_binding_nonce = Some("live-nonce".into());
         disproved_failure.reported_session_binding_nonce = Some("live-nonce".into());
-        disproved_failure.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
-        assert!(crate::service::boot_stage::binding_disproves_latched_failure(disproved_failure));
+        disproved_failure.boot_stage =
+            Some(codeterm_service_core::service::boot_stage::BootStage::SpawnFailed);
+        assert!(
+            codeterm_service_core::service::boot_stage::binding_disproves_latched_failure(
+                disproved_failure
+            )
+        );
 
         let fixture = ServiceFixture::new(mux);
         let requests = Arc::new(Mutex::new(Vec::<LaunchArtifactSweepRequest>::new()));
@@ -75,7 +83,7 @@ mod tests {
             }
         }
 
-        crate::service::launch_artifacts::sweep_for_owner(
+        codeterm_service_core::service::launch_artifacts::sweep_for_owner(
             &fixture.service,
             "sweep-probe",
             false,

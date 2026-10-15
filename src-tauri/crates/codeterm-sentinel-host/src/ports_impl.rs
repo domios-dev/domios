@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use codeterm_service_core::ports::sentinel::{
-    BlueprintRecord, BlueprintStore, SentinelCleanup, SentinelPorts, SentinelRuntime, SentinelWake,
+    BlueprintRecord, BlueprintStore, SentinelCleanup, SentinelPorts, SentinelWake,
 };
 
 use super::scheduler::Handle;
@@ -99,23 +99,6 @@ impl SentinelCleanup for HandlePorts {
     fn remove_workspace(&self, workspace_id: &str) -> Result<(), String> {
         self.0.remove_workspace(workspace_id)
     }
-}
-
-struct HostRuntime;
-
-impl SentinelRuntime for HostRuntime {
-    fn start(
-        &self,
-        svc: codeterm_service_core::service::ServiceState,
-        clock: codeterm_service_core::cron::clock::SharedClock,
-        storage: &codeterm_service_core::storage::Storage,
-    ) -> Option<SentinelPorts> {
-        super::scheduler::start(svc, clock, storage)
-    }
-}
-
-pub fn register_sentinel() {
-    codeterm_service_core::ports::sentinel::register_runtime(|| Arc::new(HostRuntime));
 }
 
 #[cfg(any(test, feature = "test-support"))]

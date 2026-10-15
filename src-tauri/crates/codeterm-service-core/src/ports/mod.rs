@@ -14,7 +14,6 @@ pub mod rest;
 pub mod sentinel;
 pub mod socket;
 pub mod transport;
-pub mod update;
 
 // Later lanes add one `assert_port::<dyn Trait>()` line per port trait.
 #[cfg(test)]

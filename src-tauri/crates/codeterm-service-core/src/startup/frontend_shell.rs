@@ -2,7 +2,7 @@ use crate::app_runtime::WebviewWindow;
 #[cfg(debug_assertions)]
 mod assets;
 
-pub(crate) fn application_context(
+pub fn application_context(
     context: tauri::Context<crate::app_runtime::Runtime>,
 ) -> tauri::Context<crate::app_runtime::Runtime> {
     #[cfg(debug_assertions)]
@@ -176,7 +176,7 @@ fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
     serde_json::to_string(&capability)
 }
 
-pub(crate) fn create_window(
+pub fn create_window(
     app: &crate::app_runtime::App,
     config: &crate::config::schema::ApiConfig,
 ) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
@@ -430,7 +430,7 @@ pub fn start(app: crate::app_runtime::AppHandle, control: RestApiControlState) {
     });
 }
 
-pub(crate) fn retry(app: &crate::app_runtime::AppHandle) {
+pub fn retry(app: &crate::app_runtime::AppHandle) {
     let control = app.state::<RestApiControlState>().inner().clone();
     let observed = control.status();
     if observed.phase != RestApiPhase::Listening {
