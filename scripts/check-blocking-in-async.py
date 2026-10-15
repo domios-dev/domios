@@ -127,6 +127,16 @@ def findings(source, check_locks=True, check_auth_locks=False):
     return result
 
 
+def logging_sink_findings(source):
+    patterns = (
+        r"\.chain\s*\(\s*Box\s*::\s*new\s*\(",
+        r"\.chain\s*\(\s*(?:std\s*::\s*)?io\s*::\s*std(?:out|err)\s*\(",
+        r"(?:fern\s*::\s*)?Output\s*::\s*writer\s*\(",
+    )
+    return [(source.count("\n", 0, match.start()) + 1, "synchronous fern writer sink")
+            for pattern in patterns for match in re.finditer(pattern, source)]
+
+
 def main(repo=None):
     if repo is None:
         repo = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"],
@@ -148,6 +158,10 @@ def main(repo=None):
                        for line, lock in findings(path.read_text(encoding="utf-8"),
                                                    check_locks=root.name != "service",
                                                    check_auth_locks=path.name == "auth.rs"))
+    logging = repo / "src-tauri/src/startup/logging.rs"
+    if logging.exists():
+        bad.extend(f"{logging.relative_to(repo).as_posix()}:{line}:{pattern}"
+                   for line, pattern in logging_sink_findings(logging.read_text(encoding="utf-8")))
     allowlist = repo / "scripts/blocking-in-async-allowlist.txt"
     allowed = {line.strip() for line in allowlist.read_text(encoding="utf-8").splitlines()
                if line.strip() and not line.lstrip().startswith("#")} if allowlist.exists() else set()
