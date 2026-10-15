@@ -63,6 +63,8 @@ codeterm-build-info = { path = "../codeterm-build-info" }
 log = { version = "0.4", features = ["release_max_level_info"] }
 fern = "0.7"
 parking_lot = "0.12"
+arc-swap = "1"
+bytes = "1"
 base64 = "0.22"
 interprocess = "2"
 sha2 = "0.10"

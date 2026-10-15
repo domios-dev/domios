@@ -226,6 +226,15 @@ pub fn build_service_context(
     extensions.insert(crate::service::PublishedTabStatuses(Arc::new(
         Default::default(),
     )));
+    let initial_mux = super::status_reconciliation::snapshot_with_reconciled_status(
+        &states.mux,
+        &states.agent_tracker,
+        &agent_registry,
+    );
+    extensions.insert(Arc::new(
+        super::PublishedMuxState::new(initial_mux.generation, &initial_mux)
+            .expect("initial mux snapshot serialization"),
+    ));
     extensions.insert(
         crate::service::output_stream_activity::OutputStreamActivityTx(
             crate::service::output_stream_activity::channel(),
