@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use super::crud::{log_finished, CronChange, Prepared, RunSession};
 use super::{CronFile, CronJob, CronRunInfo, CronRunStatus, CronStore};
 use crate::cron::clock::SharedClock;
-use crate::cron::scheduler::CronState;
+use crate::cron::CronState;
 use crate::storage::{
     CommitReceipt, Committed, Completion, CronApplied, CronHistoryDisposition, CronJobId,
     CronJobState, CronRepository, CronWrite, Revision, Storage, StorageError,
@@ -261,8 +261,8 @@ impl CronStore {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_storage_deadline(&mut self, deadline: Duration) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_storage_deadline(&mut self, deadline: Duration) {
         if let Some(storage) = self.storage_mut() {
             storage.deadline = deadline;
         }
@@ -274,11 +274,11 @@ impl CronStore {
         }
     }
 
-    pub(crate) fn scheduler_unavailable(&self) -> bool {
+    pub fn scheduler_unavailable(&self) -> bool {
         self.unavailable_reason().is_some()
     }
 
-    pub(crate) fn scheduler_settlement_ready(&self) -> bool {
+    pub fn scheduler_settlement_ready(&self) -> bool {
         self.storage().is_some_and(|storage| {
             let fence = &storage.fence;
             (fence.in_flight.is_empty() && !fence.reread && !fence.resolving)
@@ -301,7 +301,7 @@ impl CronStore {
         }
     }
 
-    pub(crate) fn take_scheduler_unavailable_incident(&mut self) -> Option<String> {
+    pub fn take_scheduler_unavailable_incident(&mut self) -> Option<String> {
         let storage = self.storage_mut()?;
         if storage.unavailable_reported {
             return None;
@@ -900,13 +900,13 @@ enum Admission<T> {
 
 impl CronStore {
     /// Whether changes commit to Storage off the cron lock rather than to the legacy file.
-    pub(crate) fn commits_to_storage(&self) -> bool {
+    pub fn commits_to_storage(&self) -> bool {
         self.storage().is_some()
     }
 
     /// Admits a Storage change without waiting for COMMIT; `None` when nothing is written.
     /// The future is driven by the completion's own wake and publishes only what committed.
-    pub(crate) fn stage<T, P>(
+    pub fn stage<T, P>(
         cron: &CronState,
         mut prepare: P,
     ) -> Result<
@@ -1057,7 +1057,7 @@ async fn reread_settled(cron: &CronState) -> Result<(), CronCommitError> {
 
 /// Records a run completion; `Ok(true)` only for the first terminal transition, which
 /// alone may notify.
-pub(crate) fn finish_run(
+pub fn finish_run(
     cron: &CronState,
     job_id: &str,
     run_id: &str,
@@ -1072,7 +1072,7 @@ pub(crate) fn finish_run(
     Ok(finished.fresh)
 }
 
-pub(crate) fn finish_run_with_summary(
+pub fn finish_run_with_summary(
     cron: &CronState,
     job_id: &str,
     run_id: &str,

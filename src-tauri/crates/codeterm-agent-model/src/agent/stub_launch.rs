@@ -112,23 +112,23 @@ mod tests {
     #[test]
     fn stub_replay_status_is_debug_only_and_per_provider() {
         let cmd = || Some("node replay.mjs".to_string());
-        assert_eq!(stub_replay_status(false, cmd(), None, "claude"), None);
-        assert_eq!(stub_replay_status(true, None, None, "claude"), Some(false));
+        assert_eq!(stub_replay_status(false, cmd(), None, "alpha"), None);
+        assert_eq!(stub_replay_status(true, None, None, "alpha"), Some(false));
         assert_eq!(
-            stub_replay_status(true, Some("  ".into()), None, "claude"),
+            stub_replay_status(true, Some("  ".into()), None, "alpha"),
             Some(false)
         );
-        assert_eq!(stub_replay_status(true, cmd(), None, "claude"), Some(true));
+        assert_eq!(stub_replay_status(true, cmd(), None, "alpha"), Some(true));
         assert_eq!(
-            stub_replay_status(true, cmd(), Some(""), "codex"),
+            stub_replay_status(true, cmd(), Some(""), "beta"),
             Some(true)
         );
         assert_eq!(
-            stub_replay_status(true, cmd(), Some("codex, Claude"), "claude"),
+            stub_replay_status(true, cmd(), Some("beta, Alpha"), "alpha"),
             Some(true)
         );
         assert_eq!(
-            stub_replay_status(true, cmd(), Some("codex"), "claude"),
+            stub_replay_status(true, cmd(), Some("beta"), "alpha"),
             Some(false)
         );
     }
@@ -137,51 +137,46 @@ mod tests {
     fn gate_and_wrap_behavior() {
         assert_eq!(
             apply_configured(
-                "claude",
-                "claude --model opus".into(),
+                "alpha",
+                "alpha --model opus".into(),
                 "node replay.mjs",
-                Some("codex")
+                Some("beta")
             ),
-            "claude --model opus"
+            "alpha --model opus"
         );
 
         assert_eq!(
             apply_configured(
-                "claude",
-                "claude --model opus".into(),
+                "alpha",
+                "alpha --model opus".into(),
                 "node replay.mjs",
                 None
             ),
-            "node replay.mjs --stub-provider claude -- claude --model opus"
+            "node replay.mjs --stub-provider alpha -- alpha --model opus"
         );
         assert_eq!(
-            apply_configured(
-                "codex",
-                "codex exec".into(),
-                "node replay.mjs",
-                Some("codex")
-            ),
-            "node replay.mjs --stub-provider codex -- codex exec"
+            apply_configured("beta", "beta exec".into(), "node replay.mjs", Some("beta")),
+            "node replay.mjs --stub-provider beta -- beta exec"
         );
         let compound = apply_configured(
-            "claude",
-            "Remove-Item Env:X; $A = 1; claude '--model' 'sonnet'".into(),
+            "alpha",
+            "Remove-Item Env:X; $A = 1; alpha '--model' 'sonnet'".into(),
             "node replay.mjs",
             None,
         );
         assert_eq!(
             compound,
-            "Remove-Item Env:X; $A = 1; node replay.mjs --stub-provider claude -- claude '--model' 'sonnet'"
+            "Remove-Item Env:X; $A = 1; node replay.mjs --stub-provider alpha -- alpha '--model' 'sonnet'"
         );
         let posix_prep = apply_configured(
-            "claude",
-            "unset CLAUDECODE && claude --dangerously-skip-permissions '--model' 'sonnet' -- \"$(cat /tmp/.ct-task-1234)\"".into(),
+            "alpha",
+            "unset CLAUDECODE && alpha --dangerously-skip-permissions '--model' 'sonnet' -- \"$(cat /tmp/.ct-task-1234)\"".into(),
             "node replay.mjs",
             None,
         );
         assert_eq!(
             posix_prep,
-            "unset CLAUDECODE && node replay.mjs --stub-provider claude -- claude --dangerously-skip-permissions '--model' 'sonnet' -- \"$(cat /tmp/.ct-task-1234)\""
+            "unset CLAUDECODE && node replay.mjs --stub-provider alpha -- alpha --dangerously-skip-permissions '--model' 'sonnet' -- \"$(cat /tmp/.ct-task-1234)\""
         );
     }
 }

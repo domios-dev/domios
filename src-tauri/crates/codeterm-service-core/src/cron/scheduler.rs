@@ -8,13 +8,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::store::{
-    commit, finish_run, is_stale_fire, CronJob, CronRunInfo, CronRunStatus, CronStore,
-    STALE_FIRE_MS,
+    commit, finish_run, is_stale_fire, CronJob, CronRunInfo, CronRunStatus, STALE_FIRE_MS,
 };
 use crate::service::ServiceState;
-use parking_lot::Mutex;
 
-pub type CronState = Arc<Mutex<CronStore>>;
+pub use codeterm_agent_model::cron::CronState;
 
 /// Notification channel to wake the scheduler when cron jobs are modified.
 pub type CronWake = Arc<std::sync::Condvar>;

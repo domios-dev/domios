@@ -1,0 +1,43 @@
+[package]
+name = "codeterm-agent-model"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["full", "test-util"] }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
+codeterm-sentinel = { path = "../codeterm-sentinel" }
+codeterm-storage = { path = "../codeterm-storage" }
+codeterm-cron = { path = "../codeterm-cron" }
+codeterm-agent-detect = { path = "../codeterm-agent-detect" }
+codeterm-config = { path = "../codeterm-config" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-pty = { path = "../codeterm-pty" }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-plan = { path = "../codeterm-plan" }
+codeterm-util = { path = "../codeterm-util" }
+codeterm-mem = { path = "../codeterm-mem", default-features = false }
+log = { version = "0.4", features = ["release_max_level_info"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+parking_lot = "0.12"
+rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
+regex = "1"
+ulid = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+toml = "0.8"
+sha2 = "0.10"
+
+[features]
+test-support = ["codeterm-storage/test-support", "codeterm-plugin/test-support"]
+
+[dev-dependencies]
+codeterm-storage = { path = "../codeterm-storage", features = ["test-support"] }
+codeterm-plugin = { path = "../codeterm-plugin", features = ["test-support"] }
+vt100 = "0.16"
+

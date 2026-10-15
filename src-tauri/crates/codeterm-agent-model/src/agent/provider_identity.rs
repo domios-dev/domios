@@ -96,7 +96,7 @@ pub fn provider_for_claimed_session(
     owners.next().is_none().then_some(owner)
 }
 
-pub(crate) fn provider_for_restored_session(
+pub fn provider_for_restored_session(
     journal: &crate::session::lifecycle::JournalLoad,
     tab_id: &str,
     evidence: &ProviderIdentityEvidence,
