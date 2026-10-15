@@ -5,7 +5,9 @@ use codeterm_types::pty::{classify_agent_liveness, AgentBacking, AgentLiveness, 
 use crate::service::{ServiceContext, ServiceState};
 
 mod quiescence;
+mod restore_worker;
 pub(crate) use quiescence::schedule;
+pub(crate) use restore_worker::RestoreReportWorker;
 
 #[cfg(test)]
 #[path = "live_state/tests.rs"]
