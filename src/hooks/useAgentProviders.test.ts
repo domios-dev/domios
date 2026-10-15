@@ -48,7 +48,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test("sync retains the catalog during refresh and clears it on error", () => {
+test("sync retains the catalog during refresh and errors", () => {
   const catalogA = [provider("catalog-a")];
   const catalogB = [provider("catalog-b")];
 
@@ -58,7 +58,7 @@ test("sync retains the catalog during refresh and clears it on error", () => {
   assert(agentDescriptorsRefreshing(), "preset consumers can observe refresh without losing provider identity");
 
   syncAgentDescriptorCache(catalogA, false, "catalog unavailable");
-  assert(listAgentDescriptors().length === 0, "fetch errors cannot republish retained catalog A items");
+  assert(getAgentDescriptor("catalog-a")?.id === "catalog-a", "fetch errors retain the last good catalogue");
   assert(!agentDescriptorsRefreshing(), "settled errors end the refresh state");
 
   syncAgentDescriptorCache(catalogB, false, null);
@@ -81,12 +81,12 @@ test("catalogue version changes refresh provider descriptors", () => {
   assert(!shouldRefreshAgentProviders("tab-focused"), "irrelevant events must not refresh");
 });
 
-test("refresh preserves catalog identity while failures clear entries", () => {
+test("refresh and errors preserve catalogue identity", () => {
   const stale = [provider("stale-provider")];
   assert(visibleAgentProviders(stale, true, null) === stale, "refresh preserves visible entries");
-  assert(visibleAgentProviders(stale, false, "catalog unavailable").length === 0, "errors hide stale entries");
+  assert(visibleAgentProviders(stale, false, "catalog unavailable") === stale, "errors retain entries");
   assert(
-    visibleAgentProviders(stale, true, "failed") === visibleAgentProviders([], true, "failed"),
+    visibleAgentProviders(stale, true, "failed") === stale,
     "failed catalogs keep stable identity across consumer renders",
   );
   assert(visibleAgentProviders(stale, false, null) === stale, "settled catalog preserves identity");
