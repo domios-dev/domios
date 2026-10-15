@@ -33,6 +33,8 @@ Neither route promises the recipient *answered*. Replies come through the sender
 | POST | `/api/tabs/{id}/chat-send/dismissals` | `{send_id, send:{id, correlationId, content, sentAtMs, echo?}}` | Delete a retained undelivered user bubble. Cancels queued input atomically against claim; a claimed or written send is only dismissed. Returns the durable receipt. Delivered and system sends are refused; never replays input. |
 | GET | `/api/tabs/{id}/chat` | `?since=N` | Stateless transcript read, resolved from the tab's own session record. `{messages, count, pending}`. A tab with no bound session answers `pending: true` with an empty list — never another tab's transcript. Unknown tab → 404 |
 
+Sleeping tabs read their own persisted transcript without waking or starting a runtime. A runtime tab awaiting its first session returns `200` with `pending: true` and `state: "waking"`; opening or addressing the tab owns waking it. Snapshot failures return JSON `{code, state, error}` with the original reason in `error`; unknown failures use HTTP 500, code `chat_snapshot_failed` and state `failed`. Request refusals preserve their HTTP status with code `chat_snapshot_refused` and state `refused`.
+
 #### Delayed Chat messages
 
 | Method | Path | Body | Description |
@@ -63,4 +65,4 @@ Chat messages may carry an `interactive` array of answerable prompt widgets pars
 
 The enum is open for future element types. The frontend renders each as a clickable widget and routes the answer through the tab send path (`/api/tabs/{id}/send`).
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
