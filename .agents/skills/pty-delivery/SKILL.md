@@ -149,6 +149,20 @@ Claimed or uncertain records remain held and are never replayed.
   hide the bubble across restart and later evidence without replay. Delivered
   bubbles have no Delete. Provider echoes reconcile into that bubble.
 
+## Written to the PTY means Enter, always
+
+After a launch's first readiness (event-based: `AgentReady`, nonce-verified binding)
+the payload is written once and Enter is pressed. No screen text, classifier, prompt,
+dialog or composer check may gate the payload write or Enter, busy or not, even with a
+numbered permission prompt on screen. Guards that remain are ownership and
+authority only (PTY owner, launch latch, model-command ownership, session authority).
+Delivery evidence stays exact own-session turn evidence.
+
+The `pasted by Domios` marker paste follows the provider capability
+`paste.pasteMarkerWhen`: `multiline` adds it only when the body contains a line
+break (single-line bodies arrive plain); the default `always` keeps old behaviour.
+Expected turn evidence and the Chat reader follow the same rule.
+
 ## Hard don'ts
 
 - No sleeps, polling intervals, or timer-driven "success" anywhere in the
@@ -173,4 +187,4 @@ Claimed or uncertain records remain held and are never replayed.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 4 -->
+<!-- revision: 6 -->

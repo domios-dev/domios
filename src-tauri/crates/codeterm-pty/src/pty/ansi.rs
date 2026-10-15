@@ -96,6 +96,10 @@ pub fn strip_ansi(raw: &str) -> String {
     out
 }
 
+pub fn sanitize_agent_prompt_input(text: &str) -> String {
+    strip_ansi(text).chars().filter(|c| *c != '\0').collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +191,24 @@ mod tests {
         let out = clean_terminal_output("abc\rxy");
         let first_line = out.lines().next().unwrap_or("");
         assert!(first_line.starts_with("xyc"));
+    }
+
+    #[test]
+    fn agent_prompt_sanitizer_strips_escaped_ansi_and_controls() {
+        let leaked = "\x1b]10;rgb:c9c9/d1d1/d9d9\x1b\\ok\x1b[?1;2c\x00!";
+        assert_eq!(sanitize_agent_prompt_input(leaked), "ok!");
+    }
+
+    #[test]
+    fn agent_prompt_sanitizer_preserves_literal_reply_text() {
+        let text = "]10;rgb:c9c9/d1d1/d9d9\\ [?1;2c";
+        assert_eq!(sanitize_agent_prompt_input(text), text);
+    }
+
+    #[test]
+    fn agent_prompt_sanitizer_preserves_domios_route_frame_text() {
+        let message =
+            "<domios from=\"tab\" label=\"worker\" tab=\"abc123\" model=\"codex\">run tests</domios>";
+        assert_eq!(sanitize_agent_prompt_input(message), message);
     }
 }

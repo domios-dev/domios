@@ -421,3 +421,7 @@ jobs:
         run: |
           & .\build.ps1 cache-stats
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs

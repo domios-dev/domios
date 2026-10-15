@@ -1,0 +1,278 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SpawnIdentityProvenance {
+    #[default]
+    Suggested,
+    UserSupplied,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BatchOp {
+    pub method: String,
+    #[serde(default)]
+    pub params: serde_json::Value,
+    pub id: Option<String>,
+}
+
+/// Distinct provenance of a launch's reasoning effort. Mirrors the model
+/// provenance discipline: each source stays separate and truthful, never
+/// conflated. `actual` stays `None` until authoritative runtime evidence
+/// arrives — a launch flag is a request, not proof of the running effort.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ReasoningEffortProvenance {
+    /// Effort recorded on the routing/plan task (dispatch intent).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planned: Option<String>,
+    /// Effort the caller explicitly asked for at spawn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    /// Effort that passed capability validation and reached the launch flags.
+    /// Equals `requested` when supported; validation rejects rather than downgrade.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<String>,
+    /// Runtime-confirmed effort. `None` until the provider reports it.
+    pub actual: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_source: Option<String>,
+}
+
+impl ReasoningEffortProvenance {
+    pub fn is_empty(&self) -> bool {
+        self.planned.is_none()
+            && self.requested.is_none()
+            && self.resolved.is_none()
+            && self.actual.is_none()
+            && self.actual_source.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SpawnResult {
+    pub tab_id: String,
+    pub pty_id: String,
+    pub agent: String,
+    /// Legacy launch-model field. Never runtime proof; `actual_model` is set
+    /// only from provider-owned session evidence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planned_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_resolved_model: Option<String>,
+    pub actual_model: Option<String>,
+    /// Resolved (validated) reasoning effort that reached the launch, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// Full planned/requested/resolved/actual effort provenance.
+    #[serde(skip_serializing_if = "ReasoningEffortProvenance::is_empty")]
+    pub reasoning_effort_provenance: ReasoningEffortProvenance,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role_profile: Option<String>,
+    /// Warning when agent cwd differs from workspace cwd
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_fallback: Option<crate::service::spawn::ModelFallbackNotice>,
+    /// Advisory workspace tab-budget nudge (task_4d649dfd), computed via the
+    /// shared `ServiceContext::workspace_tab_budget_notice` helper. Never blocks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_notice: Option<crate::service::tab_budget::TabBudgetNotice>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SpawnAgentParams {
+    #[serde(default, skip)]
+    pub context_files: Option<crate::plan::TaskFiles>,
+    #[serde(default, skip)]
+    pub context_skills: Option<String>,
+    pub agent: Option<String>,
+    pub agent_name: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub cwd: Option<String>,
+    /// Exact cwd freshly created by the current spawn operation. This is host
+    /// provenance, never accepted from a CLI/REST payload.
+    #[serde(default, skip_deserializing)]
+    pub provisioned_cwd: Option<String>,
+    pub title: Option<String>,
+    pub title_provenance: Option<SpawnIdentityProvenance>,
+    pub description: Option<String>,
+    pub role: Option<String>,
+    pub role_profile: Option<String>,
+    pub parent_tab_id: Option<String>,
+    /// Plan id to bind — when `role_profile` is `planner`, binds
+    /// `Plan.planner` to the spawned tab and delivers the peer prompt
+    /// naming the Orchestrator (task_aa01c0db).
+    pub plan_id: Option<String>,
+    pub can_spawn: Option<bool>,
+    pub task: Option<String>,
+    #[serde(default, skip)]
+    pub starter_prompt: crate::agent::provider::StarterPrompt,
+    /// Bound task id (CODETERM_TASK_ID).
+    pub task_id: Option<String>,
+    #[serde(default, skip)]
+    pub task_launch_authority: Option<TaskLaunchAuthority>,
+    #[serde(default, skip)]
+    pub remote_task_binding: Option<RemoteTaskBinding>,
+    #[serde(default, skip)]
+    pub plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
+    /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
+    pub plan_task: Option<String>,
+    /// Gate tokens a task-less Worker may claim as executed, rendered into its
+    /// brief by the same writer the plan-task dispatch path uses.
+    #[serde(default)]
+    pub authorized_gates: Vec<String>,
+    pub execution_intent: Option<crate::plan::ExecutionIntent>,
+    pub provider_reserve_pct: Option<f32>,
+    pub workspace_id: Option<String>,
+    /// Force creation as a new tab instead of split tab (even with parent).
+    pub force_tab: Option<bool>,
+    /// Claim an existing blank tab instead of creating one. On failure, the
+    /// caller owns cleanup and may restore its pre-claim snapshot.
+    pub existing_tab_id: Option<String>,
+    /// Skip legacy onboarding work for a paired Orchestrator. Its complete
+    /// identity and counterpart context travel in the single launch payload.
+    pub skip_orchestrator_onboarding: Option<bool>,
+    /// Report target tab ID — for cron agents to report without joining hierarchy.
+    /// With `report_target_mesh_peer` set, this is a tab id / `main` / `general`
+    /// alias on that remote peer.
+    pub report_target_tab_id: Option<String>,
+    /// Paired mesh peer the report target lives on. Set (un-spoofably, from the
+    /// authenticated relay sender) when `agent spawn --mesh PEER` lands here, so
+    /// the spawned worker reports back across the mesh.
+    pub report_target_mesh_peer: Option<String>,
+    /// Host-resolved global access choice. Wire input cannot override it.
+    #[serde(default, skip_deserializing)]
+    pub skip_permissions: Option<bool>,
+    /// Host-only proof that the selected bypass passed centralized policy.
+    #[serde(default, skip)]
+    pub permission_bypass_authorization:
+        Option<crate::service::permission_policy::PermissionBypassAuthorization>,
+    /// CODETERM_TAB_ID of the caller — recorded for report routing fallback.
+    pub spawned_by_tab_id: Option<String>,
+    /// Team a roleless spawn attaches to (`agent spawn --team`). Requires
+    /// `creator_tab_id`; membership is authorized, never assumed.
+    pub team_id: Option<String>,
+    /// Calling tab that must already belong to `team_id`.
+    pub creator_tab_id: Option<String>,
+    /// Authenticated control ownership carried to the spawned tab (peer identity
+    /// re-stamped at the relay boundary, never trusted from the payload).
+    pub ownership: Option<codeterm_types::pty::RemoteOwnership>,
+    /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
+    pub model: Option<String>,
+    /// Plan/task routing model before a launch-time model override.
+    pub planned_model: Option<String>,
+    /// Host-owned plan-task dispatch intent. Generic spawn payloads cannot set it.
+    #[serde(default, skip_deserializing)]
+    pub planned_reasoning_effort: Option<String>,
+    /// Explicitly requested reasoning effort. Capability-validated against the
+    /// provider before launch; an unsupported value is rejected structurally
+    /// (no silent downgrade). Provider maps it to launch flags via
+    /// `AgentProvider::reasoning_effort_launch_args`.
+    pub reasoning_effort: Option<String>,
+    pub system_prompt: Option<String>,
+    #[serde(default, skip)]
+    pub manager_bootstrap: Option<crate::service::role_identity::ManagerBootstrapInputs>,
+    pub preset: Option<String>,
+    pub resume_session_id: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub fork_session: bool,
+    pub charter: Option<String>,
+    pub tick_interval_secs: Option<u64>,
+    pub nudge_cooldown_secs: Option<u64>,
+    pub max_actions_per_tick: Option<u32>,
+    pub activate: Option<bool>,
+    /// Audience axis for input-request notifications. `Automation` marks a tab
+    /// whose prompts have no human owner (bench/probe tabs) — they never bell.
+    #[serde(default)]
+    pub audience: crate::multiplexer::types::TabAudience,
+    /// Host-set, never from the wire: the fixed structured-prompt server the
+    /// host allocated for a `needs_structured_prompt_server` provider. Threaded
+    /// into the launch command so the agent binds its SSE bus there.
+    #[serde(default, skip)]
+    pub structured_prompt_server: Option<crate::agent::provider::StructuredPromptServer>,
+}
+
+impl SpawnAgentParams {
+    pub(crate) fn permission_bypass_requested(&self, provider_id: &str) -> bool {
+        self.skip_permissions == Some(true)
+            && self
+                .permission_bypass_authorization
+                .as_ref()
+                .is_some_and(|authorization| authorization.authorizes(provider_id))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskLaunchAuthority {
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub lane_base: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RemoteTaskBinding {
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub origin_peer_id: String,
+}
+
+impl TaskLaunchAuthority {
+    pub fn env(&self) -> std::collections::HashMap<String, String> {
+        let mut env = std::collections::HashMap::from([
+            ("CODETERM_PLAN_ID".into(), self.plan_id.clone()),
+            ("CODETERM_TASK_ID".into(), self.task_id.clone()),
+            ("CODETERM_ATTEMPT_ID".into(), self.attempt_id.clone()),
+        ]);
+        if let Some(base) = self
+            .lane_base
+            .as_ref()
+            .filter(|base| !base.trim().is_empty())
+        {
+            env.insert("CODETERM_LANE_BASE".into(), base.clone());
+        }
+        env
+    }
+}
+
+impl SpawnAgentParams {
+    pub fn normalize_role_profile(&mut self) -> Result<(), String> {
+        crate::service::role_profile::normalize_spawn_params(self)
+    }
+
+    /// Role kind these params resolve to. Valid only after
+    /// `normalize_role_profile` has folded the wire sugar.
+    pub(crate) fn role_kind(&self) -> Option<&str> {
+        codeterm_types::agent::role_kind::kind_id(
+            self.role
+                .as_deref()
+                .and_then(crate::multiplexer::types::AgentRole::from_str_compat),
+            self.role_profile.as_deref(),
+        )
+    }
+
+    pub(crate) fn spawns_anchor(&self) -> bool {
+        codeterm_types::agent::role_kind::anchors_team(
+            self.role
+                .as_deref()
+                .and_then(crate::multiplexer::types::AgentRole::from_str_compat),
+            self.role_profile.as_deref(),
+        )
+    }
+
+    pub(crate) fn task_launch_env(&self) -> std::collections::HashMap<String, String> {
+        self.task_launch_authority
+            .as_ref()
+            .map(TaskLaunchAuthority::env)
+            .unwrap_or_default()
+    }
+}

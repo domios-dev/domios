@@ -1,8 +1,8 @@
 name: Release
 run-name: Release ${{ inputs.tag || github.ref_name }}
 
-# Fast checks gate builds; Rust archives queue first and cancel the run on test failure.
-# Publication waits for both test stages and every platform. Only owner pushes start releases.
+# Fast checks gate the Rust tests and every build, which then run in parallel; a test failure blocks
+# publication but never cancels builds. Only owner pushes start releases.
 on:
   push:
     branches:
@@ -183,7 +183,6 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
       phase: fast
-      cancel_release_on_failure: true
     permissions:
       contents: read
       actions: write
@@ -192,14 +191,13 @@ jobs:
 
   tests:
     name: long release Rust tests
-    needs: prepare
+    needs: [prepare, quick-checks]
     if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
       phase: long
-      cancel_release_on_failure: true
     permissions:
       contents: read
       actions: write
@@ -363,4 +361,4 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_sha || github.sha }}
       report_name: rust-warnings-release-report
       comment: true
-      artifacts: '["rust-warnings-release-macOS-aarch64-apple-darwin","rust-warnings-release-macOS-x86_64-apple-darwin","rust-warnings-release-Linux-aarch64-unknown-linux-gnu","rust-warnings-release-Linux-x86_64-unknown-linux-gnu","rust-warnings-release-Windows-x86_64-pc-windows-msvc","rust-warnings-release-Windows-aarch64-pc-windows-msvc","rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]'
+      artifacts: '["rust-warnings-release-macOS-aarch64-apple-darwin","rust-warnings-release-macOS-x86_64-apple-darwin","rust-warnings-release-Linux-aarch64-unknown-linux-gnu","rust-warnings-release-Linux-x86_64-unknown-linux-gnu","rust-warnings-release-Windows-x86_64-pc-windows-msvc","rust-warnings-release-Windows-aarch64-pc-windows-msvc","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]'

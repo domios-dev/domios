@@ -29,3 +29,6 @@ test-support = ["dep:tempfile"]
 codeterm-plan = { path = ".", features = ["test-support"] }
 uuid = { version = "1", features = ["v4"] }
 filetime = "0.2"
+
+[lints]
+workspace = true

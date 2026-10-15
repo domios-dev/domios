@@ -145,6 +145,7 @@ impl CollectionIdentity {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ElementKind {
     Button,
+    #[cfg(target_os = "macos")]
     Other,
 }
 

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Caller: build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; CI release-linux-arm64.yml; scripts check-sccache-basedir-isolation.sh, check-shared-sccache.sh, dev-prep.mjs; skill build, github-release
 
+CT_CACHE_POLICY_SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+CT_SCCACHE_LOCK_OWNER=""
+
 ct_repo_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd
 }
@@ -139,21 +142,25 @@ ct_sccache_print_location() {
   fi
 }
 
-ct_sccache_stats() {
+ct_sccache_stats() { ct_sccache_with_lock ct_sccache_stats_locked "$@"; }
+
+ct_sccache_stats_locked() {
   if ! ct_sccache_server_live; then
     echo "[cache-policy] ERROR: sccache server is unavailable; offline synthetic counters are not build evidence" >&2
     return 2
   fi
   printf 'sccache endpoint: '
-  node "$(ct_repo_root)/scripts/sccache-server-probe.mjs" --address
+  node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/sccache-server-probe.mjs" --address
   sccache --show-stats
 }
 
 ct_sccache_server_live() {
-  node "$(ct_repo_root)/scripts/sccache-server-probe.mjs"
+  node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/sccache-server-probe.mjs"
 }
 
-ct_sccache_status() {
+ct_sccache_status() { ct_sccache_with_lock ct_sccache_status_locked "$@"; }
+
+ct_sccache_status_locked() {
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
   ct_sccache_storage
   ct_sccache_print_location
@@ -207,24 +214,61 @@ ct_sccache_storage_matches() {
   fi
 }
 
-ct_sccache_restart() {
-  if command -v pgrep >/dev/null 2>&1 && { pgrep -x cargo >/dev/null 2>&1 || pgrep -x rustc >/dev/null 2>&1; }; then
-    echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
-    return 75
+ct_sccache_restart() { ct_sccache_with_lock ct_sccache_restart_locked "$@"; }
+
+ct_sccache_restart_locked() {
+  if ! ct_gateway_owned_by_caller; then
+    if command -v pgrep >/dev/null 2>&1 && { pgrep -x cargo >/dev/null 2>&1 || pgrep -x rustc >/dev/null 2>&1; }; then
+      echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
+      return 75
+    fi
+    if command -v cygpath >/dev/null 2>&1 &&
+        powershell.exe -NoProfile -NonInteractive -Command 'if (Get-Process cargo,rustc -ErrorAction SilentlyContinue) { exit 0 }; exit 1' >/dev/null 2>&1; then
+      echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
+      return 75
+    fi
   fi
-  if command -v cygpath >/dev/null 2>&1 &&
-      powershell.exe -NoProfile -NonInteractive -Command 'if (Get-Process cargo,rustc -ErrorAction SilentlyContinue) { exit 0 }; exit 1' >/dev/null 2>&1; then
-    echo "[cache-policy] ERROR: cache configuration requires an idle machine; Cargo or rustc is running" >&2
-    return 75
+  local evidence_log="${SCCACHE_ERROR_LOG:-}"
+  if declare -F ct_gateway_dir >/dev/null; then
+    evidence_log="${evidence_log:-$(ct_gateway_dir)/sccache-server.log}"
+    mkdir -p "$(dirname "$evidence_log")"
+    if [ "${CT_GATEWAY_ACTIVE:-0}" = 1 ]; then
+      ct_gateway_state_tool evidence-reset --dir "$(ct_gateway_dir)" --job-id "$CT_BUILD_JOB_ID" || { echo "[build-gateway] metadata write failed before compilation: cache reset evidence" >&2; return 74; }
+    fi
   fi
   sccache --stop-server >/dev/null 2>&1 || true
-  if ! sccache --start-server >/dev/null 2>&1; then
+  if ! ct_sccache_start_with_evidence "$evidence_log"; then
     echo "[cache-policy] ERROR: sccache server failed to start with $CT_SCCACHE_STORAGE storage" >&2
     return 2
   fi
 }
 
+ct_sccache_start_with_evidence() {
+  if [ -n "$1" ]; then
+    SCCACHE_LOG=sccache::server=debug SCCACHE_ERROR_LOG="$1" sccache --start-server >/dev/null 2>&1
+  else
+    sccache --start-server >/dev/null 2>&1
+  fi
+}
+
+ct_sccache_with_lock() {
+  if [ "${CT_SCCACHE_LOCK_OWNER:-}" = "$$" ]; then "$@"; return $?; fi
+  if ! declare -F ct_gateway_mutex_acquire >/dev/null; then source "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/build-gateway.sh"; fi
+  local lock_dir result=0 CT_SCCACHE_LOCK_OWNER="$$"
+  lock_dir="$(ct_gateway_dir)/sccache-start-state"
+  mkdir -p "$lock_dir" || return 74
+  ct_gateway_mutex_acquire "$lock_dir" || return $?
+  "$@" || result=$?
+  ct_gateway_mutex_release "$lock_dir" || result=$?
+  return "$result"
+}
+
 ct_configure_sccache() {
+  if [ "${CODETERM_USE_SCCACHE:-1}" = 0 ] && [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" != 1 ]; then return 0; fi
+  ct_sccache_with_lock ct_configure_sccache_locked
+}
+
+ct_configure_sccache_locked() {
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
   if [ "${CODETERM_USE_SCCACHE:-1}" = 0 ] && [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" != 1 ]; then return 0; fi
   command -v sccache >/dev/null 2>&1 || {
@@ -235,9 +279,9 @@ ct_configure_sccache() {
     echo "[cache-policy] sccache unavailable; building without RUSTC_WRAPPER"
     return 0
   }
-  ct_verify_target_dir
-  ct_forbid_mutable_cache_dir "${SCCACHE_DIR:-}"
-  ct_reject_basedir_rewriting
+  ct_verify_target_dir || return $?
+  ct_forbid_mutable_cache_dir "${SCCACHE_DIR:-}" || return $?
+  ct_reject_basedir_rewriting || return $?
   export RUSTC_WRAPPER=sccache
   echo "[cache-policy] sccache verified before build server start"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
@@ -273,19 +317,21 @@ ct_configure_sccache() {
   printf '%s\n' "$stats" | sed -n '/Cache location/,$p'
 }
 
-ct_require_prestarted_sccache() {
+ct_require_prestarted_sccache() { ct_sccache_with_lock ct_require_prestarted_sccache_locked "$@"; }
+
+ct_require_prestarted_sccache_locked() {
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
   command -v sccache >/dev/null 2>&1 || {
     echo "[cache-policy] ERROR: exceptional worktree compilation requires sccache" >&2
     return 2
   }
-  ct_forbid_mutable_cache_dir "${SCCACHE_DIR:-}"
+  ct_forbid_mutable_cache_dir "${SCCACHE_DIR:-}" || return $?
   if ! ct_sccache_server_live || ! sccache --show-stats >/dev/null 2>&1; then
     echo "[cache-policy] ERROR: shared sccache server is not prestarted" >&2
     echo "[cache-policy] Start it once from the machine integration environment." >&2
     return 2
   fi
-  ct_reject_basedir_rewriting
+  ct_reject_basedir_rewriting || return $?
   export RUSTC_WRAPPER=sccache
   echo "[cache-policy] prestarted shared sccache verified"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
@@ -317,26 +363,16 @@ ct_check_provenance() {
 }
 
 ct_cache_retention() {
-  local dir bash_exe self_pid result=0
+  local dir bash_exe result=0
   dir="$(ct_gateway_dir)"
   bash_exe="$BASH"
   if command -v cygpath >/dev/null 2>&1; then bash_exe="$(cygpath -w "$bash_exe")"; fi
-  if ! mkdir "$dir/state.lock" 2>/dev/null; then
-    echo "[cache-policy] gateway metadata is busy; retention was not started" >&2
-    return 75
-  fi
-  self_pid="${CT_GATEWAY_MUTEX_PID:-$$}"
-  printf '%s\n' "$self_pid" > "$dir/state.lock/pid"
-  CT_GATEWAY_MUTEX_START="$(ct_gateway_process_start_token "$self_pid")"
-  printf '%s\n' "$CT_GATEWAY_MUTEX_START" > "$dir/state.lock/start_token"
-  if [ -z "$CT_GATEWAY_MUTEX_START" ]; then
-    ct_gateway_mutex_release "$dir"
-    echo "[cache-policy] cannot identify retention owner; no cache paths changed" >&2
-    return 2
-  fi
+  local retention_dir="$dir/cache-retention-state"
+  mkdir -p "$retention_dir" || return 74
+  ct_gateway_mutex_acquire "$retention_dir" || return $?
   CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" \
-    node "$(ct_repo_root)/scripts/cache-retention.mjs" "$1" "$dir" "$(pwd -P)" "${2:-}" || result=$?
-  ct_gateway_mutex_release "$dir"
+    node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-retention.mjs" "$1" "$dir" "${CT_REAL_WORKTREE:-$(pwd -P)}" "${2:-}" || result=$?
+  ct_gateway_mutex_release "$retention_dir" || result=$?
   return "$result"
 }
 

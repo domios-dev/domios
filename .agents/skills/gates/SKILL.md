@@ -22,7 +22,7 @@ Two shapes, and picking the wrong one is what costs hours.
 A per-task Rust test-profile change uses `.\build.ps1 check-tests`, which
 compiles all test targets in both the app and CLI workspaces without running
 them. A following `test-one app` or `test-one cli` reuses those artifacts.
-It runs outside the build gateway and refuses `--wait-build`.
+It uses the shared Cargo gateway entry and accepts `--wait-build`.
 `.\build.ps1 check` does not compile `#[cfg(test)]` code, so a green `check`
 alone does not cover test-only Rust changes.
 
@@ -49,13 +49,14 @@ node --import tsx --import ./scripts/ts-test-asset-hook.mjs <file>.test.tsx
 bash scripts/check-file-sizes.sh --fail
 node scripts/check-provider-boundary.mjs
 node --test scripts/tests/check-provider-boundary.test.mjs
+node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a moved nextest archive
 ```
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
-In a Worker lane only the isolated ones run: `tsc`, a single node test file,
-`test-one plan`, `test-one pty`, the file-size script and
-`./build.sh check-queue`. `check`, `check-tests` and `test-one app` compile the
+In a Worker lane only the isolated non-Rust checks run: `tsc`, a single node test file,
+rustfmt, the file-size and service-core-boundary scripts, then one
+`./build.sh check-queue --lane <sha>`. `check`, `check-tests` and Rust tests compile the
 app crate in the lane, a full rebuild; report them as deferred selectors for the
 Orchestrator's canonical wave batch.
 
@@ -65,14 +66,26 @@ Canonical QA always starts with `./build.sh check`; tests (`check-tests`,
 `test-one`) run only after it is green, so a name or type error costs seconds
 instead of a multi-minute test-profile rebuild.
 
-A Worker proves a committed Rust change with `./build.sh check-queue [<sha>]`
+A Worker proves a committed Rust change with `./build.sh check-queue --lane [<sha>]`
 (default: lane HEAD). It checks the SHA out in the per-machine check worktree
 (`<gateway dir>/check-worktree`, own warm `target/app` and `target/cli`, never
 canonical or a lane target), runs incremental
-`cargo check --all-targets --message-format=short` for the touched packages
-(plus `codeterm` as dependent unless `--touched-only`), and prints at most
-`--max-errors` (default 20) `file:line:col: error[...]` lines with an
-`errors=N shown=M` total. A busy gateway refuses at once with exit 75; do source
+`cargo clippy --lib --no-deps --message-format short -- -D warnings` with the shared
+`scripts/clippy-allow.sh` policy for existing touched packages, root bins only
+when root is touched and leaf test targets only for test paths or moved crates.
+Core test targets stay at the batch. It prints at most `--max-errors` (default
+20) `file:line:col: error[...]` lines with an `errors=N shown=M` total, then at
+most `--max-warnings` (default 40) warning lines, one `warnings crate=<name>
+count=N` line per warned crate and `warnings=N shown=M failing=<crates>`.
+Warnings count as errors: any rustc or clippy warning in a touched crate fails
+the run, and a Worker reports only with `errors=0` and `warnings=0`.
+check-queue, check-tests and clippy --all-targets type-check the bin against MockRuntime.
+The Wry world is checked by clippy --workspace in the full gate, by check-queue's dev-lib check and by every dev and production build.
+`--all` lints the whole app workspace and the CLI and fails on any warning.
+`./build.sh check` ends with one `warnings crate=` line per warned crate and a
+`check: warnings=N` total; canonical expects `warnings=0`. Every workspace crate
+and the CLI deny `warnings` through `[lints]` in Cargo.toml, so a new warning is
+a compile error everywhere; fix it at the root, never with `#[allow]`. A busy gateway refuses at once with exit 75; do source
 work and never poll. The first run on a machine is cold, later runs are warm.
 
 The provider boundary guard compares exact exceptions with `origin/develop`; CI supplies the target SHA through `PROVIDER_BOUNDARY_BASE`. Each exception names one exact file/token pair and its count. Lower or remove the entry when occurrences leave; moving or formatting existing occurrences within a file is allowed. Counts may only shrink; new provider coupling belongs in the provider plugin.
@@ -180,7 +193,7 @@ plugin-only releases are outside this gate.
 
 ## Rust warning inventory and cleanup
 
-Every release target and test archive/clippy build uploads a `rust-warnings-<lane>-<target>.json`
+Every release target, Rust test job and clippy build uploads a `rust-warnings-<lane>-<target>.json`
 artifact. The always-running warning summary publishes per-target, per-lint and per-file tables
 in its job summary. Download `rust-warnings-release-report` (or `rust-warnings-tests-report`)
 for `rust-warnings-report.md` and `rust-warnings-report.json`; the release summary also comments
@@ -188,11 +201,9 @@ on associated release PRs. JSON diagnostics include crate, location, lint, messa
 Capture/upload/comment failures do not change platform build results; new warning identities fail
 the summary ratchet. Incomplete runs are labelled and never propose a baseline update.
 
-`scripts/rust-warnings-baseline.json` starts explicitly uninitialized: do not invent counts or
-seed it from local macOS output. After the first complete real release run, copy the generated
-`rust-warnings-baseline.json` from `rust-warnings-release-report` into the repository and commit
-it on develop, citing the run URL. No workflow dispatch is needed to initialize the mechanism.
-Until that seed is committed, reports explicitly say the ratchet is awaiting initialization.
+`scripts/rust-warnings-baseline.json` is initialized at zero: every crate denies `warnings`
+through Cargo `[lints]`, so any warning identity a run reports is new and fails the ratchet.
+Fix the warning at its root on the owning platform; never add a baseline entry.
 
 The post-release cleanup task consumes the full JSON report, groups by target/file/lint, and
 fixes cfg-specific warnings on their owning platform (including Windows arm64). After a complete
@@ -204,3 +215,5 @@ an incomplete run's inventory over the baseline or hand-increase an allowance.
 Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
+
+Lane verification runs touched libraries with Clippy, root bins only when touched, and touched leaf test targets; service-core tests stay at the batch. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` with default embeddings. Root dev/default, core default and app test features must agree; divergence refuses compilation. A batch failure in a lane's files is a bounce naming the integration SHA.

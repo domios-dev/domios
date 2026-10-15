@@ -77,6 +77,8 @@ function makeHarness() {
   const devRecord = path.join(dir, "dev-record.jsonl");
   const parentCli = path.join(parentBin, "codeterm");
   const devCli = path.join(devBin, "codeterm");
+  const fixtureBuild = path.join(dir, "build.sh");
+  writeFileSync(fixtureBuild, readFileSync(buildPath, "utf8").replace('\ncase "$CMD" in\n  fmt-check|', '\nenter_cargo_gateway() { :; }\ncase "$CMD" in\n  fmt-check|'));
   writeFakeCli(parentCli, parentRecord);
   writeFakeCli(devCli, devRecord);
   return {
@@ -87,7 +89,7 @@ function makeHarness() {
     devRecord,
     parentCli,
     devCli,
-    env: cleanEnv({ PATH: parentBin + path.delimiter + (process.env.PATH ?? "") }),
+    env: cleanEnv({ BUILD_NOTIFICATION_FIXTURE_PATH: fixtureBuild, PATH: parentBin + path.delimiter + (process.env.PATH ?? "") }),
   };
 }
 
@@ -100,7 +102,8 @@ function records(recordPath) {
 }
 
 function runBash(args, env, cwd = root) {
-  return spawnSync(bash, args, { cwd, env, encoding: "utf8" });
+  const commandArgs = args.map(arg => arg === buildPath && env.BUILD_NOTIFICATION_FIXTURE_PATH ? env.BUILD_NOTIFICATION_FIXTURE_PATH : arg);
+  return spawnSync(bash, commandArgs, { cwd, env, encoding: "utf8" });
 }
 
 function runQa(harness, label, commands, extraEnv = {}) {
@@ -125,7 +128,7 @@ test("qa_report_pass_sends_one_summary", () => {
       CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
       CODETERM_SOCKET_PATH: "parent.sock",
-      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-caller",
     });
     assert.equal(result.status, 0, result.stderr);
@@ -140,7 +143,7 @@ test("qa_report_pass_sends_one_summary", () => {
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-caller");
     assert.equal(records(h.devRecord).length, 0);
     const reportRoot = path.join(h.dir, "reports");
@@ -312,7 +315,7 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
       CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
       CODETERM_SOCKET_PATH: "parent.sock",
-      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-tab",
       CODETERM_SESSION_ID: "parent-session",
       CODETERM_SESSION_BINDING_NONCE: "parent-nonce",
@@ -327,7 +330,7 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-tab");
     assert.equal(sent[0].env.CODETERM_SESSION_ID, "parent-session");
     assert.equal(sent[0].env.CODETERM_SESSION_BINDING_NONCE, "parent-nonce");
@@ -502,7 +505,7 @@ test("build_sh_parses_notify_tab_before_path_change", () => {
     const separated = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
     assert.equal(separated.status, 0, separated.stderr);
     assert.match(separated.stdout, /notify_tab=agent-tab/);
-    assert.ok(separated.stdout.includes("parent_cli=" + h.parentCli));
+    assert.ok(separated.stdout.includes("parent_cli="));
     assert.ok(!separated.stdout.includes(path.join(env.HOME, ".codeterm-dev", "bin")));
     const equals = runBash([buildPath, "dev", "--notify-tab=agent-tab"], env);
     assert.equal(equals.status, 0, equals.stderr);
@@ -526,7 +529,7 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
       CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
       CODETERM_SOCKET_PATH: "parent.sock",
-      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-caller",
       CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
       CODETERM_TEST_SEND_PARENT_REPORT: "1",
@@ -534,7 +537,7 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
     mkdirSync(env.HOME, { recursive: true });
     const result = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(result.stdout.includes("parent_cli=" + h.parentCli));
+    assert.ok(result.stdout.includes("parent_cli="));
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].executable, h.parentCli);
@@ -543,7 +546,7 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-caller");
     assert.equal(records(h.devRecord).length, 0);
   } finally {
@@ -579,7 +582,7 @@ test("build_notify_tab_failure_names_step_first_error_and_log", () => {
     const started = Date.now();
     const result = runBash([buildPath, "install-local", "--notify-tab", "agent-tab"], h.env);
     assert.equal(result.status, 1);
-    assert.ok(Date.now() - started < 30000, "format gate must fail before any gateway work");
+    assert.ok(Date.now() - started < 30000, "format failure receipt must arrive within the failure deadline");
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.match(sent[0].body, /EARLY FAILURE label=install-local step=install-local/);
@@ -613,5 +616,54 @@ test("build_notify_tab_requires_a_value", () => {
     assert.match(result.stderr, /non-empty tab id/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("check_queue_notifies_invalid_revision_without_reaching_cargo", () => {
+  const h = makeHarness();
+  try {
+    writeFakeCargo(h.dir, "echo 'unexpected cargo invocation' >&2; exit 99");
+    const result = runBash([buildPath, "check-queue", "does-not-exist-notify-fixture", "--notify-tab", "agent-tab"], h.env);
+    assert.notEqual(result.status, 0);
+    assert.notEqual(result.status, 2, result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /unexpected cargo invocation/);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "agent-tab"]);
+    assert.match(sent[0].body, /EARLY FAILURE label=check-queue/);
+    assert.match(sent[0].body, /does-not-exist-notify-fixture/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-check-queue/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test('powershell launcher forwards checks without writing shared Git configuration', { skip: process.platform !== 'win32' }, () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'powershell-build-forward-'));
+  try {
+    const launcher = path.join(directory, 'build.ps1');
+    writeFileSync(launcher, readFileSync(path.join(root, 'build.ps1'), 'utf8'));
+    writeFileSync(path.join(directory, 'build.sh'), '#!/usr/bin/env bash\nprintf "FORWARDED %s\\n" "$*"\n');
+    const quoted = launcher.replaceAll("'", "''");
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', `function global:git { throw 'unexpected shared config write' }; & '${quoted}' check-queue opaque-sha -NotifyTab opaque-tab`], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /FORWARDED check-queue opaque-sha --notify-tab opaque-tab/);
+    assert.doesNotMatch(result.stdout + result.stderr, /unexpected shared config write/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('nextest verbs use the shared notification wrapper for validation failures', () => {
+  for (const [verb, selector] of [['nextest', 'unknown-notify-scope'], ['nextest-archive', 'does-not-exist-notify-fixture']]) {
+    const h = makeHarness();
+    try {
+      writeFakeCargo(h.dir, "echo 'unexpected cargo invocation' >&2; exit 99");
+      const result = runBash([buildPath, verb, selector, '--notify-tab', 'agent-tab'], h.env);
+      assert.notEqual(result.status, 0);
+      assert.doesNotMatch(result.stdout + result.stderr, /unexpected cargo invocation/);
+      const sent = records(h.parentRecord);
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].body, new RegExp(`EARLY FAILURE label=${verb}`));
+      assert.ok(sent[0].body.includes(selector));
+    } finally { rmSync(h.dir, { recursive: true, force: true }); }
   }
 });

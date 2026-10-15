@@ -1,0 +1,9 @@
+[
+  {"job_id":"old","job":"check","state":"completed","exit_code":0,"worktree":"C:/repo","source_sha":"0123456789abcdef","started_at":"2026-10-14T10:00:00Z","ended_at":"2026-10-14T10:00:02Z"},
+  {"job_id":"middle","job":"check","state":"completed","exit_code":0,"worktree":"C:/repo","started_at":"2026-10-14T11:00:00Z","ended_at":"2026-10-14T11:00:04Z"},
+  {"job_id":"recent","job":"check","state":"completed","exit_code":0,"worktree":"C:/lanes/gauge","started_at":"2026-10-14T12:00:00Z","ended_at":"2026-10-14T12:00:09Z","crates":["codeterm-plan"],"touched_files_count":3},
+  {"job_id":"failed","job":"check","state":"failed","exit_code":101,"worktree":"C:/repo","started_at":"2026-10-14T13:00:00Z","ended_at":"2026-10-14T13:01:00Z"},
+  {"job_id":"running","job":"build","state":"running","exit_code":null,"worktree":"C:\\gateway\\check-worktree","started_at":"2026-10-14T14:00:00Z","ended_at":null},
+  {"job_id":"queued","job":"check","state":"queued","exit_code":null,"worktree":"C:/lanes/gauge","queued_at":"2026-10-14T14:00:10Z","started_at":null,"ended_at":null},
+  {"job_id":"lost","job":"check","state":"failed","outcome":"logging_failed","exit_code":74,"command_exit_code":0,"worktree":"C:/repo","started_at":"2026-10-14T09:00:00Z","ended_at":"2026-10-14T09:01:00Z"}
+]

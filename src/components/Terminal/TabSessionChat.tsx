@@ -1,6 +1,6 @@
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
-import { runtimeBannerView } from "../../lib/agentRuntimeState";
+import { runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
@@ -316,7 +316,7 @@ export function TabSessionChat({
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
-  const runtimeUnavailable = runtimeBannerView(runtime.state) !== null;
+  const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null;
   const runtimeReplacement = runtimeUnavailable
     ? <AgentRuntimeBanner tabId={tabId} state={runtime.state} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} /> : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
@@ -335,8 +335,9 @@ export function TabSessionChat({
     [enrichedMessages],
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatUserScrollingRef = useRef(false);
   const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
-    active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}` });
+    active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
   const mountedContentVersion = useMemo(() => ({ enrichedMessages, start: mountedWindow.range.start,
     end: mountedWindow.range.end, revision: mountedWindow.revision }),
     [enrichedMessages, mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision]);
@@ -352,6 +353,8 @@ export function TabSessionChat({
   } = useChatScroll({
     scrollRef: sharedScrollRef,
     onViewportChange: mountedWindow.syncViewport,
+    userScrollingRef: chatUserScrollingRef,
+    foldLayoutDrift: mountedWindow.foldDrift,
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
     loading,
@@ -864,7 +867,7 @@ export function TabSessionChat({
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
         {isActive && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
-        <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.range.top }} />
+        <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
         {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map(({ msg, item, origin }, mountedIndex) => {
           const messageIndex = mountedWindow.range.start + mountedIndex;
           const originProps = originPropsById.get(msg.id);
@@ -986,7 +989,7 @@ export function TabSessionChat({
       ) : (
       <>
       <div ref={setContextSlot} className="ct-ctx-slot" />
-      <div className="ct-composer-status w-full">
+      <div className="ct-composer-status w-full" style={{ paddingInlineStart: "calc(var(--ct-composer-gutter-x) + 2rem)" }}>
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}

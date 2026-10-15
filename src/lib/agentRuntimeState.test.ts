@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  beginRuntimeRetry, runtimeBannerView, runtimeRetryFailed, runtimeStateFromEvent, runtimeStateFromSnapshot, runtimeViewFromEvent,
+  beginRuntimeRetry, runtimeStatusPresentation, runtimeRetryFailed, runtimeStateFromEvent, runtimeStateFromSnapshot, runtimeViewFromEvent,
   type AgentRuntimeState,
 } from "./agentRuntimeState";
 
@@ -16,9 +16,9 @@ describe("agent runtime state", () => {
       expect(result).toEqual(to === "loaded" ? { state: "loaded", epoch: 3 } : { state: to, epoch: 3, reason: "fault" });
     });
 
-  it.each(["loading", "unloaded", "degraded"] as const)("shows the shared banner for %s", (state) => {
-    expect(runtimeBannerView({ state, epoch: 3, reason: "opaque-fault" })).toMatchObject({
-      loading: state === "loading", details: "opaque-fault", canRetry: state !== "loading",
+  it.each(["loading", "unloaded", "degraded"] as const)("presents runtime status for %s", (state) => {
+    expect(runtimeStatusPresentation({ state, epoch: 3, reason: "opaque-fault" })).toMatchObject({
+      severity: state === "loading" ? "transient" : "action_needed", details: "opaque-fault", canRetry: state !== "loading",
     });
   });
 
@@ -46,24 +46,24 @@ describe("agent runtime state", () => {
     const loading = beginRuntimeRetry(starting);
     expect(loading).toEqual({ state: "loading", epoch: 1, reason: "pipe closed" });
     expect(runtimeStateFromSnapshot(loading, { state: "loading", epoch: 2 })).toEqual({ state: "loading", epoch: 2, reason: "pipe closed" });
-    expect(runtimeBannerView(loading)).toEqual({ loading: true, reason: "Loading the agent runtime.", details: "pipe closed", canRetry: false });
+    expect(runtimeStatusPresentation(loading)).toMatchObject({ severity: "transient", details: "pipe closed", canRetry: false });
     expect(beginRuntimeRetry(loading)).toBe(loading);
     const failed = runtimeRetryFailed(loading, "resume refused");
     expect(failed).toEqual({ state: "degraded", epoch: 1, reason: "resume refused" });
-    expect(runtimeBannerView(failed)?.canRetry).toBe(true);
+    expect(runtimeStatusPresentation(failed)?.canRetry).toBe(true);
   });
 
   it("only authoritative loaded state clears the failure", () => {
     const state = runtimeStateFromSnapshot({ state: "loading", epoch: 2, reason: "fault" }, { state: "loaded", epoch: 2 });
     expect(state).toEqual({ state: "loaded", epoch: 2 });
-    expect(runtimeBannerView(state)).toBeNull();
+    expect(runtimeStatusPresentation(state)).toBeNull();
     expect(beginRuntimeRetry(state)).toBe(state);
     expect(runtimeRetryFailed(state, "late rejection")).toBe(state);
   });
 
   it("keeps non-runtime tabs silent and reports missing fault reasons honestly", () => {
     expect(runtimeStateFromSnapshot(null, null)).toBeNull();
-    expect(runtimeBannerView(null)).toBeNull();
+    expect(runtimeStatusPresentation(null)).toBeNull();
     expect(beginRuntimeRetry(null)).toBeNull();
     expect(runtimeRetryFailed(null, "fault")).toBeNull();
     expect(runtimeStateFromSnapshot(null, { state: "degraded", epoch: 0 })?.reason).toBeTruthy();
@@ -80,39 +80,46 @@ it("retains durable questions across runtime exit and rejects stale or foreign q
   expect(runtimeViewFromEvent(current, authority, { ...event, questions: [] }).questions).toEqual([]);
 });
 
-describe("runtime banner failure reasons", () => {
-  const rawDetail = 'Exception { stack: "at <anonymous> (eval_script:16:66)" }';
-  const cases = [
-    ["SizeLimit", "Runtime hook state size limit", "The agent runtime exceeded its size limit."],
-    ["SpawnFailed", "Runtime could not start:", "The agent runtime could not start."],
-    ["ProcessExited", "Runtime exited (code 1):", "The agent runtime stopped."],
-    ["PipeEof", "Runtime connection closed", "The connection to the agent runtime closed."],
-    ["PipeFailure", "Runtime stdout connection failed:", "The connection to the agent runtime failed."],
-    ["InvalidFrame", "Runtime sent an invalid response:", "The agent runtime sent an invalid response."],
-    ["Deadline", "Runtime did not respond in time", "The agent runtime did not respond in time."],
-    ["HookFailed", "Provider operation failed:", "The provider plugin failed while handling a response."],
-    ["Refused", "Provider refused:", "The provider refused the operation."],
-    ["PrewriteRefused", "Input was not sent:", "The input could not be sent to the agent runtime."],
-    ["Superseded", "Runtime session changed; this operation was cancelled", "The agent session changed and the operation was canceled."],
-  ];
 
-  it.each(cases)("maps %s to a human reason and preserves diagnostics separately", (code, display, expected) => {
-    for (const reason of [`${code}: ${rawDetail}`, `${display} ${rawDetail}`]) {
-      expect(runtimeBannerView({ state: "degraded", epoch: 1, reason })).toEqual({
-        loading: false, reason: expected, details: reason, canRetry: true,
-      });
-    }
+describe("runtime status presentation", () => {
+  it("has no badge for absent or healthy state, including recovery clearing", () => {
+    expect(runtimeStatusPresentation(null)).toBeNull();
+    const failed: AgentRuntimeState = { state: "degraded", epoch: 1, reason: "opaque-fault" };
+    expect(runtimeStatusPresentation(failed)).toMatchObject({ severity: "action_needed", canRetry: true });
+    const retrying = beginRuntimeRetry(failed);
+    expect(runtimeStatusPresentation(retrying)).toMatchObject({ severity: "transient", canRetry: false });
+    const recovered = runtimeStateFromSnapshot(retrying, { state: "loaded", epoch: 2 });
+    expect(runtimeStatusPresentation(recovered)).toBeNull();
   });
 
-  it("recognizes the nested runtime size limit from a provider hook exception", () => {
-    const reason = `Provider operation failed: HookFailed: runtimeResponse: Exception { message: Some("runtime size limit"), stack: ${rawDetail} }`;
-    expect(runtimeBannerView({ state: "unloaded", epoch: 1, reason })?.reason)
-      .toBe("The agent runtime exceeded its size limit.");
+  it("keeps a prior fault diagnostic from giving a transient state failure severity", () => {
+    expect(runtimeStatusPresentation({ state: "loading", epoch: 2, reason: "PipeFailure: opaque-detail" }))
+      .toMatchObject({ severity: "transient", canRetry: false, details: "PipeFailure: opaque-detail" });
   });
 
-  it.each([null, undefined, "", "   ", rawDetail])("keeps unknown or absent faults out of the human reason: %s", (reason) => {
-    expect(runtimeBannerView({ state: "degraded", epoch: 1, reason })).toEqual({
-      loading: false, reason: "The agent runtime is unavailable.", details: reason?.trim() ? reason : null, canRetry: true,
-    });
+  it.each([null, undefined, "", "   "])("omits empty diagnostics: %s", reason => {
+    expect(runtimeStatusPresentation({ state: "degraded", epoch: 1, reason })?.details).toBeNull();
+  });
+
+  it.each([
+    ["SizeLimit", "Runtime hook state size limit"],
+    ["SpawnFailed", "Runtime could not start:"],
+    ["ProcessExited", "Runtime exited (code 1):"],
+    ["PipeEof", "Runtime connection closed"],
+    ["PipeFailure", "Runtime stdout connection failed:"],
+    ["InvalidFrame", "Runtime sent an invalid response:"],
+    ["Deadline", "Runtime did not respond in time"],
+    ["HookFailed", "Provider operation failed:"],
+    ["Refused", "Provider refused:"],
+    ["PrewriteRefused", "Input was not sent:"],
+    ["Superseded", "Runtime session changed; this operation was cancelled"],
+  ])("classifies equivalent %s faults and retains their opaque diagnostics", (code, prefix) => {
+    const state = { state: "degraded" as const, epoch: 1 };
+    const coded = runtimeStatusPresentation({ ...state, reason: `${code}: opaque-detail` })!;
+    const described = runtimeStatusPresentation({ ...state, reason: `${prefix} opaque-detail` })!;
+    expect(coded.reason).toBe(described.reason);
+    expect(coded.details).toBe(`${code}: opaque-detail`);
+    expect(described.details).toBe(`${prefix} opaque-detail`);
+    expect(coded.reason).not.toBe(coded.details);
   });
 });
