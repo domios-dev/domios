@@ -31,14 +31,14 @@ function railsFor(view: ChatBodyView, messages: Array<{ at: number | null }>) {
 }
 
 describe("chat body authority", () => {
-  it("an empty transcript that is still loading owns the body", () => {
+  it("chatLoading with bootView none is not starting", () => {
     const view = chatBodyView({
       hasTranscript: false,
       chatLoading: true,
       unavailable: null,
       bootView: { kind: "none" },
     });
-    expect(view.kind).toBe("starting");
+    expect(view.kind).toBe("none");
   });
 
   it("a launching agent owns the body even when the chat channel is idle", () => {
@@ -80,9 +80,9 @@ describe("chat channel status", () => {
   it("hides channel status after loading completes", () => {
     expect(chatChannelLoadingRow(false, { kind: "none" })).toBe(null);
   });
-  it("leaves an empty loading transcript to its body indicator", () => {
+  it("shows a loading row for an empty transcript", () => {
     const view = chatBodyView({ hasTranscript: false, chatLoading: true, unavailable: null, bootView: { kind: "none" } });
-    expect(chatChannelLoadingRow(true, view)).toBe(null);
+    expect(chatChannelLoadingRow(true, view)).toBe("model");
   });
   it("leaves a reported failure to its body indicator", () => {
     expect(chatChannelLoadingRow(true, { kind: "failed", reason: "no_transcript_source" })).toBe(null);

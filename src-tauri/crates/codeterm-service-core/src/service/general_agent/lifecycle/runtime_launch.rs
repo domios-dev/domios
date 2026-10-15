@@ -224,10 +224,6 @@ fn launch(
         .and_then(|tab| tab.agent_session_id.clone())
         .ok_or("General runtime did not bind its thread")?;
     ownership.persist_session_id(provider, &bound_session);
-    if let Some(tab) = mux.write().get_tab_mut(&tab_id) {
-        tab.agent_booting = false;
-    }
-    svc.emit_boot_stage(&tab_id, BootStage::AgentReady, None);
     svc.observe_tab_state(
         &tab_id,
         crate::service::supporter_tab_state::ObservationTrigger::SpawnReady,

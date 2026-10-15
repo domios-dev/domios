@@ -40,12 +40,12 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const live = tab?.agent_state;
   const shell = tab?.shell_command_state;
   const declaresAgent = Boolean(tab?.agent_type) || tab?.backing?.kind === "chat_backend";
-  const sessionBound = Boolean(tab?.agent_session_id?.trim())
+  const sessionBound = tab?.session_bound === true || Boolean(tab?.agent_session_id?.trim())
     || (tab?.backing?.kind === "chat_backend" && Boolean(tab.backing.session_id?.trim()));
   const utility = tab?.tab_type === "Terminal" && !tab.agent_type && !tab.role && !tab.roleless_tracked
     && (!tab.backing || tab.backing.kind === "pty");
   const readyShell = utility && shell && tab?.boot_stage === "shell_ready";
-  const launching = tab?.agent_booting === true || (startingStages.has(tab?.boot_stage) && !readyShell)
+  const launching = (tab?.boot_stage !== "agent_ready" && tab?.agent_booting === true) || (startingStages.has(tab?.boot_stage) && !readyShell)
     || tab?.boot_stage === "awaiting_owner_prompt" || (declaresAgent && !sessionBound && tab?.boot_stage !== "agent_ready");
   const authoritativeStatus = status ?? (live?.state === "working" ? "Working"
     : live?.state === "question" ? "Waiting" : "Idle");
