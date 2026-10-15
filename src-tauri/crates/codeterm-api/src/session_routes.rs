@@ -393,7 +393,7 @@ pub async fn resume_session_api(
 
     // both spawn.
     {
-        let mux = state.svc.mux.write();
+        let mux = state.svc.mux.read();
         let existing_tab = mux.tab_ids_with_session(&session_id).into_iter().next();
         if let Some(tab_id) = existing_tab {
             let snap = mux.snapshot();

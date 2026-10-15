@@ -6,7 +6,7 @@ pub(super) fn propagate(svc: &ServiceContext, tab_id: &str, sid: &str) {
     use tauri::Manager;
 
     let (worker_id, cwd) = {
-        let mux = svc.mux.write();
+        let mux = svc.mux.read();
         let tab = mux.get_tab(tab_id);
         (
             tab.and_then(|p| p.worker_id.clone()),
