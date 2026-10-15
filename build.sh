@@ -2966,9 +2966,9 @@ LOCK_STORM_PY
         EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
         DEV_NOTIFY_STAGE=launch
         DEV_NOTIFY_WAITER_PID=
-        exec 3> >(tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev)
+        exec 3> >(report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev)
         DEV_NOTIFY_TEE_PID=$!
-        if ( exec "$(dev_app_path)" ) >&3 2>&1; then
+        if node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --log "$INTERACTIVE_LOG" >&3 2>&1; then
           DEV_NOTIFY_STATUS=0
         else
           DEV_NOTIFY_STATUS=$?
@@ -2996,7 +2996,7 @@ LOCK_STORM_PY
         dev_notify_exit_report "$DEV_NOTIFY_STATUS"
         exit "$DEV_NOTIFY_STATUS"
       else
-        exec "$(dev_app_path)"
+        exec node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --log "/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
       fi
     fi
     ;;

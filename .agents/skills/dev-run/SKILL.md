@@ -346,3 +346,19 @@ recorded its Windows mapped-drive alias. The existing provenance writer and
 validator now use physical artifact paths, including the embed and frontend, so
 the record survives gateway mapping release. Restart directly with `dev-prebuilt`;
 its preflight runs before stopping the app.
+
+## DEV standard handles
+
+Both foreground DEV and detached `--wait` use `scripts/dev-app-process.mjs`.
+On Windows, `windows-dev-app.ps1` hosts the small .NET process boundary in
+`windows-dev-app.cs`: .NET Framework redirects app stdout/stderr through
+synchronous anonymous `CreatePipe` handles. Dedicated readers drain both streams;
+only the wrapper connects to Node/libuv pipes. On Unix, the app writes directly
+to a launcher-opened regular file, observed through file-change events.
+The shared reader keeps the log and forwards READY signals in either mode.
+Windows open-file notifications can be deferred until writer close, so they
+cannot serve as the live READY signal there. `build.ps1` still only forwards.
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| Windows DEV aborts with `fatal runtime error: I/O error: operation failed to complete synchronously` (event 1000, `0xc0000409`) | The former launch path gave Rust stdio an overlapped pipe. A synchronous write can return `ERROR_IO_PENDING` under reader load. | Rebuild with the corrected launcher and restart DEV. Keep Windows app stdout/stderr on the .NET synchronous-pipe boundary in foreground and `--wait`. Never attach app stdio directly to libuv or PowerShell pipeline pipes. |
