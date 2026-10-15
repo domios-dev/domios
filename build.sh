@@ -2167,7 +2167,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  fmt-check|check|check-tests|ci-archives|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  fmt-check|check|check-tests|ci-tests|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
 esac
@@ -2196,7 +2196,7 @@ CodeTerm build commands
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
-  ci-archives                 Compile and archive test profiles with the shared cache
+  ci-tests full|platform      Compile and run the full Rust suite, or this OS's cfg-gated subset, in place
   worktree-check              Isolated lane-safe Rust compile check
   test-one <input-macos|input-windows|billing|account|analytics|app|api|socket|commands|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
                               Run one focused Rust test
@@ -2399,8 +2399,9 @@ EOF
     ensure_deps
     pnpm build
     ;;
-  ci-archives)
-    node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-archives.mjs
+  ci-tests)
+    case "${2:-}" in full|platform) ;; *) echo "Usage: ./build.sh ci-tests full|platform" >&2; exit 2 ;; esac
+    node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
     ;;
   release-inputs)
     ensure_deps

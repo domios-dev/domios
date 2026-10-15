@@ -193,7 +193,7 @@ plugin-only releases are outside this gate.
 
 ## Rust warning inventory and cleanup
 
-Every release target and test archive/clippy build uploads a `rust-warnings-<lane>-<target>.json`
+Every release target, Rust test job and clippy build uploads a `rust-warnings-<lane>-<target>.json`
 artifact. The always-running warning summary publishes per-target, per-lint and per-file tables
 in its job summary. Download `rust-warnings-release-report` (or `rust-warnings-tests-report`)
 for `rust-warnings-report.md` and `rust-warnings-report.json`; the release summary also comments

@@ -169,9 +169,10 @@ SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
 
 
 Release-input preparation now calls the same cache policy before invoking Cargo.
-`ci-archives` owns archive compilation through that policy; on Windows use
-`.\build.ps1 ci-archives`, which locates Git Bash explicitly without requiring it
-on PATH. Native release jobs export `RUSTC_WRAPPER=sccache` at job scope so the
+`ci-tests full|platform` owns CI test compilation and execution through that
+policy (full suite, or this OS's cfg-gated subset plus the native input crates); on
+Windows use `.\build.ps1 ci-tests <mode>`, which locates Git Bash explicitly without
+requiring it on PATH. Native release jobs export `RUSTC_WRAPPER=sccache` at job scope so the
 separate Tauri invocation inherits it, verify shared storage before compiling,
 and print `cache-stats` in their final step.
 

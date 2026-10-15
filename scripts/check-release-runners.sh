@@ -17,7 +17,7 @@ REQUIRED_LABELS=(
     "$(label_for RELEASE_WINDOWS_X64_LABEL windows-x64-build)"
     "$(label_for RELEASE_WINDOWS_ARM64_LABEL windows-build)"
     "$(label_for RELEASE_LINUX_X64_LABEL linux-build)"
-    rust-shard linux-ci windows-ci light
+    rust-tests rust-shard linux-ci windows-ci light
 )
 
 runners=$(gh api "repos/$REPO/actions/runners" --paginate \
