@@ -170,3 +170,11 @@ DEV app stdout/stderr use .NET Framework synchronous pipes on Windows and regula
 files on Unix, through `scripts/dev-app-process.mjs`. The reader forwards log chunks
 into the report stream, preserving READY health validation without exposing the
 Rust app to overlapped pipeline handles. Both foreground and `--wait` share it.
+
+## PowerShell capture turns Cargo progress into an exception
+
+Do not wrap `build.ps1` with PowerShell `*>` or `2>&1` to capture build output.
+Its `ErrorActionPreference=Stop` can turn normal Cargo stderr progress into a
+terminating `NativeCommandError`, leaving no compile verdict or exit record.
+Run the command through `scripts/qa-report.sh` in the Team utility shell instead;
+it merges streams inside Bash and preserves the raw exit in the run summary.

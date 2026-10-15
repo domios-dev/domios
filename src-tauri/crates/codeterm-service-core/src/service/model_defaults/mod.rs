@@ -23,7 +23,7 @@ struct Reconciler {
 pub fn start(service: ServiceState) {
     let mut changes = model_catalog::subscribe_changes();
     let reconciler = Arc::new(Reconciler::default());
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         run_blocking(&service, &reconciler, None).await;
         loop {
             match changes.recv().await {

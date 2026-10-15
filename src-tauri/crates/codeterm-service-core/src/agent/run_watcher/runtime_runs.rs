@@ -74,7 +74,7 @@ impl RunWatcherRegistry {
         {
             let owner = svc.clone();
             let tab = tab.to_string();
-            tauri::async_runtime::spawn(async move {
+            crate::async_runtime::spawn(async move {
                 if tokio::time::timeout(Duration::from_secs(timeout_secs), completion.changed())
                     .await
                     .is_err()

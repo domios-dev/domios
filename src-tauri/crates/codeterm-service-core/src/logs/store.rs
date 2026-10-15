@@ -261,7 +261,7 @@ impl LogStore {
 
     pub fn start_flush_loop(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 let Some(store) = weak.upgrade() else { break };

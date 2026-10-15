@@ -94,7 +94,7 @@ impl ServiceContext {
         if fresh {
             outcome.session_id = None;
         }
-        let result = tauri::async_runtime::block_on(agent_runtime::restart::restart(
+        let result = crate::async_runtime::block_on(agent_runtime::restart::restart(
             self, tab_id, &provider, &nonce, fresh,
         ));
         match result {

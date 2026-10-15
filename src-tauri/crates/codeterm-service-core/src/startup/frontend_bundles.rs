@@ -54,7 +54,7 @@ pub(crate) fn navigation_index(bundles: Option<&FrontendBundles>) -> String {
 }
 
 pub fn check(bundles: Arc<FrontendBundles>) {
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         match tokio::task::spawn_blocking(move || bundles.check()).await {
             Ok(Ok(_)) => {}
             Ok(Err(error)) => log::debug!("[frontend-bundle] check refused: {error}"),

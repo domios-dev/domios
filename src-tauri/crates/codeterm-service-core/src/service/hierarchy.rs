@@ -1022,7 +1022,7 @@ impl ServiceContext {
             body,
             delivery_id: None,
         };
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {
                 Ok(r) if r.ok => {
                     log::info!("[plan/mesh] batch relayed to {}/{}", peer, plan_id)

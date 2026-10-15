@@ -66,7 +66,7 @@ fn capture_command(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    let mut tree = super::super::provider_update::ProcessTree::prepare(&mut command)
+    let mut tree = crate::provider_update::ProcessTree::prepare(&mut command)
         .map_err(|_| ProbeFailure::Spawn)?;
     let mut child = spawn(&mut command).map_err(|_| ProbeFailure::Spawn)?;
     if tree.record_spawn(&child).is_err() {

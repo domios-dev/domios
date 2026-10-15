@@ -43,7 +43,7 @@ fn spawn_on_app_runtime<F>(future: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    tauri::async_runtime::spawn(future);
+    crate::async_runtime::spawn(future);
 }
 
 pub use app_ports::UserLastActivityProvider;

@@ -35,7 +35,7 @@ impl crate::service::ServiceContext {
         let tab = tab_id.to_owned();
         #[cfg(any(test, feature = "test-support"))]
         let completion = self.ready_user_send_tasks.start(tab_id);
-        tauri::async_runtime::spawn_blocking(move || {
+        crate::async_runtime::spawn_blocking(move || {
             #[cfg(any(test, feature = "test-support"))]
             let _completion = completion;
             let outcome = submit(payload_enqueued);

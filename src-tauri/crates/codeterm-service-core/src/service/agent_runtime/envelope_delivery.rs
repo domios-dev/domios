@@ -48,7 +48,7 @@ pub(super) fn send(
         record_write(svc, &status)?;
         return outcome(status);
     }
-    tauri::async_runtime::block_on(super::engine::ensure(svc, tab))
+    crate::async_runtime::block_on(super::engine::ensure(svc, tab))
         .map_err(|reason| reason.to_string())?;
     let reservation = svc.reserve_user_send(tab, Some(token))?;
     if reservation.wait_existing()? {

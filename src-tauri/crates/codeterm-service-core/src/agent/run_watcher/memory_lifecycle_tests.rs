@@ -20,7 +20,7 @@ fn extraction_hard_deadline_finalizes_without_restart() {
         "auto:save".into(),
         "red".into(),
     ));
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         tokio::time::timeout(
             Duration::from_secs(3),
             watchdog_loop(svc.clone(), run.clone(), 0),

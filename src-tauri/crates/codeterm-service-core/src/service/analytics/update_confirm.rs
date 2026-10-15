@@ -27,7 +27,7 @@ pub(crate) fn confirm(path: &Path, running: &str, worker: &Worker) -> Result<(),
     if target != running {
         return Ok(());
     }
-    tauri::async_runtime::block_on(worker.record(Event::UpdateInstalled {
+    crate::async_runtime::block_on(worker.record(Event::UpdateInstalled {
         kind: UpdateKind::App,
     }))?;
     std::fs::remove_file(path).map_err(|e| e.to_string())

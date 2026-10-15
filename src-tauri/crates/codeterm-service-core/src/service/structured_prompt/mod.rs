@@ -176,7 +176,7 @@ pub fn maybe_start_subscriber(svc: &ServiceContext, tab_id: &str) {
     log::info!("[structured-channel] tab={tab_id} status=subscribing endpoint={} session={} binding_nonce={}", binding.base_url, binding.session_id, binding.nonce);
     let svc = svc.clone();
     let tab_id = tab_id.to_string();
-    tauri::async_runtime::spawn(subscriber::run(svc, tab_id, binding, receiver, live));
+    crate::async_runtime::spawn(subscriber::run(svc, tab_id, binding, receiver, live));
 }
 
 /// Allocate the server; subscription starts after authenticated launch binding.

@@ -177,7 +177,7 @@ pub fn register_deep_links(
     app.deep_link().register_all()?;
     let dispatch = move |urls: Vec<url::Url>| {
         let service = service.clone();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             for url in urls {
                 match deep_links::deep_link_action(&url) {
                     Some(deep_links::DeepLinkAction::BillingReturn { status }) => {
