@@ -116,6 +116,11 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         tab.reported_session_binding_nonce = Some("nonce".into());
     }
     let fixture = ServiceFixture::new(mux);
+    let _dispatcher = fixture.bind_recorded_agent_recipient(
+        &dispatcher,
+        "dispatcher-session",
+        "dispatcher-nonce",
+    );
     let history = fixture.temp.path().join("own-session.jsonl");
     std::fs::write(&history, vec![b' '; 100]).unwrap();
     let completion = std::sync::Arc::new(Mutex::new(None));
