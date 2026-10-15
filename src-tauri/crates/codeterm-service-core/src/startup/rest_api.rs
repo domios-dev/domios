@@ -12,11 +12,11 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 pub(crate) mod listeners;
 mod restart;
 mod streams;
-pub(crate) use restart::RestartAcceptance;
+pub use restart::RestartAcceptance;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum RestApiPhase {
+pub enum RestApiPhase {
     Starting,
     Listening,
     Failed,
@@ -24,22 +24,22 @@ pub(crate) enum RestApiPhase {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum RestApiDiagnostic {
+pub enum RestApiDiagnostic {
     ListenerExited,
     BindOwnershipFailed,
     WorkersBlocked,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct RestApiStatus {
-    pub(crate) generation: u64,
-    pub(crate) phase: RestApiPhase,
-    pub(crate) diagnostic: Option<RestApiDiagnostic>,
-    pub(crate) message: Option<String>,
+pub struct RestApiStatus {
+    pub generation: u64,
+    pub phase: RestApiPhase,
+    pub diagnostic: Option<RestApiDiagnostic>,
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RestApiRecovery {
+pub struct RestApiRecovery {
     pub(crate) transition_id: u64,
     pub(crate) status: RestApiStatus,
 }
@@ -47,16 +47,16 @@ pub(crate) struct RestApiRecovery {
 /// A configured bind the live socket does not serve. Exists because the bind is
 /// snapshotted at process start, so a config write cannot move it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct PendingBind {
-    pub(crate) live: String,
-    pub(crate) configured: String,
+pub struct PendingBind {
+    pub live: String,
+    pub configured: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-pub(crate) struct RestApiRuntimePolicy {
-    pub(crate) enabled: bool,
-    pub(crate) cors: bool,
-    pub(crate) cors_allow_origins: Vec<String>,
+pub struct RestApiRuntimePolicy {
+    pub enabled: bool,
+    pub cors: bool,
+    pub cors_allow_origins: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -70,8 +70,8 @@ struct RestApiLifecycle {
 }
 
 #[derive(Clone)]
-pub(crate) struct RestApiControl {
-    pub(crate) listeners: listeners::ListenerPublication,
+pub struct RestApiControl {
+    pub listeners: listeners::ListenerPublication,
     transition: Arc<Mutex<()>>,
     sender: Arc<Mutex<Option<mpsc::UnboundedSender<RestApiCommand>>>>,
     lifecycle: Arc<Mutex<RestApiLifecycle>>,
@@ -122,7 +122,7 @@ enum GenerationEvent {
 }
 
 impl RestApiControl {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let status = RestApiStatus {
             generation: 0,
             phase: RestApiPhase::Starting,
@@ -227,7 +227,7 @@ impl RestApiControl {
 
     /// The address the process actually holds a socket on, or None while no
     /// generation owns a listener.
-    pub(crate) fn bound_addr(&self) -> Option<SocketAddr> {
+    pub fn bound_addr(&self) -> Option<SocketAddr> {
         let lifecycle = self.lifecycle.lock();
         lifecycle.bound_addr.filter(|_| lifecycle.listener_owned)
     }
@@ -236,13 +236,13 @@ impl RestApiControl {
         self.lifecycle.lock().runtime_policy = policy;
     }
 
-    pub(crate) fn runtime_policy(&self) -> RestApiRuntimePolicy {
+    pub fn runtime_policy(&self) -> RestApiRuntimePolicy {
         self.lifecycle.lock().runtime_policy.clone()
     }
 
     /// None only when the live socket is provably serving `configured`; anything
     /// unproven is reported pending rather than assumed applied.
-    pub(crate) fn pending_bind(&self, configured: &str) -> Option<PendingBind> {
+    pub fn pending_bind(&self, configured: &str) -> Option<PendingBind> {
         let live = self.bound_addr()?;
         if configured
             .parse::<SocketAddr>()
@@ -346,7 +346,7 @@ impl RestApiControl {
         }
     }
 
-    pub(crate) fn status(&self) -> RestApiStatus {
+    pub fn status(&self) -> RestApiStatus {
         self.lifecycle.lock().status.clone()
     }
 
@@ -379,7 +379,7 @@ impl RestApiControl {
         self.recovery_receiver.lock().take()
     }
 
-    pub(crate) async fn restart_and_wait(&self) -> Result<RestApiStatus, String> {
+    pub async fn restart_and_wait(&self) -> Result<RestApiStatus, String> {
         let (completed, response) = oneshot::channel();
         self.signal(RestApiCommand::Restart { completed })?;
         tokio::time::timeout(Duration::from_secs(15), response)
@@ -390,7 +390,7 @@ impl RestApiControl {
             .map_err(|_| "REST API listener controller stopped".to_string())
     }
 
-    pub(crate) async fn prepare_http_restart(&self) -> Result<RestartAcceptance, String> {
+    pub async fn prepare_http_restart(&self) -> Result<RestartAcceptance, String> {
         let (accepted, response) = oneshot::channel();
         let (response_complete, body_complete) = oneshot::channel();
         self.signal(RestApiCommand::PrepareRestart {
@@ -488,7 +488,7 @@ impl RestApiControl {
     }
 }
 
-pub(crate) type RestApiControlState = Arc<RestApiControl>;
+pub type RestApiControlState = Arc<RestApiControl>;
 
 fn probe_address(address: SocketAddr) -> SocketAddr {
     match address.ip() {
@@ -735,7 +735,7 @@ where
     }
 }
 
-pub(crate) fn spawn(
+pub fn spawn(
     control: RestApiControlState,
     bind_addr: String,
     router: axum::Router,
@@ -751,7 +751,7 @@ pub(crate) fn spawn(
     })
 }
 
-pub(crate) async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
+pub async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
     let (sender, mut commands) = mpsc::unbounded_channel();
     control.install(sender);
     #[cfg(test)]

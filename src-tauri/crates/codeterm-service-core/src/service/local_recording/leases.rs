@@ -57,7 +57,7 @@ pub(crate) struct CaptureLeaseView {
 }
 
 #[derive(Default)]
-pub(crate) struct RecordingLeases {
+pub struct RecordingLeases {
     state: Mutex<LeaseState>,
     write_tickets: Mutex<HashMap<String, WriteTicket>>,
     clips: CaptureClips,
@@ -78,7 +78,7 @@ struct LeaseState {
 }
 
 impl RecordingLeases {
-    pub(crate) fn set_manual_capture(&self, active: bool) -> Result<(), String> {
+    pub fn set_manual_capture(&self, active: bool) -> Result<(), String> {
         let mut state = self.state.lock();
         if active
             && state
@@ -146,7 +146,7 @@ impl RecordingLeases {
         Ok(view)
     }
 
-    pub(crate) fn stopped(&self, lease: &str) -> Result<(), String> {
+    pub fn stopped(&self, lease: &str) -> Result<(), String> {
         let mut state = self.state.lock();
         let capture = state.captures.get_mut(lease).ok_or("capture_lease_stale")?;
         capture.validate()?;
@@ -172,7 +172,7 @@ impl RecordingLeases {
         Ok(capture.clone())
     }
 
-    pub(crate) fn finish(&self, lease: &str) {
+    pub fn finish(&self, lease: &str) {
         let mut state = self.state.lock();
         state.captures.remove(lease);
         state.generations.remove(lease);
@@ -437,7 +437,7 @@ impl RecordingLeases {
         invalidated.len()
     }
 
-    pub(crate) fn close_tab(&self, tab_id: &str) {
+    pub fn close_tab(&self, tab_id: &str) {
         let mut state = self.state.lock();
         let leases = state
             .captures
@@ -470,7 +470,7 @@ impl Capture {
         self.active.load(Ordering::Acquire) && now < *self.expires_at.lock()
     }
 
-    pub(crate) fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         if self.is_current(Instant::now()) {
             Ok(())
         } else {

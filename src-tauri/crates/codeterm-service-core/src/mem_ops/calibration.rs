@@ -1,6 +1,6 @@
-use serde::Deserialize;
+pub use serde::Deserialize;
 
-pub(crate) use codeterm_mem::curation::calibration::{
+pub use codeterm_mem::curation::calibration::{
     archive, calibration_log_query, run_calibration_sweep, run_nightly_calibration, stale,
 };
 

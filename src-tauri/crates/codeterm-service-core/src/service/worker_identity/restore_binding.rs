@@ -9,27 +9,27 @@ use crate::service::{
 };
 use sha2::Digest;
 
-const LINEAGE_PROOF_KIND: &str = "prior_session_binding_nonce_suffix";
+pub const LINEAGE_PROOF_KIND: &str = "prior_session_binding_nonce_suffix";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SameSessionLineageProof {
+pub struct SameSessionLineageProof {
     digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AttemptBindingRestoreResult {
+pub enum AttemptBindingRestoreResult {
     Restored(AttemptBindingRestorationReceipt),
     AlreadyCurrent,
 }
 
-pub(crate) struct AttemptBindingRestoreTarget<'a> {
+pub struct AttemptBindingRestoreTarget<'a> {
     pub plan_id: &'a str,
     pub task_id: &'a str,
     pub attempt_id: &'a str,
     pub owner_epoch: u64,
 }
 
-pub(crate) fn restore_attempt_binding_for_caller(
+pub fn restore_attempt_binding_for_caller(
     service: &ServiceContext,
     target: AttemptBindingRestoreTarget<'_>,
     caller: &AuthenticatedPlanCaller,
@@ -39,7 +39,7 @@ pub(crate) fn restore_attempt_binding_for_caller(
     restore_attempt_binding_for_mux(&service.plan_store, &mux, target, caller, now_ms)
 }
 
-pub(crate) fn restore_attempt_binding_for_mux(
+pub fn restore_attempt_binding_for_mux(
     store: &crate::service::plan::PlanStore,
     mux: &crate::multiplexer::state::MultiplexerState,
     target: AttemptBindingRestoreTarget<'_>,
@@ -168,7 +168,7 @@ pub(crate) fn restore_attempt_binding_for_mux(
     }
 }
 
-fn is_current_worker_role(tab: &Tab) -> bool {
+pub fn is_current_worker_role(tab: &Tab) -> bool {
     if tab.role != Some(AgentRole::Worker) {
         return false;
     }
@@ -190,7 +190,7 @@ fn is_current_worker_role(tab: &Tab) -> bool {
         )
 }
 
-fn prove_same_session_restoration(
+pub fn prove_same_session_restoration(
     lineage: &[PriorBindingNonce],
     old_nonce: &str,
     current_nonce: &str,
@@ -248,7 +248,7 @@ fn prove_same_session_restoration(
     })
 }
 
-fn digest(bytes: &[u8]) -> String {
+pub fn digest(bytes: &[u8]) -> String {
     format!("sha256:{:x}", sha2::Sha256::digest(bytes))
 }
 

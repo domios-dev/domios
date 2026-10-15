@@ -8,14 +8,19 @@ mod model;
 mod ops;
 pub(crate) mod resume;
 pub(crate) mod runtime;
+pub use runtime::sse_payload as runtime_sse_payload;
 mod stream_ops;
 mod transport;
 
 pub(crate) use activity::{is_agent_method, sanitize_actor, SurfaceActivityGate};
-pub(crate) use exit::{begin_surface_shutdown, SurfaceShutdown};
-pub(crate) use model::{SurfaceError, SurfaceOpenRequest};
+pub use exit::{begin_surface_shutdown, SurfaceShutdown};
+pub use model::SurfaceError;
+pub use model::SurfaceOpenRequest;
 pub(crate) use runtime::SurfaceRuntimeRegistry;
-pub(crate) use stream_ops::{call_surface, open_surface_stream, CallOrigin, SurfaceCallFailure};
+pub use stream_ops::call_surface;
+pub use stream_ops::open_surface_stream;
+pub use stream_ops::CallOrigin;
+pub use stream_ops::SurfaceCallFailure;
 pub(crate) use transport::SurfaceTransport;
 
 use super::ServiceContext;
@@ -36,7 +41,7 @@ pub(crate) fn builtin_runtimes() -> std::sync::Arc<SurfaceRuntimeRegistry> {
 }
 
 impl ServiceContext {
-    pub(crate) fn tab_surface_input_refusal(&self, tab_id: &str) -> Option<String> {
+    pub fn tab_surface_input_refusal(&self, tab_id: &str) -> Option<String> {
         let mux = self.mux.read();
         let resolved = mux.resolve_tab_id(tab_id)?;
         surface_input_refusal(&mux.get_tab(&resolved)?.backing)

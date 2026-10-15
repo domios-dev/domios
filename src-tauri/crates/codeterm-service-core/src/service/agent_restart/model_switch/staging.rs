@@ -437,7 +437,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn staged_model_turn_completed(&self, tab_id: &str, session_id: &str, nonce: &str) {
+    pub fn staged_model_turn_completed(&self, tab_id: &str, session_id: &str, nonce: &str) {
         let accepted = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
             tab.agent_session_id.as_deref() == Some(session_id)
                 && tab.session_binding_nonce.as_deref() == Some(nonce)
@@ -479,7 +479,7 @@ impl ServiceContext {
             }
         }
     }
-    pub(crate) fn cancel_staged_model_switch(&self, tab_id: &str) {
+    pub fn cancel_staged_model_switch(&self, tab_id: &str) {
         let mut mux = self.mux.write();
         self.ext::<crate::service::agent_restart::RestartTracker>()
             .lock()

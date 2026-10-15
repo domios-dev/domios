@@ -6,7 +6,7 @@ pub(crate) mod delivery_readiness;
 
 impl ServiceContext {
     #[cfg(debug_assertions)]
-    pub(crate) fn feed_pty_output(&self, pty_id: &str, data: &[u8]) -> (TabStatus, TabStatus) {
+    pub fn feed_pty_output(&self, pty_id: &str, data: &[u8]) -> (TabStatus, TabStatus) {
         self.feed_pty_output_inner(pty_id, None, data)
     }
 
@@ -122,7 +122,7 @@ impl ServiceContext {
         statuses
     }
 
-    pub(crate) fn emit_tab_status_if_changed(&self, pty_id: &str, prev: TabStatus, now: TabStatus) {
+    pub fn emit_tab_status_if_changed(&self, pty_id: &str, prev: TabStatus, now: TabStatus) {
         self.publish_authoritative_tab_statuses();
         if now == prev {
             return;
@@ -138,7 +138,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn mark_agent_turn_error(&self, tab_id: &str) -> bool {
+    pub fn mark_agent_turn_error(&self, tab_id: &str) -> bool {
         if self.is_agent_stop_suppressed_for_tab(tab_id) {
             log::info!("[tab-stop] suppressed_turn_error tab={}", tab_id);
             return self.mark_agent_turn_complete(tab_id);
@@ -146,7 +146,7 @@ impl ServiceContext {
         self.mark_agent_turn_status(tab_id, TabStatus::Error)
     }
 
-    pub(crate) fn mark_agent_turn_complete(&self, tab_id: &str) -> bool {
+    pub fn mark_agent_turn_complete(&self, tab_id: &str) -> bool {
         self.mark_agent_turn_status(tab_id, TabStatus::Idle)
     }
 
@@ -154,7 +154,7 @@ impl ServiceContext {
         self.mark_agent_turn_status(tab_id, TabStatus::Waiting)
     }
 
-    pub(crate) fn mark_agent_turn_started(&self, tab_id: &str) -> bool {
+    pub fn mark_agent_turn_started(&self, tab_id: &str) -> bool {
         self.staged_model_turn_started(tab_id);
         self.mark_agent_turn_status(tab_id, TabStatus::Working)
     }

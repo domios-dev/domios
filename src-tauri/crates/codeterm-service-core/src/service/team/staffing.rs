@@ -16,7 +16,7 @@ use crate::service::team::{authorize_team_manager, TeamMutationCaller};
 use crate::service::ServiceContext;
 
 #[derive(Clone, Default)]
-pub(crate) struct TeamCartographerAttachLocks {
+pub struct TeamCartographerAttachLocks {
     gates: Arc<parking_lot::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
 }
 
@@ -35,9 +35,9 @@ impl TeamCartographerAttachLocks {
 
 pub(crate) type TeamOrchestratorAttachLocks = TeamCartographerAttachLocks;
 
-pub(crate) struct CartographerAttachLocks(pub(crate) TeamCartographerAttachLocks);
+pub struct CartographerAttachLocks(pub(crate) TeamCartographerAttachLocks);
 
-pub(crate) struct OrchestratorAttachLocks(pub(crate) TeamOrchestratorAttachLocks);
+pub struct OrchestratorAttachLocks(pub(crate) TeamOrchestratorAttachLocks);
 
 /// Every refusal leaves the same trace: the Team, the role that was asked for,
 /// the code, and the cause behind it.
@@ -48,7 +48,7 @@ fn refuse(team_id: &str, role: &str, code: &'static str, cause: impl Into<String
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AddTeamMemberParams {
+pub struct AddTeamMemberParams {
     pub provider: String,
     pub role: String,
     pub title: Option<String>,
@@ -56,7 +56,7 @@ pub(crate) struct AddTeamMemberParams {
     pub model: Option<String>,
 }
 
-pub(crate) fn team_member_brief(
+pub fn team_member_brief(
     task: Option<String>,
     brief: Option<String>,
 ) -> Result<Option<String>, String> {
@@ -81,31 +81,29 @@ where
     Ok(attachment)
 }
 
-impl ServiceContext {
-    pub(crate) async fn reuse_cartographer_with_brief(
-        &self,
-        attachment: AddTeamMemberResult,
-        brief: Option<String>,
-    ) -> Result<AddTeamMemberResult, String> {
-        deliver_reused_cartographer(attachment, brief, |tab: String, brief: String| async move {
-            self.send_text_when_ready(&tab, &brief)
-                .await
-                .map_err(|error| error.to_string())
-        })
-        .await
-    }
+pub(crate) async fn reuse_cartographer_with_brief(
+    svc: &ServiceContext,
+    attachment: AddTeamMemberResult,
+    brief: Option<String>,
+) -> Result<AddTeamMemberResult, String> {
+    deliver_reused_cartographer(attachment, brief, |tab: String, brief: String| async move {
+        svc.send_text_when_ready(&tab, &brief)
+            .await
+            .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 /// Where the Team's plan landed when an added anchor took it over.
 #[derive(Debug, Clone, serde::Serialize)]
-pub(crate) struct PlanTakeover {
+pub struct PlanTakeover {
     pub plan_id: String,
     pub owner_tab_id: String,
     pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub(crate) struct AddTeamMemberResult {
+pub struct AddTeamMemberResult {
     pub tab_id: String,
     pub team: Team,
     pub role_type: String,
@@ -117,7 +115,7 @@ pub(crate) struct AddTeamMemberResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct PreparedTeamMemberSpawn {
+pub struct PreparedTeamMemberSpawn {
     pub spawn_params: crate::service::SpawnAgentParams,
     pub expected_role: String,
     pub expected_profile: Option<String>,
@@ -191,7 +189,7 @@ pub(crate) fn existing_cartographer_attachment(
     })
 }
 
-pub(crate) fn prepare_team_member_spawn(
+pub fn prepare_team_member_spawn(
     mux: &MultiplexerState,
     team_id: &str,
     caller_tab_id: Option<&str>,
@@ -315,7 +313,7 @@ where
     Ok(prepared)
 }
 
-pub(crate) fn commit_team_member_spawn(
+pub fn commit_team_member_spawn(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
     team_id: &str,
@@ -380,7 +378,7 @@ pub(crate) fn commit_team_member_spawn(
 /// Hand the Team's active plan to an anchor that just joined. A plan whose
 /// recorded owner is still a live anchor here is left alone; everything else is
 /// the tab-gone case the recovery rebind exists for.
-pub(crate) fn take_over_team_plan(
+pub fn take_over_team_plan(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,

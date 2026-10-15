@@ -115,7 +115,7 @@ fn restrict_file_permissions(path: &std::path::Path) {
     }
 }
 
-pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -128,7 +128,7 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// Non-leaking token fingerprint for diagnostics: byte length + a short
 /// non-cryptographic hash. Never logs the token itself.
-pub(crate) fn token_fp(token: &str) -> String {
+pub fn token_fp(token: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     token.hash(&mut h);

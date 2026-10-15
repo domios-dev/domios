@@ -650,3 +650,5 @@ fn promote_prompt(tab_id: &str) -> Option<PendingPrompt> {
     active.insert(tab_id.into(), next);
     Some(prompt)
 }
+
+pub use snapshot::{read as read_snapshot, RETAINED_ROWS};

@@ -66,7 +66,7 @@ struct WriterState {
     initialized: bool,
 }
 
-pub(crate) struct ProtocolRecorder {
+pub struct ProtocolRecorder {
     sender: Option<SyncSender<WriterMessage>>,
     dropped: Arc<AtomicU64>,
     drop_warning_pending: Arc<AtomicBool>,
@@ -168,7 +168,7 @@ impl ProtocolRecorder {
         }
     }
 
-    pub(crate) fn try_record_hook_post(
+    pub fn try_record_hook_post(
         &self,
         enabled: bool,
         tab_id: &str,

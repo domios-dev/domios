@@ -572,7 +572,7 @@ impl ServiceContext {
             .map_err(|error| error.ledger_message())
     }
 
-    pub(crate) fn send_text_input_delivery(
+    pub fn send_text_input_delivery(
         &self,
         tab_id: &str,
         text: &str,
@@ -655,7 +655,7 @@ impl ServiceContext {
             .map_err(|error| error.ledger_message())
     }
 
-    pub(crate) fn insert_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
+    pub fn insert_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
         self.send_text_to_pty_input_delivery(pty_id, text, false)
             .map_err(|error| error.ledger_message())
     }
@@ -821,11 +821,7 @@ impl ServiceContext {
             })?
     }
 
-    pub(crate) async fn stage_text_when_ready(
-        &self,
-        tab_id: &str,
-        text: &str,
-    ) -> Result<(), String> {
+    pub async fn stage_text_when_ready(&self, tab_id: &str, text: &str) -> Result<(), String> {
         self.insert_text_detached(tab_id, text);
         Ok(())
     }
@@ -909,7 +905,7 @@ impl ServiceContext {
         let _ = pty_id;
     }
 
-    pub(crate) fn await_pty_link_blocking(
+    pub fn await_pty_link_blocking(
         &self,
         tab_id: &str,
         timeout: std::time::Duration,
@@ -1032,7 +1028,7 @@ impl ServiceContext {
         self.deliver_text_detached(tab_id, text, true);
     }
 
-    pub(crate) fn insert_text_detached(&self, tab_id: &str, text: &str) {
+    pub fn insert_text_detached(&self, tab_id: &str, text: &str) {
         self.deliver_text_detached(tab_id, text, false);
     }
 

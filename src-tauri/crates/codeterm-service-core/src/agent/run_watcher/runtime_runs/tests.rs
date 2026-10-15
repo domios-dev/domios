@@ -204,6 +204,20 @@ impl Scene {
         };
         self.events(tab, events);
     }
+    /// The session cache also emits cron-run-finished, so wait until the run itself settles.
+    fn await_cron_end(&self, ended: &mpsc::Receiver<()>, run: &CronRunInfo) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            ended
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap();
+            let store = self.cron.lock();
+            let (_, history) = store.find_run_by_id(&run.run_id).unwrap();
+            if history.status != CronRunStatus::Running {
+                return;
+            }
+        }
+    }
     fn assert_cron_end(&self, job: &str, run: &CronRunInfo, status: CronRunStatus) {
         let store = self.cron.lock();
         let (_, history) = store.find_run_by_id(&run.run_id).unwrap();
@@ -268,7 +282,7 @@ fn runtime_oneshot_explicit_complete_retains_final_answer_then_closes_in_both_ev
         );
         let ended = scene.ended("cron-run-finished");
         scene.idle(tab, true, idle_first);
-        ended.recv_timeout(Duration::from_secs(5)).unwrap();
+        scene.await_cron_end(&ended, &run);
         scene.assert_cron_end(&job, &run, CronRunStatus::Success);
         let path = scene.cron.lock().log_file(&job, &run.run_id).unwrap();
         let log = std::fs::read_to_string(path).unwrap();
@@ -283,7 +297,7 @@ fn runtime_oneshot_idle_without_report_settles_success_and_keeps_history() {
     let (job, run) = scene.cron();
     let ended = scene.ended("cron-run-finished");
     scene.idle(run.tab_id.as_ref().unwrap(), true, false);
-    ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    scene.await_cron_end(&ended, &run);
     scene.assert_cron_end(&job, &run, CronRunStatus::Success);
 }
 
@@ -302,7 +316,7 @@ fn runtime_oneshot_process_exit_settles_failure_and_keeps_history() {
         },
         None,
     ));
-    ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    scene.await_cron_end(&ended, &run);
     scene.assert_cron_end(&job, &run, CronRunStatus::Failed);
 }
 
@@ -311,13 +325,17 @@ fn runtime_memory_report_succeeds_and_idle_cleanup_keeps_reported_status() {
     for intent in ["extract:item", "dreaming:rem"] {
         let scene = Scene::new();
         let (worker, tab) = scene.worker(intent);
-        let response = crate::socket::server::dispatch_service_rpc(
-            "mem.worker.report",
-            Some(json!({"id":worker,"summary":"opaque report"})),
-            &Arc::new(scene.fixture.service.clone()),
-        )
-        .unwrap();
-        assert_eq!(response["ok"], true);
+        let info = scene
+            .fixture
+            .service
+            .workers
+            .complete(&worker, "opaque report".into())
+            .unwrap();
+        assert!(scene
+            .fixture
+            .service
+            .run_watcher
+            .runtime_worker_reported(&info.tab_id, &worker));
         assert!(scene.fixture.service.mux.read().get_tab(&tab).is_some());
         let ended = scene.ended("graph-worker-done");
         scene.idle(&tab, true, false);
@@ -416,6 +434,6 @@ fn runtime_end_rejects_foreign_thread_and_nonce() {
     );
     let ended = scene.ended("cron-run-finished");
     scene.idle(tab, true, false);
-    ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    scene.await_cron_end(&ended, &run);
     scene.assert_cron_end(&job, &run, CronRunStatus::Success);
 }

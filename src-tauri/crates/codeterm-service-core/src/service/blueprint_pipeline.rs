@@ -8,7 +8,7 @@ use tauri::Manager;
 use crate::sentinel::scheduler::Handle;
 
 impl super::ServiceContext {
-    pub(crate) fn blueprint_log(
+    pub fn blueprint_log(
         &self,
         caller: &super::sentinel::SentinelCaller,
         id: &str,
@@ -34,7 +34,7 @@ impl super::ServiceContext {
             .map_err(|error| error.to_string())
     }
 
-    pub(crate) fn blueprint_pipeline_validate(
+    pub fn blueprint_pipeline_validate(
         &self,
         caller: &super::sentinel::SentinelCaller,
         spec: BlueprintSpec,
@@ -114,7 +114,7 @@ impl super::ServiceContext {
         }))
     }
 
-    pub(crate) fn blueprint_pipeline_create(
+    pub fn blueprint_pipeline_create(
         &self,
         caller: &super::sentinel::SentinelCaller,
         spec: BlueprintSpec,
@@ -182,7 +182,7 @@ impl super::ServiceContext {
         }))
     }
 
-    pub(crate) fn blueprint_pipeline_validate_update(
+    pub fn blueprint_pipeline_validate_update(
         &self,
         caller: &super::sentinel::SentinelCaller,
         id: &str,
@@ -207,7 +207,7 @@ impl super::ServiceContext {
         Ok(preview)
     }
 
-    pub(crate) fn blueprint_pipeline_update(
+    pub fn blueprint_pipeline_update(
         &self,
         caller: &super::sentinel::SentinelCaller,
         id: &str,
@@ -301,7 +301,7 @@ impl super::ServiceContext {
         Ok(current)
     }
 
-    pub(crate) fn blueprint_pipeline_nodes(&self) -> Value {
+    pub fn blueprint_pipeline_nodes(&self) -> Value {
         let mut nodes = Trigger::DESCRIPTORS
             .iter()
             .chain(StepKind::DESCRIPTORS)
@@ -435,7 +435,7 @@ impl super::ServiceContext {
     }
 }
 
-fn field_check(field: &str, errors: &[ValidationError]) -> Value {
+pub fn field_check(field: &str, errors: &[ValidationError]) -> Value {
     let failures = errors
         .iter()
         .filter(|error| {
@@ -554,7 +554,7 @@ fn chain_summary(spec: &BlueprintSpec) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;

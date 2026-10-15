@@ -8,11 +8,7 @@ fn encode_control_key(frame: &[u8], windows: bool, declared: bool) -> Option<&'s
 }
 
 impl ServiceContext {
-    pub(crate) fn encode_provider_control_key(
-        &self,
-        pty_id: &str,
-        frame: &[u8],
-    ) -> Option<&'static [u8]> {
+    pub fn encode_provider_control_key(&self, pty_id: &str, frame: &[u8]) -> Option<&'static [u8]> {
         if !cfg!(windows) || frame != b"\x03" {
             return None;
         }

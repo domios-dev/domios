@@ -8,7 +8,7 @@ use crate::service::{
 };
 use codeterm_plugin::agent_runtime::*;
 
-pub(crate) fn publish(
+pub fn publish(
     svc: &ServiceContext,
     tab: &str,
     session: &engine::Session,

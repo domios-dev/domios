@@ -9,37 +9,36 @@ mod run_session;
 mod session_ack;
 mod session_claim;
 mod session_start_payload;
-#[cfg(test)]
-pub(crate) use session_ack::acknowledge_authenticated_launch;
-pub(crate) use session_ack::{
-    acknowledge_and_reconcile_session_binding, unchanged_acknowledged_hook_report,
-};
-#[cfg(test)]
-pub(crate) use session_claim::bind_validated_rebind_session;
-pub(crate) use session_claim::{
-    bind_detected_session, bind_reported_session, commit_materialized_rebind_session,
-};
-pub(crate) use session_start_payload::{
-    reported_transcript_path, session_start_session_id, session_start_string,
-};
+pub use session_ack::acknowledge_and_reconcile_session_binding;
+#[cfg(any(test, feature = "test-support"))]
+pub use session_ack::acknowledge_authenticated_launch;
+pub use session_ack::unchanged_acknowledged_hook_report;
+pub use session_claim::bind_detected_session;
+pub use session_claim::bind_reported_session;
+#[cfg(any(test, feature = "test-support"))]
+pub use session_claim::bind_validated_rebind_session;
+pub use session_claim::commit_materialized_rebind_session;
+pub use session_start_payload::reported_transcript_path;
+pub use session_start_payload::session_start_session_id;
+pub use session_start_payload::session_start_string;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SessionStartClaim {
-    pub(crate) prev: Option<String>,
-    pub(crate) changed: bool,
-    pub(crate) nonce_verified: bool,
-    pub(crate) nonce_already_acknowledged: bool,
-    pub(crate) identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
+pub struct SessionStartClaim {
+    pub prev: Option<String>,
+    pub changed: bool,
+    pub nonce_verified: bool,
+    pub nonce_already_acknowledged: bool,
+    pub identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DeferredBindingPremise {
-    pub(crate) previous_session_id: String,
+pub struct DeferredBindingPremise {
+    pub previous_session_id: String,
 }
 
-pub(crate) type SessionBindError = (StatusCode, String, Option<DeferredBindingPremise>);
+pub type SessionBindError = (StatusCode, String, Option<DeferredBindingPremise>);
 
-pub(crate) fn escaped_hook_log_field(value: &str) -> String {
+pub fn escaped_hook_log_field(value: &str) -> String {
     format!("{value:?}")
 }
 
@@ -51,13 +50,11 @@ enum SessionBindingSource {
 }
 
 impl SessionStartClaim {
-    pub(crate) fn is_unchanged_acknowledged_report(&self) -> bool {
+    pub fn is_unchanged_acknowledged_report(&self) -> bool {
         !self.changed && self.nonce_verified && self.nonce_already_acknowledged
     }
 
-    pub(crate) fn identity_evidence(
-        &self,
-    ) -> &crate::agent::provider_identity::ProviderIdentityEvidence {
+    pub fn identity_evidence(&self) -> &crate::agent::provider_identity::ProviderIdentityEvidence {
         &self.identity_evidence
     }
 }
@@ -69,7 +66,7 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
-pub(crate) async fn bind_planner_session_after_claim(
+pub async fn bind_planner_session_after_claim(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
 ) -> Result<(), (StatusCode, String)> {
@@ -80,7 +77,7 @@ pub(crate) async fn bind_planner_session_after_claim(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
-pub(crate) async fn finish_session_binding(
+pub async fn finish_session_binding(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
     provider_id: &str,

@@ -10,10 +10,10 @@ const EXIT_LIMIT: Duration = Duration::from_secs(4);
 const EXIT_WAIT_SLACK: Duration = Duration::from_millis(500);
 
 /// Surface runtimes closing in the background while the rest of the exit sequence runs.
-pub(crate) struct SurfaceShutdown(mpsc::Receiver<ShutdownReport>);
+pub struct SurfaceShutdown(mpsc::Receiver<ShutdownReport>);
 
 /// Starts closing every live surface runtime; safe on any thread, including a runtime worker.
-pub(crate) fn begin_surface_shutdown(svc: &ServiceState) -> SurfaceShutdown {
+pub fn begin_surface_shutdown(svc: &ServiceState) -> SurfaceShutdown {
     let runtimes = svc
         .ext::<std::sync::Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
         .take_all();
@@ -26,7 +26,7 @@ pub(crate) fn begin_surface_shutdown(svc: &ServiceState) -> SurfaceShutdown {
 
 impl SurfaceShutdown {
     /// Bounded: shutdown never waits on a browser past `EXIT_LIMIT`.
-    pub(crate) fn wait(self) {
+    pub fn wait(self) {
         match self.0.recv_timeout(EXIT_LIMIT + EXIT_WAIT_SLACK) {
             Ok(report) => log::info!(
                 "[shutdown] browser surfaces closed: {} graceful, {} killed",

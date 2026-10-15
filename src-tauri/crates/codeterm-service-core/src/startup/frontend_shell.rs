@@ -118,7 +118,7 @@ fn fallback_origin() -> &'static str {
     }
 }
 
-pub(crate) fn declared_frontend_origins(
+pub fn declared_frontend_origins(
     config: &crate::config::schema::ApiConfig,
     dev_url: Option<&Url>,
 ) -> Vec<String> {
@@ -386,7 +386,7 @@ async fn frontend_url(app: &crate::app_runtime::AppHandle, origin: &str) -> Resu
     }
 }
 
-pub(crate) fn start(app: crate::app_runtime::AppHandle, control: RestApiControlState) {
+pub fn start(app: crate::app_runtime::AppHandle, control: RestApiControlState) {
     let mut status = control.subscribe_status();
     tauri::async_runtime::spawn(async move {
         loop {
