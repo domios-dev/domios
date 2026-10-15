@@ -2167,7 +2167,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  fmt-check|check|check-tests|ci-tests|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
 esac
@@ -2197,6 +2197,7 @@ CodeTerm build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-tests full|platform      Compile and run the full Rust suite, or this OS's cfg-gated subset, in place
+  ci-clippy                   Run the clippy repo gate through the shared compile cache
   worktree-check              Isolated lane-safe Rust compile check
   test-one <input-macos|input-windows|billing|account|analytics|app|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
                               Run one focused Rust test
@@ -2398,6 +2399,9 @@ EOF
     enter_build_gateway "$CMD ${*:2}"
     ensure_deps
     pnpm build
+    ;;
+  ci-clippy)
+    bash scripts/clippy-gate.sh
     ;;
   ci-tests)
     case "${2:-}" in full|platform) ;; *) echo "Usage: ./build.sh ci-tests full|platform" >&2; exit 2 ;; esac

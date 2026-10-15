@@ -423,7 +423,7 @@ jobs:
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: clippy (repo gate)
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash scripts/clippy-gate.sh
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh ci-clippy
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
