@@ -1,4 +1,4 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -42,29 +42,6 @@ pub struct SentinelPorts {
     pub cleanup: Arc<dyn SentinelCleanup>,
 }
 
-/// Starts the Sentinel host once at startup. A composition call made with no guard held, so it
-/// may take the service state (second named exception to port rule 1).
-pub trait SentinelRuntime: Send + Sync {
-    fn start(
-        &self,
-        svc: crate::service::ServiceState,
-        clock: crate::cron::clock::SharedClock,
-        storage: &crate::storage::Storage,
-    ) -> Option<SentinelPorts>;
-}
-
-static RUNTIME: OnceLock<Arc<dyn SentinelRuntime>> = OnceLock::new();
-
-pub fn register_runtime(make: fn() -> Arc<dyn SentinelRuntime>) {
-    let _ = RUNTIME.set(make());
-}
-
-pub fn runtime() -> &'static Arc<dyn SentinelRuntime> {
-    RUNTIME
-        .get()
-        .expect("sentinel runtime is registered before startup")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,6 +51,5 @@ mod tests {
         super::super::assert_port::<dyn BlueprintStore>();
         super::super::assert_port::<dyn SentinelWake>();
         super::super::assert_port::<dyn SentinelCleanup>();
-        super::super::assert_port::<dyn SentinelRuntime>();
     }
 }

@@ -21,7 +21,7 @@ struct Reconciler {
 }
 
 /// Reconciles once for every provider, then again on each catalogue change.
-pub(crate) fn start(service: ServiceState) {
+pub fn start(service: ServiceState) {
     let mut changes = model_catalog::subscribe_changes();
     let reconciler = Arc::new(Reconciler::default());
     tauri::async_runtime::spawn(async move {

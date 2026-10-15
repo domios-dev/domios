@@ -29,11 +29,11 @@ pub use journal::Action;
 pub use journal::ActionRecord;
 pub use journal::VerdictKind;
 pub use narrative::sentinel as sentinel_questions;
+pub use narrative::ActivityContext;
+pub use narrative::QuestionAnswer;
 pub(crate) use narrative::{
     provider_update as update_questions, recovery as recovery_questions, tab_state as tab_questions,
 };
-pub use narrative::ActivityContext;
-pub use narrative::QuestionAnswer;
 use registry::SupporterRegistry;
 
 #[derive(Default)]
@@ -105,11 +105,7 @@ pub fn configured_model(
     Some(adapter)
 }
 
-pub(crate) fn restore_model(
-    cfg: &SupporterConfig,
-    id: &str,
-    adapter: &Arc<dyn DecisionModel>,
-) -> bool {
+pub fn restore_model(cfg: &SupporterConfig, id: &str, adapter: &Arc<dyn DecisionModel>) -> bool {
     let model = cfg
         .connection(id)
         .model

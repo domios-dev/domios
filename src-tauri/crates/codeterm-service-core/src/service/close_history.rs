@@ -76,7 +76,7 @@ fn validate_saved_blueprints(resources: &Resources) -> Result<(), String> {
 }
 
 impl ServiceContext {
-    pub(crate) fn recover_close_inventories(&self) -> Result<(), String> {
+    pub fn recover_close_inventories(&self) -> Result<(), String> {
         let records = self.mux.read().closed_structure_records()?;
         for record in records
             .into_iter()

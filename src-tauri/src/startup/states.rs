@@ -4,53 +4,33 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use super::storage::StorageAuthority;
-use crate::config::{self, ConfigState};
-use crate::lock_hold::{TimedMutex, TimedRwLock};
-use crate::multiplexer::commands::MuxState;
-use crate::multiplexer::state::MultiplexerState;
-use crate::notification::store::NotificationStore;
-use crate::notification::NotifState;
-use crate::pty::manager::{OutputBuffer, PtyManager};
-use crate::pty::screen_state::ScreenState;
-use crate::session::store::SessionStore;
-use crate::session::SessionState;
-use crate::{
-    agent, keepawake, mesh, service, AgentTrackerState, KeepAwakeStateHandle, MeshStateHandle,
-    OutputBufferState, PtyState, ReportStoreState, ResizeOwnerState, ScreenStateHandle,
-    UpdateStateHandle,
+use codeterm_service_core::config::{self, ConfigState};
+use codeterm_service_core::lock_hold::{TimedMutex, TimedRwLock};
+use codeterm_service_core::multiplexer::commands::MuxState;
+use codeterm_service_core::multiplexer::state::MultiplexerState;
+use codeterm_service_core::notification::store::NotificationStore;
+use codeterm_service_core::notification::NotifState;
+use codeterm_service_core::pty::manager::{OutputBuffer, PtyManager};
+use codeterm_service_core::pty::screen_state::ScreenState;
+use codeterm_service_core::session::store::SessionStore;
+use codeterm_service_core::session::SessionState;
+use codeterm_service_core::startup::StorageAuthority;
+use codeterm_service_core::{
+    agent, keepawake, mesh, service, AgentTrackerState, MeshStateHandle, OutputBufferState,
+    PtyState, ReportStoreState, ResizeOwnerState, ScreenStateHandle, UpdateStateHandle,
 };
 
-/// All shared application states, grouped for easier passing between init functions.
-pub(crate) struct AppStates {
-    pub(crate) storage: StorageAuthority,
-    pub(crate) boot_resync: bool,
-    pub(crate) config: ConfigState,
-    pub(crate) pty: PtyState,
-    pub(crate) mux: MuxState,
-    pub(crate) notif: NotifState,
-    pub(crate) session: SessionState,
-    pub(crate) output_buffer: OutputBufferState,
-    pub(crate) screen_state: ScreenStateHandle,
-    pub(crate) agent_tracker: AgentTrackerState,
-    pub(crate) report_store: ReportStoreState,
-    pub(crate) event_broadcaster: codeterm_events::EventBroadcasterState,
-    pub(crate) update: UpdateStateHandle,
-    pub(crate) mesh: MeshStateHandle,
-    pub(crate) keepawake: KeepAwakeStateHandle,
-    pub(crate) resize_owner: ResizeOwnerState,
-    pub(crate) rest_api: super::RestApiControlState,
-}
+use codeterm_service_core::startup::AppStates;
 
 /// Orchestration bindings the dead epoch persisted, versus what came back.
 /// Roleless tabs are ordinary terminals, not in-flight work.
 fn snapshot_role_bindings(
-    snapshot: &crate::session::store::SessionSnapshot,
-) -> Vec<crate::crash::lifecycle::BindingIdentity> {
-    use crate::session::store::SplitNodeSnapshot;
+    snapshot: &codeterm_service_core::session::store::SessionSnapshot,
+) -> Vec<codeterm_service_core::crash::lifecycle::BindingIdentity> {
+    use codeterm_service_core::session::store::SplitNodeSnapshot;
     fn collect_node(
         node: &SplitNodeSnapshot,
-        bindings: &mut Vec<crate::crash::lifecycle::BindingIdentity>,
+        bindings: &mut Vec<codeterm_service_core::crash::lifecycle::BindingIdentity>,
     ) {
         match node {
             SplitNodeSnapshot::Leaf {
@@ -58,10 +38,12 @@ fn snapshot_role_bindings(
                 claude_session_id,
                 role,
                 ..
-            } if role.is_some() => bindings.push(crate::crash::lifecycle::BindingIdentity {
-                tab_id: tab_id.clone(),
-                agent_session_id: claude_session_id.clone(),
-            }),
+            } if role.is_some() => {
+                bindings.push(codeterm_service_core::crash::lifecycle::BindingIdentity {
+                    tab_id: tab_id.clone(),
+                    agent_session_id: claude_session_id.clone(),
+                })
+            }
             SplitNodeSnapshot::Leaf { .. } => {}
             SplitNodeSnapshot::Split { children, .. } => {
                 for child in children {
@@ -81,10 +63,10 @@ fn snapshot_role_bindings(
 /// (codex workers carry an `agent_type`, not always a role). This is the input
 /// to the per-pane restore report, so it must be broader than role bindings.
 fn snapshot_agent_panes(
-    snapshot: &crate::session::store::SessionSnapshot,
-) -> Vec<crate::crash::restore_report::RestorePane> {
-    use crate::crash::restore_report::RestorePane;
-    use crate::session::store::SplitNodeSnapshot;
+    snapshot: &codeterm_service_core::session::store::SessionSnapshot,
+) -> Vec<codeterm_service_core::crash::restore_report::RestorePane> {
+    use codeterm_service_core::crash::restore_report::RestorePane;
+    use codeterm_service_core::session::store::SplitNodeSnapshot;
     fn collect_node(node: &SplitNodeSnapshot, panes: &mut Vec<RestorePane>) {
         match node {
             SplitNodeSnapshot::Leaf {
@@ -119,7 +101,7 @@ fn snapshot_agent_panes(
 /// "did the record survive restore", never "is an agent running behind it".
 /// The liveness verdict is observed separately and settles later.
 fn restored_agent_pane_ids(
-    mux: &crate::multiplexer::state::MultiplexerState,
+    mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
 ) -> std::collections::BTreeSet<String> {
     mux.snapshot()
         .tabs
@@ -130,24 +112,26 @@ fn restored_agent_pane_ids(
 }
 
 fn restored_role_bindings(
-    mux: &crate::multiplexer::state::MultiplexerState,
-) -> Vec<crate::crash::lifecycle::BindingIdentity> {
+    mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
+) -> Vec<codeterm_service_core::crash::lifecycle::BindingIdentity> {
     mux.snapshot()
         .tabs
         .values()
         .filter(|tab| tab.role.is_some())
-        .map(|tab| crate::crash::lifecycle::BindingIdentity {
-            tab_id: tab.id.clone(),
-            agent_session_id: tab.agent_session_id.clone(),
-        })
+        .map(
+            |tab| codeterm_service_core::crash::lifecycle::BindingIdentity {
+                tab_id: tab.id.clone(),
+                agent_session_id: tab.agent_session_id.clone(),
+            },
+        )
         .collect()
 }
 
 fn reconcile_startup_teams(
-    snapshot: &mut crate::session::store::SessionSnapshot,
+    snapshot: &mut codeterm_service_core::session::store::SessionSnapshot,
     boot_resync: &mut bool,
 ) {
-    let orphans = crate::session::store::prune_orphan_teams(snapshot);
+    let orphans = codeterm_service_core::session::store::prune_orphan_teams(snapshot);
     for team in &orphans {
         log::warn!(
             "[restore] dropped orphan Team {}: workspace {} is missing",
@@ -204,7 +188,10 @@ pub(crate) fn scrub_inherited_api_env(config_state: &ConfigState) {
     let (url, port) = config::api_callback_url(&api);
     std::env::set_var("CODETERM_API_URL", &url);
     std::env::set_var("CODETERM_API_PORT", &port);
-    std::env::set_var("CODETERM_SOCKET_PATH", crate::paths::socket_display_path());
+    std::env::set_var(
+        "CODETERM_SOCKET_PATH",
+        codeterm_service_core::paths::socket_display_path(),
+    );
     match api.token {
         Some(ref tok) if !tok.is_empty() => std::env::set_var("CODETERM_API_TOKEN", tok),
         _ => std::env::remove_var("CODETERM_API_TOKEN"),
@@ -214,7 +201,7 @@ pub(crate) fn scrub_inherited_api_env(config_state: &ConfigState) {
 
 /// Create and initialize all application states.
 pub(crate) fn init_states() -> AppStates {
-    let mut storage = super::storage::open_instance_storage();
+    let mut storage = codeterm_service_core::startup::open_instance_storage();
     let app_config = config::load_config();
     log::info!("Config loaded: theme={}", app_config.theme.name);
     let config_state: ConfigState = Arc::new(Mutex::new(app_config));
@@ -222,7 +209,8 @@ pub(crate) fn init_states() -> AppStates {
 
     let pty_state: PtyState = Arc::new(TimedMutex::new("pty", PtyManager::new()));
     let notif_state: NotifState = Arc::new(Mutex::new(NotificationStore::open_persisted(
-        crate::paths::data_dir().join(crate::notification::persist::FILE_NAME),
+        codeterm_service_core::paths::data_dir()
+            .join(codeterm_service_core::notification::persist::FILE_NAME),
         500,
     )));
     let session_state: SessionState = Arc::new(Mutex::new(SessionStore::new()));
@@ -235,7 +223,9 @@ pub(crate) fn init_states() -> AppStates {
         agent::status::TabStatusTracker::new(),
     ));
     let report_store: ReportStoreState = {
-        let store = match agent::ledger::OrchestrationLedger::open(&crate::paths::data_dir()) {
+        let store = match agent::ledger::OrchestrationLedger::open(
+            &codeterm_service_core::paths::data_dir(),
+        ) {
             Ok(ledger) => agent::reports::ReportStore::with_ledger(200, Arc::new(ledger)),
             Err(e) => {
                 log::warn!("[ledger] open failed: {} — reports will not persist", e);
@@ -247,9 +237,9 @@ pub(crate) fn init_states() -> AppStates {
     let event_broadcaster: codeterm_events::EventBroadcasterState =
         Arc::new(codeterm_events::EventBroadcaster::new());
     let resize_owner: ResizeOwnerState = Arc::new(Mutex::new(
-        crate::resize_owner::ResizeOwnerRegistry::default(),
+        codeterm_service_core::resize_owner::ResizeOwnerRegistry::default(),
     ));
-    let rest_api = Arc::new(super::RestApiControl::new());
+    let rest_api = Arc::new(codeterm_service_core::startup::RestApiControl::new());
 
     let mesh_config = config_state.lock().mesh.clone();
     let api_port = config_state.lock().api.port;
@@ -258,28 +248,31 @@ pub(crate) fn init_states() -> AppStates {
         api_port,
     )));
 
-    let install_method = crate::update_state::detect_install_method();
+    let install_method = codeterm_service_core::update_state::detect_install_method();
     log::info!("Install method detected: {}", install_method);
     let channel = config_state.lock().updater.channel;
-    let update_state: UpdateStateHandle = Arc::new(Mutex::new(crate::update_state::UpdateState {
-        install_method,
-        last_check: None,
-        last_check_time: None,
-        channel,
-        phase: crate::update_state::UpdatePhase::Idle,
-        last_error: None,
-        phase_changed_at: None,
-        downloaded_bytes: 0,
-        download_total_bytes: None,
-    }));
+    let update_state: UpdateStateHandle = Arc::new(Mutex::new(
+        codeterm_service_core::update_state::UpdateState {
+            install_method,
+            last_check: None,
+            last_check_time: None,
+            channel,
+            phase: codeterm_service_core::update_state::UpdatePhase::Idle,
+            last_error: None,
+            phase_changed_at: None,
+            downloaded_bytes: 0,
+            download_total_bytes: None,
+        },
+    ));
 
     let ga_enabled = storage.storage().is_some() && config_state.lock().general_agent.enabled;
     let mut bound_at_shutdown = Vec::new();
     let mut agent_panes_at_shutdown = Vec::new();
     let mut desk_snapshot = match storage.storage() {
         Some(storage_owner) => {
-            let adapter =
-                crate::session::store::StorageDeskAdapter::from_storage(storage_owner.clone());
+            let adapter = codeterm_service_core::session::store::StorageDeskAdapter::from_storage(
+                storage_owner.clone(),
+            );
             match adapter.snapshot() {
                 Ok(snapshot) => Some(snapshot),
                 Err(error) => {
@@ -324,9 +317,7 @@ pub(crate) fn init_states() -> AppStates {
     #[allow(unused_mut)]
     let mut mux_state_inner = mux_state_inner;
     if storage.storage().is_some() {
-        for (tab_id, reason) in
-            service::restore_exited_member::mark_legacy_role_shell_failures(&mut mux_state_inner)
-        {
+        for (tab_id, reason) in service::mark_legacy_role_shell_failures(&mut mux_state_inner) {
             log::warn!("[restore] Tab {tab_id} remains a role shell: {reason}");
         }
     }
@@ -334,7 +325,7 @@ pub(crate) fn init_states() -> AppStates {
     // Attach the durable closed-tab history store so reopen survives restarts.
     // On failure keep the in-memory default (history just won't persist).
     if storage.storage().is_some() {
-        match crate::multiplexer::state::ClosedTabsStore::open(&crate::paths::data_dir()) {
+        match codeterm_service_core::multiplexer::state::ClosedTabsStore::open(&codeterm_service_core::paths::data_dir()) {
             Ok(store) => mux_state_inner.attach_closed_store(store),
             Err(e) => log::error!(
                 "[closed-history] open failed: {} — degrading to in-memory, reopen history will NOT survive restart",
@@ -372,9 +363,11 @@ pub(crate) fn init_states() -> AppStates {
         .collect::<Vec<_>>();
     if storage.storage().is_some() {
         for (tab_id, role) in &restored_agent_tabs {
-            if let Err(error) =
-                service::agent_pad::restore(&crate::paths::data_dir(), tab_id, *role)
-            {
+            if let Err(error) = service::agent_pad::restore(
+                &codeterm_service_core::paths::data_dir(),
+                tab_id,
+                *role,
+            ) {
                 log::warn!("[agent-pad] restore failed for Tab {tab_id}: {error}");
             }
         }
@@ -384,9 +377,10 @@ pub(crate) fn init_states() -> AppStates {
         .map(|(tab_id, _)| tab_id)
         .collect();
     if storage.storage().is_some() {
-        if let Err(error) =
-            service::agent_pad::reconcile(&crate::paths::data_dir(), &live_agent_tabs)
-        {
+        if let Err(error) = service::agent_pad::reconcile(
+            &codeterm_service_core::paths::data_dir(),
+            &live_agent_tabs,
+        ) {
             log::warn!("[agent-pad] startup reconciliation failed: {error}");
         }
     }
@@ -401,30 +395,35 @@ pub(crate) fn init_states() -> AppStates {
             .all_tabs()
             .filter(|tab| tab.restored_from_snapshot)
         {
-            service::supporter_notify::record_launch(&tab.id, true);
+            codeterm_service_core::service::supporter_record_launch(&tab.id, true);
         }
     }
     let restored_bindings = restored_role_bindings(&mux_state_inner);
     if storage.storage().is_some() {
-        crate::crash::lifecycle::note_restored_bindings(crate::crash::lifecycle::BindingEvidence {
-            bound_at_shutdown: bound_at_shutdown.len() as u32,
-            restored: restored_bindings.len() as u32,
-            bound_identities: bound_at_shutdown,
-            restored_identities: restored_bindings,
-        });
+        codeterm_service_core::crash::lifecycle::note_restored_bindings(
+            codeterm_service_core::crash::lifecycle::BindingEvidence {
+                bound_at_shutdown: bound_at_shutdown.len() as u32,
+                restored: restored_bindings.len() as u32,
+                bound_identities: bound_at_shutdown,
+                restored_identities: restored_bindings,
+            },
+        );
     }
     // Nothing is observable yet — no PTY has materialized — so the wave is
     // armed here and settles on real launch transitions.
     if storage.storage().is_some() {
-        service::restore_exited_member::apply_restore_decisions(
-            crate::session::lifecycle::TabLifecycleJournal::shared(),
+        service::apply_restore_decisions(
+            codeterm_service_core::session::lifecycle::TabLifecycleJournal::shared(),
             &mux_state_inner,
             &mut agent_panes_at_shutdown,
         );
     }
     if storage.storage().is_some() && !agent_panes_at_shutdown.is_empty() {
         let restored_pane_ids = restored_agent_pane_ids(&mux_state_inner);
-        crate::crash::restore_report::arm(agent_panes_at_shutdown, &restored_pane_ids);
+        codeterm_service_core::crash::restore_report::arm(
+            agent_panes_at_shutdown,
+            &restored_pane_ids,
+        );
     }
     let mut duplicate_generals_closed = 0usize;
     if storage.storage().is_some() && general_config.enabled {
@@ -438,7 +437,7 @@ pub(crate) fn init_states() -> AppStates {
             cfg.general_agent.first_run_complete = true;
             let snapshot = cfg.clone();
             drop(cfg);
-            if let Err(e) = crate::config::save_config_pub(&snapshot) {
+            if let Err(e) = codeterm_service_core::config::save_config_pub(&snapshot) {
                 log::warn!("[general-agent] first_run migration save failed: {}", e);
             }
         }
@@ -461,7 +460,7 @@ pub(crate) fn init_states() -> AppStates {
     }
 
     if storage.storage().is_some() {
-        for (tab_id, reason) in crate::session::scrollback_restore::load_restored_scrollback_tails(
+        for (tab_id, reason) in codeterm_service_core::session::load_restored_scrollback_tails(
             &mut mux_state_inner,
             &session_state,
         ) {
@@ -471,7 +470,8 @@ pub(crate) fn init_states() -> AppStates {
 
     for workspace in mux_state_inner.list_workspaces() {
         let missing =
-            crate::service::spawn_cwd::validate_spawn_cwd(workspace.cwd.as_deref()).is_err();
+            codeterm_service_core::service::spawn_cwd::validate_spawn_cwd(workspace.cwd.as_deref())
+                .is_err();
         if let Some(ws) = mux_state_inner.get_workspace_mut(&workspace.id) {
             ws.cwd_missing = missing;
         }
@@ -563,14 +563,16 @@ mod tests {
 
         assert!(state.list_workspaces().is_empty());
         assert!(!boot_resync);
-        crate::service::session_persist::tests::
+        codeterm_service_core::persistence_test_support::
             assert_unavailable_rejects_persistence_without_a_commit();
     }
 
     #[test]
     fn restore_contract_startup_flags_an_exited_member_and_journals_its_decision_once() {
-        use crate::crash::restore_report::{build_restore_report, DropReason};
-        use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
+        use codeterm_service_core::crash::restore_report::{build_restore_report, DropReason};
+        use codeterm_service_core::session::lifecycle::{
+            JournalRecord, LifecycleTransition, TabLifecycleJournal,
+        };
         use codeterm_types::pty::AgentLiveness;
 
         let (mut state, _) = MultiplexerState::new();
@@ -580,18 +582,18 @@ mod tests {
         tab.agent_type = Some("fixture-provider".into());
         tab.agent_session_id = Some("exited-session".into());
         tab.session_binding_nonce = Some("exited-nonce".into());
-        tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
-        assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
+        tab.role = Some(codeterm_service_core::multiplexer::types::AgentRole::Worker);
+        assert!(codeterm_service_core::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
         let raw = serde_json::to_string(&state.to_session_snapshot()).unwrap();
         let journal_dir = tempfile::tempdir().unwrap();
         let journal = TabLifecycleJournal::for_dir(journal_dir.path().to_path_buf());
 
         for boot in 1..=2 {
-            let snapshot: crate::session::store::SessionSnapshot =
+            let snapshot: codeterm_service_core::session::store::SessionSnapshot =
                 serde_json::from_str(&raw).unwrap();
             let mut panes = snapshot_agent_panes(&snapshot);
             let restored = MultiplexerState::from_session_snapshot(&snapshot);
-            crate::service::restore_exited_member::apply_restore_decisions(
+            codeterm_service_core::service::apply_restore_decisions(
                 &journal, &restored, &mut panes,
             );
             let liveness: std::collections::BTreeMap<_, _> =
@@ -664,7 +666,7 @@ mod tests {
         env.set("CODETERM_API_TOKEN", "prod-token-inherited");
         env.set("CODETERM_SOCKET_PATH", "prod-inherited.sock");
 
-        let mut cfg = crate::config::schema::AppConfig::default();
+        let mut cfg = codeterm_service_core::config::schema::AppConfig::default();
         cfg.api.host = "0.0.0.0".to_string();
         cfg.api.port = 7686;
         cfg.api.token = Some("dev-token".to_string());
@@ -686,7 +688,7 @@ mod tests {
             Some("dev-token"),
             "inherited prod token must be replaced by the running instance token"
         );
-        let expected_socket_path = crate::paths::socket_display_path();
+        let expected_socket_path = codeterm_service_core::paths::socket_display_path();
         assert_eq!(
             std::env::var("CODETERM_SOCKET_PATH").ok().as_deref(),
             Some(expected_socket_path.as_str())
@@ -707,7 +709,7 @@ mod tests {
         env.set("CODETERM_DATA_DIR", "/tmp/codeterm-dev-test");
         env.set("CODETERM_DEV", "1");
 
-        let mut cfg = crate::config::schema::AppConfig::default();
+        let mut cfg = codeterm_service_core::config::schema::AppConfig::default();
         cfg.api.port = 7686;
         let config_state: ConfigState = Arc::new(Mutex::new(cfg));
 
@@ -739,7 +741,7 @@ mod tests {
         let mut env = isolated_startup_env();
         env.set("CODETERM_API_TOKEN", "prod-token-inherited");
 
-        let mut cfg = crate::config::schema::AppConfig::default();
+        let mut cfg = codeterm_service_core::config::schema::AppConfig::default();
         cfg.api.port = 7686;
         cfg.api.token = None;
         let config_state: ConfigState = Arc::new(Mutex::new(cfg));

@@ -1,11 +1,11 @@
-use crate::persisted_state::Incident;
-use crate::service::ServiceState;
+use codeterm_service_core::persisted_state::Incident;
+use codeterm_service_core::service::ServiceState;
 
 /// Loaders report while holding their own locks (the config cache among them),
 /// so the notification is raised from a separate task, never inline.
 pub(super) fn install_notifier(service: &ServiceState) {
     let service = service.clone();
-    crate::persisted_state::set_incident_sink(move |incident| {
+    codeterm_service_core::persisted_state::set_incident_sink(move |incident| {
         let service = service.clone();
         let incident = incident.clone();
         tauri::async_runtime::spawn(async move { notify(&service, &incident) });

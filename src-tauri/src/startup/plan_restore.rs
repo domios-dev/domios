@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::multiplexer::commands::MuxState;
-use crate::service::ServiceContext;
+use codeterm_service_core::multiplexer::commands::MuxState;
+use codeterm_service_core::service::ServiceContext;
 
 #[cfg(test)]
 mod tests;
@@ -29,15 +29,17 @@ pub(crate) fn restore(service: &ServiceContext) {
     if let Err(error) = service.recover_close_inventories() {
         log::error!("[closed-history] interrupted close recovery failed: {error}");
     }
-    let live_team_ids = crate::service::live_team_ids(service);
-    if let Err(error) = crate::service::reconcile_dangling_team_plan_bindings_and_emit(
-        service,
-        &live_team_ids,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64,
-    ) {
+    let live_team_ids = codeterm_service_core::service::live_team_ids(service);
+    if let Err(error) =
+        codeterm_service_core::service::reconcile_dangling_team_plan_bindings_and_emit(
+            service,
+            &live_team_ids,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        )
+    {
         log::warn!("[plan] dangling team-binding reconciliation failed: {error}");
     }
 

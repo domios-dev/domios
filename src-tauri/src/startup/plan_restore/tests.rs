@@ -1,9 +1,9 @@
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
-use crate::lock_hold::TimedRwLock;
-use crate::multiplexer::commands::MuxState;
-use crate::multiplexer::state::MultiplexerState;
+use codeterm_service_core::lock_hold::TimedRwLock;
+use codeterm_service_core::multiplexer::commands::MuxState;
+use codeterm_service_core::multiplexer::state::MultiplexerState;
 
 use super::workspace_cwds;
 

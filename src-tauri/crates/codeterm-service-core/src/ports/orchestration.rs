@@ -65,7 +65,7 @@ pub(crate) fn register_orchestration(make: Factory) {
     let _ = FACTORY.set(make);
 }
 
-pub(crate) fn install(svc: &ServiceState) {
+pub fn install(svc: &ServiceState) {
     let make = FACTORY
         .get()
         .expect("orchestration port is registered before the service starts");
