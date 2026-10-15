@@ -1,7 +1,7 @@
 use super::opencode_sse::SessionUpdate;
 use crate::agent::chat_types::ChatMsg;
 
-pub(super) fn message(session_id: &str, update: &SessionUpdate) -> ChatMsg {
+pub fn message(session_id: &str, update: &SessionUpdate) -> ChatMsg {
     let (key, content) = match update {
         SessionUpdate::Compacted => ("compacted", "Session context compacted.".into()),
         SessionUpdate::Error { error } => {

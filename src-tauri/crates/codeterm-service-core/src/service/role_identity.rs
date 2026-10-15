@@ -9,7 +9,7 @@ pub(crate) struct RoleIdentityContext<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ManagerBootstrapInputs {
+pub struct ManagerBootstrapInputs {
     /// Display label for the manager kind (e.g. "Orchestrator", "Planner").
     pub role: String,
     /// Role kind id — the preset key. Guidance is resolved from this, never

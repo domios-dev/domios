@@ -4,7 +4,7 @@ use crate::service::plan::interruption::TaskMutationAuthority;
 use crate::service::plan::task_assignment::AssignmentRuntimeBinding;
 use crate::service::plan::{PlanError, PlanStore};
 
-pub(crate) struct ExistingTaskAssignment {
+pub struct ExistingTaskAssignment {
     binding: Option<AssignmentRuntimeBinding>,
     role: Option<String>,
 }
@@ -32,7 +32,7 @@ pub(crate) fn authenticated_tab_binding(tab: &Tab) -> Option<AssignmentRuntimeBi
     })
 }
 
-pub(crate) fn prepare_existing_task_assignment(
+pub fn prepare_existing_task_assignment(
     mux: &MultiplexerState,
     tab_id: &str,
     peer: Option<&str>,
@@ -69,7 +69,7 @@ pub(crate) fn prepare_existing_task_assignment(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn persist_existing_task_assignment(
+pub fn persist_existing_task_assignment(
     store: &PlanStore,
     assignment: ExistingTaskAssignment,
     plan_id: &str,

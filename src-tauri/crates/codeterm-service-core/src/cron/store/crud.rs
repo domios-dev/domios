@@ -63,7 +63,7 @@ impl CronScope {
 }
 
 /// An authorized change and the value its caller receives once the change is committed.
-pub(crate) struct Prepared<T> {
+pub struct Prepared<T> {
     pub(crate) changes: Vec<CronChange>,
     pub(crate) value: T,
 }
@@ -296,7 +296,7 @@ impl CronStore {
     }
 
     /// Legacy JSON path for callers holding the cron lock: apply, then save the file.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn legacy<T>(&mut self, prepared: Result<Prepared<T>, String>) -> Result<T, String> {
         self.backend.require_legacy()?;
         let prepared = prepared?;
@@ -309,7 +309,7 @@ impl CronStore {
         Ok(prepared.value)
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-support")))]
     pub(super) fn legacy<T>(
         &mut self,
         _prepared: Result<Prepared<T>, String>,
@@ -378,10 +378,7 @@ impl CronStore {
         })
     }
 
-    pub(crate) fn prepare_create(
-        &self,
-        params: CronCreateParams,
-    ) -> Result<Prepared<CronJob>, String> {
+    pub fn prepare_create(&self, params: CronCreateParams) -> Result<Prepared<CronJob>, String> {
         let job = self.build_job(params)?;
         Ok(Prepared::new(CronChange::Create(job.clone()), job))
     }

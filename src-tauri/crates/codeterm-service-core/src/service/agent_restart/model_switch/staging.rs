@@ -314,7 +314,7 @@ impl SwitchRequest {
 
 impl ServiceContext {
     pub(crate) fn staged_model_turn_started(&self, tab_id: &str) {
-        self.restart_tracker
+        self.ext::<crate::service::agent_restart::RestartTracker>()
             .lock()
             .staged_models
             .signal_started(tab_id);
@@ -328,7 +328,9 @@ impl ServiceContext {
             if tab.reported_session_binding_nonce.as_ref() != Some(&nonce) {
                 return None;
             }
-            let tracker = self.restart_tracker.lock();
+            let tracker = self
+                .ext::<crate::service::agent_restart::RestartTracker>()
+                .lock();
             let generation =
                 tracker
                     .staged_models
@@ -415,7 +417,7 @@ impl ServiceContext {
                 if !reuse {
                     log::info!("[agent-model/completion] tab={tab_id} phase=accepted_completion_reuse_refused working={} declared_turn_in_progress={} foreign_turn={}", working || !still_not_working, records.as_ref().is_some_and(|records| records.in_progress()), !no_foreign_turn);
                 }
-                self.restart_tracker
+                self.ext::<crate::service::agent_restart::RestartTracker>()
                     .lock()
                     .staged_models
                     .boundary_generation(tab_id, &session_id, &nonce, reuse)
@@ -435,7 +437,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn staged_model_turn_completed(&self, tab_id: &str, session_id: &str, nonce: &str) {
+    pub fn staged_model_turn_completed(&self, tab_id: &str, session_id: &str, nonce: &str) {
         let accepted = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
             tab.agent_session_id.as_deref() == Some(session_id)
                 && tab.session_binding_nonce.as_deref() == Some(nonce)
@@ -444,7 +446,7 @@ impl ServiceContext {
         log::info!("[agent-model/completion] tab={tab_id} phase=staged_model_turn_completed accepted={accepted} at_ms={}", crate::service::pty_frame_timing::unix_ms());
         if accepted {
             let epoch = self
-                .restart_tracker
+                .ext::<crate::service::agent_restart::RestartTracker>()
                 .lock()
                 .staged_models
                 .start_epoch(tab_id);
@@ -460,7 +462,9 @@ impl ServiceContext {
                     && tab.session_binding_nonce.as_deref() == Some(nonce)
                     && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
             }) {
-                let mut tracker = self.restart_tracker.lock();
+                let mut tracker = self
+                    .ext::<crate::service::agent_restart::RestartTracker>()
+                    .lock();
                 if tracker.staged_models.start_epoch(tab_id) != epoch {
                     return;
                 }
@@ -475,9 +479,12 @@ impl ServiceContext {
             }
         }
     }
-    pub(crate) fn cancel_staged_model_switch(&self, tab_id: &str) {
+    pub fn cancel_staged_model_switch(&self, tab_id: &str) {
         let mut mux = self.mux.write();
-        self.restart_tracker.lock().staged_models.cancel(tab_id);
+        self.ext::<crate::service::agent_restart::RestartTracker>()
+            .lock()
+            .staged_models
+            .cancel(tab_id);
         if let Some(tab) = mux.get_tab_mut(tab_id) {
             tab.pending_model_selection = None;
         }
@@ -486,7 +493,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn apply_staged_model_switch_on_idle(&self, tab_id: &str) {
-        self.restart_tracker
+        self.ext::<crate::service::agent_restart::RestartTracker>()
             .lock()
             .staged_models
             .signal_idle(tab_id);
@@ -555,11 +562,10 @@ impl ServiceContext {
             });
             let already_idle =
                 self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Idle);
-            self.restart_tracker.lock().staged_models.replace_at_idle(
-                request.clone(),
-                tx,
-                already_idle,
-            );
+            self.ext::<crate::service::agent_restart::RestartTracker>()
+                .lock()
+                .staged_models
+                .replace_at_idle(request.clone(), tx, already_idle);
             request
         };
         let svc = self.clone();
@@ -571,7 +577,7 @@ impl ServiceContext {
                 let frames = StagedFrames::new(&svc, &worker_request.pty_id);
                 loop {
                     let current = svc
-                        .restart_tracker
+                        .ext::<crate::service::agent_restart::RestartTracker>()
                         .lock()
                         .staged_models
                         .0
@@ -617,7 +623,7 @@ impl ServiceContext {
                         )
                         .is_ok();
                     let completed = svc
-                        .restart_tracker
+                        .ext::<crate::service::agent_restart::RestartTracker>()
                         .lock()
                         .staged_models
                         .completed(&worker_request);
@@ -638,7 +644,7 @@ impl ServiceContext {
                         break;
                     }
                     {
-                        let mut tracker = svc.restart_tracker.lock();
+                        let mut tracker = svc.ext::<crate::service::agent_restart::RestartTracker>().lock();
                         if !tracker.staged_models.0.get(&worker_request.tab_id)
                             .is_some_and(|staged| staged.request.id == worker_request.id) { break; }
                         tracker.staged_models.observe_command_idle(&worker_request.tab_id, &frames.signal);
@@ -690,7 +696,9 @@ impl ServiceContext {
             crate::service::pty_frame_timing::unix_ms()
         );
         {
-            let mut tracker = self.restart_tracker.lock();
+            let mut tracker = self
+                .ext::<crate::service::agent_restart::RestartTracker>()
+                .lock();
             if !tracker.staged_models.claim(&request) {
                 log::info!("[agent-model/completion] tab={} request={} phase=staged_claim refused=true at_ms={}", request.tab_id, request.id, crate::service::pty_frame_timing::unix_ms());
                 return true;
@@ -722,7 +730,9 @@ impl ServiceContext {
             && request.require_current(self).is_ok();
         let warn = {
             let mut mux = self.mux.write();
-            let mut tracker = self.restart_tracker.lock();
+            let mut tracker = self
+                .ext::<crate::service::agent_restart::RestartTracker>()
+                .lock();
             let warn = tracker.staged_models.warn_once(&request);
             if retry {
                 tracker.staged_models.release(&request);

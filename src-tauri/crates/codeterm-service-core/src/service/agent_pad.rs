@@ -237,16 +237,12 @@ impl AgentPad {
     }
 }
 
-pub(crate) fn restore(
-    data_dir: &Path,
-    tab_id: &str,
-    role: AgentPadRole,
-) -> Result<AgentPad, String> {
+pub fn restore(data_dir: &Path, tab_id: &str, role: AgentPadRole) -> Result<AgentPad, String> {
     AgentPad::open(data_dir, tab_id).or_else(|_| AgentPad::create(data_dir, tab_id, role))
 }
 
 impl super::ServiceContext {
-    pub(crate) fn prepare_chat_send_text(
+    pub fn prepare_chat_send_text(
         &self,
         tab_id: &str,
         text: String,
@@ -260,7 +256,7 @@ impl super::ServiceContext {
         self.substitute_paste_limited_body(tab_id, text.clone(), text.len())
     }
 
-    pub(crate) fn ensure_agent_pad(&self, tab_id: &str) -> Result<AgentPad, String> {
+    pub fn ensure_agent_pad(&self, tab_id: &str) -> Result<AgentPad, String> {
         let role = self
             .mux
             .read()
@@ -270,7 +266,7 @@ impl super::ServiceContext {
         restore(&self.agent_pad_data_dir, tab_id, role)
     }
 
-    pub(crate) fn substitute_paste_limited_body(
+    pub fn substitute_paste_limited_body(
         &self,
         tab_id: &str,
         body: String,

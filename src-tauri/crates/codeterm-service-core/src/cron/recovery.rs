@@ -9,13 +9,13 @@ use super::store::{finish_run_with_summary, CronRunStatus};
 #[path = "recovery/tests.rs"]
 mod tests;
 
-pub(crate) struct RestoredCronSession {
+pub struct RestoredCronSession {
     workspaces: HashSet<String>,
     tabs: HashSet<String>,
 }
 
 impl RestoredCronSession {
-    pub(crate) fn from_mux(mux: &MultiplexerState) -> Self {
+    pub fn from_mux(mux: &MultiplexerState) -> Self {
         let workspaces = mux.list_workspaces();
         let workspace_ids = workspaces
             .iter()
@@ -36,7 +36,7 @@ impl RestoredCronSession {
     }
 }
 
-pub(crate) fn reconcile_restored_runs(
+pub fn reconcile_restored_runs(
     cron: &CronState,
     restored: &RestoredCronSession,
 ) -> Result<(usize, usize), String> {

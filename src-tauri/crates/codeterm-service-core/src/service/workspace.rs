@@ -80,7 +80,7 @@ impl WorkspaceCloseCaller<'_> {
 }
 
 impl ServiceContext {
-    pub(crate) fn ensure_storage_available(&self) -> Result<(), String> {
+    pub fn ensure_storage_available(&self) -> Result<(), String> {
         let Some(authority) = self
             .app_handle
             .try_state::<crate::startup::StorageAuthority>()
@@ -118,7 +118,8 @@ impl ServiceContext {
         };
         let path = std::path::Path::new(cwd);
         if self
-            .loaded_plan_projects
+            .ext::<crate::service::LoadedPlanProjects>()
+            .0
             .lock()
             .iter()
             .any(|root| path.starts_with(root))
@@ -254,7 +255,7 @@ impl ServiceContext {
         ))
     }
 
-    pub(crate) async fn close_workspace_guarded_async(
+    pub async fn close_workspace_guarded_async(
         &self,
         caller_tab_id: Option<&str>,
         workspace_id: &str,
@@ -277,7 +278,7 @@ impl ServiceContext {
             .await
     }
 
-    pub(crate) async fn close_workspace_as_confirmed_headerless_human(
+    pub async fn close_workspace_as_confirmed_headerless_human(
         &self,
         workspace_id: &str,
         force: bool,
@@ -292,7 +293,7 @@ impl ServiceContext {
 
     /// The relay owns peer authentication and workspace access checks before
     /// this external-caller authority can be used.
-    pub(crate) fn close_workspace_from_authenticated_mesh_peer(
+    pub fn close_workspace_from_authenticated_mesh_peer(
         &self,
         peer_id: &str,
         workspace_id: &str,
@@ -423,7 +424,10 @@ impl ServiceContext {
         let mut partial_team_teardown = false;
         for team_id in self.workspace_team_ids(workspace_id) {
             let team_existed = { self.mux.read().get_team(&team_id).is_some() };
-            if let Err(error) = self.close_team(&team_id, caller.team_caller(), force).await {
+            if let Err(error) = crate::ports::orchestration::installed(&self.extensions)
+                .close_team(team_id.clone(), caller.team_caller(), force)
+                .await
+            {
                 team_close_refusals_only &=
                     error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX);
                 let team_remains = { self.mux.read().get_team(&team_id).is_some() };
@@ -492,7 +496,7 @@ impl ServiceContext {
                 .map(|team| team.id),
         );
         let mut team_ids: Vec<_> = team_ids.into_iter().collect();
-        team_ids.retain(|team_id| !super::team::is_remote_team(&mux, team_id));
+        team_ids.retain(|team_id| !super::team_core::is_remote_team(&mux, team_id));
         team_ids.sort();
         team_ids
     }
@@ -560,11 +564,11 @@ impl ServiceContext {
         }
         // After the members are gone, never before: a Team that still holds a
         // live tab is left untouched.
-        if let Some(blueprints) = self
+        if let Some(ports) = self
             .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
+            .try_state::<crate::ports::sentinel::SentinelPorts>()
         {
-            if let Err(error) = blueprints.remove_workspace(id) {
+            if let Err(error) = ports.cleanup.remove_workspace(id) {
                 cleanup_errors.push(format!("Blueprints: {error}"));
             }
         }
@@ -787,3 +791,6 @@ mod workspace_role_tests;
 
 #[cfg(test)]
 mod workspace_close_tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod test_fixture;

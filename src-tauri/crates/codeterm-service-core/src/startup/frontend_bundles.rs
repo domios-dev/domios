@@ -7,9 +7,7 @@ use std::sync::Arc;
 const DISCOVERY_URL: &str = "https://github.com/rollacode/codeterm-releases/releases/download/frontend-latest/frontend-manifest.json";
 pub(crate) const BUNDLED_INDEX: &str = "/bundled/index.html";
 
-pub(crate) fn open(
-    events: &codeterm_events::EventBroadcasterState,
-) -> Option<Arc<FrontendBundles>> {
+pub fn open(events: &codeterm_events::EventBroadcasterState) -> Option<Arc<FrontendBundles>> {
     let events = events.clone();
     let (discovery, public_key, loopback) = dev_discovery_override().unwrap_or_else(|| {
         (
@@ -55,7 +53,7 @@ pub(crate) fn navigation_index(bundles: Option<&FrontendBundles>) -> String {
         .unwrap_or_else(|| BUNDLED_INDEX.into())
 }
 
-pub(crate) fn check(bundles: Arc<FrontendBundles>) {
+pub fn check(bundles: Arc<FrontendBundles>) {
     tauri::async_runtime::spawn(async move {
         match tokio::task::spawn_blocking(move || bundles.check()).await {
             Ok(Ok(_)) => {}

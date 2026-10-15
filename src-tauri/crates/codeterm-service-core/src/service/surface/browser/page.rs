@@ -137,7 +137,7 @@ impl PageShared {
         });
     }
 
-    pub(super) fn state(&self) -> SurfaceState {
+    pub fn state(&self) -> SurfaceState {
         self.state.borrow().clone()
     }
 
@@ -149,7 +149,7 @@ impl PageShared {
         self.notices.subscribe()
     }
 
-    pub(super) fn update(&self, change: impl FnOnce(&mut SurfaceState)) {
+    pub fn update(&self, change: impl FnOnce(&mut SurfaceState)) {
         self.state.send_if_modified(|state| {
             let before = state.clone();
             change(state);

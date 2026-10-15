@@ -91,157 +91,143 @@ pub fn orchestrator_onboarding_body(tab_id: &str, team_id: &str, plan_id: Option
     crate::prompts::orchestrator_first_message(tab_id, team_id, plan_id)
 }
 
-impl ServiceContext {
-    pub fn deliver_orchestrator_onboarding(&self, tab_id: &str) {
-        // Membership door 5: onboarding mints a Team onto the promoted Tab, and
-        // the General Agent kind anchors, so it would qualify without this.
-        {
-            let mux = self.mux.read();
-            let shape = shape_for_tab(&mux, tab_id);
-            let guard =
-                refuse_general_agent_team_membership(&mux, tab_id, MembershipAttempt::Join, &shape);
-            if let Err(refusal) = guard {
-                log::warn!("[orchestrator-onboard] {refusal}");
-                return;
-            }
+pub fn deliver_orchestrator_onboarding(svc: &ServiceContext, tab_id: &str) {
+    // Membership door 5: onboarding mints a Team onto the promoted Tab, and
+    // the General Agent kind anchors, so it would qualify without this.
+    {
+        let mux = svc.mux.read();
+        let shape = shape_for_tab(&mux, tab_id);
+        let guard =
+            refuse_general_agent_team_membership(&mux, tab_id, MembershipAttempt::Join, &shape);
+        if let Err(refusal) = guard {
+            log::warn!("[orchestrator-onboard] {refusal}");
+            return;
         }
-        // An anchoring Orchestrator owns a Team; mint it now if the promotion
-        // left it unbound so the first message carries a real team id.
-        let resolution = match self.mux.write().resolve_or_mint_team_for_parent(tab_id) {
-            Ok(resolution) => resolution,
+    }
+    // An anchoring Orchestrator owns a Team; mint it now if the promotion
+    // left it unbound so the first message carries a real team id.
+    let resolution = match svc.mux.write().resolve_or_mint_team_for_parent(tab_id) {
+        Ok(resolution) => resolution,
+        Err(e) => {
+            log::warn!("[orchestrator-onboard] team resolve for {tab_id} failed: {e}");
+            return;
+        }
+    };
+    let team_minted = resolution.minted;
+    let team_id = resolution.team_id;
+    // The team above is always freshly minted; scope the existence check
+    // to the project instead — codeterm-releases#56.
+    let project_path = {
+        let mux = svc.mux.read();
+        mux.get_tab(tab_id)
+            .and_then(|tab| tab.cwd.clone())
+            .or_else(|| {
+                mux.find_workspace_for_tab(tab_id)
+                    .and_then(|workspace_id| mux.get_workspace(&workspace_id))
+                    .and_then(|workspace| workspace.cwd.clone())
+            })
+    };
+    let active_plan = project_path
+        .as_deref()
+        .and_then(|project_path| svc.plan_store.active_plan_for_project(project_path));
+    let plan_id = active_plan.as_ref().map(|(id, _)| id.as_str());
+    let body = orchestrator_onboarding_body(tab_id, &team_id, plan_id);
+    // Raw chat startup must see the full onboarding even before delivery lands.
+    if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
+        tab.pending_greeting = Some(body.clone());
+    }
+    svc.emit_state_changed();
+    if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
+        svc,
+        crate::service::session_persist::SessionPersistUrgency::Prompt,
+    ) {
+        log::warn!("[session-persist] orchestrator onboarding submission failed: {error}");
+    } else if team_minted {
+        svc.record_product_feature(codeterm_analytics::Feature::TeamCreated);
+    }
+    // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
+    // reminder — the onboarding should read as CodeTerm introducing the role.
+    let envelope = MessageEnvelope::from_codeterm();
+    if let Err(e) = svc.gateway_deliver(
+        tab_id,
+        envelope,
+        &body,
+        crate::service::message_gateway::DeliveryClass::SystemNotice,
+    ) {
+        log::warn!("[orchestrator-onboard] deliver to {tab_id} failed: {e}");
+    }
+    deliver_orchestration_preferences(svc, tab_id);
+}
+
+/// Off-hot-path pull of machine-local area=orchestration preferences,
+/// injected as a delta reminder. mem search is blocking (FTS + embeddings)
+/// so it runs on a blocking thread; empty result is a clean no-op.
+pub fn deliver_orchestration_preferences(ctx: &ServiceContext, tab_id: &str) {
+    let svc = ctx.clone();
+    let tab_id = tab_id.to_string();
+    let job = move || {
+        let hits = match svc.mem.search(&orchestration_preference_query()) {
+            Ok(hits) => hits,
             Err(e) => {
-                log::warn!("[orchestrator-onboard] team resolve for {tab_id} failed: {e}");
+                log::warn!("[orchestration-prefs] mem search failed for {tab_id}: {e}");
                 return;
             }
         };
-        let team_minted = resolution.minted;
-        let team_id = resolution.team_id;
-        // The team above is always freshly minted; scope the existence check
-        // to the project instead — codeterm-releases#56.
-        let project_path = {
-            let mux = self.mux.read();
-            mux.get_tab(tab_id)
-                .and_then(|tab| tab.cwd.clone())
-                .or_else(|| {
-                    mux.find_workspace_for_tab(tab_id)
-                        .and_then(|workspace_id| mux.get_workspace(&workspace_id))
-                        .and_then(|workspace| workspace.cwd.clone())
-                })
+        let Some(body) = format_orchestration_preferences(&hits) else {
+            return;
         };
-        let active_plan = project_path
-            .as_deref()
-            .and_then(|project_path| self.plan_store.active_plan_for_project(project_path));
-        let plan_id = active_plan.as_ref().map(|(id, _)| id.as_str());
-        let body = orchestrator_onboarding_body(tab_id, &team_id, plan_id);
-        // Raw chat startup must see the full onboarding even before delivery lands.
-        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-            tab.pending_greeting = Some(body.clone());
-        }
-        self.emit_state_changed();
-        if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
-            self,
-            crate::service::session_persist::SessionPersistUrgency::Prompt,
-        ) {
-            log::warn!("[session-persist] orchestrator onboarding submission failed: {error}");
-        } else if team_minted {
-            self.record_product_feature(codeterm_analytics::Feature::TeamCreated);
-        }
-        // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
-        // reminder — the onboarding should read as CodeTerm introducing the role.
-        let envelope = MessageEnvelope::from_codeterm();
-        if let Err(e) = self.gateway_deliver(
-            tab_id,
+        let envelope = MessageEnvelope::codeterm_reminder("orchestration-prefs");
+        if let Err(e) = svc.gateway_deliver(
+            &tab_id,
             envelope,
             &body,
             crate::service::message_gateway::DeliveryClass::SystemNotice,
         ) {
-            log::warn!("[orchestrator-onboard] deliver to {tab_id} failed: {e}");
+            log::warn!("[orchestration-prefs] deliver to {tab_id} failed: {e}");
         }
-        self.deliver_orchestration_preferences(tab_id);
+    };
+    if tokio::runtime::Handle::try_current().is_ok() {
+        tokio::task::spawn_blocking(job);
+    } else {
+        std::thread::spawn(job);
     }
+}
 
-    /// Off-hot-path pull of machine-local area=orchestration preferences,
-    /// injected as a delta reminder. mem search is blocking (FTS + embeddings)
-    /// so it runs on a blocking thread; empty result is a clean no-op.
-    pub fn deliver_orchestration_preferences(&self, tab_id: &str) {
-        let svc = self.clone();
-        let tab_id = tab_id.to_string();
-        let job = move || {
-            let hits = match svc.mem.search(&orchestration_preference_query()) {
-                Ok(hits) => hits,
-                Err(e) => {
-                    log::warn!("[orchestration-prefs] mem search failed for {tab_id}: {e}");
-                    return;
-                }
-            };
-            let Some(body) = format_orchestration_preferences(&hits) else {
-                return;
-            };
-            let envelope = MessageEnvelope::codeterm_reminder("orchestration-prefs");
-            if let Err(e) = svc.gateway_deliver(
-                &tab_id,
-                envelope,
-                &body,
-                crate::service::message_gateway::DeliveryClass::SystemNotice,
-            ) {
-                log::warn!("[orchestration-prefs] deliver to {tab_id} failed: {e}");
-            }
-        };
-        if tokio::runtime::Handle::try_current().is_ok() {
-            tokio::task::spawn_blocking(job);
-        } else {
-            std::thread::spawn(job);
-        }
+pub fn maybe_deliver_orchestrator_promotion_onboarding(
+    svc: &ServiceContext,
+    tab_id: &str,
+    was_orchestrator: bool,
+) {
+    let should_deliver = {
+        let mux = svc.mux.read();
+        should_deliver_orchestrator_onboarding(mux.get_tab(tab_id), was_orchestrator)
+    };
+    if should_deliver {
+        deliver_orchestrator_onboarding(svc, tab_id);
     }
+}
 
-    pub fn maybe_deliver_orchestrator_onboarding(&self, tab_id: &str) {
-        let should_deliver = {
-            let mux = self.mux.read();
-            mux.get_tab(tab_id)
-                .map(|tab| tab.anchors_team() && tab_is_agent_capable(tab))
-                .unwrap_or(false)
-        };
-        if should_deliver {
-            self.deliver_orchestrator_onboarding(tab_id);
-        }
-    }
+pub fn make_orchestrator(svc: &ServiceContext, tab_id: &str) -> Result<(), String> {
+    let was_orchestrator = {
+        let mux = svc.mux.read();
+        let tab = mux
+            .get_tab(tab_id)
+            .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+        validate_make_orchestrator(tab)?;
+        tab.anchors_team()
+    };
 
-    pub fn maybe_deliver_orchestrator_promotion_onboarding(
-        &self,
-        tab_id: &str,
-        was_orchestrator: bool,
-    ) {
-        let should_deliver = {
-            let mux = self.mux.read();
-            should_deliver_orchestrator_onboarding(mux.get_tab(tab_id), was_orchestrator)
-        };
-        if should_deliver {
-            self.deliver_orchestrator_onboarding(tab_id);
-        }
-    }
+    svc.transition_agent(crate::service::AgentTransitionRequest {
+        tab_id: tab_id.to_string(),
+        destination: crate::service::AgentPlacement::orchestrator(Some(true)),
+        plan_binding: None,
+        require_verified_session: true,
+        planner_replacement: None,
+        plan_rebind: None,
+    })?;
+    maybe_deliver_orchestrator_promotion_onboarding(svc, tab_id, was_orchestrator);
 
-    pub fn make_orchestrator(&self, tab_id: &str) -> Result<(), String> {
-        let was_orchestrator = {
-            let mux = self.mux.read();
-            let tab = mux
-                .get_tab(tab_id)
-                .ok_or_else(|| format!("Tab {tab_id} not found"))?;
-            validate_make_orchestrator(tab)?;
-            tab.anchors_team()
-        };
-
-        self.transition_agent(crate::service::AgentTransitionRequest {
-            tab_id: tab_id.to_string(),
-            destination: crate::service::AgentPlacement::orchestrator(Some(true)),
-            plan_binding: None,
-            require_verified_session: true,
-            planner_replacement: None,
-            plan_rebind: None,
-        })?;
-        self.maybe_deliver_orchestrator_promotion_onboarding(tab_id, was_orchestrator);
-
-        Ok(())
-    }
+    Ok(())
 }
 
 #[cfg(test)]

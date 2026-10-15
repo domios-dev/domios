@@ -37,7 +37,7 @@ const CAPABILITY_KEYS: &[&str] = &[
 /// A structural needle from the text it guards. `worker_suffix` must keep every
 /// one of these however an overlay layers on top of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CoreFragment {
+pub struct CoreFragment {
     pub id: &'static str,
     pub needle: &'static str,
 }
@@ -54,7 +54,7 @@ pub(crate) const CONTRACT_CORE: &[CoreFragment] = &[
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OverlayKind {
+pub struct OverlayKind {
     pub id: String,
     pub label: String,
     pub guidance: String,
@@ -62,7 +62,7 @@ pub(crate) struct OverlayKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum RejectionReason {
+pub enum RejectionReason {
     Unreadable(String),
     Malformed(String),
     /// Builtin rows are embedded and non-overridable.
@@ -85,7 +85,7 @@ pub(crate) enum RejectionReason {
 }
 
 impl RejectionReason {
-    pub(crate) fn code(&self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             Self::Unreadable(_) => "unreadable",
             Self::Malformed(_) => "malformed",
@@ -97,7 +97,7 @@ impl RejectionReason {
         }
     }
 
-    pub(crate) fn detail(&self) -> String {
+    pub fn detail(&self) -> String {
         match self {
             Self::Unreadable(error) | Self::Malformed(error) => error.clone(),
             Self::BuiltinOverride { kind_id } => format!("`{kind_id}` is a builtin role kind"),
@@ -110,13 +110,13 @@ impl RejectionReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OverlayRejection {
+pub struct OverlayRejection {
     pub path: String,
     pub reason: RejectionReason,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct OverlayCatalog {
+pub struct OverlayCatalog {
     kinds: BTreeMap<String, OverlayKind>,
     rejected: Vec<OverlayRejection>,
 }
@@ -126,11 +126,11 @@ impl OverlayCatalog {
         Self::default()
     }
 
-    pub(crate) fn kinds(&self) -> impl Iterator<Item = &OverlayKind> {
+    pub fn kinds(&self) -> impl Iterator<Item = &OverlayKind> {
         self.kinds.values()
     }
 
-    pub(crate) fn rejected(&self) -> &[OverlayRejection] {
+    pub fn rejected(&self) -> &[OverlayRejection] {
         &self.rejected
     }
 
@@ -200,7 +200,7 @@ impl PresetOverlays for OverlayCatalog {
 }
 
 /// The base an overlay claims to layer on. Only a leaf base is admissible.
-enum ClaimedBase {
+pub enum ClaimedBase {
     Leaf,
     Standalone,
 }
@@ -335,7 +335,7 @@ static AMBIENT: std::sync::LazyLock<RwLock<Arc<OverlayCatalog>>> =
 
 /// The installed catalog. Empty until the service loads one, so unit tests and
 /// fixtures never depend on the developer's home directory.
-pub(crate) fn ambient() -> Arc<OverlayCatalog> {
+pub fn ambient() -> Arc<OverlayCatalog> {
     AMBIENT.read().clone()
 }
 
@@ -346,6 +346,6 @@ pub(crate) fn install(catalog: OverlayCatalog) -> Arc<OverlayCatalog> {
 }
 
 /// Re-read the overlay directory. Adding a leaf kind needs this, never a build.
-pub(crate) fn reload() -> Arc<OverlayCatalog> {
+pub fn reload() -> Arc<OverlayCatalog> {
     install(OverlayCatalog::load(&overlay_dir()))
 }

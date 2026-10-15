@@ -11,17 +11,16 @@ use crate::session::lifecycle::{
 use super::provider_identity::{AgentTypeWriteOutcome, TabAgentTypeState};
 use super::{AuthenticatedPlanCaller, ServiceContext};
 
-pub(crate) const TAB_REPAIR_VERIFIED_SESSION_REQUIRED: &str =
-    "tab_repair_verified_session_required";
+pub const TAB_REPAIR_VERIFIED_SESSION_REQUIRED: &str = "tab_repair_verified_session_required";
 pub(crate) const TAB_REPAIR_NOT_AUTHORIZED: &str = "tab_repair_not_authorized";
 pub(crate) const TAB_REPAIR_EVIDENCE_CHANGED: &str = "tab_repair_evidence_changed";
 pub(crate) const TAB_REPAIR_LIVE_PTY_REQUIRED: &str = "tab_repair_live_pty_required";
 pub(crate) const TAB_REPAIR_JOURNAL_UNAVAILABLE: &str = "tab_repair_journal_unavailable";
 pub(crate) const TAB_REPAIR_JOURNAL_SOURCE_MISSING: &str = "tab_repair_journal_source_missing";
-pub(crate) const TAB_REPAIR_SESSION_BINDING_PENDING: &str = "session_binding_pending";
+pub const TAB_REPAIR_SESSION_BINDING_PENDING: &str = "session_binding_pending";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TabRepairErrorKind {
+pub enum TabRepairErrorKind {
     NotFound,
     NotAuthorized,
     VerifiedSessionRequired,
@@ -33,20 +32,20 @@ pub(crate) enum TabRepairErrorKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TabRepairError {
-    pub(crate) kind: TabRepairErrorKind,
-    pub(crate) message: String,
+pub struct TabRepairError {
+    pub kind: TabRepairErrorKind,
+    pub message: String,
 }
 
 impl TabRepairError {
-    pub(crate) fn new(kind: TabRepairErrorKind, message: impl Into<String>) -> Self {
+    pub fn new(kind: TabRepairErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),
         }
     }
 
-    pub(crate) fn code(&self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self.kind {
             TabRepairErrorKind::NotFound => "tab_repair_target_not_found",
             TabRepairErrorKind::NotAuthorized => TAB_REPAIR_NOT_AUTHORIZED,
@@ -61,14 +60,14 @@ impl TabRepairError {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AuthorizedRepairTarget {
-    pub(crate) tab_id: String,
+pub struct AuthorizedRepairTarget {
+    pub tab_id: String,
     pub(crate) identity: ProviderIdentityEvidence,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum TabRepairSource {
+pub enum TabRepairSource {
     ProviderAssertion,
     Session,
     LiveEvidence,
@@ -132,13 +131,13 @@ pub(crate) struct SkippedJournalRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct JournalRepairReport {
+pub struct JournalRepairReport {
     pub(crate) restored_from: JournalRecordReport,
     pub(crate) skipped: Vec<SkippedJournalRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct TabRepairResponse {
+pub struct TabRepairResponse {
     pub(crate) ok: bool,
     pub(crate) tab_id: String,
     pub(crate) source: TabRepairSource,
@@ -151,7 +150,7 @@ pub(crate) struct TabRepairResponse {
 }
 
 impl TabRepairResponse {
-    pub(crate) fn from_identity_write(
+    pub fn from_identity_write(
         tab_id: String,
         source: TabRepairSource,
         session_before: Option<String>,
@@ -254,7 +253,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) async fn authorize_tab_repair_async(
+    pub async fn authorize_tab_repair_async(
         &self,
         tab_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -295,7 +294,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) async fn repair_tab_from_live_evidence(
+    pub async fn repair_tab_from_live_evidence(
         &self,
         target: AuthorizedRepairTarget,
         caller: &AuthenticatedPlanCaller,
@@ -353,7 +352,7 @@ impl ServiceContext {
         Ok(response)
     }
 
-    pub(crate) async fn repair_tab_from_journal(
+    pub async fn repair_tab_from_journal(
         &self,
         target: AuthorizedRepairTarget,
         caller: &AuthenticatedPlanCaller,

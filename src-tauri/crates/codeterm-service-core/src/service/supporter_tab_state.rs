@@ -30,7 +30,7 @@ impl Drop for TestSupporterOverrideGuard {
 use super::startup_nudge::StartupNudge;
 use super::tab_transport::TabTransport;
 use super::ServiceContext;
-use crate::api::mem_routes::decision::SupporterRegistry;
+use crate::service::supporter::registry::SupporterRegistry;
 
 mod admission;
 mod candidates;
@@ -42,7 +42,7 @@ mod idle_readiness;
 mod observer;
 mod privacy;
 pub(super) mod scheduler;
-pub(crate) mod sentinel_request;
+pub mod sentinel_request;
 
 pub(crate) use identity::correlation::project_diagnostics as project_observation_diagnostics;
 #[cfg(test)]
@@ -51,8 +51,8 @@ pub(crate) use observer::{prepare_observation, spawn_observer};
 pub(crate) fn forget_observations(tab: &str) {
     admission::forget(tab);
 }
-pub(crate) use privacy::value as redact_decision_diagnostic;
-pub(crate) use privacy::{screen as redact_screen, text as redact_text};
+pub use privacy::value as redact_decision_diagnostic;
+pub use privacy::{screen as redact_screen, text as redact_text};
 mod questions;
 pub(crate) mod safe_choice;
 mod safe_response;
@@ -362,7 +362,7 @@ impl ShadowHost for ServiceContext {
         let settings = self.supporter_decision_config();
         let token = supporter::read_token_snapshot(
             &self.supporter_runtime(),
-            &crate::api::mem_routes::decision::token_store(),
+            &crate::service::supporter::registry::token_store(),
             adapter,
         );
         settings.active_id() == Some(adapter)
@@ -389,7 +389,7 @@ impl ShadowHost for ServiceContext {
     fn token_available(&self, adapter_id: &str) -> bool {
         supporter::read_token_snapshot(
             &self.supporter_runtime(),
-            &crate::api::mem_routes::decision::token_store(),
+            &crate::service::supporter::registry::token_store(),
             adapter_id,
         )
         .usable
@@ -736,7 +736,7 @@ impl ServiceContext {
         let config = self.supporter_decision_config();
         let tokens = supporter::read_token_snapshot(
             &supporter::runtime_with_notifications(self),
-            &crate::api::mem_routes::decision::token_store(),
+            &crate::service::supporter::registry::token_store(),
             config.active_id().unwrap_or(""),
         );
         if !supporter::supporter_connected(&config, &self.supporter_models, &tokens) {
@@ -854,7 +854,7 @@ pub(crate) struct UserDeliveryReadiness {
 }
 
 impl UserDeliveryReadiness {
-    pub(crate) fn new(
+    pub fn new(
         first: UserDeliveryObservation,
         second: UserDeliveryObservation,
     ) -> Result<Self, &'static str> {

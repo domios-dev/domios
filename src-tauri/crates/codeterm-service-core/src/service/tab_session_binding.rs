@@ -225,9 +225,15 @@ mod tests {
         let fixture = ServiceFixture::new(mux);
         let svc = &fixture.service;
 
-        let before = svc.mux_emit_stats.requests.load(Ordering::Relaxed);
+        let before = svc
+            .ext::<std::sync::Arc<crate::service::MuxEmitStats>>()
+            .requests
+            .load(Ordering::Relaxed);
         svc.set_agent_session_id(&tab, Some("session-1".into()));
-        let after_bind = svc.mux_emit_stats.requests.load(Ordering::Relaxed);
+        let after_bind = svc
+            .ext::<std::sync::Arc<crate::service::MuxEmitStats>>()
+            .requests
+            .load(Ordering::Relaxed);
         assert!(
             after_bind > before,
             "a binding change must broadcast tab state (before={before} after={after_bind})"
@@ -235,7 +241,9 @@ mod tests {
 
         svc.set_agent_session_id(&tab, Some("session-1".into()));
         assert_eq!(
-            svc.mux_emit_stats.requests.load(Ordering::Relaxed),
+            svc.ext::<std::sync::Arc<crate::service::MuxEmitStats>>()
+                .requests
+                .load(Ordering::Relaxed),
             after_bind,
             "an unchanged binding must not broadcast"
         );

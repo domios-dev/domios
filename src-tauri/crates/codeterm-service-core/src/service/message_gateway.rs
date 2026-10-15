@@ -9,9 +9,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use parking_lot::Mutex;
 
 use super::messenger::{Delivery, MessageEnvelope, Messenger};
-use super::pty_io::{
-    await_action_deadline, execute_ordered_actions, OrderedPtyAction, SendBatchItem,
-};
+use super::ordered_actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
+use crate::ports::transport::{Input, SendBatchItem};
 
 /// Default bound for the idempotency cache (entries, no persistence).
 pub const IDEMPOTENCY_CAPACITY: usize = 512;
@@ -208,12 +207,11 @@ impl DeliverySeam for super::ServiceContext {
     }
 
     fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
-        self.send_text_detached(tab, text);
-        Ok(())
+        self.deliver(tab, Input::TextDetached(text))
     }
 
     fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
-        self.send_text_batch(tab, batch)
+        self.deliver(tab, Input::Batch(batch))
     }
 
     fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
@@ -223,12 +221,12 @@ impl DeliverySeam for super::ServiceContext {
             &ordered,
             |body, enter| {
                 if enter {
-                    self.send_text(tab, body)
+                    self.deliver(tab, Input::Text(body))
                 } else {
-                    self.insert_text(tab, body)
+                    self.deliver(tab, Input::Insert(body))
                 }
             },
-            |bytes| self.write_raw(tab, bytes),
+            |bytes| self.deliver(tab, Input::Raw(bytes)),
             await_action_deadline,
         )
     }
@@ -263,7 +261,7 @@ impl super::ServiceContext {
     /// Deliver an enveloped machine/system message through the optimistic gateway.
     /// Delivery never starts a worker turn or touches its report obligation.
     /// Task dispatch arms that obligation explicitly.
-    pub(crate) fn gateway_deliver(
+    pub fn gateway_deliver(
         &self,
         target: &str,
         envelope: MessageEnvelope,
@@ -274,7 +272,7 @@ impl super::ServiceContext {
             .map(|(delivery, _)| delivery)
     }
 
-    pub(crate) fn gateway_deliver_with_pad_file(
+    pub fn gateway_deliver_with_pad_file(
         &self,
         target: &str,
         envelope: MessageEnvelope,
@@ -421,7 +419,7 @@ impl MessageGateway {
         }
     }
 
-    pub(crate) fn require_worker_report(&self, tab_id: &str) {
+    pub fn require_worker_report(&self, tab_id: &str) {
         self.worker_report_required
             .lock()
             .insert(tab_id.to_string());

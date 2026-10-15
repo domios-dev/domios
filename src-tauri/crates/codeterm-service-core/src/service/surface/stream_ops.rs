@@ -73,14 +73,14 @@ pub(crate) fn stream_binding(
 
 /// Who drove a `/call`: the surface's own view, or an agent tab (`X-CodeTerm-Tab-Id`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CallOrigin {
+pub enum CallOrigin {
     View,
     Agent,
 }
 
 /// A refusal is the request's fault (4xx); a failure is the runtime's answer (`{ error }`).
 #[derive(Debug)]
-pub(crate) enum SurfaceCallFailure {
+pub enum SurfaceCallFailure {
     Refused(SurfaceError),
     Failed(String),
 }
@@ -93,25 +93,27 @@ impl ServiceContext {
         let binding = {
             let mux = self.mux.read();
             stream_binding(&mux, raw_tab_id, |plugin_id| {
-                self.surface_registry
+                self.ext::<codeterm_plugin::surfaces::SurfaceRegistryHandle>()
                     .get(plugin_id)
                     .map(|declared| declared.to_vec())
             })?
         };
-        let (runtime, created) = self.surface_runtimes.get_or_create(
-            &binding.tab_id,
-            &binding.runtime,
-            &binding.owner_name,
-            &binding.owner_tab_id.clone().unwrap_or_else(|| {
-                let mux = self.mux.read();
-                format!(
-                    "workspace_{}",
-                    mux.find_workspace_for_tab(&binding.tab_id)
-                        .unwrap_or_default()
-                )
-            }),
-            binding.resume.clone(),
-        )?;
+        let (runtime, created) = self
+            .ext::<Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
+            .get_or_create(
+                &binding.tab_id,
+                &binding.runtime,
+                &binding.owner_name,
+                &binding.owner_tab_id.clone().unwrap_or_else(|| {
+                    let mux = self.mux.read();
+                    format!(
+                        "workspace_{}",
+                        mux.find_workspace_for_tab(&binding.tab_id)
+                            .unwrap_or_default()
+                    )
+                }),
+                binding.resume.clone(),
+            )?;
         runtime.set_owner_name(&binding.owner_name);
         if created && binding.relaunch {
             if let Some(updates) = runtime.resume_updates() {
@@ -132,7 +134,7 @@ impl ServiceContext {
     /// Owner, Team and workspace closes remove surface tabs inside the mux; their runtimes go here.
     pub(crate) fn dispose_closed_surface_runtimes(&self) {
         let closed = self
-            .surface_runtimes
+            .ext::<Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
             .take_closed(|tab_id| self.mux.read().get_tab(tab_id).is_some());
         for runtime in closed {
             tauri::async_runtime::spawn(async move { runtime.dispose().await });
@@ -155,7 +157,7 @@ impl ServiceContext {
     }
 }
 
-pub(crate) async fn open_surface_stream(
+pub async fn open_surface_stream(
     svc: &ServiceState,
     tab_id: &str,
     viewport: Option<ViewportRequest>,
@@ -164,7 +166,7 @@ pub(crate) async fn open_surface_stream(
     Ok(runtime.connect(viewport).await)
 }
 
-pub(crate) async fn call_surface(
+pub async fn call_surface(
     svc: &ServiceState,
     tab_id: &str,
     method: &str,

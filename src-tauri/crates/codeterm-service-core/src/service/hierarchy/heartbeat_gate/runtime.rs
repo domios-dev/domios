@@ -1,5 +1,5 @@
 use super::*;
-use crate::api::mem_routes::decision::SupporterRegistry;
+use crate::service::supporter::registry::SupporterRegistry;
 use crate::service::{supporter, ServiceContext};
 use codeterm_types::config::SupporterConfig;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ impl<'a> Supporter<'a> {
         let cfg = svc.configuration().supporter;
         let token = supporter::read_token_snapshot(
             &runtime,
-            &crate::api::mem_routes::decision::token_store(),
+            &crate::service::supporter::registry::token_store(),
             cfg.active_id().unwrap_or(""),
         );
         Self {

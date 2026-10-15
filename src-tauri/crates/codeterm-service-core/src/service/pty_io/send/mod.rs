@@ -3,6 +3,7 @@
 use crate::agent::provider::PasteCapability;
 use crate::service::delivery_error::DeliveryError;
 use crate::service::ServiceContext;
+use codeterm_pty::pty::ansi::sanitize_agent_prompt_input;
 
 mod agent_binding;
 pub(super) mod readiness;
@@ -326,13 +327,6 @@ pub(super) fn submit_authenticated_pty_input<T>(
     submit(&pty_id, &provider_id, text)
 }
 
-pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
-    crate::pty::ansi::strip_ansi(text)
-        .chars()
-        .filter(|c| *c != '\0')
-        .collect()
-}
-
 impl ServiceContext {
     fn authenticated_pty_delivery(
         &self,
@@ -578,7 +572,7 @@ impl ServiceContext {
             .map_err(|error| error.ledger_message())
     }
 
-    pub(crate) fn send_text_input_delivery(
+    pub fn send_text_input_delivery(
         &self,
         tab_id: &str,
         text: &str,
@@ -661,7 +655,7 @@ impl ServiceContext {
             .map_err(|error| error.ledger_message())
     }
 
-    pub(crate) fn insert_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
+    pub fn insert_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
         self.send_text_to_pty_input_delivery(pty_id, text, false)
             .map_err(|error| error.ledger_message())
     }
@@ -827,11 +821,7 @@ impl ServiceContext {
             })?
     }
 
-    pub(crate) async fn stage_text_when_ready(
-        &self,
-        tab_id: &str,
-        text: &str,
-    ) -> Result<(), String> {
+    pub async fn stage_text_when_ready(&self, tab_id: &str, text: &str) -> Result<(), String> {
         self.insert_text_detached(tab_id, text);
         Ok(())
     }
@@ -915,7 +905,7 @@ impl ServiceContext {
         let _ = pty_id;
     }
 
-    pub(crate) fn await_pty_link_blocking(
+    pub fn await_pty_link_blocking(
         &self,
         tab_id: &str,
         timeout: std::time::Duration,
@@ -1038,7 +1028,7 @@ impl ServiceContext {
         self.deliver_text_detached(tab_id, text, true);
     }
 
-    pub(crate) fn insert_text_detached(&self, tab_id: &str, text: &str) {
+    pub fn insert_text_detached(&self, tab_id: &str, text: &str) {
         self.deliver_text_detached(tab_id, text, false);
     }
 
@@ -1085,14 +1075,18 @@ impl ServiceContext {
         };
         let Some(tab_id) = tab_id else { return };
         if locked {
-            self.input_parser.clear(&tab_id);
+            self.ext::<std::sync::Arc<crate::service::input_parser::InputParser>>()
+                .clear(&tab_id);
             return;
         }
         let mut payload = text.as_bytes().to_vec();
         if enter {
             payload.push(b'\r');
         }
-        if let Some(provider_id) = self.input_parser.process(&tab_id, &payload) {
+        if let Some(provider_id) = self
+            .ext::<std::sync::Arc<crate::service::input_parser::InputParser>>()
+            .process(&tab_id, &payload)
+        {
             log::info!(
                 "[input-parser] detected '{}' send in Tab {} — locking agent_type",
                 provider_id,

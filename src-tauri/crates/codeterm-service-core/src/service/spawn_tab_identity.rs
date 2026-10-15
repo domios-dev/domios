@@ -1,6 +1,6 @@
 use super::{SpawnTabSpec, TabCommand};
 
-pub(super) fn prepare_tab_identity(spec: &mut SpawnTabSpec) -> Result<(), String> {
+pub fn prepare_tab_identity(spec: &mut SpawnTabSpec) -> Result<(), String> {
     if spec.shell.is_some() && !matches!(spec.command, TabCommand::Shell) {
         return Err("shell profiles require PTY shell backing; agents run natively".into());
     }

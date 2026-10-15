@@ -1,6 +1,6 @@
 use crate::{PtyState, ScreenStateHandle};
 
-pub(crate) fn resize(
+pub fn resize(
     pty: &PtyState,
     screen_state: &ScreenStateHandle,
     pty_id: &str,
@@ -29,6 +29,3 @@ pub(crate) fn resize(
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;

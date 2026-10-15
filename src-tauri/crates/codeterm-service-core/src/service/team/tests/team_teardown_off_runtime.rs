@@ -4,11 +4,11 @@ use std::task::Poll;
 use std::time::Duration;
 
 use crate::cron::clock::MockClock;
-use crate::sentinel::scheduler;
-use crate::sentinel::store::{Create, Owner, Store};
 use crate::service::test_fixture::ServiceFixture;
 use crate::storage::{Storage, StorageConfig};
-use tauri::Manager;
+use codeterm_sentinel::store::{Create, Owner, Store};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -19,9 +19,8 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
     let fixture = ServiceFixture::new(mux);
     let storage = Storage::open(fixture.temp.path(), StorageConfig::default()).unwrap();
     let store = Store::with_storage(&storage, MockClock::starting_at(1_000));
-    let sentinels = scheduler::fixture_handle(store, fixture._app.handle().clone());
+    let sentinels = Arc::new(Mutex::new(store));
     let job = sentinels
-        .store
         .lock()
         .prepare(
             Create {
@@ -58,10 +57,10 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
         )
         .unwrap();
     let sentinel =
-        crate::sentinel::storage::commit(&sentinels.store, |current| current.stage_insert(job))
+        codeterm_sentinel::storage::commit(&sentinels, |current| current.stage_insert(job))
             .unwrap();
     let sentinel_id = sentinel.id;
-    assert!(fixture._app.manage(sentinels.clone()));
+    super::sentinel_fixture::manage(&fixture._app.handle().clone(), &sentinels);
 
     let hold = storage.hold_writer().unwrap();
     hold.wait_held(DEADLINE).unwrap();
@@ -76,7 +75,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
             .build()
             .unwrap();
         runtime.block_on(async move {
-            let mut teardown = Box::pin(service.finish_team_teardown(&runtime_team_id));
+            let mut teardown = Box::pin(super::finish_team_teardown(&service, &runtime_team_id));
             let waiting_on_storage =
                 std::future::poll_fn(|cx| Poll::Ready(teardown.as_mut().poll(cx).is_pending()))
                     .await;
@@ -106,7 +105,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
         let _ = runtime.join();
         panic!("unrelated runtime work stalled behind Sentinel Storage: {error}");
     }
-    assert!(sentinels.store.lock().get(&sentinel_id).is_some());
+    assert!(sentinels.lock().get(&sentinel_id).is_some());
     let still_waiting_on_storage = settled_rx.recv_timeout(DEADLINE);
     hold.release();
     let teardown_result = runtime.join();
@@ -121,7 +120,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
         committed_before + 1,
         "one Sentinel removal must settle once"
     );
-    assert!(sentinels.store.lock().get(&sentinel_id).is_none());
+    assert!(sentinels.lock().get(&sentinel_id).is_none());
     assert!(!storage
         .sentinels()
         .inventory()

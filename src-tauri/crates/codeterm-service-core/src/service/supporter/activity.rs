@@ -17,7 +17,7 @@ const HOUR: i64 = 3_600_000;
 const DAY: i64 = 86_400_000;
 const COLD_ADAPTER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
-pub(crate) struct DecisionEvidence<'a> {
+pub struct DecisionEvidence<'a> {
     pub(crate) decision_point: Option<&'a str>,
     pub(crate) model_id: Option<String>,
     pub(crate) criteria_version: &'a str,
@@ -27,7 +27,7 @@ pub(crate) struct DecisionEvidence<'a> {
 }
 
 #[derive(Default)]
-struct Activity {
+pub struct Activity {
     calls: VecDeque<i64>,
     last_activity: Option<i64>,
     last_verdict: BTreeMap<String, Value>,
@@ -37,7 +37,7 @@ struct Activity {
     token_acl_notices: HashSet<String>,
 }
 
-pub(crate) struct SupporterRuntime {
+pub struct SupporterRuntime {
     activity: Mutex<Activity>,
     backoffs: Mutex<super::backoff::Backoffs>,
     journal: Mutex<Journal>,
@@ -50,7 +50,7 @@ pub(crate) struct SupporterRuntime {
 }
 
 impl SupporterRuntime {
-    pub(crate) fn new(dir: PathBuf) -> Self {
+    pub fn new(dir: PathBuf) -> Self {
         let spend = SpendBook::new(dir.clone());
         let journal = Journal::new(dir);
         let loaded = journal.load_calls();
@@ -80,7 +80,7 @@ impl SupporterRuntime {
         let _ = self.alert_sink.set(sink);
     }
 
-    pub(crate) fn attach_visibility(&self, resolver: TabFieldResolver, sink: JournalSink) {
+    pub fn attach_visibility(&self, resolver: TabFieldResolver, sink: JournalSink) {
         let _ = self.team_resolver.set(resolver);
         let _ = self.journal_sink.set(sink);
     }
@@ -93,7 +93,7 @@ impl SupporterRuntime {
         tab.and_then(|tab| self.team_resolver.get().and_then(|resolve| resolve(tab)))
     }
 
-    pub(crate) fn feed(&self, limit: usize, team: Option<&str>) -> std::io::Result<Vec<Value>> {
+    pub fn feed(&self, limit: usize, team: Option<&str>) -> std::io::Result<Vec<Value>> {
         self.journal.lock().feed(limit, team)
     }
 
@@ -242,7 +242,7 @@ impl SupporterRuntime {
             "asked": context.map(|context| context.failure(reason)) }));
     }
 
-    pub(crate) fn record_spend(
+    pub fn record_spend(
         &self,
         adapter: &str,
         price: Option<&DecisionPricing>,
@@ -269,7 +269,7 @@ impl SupporterRuntime {
 
     /// Bumped before the journal row on every connection mutation attempt; it
     /// wraps only after 2^64 mutations and never resets within a daemon run.
-    pub(crate) fn connection_changed(&self) {
+    pub fn connection_changed(&self) {
         self.connection_epoch.fetch_add(1, Ordering::AcqRel);
         let _ = self.append(
             json!({ "time": chrono::Utc::now().timestamp(), "kind": "connection_changed" }),
@@ -280,7 +280,7 @@ impl SupporterRuntime {
         self.connection_epoch.load(Ordering::Acquire)
     }
 
-    pub(crate) fn spend_status(&self, adapter: &str) -> Value {
+    pub fn spend_status(&self, adapter: &str) -> Value {
         self.spend
             .status(adapter, chrono::Utc::now().timestamp_millis())
     }
@@ -326,7 +326,7 @@ impl SupporterRuntime {
         self.append(event)
     }
 
-    pub(crate) fn sentinel_event(&self, event: Value) -> std::io::Result<()> {
+    pub fn sentinel_event(&self, event: Value) -> std::io::Result<()> {
         self.append(event)
     }
 
@@ -399,7 +399,7 @@ impl SupporterRuntime {
         (hour.len(), free_at)
     }
 
-    pub(crate) fn reserve(
+    pub fn reserve(
         &self,
         cap: usize,
         kind: VerdictKind,
@@ -471,7 +471,7 @@ impl SupporterRuntime {
         self.append(value)
     }
 
-    pub(crate) fn action(&self, record: ActionRecord<'_>) {
+    pub fn action(&self, record: ActionRecord<'_>) {
         let now = chrono::Utc::now().timestamp_millis();
         let mut value = serde_json::to_value(record).unwrap_or(Value::Null);
         value["time"] = json!(now / 1000);
@@ -497,7 +497,7 @@ impl SupporterRuntime {
         result
     }
 
-    pub(crate) fn status(&self, cap: usize) -> Value {
+    pub fn status(&self, cap: usize) -> Value {
         self.status_at(cap, chrono::Utc::now().timestamp_millis())
     }
 

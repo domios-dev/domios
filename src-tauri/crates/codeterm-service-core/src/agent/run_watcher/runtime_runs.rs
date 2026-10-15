@@ -109,7 +109,7 @@ impl RunWatcherRegistry {
         }
     }
 
-    pub(super) fn request_runtime_cron_completion(
+    pub fn request_runtime_cron_completion(
         &self,
         svc: &ServiceContext,
         tab: &str,
@@ -140,7 +140,7 @@ impl RunWatcherRegistry {
         Some(Ok(()))
     }
 
-    pub(crate) fn runtime_worker_reported(&self, tab: &str, worker: &str) -> bool {
+    pub fn runtime_worker_reported(&self, tab: &str, worker: &str) -> bool {
         let mut runs = self.runtime_runs.lock();
         let Some(run) = runs.get_mut(tab).filter(|run| {
             matches!(&run.kind,

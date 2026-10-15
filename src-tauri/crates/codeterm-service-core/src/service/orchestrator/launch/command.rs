@@ -4,7 +4,7 @@ use crate::service::orchestrator::types::SpawnAgentParams;
 
 mod selection_args;
 
-pub(crate) fn build_agent_command(
+pub fn build_agent_command(
     agent_cmd: &str,
     params: &SpawnAgentParams,
     task: Option<&str>,
@@ -21,7 +21,7 @@ pub(crate) fn build_agent_command(
     )
 }
 
-pub(crate) fn build_agent_command_for_service(
+pub fn build_agent_command_for_service(
     service: &ServiceContext,
     tab_id: &str,
     agent_cmd: &str,
@@ -41,7 +41,7 @@ pub(crate) fn build_agent_command_for_service(
     )
 }
 
-pub(crate) fn build_agent_command_with_launch_marker(
+pub fn build_agent_command_with_launch_marker(
     agent_cmd: &str,
     params: &SpawnAgentParams,
     task: Option<&str>,
@@ -60,7 +60,7 @@ pub(crate) fn build_agent_command_with_launch_marker(
     )
 }
 
-pub(crate) fn build_agent_command_with_launch_marker_for_service(
+pub fn build_agent_command_with_launch_marker_for_service(
     service: &ServiceContext,
     tab_id: &str,
     agent_cmd: &str,

@@ -1,7 +1,7 @@
 use crate::service::public_send_readiness::{PublicSendGateKey, PublicSendLaunchGuard};
 use crate::service::ServiceContext;
 
-pub(super) fn arm(
+pub fn arm(
     svc: &ServiceContext,
     tab_id: &str,
     agent_cmd: &str,

@@ -1,6 +1,6 @@
 pub(crate) use crate::multiplexer::spawn_title::creation_title_override;
 
-pub(crate) fn validate_agent_tab_title(
+pub fn validate_agent_tab_title(
     explicit: Option<&str>,
     agent_name: Option<&str>,
 ) -> Result<(), String> {

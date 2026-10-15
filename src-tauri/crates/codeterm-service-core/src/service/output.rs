@@ -95,7 +95,7 @@ impl ServiceContext {
         crate::agent::live_state::schedule(self, pty_id);
     }
 
-    pub(crate) fn mark_agent_interrupted(&self, pty_id: &str) {
+    pub fn mark_agent_interrupted(&self, pty_id: &str) {
         self.arm_agent_stop_suppression(pty_id);
         self.force_agent_idle_for_pty(pty_id);
     }
@@ -229,7 +229,7 @@ impl ServiceContext {
         };
         if screen_changed {
             if let Some(ref pid) = tab_id {
-                self.usage_activity.mark(pid);
+                self.ext::<crate::usage::TabActivity>().mark(pid);
             }
         }
         let current_status = self.agent_tracker.lock().get_status(pty_id);

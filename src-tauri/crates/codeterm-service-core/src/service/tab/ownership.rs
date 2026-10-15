@@ -9,7 +9,7 @@ use crate::service::{session_persist, ServiceContext};
 mod tests;
 
 impl ServiceContext {
-    pub(crate) fn release_remote_ownership(
+    pub fn release_remote_ownership(
         &self,
         tab_id: &str,
         caller_tab_id: Option<&str>,

@@ -4,7 +4,7 @@ use codeterm_notification_core::contract::NotifyLevel;
 /// at the transport boundary rather than quietly accepted.
 #[test]
 fn notify_level_wire_parse_rejects_the_retired_names() {
-    use crate::api::notification_routes::parse_push_intent;
+    use crate::notification::vet::parse_push_intent;
 
     for level in NotifyLevel::ALL {
         let intent = parse_push_intent(Some(level.as_str()), None)
@@ -34,13 +34,9 @@ mod no_inference {
     const SINK: &str = "_send_os_notification";
 
     /// System and automation events may not reach the desktop sink.
-    const SINK_CALLERS: [&str; 2] = ["api/os_notify.rs", "service/notification.rs"];
+    const SINK_CALLERS: [&str; 2] = ["notification/os_notify.rs", "service/notification.rs"];
 
-    const EXPLICIT_CREATORS: [&str; 3] = [
-        "api/notification_routes.rs",
-        "service/notification.rs",
-        "socket/server/notification.rs",
-    ];
+    const EXPLICIT_CREATORS: [&str; 1] = ["service/notification.rs"];
 
     fn src_root() -> PathBuf {
         PathBuf::from(crate::test_support::fixture_manifest_dir()).join("src")
@@ -120,6 +116,16 @@ mod no_inference {
             callers_of("create_agent_notification_reported"),
             allowed,
             "an explicit notification is opened by the notify verb's transports only"
+        );
+        assert!(
+            include_str!("../../../codeterm-socket/src/server/notification.rs")
+                .contains("create_agent_notification_reported"),
+            "the socket transport of the notify verb stays an explicit creator"
+        );
+        assert!(
+            include_str!("../../../codeterm-api/src/notification_routes.rs")
+                .contains("create_agent_notification_reported"),
+            "the HTTP transport of the notify verb stays an explicit creator"
         );
     }
 

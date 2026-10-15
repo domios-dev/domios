@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 use super::channel_ask::*;
 use crate::notification::answer::AnswerAdmission;
 use crate::notification::answer_delivery::AnswerDeliveryPlan;
-use crate::notification::authority::{self, SurfaceOffer};
+use crate::notification::authority::SurfaceOffer;
 use crate::notification::channels::{self, telegram, ChannelHost, PushChannel};
 use crate::notification::push;
 use crate::notification::store::{
@@ -249,43 +249,16 @@ fn channel_ask_options_ride_the_channel_and_the_tapped_label_returns_to_the_aski
 }
 
 #[test]
-fn channel_ask_authority_refuses_every_unattended_surface_change() {
-    // The config seam an agent's own CLI reaches: a keyed write is refused,
-    // and a whole-object write from inside a tab is refused too.
-    let mut surface_partial = serde_json::Map::new();
-    surface_partial.insert(
-        authority::SURFACE_ROOT.to_string(),
-        serde_json::json!({"desktop": true}),
-    );
-    let empty = serde_json::Map::new();
-    assert!(
-        crate::api::config_routes::admit_config_write(None, Some("notifications.desktop"), &empty)
-            .is_err(),
-        "the keyed write is the shape an agent's CLI makes"
-    );
-    assert!(
-        crate::api::config_routes::admit_config_write(Some(ASKING_TAB), None, &surface_partial)
-            .is_err(),
-        "a whole-object write from inside a tab is still nobody tapping anything"
-    );
-    assert!(
-        crate::api::config_routes::admit_config_write(None, Some("terminal.font_size"), &empty)
-            .is_ok(),
-        "the rule guards the surface subtree and nothing else"
-    );
-}
-
-#[test]
 fn channel_ask_offer_requires_a_level() {
     let service = a_registered_channel().to_string();
     // An offer that could never apply is refused when it is made, not accepted and left silently inert.
     assert_eq!(
-        crate::api::notification_routes::offer_requires_level(&service, Some(ASKED_AT)),
+        crate::notification::vet::offer_requires_level(&service, Some(ASKED_AT)),
         Ok(ASKED_AT),
         "a levelled notification names the row its tap would open"
     );
     assert!(
-        crate::api::notification_routes::offer_requires_level(&service, None).is_err(),
+        crate::notification::vet::offer_requires_level(&service, None).is_err(),
         "an unlevelled notification has no row, so it cannot offer one"
     );
 }

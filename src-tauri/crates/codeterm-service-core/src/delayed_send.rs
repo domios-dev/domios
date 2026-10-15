@@ -682,7 +682,7 @@ pub fn list_views(
         None => None,
     };
     let mut views: Vec<_> = svc
-        .delayed_send
+        .ext::<crate::delayed_send::DelayedSendQueue>()
         .list(resolved.as_deref())
         .into_iter()
         .map(|msg| to_view(svc, msg))
@@ -714,17 +714,19 @@ pub fn create_message(
         .and_then(|tab| tab.team_id.clone());
     let creator = resolve_creator(svc, created_by_tab);
     let last_tick_send_sequence = latest_ledger_sequence(svc, &resolved);
-    let msg = svc.delayed_send.enqueue_with_recurrence_at_sequence(
-        resolved.clone(),
-        workspace_id,
-        session_id_at_create,
-        text,
-        scheduled_at_ms,
-        creator,
-        recurrence,
-        team_id,
-        last_tick_send_sequence,
-    )?;
+    let msg = svc
+        .ext::<crate::delayed_send::DelayedSendQueue>()
+        .enqueue_with_recurrence_at_sequence(
+            resolved.clone(),
+            workspace_id,
+            session_id_at_create,
+            text,
+            scheduled_at_ms,
+            creator,
+            recurrence,
+            team_id,
+            last_tick_send_sequence,
+        )?;
     emit_changed(svc, &resolved);
     Ok(to_view(svc, msg))
 }
@@ -758,19 +760,21 @@ pub fn update_message(
     recurrence: Option<RecurrenceRule>,
 ) -> Result<DelayedMessageView, String> {
     let last_tick_send_sequence = svc
-        .delayed_send
+        .ext::<crate::delayed_send::DelayedSendQueue>()
         .list(None)
         .iter()
         .find(|message| message.id == id)
         .map(|message| latest_ledger_sequence(svc, &message.tab_id));
-    let msg = svc.delayed_send.update_with_recurrence_at_sequence(
-        &id,
-        text,
-        scheduled_at_ms,
-        stash,
-        recurrence,
-        last_tick_send_sequence,
-    )?;
+    let msg = svc
+        .ext::<crate::delayed_send::DelayedSendQueue>()
+        .update_with_recurrence_at_sequence(
+            &id,
+            text,
+            scheduled_at_ms,
+            stash,
+            recurrence,
+            last_tick_send_sequence,
+        )?;
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
@@ -779,7 +783,9 @@ pub fn delete_message(
     svc: &crate::service::ServiceContext,
     id: String,
 ) -> Result<DelayedMessageView, String> {
-    let msg = svc.delayed_send.delete(&id)?;
+    let msg = svc
+        .ext::<crate::delayed_send::DelayedSendQueue>()
+        .delete(&id)?;
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
@@ -788,7 +794,10 @@ pub fn delete_team_series(
     svc: &crate::service::ServiceContext,
     team_id: &str,
 ) -> Result<(), String> {
-    for msg in svc.delayed_send.delete_team_series(team_id)? {
+    for msg in svc
+        .ext::<crate::delayed_send::DelayedSendQueue>()
+        .delete_team_series(team_id)?
+    {
         emit_changed(svc, &msg.tab_id);
     }
     Ok(())
@@ -820,7 +829,9 @@ fn has_unprocessed_send_after_tick(
 }
 
 pub async fn send_message_now(svc: ServiceState, id: String) -> Result<(), String> {
-    let msg = svc.delayed_send.claim_now(&id)?;
+    let msg = svc
+        .ext::<crate::delayed_send::DelayedSendQueue>()
+        .claim_now(&id)?;
     let tab_id = msg.tab_id.clone();
     let result = deliver_claimed(&svc, msg).await;
     emit_changed(&svc, &tab_id);
@@ -831,7 +842,10 @@ pub fn start_scheduler(svc: ServiceState) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            let due = match svc.delayed_send.claim_due(now_ms()) {
+            let due = match svc
+                .ext::<crate::delayed_send::DelayedSendQueue>()
+                .claim_due(now_ms())
+            {
                 Ok(due) => due,
                 Err(e) => {
                     log::warn!("[delayed_send] claim due failed: {}", e);
@@ -842,7 +856,7 @@ pub fn start_scheduler(svc: ServiceState) {
                 let tab_id = msg.tab_id.clone();
                 if msg.recurrence.is_some() && !target_tab_exists(&svc, &tab_id) {
                     match svc
-                        .delayed_send
+                        .ext::<crate::delayed_send::DelayedSendQueue>()
                         .stop_recurring_for_missing_target(&msg.id)
                     {
                         Ok(Some(_)) => log::warn!(
@@ -878,13 +892,15 @@ pub fn start_scheduler(svc: ServiceState) {
                         })
                         .unwrap_or(1)
                         .saturating_add(msg.skipped_ticks);
-                    match svc.delayed_send.finish_tick_at_sequence(
-                        &msg.id,
-                        now,
-                        None,
-                        true,
-                        Some(last_tick_send_sequence),
-                    ) {
+                    match svc
+                        .ext::<crate::delayed_send::DelayedSendQueue>()
+                        .finish_tick_at_sequence(
+                            &msg.id,
+                            now,
+                            None,
+                            true,
+                            Some(last_tick_send_sequence),
+                        ) {
                         Ok(_) => log::info!(
                             "[delayed_send] skipped recurring tick id={} tab={} skipped={}",
                             msg.id,
@@ -913,10 +929,11 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     if !target_tab_exists(svc, &msg.tab_id) {
         let error = format!("recipient tab {} no longer exists", msg.tab_id);
         if msg.recurrence.is_some() {
-            svc.delayed_send
+            svc.ext::<crate::delayed_send::DelayedSendQueue>()
                 .stop_recurring_for_missing_target(&msg.id)?;
         } else {
-            svc.delayed_send.mark_failed(&msg.id, error.clone())?;
+            svc.ext::<crate::delayed_send::DelayedSendQueue>()
+                .mark_failed(&msg.id, error.clone())?;
         }
         return Err(error);
     }
@@ -944,13 +961,8 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
         }
     };
     if let Err(error) = ready {
-        svc.delayed_send.finish_tick_at_sequence(
-            &msg.id,
-            now_ms(),
-            Some(error.clone()),
-            false,
-            None,
-        )?;
+        svc.ext::<crate::delayed_send::DelayedSendQueue>()
+            .finish_tick_at_sequence(&msg.id, now_ms(), Some(error.clone()), false, None)?;
         return Err(error);
     }
 
@@ -978,18 +990,19 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     .and_then(|res| res);
     match result {
         Ok(_) => {
-            svc.delayed_send.finish_tick_at_sequence(
-                &msg.id,
-                now_ms(),
-                None,
-                false,
-                Some(last_tick_send_sequence),
-            )?;
+            svc.ext::<crate::delayed_send::DelayedSendQueue>()
+                .finish_tick_at_sequence(
+                    &msg.id,
+                    now_ms(),
+                    None,
+                    false,
+                    Some(last_tick_send_sequence),
+                )?;
             Ok(())
         }
         Err(e) => {
             if msg.recurrence.is_some() && !target_tab_exists(svc, &tab_id) {
-                svc.delayed_send
+                svc.ext::<crate::delayed_send::DelayedSendQueue>()
                     .stop_recurring_for_missing_target(&msg.id)?;
                 log::warn!(
                     "[delayed_send] stopped recurring series id={} tab={}: target tab no longer exists",
@@ -997,13 +1010,14 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
                     tab_id
                 );
             } else {
-                svc.delayed_send.finish_tick_at_sequence(
-                    &msg.id,
-                    now_ms(),
-                    Some(e.clone()),
-                    false,
-                    Some(last_tick_send_sequence),
-                )?;
+                svc.ext::<crate::delayed_send::DelayedSendQueue>()
+                    .finish_tick_at_sequence(
+                        &msg.id,
+                        now_ms(),
+                        Some(e.clone()),
+                        false,
+                        Some(last_tick_send_sequence),
+                    )?;
             }
             Err(e)
         }

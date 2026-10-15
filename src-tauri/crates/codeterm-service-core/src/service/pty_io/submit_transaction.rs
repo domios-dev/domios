@@ -27,14 +27,14 @@ use paste_encoding::{
     encode_paste_frame, encode_paste_frame_with_tail, xterm_paste, BRACKETED_PASTE_END,
     BRACKETED_PASTE_START,
 };
-use readiness::{exact_session_turn_source_available, pty_owner_guard};
 pub(crate) use readiness::observe_delivery_readiness;
+use readiness::{exact_session_turn_source_available, pty_owner_guard};
 mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{
     claim_command_submit_cycle, claim_exit_submit_cycle, claim_submit_cycle,
-    notify_submit_cycle_provider_exit, notify_submit_cycle_status_transition, wake_submit_cycle,
-    wake_submit_cycle_output, SubmitCycleClaim,
+    notify_submit_cycle_provider_exit, wake_submit_cycle, wake_submit_cycle_output,
+    SubmitCycleClaim,
 };
 use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;
@@ -1081,3 +1081,5 @@ mod contention_tests;
 
 #[cfg(test)]
 mod modal_tests;
+
+pub use cycle::notify_submit_cycle_status_transition;

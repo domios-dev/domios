@@ -65,7 +65,7 @@ pub(crate) enum Refusal {
 }
 
 impl Refusal {
-    pub(crate) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Disabled => "disabled",
             Self::NoPermissionRequest => "no_permission_request",
@@ -244,7 +244,7 @@ struct TabLedger {
 
 impl Ledger {
     /// Reserve the single answer for a request instance, rate-limited per tab.
-    pub(crate) fn claim(
+    pub fn claim(
         &mut self,
         tab_id: &str,
         request_id: u64,
@@ -298,7 +298,7 @@ impl Ledger {
         fresh
     }
 
-    pub(crate) fn forget(&mut self, tab_id: &str) {
+    pub fn forget(&mut self, tab_id: &str) {
         self.tabs.remove(tab_id);
     }
 }
@@ -335,11 +335,7 @@ impl ServiceContext {
             .map(|tab| TabFacts::of(tab, has_lifecycle))
     }
 
-    pub(crate) fn set_permission_auto_confirm(
-        &self,
-        tab_id: &str,
-        enabled: bool,
-    ) -> Result<bool, String> {
+    pub fn set_permission_auto_confirm(&self, tab_id: &str, enabled: bool) -> Result<bool, String> {
         let changed = {
             let mut mux = self.mux.write();
             let tab = mux
@@ -374,7 +370,7 @@ impl ServiceContext {
         Ok(enabled)
     }
 
-    pub(crate) fn permission_auto_confirm_state(
+    pub fn permission_auto_confirm_state(
         &self,
         tab_id: &str,
     ) -> Option<(bool, Vec<AutoConfirmedPrompt>)> {
@@ -392,7 +388,7 @@ impl ServiceContext {
 
     /// Hook ingestion: a decision that changed nothing may still complete the
     /// request/screen pair an earlier report left waiting.
-    pub(crate) fn apply_hook_prompt_decision(&self, tab_id: &str, decision: &PromptDecision) {
+    pub fn apply_hook_prompt_decision(&self, tab_id: &str, decision: &PromptDecision) {
         match decision {
             PromptDecision::None => {
                 self.try_permission_auto_confirm(tab_id, None);

@@ -342,21 +342,6 @@ fn existing_team_second_plan_preserves_hard_refuse() {
 }
 
 #[test]
-fn plan_entrypoints_use_shared_team_service_and_response() {
-    let sources = [
-        include_str!("../../../api/plan_routes/plans.rs"),
-        include_str!("../../../socket/server/plan.rs"),
-        include_str!("../../../socket/server/plan_goal.rs"),
-    ];
-    for source in sources {
-        assert!(source.contains("create_team_plan_for_"));
-        assert!(source.contains("apply_to_response"));
-        assert!(!source.contains(".create_plan("));
-        assert!(!source.contains(".create_plan_from_spec("));
-    }
-}
-
-#[test]
 fn tauri_mock_app_handle_constructs_and_drops() {
     let app = tauri::test::mock_builder()
         .build(tauri::test::mock_context(tauri::test::noop_assets()))

@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use rand::Rng;
 
-use super::cache::{LayoutCache, Position};
+#[cfg(feature = "embeddings")]
+use super::cache::LayoutCache;
+use super::cache::Position;
 
 pub const COORD_RANGE: f32 = 1000.0;
 #[cfg(feature = "embeddings")]

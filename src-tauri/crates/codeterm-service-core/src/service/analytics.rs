@@ -3,6 +3,10 @@ use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Wor
 use std::sync::Arc;
 use tauri::Manager;
 
+pub(crate) mod update_confirm;
+
+pub(crate) struct AnalyticsCell(pub(crate) Arc<tokio::sync::OnceCell<Worker>>);
+
 pub(crate) fn count(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
@@ -29,15 +33,23 @@ pub(crate) fn agent_spawned(provider: Option<&str>, role: Option<&str>) -> Optio
     })
 }
 impl ServiceContext {
-    pub(crate) fn record_product_event(&self, event: Event) {
-        if let Some(worker) = self.analytics.get() {
+    pub fn record_product_event(&self, event: Event) {
+        if let Some(worker) = self
+            .ext::<crate::service::analytics::AnalyticsCell>()
+            .0
+            .get()
+        {
             if worker.record_nowait(event).is_err() {
                 log::debug!("[analytics] event unavailable");
             }
         }
     }
     pub(crate) fn record_product_activity(&self) {
-        if let Some(worker) = self.analytics.get() {
+        if let Some(worker) = self
+            .ext::<crate::service::analytics::AnalyticsCell>()
+            .0
+            .get()
+        {
             if worker
                 .record_activity_nowait(|| self.mux.read().workspace_count())
                 .is_err()
@@ -46,7 +58,7 @@ impl ServiceContext {
             }
         }
     }
-    pub(crate) fn record_product_feature(&self, feature: codeterm_analytics::Feature) {
+    pub fn record_product_feature(&self, feature: codeterm_analytics::Feature) {
         self.record_product_event(Event::FeatureUsed { feature });
     }
     pub(crate) fn record_product_agent_spawned(&self, tab_id: &str) {
@@ -67,7 +79,8 @@ impl ServiceContext {
         }
     }
     pub async fn analytics_worker(&self) -> Result<&Worker, String> {
-        self.analytics
+        self.ext::<crate::service::analytics::AnalyticsCell>()
+            .0
             .get_or_try_init(|| async {
                 let secrets = self.secrets.clone();
                 let mesh_machines = self
@@ -102,7 +115,7 @@ impl ServiceContext {
                         let _ = worker.record_nowait(event);
                     }
                     let _ = worker.record_activity_nowait(|| workspaces);
-                    if crate::update::analytics::confirm(
+                    if crate::service::analytics::update_confirm::confirm(
                         &crate::paths::data_dir().join("analytics-update.json"),
                         env!("CARGO_PKG_VERSION"),
                         &worker,
@@ -180,3 +193,5 @@ pub(crate) fn subscription_event(
 }
 #[cfg(test)]
 mod tests;
+
+pub use update_confirm::stage_app;

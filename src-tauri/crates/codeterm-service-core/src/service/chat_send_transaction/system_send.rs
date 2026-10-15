@@ -27,6 +27,36 @@ impl ChatSendLedger {
     }
 }
 
+impl crate::service::ServiceContext {
+    pub(crate) fn attach_system_send(
+        &self,
+        to_tab: &str,
+        text: &str,
+    ) -> Result<ChatSendStatus, String> {
+        let evidence = self.chat_send_anchor(to_tab);
+        let turn_text = self.chat_send_turn_evidence(to_tab, text);
+        let pending = self.chat_send_ledger.try_start_scoped_with_normalization(
+            to_tab,
+            &turn_text,
+            evidence.anchor,
+            evidence.live_binding,
+            evidence.turn_normalization,
+        )?;
+        let pending = self
+            .chat_send_ledger
+            .attach_system_send(
+                &pending.send_id,
+                text,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            )
+            .expect("a new continuation remains in the ledger");
+        Ok(pending)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

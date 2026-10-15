@@ -4,7 +4,7 @@
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CwdRefusal {
+pub struct CwdRefusal {
     pub path: String,
     pub workspace_id: Option<String>,
     pub workspace_name: Option<String>,
@@ -55,7 +55,7 @@ mod tests;
 
 /// A spawn's requested cwd must be an absolute, existing directory on this host.
 /// Relative paths are resolved by the caller, which alone knows its own directory.
-pub(crate) fn validate_spawn_cwd(cwd: Option<&str>) -> Result<(), CwdRefusal> {
+pub fn validate_spawn_cwd(cwd: Option<&str>) -> Result<(), CwdRefusal> {
     let Some(cwd) = cwd.filter(|cwd| !cwd.trim().is_empty()) else {
         return Ok(());
     };
@@ -68,7 +68,7 @@ pub(crate) fn validate_spawn_cwd(cwd: Option<&str>) -> Result<(), CwdRefusal> {
     })
 }
 
-pub(crate) fn cwd_problem(cwd: &str) -> Option<String> {
+pub fn cwd_problem(cwd: &str) -> Option<String> {
     inspect_cwd(cwd).err().map(|(_, problem)| problem)
 }
 
@@ -109,7 +109,7 @@ fn foreign_path_hint(cwd: &str) -> &'static str {
 }
 
 impl super::ServiceContext {
-    pub(crate) fn validate_request_cwd(
+    pub fn validate_request_cwd(
         &self,
         workspace_id: Option<&str>,
         caller_tab_id: Option<&str>,
