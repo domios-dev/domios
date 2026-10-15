@@ -19,7 +19,7 @@ impl HostFixture {
         Self::from_core(ServiceFixture::new_at(mux, data_dir))
     }
 
-    fn from_core(fixture: ServiceFixture) -> Self {
+    pub fn from_core(fixture: ServiceFixture) -> Self {
         let app = crate::app_runtime::builder()
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("host fixture app");
