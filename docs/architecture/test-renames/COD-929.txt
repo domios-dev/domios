@@ -1,0 +1,4 @@
+service::plan_pause::tests::plan_pause_resume_legacy_pause_without_record_resumes_without_notices -> service_plan::pause::tests::plan_pause_resume_legacy_pause_without_record_resumes_without_notices
+service::plan_pause::tests::plan_pause_resume_record_round_trips_and_legacy_plan_loads_without_it -> service_plan::pause::tests::plan_pause_resume_record_round_trips_and_legacy_plan_loads_without_it
+service::plan_pause::tests::plan_pause_resume_repeated_resume_is_noop_without_duplicate_notice_or_reenable -> service_plan::pause::tests::plan_pause_resume_repeated_resume_is_noop_without_duplicate_notice_or_reenable
+service::plan_pause::tests::plan_pause_resume_resume_on_non_paused_plan_is_noop -> service_plan::pause::tests::plan_pause_resume_resume_on_non_paused_plan_is_noop
