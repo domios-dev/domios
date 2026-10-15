@@ -164,7 +164,7 @@ export function NotificationPanel({
                           overscrollBehavior: "contain",
                         }}
                       >
-                        <NotificationBody text={notif.body} tabId={notif.tab_id} />
+                        <NotificationBody text={notif.body} tabId={notif.tab_id} failure={notif.level === "failure" || notif.severity === "Error"} operation={notif.title} />
                       </div>
                     )}
                   </>

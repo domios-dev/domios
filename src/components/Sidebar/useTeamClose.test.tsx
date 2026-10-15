@@ -76,7 +76,7 @@ async function main() {
   root = await mount();
   await act(async () => reject(new Error("partial teardown")));
   assert.equal(notices[0].severity, "Error");
-  assert.equal(notices[0].body, "Tab: Worker");
+  assert.equal(notices[0].body, "Tab: Worker\npartial teardown");
   assert.equal(notices[0].local_actions?.[0].label, "Retry");
   await act(async () => root.unmount());
   bridge.__setInvokeForTest(null);

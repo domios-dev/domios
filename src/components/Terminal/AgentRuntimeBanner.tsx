@@ -1,3 +1,5 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { describeError } from "../../lib/describeError";
 import { useId, type CSSProperties } from "react";
 import { CircleAlert } from "lucide-react";
 import { RuntimeLoginActions } from "./RuntimeLoginActions";
@@ -35,23 +37,17 @@ function RuntimeStatusBadge({ view, issues, onRetry }: { view: ReturnType<typeof
         style={{ "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties}>
         {issues.length > 0 && <ul aria-label="Attachment issues" className="max-h-64 space-y-3 overflow-auto">
           {issues.map((issue, index) => <li key={index}>
-            <p>{issue.title}</p>
-            <span className="text-[var(--ct-muted-fg)]">{issue.name}</span>
-            {issue.explanation && <p className="mt-1">{issue.explanation}</p>}
-            <details className="mt-2"><summary>Details</summary><pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words">{issue.detail}</pre></details>
-            <div className="mt-2 flex gap-2">{issue.actions.map(action => {
-              const text = action === "retry" ? "Retry" : action === "remove" ? "Remove" : "Send as file path";
-              return <button key={action} type="button" aria-label={`${text} attachment ${issue.name}`} onClick={() => issue.run(action)} className="rounded-md border border-[var(--ct-border)] px-2 py-1">{text}</button>;
-            })}</div>
+            <InlineErrorNotice description={{ ...describeError({ code: issue.kind === "too-large" ? "attachment_too_large" : "attachment_upload_failed", raw: issue.detail }), title: issue.title, cause: issue.explanation ?? `The attachment ${issue.name} could not be sent. Choose an action to continue.` }}
+              actions={issue.actions.map(action => {
+                const label = action === "retry" ? "Retry" : action === "remove" ? "Remove" : "Send as file path";
+                return { label, ariaLabel: `${label} attachment ${issue.name}`, onClick: () => issue.run(action) };
+              })} />
           </li>)}
         </ul>}
-        {view && <><p role="status" aria-live="polite" className={issues.length ? "mt-3" : undefined}>{view.reason}</p>
-        {view.details && <details className="mt-2 text-[var(--ct-muted-fg)]">
-          <summary className="cursor-pointer">Details</summary>
-          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono">{view.details}</pre>
-        </details>}
-        <button type="button" aria-label="Retry" onClick={onRetry} disabled={!view.canRetry}
-          className="mt-2 rounded-md border border-[var(--ct-border)] px-2.5 py-1 text-xs font-medium transition-colors hover:bg-[var(--ct-border)] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent">Retry</button></>}
+        {view && <InlineErrorNotice
+          description={view.severity === "transient" ? { title: view.label, cause: view.reason, raw: view.details ?? "", actions: [] } : undefined}
+          error={view.details} operation="connecting to the agent runtime"
+          actions={[{ label: "Retry", disabled: !view.canRetry, onClick: onRetry }]} />}
       </div>}
     </div>
   </div>;

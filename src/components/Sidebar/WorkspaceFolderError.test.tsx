@@ -7,7 +7,7 @@ import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { TransportError } from "../../lib/transportClient";
 import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/multiplexer";
-import { WorkspaceFolderError } from "./WorkspaceFolderError";
+import { TabBootOverlay } from "../Terminal/bootOverlay";
 import type { MultiplexerActionsContextType } from "../../store/multiplexer/context";
 
 test("choosing a replacement folder clears the workspace error through the store snapshot", async () => {
@@ -47,7 +47,7 @@ test("choosing a replacement folder clears the workspace error through the store
     const state = useMuxState();
     notices = state.notifications.length + state.toasts.length;
     const workspace = state.workspaces.find((item) => item.id === "existing");
-    return workspace?.cwd_missing ? <WorkspaceFolderError workspace={workspace} />
+    return workspace?.cwd_missing ? <TabBootOverlay workspace={workspace} cwd={cwd} shellReady={false} overlayVisible view={{ kind: "failed", reason: "Failed to spawn shell: CreateProcessW failed (os error 267)", canRetry: false, canStartFreshAgent: false, canStartNewSession: false, canKeepShell: false }} onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />
       : <p role="status">{workspace?.cwd}</p>;
   }
   const host = document.createElement("div");
