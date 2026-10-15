@@ -922,7 +922,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 35 -->
+<!-- revision: 36 -->
 
 ### Lane and batch scopes
 
@@ -980,3 +980,5 @@ Product check-queue Clippy disables Cargo defaults and explicitly enables the se
 In a temporary worktree on one fixed Rust SHA, run `./build.sh feature-cycle before mem::dream_status_tests::wip_placeholder_does_not_imply_running` and then the same command with `after`. Both run under the normal gateway. The dev phase is an equivalent product library `cargo check`, without launching DEV; the queue phases use the original all-target/default/test configuration or the aligned product/ordinary-test configuration. One focused core test executes through test-capped after compilation. This is an equivalent-configuration cycle, not a DEV app build or full check-queue timing.
 
 Each job retains phase logs, wall times and `units.json` under its artifact directory. The collector counts distinct completed service-core artifact hashes, including fresh reused units, separately from distinct feature sets; never infer that two feature sets means two Cargo unit hashes. Compare actual full check-queue runs separately, loading the old/new build driver against the same committed source SHA in a temporary worktree. Do not clean shared caches for a measurement or include queue wait in a reported Cargo/check-queue wall time.
+
+Queued build invocations parse the entire driver inside `codeterm_build_main` before waiting for a gateway slot. Editing build.sh while an older shell waited previously changed the unread tail of that shell's script, producing an EOF syntax error after a successful Cargo check. The driver snapshot regression waits on an explicit input event, replaces only a temporary script, and requires its already-parsed dispatch to complete. App nextest configurations also replace the initial target arguments so `--no-default-features` appears once; nextest rejects duplicate occurrences.
