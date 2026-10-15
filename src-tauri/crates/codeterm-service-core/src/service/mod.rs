@@ -255,6 +255,7 @@ pub mod worker_identity;
 pub(crate) mod worker_interruption;
 pub mod worker_lane;
 pub(crate) mod worker_loss;
+#[cfg(any(test, feature = "test-support"))]
 pub use worker_lane::provision_lane_for_test;
 pub use worker_lane::{
     is_linked_worktree, provision_isolated_lane, same_path, verify_worker_lane, LaneProtection,
