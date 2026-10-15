@@ -402,3 +402,12 @@ fn structured_sqlite_error_observations_reach_only_the_claimed_session() {
         Some("api_error")
     );
 }
+
+fn fresh_turn_incidents(
+    tab: &mut crate::multiplexer::types::Tab,
+    session: &str,
+    records: &[crate::agent::chat_types::RichMessage],
+) -> Vec<codeterm_provider_signals::ProviderTurnIncident> {
+    let snapshot = super::update::SignalSnapshot::capture(tab);
+    super::update::fresh_turn_incidents(&mut tab.provider_signals, &snapshot, session, records)
+}
