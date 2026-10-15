@@ -1,5 +1,5 @@
 use super::*;
-use crate::service::supporter::{activity::DecisionEvidence, SupporterRuntime, VerdictKind};
+use crate::{activity::DecisionEvidence, SupporterRuntime, VerdictKind};
 
 #[test]
 fn supporter_feed_tab_state_groups_named_questions_without_option_text() {

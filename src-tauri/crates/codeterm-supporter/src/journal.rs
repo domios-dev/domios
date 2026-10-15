@@ -140,7 +140,7 @@ impl Journal {
         let mut value = value.clone();
         if let Some(asked) = value.get("asked") {
             let asked = if value["kind"] == "tab_state" {
-                crate::service::supporter_tab_state::redact_decision_diagnostic(asked)
+                crate::privacy::value(asked)
             } else {
                 asked.clone()
             };
