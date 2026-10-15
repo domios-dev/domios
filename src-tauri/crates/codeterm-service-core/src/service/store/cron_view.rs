@@ -1,4 +1,4 @@
-use super::types::*;
+use super::*;
 use crate::cron::store::{CronJob, CronStore};
 
 pub const CRON_ID_PREFIX: &str = "cron_";
@@ -51,3 +51,6 @@ pub fn list_local(svc: &super::ServicesStore, cron: &CronStore) -> rusqlite::Res
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests;

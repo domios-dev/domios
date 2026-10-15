@@ -1,0 +1,32 @@
+[package]
+name = "codeterm-lanes"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[features]
+test-support = ["codeterm-plan/test-support"]
+
+[dependencies]
+toml = "0.8"
+tempfile = "3"
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-plan = { path = "../codeterm-plan" }
+codeterm-repowatch = { path = "../codeterm-repowatch" }
+codeterm-util = { path = "../codeterm-util" }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+serde_json = { version = "1", features = ["raw_value"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+wait-timeout = "0.2"
+sha2 = "0.10"
+url = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+codeterm-plan = { path = "../codeterm-plan", features = ["test-support"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

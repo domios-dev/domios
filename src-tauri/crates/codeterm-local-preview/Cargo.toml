@@ -1,0 +1,29 @@
+[package]
+name = "codeterm-local-preview"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[features]
+test-support = []
+
+[dependencies]
+url = "2"
+log = { version = "0.4", features = ["release_max_level_info"] }
+codeterm-types = { path = "../codeterm-types" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+base64 = "0.22"
+dirs = "6"
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

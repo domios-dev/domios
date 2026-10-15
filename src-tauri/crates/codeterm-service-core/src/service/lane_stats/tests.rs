@@ -1,6 +1,7 @@
 use super::*;
 use std::fs;
 use std::process::Command;
+use std::process::Output;
 
 // Failure deadline only: each checkpoint spawns several git processes, slow under a loaded Windows runner.
 const CHECKPOINT_DEADLINE: Duration = Duration::from_secs(60);
@@ -361,31 +362,4 @@ fn lane_merge_offer_requires_ancestor_and_leaves_lane_intact() {
         destination
     );
     assert!(root.path().join("tracked.txt").is_file());
-}
-
-#[test]
-fn lane_checkpoint_ref_component_rejects_ref_path_injection() {
-    assert!(!safe_ref_component("../foreign"));
-    assert!(safe_ref_component("attempt-12_ab"));
-    assert_eq!(
-        checkpoint_turn(
-            "refs/domios/checkpoints/attempt",
-            "refs/domios/checkpoints/attempt/4"
-        ),
-        Some(4)
-    );
-    assert_eq!(
-        checkpoint_turn(
-            "refs/domios/checkpoints/attempt",
-            "refs/domios/checkpoints/attempt/metadata"
-        ),
-        None
-    );
-    assert_eq!(
-        checkpoint_turn(
-            "refs/domios/checkpoints/attempt",
-            "refs/domios/checkpoints/attempt/1/nested"
-        ),
-        None
-    );
 }
