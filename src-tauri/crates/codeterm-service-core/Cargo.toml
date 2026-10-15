@@ -134,7 +134,7 @@ default = ["embeddings"]
 # link time. Declared in the macOS target section below.
 embeddings = ["codeterm-mem/embeddings", "dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 dev-updater-allowlocal = []
-test-support = ["codeterm-worker-services/test-support", "codeterm-lanes/test-support", "codeterm-plugin/test-support", "codeterm-plan/test-support", "codeterm-storage/test-support", "codeterm-sentinel/test-support", "codeterm-decision/decision-fixture-clock", "codeterm-agent-model/test-support"]
+test-support = ["codeterm-worker-services/test-support", "codeterm-lanes/test-support", "codeterm-local-preview/test-support", "codeterm-plugin/test-support", "codeterm-plan/test-support", "codeterm-storage/test-support", "codeterm-sentinel/test-support", "codeterm-decision/decision-fixture-clock", "codeterm-agent-model/test-support"]
 
 # Low-level syscalls (e.g. fd-limit raise in fdlimit.rs) on all Unix incl Linux.
 [target.'cfg(unix)'.dependencies]
