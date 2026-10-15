@@ -21,6 +21,11 @@ const connectingStages = new Set<BootStage>([
 ]);
 const backendStages = new Set<BootStage>(["pty_starting", "pty_spawned", "reader_ready"]);
 
+export function restorePanelOwnsBody(tab: Partial<Tab>, wake: Partial<WakeRequestView>, view: RestoreStageView): boolean {
+  return Boolean(tab.frozen || wake.requested) && view.phase !== "ready" && view.phase !== "attention"
+    && (tab.frozen === true || tab.boot_stage !== "spawn_failed");
+}
+
 export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestView>): RestoreStageView {
   const chat = tab.backing?.kind === "chat_backend";
   const agent = Boolean(tab.agent_type) || chat;

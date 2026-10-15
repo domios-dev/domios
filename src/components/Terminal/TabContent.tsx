@@ -1,5 +1,5 @@
 import { RestoreStatePanel } from "./RestoreStatePanel";
-import { restoreStageView } from "../../lib/restoreStageView";
+import { restorePanelOwnsBody, restoreStageView } from "../../lib/restoreStageView";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect } from "react";
@@ -70,7 +70,7 @@ export function TabContent({
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
   const restore = restoreStageView(tab, wake);
-  const showRestore = (tab.frozen || wake.requested) && restore.phase !== "ready" && restore.phase !== "attention";
+  const showRestore = restorePanelOwnsBody(tab, wake, restore);
   const restorePanel = <RestoreStatePanel providerId={tab.agent_type ?? (tab.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null)}
     view={restore} onRetry={wake.retry} retrying={wake.pending} />;
   if (tab.frozen) return <TabWrapper tabId={tab.id}>{restorePanel}</TabWrapper>;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { restoreStageView } from "./restoreStageView";
+import { restorePanelOwnsBody, restoreStageView } from "./restoreStageView";
 import type { Tab } from "./types";
 
 const tab: Partial<Tab> = { agent_type: "fixture", agent_session_id: "saved", frozen: true,
@@ -22,6 +22,7 @@ assert.equal(restoreStageView({ ...awake, boot_stage: "awaiting_owner_prompt" })
 const failed = restoreStageView({ ...awake, boot_stage: "spawn_failed", boot_failure_reason: "opaque-error" });
 assert.equal(failed.phase, "failed");
 assert.equal(failed.detail, "opaque-error");
+assert.equal(restorePanelOwnsBody({ ...awake, boot_stage: "spawn_failed" }, { requested: true }, failed), false);
 assert.equal(restoreStageView(tab, { error: "RPC error" }).detail, "RPC error");
 assert.equal(restoreStageView({ ...awake, boot_stage: "spawn_failed" }, { pending: true }).phase, "restoring");
 const runtime: Partial<Tab> = { backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "saved" }, agent_runtime_state: { state: "loading", epoch: 2 } };

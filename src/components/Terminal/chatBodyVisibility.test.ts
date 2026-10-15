@@ -31,6 +31,11 @@ function railsFor(view: ChatBodyView, messages: Array<{ at: number | null }>) {
 }
 
 describe("chat body authority", () => {
+  it("spawn failure owns the body even when cached or tracked rows exist", () => {
+    const failed: ChatBodyView = { kind: "launch_failed", reason: "opaque-refusal" };
+    expect(chatBodyView({ hasTranscript: true, chatLoading: true, unavailable: null, bootView: failed })).toEqual(failed);
+    expect(chatRailsVisible(failed)).toBe(false);
+  });
   it("chatLoading with bootView none is not starting", () => {
     const view = chatBodyView({
       hasTranscript: false,

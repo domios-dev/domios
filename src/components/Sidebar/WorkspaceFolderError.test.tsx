@@ -9,6 +9,9 @@ import { TransportError } from "../../lib/transportClient";
 import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { TabBootOverlay } from "../Terminal/bootOverlay";
 import type { MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import { MultiplexerActionsContext } from "../../store/multiplexer/context";
+import { WorkspaceFolderError } from "./WorkspaceFolderError";
+import type { Workspace } from "../../lib/types";
 
 test("choosing a replacement folder clears the workspace error through the store snapshot", async () => {
   let cwd = "/retired/project";
@@ -72,5 +75,32 @@ test("choosing a replacement folder clears the workspace error through the store
     nativeBridge.dialogs.open = originalOpen;
     __setInvokeForTest(null);
     __setListenForTest(null);
+  }
+});
+
+test("a tab folder chooser calls its relocation handler without relocating the workspace", async () => {
+  const selected: string[] = [];
+  let workspaceMoves = 0;
+  const actions = { setWorkspaceCwd: async () => { workspaceMoves++; } } as unknown as MultiplexerActionsContextType;
+  const workspace = { id: "workspace", name: "Project", cwd: "/existing" } as Workspace;
+  assert(nativeBridge.dialogs);
+  const originalOpen = nativeBridge.dialogs.open;
+  nativeBridge.dialogs.open = async () => "/chosen";
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<MultiplexerActionsContext.Provider value={actions}>
+      <WorkspaceFolderError workspace={workspace} cwd="/deleted/tab" onRelocate={async path => { selected.push(path); }} />
+    </MultiplexerActionsContext.Provider>));
+    const choose = host.querySelector<HTMLButtonElement>("button")!;
+    assert(choose.getAttribute("aria-label") || choose.textContent);
+    await act(async () => choose.click());
+    assert.deepEqual(selected, ["/chosen"]);
+    assert.equal(workspaceMoves, 0);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    nativeBridge.dialogs.open = originalOpen;
   }
 });

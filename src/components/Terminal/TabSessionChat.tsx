@@ -1,4 +1,5 @@
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
+import { heldMessagesForLaunch } from "./chatSetupModel";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeStatusPresentation } from "../../lib/agentRuntimeState";
@@ -328,7 +329,7 @@ function TabSessionChatBody({
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading || error != null;
-  const setupView = runtimeUnavailable ? { kind: "none" as const } : chatBodyView({
+  const setupView = runtimeUnavailable && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
     hasTranscript,
     chatLoading,
     unavailable: transcriptUnavailable,
@@ -336,8 +337,8 @@ function TabSessionChatBody({
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
-    [enrichedMessages],
+    () => setupView.kind === "launch_failed" ? [] : enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
+    [enrichedMessages, setupView.kind],
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
   const chatUserScrollingRef = useRef(false);
@@ -953,6 +954,8 @@ function TabSessionChatBody({
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
         <ChatSetupState
+          waitingMessages={heldMessagesForLaunch(deliverySends)}
+          workspace={planNav.workspaces.find(workspace => workspace.id === workspaceId)}
           tab={tab}
           view={setupView}
           providerName={provider?.displayName ?? "the agent"}
