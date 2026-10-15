@@ -6,7 +6,7 @@ default-run = "codeterm"
 
 [workspace]
 members = ["crates/codeterm-worker-services", "crates/codeterm-local-preview", "crates/codeterm-lanes", "crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core",
-    "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model"]
+    "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 

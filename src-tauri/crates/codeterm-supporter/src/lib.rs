@@ -19,9 +19,7 @@ mod journal;
 mod narrative;
 mod physical;
 pub type SupporterRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn DecisionModel>;
-pub mod registry;
 pub mod rerank;
-pub mod search;
 mod spend;
 mod storage;
 

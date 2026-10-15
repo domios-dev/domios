@@ -1,4 +1,4 @@
-pub use codeterm_supporter::registry::*;
+pub use codeterm_recall::registry::*;
 
 use crate::mem::{
     rerank::RerankConfig,

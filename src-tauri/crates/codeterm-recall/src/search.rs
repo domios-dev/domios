@@ -1,9 +1,10 @@
+pub use codeterm_mem::search::SearchQuery;
 use serde::Deserialize;
 
 use crate::registry::{self as decision, DecisionBackend, SupporterRegistry};
 use codeterm_mem::{
     rerank::RerankConfig,
-    search::{SearchConfig, SearchMode, SearchQuery},
+    search::{SearchConfig, SearchMode},
     SearchHit,
 };
 use codeterm_plan::service_plan::ports::PlanIndexQuery;
@@ -67,10 +68,10 @@ pub fn resolve_search<B: DecisionBackend + ?Sized>(
         return Err(SearchError::InvalidParams(RERANK_EXCLUSIVE.into()));
     }
     let run_supporter = p.supporter.unwrap_or_else(|| {
-        crate::supporter_connected(
+        codeterm_supporter::supporter_connected(
             cfg,
             models,
-            &crate::read_token_snapshot(
+            &codeterm_supporter::read_token_snapshot(
                 &backend.supporter_runtime(),
                 &decision::token_store(),
                 cfg.active_id().unwrap_or(""),

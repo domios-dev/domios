@@ -1,6 +1,6 @@
 use crate::service::ServiceState;
 use axum::http::StatusCode;
-pub use codeterm_supporter::search::*;
+pub use codeterm_recall::search::*;
 
 fn search_error_http(error: SearchError) -> (StatusCode, String) {
     match error {

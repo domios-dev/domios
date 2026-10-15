@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use codeterm_decision::{DecisionModel, TokenMode};
+use codeterm_decision::TokenMode;
 use serde_json::{json, Value};
 
 use crate::search::{
@@ -25,7 +25,7 @@ use codeterm_types::config::{MemoryRerankConfig, SupporterConfig};
 
 pub mod sessions_source;
 
-pub type SupporterRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn DecisionModel>;
+pub use codeterm_supporter::SupporterRegistry;
 
 /// Mirrors the `codeterm-mem` recall default for a request that names no limit.
 const DEFAULT_RECALL_LIMIT: usize = 5;
@@ -97,7 +97,7 @@ pub fn token_store() -> TokenStore {
 pub fn default_registry() -> Arc<SupporterRegistry> {
     let cfg = codeterm_config::load_config().supporter;
     let registry = SupporterRegistry::with_registration_hook(|id, adapter| {
-        crate::restore_model(&codeterm_config::load_config().supporter, id, adapter);
+        codeterm_supporter::restore_model(&codeterm_config::load_config().supporter, id, adapter);
     });
     registry.register(
         TypeSafeAdapter::ID,
@@ -112,9 +112,7 @@ pub fn default_registry() -> Arc<SupporterRegistry> {
 
 /// Recall for the decision path: pool reads record no access; only returned mem hits do, once.
 pub trait DecisionBackend: RecallBackend {
-    fn supporter_runtime(&self) -> Arc<crate::SupporterRuntime> {
-        crate::runtime()
-    }
+    fn supporter_runtime(&self) -> Arc<codeterm_supporter::SupporterRuntime>;
     fn recall_untouched(
         &self,
         q: &SearchQuery,
@@ -213,7 +211,7 @@ pub fn decision_search<B: DecisionBackend + ?Sized>(
     p: &SearchParams,
 ) -> Result<Value, SearchError> {
     let cfg = &supporter.memory_rerank;
-    let Some(model) = crate::configured_model(supporter, models) else {
+    let Some(model) = codeterm_supporter::configured_model(supporter, models) else {
         return fallback(backend, p, FallbackReason::NoAdapter);
     };
     let limit = p.limit.unwrap_or(DEFAULT_RECALL_LIMIT);
@@ -279,8 +277,8 @@ pub fn decision_search<B: DecisionBackend + ?Sized>(
         hits.push(session.hit);
         candidates.push(session.candidate);
     }
-    let skip = crate::rerank::skip_reason(&scores);
-    let selected = crate::rerank::selection(&scores);
+    let skip = codeterm_supporter::rerank::skip_reason(&scores);
+    let selected = codeterm_supporter::rerank::selection(&scores);
     let mut selected_hits = Vec::new();
     let mut selected_candidates = Vec::new();
     for index in selected {
@@ -320,14 +318,14 @@ pub fn decision_search<B: DecisionBackend + ?Sized>(
     if !model.supports_question_batch() {
         return fallback(backend, p, FallbackReason::Unsupported);
     }
-    let model = crate::budgeted_model_with_activity(
+    let model = codeterm_supporter::budgeted_model_with_activity(
         model,
         backend.supporter_runtime(),
         supporter.calls_per_hour.unwrap_or(0),
-        crate::VerdictKind::Rerank,
+        codeterm_supporter::VerdictKind::Rerank,
         p.caller_tab_id.clone(),
         None,
-        Some(crate::ActivityContext::Rerank {
+        Some(codeterm_supporter::ActivityContext::Rerank {
             query: p.q.clone(),
             titles: candidates
                 .iter()
