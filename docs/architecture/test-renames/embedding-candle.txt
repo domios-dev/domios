@@ -1,2 +1,7 @@
 # The owner replaced call-budget child recycling with an idle-unloaded in-process worker.
 embeddings::tests::embedding_child_recycles_before_the_memory_budget_is_exceeded -> embedding_worker::tests::idle_deadline_drops_the_model_and_next_job_loads_again
+startup::stall_tests::startup_no_global_stall_slow_child_does_not_block_unrelated_caller -> embedding_worker::tests::queries_run_before_queued_bulk_work
+startup::stall_tests::startup_no_global_stall_child_requests_stay_exclusive_and_recycle -> embedding_worker::tests::idle_deadline_drops_the_model_and_next_job_loads_again
+rerank::tests::auto_default_uses_lazy_local_backend -> rerank::tests::auto_without_a_configured_key_preserves_input_order
+rerank::tests::explicit_local_model_is_selected_without_loading_weights -> rerank::tests::unsupported_provider_preserves_input_order_without_loading_weights
+update::install_holders::model::tests::consoles_and_embedders_require_both_exact_path_and_current_instance_parent -> update::install_holders::model::tests::consoles_require_both_exact_path_and_current_instance_parent

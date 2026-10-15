@@ -248,9 +248,8 @@ either deadline; `TEST_CAP_SECS=0` disables it. On expiry the wrapper kills the
 execution process group, exits 124, and repeats libtest's active case names from
 its captured output. Stable Rust cannot use `--ensure-time`: it is nightly-only
 and reports a long test only after it finishes, so the process deadline owns hang
-recovery. In a fresh worktree, the wrapper also creates the ignored, zero-byte
-`bundled-embed` sidecar only when absent. The bundle script rejects empty
-sidecars.
+recovery. Embedding inference runs in-process; the test wrapper does not stage an
+embedding executable.
 
 The TypeScript scheduler still waits for every file and the full suite by
 default. Set `TS_UNIT_TIMEOUT_SECONDS=<positive-seconds>` or
@@ -686,7 +685,7 @@ JDK may be absent from `PATH`. Discover its installed path before running the
 same focused test with `JAVA_HOME` pointing to its JDK home and that JDK's `bin`
 prepended to `PATH`; no system Java registration or emulator bypass is needed.
 
-Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
+Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, including the explicit golden-vector oracle after ordinary unit tests. The oracle downloads the MiniLM safetensors into the shared model cache on its first run; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
 
 Worker pre-commit Rust feedback uses `./build.sh lane-check <touched crate> [--tests]` on every platform; add `--tests` when tests changed. Its subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway. Run integration Clippy through check-queue after committing; Rust execution tests remain in canonical.
 
