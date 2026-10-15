@@ -5,7 +5,7 @@ use crate::service::{
     restore_attempt_binding_for_mux, AttemptBindingRestoreTarget, AuthenticatedPlanCaller,
 };
 
-pub(crate) fn restore_review_attempt_binding_for_mux(
+pub fn restore_review_attempt_binding_for_mux(
     store: &PlanStore,
     mux: &MultiplexerState,
     plan_id: &str,

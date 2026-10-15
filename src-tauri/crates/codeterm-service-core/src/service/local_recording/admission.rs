@@ -50,7 +50,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) async fn local_recording_commit(
+    pub async fn local_recording_commit(
         &self,
         lease: &str,
         clip_handle: &str,

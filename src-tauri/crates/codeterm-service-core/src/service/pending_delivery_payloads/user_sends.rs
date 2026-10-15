@@ -11,9 +11,10 @@ use std::sync::Arc;
 mod admission_evidence;
 mod admission_tokens;
 pub(crate) mod dismissal;
+pub use dismissal::UserSendDismissal;
 mod runtime_capture;
 mod runtime_observers;
-pub(crate) use admission_evidence::UserAdmissionEvidence;
+pub use admission_evidence::UserAdmissionEvidence;
 use runtime_observers::RuntimeAdmission;
 pub(crate) mod continuity;
 mod handoff;
@@ -30,8 +31,8 @@ const MAX_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_DIRECTORY_ENTRIES: usize = (MAX_UNSETTLED + MAX_BODY_LEASES) * 3 + 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct UserSendAuthority {
-    pub(crate) tab_id: String,
+pub struct UserSendAuthority {
+    pub tab_id: String,
     pub(crate) pty_id: Option<String>,
     pub(crate) binding_nonce: String,
     pub(crate) pty_session_generation: Option<u64>,
@@ -44,7 +45,7 @@ pub(crate) struct UserSendAuthority {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum UserSendState {
+pub enum UserSendState {
     Queued,
     Claimed,
     Uncertain,
@@ -52,17 +53,17 @@ pub(crate) enum UserSendState {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct UserSendRecord {
-    pub(crate) send_id: String,
+pub struct UserSendRecord {
+    pub send_id: String,
     pub(crate) client_token: Option<String>,
     pub(crate) acceptance_sequence: u64,
     pub(crate) ledger_sequence: u64,
-    pub(crate) authority: UserSendAuthority,
+    pub authority: UserSendAuthority,
     pub(crate) owner_epoch: String,
     pub(crate) reservation: u64,
     #[serde(default = "held_before_readiness_by_default")]
     pub(crate) held_before_readiness: bool,
-    pub(crate) state: UserSendState,
+    pub state: UserSendState,
     pub(crate) handoff_session: Option<String>,
     pub(crate) typed_follow_up: Option<String>,
     #[serde(default)]
@@ -140,7 +141,7 @@ pub(crate) struct UserTab {
     admission_wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
-pub(crate) struct UserReservation {
+pub struct UserReservation {
     pub(crate) send_id: String,
     pub(crate) ledger_sequence: u64,
     pub(crate) authority: UserSendAuthority,
@@ -179,12 +180,12 @@ impl Drop for UserReservation {
     }
 }
 
-pub(crate) struct PreparedUserBody {
+pub struct PreparedUserBody {
     pub(crate) returned_path: PathBuf,
     pub(crate) bytes: Vec<u8>,
 }
 
-pub(crate) struct UserSendStore {
+pub struct UserSendStore {
     root: PathBuf,
     root_initialized: Mutex<bool>,
     epoch: String,
@@ -252,7 +253,7 @@ impl UserSendStore {
         *self.tab(tab_id).admission_wake.lock() = Some(wake);
     }
 
-    pub(crate) fn admit(
+    pub fn admit(
         &self,
         reservation: &UserReservation,
         original: &str,
@@ -441,7 +442,7 @@ impl UserSendStore {
         Ok(record)
     }
 
-    pub(crate) fn records(&self, tab_id: &str) -> Result<Vec<UserSendRecord>, String> {
+    pub fn records(&self, tab_id: &str) -> Result<Vec<UserSendRecord>, String> {
         let tab = self.tab(tab_id);
         let mut data = tab.data.lock();
         Ok(self.load(&tab, &mut data)?.index.records.clone())
@@ -550,7 +551,7 @@ impl UserSendStore {
                 .any(|ordinal| *ordinal <= record.reservation)
     }
 
-    pub(crate) fn claim<'a>(
+    pub fn claim<'a>(
         &self,
         record: &UserSendRecord,
         session: impl Into<Option<&'a str>>,
@@ -605,7 +606,7 @@ impl UserSendStore {
         self.finish_handoff(record, proven_zero_write)
     }
 
-    pub(crate) fn complete(&self, record: &UserSendRecord) -> Result<bool, String> {
+    pub fn complete(&self, record: &UserSendRecord) -> Result<bool, String> {
         let tab = self.tab(&record.authority.tab_id);
         if tab.revoked.load(Ordering::Acquire)
             || tab.failed.load(Ordering::Acquire)
@@ -665,8 +666,8 @@ impl UserSendStore {
         Ok(true)
     }
 
-    #[cfg(test)]
-    pub(crate) fn original(&self, tab_id: &str, send_id: &str) -> Result<String, String> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn original(&self, tab_id: &str, send_id: &str) -> Result<String, String> {
         let record = self
             .records(tab_id)?
             .into_iter()

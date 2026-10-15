@@ -166,7 +166,7 @@ impl ServiceContext {
     }
 
     /// Clear stale identity after a caller obtains an absent verdict.
-    pub(crate) fn reconcile_tab_restored_without_agent(&self, tab_id: &str) -> bool {
+    pub fn reconcile_tab_restored_without_agent(&self, tab_id: &str) -> bool {
         let tab = self.mux.read().get_tab(tab_id).cloned();
         let can_reconcile = tab.as_ref().is_some_and(|tab| {
             tab.agent_type.is_some()

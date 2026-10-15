@@ -2,7 +2,7 @@ use super::platform::{self, RecordingInputDevice};
 use crate::service::ServiceContext;
 
 impl ServiceContext {
-    pub(crate) async fn local_recording_input_devices(
+    pub async fn local_recording_input_devices(
         &self,
         plugin_id: &str,
     ) -> Result<Vec<RecordingInputDevice>, String> {

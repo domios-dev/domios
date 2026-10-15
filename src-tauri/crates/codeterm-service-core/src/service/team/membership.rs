@@ -177,7 +177,7 @@ pub(crate) fn resolve_inherited_team_attachment(
 /// Attach an already-running roleless agent tab to a Team. A role-bearing tab
 /// already draws its Team from its own hierarchy binding, so it is refused
 /// rather than silently re-parented.
-pub(crate) fn adopt_agent_into_team(
+pub fn adopt_agent_into_team(
     mux: &mut MultiplexerState,
     team_id: &str,
     tab_id: &str,

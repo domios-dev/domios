@@ -14,7 +14,7 @@ fn valid_cli_binary(binary: &str) -> bool {
 
 /// Why a launch was refused before anything was created.
 #[derive(Debug, Clone)]
-pub(crate) enum ProviderPreflightError {
+pub enum ProviderPreflightError {
     UnknownProvider {
         provider_id: String,
         available: Vec<String>,
@@ -95,12 +95,12 @@ impl std::fmt::Display for ProviderPreflightError {
 /// Proof that a provider's launch binary was observed BEFORE a tab existed.
 /// `create_cleared_agent_tab` takes one, so a refusal cannot leave a tab behind.
 #[derive(Debug)]
-pub(crate) struct LaunchClearance {
+pub struct LaunchClearance {
     pub(crate) warning: Option<String>,
 }
 
 /// The launch gate checks provider registration and the launch binary.
-pub(crate) fn provider_launch_preflight(
+pub fn provider_launch_preflight(
     registry: &AgentRegistry,
     provider_id: &str,
     permission_bypassed: bool,
@@ -183,7 +183,7 @@ pub(crate) fn clearance_for(
 /// The only tab-creation entry point on the agent spawn path. Taking the
 /// clearance is what makes "refused before a tab exists" a compile-time fact
 /// rather than a comment about statement order.
-pub(crate) fn create_cleared_agent_tab(
+pub fn create_cleared_agent_tab(
     mux: &mut MultiplexerState,
     workspace_id: &str,
     _clearance: &LaunchClearance,

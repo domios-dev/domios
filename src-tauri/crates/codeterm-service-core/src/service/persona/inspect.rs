@@ -11,7 +11,7 @@ use super::occasion::{self, Occasion};
 use super::overlay::{self, OverlayCatalog};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct FragmentView {
+pub struct FragmentView {
     pub source: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -19,7 +19,7 @@ pub(crate) struct FragmentView {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct OccasionView {
+pub struct OccasionView {
     pub occasion: &'static str,
     /// Where this occasion's text came from: the preset or its declared fallback.
     pub emission: &'static str,
@@ -30,7 +30,7 @@ pub(crate) struct OccasionView {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct PresetView {
+pub struct PresetView {
     pub role: &'static str,
     pub kind_id: String,
     pub label: String,
@@ -42,7 +42,7 @@ pub(crate) struct PresetView {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct KindListing {
+pub struct KindListing {
     pub kind_id: String,
     pub label: String,
     pub origin: &'static str,
@@ -54,23 +54,23 @@ pub(crate) struct KindListing {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct RejectionView {
+pub struct RejectionView {
     pub path: String,
     pub reason: &'static str,
     pub detail: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct CatalogView {
+pub struct CatalogView {
     pub overlay_dir: String,
     pub kinds: Vec<KindListing>,
     pub rejected: Vec<RejectionView>,
 }
 
 /// Payload used so the rendered composition shows separators and ordering.
-pub(crate) const PROBE_PAYLOAD: &str = "<assignment>";
+pub const PROBE_PAYLOAD: &str = "<assignment>";
 
-fn origin_label(catalog: &OverlayCatalog, kind_id: &str) -> &'static str {
+pub fn origin_label(catalog: &OverlayCatalog, kind_id: &str) -> &'static str {
     if builtins::is_builtin(kind_id) {
         return "builtin";
     }
@@ -80,7 +80,7 @@ fn origin_label(catalog: &OverlayCatalog, kind_id: &str) -> &'static str {
     "unregistered"
 }
 
-fn fragment_views(preset: &RolePreset) -> Vec<FragmentView> {
+pub fn fragment_views(preset: &RolePreset) -> Vec<FragmentView> {
     preset
         .fragments
         .iter()
@@ -92,7 +92,7 @@ fn fragment_views(preset: &RolePreset) -> Vec<FragmentView> {
         .collect()
 }
 
-fn occasion_views(preset: &RolePreset) -> Vec<OccasionView> {
+pub fn occasion_views(preset: &RolePreset) -> Vec<OccasionView> {
     occasion::ALL
         .iter()
         .map(|&which| {
@@ -109,7 +109,7 @@ fn occasion_views(preset: &RolePreset) -> Vec<OccasionView> {
 
 /// Render one `(role, kind, task persona)` triple through the shared resolver.
 /// `only` narrows the rendering to a single occasion.
-pub(crate) fn show(
+pub fn show(
     catalog: &OverlayCatalog,
     role: AgentRole,
     role_profile: Option<&str>,
@@ -134,7 +134,7 @@ pub(crate) fn show(
 
 /// Every kind the resolver can reach, builtin and overlay, plus the overlay
 /// files that were refused and why.
-pub(crate) fn list(catalog: &OverlayCatalog) -> CatalogView {
+pub fn list(catalog: &OverlayCatalog) -> CatalogView {
     let mut kinds: Vec<KindListing> = builtins::all()
         .iter()
         .map(|descriptor| KindListing {

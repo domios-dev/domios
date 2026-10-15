@@ -1,7 +1,7 @@
 //! CLI↔daemon control-plane protocol contract.
 //!
 //! Bump `PROTOCOL_VERSION` together with
-//! `src-tauri/crates/codeterm-service-core/src/socket/server/protocol.rs` on a breaking wire contract
+//! `src-tauri/crates/codeterm-socket/src/server/protocol.rs` on a breaking wire contract
 //! change — see .agents/skills/cli-contributor/SKILL.md (consumer audit).
 
 /// One integer presented on every socket and mesh RPC request envelope.

@@ -22,7 +22,7 @@ fn materialize(tab: &mut Tab, runtime_declared: bool) -> bool {
     true
 }
 
-pub(crate) fn tab(svc: &ServiceContext, tab_id: &str) -> Result<bool, String> {
+pub fn tab(svc: &ServiceContext, tab_id: &str) -> Result<bool, String> {
     let (provider, pty, restored) = {
         let mux = svc.mux.read();
         let Some(tab) = mux.get_tab(tab_id) else {
@@ -67,7 +67,7 @@ pub(crate) fn tab(svc: &ServiceContext, tab_id: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-pub(crate) fn all(svc: &ServiceContext) {
+pub fn all(svc: &ServiceContext) {
     let tabs = svc
         .mux
         .read()

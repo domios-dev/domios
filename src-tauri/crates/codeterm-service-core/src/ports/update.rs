@@ -6,13 +6,13 @@ use crate::app_runtime::AppHandle;
 use crate::update_state::AvailabilitySnapshot;
 use crate::UpdateStateHandle;
 
-pub(crate) type CheckFuture<'a> =
+pub type CheckFuture<'a> =
     Pin<Box<dyn Future<Output = Result<AvailabilitySnapshot, String>> + Send + 'a>>;
 
 /// Updater entry points startup calls; the root registers them before `run`.
-pub(crate) struct UpdateHooks {
-    pub(crate) bind_status_emitter: fn(AppHandle),
-    pub(crate) check: for<'a> fn(
+pub struct UpdateHooks {
+    pub bind_status_emitter: fn(AppHandle),
+    pub check: for<'a> fn(
         &'a AppHandle,
         &'a UpdateStateHandle,
         Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
@@ -22,7 +22,7 @@ pub(crate) struct UpdateHooks {
 
 static HOOKS: OnceLock<UpdateHooks> = OnceLock::new();
 
-pub(crate) fn register(hooks: UpdateHooks) {
+pub fn register(hooks: UpdateHooks) {
     let _ = HOOKS.set(hooks);
 }
 

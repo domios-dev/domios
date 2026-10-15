@@ -80,7 +80,7 @@ pub(super) struct ScreenChangeSubscription {
 }
 
 impl ScreenChangeSubscription {
-    pub(super) fn arm(screen_state: &crate::ScreenStateHandle, pty_id: &str) -> Self {
+    pub fn arm(screen_state: &crate::ScreenStateHandle, pty_id: &str) -> Self {
         let signal = screen_state.lock().subscribe_screen_changes(pty_id);
         Self {
             screen_state: screen_state.clone(),

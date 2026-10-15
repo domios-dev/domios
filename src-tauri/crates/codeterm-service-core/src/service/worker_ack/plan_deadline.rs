@@ -148,7 +148,7 @@ impl ServiceContext {
         self.worker_ack.register_startup_lease(lease);
     }
 
-    pub(crate) fn cancel_agent_startup_supervision(&self, agent_tab_id: &str) {
+    pub fn cancel_agent_startup_supervision(&self, agent_tab_id: &str) {
         self.worker_ack.cancel_startup_supervisor(agent_tab_id);
     }
 
@@ -176,7 +176,7 @@ impl ServiceContext {
         reaped
     }
 
-    pub(crate) fn prepare_agent_startup_supervision(
+    pub fn prepare_agent_startup_supervision(
         &self,
         agent_tab_id: &str,
         expected_supervisor: Option<&str>,
@@ -226,7 +226,7 @@ impl ServiceContext {
         true
     }
 
-    pub(crate) fn activate_agent_startup_supervision(
+    pub fn activate_agent_startup_supervision(
         &self,
         agent_tab_id: &str,
         attempt_id: &str,
@@ -341,7 +341,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    fn child_startup_state(&self, tab_id: &str) -> Option<ChildStartupState> {
+    pub fn child_startup_state(&self, tab_id: &str) -> Option<ChildStartupState> {
         self.mux
             .read()
             .get_tab(tab_id)
@@ -436,7 +436,7 @@ impl ServiceContext {
         self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
     }
 
-    pub(crate) fn acknowledge_agent_startup(
+    pub fn acknowledge_agent_startup(
         &self,
         caller_tab_id: &str,
         attempt_id: &str,
@@ -484,7 +484,7 @@ impl ServiceContext {
 
     /// Only the recorded creator of this exact child attempt may hold it. The
     /// accepted and refused shapes both carry auditable provenance.
-    pub(crate) fn hold_agent_startup(
+    pub fn hold_agent_startup(
         &self,
         caller_tab_id: &str,
         tab_id: &str,
@@ -690,7 +690,7 @@ impl ServiceContext {
         )
     }
 
-    pub(super) fn extend_worker_ack_deadline_for_tab(&self, tab_id: &str) -> bool {
+    pub fn extend_worker_ack_deadline_for_tab(&self, tab_id: &str) -> bool {
         let armable = self
             .plan_store
             .live_task_attempts_for_tab(tab_id)
@@ -717,7 +717,7 @@ impl ServiceContext {
         self.worker_ack.extend_deadline(&identity)
     }
 
-    pub(crate) fn acknowledge_worker_ack(
+    pub fn acknowledge_worker_ack(
         &self,
         plan_id: &str,
         task_id: &str,
@@ -777,7 +777,7 @@ impl ServiceContext {
             .map_err(|error| error.to_string())
     }
 
-    pub(crate) fn publish_worker_lifecycle_report(
+    pub fn publish_worker_lifecycle_report(
         &self,
         parent_tab_id: &str,
         worker_tab_id: &str,
@@ -880,7 +880,7 @@ impl ServiceContext {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn arm_worker_ack_deadline(
+    pub fn arm_worker_ack_deadline(
         &self,
         parent_tab_id: &str,
         worker_tab_id: &str,
@@ -1026,7 +1026,7 @@ impl ServiceContext {
         });
     }
 
-    pub(crate) fn arm_bound_worker_ack_deadline_for_tab(
+    pub fn arm_bound_worker_ack_deadline_for_tab(
         &self,
         tab_id: &str,
         spawn_command: String,

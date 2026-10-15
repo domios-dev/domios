@@ -9,7 +9,7 @@ struct MaterializationProbe {
     previous_materialized: bool,
 }
 
-pub(crate) fn bind_reported_session(
+pub fn bind_reported_session(
     mux: &crate::multiplexer::commands::MuxState,
     registry: &crate::agent::registry::AgentRegistry,
     tab_id: &str,
@@ -38,7 +38,7 @@ pub(crate) fn bind_reported_session(
 
 /// A session read from this launch's own provider record. It carries the tab's
 /// launch nonce, so a rotated launch or authenticated hook binding refuses it.
-pub(crate) fn bind_detected_session(
+pub fn bind_detected_session(
     mux: &crate::multiplexer::commands::MuxState,
     registry: &crate::agent::registry::AgentRegistry,
     tab_id: &str,
@@ -58,8 +58,8 @@ pub(crate) fn bind_detected_session(
     )
 }
 
-#[cfg(test)]
-pub(crate) fn bind_validated_rebind_session(
+#[cfg(any(test, feature = "test-support"))]
+pub fn bind_validated_rebind_session(
     mux: &crate::multiplexer::commands::MuxState,
     registry: &crate::agent::registry::AgentRegistry,
     tab_id: &str,
@@ -80,7 +80,7 @@ pub(crate) fn bind_validated_rebind_session(
     )
 }
 
-pub(crate) fn commit_materialized_rebind_session(
+pub fn commit_materialized_rebind_session(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     tab_id: &str,
     provider_id: &str,

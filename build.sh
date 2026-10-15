@@ -418,7 +418,9 @@ run_nextest_scope() {
   if [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then timing_dir="$(mktemp -d "$CT_BUILD_ARTIFACT_DIR/nextest.XXXXXX")"; else timing_dir="$(mktemp -d)"; fi
   if [ "$package" = codeterm-service-core ] && [[ "$filterset" != *'rdeps('* ]] && find_app_test_archive; then
     archive="$CT_APP_TEST_ARCHIVE"
-    reuse_args=(--archive-file "$archive" --workspace-remap "$(pwd -P)" -p "$package" --lib)
+    configure_app_archive_run "$filterset" || return $?
+    reuse_args=("${CT_APP_ARCHIVE_RUN_ARGS[@]}")
+    filter_args=()
     confirmation_args=(--archive-file "$archive")
   else
   if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
@@ -1534,7 +1536,7 @@ configure_dev_cargo() {
 
 check_queue_worktree() {
   node "$CT_GATEWAY_SCRIPT_ROOT/scripts/check-worktree.mjs" \
-    "$CT_GATEWAY_SCRIPT_ROOT" "$(ct_gateway_dir)" "$1" "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START"
+    "$CT_GATEWAY_SCRIPT_ROOT" "$(ct_gateway_dir)" "$1" "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START"
 }
 
 enter_check_worktree() {
@@ -2196,7 +2198,7 @@ CodeTerm build commands
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-archives                 Compile and archive test profiles with the shared cache
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <input-macos|input-windows|billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
+  test-one <input-macos|input-windows|billing|account|analytics|app|api|socket|commands|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
@@ -2332,7 +2334,7 @@ EOF
         ;;
       qa-child)
         enter_build_gateway "qa-prep"
-        bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "qa-prep" --probe-only
+        bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START" "qa-prep" --probe-only
         ;;
       dev-resources)
         enter_build_gateway "dev-resource-preflight"
@@ -2443,7 +2445,7 @@ EOF
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli}"
+    test_scope="${2:?test-one requires billing, account, analytics, app, api, socket, commands, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -2463,6 +2465,11 @@ EOF
         ;;
       input-macos|input-windows)
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
+        ;;
+      api|socket|commands|codeterm-api|codeterm-socket|codeterm-commands)
+        prepare_dev_frontend_dist "$(pwd -P)"
+        prepare_bundle_stubs
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-${test_scope#codeterm-}" --lib "$test_filter"
         ;;
       frontend-bundle|codeterm-frontend-bundle)
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-frontend-bundle --lib "$test_filter"
@@ -2510,7 +2517,7 @@ EOF
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, api, socket, commands, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli)" >&2; exit 2 ;;
     esac
     ;;
   nextest)
@@ -2637,7 +2644,7 @@ EOF
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run bash scripts/check-script-catalog.sh
     sg_run node --test --test-concurrency=1 scripts/build-gateway-mutex.test.mjs scripts/build-gateway-slot.test.mjs scripts/build-gateway-record.test.mjs scripts/build-gateway-cache.test.mjs scripts/check-worktree.test.mjs scripts/dev-build-configuration.test.mjs scripts/build-history.test.mjs scripts/build-gateway-evidence.test.mjs
-    sg_run node --test scripts/build-gateway-mutex-evidence.test.mjs scripts/build-gateway-output.test.mjs scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
+    sg_run node --test scripts/build-gateway-owner.test.mjs scripts/build-gateway-mutex-evidence.test.mjs scripts/build-gateway-output.test.mjs scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
     sg_run bash scripts/check-build-script-head.sh
@@ -2733,7 +2740,7 @@ EOF
     exit "$cst_status"
     ;;
   qa-prep)
-    bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
+    bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
     ;;
   bootstrap)
     ensure_deps

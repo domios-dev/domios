@@ -340,6 +340,37 @@ At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tau
 
 Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `.\build.ps1 gc --dry-run` / `.\build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
 
+Manual GC also maps every existing Git worktree of this repository and the sibling
+`codeterm-plugins` repository, plus the gateway's stable `X:` checkout, through
+`cargo metadata --format-version 1 --offline --no-deps`. Cargo 1.95 exposes
+`build_directory`; no hash approximation is used. Set `CODETERM_PLUGINS_CHECKOUT`
+when the plugin repository is elsewhere. Missing repositories, failed metadata,
+or a missing gateway mapping refuse deletion. Each workspace mapping is printed.
+The configured two-level `{workspace-path-hash}` cache roots are discovered from
+these paths, rather than hardcoding BLACKSTAR's RustCaches location.
+
+Only unmapped build directories are removed, regardless of age. A live checkout's
+old build directory remains protected; `CODETERM_CACHE_MAX_AGE_DAYS` continues to
+govern exceptional targets and cargo-sweep, not deletion of live build directories.
+`codeterm plan lanes --clean` removes worktrees upstream: their build directories
+become orphans on the next manual GC. Automatic hourly retention keeps its existing
+scope because the stable drive may not yet be mapped when that hook runs.
+
+GC takes nonblocking exclusive locks on every `.cargo-lock` below each orphan and
+holds them through removal; a busy or unreadable lock protects the entire directory.
+The lock protocol follows Cargo 1.95's
+[layout](https://github.com/rust-lang/cargo/blob/rust-1.95.0/src/cargo/core/compiler/layout.rs)
+and [flock](https://github.com/rust-lang/cargo/blob/rust-1.95.0/src/cargo/util/flock.rs):
+Windows `LockFileEx`, Unix `flock`. Python 3.12+ is required on Windows for junction
+validation. Links and unexpected hash layouts refuse collection. Each orphan and
+the total are reported in GiB. Fixtures: `node --test scripts/cargo-build-gc.test.mjs`.
+For an explicitly blocking cleanup use `.\build.ps1 gc --wait-build` in a Team
+build shell; capture `Get-PSDrive C` before and after, and preview first.
+
+If GC exits 2 on a live lane's malformed Cargo manifest, no orphan deletion is
+allowed: its build directory cannot yet be mapped. Ask that lane's owner to fix
+the manifest, then rerun the preview. Never skip the checkout or guess its hash.
+
 Every candidate is physically resolved using `pwd -P` and must be a direct child of the exceptional target root, or the checkout's exact target directory for sweep. Empty, root, parent, symlink/junction, redirected ancestor, and nested-link paths are refused. Deletion does not follow links. If retention reports an unsafe path, inspect and remove the redirection separately; never relax the boundary to make GC pass. Retention and marker updates use an exclusive gateway metadata lock and refuse concurrent modification. Automatic failures print a hint and let builds continue; explicit GC returns failure for invalid configuration or an unavailable lock.
 
 Canonical shell policy verification: `bash scripts/check-build-gateway-policy.sh`. Its retention fixture suite checks marker persistence, removed checkouts, configurable expiry, legacy grace, LRU cap order, live-owner/current-checkout protection, hourly throttle, dry-run, and unsafe paths including real Windows junctions. It requires no Rust compilation.
@@ -888,3 +919,11 @@ If a completed job reports `logging_degraded`, its command exit and completed/fa
 A mutex refusal prints the state.lock owner PID, start token, job ID, publication age and queued waiter tuples. Unknown values remain unknown; age never authorizes reclamation. Capture this evidence with the job receipt before investigating contention.
 
 A Windows `EPERM` while renaming `state.lock.pending.*` to `state.lock` is a publication sharing conflict. The helper releases its publication guard, retains the same candidate, and waits for a mutex ownership event before retrying inside the existing failure deadline. Its own guard changes and unrelated file events do not drive retries. A deadline refusal removes the unpublished candidate. Run `node --test scripts/build-gateway-mutex.test.mjs`; capture the owner/waiter tuple if the bounded event wait expires, without deleting unknown shared ownership.
+
+A queued PowerShell -> Git Bash client must retain its actual Bash waiter identity. Job, queue and slot ownership now record BASHPID with its MSYS start token, mapped Windows PID and Windows start token. On Windows reaping probes the captured native identity, not the MSYS number; unavailable native evidence remains unknown and never reaps. Older incomplete ownership needs an owner decision, not inferred death from a missing proc entry. Run `node --test scripts/build-gateway-owner.test.mjs` for the real build.ps1 chain and namespace model; capture both identity pairs when reporting a future owner-lost incident.
+
+Canonical P3 measurement on core-touching SHA `5df475f92` (205 files): full check 157 s (job `20261014T210857-13756-8399`), `--lane` 148 s with errors=0, warnings=0, exit=0 (`tone-gates-20261014-230937-49731`). The saving is 9 s (about 6%); service-core compilation dominates this lane. Do not promise large savings for core-touching lanes. Archive SHA `d001809b8` built in 367 s (job `20261014T232911-133-4384`); selector timing was invalid because the first archived run refused its argv with exit 2 after 1 s. Selector measurements must be rerun after the argv repair.
+
+An archived nextest run rejects Cargo package/target selection such as `-p` and `--lib` together with `--archive-file`. Select the archived core library using `--filter-expr 'package(=codeterm-service-core) & kind(lib)'`, intersecting any caller filterset, while retaining workspace remapping and zero-match refusal. Both app runners use the same archive argument builder. Run `node --test scripts/nextest-archive.test.mjs`; its exact captured selector argv is checked by the installed nextest parser with a nonexistent archive (no Cargo build or test execution), and the former conflicting argv must refuse as a usage error. Canonical then reruns `./build.sh nextest-archive d001809b8 --measure service::close_history service::team service::workspace service::plugin_host sentinel:: socket::server::plan_review api::mesh_routes::rpc commands::html_preview startup:: update::`.
+
+If an archived selector refuses `workspace root manifest at X:\Cargo.toml does not exist` (job `20261015T000926-46028-23229`), the remap points at the checkout rather than the Cargo workspace. App archive runners and serial slow-test confirmation remap to `<checkout>/src-tauri`, where Cargo.toml contains `[workspace]`. The shared Bash builder refuses a missing manifest before running nextest; archive and serial-confirmation fixtures assert the target manifest. The failed first selector's exit 96 / 4 s is not a test execution measurement. Rerun the canonical measurement command above after merging the repair.

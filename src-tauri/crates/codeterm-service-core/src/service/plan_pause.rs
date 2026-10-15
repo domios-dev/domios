@@ -17,7 +17,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab};
 
 /// Side effects a plan pause or resume performs outside the plan record.
-pub(crate) trait PlanPausePorts {
+pub trait PlanPausePorts {
     fn send_notice(&self, tab_id: &str, text: &str) -> Result<(), String>;
     fn schedule_enabled(&self, job_id: &str) -> Option<bool>;
     fn set_schedule_enabled(&self, job_id: &str, enabled: bool) -> Result<(), String>;
@@ -46,7 +46,7 @@ pub(crate) struct PlanLifecyclePreviewSchedule {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub(crate) struct PlanLifecyclePreview {
+pub struct PlanLifecyclePreview {
     pub(crate) kind: PlanLifecycleKind,
     pub(crate) plan_id: String,
     pub(crate) plan_title: String,
@@ -61,13 +61,13 @@ pub(crate) struct PlanLifecyclePreview {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub(crate) struct PlanLifecycleOutcome {
+pub struct PlanLifecycleOutcome {
     pub(crate) kind: PlanLifecycleKind,
     pub(crate) plan_id: String,
-    pub(crate) applied: bool,
+    pub applied: bool,
     pub(crate) mode: PlanMode,
-    pub(crate) stride_id: Option<String>,
-    pub(crate) operation: Option<PlanPauseOperation>,
+    pub stride_id: Option<String>,
+    pub operation: Option<PlanPauseOperation>,
 }
 
 fn non_empty(value: Option<&str>) -> Option<&str> {
@@ -453,8 +453,8 @@ pub(crate) fn execute_plan_resume(
     Ok(outcome(true, restored_mode, Some(operation)))
 }
 
-struct ServicePlanPausePorts<'a> {
-    svc: &'a ServiceContext,
+pub struct ServicePlanPausePorts<'a> {
+    pub svc: &'a ServiceContext,
 }
 
 impl PlanPausePorts for ServicePlanPausePorts<'_> {
@@ -536,10 +536,7 @@ impl ServiceContext {
             .collect()
     }
 
-    pub(crate) fn plan_pause_preview(
-        &self,
-        plan_id: &str,
-    ) -> Result<PlanLifecyclePreview, TeamPlanError> {
+    pub fn plan_pause_preview(&self, plan_id: &str) -> Result<PlanLifecyclePreview, TeamPlanError> {
         let plan = self.lifecycle_plan(plan_id)?;
         let agents = {
             let mux = self.mux.read();
@@ -549,7 +546,7 @@ impl ServiceContext {
         Ok(pause_preview(&plan, &agents, &schedules))
     }
 
-    pub(crate) fn plan_resume_preview(
+    pub fn plan_resume_preview(
         &self,
         plan_id: &str,
     ) -> Result<PlanLifecyclePreview, TeamPlanError> {
@@ -558,7 +555,7 @@ impl ServiceContext {
         Ok(resume_preview(&plan, |agent| live.contains(&agent.tab_id)))
     }
 
-    pub(crate) fn pause_plan_operation(
+    pub fn pause_plan_operation(
         &self,
         plan_id: &str,
         reason: &str,
@@ -591,7 +588,7 @@ impl ServiceContext {
         Ok(outcome)
     }
 
-    pub(crate) fn resume_plan_operation(
+    pub fn resume_plan_operation(
         &self,
         plan_id: &str,
         now_ms: u64,
@@ -613,7 +610,5 @@ impl ServiceContext {
     }
 }
 
-#[cfg(test)]
-mod off_runtime_tests;
 #[cfg(test)]
 mod tests;
