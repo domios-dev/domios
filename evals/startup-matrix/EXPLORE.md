@@ -1,5 +1,15 @@
 # Owner-style exploratory startup pass
 
+For a launch serialization diagnosis, compare the bare-shell wait's own elapsed
+log with source-clock phase timestamps. A zero prompt wait means the missing
+time precedes that wait. Capture `[launch-gate]` wait/hold microseconds per tab,
+operation and stage, and correlate the earliest holder with queued launches and
+session-start requests before changing generation atomicity. Fresh fixtures must
+be newly created in this run; old tabs named `F` are restored fixtures. Record CLI
+request/response time separately from daemon readiness and visible input timing.
+If a workspace is hidden in sidebar overflow, open and capture/view that control
+before selecting it; a hidden-workspace locator timeout is a harness failure.
+
 The scripted matrix supplies timings and protocol evidence. This pass supplies
 an agent's visual judgment of the real DEV window. Capturing a screenshot does
 not complete a step: open the PNG with the agent's image viewer and describe
