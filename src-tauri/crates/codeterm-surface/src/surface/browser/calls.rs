@@ -5,9 +5,9 @@ use super::grab::{self, Annotation, GrabTarget};
 use super::input::{InputArgs, NavAction};
 use super::snip::SnipIdArgs;
 use super::BrowserRuntime;
-use crate::service::browser::viewport::ViewportRequest;
-use crate::service::browser::PageChannel;
-use crate::service::surface::runtime::{SurfaceCallCtx, SurfaceCallOutcome, SurfaceEffect};
+use crate::surface::runtime::{SurfaceCallCtx, SurfaceCallOutcome, SurfaceEffect};
+use codeterm_browser::viewport::ViewportRequest;
+use codeterm_browser::PageChannel;
 
 #[derive(Deserialize)]
 struct ResizeArgs {

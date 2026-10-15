@@ -28,23 +28,23 @@ use super::runtime::{
     SurfaceCallCtx, SurfaceCallOutcome, SurfaceEvents, SurfaceNotice, SurfaceResume,
     SurfaceRuntime, SurfaceRuntimeFactory,
 };
-use crate::service::browser::process::CloseOutcome;
-use crate::service::browser::profile::{owner_profile, sanitize_profile_name, ProfileLayout};
-use crate::service::browser::viewport::ViewportRequest;
-use crate::service::browser::{BrowserHost, BrowserHostConfig, OpenOptions, PageChannel};
+use codeterm_browser::process::CloseOutcome;
+use codeterm_browser::profile::{owner_profile, sanitize_profile_name, ProfileLayout};
+use codeterm_browser::viewport::ViewportRequest;
+use codeterm_browser::{BrowserHost, BrowserHostConfig, OpenOptions, PageChannel};
 
-pub(crate) const BROWSER_RUNTIME: &str = "browser";
+pub const BROWSER_RUNTIME: &str = "browser";
 pub(super) const WAIT_DEADLINE: Duration = Duration::from_secs(15);
 const PENDING_GRABS: usize = 16;
 const CLEAN_PROFILE: &str = "clean";
 
-pub(crate) struct BrowserRuntimeFactory {
+pub struct BrowserRuntimeFactory {
     data_dir: PathBuf,
     swept: Arc<tokio::sync::OnceCell<()>>,
 }
 
 impl BrowserRuntimeFactory {
-    pub(crate) fn new(data_dir: &Path) -> Self {
+    pub fn new(data_dir: &Path) -> Self {
         Self {
             data_dir: data_dir.to_path_buf(),
             swept: Arc::new(tokio::sync::OnceCell::new()),
@@ -76,7 +76,7 @@ struct GrabStore {
 }
 
 /// The browser surface runtime: one `BrowserHost`, its page listener, grabs and annotation inbox.
-pub(crate) struct BrowserRuntime {
+pub struct BrowserRuntime {
     host: BrowserHost,
     layout: ProfileLayout,
     swept: Arc<tokio::sync::OnceCell<()>>,
@@ -89,7 +89,7 @@ pub(crate) struct BrowserRuntime {
     inbox: Mutex<AnnotationInbox>,
 }
 
-fn cdp_error(error: crate::service::browser::CdpError) -> String {
+fn cdp_error(error: codeterm_browser::CdpError) -> String {
     error.to_string()
 }
 
@@ -169,7 +169,7 @@ impl BrowserRuntime {
         let layout = self.layout.clone();
         self.swept
             .get_or_init(|| async move {
-                let report = crate::service::browser::sweep_orphans(layout).await;
+                let report = codeterm_browser::sweep_orphans(layout).await;
                 log::info!("[browser] orphan sweep before first launch: {report:?}");
             })
             .await;
