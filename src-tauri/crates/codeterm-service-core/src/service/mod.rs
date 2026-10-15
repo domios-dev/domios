@@ -312,7 +312,6 @@ pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
 pub use team_core::TeamMutationCaller;
 pub use team_core::TeamPlanError;
-pub(crate) use team_core::{live_team_ids, reconcile_dangling_team_plan_bindings_and_emit};
 pub use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
     respawn_title_provenance, restore_attempt_binding_for_caller, restore_attempt_binding_for_mux,
