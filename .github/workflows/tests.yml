@@ -75,6 +75,8 @@ jobs:
   # and skipping there would skip the one run that has never happened.
   changed:
     name: tree is new
+    # A release branch's push already runs these checks on the exact SHA in release.yml.
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}
     # Every job waits on this gate, so any free light runner takes it.
     runs-on: [self-hosted, light]
     permissions:
@@ -693,7 +695,8 @@ jobs:
       actions: write
       pull-requests: write
     needs: [changed, rust-tests, rust-platform, clippy-linux, ts-types]
-    if: always()
+    # Release calls summarise once in release.yml; a skipped scope gate has nothing to summarise.
+    if: ${{ always() && inputs.source_ref == '' && needs.changed.result == 'success' }}
     uses: ./.github/workflows/rust-warnings-summary.yml
     with:
       source_ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
