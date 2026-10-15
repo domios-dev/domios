@@ -43,18 +43,6 @@ pub fn insert_entity(conn: &Connection, e: &Entity) -> Result<(), String> {
     )
     .map_err(|e| format!("insert entity: {}", e))?;
 
-    // failures log a warning but don't fail the upsert.
-    let merged_props: String = conn
-        .query_row(
-            "SELECT properties_json FROM entities WHERE id = ?1",
-            params![&e.id],
-            |r| r.get::<_, String>(0),
-        )
-        .unwrap_or_else(|_| props.clone());
-    let text = super::embeddings::embeddable_text_for_entity(&e.id, &e.entity_type, &merged_props);
-    if let Err(err) = super::embeddings::index(conn, &e.id, &text) {
-        log::warn!("[graph.insert_entity] embed {} failed: {}", e.id, err);
-    }
     Ok(())
 }
 
