@@ -1,16 +1,16 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum NoticeSource {
+pub enum NoticeSource {
     AgentNotifySend,
     System,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum NoticeDestination {
+pub enum NoticeDestination {
     Bell,
     Log,
 }
 
-pub(crate) fn destination(source: NoticeSource, live_agent_caller: bool) -> NoticeDestination {
+pub fn destination(source: NoticeSource, live_agent_caller: bool) -> NoticeDestination {
     match (source, live_agent_caller) {
         (NoticeSource::AgentNotifySend, true) => NoticeDestination::Bell,
         _ => NoticeDestination::Log,

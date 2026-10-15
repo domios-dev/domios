@@ -10,6 +10,7 @@ workspace = true
 name = "codeterm_service_core"
 
 [dependencies]
+codeterm-notifications = { path = "../codeterm-notifications" }
 codeterm-provider-ops = { path = "../codeterm-provider-ops" }
 codeterm-recall = { path = "../codeterm-recall" }
 codeterm-supporter = { path = "../codeterm-supporter" }

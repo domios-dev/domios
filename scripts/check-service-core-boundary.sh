@@ -26,6 +26,15 @@ if [ -n "$port_leaks" ]; then
   status=1
 fi
 
+leaf_contexts="$(MSYS_NO_PATHCONV=1 rg -n --path-separator / --glob '*.rs' '\bServiceContext\b' src-tauri/crates crates \
+  | grep -vE '^src-tauri/crates/codeterm-(service-core|api|commands|host-runtime|orchestration|sentinel-host|socket)/' \
+  | grep -vE ':[0-9]+:[[:space:]]*//' || true)"
+if [ -n "$leaf_contexts" ]; then
+  echo "service-core boundary: leaf source names ServiceContext:" >&2
+  echo "$leaf_contexts" >&2
+  status=1
+fi
+
 if [ "$status" -eq 0 ]; then
   echo "service-core boundary: ok"
 fi

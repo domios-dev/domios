@@ -55,6 +55,11 @@ test('CLI fixture ratchets committed budgets and rejects restoring removed reach
     assert.match(run().stderr, /drop entry/);
     baseline({});
     assert.equal(run().status, 0);
+    const leaf = 'src-tauri/crates/codeterm-notifications/src/lib.rs';
+    source(leaf, 'pub type Runtime = tauri::Wry;');
+    assert.match(run().stderr, /notification leaf names the host runtime/);
+    source(leaf, 'pub fn pure() {}');
+    assert.equal(run().status, 0);
     commit();
     source(file, 'tauri::async_runtime::spawn(task);');
     baseline({ [file]: 1 });

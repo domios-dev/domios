@@ -1,0 +1,27 @@
+[package]
+name = "codeterm-notifications"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+codeterm-notification-core = { path = "../codeterm-notification-core" }
+codeterm-bridge = { path = "../codeterm-bridge" }
+codeterm-config = { path = "../codeterm-config" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-agent-model = { path = "../codeterm-agent-model" }
+codeterm-pty = { path = "../codeterm-pty" }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+uuid = { version = "1", features = ["v4"] }
+toml = "0.8"
+
+[dev-dependencies]
+codeterm-util = { path = "../codeterm-util" }
+tempfile = "3"

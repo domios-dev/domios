@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,7 +10,7 @@ export function countReach(source) {
   return [...source.matchAll(/tauri::|AppHandle|app_handle/g)].length;
 }
 
-export function scan(root) {
+export function scan(root, directory = scope) {
   const counts = {};
   function visit(directory) {
     for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
@@ -22,7 +22,7 @@ export function scan(root) {
       }
     }
   }
-  visit(scope);
+  if (existsSync(join(root, directory))) visit(directory);
   return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
 }
 
@@ -70,6 +70,9 @@ export function main(root, args) {
     ? validateBaseline(JSON.parse(git(root, 'show', `${fork}:${baselinePath}`)))
     : allowed;
   const errors = checkReach(scan(root), allowed, previous);
+  for (const file of Object.keys(scan(root, "src-tauri/crates/codeterm-notifications/src/"))) {
+    errors.push(`${file}: notification leaf names the host runtime`);
+  }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(`tauri reach: ok (${Object.keys(allowed).length} files with remaining reach)`);
 }
