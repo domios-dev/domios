@@ -1,5 +1,7 @@
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
+import { heldMessagesForLaunch } from "./chatSetupModel";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
@@ -179,7 +181,11 @@ function OriginPluginAvatar({ pluginId, iconSvg }: { pluginId: string; iconSvg?:
   );
 }
 
-export function TabSessionChat({
+export function TabSessionChat(props: Props) {
+  return <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
+}
+
+function TabSessionChatBody({
   inputStatus,
   tabId,
   api,
@@ -266,6 +272,7 @@ export function TabSessionChat({
     recovering,
     error,
     attachmentState,
+    snapshotReady,
     transcriptUnavailable,
     allMessages,
     enrichedMessages,
@@ -317,22 +324,23 @@ export function TabSessionChat({
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
   const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null;
-  const runtimeReplacement = runtimeUnavailable
-    ? <AgentRuntimeBanner tabId={tabId} state={runtime.state} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} /> : undefined;
+  const runtimeBadge = <AgentRuntimeBanner tabId={tabId} state={runtime.state} startupOwned={!snapshotReady || bootSetupView.kind === "starting"} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} />;
+  const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading || error != null;
-  const setupView = runtimeUnavailable ? { kind: "none" as const } : chatBodyView({
+  const setupView = runtimeUnavailable && snapshotReady && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
     hasTranscript,
+    snapshotReady,
     chatLoading,
     unavailable: transcriptUnavailable,
     bootView: bootSetupView,
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
-    [enrichedMessages],
+    () => setupView.kind !== "none" ? [] : enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
+    [enrichedMessages, setupView.kind],
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
   const chatUserScrollingRef = useRef(false);
@@ -784,9 +792,10 @@ export function TabSessionChat({
       className="ct-chat-shell w-full h-full flex flex-col relative"
       data-testid="tab-session-chat"
       data-tab-id={tabId}
+      data-snapshot-ready={snapshotReady}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={chatChannelLoading && setupView.kind !== "failed"}
+      aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && (!snapshotReady || chatChannelLoading)}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
@@ -838,7 +847,7 @@ export function TabSessionChat({
             style={{ height: "calc(1.25rem + var(--ct-safe-top, 0px))" }}
           />
         )}
-        {(hiddenMessageCount > 0 || canBackfillOlder) && (
+        {railsVisible && (hiddenMessageCount > 0 || canBackfillOlder) && (
           <div className="flex justify-center pb-2 pt-1">
             <button
               type="button"
@@ -866,7 +875,7 @@ export function TabSessionChat({
         )}
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
-        {isActive && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
+        {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
         <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
         {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map(({ msg, item, origin }, mountedIndex) => {
           const messageIndex = mountedWindow.range.start + mountedIndex;
@@ -947,7 +956,13 @@ export function TabSessionChat({
         </ChatMessageRow>}
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
+        <AutoConfirmedPromptRows records={autoConfirmations} />
+        </div>
+      </div>
         <ChatSetupState
+          visible={isActive}
+          waitingMessages={heldMessagesForLaunch(deliverySends)}
+          workspace={planNav.workspaces.find(workspace => workspace.id === workspaceId)}
           tab={tab}
           view={setupView}
           providerName={provider?.displayName ?? "the agent"}
@@ -956,9 +971,6 @@ export function TabSessionChat({
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
         />
-        <AutoConfirmedPromptRows records={autoConfirmations} />
-        </div>
-      </div>
       <MessageSelectionBar
         count={messageSelection.count}
         partial={messageSelection.partial}
@@ -989,14 +1001,14 @@ export function TabSessionChat({
       ) : (
       <>
       <div ref={setContextSlot} className="ct-ctx-slot" />
-      <div className="ct-composer-status w-full" style={{ paddingInlineStart: "calc(var(--ct-composer-gutter-x) + 2rem)" }}>
+      <div className="ct-composer-status w-full">
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
           activeTool={allMessages.find((message) => message.type === "tool_call" && message.toolStatus === "running")}
           runtimeState={runtime.state}
           showActivity={setupView.kind === "none" && !chatLoading}
-          channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView) === "model"
+          channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView, snapshotReady) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
@@ -1027,7 +1039,7 @@ export function TabSessionChat({
         currentPtyId={currentPtyId}
         chatBackend={effectiveChatBackend}
         isActive={isActive}
-        promptDock={runtimeReplacement}
+        promptDock={runtimeBadge}
         pendingPrompt={pendingPrompt}
         attachments={attachments}
         addAttachments={addAttachments}

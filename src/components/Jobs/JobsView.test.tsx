@@ -347,7 +347,7 @@ async function main() {
       await settle(() => view.host.querySelector("h3")?.textContent?.startsWith(target.name) === true);
       transport.graph = { ...transport.graph, scenarios: [transport.graph.scenarios[0]] };
       await act(async () => { transport.changed!(); });
-      const alert = view.host.querySelector<HTMLElement>('[role="alert"]');
+      const alert = view.host.querySelector<HTMLElement>('[role="status"][tabindex="-1"]');
       assert.ok(alert, "removed scenario is reported");
       assert.equal(document.activeElement, alert, "focus does not fall to the document body");
       assert.equal(entry(view.host, `scenario:${target.id}`), null);
@@ -479,7 +479,7 @@ async function main() {
     cronList = async () => { throw new Error("private-cron-failure"); };
     const failed = await mount(jobsView(transport));
     try {
-      await settle(() => failed.host.querySelector('[role="alert"]') !== null);
+      await settle(() => failed.host.querySelector('[role="status"][aria-label]') !== null);
       assert.equal(failed.host.querySelector('[role="status"][aria-label="No jobs"]'), null);
       assert.ok(!failed.host.textContent?.includes("private-cron-failure"));
     } finally { await failed.close(); }

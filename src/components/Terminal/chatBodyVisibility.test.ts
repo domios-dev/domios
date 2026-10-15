@@ -31,6 +31,26 @@ function railsFor(view: ChatBodyView, messages: Array<{ at: number | null }>) {
 }
 
 describe("chat body authority", () => {
+  it("cached or tracked rows cannot paint before the first authoritative snapshot", () => {
+    const view = chatBodyView({ snapshotReady: false, hasTranscript: true, chatLoading: true,
+      unavailable: null, bootView: { kind: "none" } });
+    expect(view.kind).toBe("starting");
+    expect(chatRailsVisible(view)).toBe(false);
+  });
+  it("an already loaded conversation remains visible during channel recovery", () => {
+    const view = chatBodyView({ snapshotReady: true, hasTranscript: true, chatLoading: true,
+      unavailable: null, bootView: { kind: "none" } });
+    expect(view.kind).toBe("none");
+  });
+  it("a loaded empty snapshot remains ready while reconnecting", () => {
+    expect(chatBodyView({ snapshotReady: true, hasTranscript: false, chatLoading: true,
+      unavailable: null, bootView: { kind: "starting", label: "opaque" } }).kind).toBe("none");
+  });
+  it("spawn failure owns the body even when cached or tracked rows exist", () => {
+    const failed: ChatBodyView = { kind: "launch_failed", reason: "opaque-refusal" };
+    expect(chatBodyView({ hasTranscript: true, chatLoading: true, unavailable: null, bootView: failed })).toEqual(failed);
+    expect(chatRailsVisible(failed)).toBe(false);
+  });
   it("chatLoading with bootView none is not starting", () => {
     const view = chatBodyView({
       hasTranscript: false,
@@ -75,17 +95,18 @@ describe("chat body authority", () => {
 describe("chat channel status", () => {
   it("shows channel recovery alongside an authoritative transcript", () => {
     const view = chatBodyView({ hasTranscript: true, chatLoading: true, unavailable: null, bootView: { kind: "none" } });
-    expect(chatChannelLoadingRow(true, view)).toBe("model");
+    expect(chatChannelLoadingRow(true, view, false)).toBe("model");
+    expect(chatChannelLoadingRow(true, view, true)).toBe(null);
   });
   it("hides channel status after loading completes", () => {
-    expect(chatChannelLoadingRow(false, { kind: "none" })).toBe(null);
+    expect(chatChannelLoadingRow(false, { kind: "none" }, false)).toBe(null);
   });
   it("shows a loading row for an empty transcript", () => {
     const view = chatBodyView({ hasTranscript: false, chatLoading: true, unavailable: null, bootView: { kind: "none" } });
-    expect(chatChannelLoadingRow(true, view)).toBe("model");
+    expect(chatChannelLoadingRow(true, view, false)).toBe("model");
   });
   it("leaves a reported failure to its body indicator", () => {
-    expect(chatChannelLoadingRow(true, { kind: "failed", reason: "no_transcript_source" })).toBe(null);
+    expect(chatChannelLoadingRow(true, { kind: "failed", reason: "no_transcript_source" }, false)).toBe(null);
   });
 });
 

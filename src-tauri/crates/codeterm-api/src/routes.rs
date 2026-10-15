@@ -631,12 +631,6 @@ pub(super) fn create_router_with_preview_admission(
             "/api/sessions/transcript",
             get(web_routes::session_transcript),
         )
-        .route(
-            "/api/upload",
-            post(web_routes::upload)
-                // Voice notes and attached files: axum's 2MB default is too small; cap at 200MB so a runaway client can't fill the disk.
-                .layer(axum::extract::DefaultBodyLimit::max(200 * 1024 * 1024)),
-        )
         .route("/api/pty/spawn", post(pty_routes::pty_spawn))
         .route("/api/pty/{id}/read", get(pty_routes::pty_read))
         .route("/api/pty/{id}/write", post(pty_routes::pty_write))
@@ -931,8 +925,9 @@ pub(super) fn create_router_with_preview_admission(
             ),
         )
         .route(
-            "/api/attachments/temp-file",
-            post(web_routes::save_temp_file),
+            "/api/attachments/upload",
+            post(crate::attachment_upload::upload)
+                .layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .route(
             "/api/attachments/clipboard-image",

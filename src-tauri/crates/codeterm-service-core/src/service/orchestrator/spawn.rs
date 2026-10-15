@@ -85,7 +85,7 @@ fn apply_startup_handshake(
     carries_startup_attempt: bool,
 ) {
     if let Some(prompt) = crate::service::launch_delivery::startup_starter_prompt_for_class(
-        supervised,
+        supervised && !params.user_created,
         params.task_launch_authority.is_some(),
         false,
         carries_startup_attempt,
@@ -664,7 +664,8 @@ impl ServiceContext {
             params.remote_task_binding.as_ref(),
             task_identity.as_ref(),
         );
-        let startup_supervised = !remote_task_bound
+        let startup_supervised = !params.user_created
+            && !remote_task_bound
             && self.prepare_agent_startup_supervision(
                 &tab_id,
                 params

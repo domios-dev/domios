@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import type { SensitivePermission } from "../../lib/pluginConsentModel";
 import { setPluginPermission } from "../../lib/pluginConsent";
@@ -22,6 +23,6 @@ export function PluginPermissions({ pluginId, permissions }: { pluginId: string;
       <LiquidToggle aria-label={permission.label} checked={permission.allowed} disabled={busy !== null}
         onCheckedChange={(allowed) => void change(permission.key, allowed)} />
     </div>)}
-    {error && <p role="alert">{error}</p>}
+    {error && <InlineErrorNotice error={error} operation="changing plugin permissions" blocking />}
   </section>;
 }

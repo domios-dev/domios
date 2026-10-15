@@ -1,7 +1,6 @@
-import { useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { useMemo, useState } from "react";
 import { classify, type UsageSnapshot } from "../../types/usage";
-import { clampPortalCenter } from "./portalPosition";
 import { formatRelative } from "./format";
 
 interface UsageTableProps {
@@ -121,51 +120,12 @@ export function usageFailureCopy(row: UsageSnapshot): {
 }
 
 function ErrorPill({ row, now }: { row: UsageSnapshot; now: number }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [tip, setTip] = useState<{ x: number; y: number } | null>(null);
   const copy = usageFailureCopy(row);
-
-  const show = () => {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setTip({ x: clampPortalCenter(r.left + r.width / 2, 260, window.innerWidth), y: r.top });
-  };
-  const hide = () => setTip(null);
-
-  return (
-    <>
-      <span
-        ref={ref}
-        className="ct-usage-pill err"
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        onFocus={show}
-        onBlur={hide}
-        tabIndex={0}
-      >
-        <span className="d" />
-        {usageFailureLabel(row)}
-      </span>
-      {tip &&
-        createPortal(
-          <div
-            className="ct-usage-tip"
-            style={{ left: tip.x, top: tip.y }}
-            role="tooltip"
-          >
-            <div className="ct-usage-tip-title">Probe failed</div>
-            <div className="ct-usage-tip-body">
-              {copy.providerLabel} <code>{copy.command}</code> probe failed.
-              <br />
-              Reason: {copy.reason}
-            </div>
-            <div className="ct-usage-tip-foot">{formatRelative(now, row.captured_at)}</div>
-          </div>,
-          document.body,
-        )}
-    </>
-  );
+  return <details>
+    <summary className="ct-usage-pill err" aria-label={`Usage check details for ${copy.providerLabel}`}>{usageFailureLabel(row)}</summary>
+    <InlineErrorNotice error={copy.reason} operation={`checking usage for ${copy.providerLabel}`} />
+    <p className="text-xs text-[var(--ct-muted-fg)]">{copy.command} · {formatRelative(now, row.captured_at)}</p>
+  </details>;
 }
 
 function NumCell({ ok, pct, state }: { ok: boolean; pct: number | null; state: "neutral" | "warn" | "danger" }) {

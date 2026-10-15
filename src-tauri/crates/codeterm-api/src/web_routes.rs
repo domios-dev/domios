@@ -15,7 +15,6 @@ use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::service::web_access::uploads_dir;
 use codeterm_service_core::startup::snapshot_bound;
 
 pub use crate::web_plugin_routes::plugin_ui;
@@ -600,62 +599,8 @@ pub(crate) async fn store_upload(
     Ok(path)
 }
 
-pub async fn upload(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    mut multipart: axum::extract::Multipart,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let dir = uploads_dir();
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
-    {
-        if field.name() != Some("file") {
-            continue;
-        }
-        let name = sanitize_filename(field.file_name().unwrap_or("upload.bin"));
-        let data = field
-            .bytes()
-            .await
-            .map_err(|e| (StatusCode::PAYLOAD_TOO_LARGE, e.to_string()))?;
-        if data.is_empty() {
-            return Err((StatusCode::BAD_REQUEST, "empty file".to_string()));
-        }
-        let path = store_upload(&dir, &name, &data)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-        return Ok(Json(serde_json::json!({
-            "path": path.to_string_lossy(),
-            "size": data.len(),
-        })));
-    }
-    Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
-}
-
-#[derive(Deserialize)]
-pub struct SaveTempFileBody {
-    data: String,
-    extension: String,
-    name: Option<String>,
-}
-
-/// Web-mirror twin of the `save_temp_file` Tauri command.
-pub async fn save_temp_file(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<SaveTempFileBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let path = tokio::task::spawn_blocking(move || {
-        commands::save_temp_file(body.data, body.extension, body.name)
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({ "path": path })))
-}
+/// Largest attachment a chat may upload (voice notes, recordings, files).
+pub const MAX_TEMP_FILE_DECODED_BYTES: usize = 150 * 1024 * 1024;
 
 #[derive(Deserialize)]
 pub struct CopyImageToClipboardBody {

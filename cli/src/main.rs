@@ -119,6 +119,7 @@ pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
 fn main() {
+    codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
     stdout::run(main_impl);
 }
 

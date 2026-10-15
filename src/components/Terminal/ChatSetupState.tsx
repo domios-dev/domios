@@ -1,23 +1,14 @@
-import { tabStartingLabel } from "../Sidebar/tabAttention";
-import { tabActivity } from "../../lib/tabActivity";
 import { useCallback, type ReactNode } from "react";
 import { levelIcon } from "../Notifications/levelIcon";
-import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
-import { DeferredLoader } from "../shared/DeferredLoader";
-import type { Tab } from "../../lib/types";
+import { RestoreStatePanel } from "./RestoreStatePanel";
+import { restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
+import { DeferredPresence } from "../shared/DeferredPresence";
+import type { Tab, Workspace } from "../../lib/types";
+import { TabLaunchFailure } from "./TabLaunchFailure";
 import type { ChatBodyView } from "./chatBodyVisibility";
 import type { ChatUnavailableReason } from "./chatSessionAuthority";
 
-export function chatSetupView(
-  tab: Tab | null | undefined,
-  chatSessionAttached = false,
-): ChatBodyView {
-  if (chatSessionAttached) return { kind: "none" };
-  const activity = tabActivity(tab);
-  return activity.launching || activity.kind === "failed"
-    ? { kind: "starting", label: activity.label }
-    : { kind: "none" };
-}
+export { chatSetupView } from "./chatSetupModel";
 
 const UNAVAILABLE_COPY: Record<ChatUnavailableReason, string> = {
   no_transcript_source: "This agent has no readable chat transcript for the current session.",
@@ -25,6 +16,9 @@ const UNAVAILABLE_COPY: Record<ChatUnavailableReason, string> = {
 };
 
 interface ChatSetupStateProps {
+  visible?: boolean;
+  waitingMessages?: number;
+  workspace?: Workspace;
   tab: Tab | null | undefined;
   view: ChatBodyView;
   providerName: string;
@@ -35,12 +29,11 @@ interface ChatSetupStateProps {
 }
 
 export function ChatSetupState({
+  visible = true,
+  waitingMessages = 0,
+  workspace,
   tab,
   view,
-  providerName,
-  providerIconSvg,
-  providerIconColor,
-  providerIconHint,
   onEscape,
 }: ChatSetupStateProps) {
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
@@ -49,15 +42,21 @@ export function ChatSetupState({
     onEscape?.();
   }, [onEscape]);
 
+  if (view.kind === "launch_failed") {
+    return <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-[var(--ct-bg)] p-6" data-testid="chat-launch-failed">
+      <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason} />
+      {waitingMessages > 0 && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">{waitingMessages} {waitingMessages === 1 ? "message is" : "messages are"} waiting for this tab to start.</p>}
+    </div>;
+  }
   if (view.kind === "failed") {
     return <ChatStatusBanner title="Chat transcript unavailable" reason={UNAVAILABLE_COPY[view.reason]} testId="chat-transcript-unavailable" />;
   }
-  if (view.kind !== "starting") return null;
-
   return (
-    <DeferredLoader state="present" className="chat-launch-overlay flex items-center justify-center p-4" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
-      <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : `${providerName} starting`} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} deferred={false} />
-    </DeferredLoader>
+    <DeferredPresence present={visible && view.kind === "starting"} className="chat-launch-overlay">
+    <div className="h-full" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
+      <RestoreStatePanel providerId={tab?.agent_type} view={view.kind === "starting" ? transcriptLoadingStageView(tab ?? {}) : restoreStageView(tab ?? {})} onRetry={() => {}} />
+    </div>
+    </DeferredPresence>
   );
 }
 

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { CodeBlock } from "@codeterm/chat-ui";
 import type { ProviderDescriptor } from "../../lib/types";
@@ -34,7 +35,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
         <span aria-hidden className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: STATE_DOT[view.state] }} />
         <span
           role="status"
-          title={view.pathHint ?? (view.state === "unknown" ? error ?? undefined : undefined)}
+          title={view.pathHint ?? undefined}
           className={compact ? "min-w-0 truncate text-[11px] text-[var(--ct-muted-fg)]" : "min-w-0 truncate text-xs font-medium text-[var(--ct-fg)]"}
         >
           {view.label}
@@ -66,7 +67,8 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
           Needs {item.binary} first. {item.hint}
         </p>
       ))}
-      {launchError && <p role="alert" className="m-0 text-[11px] text-[var(--ct-red)]">{launchError}</p>}
+      {view.state === "unknown" && error && <InlineErrorNotice error={error} operation="detecting the provider program" />}
+      {launchError && <InlineErrorNotice error={launchError} operation="installing this provider" blocking />}
       {summary && <p role="status" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{summary}</p>}
     </div>
   );

@@ -30,21 +30,77 @@ use codeterm_service_core::startup::FRONTEND_READINESS_DEADLINE_ELAPSED;
 fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
     codeterm_util::named_thread::spawn("restore-pty-backends", move || {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut queued = Vec::new();
         materialize_restored_backends(
             || super::wait_for_frontend_ready_until(frontend_readiness_generation, deadline),
             || note_frontend_deadline(&service_state),
             || restored_backend_tab_ids(&service_state),
             |tab_id| {
-                if service_state.tab_chat_backing(tab_id).is_some() {
+                queued.push(tab_id.to_string());
+                Ok(())
+            },
+        );
+        let started = std::time::Instant::now();
+        log::debug!(
+            "[startup-pty] wave started tabs={} concurrency=4",
+            queued.len()
+        );
+        let results = super::restored_backends::run_wave(
+            &queued,
+            4,
+            |tab_id| {
+                let cwd = service_state
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.cwd.clone());
+                let result = service_state
+                    .validate_request_cwd(None, Some(tab_id), cwd.as_deref())
+                    .map_err(|error| error.data().to_string());
+                if let Err(reason) = &result {
+                    publish_backend_materialization_failure(&service_state, tab_id, reason);
+                    log::error!("[startup-pty] tab={tab_id} cwd refused: {reason}");
+                }
+                result
+            },
+            |tab_id| {
+                let result = if service_state.tab_chat_backing(tab_id).is_some() {
                     service_state
                         .chatbackend_reopen_if_restored(tab_id)
                         .map(|_| ())
                 } else {
                     service_state.ensure_tab_pty_for_send(tab_id)
+                };
+                if let Err(reason) = &result {
+                    publish_backend_materialization_failure(&service_state, tab_id, reason);
+                    log::error!("[startup-pty] tab={tab_id} materialization failed: {reason}");
                 }
+                log::debug!(
+                    "[startup-pty] tab={tab_id} materialized elapsed_ms={} ok={}",
+                    started.elapsed().as_millis(),
+                    result.is_ok()
+                );
+                result
             },
         );
+        log::debug!(
+            "[startup-pty] wave finished elapsed_ms={} failed={}",
+            started.elapsed().as_millis(),
+            results.iter().filter(|result| result.is_err()).count()
+        );
     });
+}
+
+fn publish_backend_materialization_failure(service: &ServiceState, tab_id: &str, reason: &str) {
+    if let Some(tab) = service.mux.write().get_tab_mut(tab_id) {
+        tab.agent_booting = false;
+    }
+    service.emit_boot_stage(
+        tab_id,
+        codeterm_types::pty::BootStage::SpawnFailed,
+        Some(reason),
+    );
+    service.emit_state_changed();
 }
 
 /// A missed frontend deadline never abandons restored agents: the backend claims
@@ -77,23 +133,46 @@ where
 }
 
 fn restored_backend_tab_ids(service_state: &ServiceState) -> Vec<String> {
-    service_state
-        .mux
-        .read()
-        .snapshot()
+    let (snapshot, general_id) = {
+        let mux = service_state.mux.read();
+        (
+            mux.snapshot(),
+            service::general_agent::general_workspace_id(&mux),
+        )
+    };
+    let general_tabs = snapshot
+        .workspaces
+        .iter()
+        .find(|workspace| Some(&workspace.id) == general_id.as_ref())
+        .map(|workspace| {
+            workspace
+                .tabs
+                .iter()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let candidates = snapshot
         .tabs
         .into_values()
         .filter(|tab| {
-            should_materialize_restored_backend(
-                tab.restored_from_snapshot,
-                tab.protected,
-                &tab.backing,
-                tab.pty_id.as_deref(),
-                tab.frozen,
-            )
+            !tab.close_restore
+                .as_ref()
+                .is_some_and(|closed| closed.stopped)
+                && should_materialize_restored_backend(
+                    tab.restored_from_snapshot,
+                    tab.protected,
+                    &tab.backing,
+                    tab.pty_id.as_deref(),
+                    tab.frozen,
+                )
         })
-        .map(|tab| tab.id)
-        .collect()
+        .map(|tab| {
+            let general = general_tabs.contains(&tab.id);
+            (tab.id, general, tab.last_active_at_ms)
+        })
+        .collect();
+    super::restored_backends::ordered_ids(candidates)
 }
 
 fn note_frontend_deadline(service_state: &ServiceState) {
@@ -523,8 +602,9 @@ fn select_web_dist(
 #[cfg(test)]
 mod tests {
     use super::{
-        materialize_restored_backends, report_general_agent_frontend_deadline,
-        restored_backend_tab_ids, select_web_dist, should_materialize_restored_backend,
+        materialize_restored_backends, publish_backend_materialization_failure,
+        report_general_agent_frontend_deadline, restored_backend_tab_ids, select_web_dist,
+        should_materialize_restored_backend,
     };
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::multiplexer::types::TabBacking;
@@ -532,6 +612,34 @@ mod tests {
     use codeterm_types::pty::BootStage;
     use std::sync::{mpsc, Arc};
     use std::time::Duration;
+
+    #[test]
+    fn restored_backend_spawn_failure_publishes_reason_and_preserves_session() {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let id = mux.create_tab(&workspace_id).unwrap();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_session_id = Some("saved-session".into());
+        tab.cwd = Some("missing-lane".into());
+        tab.agent_booting = true;
+        tab.boot_stage = Some(BootStage::PtyStarting);
+        let fixture = ServiceFixture::new(mux);
+        let service = Arc::new(fixture.service.clone());
+
+        publish_backend_materialization_failure(&service, &id, "opaque-spawn-error");
+
+        let mux = service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
+        assert_eq!(
+            tab.boot_failure_reason.as_deref(),
+            Some("opaque-spawn-error")
+        );
+        assert!(!tab.agent_booting);
+        assert_eq!(tab.agent_session_id.as_deref(), Some("saved-session"));
+        assert_eq!(tab.cwd.as_deref(), Some("missing-lane"));
+        assert!(tab.pty_id.is_none());
+    }
 
     #[test]
     fn general_agent_frontend_deadline_releases_mux_for_restored_backends() {

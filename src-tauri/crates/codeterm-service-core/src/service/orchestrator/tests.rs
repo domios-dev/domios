@@ -331,6 +331,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         activate: None,
         audience: Default::default(),
         manager_bootstrap: None,
+        user_created: false,
         structured_prompt_server: None,
         remote_task_binding: None,
     }

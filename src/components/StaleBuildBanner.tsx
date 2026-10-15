@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, X } from "lucide-react";
+import { InlineErrorNotice } from "./shared/ErrorNotice";
 import { checkBuildMismatch, onMismatch, type BuildMismatch } from "../lib/buildMismatchGuard";
 export function StaleBuildBanner() {
   const [mismatch, setMismatch] = useState<BuildMismatch | null>(null);
@@ -16,32 +16,12 @@ export function StaleBuildBanner() {
 
   return (
     <div
-      role="alert"
       data-testid="stale-build-banner"
       className="fixed top-0 inset-x-0 z-[9999] flex items-start gap-2 px-4 py-2.5 shadow-lg"
-      style={{
-        background: "color-mix(in srgb, var(--ct-yellow) 15%, var(--ct-surface))",
-        borderBottom: "1px solid color-mix(in srgb, var(--ct-yellow) 40%, transparent)",
-      }}
+      style={{ background: "var(--ct-surface)", borderBottom: "1px solid var(--ct-border)" }}
     >
-      <AlertTriangle
-        size={14}
-        className="shrink-0 mt-0.5"
-        style={{ color: "var(--ct-yellow)" }}
-      />
-      <span className="flex-1 text-[11px]" style={{ color: "var(--ct-fg)" }}>
-        <span className="font-semibold">Frontend update required</span>
-        {" — "}This frontend supports API {mismatch.minApiVersion}–{mismatch.maxApiVersion};
-        the daemon reports {mismatch.apiVersion ?? "an unknown API version"}.
-
-      </span>
-      <button
-        onClick={() => setDismissed(true)}
-        aria-label="Dismiss"
-        className="shrink-0 text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-      >
-        <X size={12} strokeWidth={1.5} />
-      </button>
+      <InlineErrorNotice error={{ code: "frontend_version_mismatch", raw: `Interface API range: ${mismatch.minApiVersion}–${mismatch.maxApiVersion}; daemon API: ${mismatch.apiVersion ?? "unknown"}` }}
+        actions={[{ label: "Reload interface", onClick: () => window.location.reload() }, { label: "Dismiss", onClick: () => setDismissed(true) }]} />
     </div>
   );
 }

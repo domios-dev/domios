@@ -145,3 +145,5 @@ fn rest_liveness_health_bypasses_saturated_blocking_pool_with_real_middleware() 
         );
     });
 }
+
+mod logging;

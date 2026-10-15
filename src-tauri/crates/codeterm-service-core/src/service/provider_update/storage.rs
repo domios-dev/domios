@@ -3,6 +3,17 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static REVISION: AtomicU64 = AtomicU64::new(0);
+
+pub(super) fn revision() -> u64 {
+    REVISION.load(Ordering::Acquire)
+}
+
+pub(super) fn changed() {
+    REVISION.fetch_add(1, Ordering::Release);
+}
 
 pub(super) struct MachineUpdateLock(File);
 
@@ -33,6 +44,7 @@ pub(super) fn transact_in<T>(
         let bytes = serde_json::to_vec(&state).map_err(|error| error.to_string())?;
         codeterm_util::atomic_write::write_atomic(&path, bytes)
             .map_err(|error| error.to_string())?;
+        changed();
     }
     Ok(value)
 }

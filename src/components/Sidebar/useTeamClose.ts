@@ -14,9 +14,11 @@ export function useTeamClose(close: ((teamId: string) => Promise<TeamCloseInvent
     let inventory: TeamCloseInventory = { removed: [], kept: [], orphan_branches: [] };
     let survivors: string[] = [];
     let verificationUnavailable = false;
+    let closeFailure: unknown;
     try {
       inventory = await startBackgroundClose(dismiss, () => close(teamId));
-    } catch {
+    } catch (error) {
+      closeFailure = error;
       const [stateRead, cronRead, blueprintRead] = await Promise.allSettled([
         invoke<MultiplexerState>("mux_get_state"),
         invoke<CronJob[]>("cron_list", {}),
@@ -35,9 +37,9 @@ export function useTeamClose(close: ((teamId: string) => Promise<TeamCloseInvent
     notify({
       tab_id: null, workspace_id: workspaceId,
       title: outcome.kind === "partial" ? "Still open" : verificationUnavailable ? "Close status unavailable" : "Lanes preserved",
-      body: verificationUnavailable && outcome.kind !== "partial" ? "The close could not be verified. Retry to finish closing." : (outcome.kind === "partial" ? outcome.survivors : outcome.preserved).join("\n"),
-      severity: outcome.kind === "partial" ? "Error" : "Info",
-      level: outcome.kind === "partial" ? "failure" : "verbose",
+      body: [verificationUnavailable && outcome.kind !== "partial" ? "The close could not be verified. Retry to finish closing." : (outcome.kind === "partial" ? outcome.survivors : outcome.preserved).join("\n"), closeFailure instanceof Error ? closeFailure.message : closeFailure == null ? "" : String(closeFailure)].filter(Boolean).join("\n"),
+      severity: outcome.kind === "partial" || verificationUnavailable ? "Error" : "Info",
+      level: outcome.kind === "partial" || verificationUnavailable ? "failure" : "verbose",
       sticky: outcome.kind === "partial",
       ...(outcome.kind === "partial" || verificationUnavailable ? { local_actions: [{ label: "Retry", run: () => run(teamId, workspaceId, () => {}) }] } : {}),
     });

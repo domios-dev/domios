@@ -469,7 +469,12 @@ impl ServiceContext {
             agent.spawned_by_tab_id.as_deref(),
         );
         let task_identity = super::worker_ack::startup_task_identity_from_env(&agent.extra_env);
-        let startup_supervised = !agent.remote_task_bound
+        let user_created = spec
+            .chatbackend_launch
+            .as_ref()
+            .is_some_and(|metadata| metadata.params.user_created);
+        let startup_supervised = !user_created
+            && !agent.remote_task_bound
             && self.prepare_agent_startup_supervision(
                 &tab_id,
                 spec.parent_tab_id

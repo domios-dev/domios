@@ -271,7 +271,7 @@ fn plugin_channel_registry_round_trip_expected_pass() {
     .unwrap();
     let context = |data_root| codeterm_plugins::PluginCtx {
         data_root,
-        version: Some(env!("CARGO_PKG_VERSION").into()),
+        version: Some(codeterm_build_info::version().into()),
     };
     codeterm_plugins::run(
         context(root.path().to_path_buf()),

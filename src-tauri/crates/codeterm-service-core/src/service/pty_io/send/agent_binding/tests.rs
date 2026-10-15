@@ -133,6 +133,7 @@ fn restored_routed_send_waits_for_its_saved_session_to_reauthenticate() {
         pty_id: "launch-pty".into(),
         binding_nonce: "launch-nonce".into(),
         reason: "binding pending".into(),
+        awaiting_binding_ack: false,
     });
     assert!(payload_matches_binding(
         &payload,

@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-socket"
-version = "1.14.9"
+version = "0.0.0"
 edition = "2021"
 
 [lints]
@@ -10,6 +10,7 @@ workspace = true
 name = "codeterm_socket"
 
 [dependencies]
+codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-orchestration = { path = "../codeterm-orchestration" }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host" }

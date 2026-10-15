@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-api"
-version = "1.14.9"
+version = "0.0.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1311,13 +1311,14 @@ version = "0.1.0"
 
 [[package]]
 name = "codeterm-commands"
-version = "1.14.9"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
  "clipboard-win",
  "codeterm-analytics",
+ "codeterm-build-info",
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-mesh",
@@ -1552,7 +1553,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-orchestration"
-version = "1.14.9"
+version = "0.0.0"
 dependencies = [
  "codeterm-analytics",
  "codeterm-events",
@@ -1609,6 +1610,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "codeterm-blueprint-types",
+ "codeterm-build-info",
  "codeterm-decision",
  "codeterm-local-recording",
  "codeterm-paths",
@@ -1760,7 +1762,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-sentinel-host"
-version = "1.14.9"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-analytics",
@@ -1792,7 +1794,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-service-core"
-version = "1.14.9"
+version = "0.0.0"
 dependencies = [
  "aes-gcm",
  "annembed",
@@ -1918,7 +1920,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-socket"
-version = "1.14.9"
+version = "0.0.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1926,6 +1928,7 @@ dependencies = [
  "codeterm-api",
  "codeterm-blueprint-types",
  "codeterm-bridge",
+ "codeterm-build-info",
  "codeterm-events",
  "codeterm-mem",
  "codeterm-notification-core",
