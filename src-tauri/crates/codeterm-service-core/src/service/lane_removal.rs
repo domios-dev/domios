@@ -35,7 +35,7 @@ pub struct LaneRemovalOutcome {
 }
 
 #[derive(Debug)]
-pub(crate) enum CleanupStatusDoneError {
+pub enum CleanupStatusDoneError {
     Refused(String),
     Verification(String),
 }
@@ -44,7 +44,7 @@ const MAX_LANE_WALK_ENTRIES: usize = 100_000;
 const MAX_LANE_WALK_DEPTH: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LinkRemovalKind {
+pub enum LinkRemovalKind {
     Directory,
     File,
 }

@@ -15,7 +15,7 @@ pub struct WorkerAckIdentity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct PendingTaskStartupAck {
+pub struct PendingTaskStartupAck {
     pub(super) task_identity: StartupTaskIdentity,
     pub(super) startup_attempt_id: Option<String>,
     pub(super) session_id: Option<String>,
@@ -31,14 +31,14 @@ impl PendingTaskStartupAck {
     }
 }
 
-pub(crate) struct WorkerAckArm {
+pub struct WorkerAckArm {
     pub(crate) receiver: Option<Receiver<WorkerAckSignal>>,
     pub(crate) starts_supervisor: bool,
     pub(crate) identity_conflict: bool,
 }
 
 #[derive(Default)]
-pub(super) struct WorkerAckState {
+pub struct WorkerAckState {
     waiters: HashMap<WorkerAckIdentity, WorkerAckWaiter>,
     by_tab: HashMap<String, WorkerAckIdentity>,
     pending_holds: HashSet<WorkerAckIdentity>,

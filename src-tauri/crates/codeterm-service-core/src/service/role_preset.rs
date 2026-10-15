@@ -8,7 +8,7 @@ use crate::multiplexer::types::AgentRole;
 /// Where one guidance fragment came from. Rendered as provenance by the
 /// inspection surface and used by occasions to select the fragments they carry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum FragmentSource {
+pub enum FragmentSource {
     /// Bundled text compiled into the binary for a builtin kind.
     Builtin,
     /// The Worker base a leaf kind inherits when it ships no bundled text.
@@ -96,7 +96,7 @@ pub(crate) trait PresetOverlays {
 }
 
 /// The catalog used when no overlay source is installed.
-pub(crate) struct NoOverlays;
+pub struct NoOverlays;
 
 impl PresetOverlays for NoOverlays {
     fn label_for(&self, _kind_id: &str) -> Option<&str> {

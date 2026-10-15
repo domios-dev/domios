@@ -16,7 +16,7 @@ use crate::service::team::{authorize_team_manager, TeamMutationCaller};
 use crate::service::ServiceContext;
 
 #[derive(Clone, Default)]
-pub(crate) struct TeamCartographerAttachLocks {
+pub struct TeamCartographerAttachLocks {
     gates: Arc<parking_lot::Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>>,
 }
 

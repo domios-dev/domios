@@ -37,7 +37,7 @@ const CAPABILITY_KEYS: &[&str] = &[
 /// A structural needle from the text it guards. `worker_suffix` must keep every
 /// one of these however an overlay layers on top of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CoreFragment {
+pub struct CoreFragment {
     pub id: &'static str,
     pub needle: &'static str,
 }
@@ -62,7 +62,7 @@ pub struct OverlayKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum RejectionReason {
+pub enum RejectionReason {
     Unreadable(String),
     Malformed(String),
     /// Builtin rows are embedded and non-overridable.
@@ -110,7 +110,7 @@ impl RejectionReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OverlayRejection {
+pub struct OverlayRejection {
     pub path: String,
     pub reason: RejectionReason,
 }
@@ -200,7 +200,7 @@ impl PresetOverlays for OverlayCatalog {
 }
 
 /// The base an overlay claims to layer on. Only a leaf base is admissible.
-enum ClaimedBase {
+pub enum ClaimedBase {
     Leaf,
     Standalone,
 }
