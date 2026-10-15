@@ -10,12 +10,12 @@ mod session_ack;
 mod session_claim;
 mod session_start_payload;
 pub use session_ack::acknowledge_and_reconcile_session_binding;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use session_ack::acknowledge_authenticated_launch;
 pub use session_ack::unchanged_acknowledged_hook_report;
 pub use session_claim::bind_detected_session;
 pub use session_claim::bind_reported_session;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use session_claim::bind_validated_rebind_session;
 pub use session_claim::commit_materialized_rebind_session;
 pub use session_start_payload::reported_transcript_path;
@@ -24,16 +24,16 @@ pub use session_start_payload::session_start_string;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionStartClaim {
-    pub(crate) prev: Option<String>,
-    pub(crate) changed: bool,
-    pub(crate) nonce_verified: bool,
-    pub(crate) nonce_already_acknowledged: bool,
+    pub prev: Option<String>,
+    pub changed: bool,
+    pub nonce_verified: bool,
+    pub nonce_already_acknowledged: bool,
     pub(crate) identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeferredBindingPremise {
-    pub(crate) previous_session_id: String,
+    pub previous_session_id: String,
 }
 
 pub type SessionBindError = (StatusCode, String, Option<DeferredBindingPremise>);

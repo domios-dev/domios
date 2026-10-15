@@ -346,7 +346,7 @@ impl ServiceContext {
         )
     }
 
-    pub(crate) fn resolved_worker_launch_effort_for_tab(&self, tab_id: &str) -> Option<String> {
+    pub fn resolved_worker_launch_effort_for_tab(&self, tab_id: &str) -> Option<String> {
         let mux = self.mux.read();
         mux.get_tab(tab_id)
             .and_then(|tab| resolved_worker_launch_effort(&tab.reasoning_effort_identity))

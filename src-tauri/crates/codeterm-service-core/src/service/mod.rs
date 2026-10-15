@@ -219,11 +219,11 @@ pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 mod team;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use team::close_team_with_state_change;
 #[cfg(test)]
 pub(crate) use team::rename_team_core;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use team::rename_team_with_state_change;
 pub use team::TeamCloseResult;
 mod task_lane_guard;
@@ -254,7 +254,7 @@ pub mod worker_lane;
 pub(crate) mod worker_loss;
 pub(crate) use worker_lane::is_linked_worktree;
 pub(crate) use worker_lane::provision_isolated_lane;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::same_path;
 pub(crate) use worker_lane::verify_worker_lane;
@@ -351,7 +351,7 @@ pub(crate) use extensions::Extensions;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
-    pub(crate) lifecycle_journal: Arc<crate::session::lifecycle::TabLifecycleJournal>,
+    pub lifecycle_journal: Arc<crate::session::lifecycle::TabLifecycleJournal>,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
@@ -401,15 +401,13 @@ pub struct ServiceContext {
     /// Global plan store with project-scoped queries. Sole writer.
     pub plan_store: Arc<crate::service::plan::PlanStore>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
-    pub(crate) pending_delivery_payloads:
-        Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
+    pub pending_delivery_payloads: Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
-    pub(crate) deferred_session_bindings:
-        Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
+    pub deferred_session_bindings: Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
     pub(crate) worker_ack: Arc<worker_ack::WorkerAckRegistry>,
     /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
-    pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
+    pub gateway: Arc<crate::service::message_gateway::MessageGateway>,
     pub(crate) extensions: Arc<Extensions>,
 }
 
@@ -914,14 +912,14 @@ impl ServiceContext {
         self.events.broadcast(event_type, payload);
     }
 
-    pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
+    pub fn parse_role(role_str: &str) -> Result<AgentRole, String> {
         AgentRole::from_str_compat(role_str)
             .ok_or_else(|| format!("Invalid role: {role_str}. Use: Orchestrator, Manager, Worker"))
     }
 
     /// The one place wire role sugar resolves: legacy `Orchestrator`/`Conductor`
     /// literals name the orchestrator kind. Core code branches on the kind.
-    pub(crate) fn parse_role_kind(
+    pub fn parse_role_kind(
         role_str: &str,
         role_profile: Option<&str>,
     ) -> Result<(AgentRole, Option<String>), String> {
@@ -1057,3 +1055,5 @@ pub use spawn::prepare_tab_identity_for_test;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use plan_pause::{PlanPausePorts, ServicePlanPausePorts};
+
+pub use worker_ack::STARTUP_BINDING_DEADLINE;

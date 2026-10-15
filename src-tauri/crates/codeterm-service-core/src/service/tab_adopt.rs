@@ -30,8 +30,8 @@ pub enum TabAdoptErrorKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabAdoptError {
-    pub(crate) kind: TabAdoptErrorKind,
-    pub(crate) message: String,
+    pub kind: TabAdoptErrorKind,
+    pub message: String,
 }
 
 impl TabAdoptError {

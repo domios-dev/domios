@@ -58,7 +58,7 @@ pub fn bind_detected_session(
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn bind_validated_rebind_session(
     mux: &crate::multiplexer::commands::MuxState,
     registry: &crate::agent::registry::AgentRegistry,

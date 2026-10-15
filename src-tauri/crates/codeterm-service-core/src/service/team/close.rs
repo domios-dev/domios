@@ -47,7 +47,7 @@ struct StagedTeamClose {
     closed_roots: Vec<String>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn close_team_with_state_change(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,

@@ -115,7 +115,7 @@ pub(crate) fn check_local_preview_files_guarded(
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn preview_test_root(path: &std::path::Path) -> std::path::PathBuf {
     let canonical = path.canonicalize().unwrap();
     let text = canonical.to_string_lossy();

@@ -12,8 +12,7 @@ async fn http_plan_authority_wait_does_not_block_another_request() {
         tab.reported_session_binding_nonce = None;
         tab.boot_stage = Some(BootStage::ProviderReady);
         tab.agent_set_at = Some(
-            std::time::Instant::now()
-                - codeterm_service_core::service::worker_ack::STARTUP_BINDING_DEADLINE
+            std::time::Instant::now() - codeterm_service_core::service::STARTUP_BINDING_DEADLINE
                 + std::time::Duration::from_secs(3),
         );
     }
@@ -40,7 +39,7 @@ async fn http_plan_authority_wait_does_not_block_another_request() {
         tab.agent_session_id = Some("owner-session".into());
         tab.reported_session_binding_nonce = Some("owner-nonce".into());
     }
-    codeterm_service_core::service::general_agent::binding_wait::notify_binding_state_changed();
+    codeterm_service_core::service::general_agent::notify_binding_state_changed();
     pending
         .await
         .expect("pending HTTP authorization task must finish")

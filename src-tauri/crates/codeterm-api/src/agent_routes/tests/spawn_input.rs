@@ -3,7 +3,7 @@ use codeterm_service_core::agent::provider::{
     AgentLaunchParams, AgentProvider, ReadinessStrategy, StarterPrompt, SystemPromptDelivery,
     TaskDelivery,
 };
-use codeterm_service_core::service::launch_delivery_prepare_spawn_input;
+use codeterm_service_core::service::launch_delivery_prepare_spawn_input as prepare_spawn_input;
 use std::{path::PathBuf, time::Duration};
 
 struct InputProvider {
