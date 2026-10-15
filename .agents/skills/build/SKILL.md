@@ -519,6 +519,8 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Lane dispatch fixture exits 127 at `configure_product_cargo` | Its extracted dispatch fragment omitted the real product feature helper. | Load the helper from build.sh and assert selected features with `node --test scripts/check-queue-plan.test.mjs`. |
+| Lock-storm fixture reports a null child exit with empty output on Linux | The child never launched: Linux runners have `python3`, not bare `python`. | Select `python3` on Unix and `python` on Windows; assert launch errors and report signals before diagnosing a runtime crash. Run `node --test scripts/tests/qa-lock-storm.test.mjs`. |
 | `install-local` fails in seconds with rustfmt `Diff in ...` | The cheap gates run before the gateway | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all` (and `cli/`), commit, rerun; with `--notify-tab` the receipt names the step and log. |
 | `install-local` refuses with `release source is not clean (N paths)` | Tracked edits or untracked files in the checkout; the first 20 paths follow the ERROR line | Commit or remove them. `src-tauri/gen/schemas/*.json` are LF-pinned in `.gitattributes`, so `check` and `dev` no longer dirty the tree. |
 | Release preparation and Tauri packaging compile Tauri and the app dependency graph twice | Preparation omitted `tauri/custom-protocol`, which packaging enables | Keep the packaging feature in `prepare_release_bundle_inputs`; inspect its Cargo timings and the gateway log after a serialized canonical build. |

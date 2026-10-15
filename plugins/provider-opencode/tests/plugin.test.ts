@@ -9,6 +9,8 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 import { enrichTimelineItems } from "../../../src/components/Terminal/chatEnrichment";
+import type { MessageSegment } from "@codeterm/chat-core";
+import { ocHost } from "./hostFixture.testdata";
 import {
   isCurrentOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
@@ -161,25 +163,6 @@ function loadOpencodeWithHost(host: unknown) {
   return context.module.exports.default;
 }
 
-const ocHost = (over: Record<string, unknown>) => ({
-  manifestJson: () => JSON.stringify({
-    models: [
-      { id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" },
-    ],
-  }),
-  homeDir: () => "/tmp",
-  platform: () => "linux",
-  expandHome: (v: string) => v,
-  envGet: () => null,
-  exec: () => JSON.stringify({ code: 1, stdout: "", stderr: "not available" }),
-  unixNowMs: () => 1_000_000,
-  fetch: () => JSON.stringify({ error: "no network in tests" }),
-  log: () => {},
-  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
-  fs: { fileExists: () => false, readJson: () => null, readFile: () => null },
-  ...over,
-});
-
 console.log("\n--- cwd-scoped session detection ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
@@ -284,7 +267,9 @@ console.log("\n--- structured transcript preserves routed text ---\n");
   const dbPath = "~/.local/share/opencode/opencode.db";
   const windowsPath = "C:\\Users\\dev\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\utilities\\update.txt";
   const context = "sentinel:sentinel_394d9ce12d30";
-  const frame = `<domios from="system" context="${context}"></domios>${windowsPath}`;
+  const fixture = (JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as
+    Array<{ name: string; raw: string; segments: MessageSegment[] }>).find(({ name }) => name === "system header with trailing Windows path")!;
+  const frame = fixture.raw;
   const p = loadOpencodeWithHost(ocHost({
     fs: {
       fileExists: (pth: string) => pth === dbPath,
@@ -304,7 +289,8 @@ console.log("\n--- structured transcript preserves routed text ---\n");
     "the OpenCode part record retains literal Windows path escapes");
   const [entry] = enrichTimelineItems([{
     kind: "message",
-    message: { id: "part-system-1", type: "user", content: result.messages[0].content },
+    // The Rust structured-chat boundary supplies these shared, parser-verified segments.
+    message: { id: "part-system-1", type: "user", content: result.messages[0].content, segments: fixture.segments },
   }], new WeakMap());
   eq([entry.origin, entry.msg.content], [
     { kind: "system", context },
