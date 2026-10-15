@@ -39,18 +39,18 @@ interface TestChatMessage {
 interface OpenShellTab {
   id: string;
   tab_id: string;
-  tab_id: string;
+
   pty_id: string | null;
 }
 
-declare global {
-  interface Window {
-    __codetermTestChat?: {
-      pushMessages: (tabId: string, messages: TestChatMessage[]) => void;
-      resetClock: () => void;
-    };
-  }
-}
+
+
+
+
+
+
+
+
 
 async function newWebPage(browser: Browser): Promise<Page> {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
