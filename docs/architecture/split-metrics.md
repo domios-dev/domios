@@ -6,6 +6,8 @@ One row per merged split, regenerated with `python3 scripts/split-metrics.py` (c
 |---|---|---:|---:|---:|---|---:|
 | 2026-10-14 | 3d82935ad (develop ee2f09e99 merged) | 36 | 135 | 119 | 142 / 239,150 | 486,526 |
 | 2026-10-14 | 0e24a11da (M0: root-aware scripts, hot-path table) | 36 | 136 | 119 | 142 / 239,051 | 486,456 |
+| 2026-10-15 | 1d086a7d4 (Wave 0: P1 core crate, P2a-P5 ports, ServiceContext 100 -> 40 fields) | 37 | 136 | 127 | 123 / 208,918 | 485,494 (core) |
+| 2026-10-15 | 86e78908a (Wave A: codeterm-api, codeterm-socket, codeterm-commands; B1 phase 1 port) | 39 | 134 | 176 | 121 / 188,594 | 383,595 (core) |
 
 M0: the core is still the whole app crate (`codeterm`, `src-tauri/src`); no hot area lives in its own crate yet. Both scripts take `--root PATH` and default to `src-tauri/crates/codeterm-service-core/src` when it exists, else `src-tauri/src`.
 
@@ -69,3 +71,34 @@ The four failing tests (hook_routes 1, socket::server 1, pty_io 2) ran on a tree
 | service core clusters (codex_rpc, pty_io, orchestrator, agent_restart) | most of the hot edits | many | not splittable by path: the method-edge layer in `module-graph.md` shows `service/hierarchy` (104 pub fns, 161 caller units), `service/pty_io` (143 pub fns) and `service/supporter` as method hubs |
 
 When a split is NOT worth it: shims or edges grow faster than check time falls. Concretely: a carve below about 2k lines, a carve whose moved code is still called through more than ~10 distinct caller units by method (see the method-edge table), or one that needs a new `pub use` per moved module instead of one per crate.
+
+## Wave A rebuild reach (86e78908a)
+
+Normal (non-dev) reverse dependencies inside the workspace, from `cargo metadata`; the root `codeterm` crate is 4,420 lines.
+
+| edited crate | lines (incl. tests) | crates re-checked |
+|---|---:|---|
+| codeterm-service-core | 383,595 | core, api, socket, commands, codeterm |
+| codeterm-api | 55,741 | api, codeterm |
+| codeterm-socket | 34,971 | socket, codeterm |
+| codeterm-commands | 12,570 | commands, api, codeterm |
+
+Before Wave A every edit in these areas re-checked one 485k-line crate. Route, socket and command edits now skip the core; core edits still re-check every upper crate. Timed before/after numbers belong to task_47lm5j (same machine, same window).
+
+## Wave A measured (task_47lm5j)
+
+Warm `check-queue` after a one-line edit, same machine (eight, macOS), BEFORE bd8e5e69f versus AFTER cd3438853, one quiet gateway, re-warmed per area. Both bases carry one identical scratch prerequisite (codeterm-sentinel probe.rs:99 unix cfg); the AFTER sentinel pair also carries the include-path fix that landed as 9317fe1dc. Runners c215eaaed (11 pairs) and af5f3a20c (sentinel AFTER); check-queue is identical between them.
+
+| area | 30-day share | BEFORE edit | AFTER edit | change |
+|---|---:|---:|---:|---:|
+| codex_rpc (core) | 107/965 | 35 s | 25 s | -29% |
+| pty_io (core) | 181/965 | 32 s | 24 s | -25% |
+| api hook_routes | 95/965 | 35 s | 20 s | -43% |
+| api mem_routes | 66/965 | 33 s | 8 s | -76% |
+| socket server | 299/965 | 32 s | 7 s | -78% |
+| sentinel host | 217/965 | 33 s | 8 s | -76% |
+| churn-weighted | 965/965 | 32.92 s | 13.76 s | -58.2% |
+
+No-op floors stay at 2-4 s. Verdict: continue (the stop rule needs a 10% gain). Source coupling at the same SHAs: service/hierarchy caller units 135 -> 20, service/supporter 53 -> 15, service/pty_io unchanged at 34 (C1 was then stopped as a two-way hub, see the C1 record).
+
+Wave B order from the method map: all five candidates form one cycle (B1 -> B2,B3,B4,B5; B2 <-> B3; B4 -> B1). Next is B4 surfaces (13 ServiceContext methods, 6 caller units) once B1 lands, with core -> B4 through SurfacesPort and B4 -> B1 direct. B3 needs a GeneralAgentPort cut before B2; B2 stays parked at 23 methods.

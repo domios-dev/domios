@@ -61,12 +61,10 @@ impl Slot {
 #[derive(Default)]
 struct Entry {
     epoch: u64,
-    admission: super::admission::Admission,
     baseline: Observation,
     slots: BTreeMap<ReminderKind, Slot>,
     last_soft_class: Option<String>,
     last_soft_delivery: Option<u64>,
-    cadence_anchor: Option<u64>,
     in_flight: bool,
     telemetry: Telemetry,
 }
@@ -198,87 +196,22 @@ impl Gate {
         entry.baseline.pending_hard = observation.pending_hard;
     }
 
-    pub(crate) fn admit_judgement(
-        &self,
-        key: &str,
-        snapshot: &Snapshot,
-        now: u64,
-        interval: u64,
-    ) -> Result<(), &'static str> {
-        let mut entries = self.entries.lock();
-        let entry = self.entry(&mut entries, key).ok_or("scope_capacity")?;
-        let same = entry
-            .slots
-            .get(&snapshot.scope.kind)
-            .is_some_and(|slot| slot.same(&snapshot.hash(), &snapshot.state_hash(), snapshot));
-        let (next, result) =
-            super::admission::admit(&entry.admission, snapshot, same, now, interval);
-        entry.admission = next;
-        result
-    }
-
-    /// Whether the Owner floor is due; the first observation of a scope only anchors it.
-    pub(crate) fn cadence_due(&self, key: &str, now: u64, interval: u64) -> bool {
-        let mut entries = self.entries.lock();
-        let Some(entry) = self.entry(&mut entries, key) else {
-            return false;
-        };
-        match entry.cadence_anchor {
-            Some(anchor) => now.saturating_sub(anchor) >= interval,
-            None => {
-                entry.cadence_anchor = Some(now);
-                false
-            }
-        }
-    }
-
-    /// Stores the floor verdict as the kind's slot so the ordinary attempt and
-    /// stale-observation checks apply; the floor restarts whether or not it lands.
-    pub(crate) fn decide_cadence(
-        &self,
-        key: &str,
-        snapshot: &Snapshot,
-        now: u64,
-    ) -> Option<Decision> {
-        let decision = cadence(snapshot);
-        let mut entries = self.entries.lock();
-        let entry = self.entry(&mut entries, key)?;
-        entry.cadence_anchor = Some(now);
-        entry.admission.judged(now);
-        entry.slots.insert(
-            snapshot.scope.kind,
-            Slot {
-                identity: snapshot.hash(),
-                state: snapshot.state_hash(),
-                hard: snapshot.hard.clone(),
-                decision: decision.clone(),
-                attempted: false,
-            },
-        );
-        Some(decision)
-    }
-
     #[cfg(test)]
     pub(crate) fn decide(
         &self,
         key: &str,
         snapshot: &Snapshot,
         now: u64,
-        model: Option<&dyn DecisionModel>,
-        deadline: Instant,
     ) -> Result<Decision, String> {
-        self.decide_with_interval(key, snapshot, now, model, deadline, IDLE_NO_REPORT_SECS)
+        self.decide_with_interval(key, snapshot, now, IDLE_NO_REPORT_SECS)
     }
 
-    /// One verdict per observation identity and reminder kind. Absent adapters,
-    /// errors, uncertainty and denial suppress; hard events and silence never wake.
+    /// One rule verdict per observation identity and reminder kind.
     pub(crate) fn decide_with_interval(
         &self,
         key: &str,
         snapshot: &Snapshot,
         now: u64,
-        model: Option<&dyn DecisionModel>,
-        deadline: Instant,
         interval: u64,
     ) -> Result<Decision, String> {
         let hash = snapshot.hash();
@@ -299,44 +232,22 @@ impl Gate {
             })
         };
         let Some((cached, soft_class, soft_delivered)) = state else {
-            return Ok(suppressed(snapshot, "capacity", Refusal::Capacity.reason()));
+            return Ok(suppressed(snapshot, "rule", Refusal::Capacity.reason()));
         };
-        if let Some(mut decision) = cached {
-            decision.wake = false;
-            decision.decided_by = "cache".into();
-            decision.reason = "same_snapshot";
-            decision.observation_id = crate::plan::ids::short_id("hb");
+        let mut decision = rule(
+            snapshot,
+            cached.is_some(),
+            soft_class.as_deref(),
+            soft_delivered,
+            now,
+            interval,
+        );
+        decision.observation_id = crate::plan::ids::short_id("hb");
+        if cached.is_some() {
             return Ok(decision);
-        }
-        let mut decision = match model {
-            None => suppressed(snapshot, "no_adapter", "no_adapter"),
-            Some(_) if kind == ReminderKind::Owner && snapshot.healthy_and_unchanged() => {
-                suppressed(snapshot, "heuristic", "healthy_snapshot")
-            }
-            Some(model) => match bounded_questions(snapshot) {
-                None => suppressed(snapshot, "bounds", "observation_bounds"),
-                Some(request) => {
-                    classify(snapshot, request, model, deadline).unwrap_or_else(|error| {
-                        suppressed(snapshot, "adapter_error", error_reason(&error))
-                    })
-                }
-            },
-        };
-        if decision.wake
-            && snapshot.hard.is_empty()
-            && soft_class.as_deref() == Some(decision.soft_class().as_str())
-            && soft_delivered.is_some_and(|last| now.saturating_sub(last) < interval)
-        {
-            decision.wake = false;
-            decision.reason = "soft_cooldown";
         }
         let mut entries = self.entries.lock();
         if let Some(entry) = self.entry(&mut entries, key) {
-            // A bounds overflow restarts the delta so later observations fit.
-            if decision.reason == "observation_bounds" {
-                entry.baseline.projection = Some(snapshot.projection.clone());
-                entry.baseline.pending_hard.clear();
-            }
             entry.slots.insert(
                 kind,
                 Slot {
@@ -377,7 +288,6 @@ impl Gate {
             return;
         };
         entry.baseline.projection = Some(snapshot.projection.clone());
-        entry.cadence_anchor = Some(now);
         if snapshot.hard.is_empty() {
             entry.last_soft_class = Some(decision.soft_class());
             entry.last_soft_delivery = Some(now);
@@ -429,4 +339,27 @@ impl Gate {
     pub(crate) fn scopes(&self) -> usize {
         self.entries.lock().len()
     }
+}
+
+pub(super) fn rule(
+    snapshot: &Snapshot,
+    same: bool,
+    soft_class: Option<&str>,
+    delivered: Option<u64>,
+    now: u64,
+    interval: u64,
+) -> Decision {
+    if same {
+        return suppressed(snapshot, "rule", "same_snapshot");
+    }
+    let mut decision = cadence(snapshot);
+    if decision.wake
+        && snapshot.hard.is_empty()
+        && soft_class == Some(decision.soft_class().as_str())
+        && delivered.is_some_and(|last| now.saturating_sub(last) < interval)
+    {
+        decision.wake = false;
+        decision.reason = "soft_cooldown";
+    }
+    decision
 }

@@ -33,7 +33,7 @@ fn event_paths_have_no_plan_reminder_injection() {
         ),
         (
             "idle transition",
-            include_str!("../../../codeterm-service-core/src/startup/background.rs"),
+            include_str!("../../../../src/startup/background.rs"),
             concat!("maybe_send_idle_", "plan_poke("),
         ),
     ];

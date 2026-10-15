@@ -632,10 +632,10 @@ export function Sidebar({
     }
   }, [addNotification, pendingTeamClose, teamActions?.onCloseTeam]);
   useEffect(() => {
-    const kb = config?.keybindings ?? {};
+    const kb = config?.keybindings;
     const handleKeyDown = (e: KeyboardEvent) => {
-      const forward = matchesBinding(e, kb.next_tab ?? "Ctrl+Tab");
-      const backward = !forward && matchesBinding(e, kb.prev_tab ?? "Ctrl+Shift+Tab");
+      const forward = matchesBinding(e, kb?.next_tab ?? "Ctrl+Tab");
+      const backward = !forward && matchesBinding(e, kb?.prev_tab ?? "Ctrl+Shift+Tab");
       if (!forward && !backward) return;
 
       const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);

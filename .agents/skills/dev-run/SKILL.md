@@ -19,10 +19,15 @@ the `github-release` skill. Do not use `dev` output as an installer artifact.
 ./build.sh dev
 ```
 
-That's it. Hot-reloads Vite on every TSX edit, rebuilds Rust on `src-tauri/` edits, opens the Tauri window. Auto-builds CLI into the active `~/.codeterm-dev*/bin/` and routes dev PTYs to that binary.
-All Cargo work, including named `dev --wait` startup, owns the shared build gateway
-and initializes sccache through its common entry. Named startup releases its job
-when readiness ends the launcher; interactive dev retains ownership through its monitor.
+Builds the CLI and app, then launches the window through `dev-prebuilt`.
+Vite `build --watch` refreshes the frontend bundle; Rust edits need another `dev`.
+All build logic lives in `build.sh`; `build.ps1` forwards to it.
+All Cargo work, including named `dev --wait`, owns the shared build gateway and
+initializes sccache through its common entry. The build writes the existing dev
+provenance record, closes gateway logging and releases the job before invoking
+`dev-prebuilt`, which validates that record and owns launch, READY and cleanup.
+A running app holds no gateway job; `kill` stops it through the existing dev-only
+process cleanup. Re-running `dev` acquires the gateway for its build again.
 
 Run it in the **background** so you can keep working:
 
@@ -322,3 +327,7 @@ Don't preemptively run `./build.sh dev` on every edit — only when the user ask
 ### REST listener bind recovery
 
 When the local socket works but HTTP is down, run `codeterm rest-api status` on the owning instance. A `bind_ownership_failed` diagnostic includes the address and OS error. Release the foreign port owner, then run `codeterm rest-api restart`; it waits for health proof and fails if binding still fails. These commands never fall back to HTTP or cross mesh. Confirm the actual Browser surface renders after Retry surface lookup. Never kill production to repair a listener collision.
+
+Fixed: checks queue silently behind a running DEV. The former Tauri launcher held
+the gateway for the app lifetime; update and rebuild with `dev`. Confirm
+`./build.sh gateway-status` is idle while DEV runs, then run `check-queue`.

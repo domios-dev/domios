@@ -298,19 +298,19 @@ pub fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 {
     if let Some(session) = fixture.service.pty.lock().get_session(&pty_id) {
         return session.generation;
     }
-    let (_, session) = fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(
-            Some(pty_id.clone()),
-            None,
-            None,
-            120,
-            40,
-            Default::default(),
+    let (_, session) = {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 120, 40, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.clone()), built)
+            },
         )
-        .expect("spawn the isolated ServiceContext PTY fixture");
+    }
+    .expect("spawn the isolated ServiceContext PTY fixture");
     let generation = session.generation;
     assert!(fixture
         .service

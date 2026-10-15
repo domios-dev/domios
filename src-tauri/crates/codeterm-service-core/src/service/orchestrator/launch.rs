@@ -155,11 +155,12 @@ fn spawn_backend_pty(
             .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?,
     );
     crate::service::agent_restart::timing::stage(tab_id, "pending", "relaunch-pty-request");
-    let (pty_id, _) = svc
-        .pty
-        .lock()
-        .spawn(None, cwd, 120, 40, env_vars)
-        .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?;
+    let (pty_id, _) = {
+        let gate = svc.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, cwd, 120, 40, env_vars)
+            .map(|built| svc.pty.lock().register_session(None, built))
+    }
+    .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?;
     crate::service::agent_restart::timing::stage(tab_id, &pty_id, "relaunch-pty-created");
     crate::service::pty_resize::resize(&svc.pty, &svc.screen_state, &pty_id, None)
         .map_err(LaunchFailure::PtySpawn)?;

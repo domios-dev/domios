@@ -69,14 +69,14 @@ fn saved_blueprint(
 fn validate_saved_blueprints(resources: &Resources) -> Result<(), String> {
     for saved in &resources.blueprints {
         saved_blueprint(saved)?;
-        serde_json::from_value::<crate::sentinel::store::Sentinel>(saved.clone())
+        serde_json::from_value::<codeterm_sentinel::store::Sentinel>(saved.clone())
             .map_err(|error| format!("Saved blueprint is unreadable: {error}"))?;
     }
     Ok(())
 }
 
 impl ServiceContext {
-    pub(crate) fn recover_close_inventories(&self) -> Result<(), String> {
+    pub fn recover_close_inventories(&self) -> Result<(), String> {
         let records = self.mux.read().closed_structure_records()?;
         for record in records
             .into_iter()

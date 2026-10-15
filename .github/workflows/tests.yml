@@ -35,8 +35,7 @@ on:
       - 'essences/**'
       - 'evals/**'
   workflow_dispatch:
-  # Nightly full matrix on develop while the farm is idle, so parallel-test races
-  # and flakes surface days before a release instead of on release day.
+  # Release CI through workflow_call and manual dispatch run the full matrix.
 
 # A branch is tested through its pull request, never through its own pushes:
 # release/feat/lane pushes duplicated the matrix the PR already ran, and the
@@ -45,7 +44,7 @@ on:
 #
 # One group per pull request and per pushed ref: a new push to a PR, or a newer
 # master commit, cancels the run it supersedes instead of queueing behind it on
-# the shared runners. The nightly schedule shares master's group.
+# the shared runners.
 permissions:
   contents: read
   pull-requests: write
@@ -89,11 +88,11 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 2
       - id: tree
         env:
-          CI_RELEASE_CALL: ${{ inputs.source_ref != '' || github.event_name == 'schedule' }}
+          CI_RELEASE_CALL: ${{ inputs.source_ref != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -120,7 +119,7 @@ jobs:
       - id: scope
         if: steps.tree.outputs.run == 'true'
         env:
-          CI_FULL_MATRIX: ${{ (inputs.source_ref != '' && inputs.scope != 'frontend') || github.event_name == 'schedule' }}
+          CI_FULL_MATRIX: ${{ (inputs.source_ref != '' && inputs.scope != 'frontend') }}
           CI_FRONTEND_ONLY: ${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
@@ -143,16 +142,23 @@ jobs:
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 60
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - run: node scripts/release-plugin.mjs check
+      - &select-pr-catalogue
+        name: Select PR catalogue
+        id: catalogue
+        shell: bash
+        run: |
+          node scripts/test-catalogue.mjs select --tier pr --format json > "$RUNNER_TEMP/pr-catalogue.json"
+          node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
+      - run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-release-contracts'] }}
       - run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
       - *cancel-release-on-failure
 
@@ -164,7 +170,7 @@ jobs:
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 60
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:
@@ -172,7 +178,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
@@ -183,7 +189,12 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - run: node scripts/check-plugin.mjs '${{ matrix.plugin.id }}'
+      - *select-pr-catalogue
+      - env:
+          PLUGIN_COMMAND: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-check'] }}
+          PLUGIN_ID: ${{ matrix.plugin.id }}
+        shell: bash
+        run: ${PLUGIN_COMMAND//<plugin-id>/"$PLUGIN_ID"}
 
   # Formatting is platform-independent, so it does not belong inside a platform
   # lane: gating that lane off silences the check with it, which is how 22 files
@@ -198,12 +209,17 @@ jobs:
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      # Light runners include Linux services whose PATH can miss the runner user's rustup.
+          ref: ${{ inputs.source_ref || github.ref }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - *select-pr-catalogue
+      # Light services can miss the runner user's rustup on PATH.
       - name: Ensure Rust toolchain on PATH
         run: |
           if command -v cargo >/dev/null 2>&1; then exit 0; fi
@@ -213,9 +229,7 @@ jobs:
           echo "cargo not found; restore Rust on the runner" >&2
           exit 1
       - name: cargo fmt --check
-        run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --check
-          cargo fmt --manifest-path cli/Cargo.toml --check
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['rust-fmt'] }}
       - *cancel-release-on-failure
 
   rust-archives:
@@ -243,7 +257,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 0
         env:
           GIT_CONFIG_COUNT: '1'
@@ -346,7 +360,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -406,7 +420,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -458,7 +472,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -507,7 +521,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
@@ -545,7 +559,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -589,11 +603,11 @@ jobs:
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -610,22 +624,23 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       - name: TS strict typecheck (prod build gate)
-        run: pnpm exec tsc --noEmit
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
       - name: TypeScript unused exports
         if: ${{ !cancelled() }}
-        run: pnpm check:unused-exports
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unused-exports'] }}
       - name: Repository Knip report
         if: ${{ !cancelled() }}
-        run: pnpm knip:report
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-knip-report'] }}
       # An effect that reaches the API must key on primitives; a mux-rebuilt object
       # re-runs it at broadcast rate. Five such sites shipped before this existed.
       - name: Check API effect dependencies
         if: ${{ !cancelled() }}
-        run: pnpm check:api-effects
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-api-effects'] }}
       - name: Biome (TS lint)
         if: ${{ !cancelled() }}
-        run: pnpm lint
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-biome'] }}
       - *cancel-release-on-failure
 
   ts-types:
@@ -636,11 +651,11 @@ jobs:
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 30
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Ensure Rust toolchain on PATH
         run: |
           if command -v cargo >/dev/null 2>&1; then exit 0; fi
@@ -665,11 +680,12 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Check Rust generated TypeScript types
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c 'pnpm types:check'
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c '${{ fromJSON(steps.catalogue.outputs.commands)['ts-generated-types'] }}'
 
       - uses: ./.github/actions/rust-warnings
         if: always()
@@ -688,11 +704,11 @@ jobs:
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -709,8 +725,12 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       - name: Run TS unit tests
-        run: pnpm test:unit
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit'] }}
+      - name: TS unit runner contracts
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit-runner-tests'] }}
       - *cancel-release-on-failure
 
   ts-vitest:
@@ -721,11 +741,11 @@ jobs:
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -742,11 +762,12 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       # run-ts-unit-tests.mjs deliberately skips the vitest-owned files, so this
       # job is the only thing that runs them.
       # Light runners share a 16 GiB BLACKSTAR WSL VM with a heavy runner; bound the worker fanout.
       - name: Run vitest-owned TS tests
-        run: pnpm test:vitest --maxWorkers=4
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-vitest'] }}
       - *cancel-release-on-failure
 
   ts-plugins:
@@ -757,11 +778,11 @@ jobs:
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -778,11 +799,12 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       - name: Check generated plugin bundles
-        run: pnpm check:plugin-bundles
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-bundles'] }}
       - name: Run plugin tests
         if: ${{ !cancelled() }}
-        run: pnpm test:plugins
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-tests'] }}
       - *cancel-release-on-failure
 
   release-contracts:
@@ -793,11 +815,11 @@ jobs:
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -814,24 +836,15 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - name: Release test and publication gate contracts
-        run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs scripts/tests/release-job-graph.test.mjs scripts/tests/release-bundle-smoke.test.mjs scripts/tests/release-asset-scope.test.mjs
-      - name: Rust shard coverage contracts
-        run: node --test scripts/tests/ci-rust-shards.test.mjs scripts/tests/ci-runner-paths.test.mjs scripts/tests/ci-rust-archives.test.mjs
-      - name: Release metadata contract tests
-        run: python3 -m unittest scripts.tests.test_release_issue_contract
-      - name: Release workflow signature-gate contract tests
+      - *select-pr-catalogue
+      - name: Node script tests (tests/catalogue.json node-script-tests)
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['node-script-tests'] }}
+      - name: Python script tests (tests/catalogue.json python-script-tests)
         if: ${{ !cancelled() }}
-        run: python3 -m unittest scripts.tests.test_release_workflow_contract
-      - name: Updater manifest merge + signature tests
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['python-script-tests'] }}
+      - name: Offline core journey contracts
         if: ${{ !cancelled() }}
-        run: node --test scripts/tests/updater-manifest.test.mjs
-      - name: Release closure authority tests
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/release-closure-authority.test.mjs
-      - name: Release notes synchronization tests
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/release-notes-sync.test.mjs
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
       - *cancel-release-on-failure
 
   rust-warnings:
@@ -843,7 +856,7 @@ jobs:
     if: always()
     uses: ./.github/workflows/rust-warnings-summary.yml
     with:
-      source_ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+      source_ref: ${{ inputs.source_ref || github.ref }}
       report_name: ${{ format('rust-warnings-tests-{0}-report', inputs.phase || 'all') }}
       cancel_release_on_failure: ${{ inputs.cancel_release_on_failure }}
       artifacts: ${{ needs.changed.outputs.heavy == 'true' && (inputs.phase == 'fast' && '["rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]' || inputs.phase == 'long' && '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc"]' || '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]') || '[]' }}

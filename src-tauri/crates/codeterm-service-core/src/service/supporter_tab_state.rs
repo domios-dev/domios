@@ -42,7 +42,7 @@ mod idle_readiness;
 mod observer;
 mod privacy;
 pub(super) mod scheduler;
-pub(crate) mod sentinel_request;
+pub mod sentinel_request;
 
 pub(crate) use identity::correlation::project_diagnostics as project_observation_diagnostics;
 #[cfg(test)]
@@ -51,8 +51,8 @@ pub(crate) use observer::{prepare_observation, spawn_observer};
 pub(crate) fn forget_observations(tab: &str) {
     admission::forget(tab);
 }
-pub(crate) use privacy::value as redact_decision_diagnostic;
-pub(crate) use privacy::{screen as redact_screen, text as redact_text};
+pub use privacy::value as redact_decision_diagnostic;
+pub use privacy::{screen as redact_screen, text as redact_text};
 mod questions;
 pub(crate) mod safe_choice;
 mod safe_response;

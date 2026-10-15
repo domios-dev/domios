@@ -29,6 +29,7 @@ import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { chatRevealIndex } from "./chatAnchorModel";
 import { useChatScrollGesture } from "./useChatScrollGesture";
 import { chatScrollBookmark, chatScrollRestoreTarget, type ChatScrollState } from "./chatScrollMemory";
+import { isChatScrollReady } from "./chatScrollReadiness";
 
 const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
 
@@ -172,11 +173,11 @@ export function useChatScroll({
 
   const pinToBottom = useCallback(() => {
     const el = scrollRef.current;
-    if (!el || !active || loading || userScrollingRef.current) return;
+    if (!el || !active || !isChatScrollReady("pinned", loading, messageCount) || userScrollingRef.current) return;
     writeScrollTop(el, chatLayoutScrollTarget("pinned", el, null));
     setMode("pinned", el);
     setShowScrollDown(false);
-  }, [active, loading, setMode, userScrollingRef, writeScrollTop]);
+  }, [active, loading, messageCount, setMode, userScrollingRef, writeScrollTop]);
 
   const scrollToBottom = useCallback(() => {
     resetGesture();
@@ -212,7 +213,7 @@ export function useChatScroll({
   }, [scrollToBottom]);
 
   const handleContentLayout = useCallback(() => {
-    if (active && !loading && modeRef.current === "pinned") pinToBottom();
+    if (active && modeRef.current === "pinned") pinToBottom();
   }, [active, loading, pinToBottom]);
 
   const prepareForHistoryPrepend = useCallback(() => {
@@ -311,7 +312,7 @@ export function useChatScroll({
   const repairViewport = useCallback(() => {
     const el = scrollRef.current;
     if (!active) { restoredKeyRef.current = ""; return; }
-    if (!el || el.clientHeight === 0 || loading || messageCount === 0 || userScrollingRef.current) return;
+    if (!el || el.clientHeight === 0 || !isChatScrollReady(modeRef.current, loading, messageCount) || userScrollingRef.current) return;
     if (el.style.overflowAnchor !== chatOverflowAnchor(modeRef.current)) el.style.overflowAnchor = chatOverflowAnchor(modeRef.current);
 
     if (shouldRestoreChatViewport(active, loading, messageCount, sessionKey, restoredKeyRef.current)) {

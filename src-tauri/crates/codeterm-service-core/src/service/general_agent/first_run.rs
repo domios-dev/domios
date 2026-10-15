@@ -360,6 +360,7 @@ mod tests {
                 protected: false,
                 sort_order: 0,
                 tabs: vec![TabSnapshot {
+                    last_active_at_ms: None,
                     id: "tab-picker".into(),
                     title: "Get started".into(),
                     description: Some(FIRST_RUN_TAB_MARKER.into()),

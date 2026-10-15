@@ -38,7 +38,7 @@ test.fixme("@golden watcher tab is read-only", async ({ api, ui, spawnAgent, tab
   });
   tabCleanup.track(orch.tab_id);
 
-  let watcher: { tab_id: string; tab_id?: string };
+  let watcher: { tab_id: string; };
   try {
     watcher = await spawnAgent({
       agent: PLUGIN_ID,

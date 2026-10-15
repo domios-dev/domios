@@ -12,6 +12,8 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
+mod construct;
+pub use construct::build_service_context;
 pub mod account;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
@@ -21,14 +23,13 @@ pub mod agent_restart;
 pub mod agent_runtime;
 pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
+pub mod lazy_restore;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
 mod analytics_host;
 pub(crate) mod background_work;
 pub(crate) mod background_work_watch;
 pub mod billing;
-pub mod blueprint_pipeline;
-pub mod blueprint_portable;
 pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
@@ -52,7 +53,7 @@ pub mod hook_session_binding;
 pub mod inject_verify;
 pub mod input_parser;
 pub mod input_transport;
-pub(crate) mod instance_env;
+pub mod instance_env;
 pub mod integration_silence;
 pub mod kpi_hooks;
 pub mod lane_removal;
@@ -100,7 +101,6 @@ pub(crate) mod provider_update;
 pub(crate) mod pty_resize;
 pub use pty_resize::resize as pty_resize_resize;
 pub(crate) mod public_send_readiness;
-pub mod sentinel;
 pub(crate) mod skill_mirror;
 pub(crate) mod startup_turn;
 pub(crate) mod task_files;
@@ -204,7 +204,7 @@ pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
 pub mod supporter;
 pub(crate) mod supporter_notify;
-pub(crate) mod supporter_tab_state;
+pub mod supporter_tab_state;
 pub mod surface;
 pub mod sync_watcher;
 pub mod tab;
@@ -450,7 +450,7 @@ fn wall_now_ms() -> u64 {
         .as_millis() as u64
 }
 
-pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
+pub fn start_plan_reminder_scheduler(svc: ServiceState) {
     hierarchy::start_plan_reminder_scheduler(svc);
 }
 
@@ -1062,3 +1062,11 @@ pub use structured_endpoint::sse as structured_endpoint_sse;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use pty_ownership::OwnershipEvent;
+
+pub use model_defaults::start as start_model_defaults;
+pub use provider_update::check_available as check_provider_update_available;
+pub use restore_exited_member::{apply_restore_decisions, mark_legacy_role_shell_failures};
+pub use skill_mirror::{mirror_skills_to_providers, seed_bundled_skills};
+pub use utility_deadline::restore as restore_utility_deadlines;
+
+pub use supporter_notify::record_launch as supporter_record_launch;

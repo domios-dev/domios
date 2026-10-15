@@ -1119,9 +1119,12 @@ mod kill_tab_pty_tests {
     #[test]
     fn service_kill_tab_pty_helper_uses_kill_semantics() {
         let mut manager = crate::pty::manager::PtyManager::new();
-        let (pty_id, session) = manager
-            .spawn(None, None, 80, 24, HashMap::new())
-            .expect("spawn default shell");
+        let (pty_id, session) = {
+            let gate = manager.spawn_gate();
+            crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+                .map(|built| manager.register_session(None, built))
+        }
+        .expect("spawn default shell");
 
         kill_live_tab_pty(&mut manager, &pty_id).expect("kill succeeds");
 

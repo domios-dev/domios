@@ -55,7 +55,7 @@ mod tests;
 
 /// A spawn's requested cwd must be an absolute, existing directory on this host.
 /// Relative paths are resolved by the caller, which alone knows its own directory.
-pub(crate) fn validate_spawn_cwd(cwd: Option<&str>) -> Result<(), CwdRefusal> {
+pub fn validate_spawn_cwd(cwd: Option<&str>) -> Result<(), CwdRefusal> {
     let Some(cwd) = cwd.filter(|cwd| !cwd.trim().is_empty()) else {
         return Ok(());
     };

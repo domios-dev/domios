@@ -239,10 +239,10 @@ impl ServiceContext {
 
         let env_vars = self.tab_env(&tab_id);
 
+        let gate = self.pty.lock().spawn_gate();
         let pty_id = {
-            let mut pty = self.pty.lock();
             let built = crate::pty::manager::build_session_with_profile(
-                pty.spawn_gate(),
+                gate,
                 None,
                 resolved_cwd,
                 120,
@@ -250,10 +250,9 @@ impl ServiceContext {
                 env_vars,
                 profile.as_ref(),
             );
-            match built.map(|built| pty.register_session(None, built)) {
+            match built.map(|built| self.pty.lock().register_session(None, built)) {
                 Ok((id, _)) => id,
                 Err(error) => {
-                    drop(pty);
                     let _ = self.revoke_agent_pad(&tab_id);
                     self.rollback_provisional_tab(&ws_id, &tab_id);
                     return Err(error);

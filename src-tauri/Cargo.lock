@@ -1092,15 +1092,29 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "codeterm-api",
+ "codeterm-billing",
  "codeterm-bridge",
  "codeterm-build-info",
  "codeterm-commands",
  "codeterm-decision",
+ "codeterm-events",
+ "codeterm-frontend-bundle",
  "codeterm-mem",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-socket",
  "codeterm-types",
+ "codeterm-util",
+ "dirs 6.0.0",
  "fastembed",
+ "fern",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "parking_lot",
+ "png 0.17.16",
  "serde",
  "serde_json",
  "sha2",
@@ -1112,7 +1126,9 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "tokio",
+ "url",
  "vt100",
 ]
 
@@ -1190,6 +1206,7 @@ dependencies = [
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-pty",
+ "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-storage",
  "codeterm-types",
@@ -1720,6 +1737,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-sentinel-host"
+version = "1.14.9-dev.6"
+dependencies = [
+ "chrono",
+ "codeterm-analytics",
+ "codeterm-blueprint-types",
+ "codeterm-cron",
+ "codeterm-decision",
+ "codeterm-events",
+ "codeterm-plugin",
+ "codeterm-pty",
+ "codeterm-sentinel",
+ "codeterm-service-core",
+ "codeterm-shutdown",
+ "codeterm-storage",
+ "codeterm-types",
+ "codeterm-util",
+ "cron",
+ "log",
+ "parking_lot",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "codeterm-service-core"
 version = "1.14.9-dev.6"
 dependencies = [
@@ -1862,6 +1911,7 @@ dependencies = [
  "codeterm-plan",
  "codeterm-plugin",
  "codeterm-sentinel",
+ "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-types",
  "codeterm-util",

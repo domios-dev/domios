@@ -33,7 +33,7 @@ const DEFAULT_RECALL_LIMIT: usize = 5;
 const MAX_POOL: usize = 50;
 const ENVELOPE_KEY: &str = "supporter";
 
-pub(crate) fn supporter_token_dir() -> PathBuf {
+pub fn supporter_token_dir() -> PathBuf {
     codeterm_paths::data_dir().join("supporter")
 }
 
@@ -95,7 +95,7 @@ pub fn token_store() -> TokenStore {
     TokenStore::new(supporter_token_dir())
 }
 
-pub(crate) fn default_registry() -> Arc<SupporterRegistry> {
+pub fn default_registry() -> Arc<SupporterRegistry> {
     let cfg = crate::config::load_config().supporter;
     let registry = SupporterRegistry::with_registration_hook(|id, adapter| {
         crate::service::supporter::restore_model(

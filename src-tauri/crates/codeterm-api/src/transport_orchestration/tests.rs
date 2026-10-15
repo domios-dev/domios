@@ -1,7 +1,7 @@
 use super::*;
 use codeterm_bridge::bridge::threads::{OpenedThread, ThreadMenuState, TopicsState};
-use codeterm_service_core::sentinel::graph::FileReference;
-use codeterm_service_core::sentinel::graph::Identity;
+use codeterm_sentinel_host::graph::FileReference;
+use codeterm_sentinel_host::graph::Identity;
 
 #[test]
 fn transport_orchestration_contract_caller_identity_denial() {

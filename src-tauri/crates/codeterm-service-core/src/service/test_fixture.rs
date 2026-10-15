@@ -173,12 +173,12 @@ impl ServiceFixture {
         session_id: &str,
         binding_nonce: &str,
     ) -> TestPtyGuard {
-        let (pty_id, _) = self
-            .service
-            .pty
-            .lock()
-            .spawn(None, None, 80, 24, HashMap::new())
-            .expect("test PTY");
+        let (pty_id, _) = {
+            let gate = self.service.pty.lock().spawn_gate();
+            crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+                .map(|built| self.service.pty.lock().register_session(None, built))
+        }
+        .expect("test PTY");
         {
             let mut mux = self.service.mux.write();
             mux.link_pty(tab_id, pty_id.clone());

@@ -237,11 +237,7 @@ impl AgentPad {
     }
 }
 
-pub(crate) fn restore(
-    data_dir: &Path,
-    tab_id: &str,
-    role: AgentPadRole,
-) -> Result<AgentPad, String> {
+pub fn restore(data_dir: &Path, tab_id: &str, role: AgentPadRole) -> Result<AgentPad, String> {
     AgentPad::open(data_dir, tab_id).or_else(|_| AgentPad::create(data_dir, tab_id, role))
 }
 

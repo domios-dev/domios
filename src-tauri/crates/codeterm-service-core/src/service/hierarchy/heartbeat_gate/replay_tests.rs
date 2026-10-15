@@ -1,5 +1,4 @@
 use super::*;
-use codeterm_decision::{DecisionPrimitives, DecisionRequest, TokenMode};
 
 #[derive(Deserialize)]
 struct Replay {
@@ -14,57 +13,6 @@ struct Tick {
     incidents: Vec<String>,
 }
 
-/// Answers every question with one label; the tick label is the arm's verdict.
-struct FixtureModel(&'static str);
-
-impl DecisionModel for FixtureModel {
-    fn id(&self) -> &str {
-        "replay-fixture"
-    }
-    fn token_mode(&self) -> TokenMode {
-        TokenMode::None
-    }
-    fn primitives(&self) -> DecisionPrimitives {
-        DecisionPrimitives {
-            choice: true,
-            ..Default::default()
-        }
-    }
-    fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
-        panic!("multi-question request required")
-    }
-    fn decide_questions(
-        &self,
-        request: &DecisionQuestionsRequest,
-        _: Instant,
-    ) -> Result<DecisionResponse, DecisionError> {
-        Ok(DecisionResponse {
-            usage: None,
-            answers: request
-                .questions
-                .keys()
-                .map(|key| {
-                    let label = if key == "tick" {
-                        self.0
-                    } else if key.starts_with("learning:") {
-                        "irrelevant"
-                    } else {
-                        "on_track"
-                    };
-                    (
-                        key.clone(),
-                        DecisionAnswer::Choice {
-                            choice: label.into(),
-                            probabilities: BTreeMap::from([(label.into(), 0.99)]),
-                            confidence: Some(0.99),
-                        },
-                    )
-                })
-                .collect(),
-        })
-    }
-}
-
 /// Plan projection, worker health and learnings: the state an accepted reminder
 /// leaves unchanged when it only moves the delta baseline.
 fn absolute_state(snapshot: &Snapshot) -> Value {
@@ -72,9 +20,7 @@ fn absolute_state(snapshot: &Snapshot) -> Value {
     json!({ "projection": snapshot.projection, "health": health, "learnings": snapshot.learnings })
 }
 
-/// The policy oracle is independent of the gate's verdict: only an approving
-/// adapter emits, once per new observation; hard incidents never force a wake.
-fn run(arm: &str, model: Option<&dyn DecisionModel>, approving: bool) {
+fn run() {
     let source = std::env::var("CODETERM_HEARTBEAT_REPLAY_INPUT")
         .ok()
         .map(|path| std::fs::read_to_string(path).unwrap())
@@ -101,18 +47,19 @@ fn run(arm: &str, model: Option<&dyn DecisionModel>, approving: bool) {
                     && *prior == state
                     && snapshot.hard.iter().all(|event| hard.contains(event)))
         });
-        let expected = approving && !same;
+        let has_step = !snapshot.hard.is_empty()
+            || snapshot.workers.iter().any(Worker::unhealthy)
+            || !snapshot.actionable_tasks.is_empty()
+            || snapshot
+                .delta
+                .keys()
+                .any(|key| key.starts_with("task:") || key.starts_with("report:"));
+        let expected = !same && !snapshot.healthy_and_unchanged() && has_step;
         if !same {
             decided = Some((identity, state, snapshot.hard.clone()));
         }
         let decision = gate
-            .decide(
-                "owner",
-                &tick.snapshot,
-                tick.at,
-                model,
-                Instant::now() + Duration::from_secs(1),
-            )
+            .decide_with_interval("owner", snapshot, tick.at, 0)
             .unwrap();
         if decision.wake {
             woken += 1;
@@ -134,7 +81,7 @@ fn run(arm: &str, model: Option<&dyn DecisionModel>, approving: bool) {
     }
     println!(
         "HEARTBEAT_REPLAY_RESULT={}",
-        json!({"plan_id": replay.plan_id, "arm": arm, "policy": "choice_approval_required", "ticks": replay.ticks.len(), "woken": woken, "suppressed": suppressed, "missed_incidents": missed.len(), "misses": missed, "unexpected_wakes": unexpected.len(), "unexpected": unexpected})
+        json!({"plan_id": replay.plan_id, "arm": "rule", "policy": "concrete_next_step", "ticks": replay.ticks.len(), "woken": woken, "suppressed": suppressed, "missed_incidents": missed.len(), "misses": missed, "unexpected_wakes": unexpected.len(), "unexpected": unexpected})
     );
     assert!(
         missed.is_empty(),
@@ -148,10 +95,5 @@ fn run(arm: &str, model: Option<&dyn DecisionModel>, approving: bool) {
 
 #[test]
 fn heartbeat_gate_replay_fixture() {
-    run("fixture", Some(&FixtureModel("action_needed")), true);
-}
-
-#[test]
-fn heartbeat_gate_replay_no_model() {
-    run("no-model", None, false);
+    run();
 }
