@@ -1781,6 +1781,8 @@ build_and_launch_dev() {
   build_sha="$(git rev-parse HEAD)"
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
+  release_stable_build_path
+  record_dev_target "$(tauri_debug_dir)"
   complete_build_gateway_before_handoff
   echo "Build gateway released; launching validated dev artifact."
   exec bash ./build.sh dev-prebuilt "$@"
@@ -2964,9 +2966,9 @@ LOCK_STORM_PY
         EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
         DEV_NOTIFY_STAGE=launch
         DEV_NOTIFY_WAITER_PID=
-        exec 3> >(tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev)
+        exec 3> >(report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev)
         DEV_NOTIFY_TEE_PID=$!
-        if ( exec "$(dev_app_path)" ) >&3 2>&1; then
+        if node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --log "$INTERACTIVE_LOG" >&3 2>&1; then
           DEV_NOTIFY_STATUS=0
         else
           DEV_NOTIFY_STATUS=$?
@@ -2994,7 +2996,7 @@ LOCK_STORM_PY
         dev_notify_exit_report "$DEV_NOTIFY_STATUS"
         exit "$DEV_NOTIFY_STATUS"
       else
-        exec "$(dev_app_path)"
+        exec node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --log "/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
       fi
     fi
     ;;
@@ -3048,7 +3050,6 @@ LOCK_STORM_PY
       export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm.exe"
     fi
     ensure_real_embed_bundle
-    record_dev_target "$(tauri_debug_dir)"
     build_and_launch_dev "${@:2}"
 
     ;;
