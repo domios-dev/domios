@@ -1,6 +1,6 @@
 pub mod agent;
 pub mod agent_commands;
-pub mod api;
+mod api;
 mod api_support;
 pub mod app_runtime;
 pub use codeterm_util::attachments;
@@ -98,6 +98,8 @@ pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 pub use api::routes::register_rest_hooks;
 
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
+#[cfg(any(test, feature = "test-support"))]
+pub use api::plan_routes::batch::apply_authorized_batch;
 
 pub fn run(
     context: tauri::Context<crate::app_runtime::Runtime>,

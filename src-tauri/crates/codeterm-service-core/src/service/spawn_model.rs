@@ -99,7 +99,7 @@ impl ServiceContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FreshAgentModelResolution {
+pub struct FreshAgentModelResolution {
     pub requested_model: Option<String>,
     pub model: Option<String>,
     pub provider_resolved_model: Option<String>,

@@ -9,7 +9,7 @@
 use serde_json::{json, Value};
 
 use crate::server::plan::apply_batch_rpc;
-use codeterm_service_core::api::plan_routes::batch::apply_authorized_batch;
+use codeterm_service_core::apply_authorized_batch;
 use codeterm_service_core::plan::{OrchestratorRef, Plan, Task};
 use codeterm_service_core::service::hierarchy::report_plan_ctx::STALE_TASK_HINT_REFUSAL;
 use codeterm_service_core::service::plan::batch::{BatchOp, BatchRequest};

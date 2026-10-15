@@ -13,7 +13,7 @@ pub struct InvalidModelError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AgentModelSelection {
+pub struct AgentModelSelection {
     pub provider_id: String,
     pub model: Option<String>,
 }

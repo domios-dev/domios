@@ -55,7 +55,7 @@ fn emit_plan_changed(state: &AppState, plan_id: &str) {
 
 /// The route's whole write: parse the ops, cross the authority boundary, apply.
 /// The handler adds only authentication and the change event.
-pub(crate) fn apply_authorized_batch(
+pub fn apply_authorized_batch(
     store: &PlanStore,
     plan_id: &str,
     body: &Value,
