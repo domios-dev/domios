@@ -8,6 +8,7 @@
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh frontend  — production frontend typecheck + bundle
 #   ./build.sh release-inputs — build target-aware frontend/CLI/embed bundle inputs
+#   ./build.sh release-bundle — release-inputs plus tauri build in one gateway session
 #   ./build.sh release-preflight — run local PR checks and verify release inputs
 #   ./build.sh worktree-check — explicit isolated, nonincremental checkout check
 #   ./build.sh build     — production build
@@ -2167,7 +2168,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2199,6 +2200,7 @@ CodeTerm build commands
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
+  release-bundle              release-inputs, then the target-aware tauri build from the same path
   ci-tests full|platform      Compile and run the full Rust suite, or this OS's cfg-gated subset, in place
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
@@ -2418,6 +2420,15 @@ EOF
   release-inputs)
     ensure_deps
     prepare_release_bundle_inputs
+    ;;
+  # One session keeps both compiles on the gateway's stable path: a second path is a second
+  # set of Cargo fingerprints and sccache keys, so tauri build would recompile the app.
+  release-bundle)
+    ensure_deps
+    prepare_release_bundle_inputs
+    bundle_target_args=()
+    [ -z "${CARGO_BUILD_TARGET:-}" ] || bundle_target_args=(--target "$CARGO_BUILD_TARGET")
+    pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
     ;;
   release-preflight)
     prepare_dev_frontend_dist "$(pwd -P)"

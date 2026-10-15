@@ -151,7 +151,7 @@ class SingleRunGraphTest(unittest.TestCase):
             ("release-macos-build.yml", "Build signed and notarized macOS bundle"),
             ("release-linux-arm64.yml", "Build and smoke Linux arm64 in native container"),
             ("release-linux.yml", "Build release bundle inputs"),
-            ("release-windows.yml", "Build release bundle inputs"),
+            ("release-windows.yml", "Build and sign release assets"),
         ):
             with self.subTest(workflow=name):
                 text = read(name)
@@ -250,16 +250,19 @@ class SingleRunGraphTest(unittest.TestCase):
                 self.assertIn("CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target", text)
                 self.assertIn("CARGO_INCREMENTAL: '0'", text)
                 self.assertIn("CODETERM_RELEASE_FEATURES: embeddings", text)
+                if name == "release-windows.yml":
+                    build = next(
+                        step for step in steps(text)
+                        if "build.ps1 release-bundle" in step.get("run", "")
+                    )
+                    self.assertEqual(build.get("shell"), "pwsh")
+                    self.assertIn("CARGO_BUILD_TARGET: ${{ matrix.target }}", text)
+                    continue
                 build = next(
                     step for step in steps(text)
                     if "pnpm tauri build" in step.get("run", "")
                 )
-                if name == "release-windows.yml":
-                    self.assertEqual(build.get("shell"), "pwsh")
-                    arguments = "--target $env:TARGET --features $env:CODETERM_RELEASE_FEATURES"
-                else:
-                    arguments = '--target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"'
-                self.assertIn(arguments, build["run"])
+                self.assertIn('--target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"', build["run"])
 
     def test_platform_specific_packaging_and_macos_notarization_stay_with_the_owner(self):
         linux = read("release-linux.yml")
