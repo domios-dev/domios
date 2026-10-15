@@ -1,0 +1,25 @@
+[package]
+name = "codeterm-prompts"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+codeterm-build-info = { path = "../codeterm-build-info" }
+codeterm-mem = { path = "../codeterm-mem", default-features = false }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-plan = { path = "../codeterm-plan" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-types = { path = "../codeterm-types" }
+dirs = "6"
+log = "0.4"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+toml = "0.8"
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"

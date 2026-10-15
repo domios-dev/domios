@@ -10,6 +10,7 @@ workspace = true
 name = "codeterm_service_core"
 
 [dependencies]
+codeterm-prompts = { path = "../codeterm-prompts" }
 codeterm-agent-detect = { path = "../codeterm-agent-detect" }
 codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-repowatch = { path = "../codeterm-repowatch" }
