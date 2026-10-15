@@ -337,6 +337,7 @@ fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
             .boot_stage,
         Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed)
     );
+    await_owner_idle(&fixture, &tab_id);
     let claim = bind_reported_session(
         &fixture.service.mux,
         fixture.service.agent_registry.as_ref(),
