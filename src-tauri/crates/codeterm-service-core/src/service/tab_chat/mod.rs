@@ -21,7 +21,9 @@ pub(crate) mod restore_notice;
 pub use restore_notice::snapshot as restore_notice_snapshot;
 pub mod results;
 pub mod session_window;
+pub mod snapshot_source;
 pub mod store_watch;
+mod stored_snapshot;
 pub mod structured_poller;
 pub mod structured_sink;
 pub mod tailer;
@@ -675,6 +677,13 @@ fn tab_transcript_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
+    match snapshot_source::for_tab(svc, tab_id)? {
+        snapshot_source::SnapshotSource::Stored => {
+            return stored_snapshot::read(svc, tab_id, since);
+        }
+        snapshot_source::SnapshotSource::Waking => return Ok((Vec::new(), 0)),
+        snapshot_source::SnapshotSource::Live => {}
+    }
     if crate::service::agent_runtime::requested_for_tab(svc, tab_id) {
         let (_, messages) = crate::service::agent_runtime::transport::snapshot(svc, tab_id)?;
         let total = messages.len();
