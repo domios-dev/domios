@@ -189,6 +189,9 @@ const SUMMARY_PATTERNS = [
   /^warnings crate=/,
   /^peer-toolchain: /,
   /^Summary \[/,
+  /^tests: runs=\d+ /,
+  /^Slow unit ratchet (PASS|FAIL|ADVISORY)/,
+  /^Build gateway job \S+ exit: /,
   /^test result: /,
   /^DEADLOCK \/ HANG: /,
 ];

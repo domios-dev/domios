@@ -105,7 +105,12 @@ test('job log parsing returns the check-queue summary, receipts and errors once'
 
 test('job log parsing returns nextest counts and failing tests without ANSI', () => {
   const parsed = parseJobLog(fs.readFileSync(path.join(fixtures, 'nextest.log'), 'utf8'));
-  assert.deepEqual(parsed.summary, ['Summary [   1.204s] 3 tests run: 2 passed, 1 failed, 0 skipped']);
+  assert.deepEqual(parsed.summary, [
+    'Summary [   1.204s] 3 tests run: 2 passed, 1 failed, 0 skipped',
+    'tests: runs=1 exit=0      Summary [   1.066s] 110 tests run: 110 passed, 5 skipped artifact=/tmp/parallel.log',
+    'Slow unit ratchet FAIL: baseline requires exact binary/test names and a measured duration over 1 second',
+    'Build gateway job 20261015T060514-1614340-26772 exit: 1',
+  ]);
   assert.deepEqual(parsed.details, ['FAIL [   0.020s] codeterm-plan store::tests::persists', 'error: test run failed']);
 });
 
