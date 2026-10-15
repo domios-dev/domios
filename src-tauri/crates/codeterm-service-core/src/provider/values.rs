@@ -11,8 +11,12 @@ pub fn list_agent_provider_values(
                     crate::agent::provider::current_platform_tag(),
                 )
                 .ok();
+            let stub_replay = crate::agent::stub_launch::provider_stub_replay(&descriptor.id);
             let mut value = serde_json::to_value(descriptor).ok()?;
             value["cli_status"] = serde_json::to_value(status).ok()?;
+            if let Some(stubbed) = stub_replay {
+                value["stub_replay"] = stubbed.into();
+            }
             Some(value)
         })
         .collect()

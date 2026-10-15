@@ -11,8 +11,9 @@ import { chromium, type Browser, type Page } from "@playwright/test";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { readDevToken } from "./api-client";
+import { ApiClient, readDevToken } from "./api-client";
 import { probeCdpAppReadiness, type CdpAppReadiness } from "./cdp-app-page";
+import { pinPickerToStub } from "./stub-pin";
 import {
   buildDevInstanceEnv,
   currentDevInstance,
@@ -568,10 +569,12 @@ export function pointerObstruction(page: Page, selector: string): Promise<Pointe
   }, selector);
 }
 
-async function completeFirstRunPickerIfPresent(page: Page): Promise<void> {
+async function completeFirstRunPickerIfPresent(page: Page, instance: DevInstance): Promise<void> {
   const picker = page.locator('[data-testid="first-run-general-picker"]');
   if (!(await picker.isVisible({ timeout: 1_000 }).catch(() => false))) return;
 
+  // Confirming launches the General Agent, so it must start on the stub, never a live provider.
+  await pinPickerToStub(new ApiClient(undefined, instance), page, [{ kind: "cards", scope: picker }]);
   const confirm = page.locator('[data-testid="agent-picker-confirm"]');
   await confirm.waitFor({ state: "visible", timeout: 30_000 });
   if (!(await receivesPointerEvents(confirm))) {
@@ -660,7 +663,7 @@ export async function waitForServiceWorkerControl(page: Page): Promise<void> {
   );
 }
 
-async function waitForShellOnce(page: Page, manageAppState: boolean): Promise<void> {
+async function waitForShellOnce(page: Page, manageAppState: boolean, instance: DevInstance): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   await waitForServiceWorkerControl(page);
   if (manageAppState) {
@@ -671,7 +674,7 @@ async function waitForShellOnce(page: Page, manageAppState: boolean): Promise<vo
         /* localStorage may be unavailable; tests that need it will surface it */
       }
     });
-    await completeFirstRunPickerIfPresent(page);
+    await completeFirstRunPickerIfPresent(page, instance);
   }
   await page
     .waitForSelector('.xterm:visible, [data-testid="chat-composer"]:visible', {
@@ -680,13 +683,13 @@ async function waitForShellOnce(page: Page, manageAppState: boolean): Promise<vo
     });
 }
 
-async function waitForShell(page: Page, manageAppState: boolean): Promise<void> {
+async function waitForShell(page: Page, manageAppState: boolean, instance: DevInstance): Promise<void> {
   try {
-    await waitForShellOnce(page, manageAppState);
+    await waitForShellOnce(page, manageAppState, instance);
   } catch (e) {
     if (!/Execution context was destroyed|Target closed/.test(String(e))) throw e;
     await page.waitForLoadState("domcontentloaded");
-    await waitForShellOnce(page, manageAppState);
+    await waitForShellOnce(page, manageAppState, instance);
   }
 }
 
@@ -715,7 +718,7 @@ async function connectDesktopUi(
       /* non-URL page (about:blank) — waitForShell will surface real problems */
     }
   }
-  await waitForShell(page, !preserveAppState);
+  await waitForShell(page, !preserveAppState, instance);
   return { browser, page };
 }
 
@@ -733,7 +736,7 @@ async function connectWebUi(instance: DevInstance): Promise<UiSession> {
     }
   }, token);
   await page.goto(`${instance.webUrl}?e2e=1#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
-  await waitForShell(page, true);
+  await waitForShell(page, true, instance);
   return { browser, page };
 }
 

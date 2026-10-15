@@ -42,9 +42,6 @@ test("cargo manifest parser reads members, package name and targets", () => {
 test("scan resolves file layout, inline mods, mod tests; tests.rs, #[path], include! and tokio forms", () => {
   const inv = scanWorkspace(path.join(fixtures, "scan"));
   assert.deepEqual(rows(inv), [
-    "fixture-app||integration_root",
-    "fixture-app||smoke_runs",
-    "fixture-app|helpers|helper_test",
     "fixture-app|mac_only|mac_test",
     "fixture-app|outer::blk::leaf|leaf_test",
     "fixture-app|outer::inner::tests|inner_file_test",
@@ -57,6 +54,9 @@ test("scan resolves file layout, inline mods, mod tests; tests.rs, #[path], incl
     "fixture-app|tests|tokio_flavored",
     "fixture-app|tests|tokio_plain",
     "fixture-app|tests::nested::deeper|deep_test",
+    "fixture-app||integration_root",
+    "fixture-app|helpers|helper_test",
+    "fixture-app||smoke_runs",
     "fixture-cli|commands::tests|cli_command_test",
     "fixture-core||tool_test",
     "fixture-core|tests|core_test",
@@ -161,6 +161,31 @@ test("loadInventory detects the format by shape and refuses anything else", () =
   assert.equal(loadInventory([t]).format, "static");
   assert.equal(loadInventory({ tests: [t], warnings: [] }).format, "static");
   assert.throws(() => loadInventory({ suites: {} }), /unrecognised/);
+});
+
+test("scan names each integration target: [[test]] name, autotests file stem; lib tests carry none", () => {
+  const inv = scanWorkspace(path.join(fixtures, "scan"));
+  const targeted = inv.tests.filter((t) => t.target).map((t) => `${t.target}@${t.test_name}`);
+  assert.deepEqual(targeted, ["main@integration_root", "main@helper_test", "smoke@smoke_runs"]);
+  assert.ok(inv.tests.filter((t) => t.crate === "fixture-core").every((t) => t.target === undefined));
+});
+
+test("diff keeps a test name shared by two integration targets distinct, statically and against nextest", () => {
+  const t = (target) => ({ crate: "app", target, module_path: "", test_name: "replay_eval" });
+  const before = loadInventory([t("replay"), t("calibration")]);
+  assert.deepEqual(diffInventories(before, loadInventory([t("replay"), t("calibration")])).lost, []);
+  const swapped = diffInventories(before, loadInventory([t("replay"), t("doctor")]));
+  assert.equal(swapped.ok, false);
+  assert.deepEqual(keys(swapped.lost), ["calibration@replay_eval"]);
+  assert.deepEqual(keys(swapped.added), ["doctor@replay_eval"]);
+  const toLib = diffInventories(before, loadInventory([t("replay"), { crate: "app", module_path: "", test_name: "replay_eval" }]));
+  assert.deepEqual(keys(toLib.lost), ["calibration@replay_eval"]);
+  const suite = (name, kind) => ({ "package-name": "app", "binary-name": name, kind, testcases: { replay_eval: {} } });
+  const nextest = loadInventory({ "rust-suites": { "app::replay": suite("replay", "test"), "app::calibration": suite("calibration", "test"), app: suite("app", "lib") } });
+  assert.deepEqual(nextest.tests.map((x) => x.target ?? "").sort(), ["", "calibration", "replay"]);
+  const d = diffInventories(before, nextest);
+  assert.equal(d.ok, true);
+  assert.deepEqual(keys(d.nextestOnly), ["replay_eval"]);
 });
 
 test("diff CLI on an identical inventory exits 0 with zero lost", () => {
