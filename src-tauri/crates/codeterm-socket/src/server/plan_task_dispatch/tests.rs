@@ -406,16 +406,17 @@ impl DispatchRuntime {
         self.mux
             .set_tab_role(&tab_id, AgentRole::Worker, Some(&self.parent_tab_id))
             .unwrap();
-        let (pty_id, _) = self
-            .pty
-            .spawn(
-                None,
-                Some(std::env::current_dir().unwrap().display().to_string()),
-                80,
-                24,
-                HashMap::new(),
-            )
-            .unwrap();
+        let gate = self.pty.spawn_gate();
+        let built = codeterm_service_core::pty::manager::build_session(
+            gate,
+            None,
+            Some(std::env::current_dir().unwrap().display().to_string()),
+            80,
+            24,
+            HashMap::new(),
+        )
+        .unwrap();
+        let (pty_id, _) = self.pty.register_session(None, built);
         self.mux.link_pty(&tab_id, pty_id.clone());
         self.mux.get_tab_mut(&tab_id).unwrap().agent_session_id = Some("session-worker".into());
         (tab_id, pty_id)
