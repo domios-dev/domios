@@ -11,8 +11,8 @@ pub type CheckFuture<'a> =
 
 /// Updater entry points startup calls; the root registers them before `run`.
 pub struct UpdateHooks {
-    pub(crate) bind_status_emitter: fn(AppHandle),
-    pub(crate) check: for<'a> fn(
+    pub bind_status_emitter: fn(AppHandle),
+    pub check: for<'a> fn(
         &'a AppHandle,
         &'a UpdateStateHandle,
         Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
