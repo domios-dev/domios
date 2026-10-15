@@ -9,7 +9,6 @@ use crate::storage::{Storage, StorageConfig};
 use codeterm_sentinel::store::{Create, Owner, Store};
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tauri::Manager;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 

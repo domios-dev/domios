@@ -204,7 +204,7 @@ pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
 pub mod supporter;
 pub(crate) mod supporter_notify;
-pub(crate) mod supporter_tab_state;
+pub mod supporter_tab_state;
 pub mod surface;
 pub mod sync_watcher;
 pub mod tab;
