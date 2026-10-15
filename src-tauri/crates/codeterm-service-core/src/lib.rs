@@ -1,19 +1,18 @@
 pub mod agent;
 pub mod agent_commands;
-mod api;
-mod api_support;
+pub mod api_support;
 pub mod app_runtime;
 pub use codeterm_util::attachments;
 mod autostart;
+pub use autostart::{
+    disable as disable_autostart, enable as enable_autostart, is_enabled as autostart_is_enabled,
+};
 pub mod bridge;
 pub mod bridge_host;
 pub mod bubble;
 pub mod chatbackend;
 pub mod chatpipeline;
 pub mod chatpreprocessor;
-pub mod clipboard_files;
-pub mod commands;
-mod commands_mesh;
 pub mod config;
 pub mod crash;
 pub mod cron;
@@ -24,7 +23,7 @@ mod flow_trace;
 pub mod frontend_bundle_api_version;
 pub mod glance;
 mod instance_lifetime;
-mod keepawake;
+pub mod keepawake;
 mod liveness;
 pub mod lock_hold;
 pub mod logs;
@@ -32,7 +31,7 @@ pub mod mem;
 pub mod mem_host;
 pub mod mem_ops;
 pub mod mesh;
-mod mesh_host;
+pub mod mesh_host;
 pub mod message_markers;
 pub mod multiplexer;
 #[cfg(windows)]
@@ -62,7 +61,6 @@ pub mod storage;
 mod telegram269_wire_contract;
 pub mod transcribe;
 pub mod transcribe_adapter;
-pub mod update;
 pub mod update_state;
 pub mod usage;
 pub mod user_last_activity;
@@ -95,11 +93,7 @@ pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
-pub use api::routes::register_rest_hooks;
-
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
-#[cfg(any(test, feature = "test-support"))]
-pub use api::plan_routes::batch::apply_authorized_batch;
 
 pub fn run(
     context: tauri::Context<crate::app_runtime::Runtime>,
@@ -1029,3 +1023,6 @@ mod windows_rc_ownership_regression;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod persistence_test_support;

@@ -74,7 +74,7 @@ pub fn apply_batch_from_socket(
 
 /// `POST /api/plans/{id}/batch` carries it in the JSON body instead. `check_auth`
 /// upstream proves the client is permitted, which is a different question.
-pub(crate) fn apply_batch_from_http(
+pub fn apply_batch_from_http(
     store: &PlanStore,
     plan_id: &str,
     body: &Value,

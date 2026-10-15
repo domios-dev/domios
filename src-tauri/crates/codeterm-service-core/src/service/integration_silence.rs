@@ -123,14 +123,14 @@ fn evict_oldest_hook_binding_fallback(fallbacks: &mut HookBindingFallbacks) {
     }
 }
 
-pub(crate) struct HookBindingFallbackRetry {
+pub struct HookBindingFallbackRetry {
     provider_id: String,
     session_id: String,
     settled: bool,
 }
 
 impl HookBindingFallbackRetry {
-    pub(crate) fn commit(mut self) {
+    pub fn commit(mut self) {
         settle_hook_binding_fallback_retry(
             &mut hook_binding_fallbacks().lock(),
             &self.provider_id,
@@ -154,7 +154,7 @@ impl Drop for HookBindingFallbackRetry {
     }
 }
 
-pub(crate) fn reserve_hook_binding_fallback_retry(
+pub fn reserve_hook_binding_fallback_retry(
     provider_id: &str,
     session_id: &str,
 ) -> Option<HookBindingFallbackRetry> {
@@ -225,7 +225,7 @@ fn clear_hook_binding_fallback_from(
     }
 }
 
-pub(crate) fn record_hook_binding_source(
+pub fn record_hook_binding_source(
     registry: &AgentRegistry,
     provider_id: &str,
     session_id: &str,
@@ -288,14 +288,14 @@ fn hook_binding_fallback_source_from(
         .map(|(_, fallback)| binding_source_label(fallback.source).to_string())
 }
 
-pub(crate) fn has_hook_binding_fallback(provider_id: &str, session_id: &str) -> bool {
+pub fn has_hook_binding_fallback(provider_id: &str, session_id: &str) -> bool {
     hook_binding_fallbacks()
         .lock()
         .get(provider_id)
         .is_some_and(|sessions| sessions.contains_key(session_id))
 }
 
-pub(crate) fn integration_status_with_binding_fallback(
+pub fn integration_status_with_binding_fallback(
     status: Json,
     provider_id: &str,
     has_hooks: bool,

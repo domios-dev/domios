@@ -8,7 +8,7 @@ use crate::multiplexer::types::Tab;
 pub use codeterm_types::pty::{BootStage, BootStageSink, ProvisionalLaunch};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum RestartReadiness {
+pub enum RestartReadiness {
     Ready {
         pty_id: String,
     },
@@ -23,7 +23,7 @@ pub(crate) enum RestartReadiness {
 
 /// `replaced_pty_id: None` is an in-place relaunch on the tab's own PTY; its
 /// caller retires the prior stage first, so only the new launch can be ready.
-pub(crate) fn classify_restart_readiness(
+pub fn classify_restart_readiness(
     pty_id: Option<&str>,
     stage: Option<BootStage>,
     failure_reason: Option<&str>,
@@ -127,7 +127,7 @@ pub(crate) fn session_allows_user_readiness(tab: &Tab) -> bool {
 
 /// A provider started inside the tab's own shell, outside any owned launch,
 /// proved itself with this PTY's nonce. No launch pipeline will ever seal it.
-pub(crate) fn binding_observes_in_tab_launch(tab: &Tab) -> bool {
+pub fn binding_observes_in_tab_launch(tab: &Tab) -> bool {
     let shell_stage = matches!(
         tab.boot_stage,
         None | Some(
@@ -294,7 +294,7 @@ impl ServiceContext {
     /// Set the tab's current boot stage (for late attachers reading the
     /// snapshot) and fan the transition out on the event bridge. Fire-and-forget
     /// — never blocks the launch thread.
-    pub(crate) fn emit_boot_stage(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+    pub fn emit_boot_stage(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
         if stage == BootStage::AgentReady {
             let pending_binding = {
                 let mux = self.mux.read();
@@ -349,7 +349,7 @@ impl ServiceContext {
         self.finish_boot_stage_transition(tab_id, stage, reason);
     }
 
-    pub(crate) fn reconcile_validated_rebind_boot(&self, tab_id: &str, session_id: &str) {
+    pub fn reconcile_validated_rebind_boot(&self, tab_id: &str, session_id: &str) {
         let stage = BootStage::PtyReattached;
         if self.record_boot_stage_transition(tab_id, stage, None, |tab| {
             tab.agent_session_id.as_deref() == Some(session_id)
@@ -535,7 +535,7 @@ impl ServiceContext {
     /// A nonce-verified session-start report is the agent naming itself on its
     /// own launch, which disproves a failure another observer already latched.
     /// Event-driven by the proof's arrival — never a poll or a retry.
-    pub(crate) fn reconcile_boot_stage_with_session_binding(&self, tab_id: &str) {
+    pub fn reconcile_boot_stage_with_session_binding(&self, tab_id: &str) {
         let contradicted =
             self.record_boot_stage_transition(tab_id, BootStage::AgentReady, None, |tab| {
                 if !binding_disproves_latched_failure(tab) {

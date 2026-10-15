@@ -1,3 +1,4 @@
+use super::test_fixture::fixture;
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -227,113 +228,6 @@ fn the_unregistered_diagnosis_points_away_from_rebind() {
     let error = PlanAuthorityError::SessionUnregistered;
     assert_eq!(error.diagnostic_type(), "plan_binding_session_unregistered");
     assert!(!error.is_retryable());
-}
-
-fn fixture() -> (
-    ServiceFixture,
-    String,
-    AuthenticatedPlanCaller,
-    AuthenticatedPlanCaller,
-) {
-    let (mut mux, _) = MultiplexerState::new();
-    let workspace = mux.list_workspaces()[0].id.clone();
-    let owner = mux.create_tab(&workspace).unwrap();
-    mux.set_orchestrator_role(&owner).unwrap();
-    let planner = mux.create_tab(&workspace).unwrap();
-    let team_id = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
-    for (tab_id, session, nonce) in [
-        (&owner, "owner-session", "owner-nonce"),
-        (&planner, "planner-session", "planner-nonce"),
-    ] {
-        let tab = mux.get_tab_mut(tab_id).unwrap();
-        tab.agent_session_id = Some(session.into());
-        tab.session_binding_nonce = Some(nonce.into());
-        tab.reported_session_binding_nonce = Some(nonce.into());
-        // Make the tab pass `tab_has_live_agent` so the stale-after-relaunch
-        // proof (which requires a genuinely live tab) is exercised.
-        tab.agent_type = Some("provider-neutral".into());
-        tab.chat_view = true;
-        tab.pty_id = Some(format!("pty-{tab_id}"));
-    }
-    {
-        let tab = mux.get_tab_mut(&planner).unwrap();
-        tab.role = Some(AgentRole::Manager);
-        tab.role_profile = Some("planner".into());
-        tab.parent_tab_id = Some(owner.clone());
-        tab.team_id = Some(team_id.clone());
-    }
-    let fixture = ServiceFixture::new(mux);
-    let mut plan = Plan::new(
-        "Draft graph".into(),
-        fixture.temp.path().display().to_string(),
-        OrchestratorRef {
-            tab_id: Some(owner.clone()),
-            session_id: Some("owner-session".into()),
-            title: None,
-        },
-    );
-    plan.team_id = Some(team_id);
-    fixture.service.plan_store.save(&mut plan, 1).unwrap();
-    let caller = |tab_id: String, session: &str, nonce: &str| AuthenticatedPlanCaller {
-        tab_id: Some(tab_id),
-        session_id: Some(session.into()),
-        binding_nonce: Some(nonce.into()),
-    };
-    (
-        fixture,
-        plan.id,
-        caller(planner, "planner-session", "planner-nonce"),
-        caller(owner, "owner-session", "owner-nonce"),
-    )
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn http_plan_authority_wait_does_not_block_another_request() {
-    let (fixture, plan_id, _, owner) = fixture();
-    let owner_tab_id = owner.tab_id.clone().unwrap();
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&owner_tab_id).unwrap();
-        tab.agent_session_id = None;
-        tab.reported_session_binding_nonce = None;
-        tab.boot_stage = Some(BootStage::ProviderReady);
-        tab.agent_set_at = Some(
-            std::time::Instant::now() - crate::service::worker_ack::STARTUP_BINDING_DEADLINE
-                + std::time::Duration::from_secs(3),
-        );
-    }
-    let pending_service = std::sync::Arc::new(fixture.service.clone());
-    let pending_plan = plan_id.clone();
-    let pending = tokio::spawn(async move {
-        crate::api::plan_routes::authorize_plan_orchestrator_http(
-            &pending_service,
-            &pending_plan,
-            owner,
-        )
-        .await
-    });
-    tokio::task::yield_now().await;
-    assert!(!pending.is_finished());
-
-    crate::api::plan_routes::authorize_plan_orchestrator_http(
-        &std::sync::Arc::new(fixture.service.clone()),
-        &plan_id,
-        AuthenticatedPlanCaller::default(),
-    )
-    .await
-    .expect("a concurrent user plan write can complete while the launch binding is pending");
-
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&owner_tab_id).unwrap();
-        tab.agent_session_id = Some("owner-session".into());
-        tab.reported_session_binding_nonce = Some("owner-nonce".into());
-    }
-    crate::service::general_agent::binding_wait::notify_binding_state_changed();
-    pending
-        .await
-        .expect("pending HTTP authorization task must finish")
-        .expect("binding event must release the pending authorization");
 }
 
 #[test]

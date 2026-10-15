@@ -21,7 +21,7 @@ fn signal() -> &'static BindingSignal {
     })
 }
 
-pub(crate) fn notify_binding_state_changed() {
+pub fn notify_binding_state_changed() {
     let signal = signal();
     let generation = {
         let mut generation = signal.generation.lock();

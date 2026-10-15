@@ -10,7 +10,7 @@ use crate::service::ServiceContext;
 pub mod close;
 mod close_busy;
 mod storage_teardown;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use close::close_team_with_state_change;
 #[cfg(test)]
 use close::close_team_with_state_change_using;
@@ -54,7 +54,7 @@ impl TeamMutationCaller {
         }
     }
 
-    pub(crate) fn kind(&self) -> &'static str {
+    pub fn kind(&self) -> &'static str {
         match self {
             Self::AgentTab(_) => "AgentTab",
             Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
@@ -628,11 +628,7 @@ impl ServiceContext {
             .map(|outcome| outcome.mode)
     }
 
-    pub fn unarchive_team_plan(
-        &self,
-        plan_id: &str,
-        now_ms: u64,
-    ) -> Result<(), TeamPlanError> {
+    pub fn unarchive_team_plan(&self, plan_id: &str, now_ms: u64) -> Result<(), TeamPlanError> {
         let mux = self.mux.read();
         self.valid_live_plan_team(&mux, plan_id)?;
         self.plan_store
@@ -823,7 +819,10 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
     .map_err(TeamPlanError::Team)
 }
 
-pub fn live_team_planner_ref(mux: &MultiplexerState, team_id: &str) -> Option<crate::plan::PlannerRef> {
+pub fn live_team_planner_ref(
+    mux: &MultiplexerState,
+    team_id: &str,
+) -> Option<crate::plan::PlannerRef> {
     let mut planners = mux.all_tabs().filter(|tab| {
         tab.team_id.as_deref() == Some(team_id)
             && tab.role == Some(AgentRole::Manager)

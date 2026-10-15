@@ -6,7 +6,7 @@ use crate::session::lifecycle::{LifecycleKey, LifecycleTransition, TabLifecycleJ
 use super::ServiceContext;
 
 impl ServiceContext {
-    pub(crate) fn note_session_conversation(&self, tab_id: &str, session_id: &str) {
+    pub fn note_session_conversation(&self, tab_id: &str, session_id: &str) {
         let key = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
@@ -172,11 +172,7 @@ pub(crate) fn append_minted(
     append(journal, key, transition);
 }
 
-pub(crate) fn append(
-    journal: &TabLifecycleJournal,
-    key: LifecycleKey,
-    transition: LifecycleTransition,
-) {
+pub fn append(journal: &TabLifecycleJournal, key: LifecycleKey, transition: LifecycleTransition) {
     let label = transition.label();
     if let Err(error) = journal.append(key.clone(), transition) {
         log::warn!(

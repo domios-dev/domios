@@ -246,7 +246,7 @@ pub(crate) fn restore(
 }
 
 impl super::ServiceContext {
-    pub(crate) fn prepare_chat_send_text(
+    pub fn prepare_chat_send_text(
         &self,
         tab_id: &str,
         text: String,

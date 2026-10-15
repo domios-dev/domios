@@ -11,20 +11,20 @@ use crate::agent::provider::PermissionHookCapability;
 use crate::service::{ServiceContext, ServiceState};
 
 const ENABLED_KEY: &str = "permission_hook_decisions";
-pub(crate) const DEADLINE: Duration = Duration::from_secs(60);
+pub const DEADLINE: Duration = Duration::from_secs(60);
 
-pub(crate) fn enabled(config: Option<&codeterm_types::config::schema::ProviderConfig>) -> bool {
+pub fn enabled(config: Option<&codeterm_types::config::schema::ProviderConfig>) -> bool {
     config
         .and_then(|config| config.extra.get(ENABLED_KEY))
         .and_then(toml::Value::as_bool)
         == Some(true)
 }
 
-pub(crate) fn is_permission_request(body: &Value) -> bool {
+pub fn is_permission_request(body: &Value) -> bool {
     body.get("hook_event_name").and_then(Value::as_str) == Some("PermissionRequest")
 }
 
-pub(crate) async fn wait_for_answer(
+pub async fn wait_for_answer(
     receiver: oneshot::Receiver<Answer>,
     deadline: Duration,
 ) -> Option<Answer> {
@@ -35,27 +35,27 @@ pub(crate) async fn wait_for_answer(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Answer {
+pub enum Answer {
     Allow,
     Deny,
 }
 
-pub(crate) struct Request {
-    pub(crate) id: String,
-    pub(crate) session_id: String,
-    pub(crate) nonce: String,
-    pub(crate) prompt: PendingPrompt,
-    pub(crate) answers: Vec<Answer>,
-    pub(crate) sender: Option<oneshot::Sender<Answer>>,
+pub struct Request {
+    pub id: String,
+    pub session_id: String,
+    pub nonce: String,
+    pub prompt: PendingPrompt,
+    pub answers: Vec<Answer>,
+    pub sender: Option<oneshot::Sender<Answer>>,
 }
 
 #[derive(Default)]
-pub(crate) struct Broker {
+pub struct Broker {
     requests: HashMap<String, VecDeque<Request>>,
 }
 
 impl Broker {
-    pub(crate) fn register(&mut self, tab_id: &str, request: Request) -> bool {
+    pub fn register(&mut self, tab_id: &str, request: Request) -> bool {
         let requests = self.requests.entry(tab_id.into()).or_default();
         if requests.iter().any(|pending| pending.id == request.id) {
             return false;
@@ -121,9 +121,9 @@ impl Broker {
     }
 }
 
-pub(crate) static BROKER: LazyLock<Mutex<Broker>> = LazyLock::new(|| Mutex::new(Broker::default()));
+pub static BROKER: LazyLock<Mutex<Broker>> = LazyLock::new(|| Mutex::new(Broker::default()));
 
-pub(crate) fn decision(answer: Option<Answer>) -> Value {
+pub fn decision(answer: Option<Answer>) -> Value {
     match answer {
         Some(answer) => json!({"hookSpecificOutput": {
             "hookEventName": "PermissionRequest",
@@ -133,7 +133,7 @@ pub(crate) fn decision(answer: Option<Answer>) -> Value {
     }
 }
 
-pub(crate) fn answers(capability: &PermissionHookCapability) -> Option<Vec<Answer>> {
+pub fn answers(capability: &PermissionHookCapability) -> Option<Vec<Answer>> {
     if capability.protocol != "claude-permission-request"
         || capability.options.len() != 2
         || capability.options.iter().any(|option| {
@@ -157,7 +157,7 @@ pub(crate) fn answers(capability: &PermissionHookCapability) -> Option<Vec<Answe
     (answers.contains(&Answer::Allow) && answers.contains(&Answer::Deny)).then_some(answers)
 }
 
-pub(crate) fn prompt(
+pub fn prompt(
     tool: &str,
     input: &Value,
     id: &str,
@@ -193,11 +193,11 @@ pub(crate) fn pending_for_tab(tab_id: &str) -> Option<PendingPrompt> {
         .map(|request| request.prompt.clone())
 }
 
-pub(crate) fn clear_tab(tab_id: &str) {
+pub fn clear_tab(tab_id: &str) {
     BROKER.lock().requests.remove(tab_id);
 }
 
-pub(crate) fn notify(
+pub fn notify(
     svc: &ServiceContext,
     tab_id: &str,
     title: &str,
@@ -211,11 +211,11 @@ pub(crate) fn notify(
     )
 }
 
-pub(crate) struct PendingGuard {
-    pub(crate) svc: ServiceState,
-    pub(crate) tab_id: String,
-    pub(crate) id: String,
-    pub(crate) identity: PromptIdentity,
+pub struct PendingGuard {
+    pub svc: ServiceState,
+    pub tab_id: String,
+    pub id: String,
+    pub identity: PromptIdentity,
 }
 
 fn hook_identity(identity: &PromptIdentity) -> bool {
@@ -226,7 +226,7 @@ fn hook_identity(identity: &PromptIdentity) -> bool {
             .any(|option| option.value.starts_with("permission:"))
 }
 
-pub(crate) fn sync_display(svc: &ServiceContext, tab_id: &str) {
+pub fn sync_display(svc: &ServiceContext, tab_id: &str) {
     let prompt = {
         let mut mux = svc.mux.write();
         let Some(tab) = mux.get_tab_mut(tab_id) else {

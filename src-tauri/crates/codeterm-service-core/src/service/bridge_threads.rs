@@ -59,7 +59,7 @@ impl ServiceContext {
         self.mux.read().get_tab(tab_id).is_some()
     }
 
-    pub(crate) fn bridge_is_general_tab(&self, tab_id: &str) -> bool {
+    pub fn bridge_is_general_tab(&self, tab_id: &str) -> bool {
         self.mux.read().resolve_tab_id(GENERAL_ALIAS).as_deref() == Some(tab_id)
     }
 
@@ -106,14 +106,14 @@ impl ServiceContext {
             .await
     }
 
-    pub(crate) async fn close_bridge_thread(&self, tab_id: &str) -> Vec<CloseOutcome> {
+    pub async fn close_bridge_thread(&self, tab_id: &str) -> Vec<CloseOutcome> {
         let tab_id = self.canonical_tab_id(tab_id);
         self.ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
             .close_tab(&tab_id)
             .await
     }
 
-    pub(crate) async fn bridge_thread_menu_state(&self, tab_id: &str) -> ThreadMenuState {
+    pub async fn bridge_thread_menu_state(&self, tab_id: &str) -> ThreadMenuState {
         let tab_id = self.canonical_tab_id(tab_id);
         let mut state = self
             .ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()

@@ -52,7 +52,7 @@ impl From<String> for SearchError {
 }
 
 impl SearchError {
-    pub(crate) fn into_http(self) -> (StatusCode, String) {
+    pub fn into_http(self) -> (StatusCode, String) {
         match self {
             Self::InvalidParams(message) => (StatusCode::BAD_REQUEST, message),
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
@@ -68,9 +68,7 @@ pub(crate) trait RecallBackend {
 }
 
 /// Recall and stage 2 block on SQLite and adapter IO, so they never run on the async runtime.
-pub(crate) async fn run_blocking_search<F>(
-    search: F,
-) -> Result<serde_json::Value, (StatusCode, String)>
+pub async fn run_blocking_search<F>(search: F) -> Result<serde_json::Value, (StatusCode, String)>
 where
     F: FnOnce() -> Result<serde_json::Value, SearchError> + Send + 'static,
 {

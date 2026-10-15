@@ -42,7 +42,7 @@ pub fn is_linked_worktree(cwd: &Path) -> bool {
     git_checkout_paths(cwd).is_some_and(|(git_dir, common_dir)| git_dir != common_dir)
 }
 
-pub(crate) fn primary_checkout(cwd: &Path) -> Option<PathBuf> {
+pub fn primary_checkout(cwd: &Path) -> Option<PathBuf> {
     let (_, common_dir) = git_checkout_paths(cwd)?;
     let primary = normalize_path(common_dir.parent()?.to_str()?);
     if !git_is_primary_checkout(&primary) {
@@ -246,7 +246,7 @@ pub fn provision_isolated_lane(
     provision_lane(canonical_cwd, lane_label)
 }
 
-pub(crate) fn provision_isolated_lane_at_base(
+pub fn provision_isolated_lane_at_base(
     canonical_cwd: &str,
     lane_label: &str,
     base: &str,
@@ -298,7 +298,7 @@ pub fn repository_identities(cwd: &str) -> Result<Vec<String>, String> {
     Ok(identities)
 }
 
-pub(crate) fn repository_matches(
+pub fn repository_matches(
     cwd: &str,
     expected_identities: &[String],
     legacy_identity: &str,
@@ -306,7 +306,7 @@ pub(crate) fn repository_matches(
     matching_remote_for_identity(cwd, expected_identities, legacy_identity).is_some()
 }
 
-pub(crate) fn matching_remote_for_identity(
+pub fn matching_remote_for_identity(
     cwd: &str,
     expected_identities: &[String],
     legacy_identity: &str,
@@ -352,7 +352,7 @@ pub(crate) fn matching_remote(cwd: &str, expected_identities: &[String]) -> Opti
     None
 }
 
-pub(crate) fn fetch_base_commit(cwd: &str, remote: &str, commit: &str) -> Result<(), String> {
+pub fn fetch_base_commit(cwd: &str, remote: &str, commit: &str) -> Result<(), String> {
     const DEADLINE: Duration = Duration::from_secs(30);
     if remote.is_empty() || remote.starts_with('-') {
         return Err("matched Git remote name is invalid".into());
@@ -389,7 +389,7 @@ pub(crate) fn fetch_base_commit(cwd: &str, remote: &str, commit: &str) -> Result
     }
 }
 
-pub(crate) fn contains_commit(cwd: &str, commit: &str) -> bool {
+pub fn contains_commit(cwd: &str, commit: &str) -> bool {
     !commit.trim().is_empty()
         && git_value(
             cwd,
@@ -398,7 +398,7 @@ pub(crate) fn contains_commit(cwd: &str, commit: &str) -> bool {
         .is_ok()
 }
 
-pub(crate) fn is_ancestor(cwd: &str, ancestor: &str, descendant: &str) -> bool {
+pub fn is_ancestor(cwd: &str, ancestor: &str, descendant: &str) -> bool {
     git_success(cwd, &["merge-base", "--is-ancestor", ancestor, descendant])
 }
 
@@ -868,7 +868,7 @@ fn inspect_failure(stderr: &[u8]) -> String {
     )
 }
 
-pub(crate) fn git_value<'a>(
+pub fn git_value<'a>(
     project_cwd: &str,
     args: impl IntoIterator<Item = &'a str>,
 ) -> Result<String, String> {

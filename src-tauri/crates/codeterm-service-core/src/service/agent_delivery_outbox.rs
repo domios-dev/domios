@@ -12,7 +12,7 @@ enum AgentWriteResult {
 }
 
 impl ServiceContext {
-    pub(crate) fn deliver_agent_payload(
+    pub fn deliver_agent_payload(
         &self,
         target: &str,
         mut payload: AgentDeliveryPayload,

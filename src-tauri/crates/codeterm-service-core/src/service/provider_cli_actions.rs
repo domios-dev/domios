@@ -100,7 +100,7 @@ pub fn launch(
     })
 }
 
-pub(crate) fn launch_with_dispatch(
+pub fn launch_with_dispatch(
     svc: &ServiceContext,
     provider: &str,
     operation: CliOperation,

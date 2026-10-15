@@ -12,7 +12,7 @@ use crate::service::ServiceContext;
 mod worker_transfer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AgentPlacement {
+pub enum AgentPlacement {
     Roleless,
     Worker {
         parent_tab_id: String,
@@ -56,7 +56,7 @@ impl AgentPlacement {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AgentTransitionRequest {
+pub struct AgentTransitionRequest {
     pub tab_id: String,
     pub destination: AgentPlacement,
     /// Plan this placement binds to as planner. An occasion, not a tier.
@@ -149,7 +149,7 @@ impl ServiceContext {
 
     /// A Planner's parent resolves from the plan's owner, not a refusal.
     /// Placement and planner binding commit in one transaction.
-    pub(crate) fn place_planner_on_plan(
+    pub fn place_planner_on_plan(
         &self,
         tab_id: &str,
         plan_id: &str,
@@ -193,10 +193,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn transition_agent(
-        &self,
-        request: AgentTransitionRequest,
-    ) -> Result<Vec<String>, String> {
+    pub fn transition_agent(&self, request: AgentTransitionRequest) -> Result<Vec<String>, String> {
         self.transition_agent_with_failure(request, TransitionFailurePoint::None)
     }
 

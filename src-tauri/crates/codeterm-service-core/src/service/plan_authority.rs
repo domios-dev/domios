@@ -182,7 +182,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) async fn authorize_plan_orchestrator_async(
+    pub async fn authorize_plan_orchestrator_async(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -301,7 +301,7 @@ impl ServiceContext {
             .map_err(String::from)
     }
 
-    pub(crate) fn authorize_draft_structure_mutation_typed(
+    pub fn authorize_draft_structure_mutation_typed(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -309,7 +309,7 @@ impl ServiceContext {
         self.classify_planning_caller(plan_id, caller)
     }
 
-    pub(crate) async fn authorize_draft_structure_mutation_async(
+    pub async fn authorize_draft_structure_mutation_async(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -339,7 +339,7 @@ impl ServiceContext {
         .unwrap_or(Err(PlanAuthorityError::SessionBindingPending))
     }
 
-    pub(crate) async fn classify_planning_caller_async(
+    pub async fn classify_planning_caller_async(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -543,7 +543,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) async fn authorize_execution_action_async(
+    pub async fn authorize_execution_action_async(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -570,7 +570,7 @@ impl ServiceContext {
         Ok((detail.plan_id, detail.task.id))
     }
 
-    pub(crate) async fn authorize_task_execution_action_async(
+    pub async fn authorize_task_execution_action_async(
         &self,
         task_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -660,4 +660,7 @@ pub fn ensure_planner_task_fields_are_structural(
 }
 
 #[cfg(test)]
-pub mod tests;
+mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod test_fixture;

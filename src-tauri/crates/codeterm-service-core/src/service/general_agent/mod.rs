@@ -123,3 +123,5 @@ mod tests {
 pub(crate) use lifecycle::restart_general_agent_with_force;
 
 mod restart_guard;
+
+pub use binding_wait::notify_binding_state_changed;

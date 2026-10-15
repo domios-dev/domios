@@ -8,7 +8,7 @@ use crate::service::ServiceState;
 
 pub use codeterm_mem::curation::merge::*;
 
-pub(crate) fn merge_error_status(err: &MergeError) -> StatusCode {
+pub fn merge_error_status(err: &MergeError) -> StatusCode {
     StatusCode::from_u16(err.status_code()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
 }
 

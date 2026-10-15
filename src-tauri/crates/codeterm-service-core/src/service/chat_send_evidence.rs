@@ -458,7 +458,7 @@ impl ServiceContext {
         self.settle_pending_delivery_receipt(tab_id);
     }
 
-    pub(crate) async fn reconcile_chat_send_hook(&self, tab_id: &str) {
+    pub async fn reconcile_chat_send_hook(&self, tab_id: &str) {
         let service = self.clone();
         let tab_id = tab_id.to_string();
         if let Err(error) = tokio::task::spawn_blocking(move || {

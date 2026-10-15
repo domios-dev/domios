@@ -100,7 +100,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn schedule_session_model_refresh_after_stop(&self, tab_id: &str) -> bool {
+    pub fn schedule_session_model_refresh_after_stop(&self, tab_id: &str) -> bool {
         if self.observe_post_launch_turn_after_stop(tab_id) {
             return true;
         }

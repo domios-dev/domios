@@ -142,7 +142,7 @@ enum PersistenceBackend {
 
 /// `Ok(RefusedReduction)` is the guard succeeding (fuller desk kept on disk,
 /// already logged at error by the store); `Err` is a genuine persist failure.
-pub(crate) fn write_session_snapshot(
+pub fn write_session_snapshot(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
 ) -> Result<SaveOutcome, String> {
@@ -169,7 +169,7 @@ pub(crate) fn submit_session_snapshot_with_intent(
     worker.submit_current(mux, intent, false).map(|_| ())
 }
 
-pub(crate) fn write_captured_snapshot_with_live_identities(
+pub fn write_captured_snapshot_with_live_identities(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     captured: &crate::session::SessionSnapshot,
@@ -184,7 +184,7 @@ pub(crate) fn write_captured_snapshot_with_live_identities(
         .ok_or_else(|| "desk persistence barrier returned no outcome".to_string())
 }
 
-pub(crate) fn install_storage_desk_adapter(
+pub fn install_storage_desk_adapter(
     app: &crate::app_runtime::AppHandle,
     adapter: crate::session::store::StorageDeskAdapter,
 ) -> Result<(), String> {

@@ -1,5 +1,6 @@
 mod detail;
 pub(crate) mod files;
+pub use files::FileReference;
 mod history;
 mod runs;
 pub use codeterm_sentinel::identity::{identity, scope_revision, Identity};
