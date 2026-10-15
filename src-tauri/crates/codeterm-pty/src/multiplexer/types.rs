@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+mod activity;
 mod shell;
 pub use shell::{CloseRestoreTabState, ShellActivity, ShellCommandState, ShellPurpose};
 mod managed_tab;
