@@ -340,13 +340,3 @@ fn existing_team_second_plan_preserves_hard_refuse() {
     ));
     assert_eq!(harness.plan_store.list_index().len(), 1);
 }
-
-#[test]
-fn tauri_mock_app_handle_constructs_and_drops() {
-    let app = tauri::test::mock_builder()
-        .build(tauri::test::mock_context(tauri::test::noop_assets()))
-        .unwrap();
-    let handle = app.handle().clone();
-    drop(handle);
-    drop(app);
-}

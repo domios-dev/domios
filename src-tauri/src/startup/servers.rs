@@ -425,6 +425,7 @@ pub(crate) fn start_servers(
             codeterm_service_core::startup::frontend_bundles_check(bundles.clone());
         }
         let rest_inputs = codeterm_api::routes::AppState {
+            app: app_handle.clone(),
             svc: service_state.clone(),
             cron: cron_state.clone(),
             cron_wake: cron_wake.clone(),
@@ -534,7 +535,6 @@ pub(crate) fn start_servers(
             let pty = states.pty.clone();
             let screen_state = states.screen_state.clone();
             let config_state = states.config.clone();
-            let app_h = app_handle.clone();
             let frontend_ready_deadline =
                 std::time::Instant::now() + std::time::Duration::from_secs(30);
 
@@ -553,7 +553,6 @@ pub(crate) fn start_servers(
                     &pty,
                     &screen_state,
                     &config_state,
-                    &app_h,
                 );
             });
         }
