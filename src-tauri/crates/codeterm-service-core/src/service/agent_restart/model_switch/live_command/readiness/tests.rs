@@ -1,12 +1,11 @@
 use super::*;
 
-const MANIFEST: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../plugins/provider-claude/plugin.json"
-);
+fn plugin_manifest() -> std::path::PathBuf {
+    crate::test_support::fixture_manifest_dir().join("../../../plugins/provider-claude/plugin.json")
+}
 
 fn fixture(name: &str) -> String {
-    let path = std::path::Path::new(MANIFEST)
+    let path = plugin_manifest()
         .parent()
         .unwrap()
         .join("tests/fixtures/model-switch")
@@ -16,7 +15,7 @@ fn fixture(name: &str) -> String {
 
 fn declared() -> (Arc<CommandReadiness>, String, ComposerInputState) {
     let manifest: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(MANIFEST).unwrap()).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(plugin_manifest()).unwrap()).unwrap();
     let commands =
         serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap();
     let target = CommandTarget {
@@ -31,7 +30,7 @@ fn declared() -> (Arc<CommandReadiness>, String, ComposerInputState) {
         readiness: None,
     };
     let provider: Arc<dyn crate::agent::provider::AgentProvider> =
-        Arc::new(crate::plugin::js_runtime::load_one(std::path::Path::new(MANIFEST)).unwrap());
+        Arc::new(crate::plugin::js_runtime::load_one(&plugin_manifest()).unwrap());
     let readiness = CommandReadiness::from_declaration(&commands, &target, provider)
         .unwrap()
         .unwrap();
