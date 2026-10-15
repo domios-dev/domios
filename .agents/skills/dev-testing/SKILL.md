@@ -5,6 +5,8 @@ description: Test Domios dev instance via API and look at its UI. Use when you n
 
 # Dev Testing
 
+For an owner-requested integrated all-tab round, follow `evals/startup-matrix/README.md` and `EXPLORE.md`, including its event and no-loss extension; keep it local and on request.
+
 Test Domios dev instance (port 7686) by interacting with agents via REST API and verifying mem state.
 
 ## ⚠ Hard rule: never `codeterm` CLI for dev work
