@@ -58,13 +58,21 @@ mod tests {
         use std::path::Path;
         let manifest = codeterm_service_core::test_support::fixture_manifest_dir();
         let frontend = Path::new(manifest).join("../../../src");
-        let backend = Path::new(manifest).join("src");
+        let crates = Path::new(manifest).join("..");
 
         let packages = Path::new(manifest).join("../../../packages");
         let mut frontend_sources = read_sources(&frontend, &["ts", "tsx", "js", "jsx"]);
         frontend_sources.extend(read_sources(&packages, &["ts", "tsx", "js", "jsx"]));
         frontend_sources.retain(|(path, _)| !path.to_string_lossy().contains(".test."));
-        let backend_sources = read_sources(&backend, &["rs"]);
+        let backend_sources: Vec<_> = [
+            "codeterm-service-core",
+            "codeterm-api",
+            "codeterm-socket",
+            "codeterm-commands",
+        ]
+        .iter()
+        .flat_map(|krate| read_sources(&crates.join(krate).join("src"), &["rs"]))
+        .collect();
         let const_re =
             regex::Regex::new(r#"const\s+(\w+)\s*(?::[^=;]+)?=\s*["']([^"']+)["']"#).unwrap();
         let mut constants = std::collections::BTreeMap::<String, BTreeSet<String>>::new();
@@ -114,8 +122,7 @@ mod tests {
 
         // Typed bus names = string literals returned by `SystemEvent::type_name`.
         let events_src =
-            std::fs::read_to_string(Path::new(manifest).join("crates/codeterm-events/src/lib.rs"))
-                .unwrap();
+            std::fs::read_to_string(crates.join("codeterm-events/src/lib.rs")).unwrap();
         let tn_start = events_src.find("fn type_name").expect("type_name fn");
         let tn_len = events_src[tn_start..]
             .find("\n    }")
