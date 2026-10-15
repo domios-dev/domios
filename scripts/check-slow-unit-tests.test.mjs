@@ -67,15 +67,23 @@ describe('build nextest ratchet', () => {
     writeFileSync(join(root, 'gate.sh'), 'set -e\nenter_build_gateway() { :; }\nprepare_dev_frontend_dist() { :; }\nprepare_bundle_stubs() { :; }\nprepare_exceptional_worktree_target() { :; }\ncargo() { printf \"%s\\n\" \"$*\" >> \"$FIXTURE_CARGO_LOG\"; printf \"{}\\n\"; }\nCMD=nextest\n' + fn + '\nrun_nextest_scope "${FIXTURE_SCOPE:-app}"\n');
   });
   after(() => rmSync(root, {recursive: true, force: true}));
-  const run = (report, code, scope = 'app') => {
+  const run = (report, code, scope = 'app', base = 'HEAD') => {
     writeFileSync(join(root, 'nextest.log'), report);
     writeFileSync(join(root, 'cargo-args.log'), '');
     return spawnSync('bash', ['gate.sh'], {cwd: root, encoding: 'utf8', env: {
-      ...process.env, FIXTURE_SCOPE: scope, FIXTURE_CARGO_LOG: join(root, 'cargo-args.log'), FIXTURE_REPORT: join(root, 'nextest.log'), FIXTURE_RUN_EXIT: String(code), SLOW_UNIT_TESTS_BASE: 'HEAD',
+      ...process.env, FIXTURE_SCOPE: scope, FIXTURE_CARGO_LOG: join(root, 'cargo-args.log'), FIXTURE_REPORT: join(root, 'nextest.log'), FIXTURE_RUN_EXIT: String(code), SLOW_UNIT_TESTS_BASE: base,
     }});
   };
   const output = (status, seconds) => `${status} [ ${seconds}s] (1/1) codeterm opaque\nSummary [ ${seconds}s] 1 tests run\n`;
   test('accepts a fast executed unit', () => assert.equal(run(output('PASS', 0.2), 0).status, 0));
+  test('compares at the fork point, ignoring a later incompatible baseline on the base', () => {
+    const git = (...args) => execFileSync('git', ['-C', root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...args]);
+    git('branch', '-f', 'moved-base', 'HEAD');
+    git('worktree', 'add', '-q', join(root, 'moved'), 'moved-base');
+    writeFileSync(join(root, 'moved/scripts/slow-unit-tests.json'), JSON.stringify({version: 1, entries: [{key: 'opaque', measuredSeconds: 2}]}));
+    git('-C', join(root, 'moved'), 'commit', '-qam', 'incompatible baseline');
+    assert.equal(run(output('PASS', 0.2), 0, 'app', 'moved-base').status, 0);
+  });
   test('recording scope compiles both isolated libraries once without app preparation', () => {
     assert.equal(run(output('PASS', 0.2), 0, 'input-platform').status, 0);
     const calls = readFileSync(join(root, 'cargo-args.log'), 'utf8').trim().split('\n');
