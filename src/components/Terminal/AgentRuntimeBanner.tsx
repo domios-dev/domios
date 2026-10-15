@@ -15,21 +15,22 @@ export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg }: { tabId?:
     </>;
   }
   const view = runtimeStatusPresentation(state);
-  return view || issues.length ? <RuntimeStatusBadge view={view} issues={issues} onRetry={onRetry} /> : null;
+  return <RuntimeStatusBadge view={view} issues={issues} onRetry={onRetry} />;
 }
 
 function RuntimeStatusBadge({ view, issues, onRetry }: { view: ReturnType<typeof runtimeStatusPresentation>; issues: ActionableComposerIssue[]; onRetry: () => void }) {
   const { open, triggerRef, popoverRef, toggle } = useRuntimeStatusPopover();
   const id = useId();
+  const active = Boolean(view || issues.length);
   const transient = !issues.length && view?.severity === "transient";
-  const label = issues.length ? `${issues.length} attachment${issues.length === 1 ? "" : "s"} failed` : view!.label;
-  return <div className="relative z-40 h-0">
+  const label = issues.length ? `${issues.length} attachment${issues.length === 1 ? "" : "s"} failed` : view?.label ?? "Composer status";
+  return <div className="ct-composer-issue relative z-40 h-0" data-active={active} aria-hidden={!active} inert={!active}>
     <div className="absolute bottom-0 left-0 mb-2">
-      <button ref={triggerRef} type="button" aria-label={label} aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? id : undefined}
+      <button ref={triggerRef} type="button" disabled={!active} aria-label={label} aria-expanded={active && open} aria-haspopup={active ? "dialog" : undefined} aria-controls={active && open ? id : undefined}
         onClick={toggle} className={`flex h-6 w-6 items-center justify-center rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] transition-colors hover:bg-[var(--ct-border)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-border-focus)] ${issues.length ? "text-[var(--ct-warn)]" : transient ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-accent)]"}`}>
         {transient ? <TabLoadingIndicator label={label} compact deferred={false} role="img" /> : <CircleAlert size={14} aria-hidden="true" />}
       </button>
-      {open && <div id={id} ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
+      {active && open && <div id={id} ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
         className="ct-menu absolute bottom-full left-0 mb-2 w-64 max-w-[calc(100vw-2rem)] p-3 text-xs text-[var(--ct-fg)]"
         style={{ "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties}>
         {issues.length > 0 && <ul aria-label="Attachment issues" className="max-h-64 space-y-3 overflow-auto">
