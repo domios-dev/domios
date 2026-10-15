@@ -1,3 +1,5 @@
+import { RestoreStatePanel } from "./RestoreStatePanel";
+import { restoreStageView } from "../../lib/restoreStageView";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect } from "react";
@@ -54,7 +56,7 @@ export function TabContent({
   api,
 }: TabContentProps) {
   if (tab?.remote_peer_id) configureRemoteTabTransport(api);
-  useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
+  const wake = useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
   const descriptor = useAgentDescriptor(tab?.agent_type);
   const { providers, loading, error } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
@@ -67,7 +69,11 @@ export function TabContent({
 
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
-  if (tab.frozen) return <div role="status" aria-label="Sleeping tab">Sleeping</div>;
+  const restore = restoreStageView(tab, wake);
+  const showRestore = (tab.frozen || wake.requested) && restore.phase !== "ready" && restore.phase !== "attention";
+  const restorePanel = <RestoreStatePanel providerId={tab.agent_type ?? (tab.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null)}
+    view={restore} onRetry={wake.retry} retrying={wake.pending} />;
+  if (tab.frozen) return <TabWrapper tabId={tab.id}>{restorePanel}</TabWrapper>;
 
   if (isFirstRunGeneralTab(tab)) {
     return (
@@ -146,7 +152,8 @@ export function TabContent({
           </div>
         )}
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
-          {body}
+          <div className="h-full" inert={showRestore || undefined} aria-hidden={showRestore || undefined}>{body}</div>
+          {showRestore && <div className="absolute inset-0 z-20">{restorePanel}</div>}
         </div>
       </div>
     </TabWrapper>
