@@ -43,14 +43,14 @@ pub enum Action {
 
 #[derive(Serialize)]
 pub struct ActionRecord<'a> {
-    pub(crate) kind: VerdictKind,
-    pub(crate) tab: Option<&'a str>,
-    pub(crate) label: &'a str,
-    pub(crate) confidence: f64,
-    pub(crate) action: Action,
-    pub(crate) reason: &'static str,
+    pub kind: VerdictKind,
+    pub tab: Option<&'a str>,
+    pub label: &'a str,
+    pub confidence: f64,
+    pub action: Action,
+    pub reason: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) asked: Option<Vec<super::narrative::QuestionAnswer>>,
+    pub asked: Option<Vec<super::narrative::QuestionAnswer>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
