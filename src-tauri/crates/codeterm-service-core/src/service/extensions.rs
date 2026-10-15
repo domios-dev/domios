@@ -103,6 +103,7 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<LocalRecordingTargets>(),
         key::<MuxEmitPending>(),
         key::<PublishedTabStatuses>(),
+        key::<Arc<crate::service::PublishedMuxState>>(),
         key::<Arc<crate::service::MuxEmitStats>>(),
         key::<crate::service::output_stream_activity::OutputStreamActivityTx>(),
         key::<crate::pasteboard::PasteboardState>(),

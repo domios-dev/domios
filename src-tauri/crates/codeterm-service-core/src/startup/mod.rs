@@ -15,7 +15,6 @@ mod progress;
 pub mod rest_api;
 pub(crate) mod restart_stdio;
 pub use restart_stdio::detach_for_restart as restart_stdio_detach_for_restart;
-pub mod snapshot_bound;
 mod storage;
 
 pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_tab_connected_service};

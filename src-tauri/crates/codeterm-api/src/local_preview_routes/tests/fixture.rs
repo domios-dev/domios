@@ -107,7 +107,6 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
         test_clock: None,
         events: fixture.service.events.clone(),
         web_dist: None,
-        snapshot_bound: codeterm_service_core::startup::snapshot_bound::SnapshotBound::default(),
     }
 }
 

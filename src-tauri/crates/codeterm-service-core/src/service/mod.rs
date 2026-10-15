@@ -91,7 +91,9 @@ pub use prompt_resolution::tests as prompt_resolution_tests;
 pub(crate) mod protocol_recorder;
 pub use protocol_recorder::ProtocolRecorder;
 pub mod provider_cli;
+mod published_mux_state;
 pub use provider_cli::provider_cli_status as provider_cli_provider_cli_status;
+use published_mux_state::PublishedMuxState;
 pub mod provider_cli_actions;
 pub mod provider_hooks;
 pub(crate) mod provider_signals;
@@ -703,6 +705,8 @@ impl ServiceContext {
         let agent_tracker = self.agent_tracker.clone();
         let agent_registry = self.agent_registry.clone();
         let stats = self.ext::<Arc<crate::service::MuxEmitStats>>().clone();
+        let published = self.ext::<Arc<PublishedMuxState>>().clone();
+        let events = self.events.clone();
         let spawned = std::thread::Builder::new()
             .name("mux-emit".into())
             .spawn(move || {
@@ -713,6 +717,13 @@ impl ServiceContext {
                     &pending,
                     std::time::Duration::from_millis(50),
                 );
+                match published.publish(snapshot.generation, &snapshot) {
+                    Ok(true) => {
+                        events.publish_generic("mux-state-changed", serde_json::json!({}));
+                    }
+                    Ok(false) => {}
+                    Err(error) => log::error!("[mux-snapshot] publication failed: {error}"),
+                }
                 if let Err(error) =
                     crate::service::session_persist::submit_session_snapshot_with_intent(
                         &handle,
@@ -735,32 +746,9 @@ impl ServiceContext {
         }
     }
 
-    /// Emit an empty-payload `mux-state-changed` (frontend does a full refetch).
-    /// The socket handlers use this so fault injection (`frozen`) covers EVERY
-    /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
+    /// Socket mutations use the same published view and coalescing as local mutations.
     pub fn emit_mux_state_changed_empty(&self) {
-        self.output_stream_mux_changed();
-        self.ext::<Arc<crate::service::MuxEmitStats>>()
-            .requests
-            .fetch_add(1, Ordering::Relaxed);
-        self.schedule_session_persist_debounced();
-        #[cfg(debug_assertions)]
-        if self
-            .ext::<Arc<crate::service::MuxEmitStats>>()
-            .frozen
-            .load(Ordering::Acquire)
-        {
-            self.ext::<Arc<crate::service::MuxEmitStats>>()
-                .suppressed
-                .fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        let handle = self.app_handle.clone();
-        let stats = self.ext::<Arc<crate::service::MuxEmitStats>>().clone();
-        std::thread::spawn(move || {
-            stats.fires.fetch_add(1, Ordering::Relaxed);
-            let _ = handle.emit("mux-state-changed", ());
-        });
+        self.emit_state_changed();
     }
 
     /// Sleep out the coalesce window, then read a fresh snapshot. The pending

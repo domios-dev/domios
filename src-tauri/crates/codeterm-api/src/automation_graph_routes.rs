@@ -448,7 +448,6 @@ mod tests {
                     test_clock: None,
                     events: runtime.service.events.clone(),
                     web_dist: None,
-                    snapshot_bound: Default::default(),
                 };
                 let managed_config = runtime
                     .service

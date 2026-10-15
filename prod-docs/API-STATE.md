@@ -59,7 +59,7 @@ Import returns `{imported_tabs, restart_required, boot_id}`; `/api/health` boot_
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/` | — | The Domios web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
-| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) **Bounded:** only a few snapshots build at once; over that, or while a lifecycle change is being written, the request is answered **503** immediately rather than queued. A `mux-state-changed` event drives the next read; callers must not poll. |
+| GET | `/api/mux/state` | — | Published multiplexer snapshot (workspaces/tabs + focus). Writers and rebuilds do not delay reads or cause 503. Genuine storage unavailability still returns 503. Publication sends `mux-state-changed`; callers must not poll. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
@@ -70,7 +70,7 @@ Import returns `{imported_tabs, restart_required, boot_id}`; `/api/health` boot_
 | POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
 
-Snapshot refetch coalescing, the snapshot bound and its `503`, and the known event-order gap in the stream: `codeterm docs API-EVENTS`.
+Published reads, coalesced refresh and stream event order: `codeterm docs API-EVENTS`.
 
 #### Debug (test-only capabilities)
 | Method | Path | Body / Query | Description |
@@ -237,4 +237,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

@@ -306,6 +306,11 @@ impl ServiceFixture {
             crate::service::store::ServicesStore::open(&data_dir.join("services.db")).unwrap(),
         );
         let usage_store = crate::usage::UsageStore::open(&data_dir).unwrap();
+        let mux = Arc::new(TimedRwLock::new("mux", mux));
+        let agent_tracker = Arc::new(TimedMutex::new(
+            "agent_tracker",
+            crate::agent::status::TabStatusTracker::new(),
+        ));
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
         extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
             Arc::new(parking_lot::Mutex::new(())),
@@ -440,6 +445,15 @@ impl ServiceFixture {
         extensions.insert(crate::service::PublishedTabStatuses(Arc::new(
             Default::default(),
         )));
+        let initial_mux = super::status_reconciliation::snapshot_with_reconciled_status(
+            &mux,
+            &agent_tracker,
+            &agent_registry,
+        );
+        extensions.insert(Arc::new(
+            super::PublishedMuxState::new(initial_mux.generation, &initial_mux)
+                .expect("initial fixture mux snapshot serialization"),
+        ));
         extensions.insert(
             crate::service::output_stream_activity::OutputStreamActivityTx(
                 super::output_stream_activity::channel(),
@@ -483,7 +497,7 @@ impl ServiceFixture {
             )),
             ready_user_send_tasks: Arc::new(TestReadySendTasks::default()),
             agent_pad_data_dir: data_dir.clone(),
-            mux: Arc::new(TimedRwLock::new("mux", mux)),
+            mux,
             pty: Arc::new(TimedMutex::new(
                 "pty",
                 crate::pty::manager::PtyManager::new(),
@@ -506,10 +520,7 @@ impl ServiceFixture {
             })),
             events: Arc::new(codeterm_events::EventBroadcaster::new()),
             app_handle: app.handle().clone(),
-            agent_tracker: Arc::new(TimedMutex::new(
-                "agent_tracker",
-                crate::agent::status::TabStatusTracker::new(),
-            )),
+            agent_tracker,
             report_store: Arc::new(Mutex::new(if persistent {
                 crate::agent::reports::ReportStore::with_ledger(
                     10,

@@ -428,7 +428,6 @@ pub(crate) fn start_servers(
             test_clock: test_clock.clone(),
             events: states.event_broadcaster.clone(),
             web_dist: resolve_web_dist(app.path().resource_dir().ok()),
-            snapshot_bound: codeterm_service_core::startup::snapshot_bound::SnapshotBound::new(),
         };
         let router = codeterm_api::routes::create_router_with_frontend(rest_inputs, bundles);
         app.manage(codeterm_service_core::ports::rest::LocalApiRouter(

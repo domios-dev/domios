@@ -87,9 +87,6 @@ pub struct AppState {
     pub events: crate::events::EventBroadcasterState,
     /// Directory holding the built React bundle, served at the daemon root.
     pub web_dist: Option<std::path::PathBuf>,
-    /// Caps concurrent full-state snapshots so a request storm cannot take the
-    /// daemon down. See `api::snapshot_bound`.
-    pub snapshot_bound: codeterm_service_core::startup::snapshot_bound::SnapshotBound,
 }
 
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
