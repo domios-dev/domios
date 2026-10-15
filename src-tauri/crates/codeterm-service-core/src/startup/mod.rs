@@ -19,14 +19,14 @@ pub mod snapshot_bound;
 mod storage;
 
 pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_tab_connected_service};
-pub(crate) use cli_install::install_bundled_cli;
+pub use cli_install::install_bundled_cli;
 pub use cli_install::refresh_bundled_cli;
-pub(crate) use frontend_ready::arm_frontend_readiness;
+pub use frontend_ready::arm_frontend_readiness;
 pub use frontend_ready::frontend_readiness_generation;
 pub use frontend_ready::mark_frontend_ready;
 pub(crate) use frontend_ready::observe_frontend_boot;
 pub(crate) use frontend_ready::wait_for_frontend_ready_until;
-pub(crate) use progress::StartupStep;
+pub use progress::StartupStep;
 pub use rest_api::RestApiDiagnostic;
 pub use rest_api::{
     RestApiControl, RestApiControlState, RestApiPhase, RestApiRecovery, RestApiRuntimePolicy,
@@ -42,3 +42,6 @@ pub use storage::STORAGE_UNAVAILABLE_MESSAGE;
 
 pub use conpty_cleanup::reap_orphaned_hosts_in_background;
 pub use frontend_ready::FRONTEND_READINESS_DEADLINE_ELAPSED;
+
+mod user_path;
+pub use user_path::{repair_user_path_with, user_path_repair_report, SystemUserPathStore};

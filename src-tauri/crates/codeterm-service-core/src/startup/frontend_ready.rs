@@ -77,7 +77,7 @@ fn frontend_ready_signal() -> &'static FrontendReadySignal {
     SIGNAL.get_or_init(FrontendReadySignal::default)
 }
 
-pub(crate) fn arm_frontend_readiness() -> u64 {
+pub fn arm_frontend_readiness() -> u64 {
     frontend_ready_signal().arm()
 }
 
