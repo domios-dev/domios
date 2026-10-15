@@ -138,7 +138,7 @@ pub fn make_sink(
     Arc::new(TauriStructuredSink {
         journal,
         ui: svc.ui.clone(),
-        service: svc.ext::<std::sync::Weak<ServiceContext>>().clone(),
+        service: svc.weak_self(),
         mux,
         source_session_id,
         session_binding_nonce,
@@ -359,7 +359,7 @@ pub fn make_flatten_sink(
     Arc::new(FlattenDeltaSink {
         journal,
         ui: svc.ui.clone(),
-        service: svc.ext::<std::sync::Weak<ServiceContext>>().clone(),
+        service: svc.weak_self(),
         mux,
         source_session_id,
         session_binding_nonce,

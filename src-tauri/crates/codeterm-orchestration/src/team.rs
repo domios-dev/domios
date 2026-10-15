@@ -1,6 +1,5 @@
 use codeterm_types::agent::role_kind::{self, builtins::ORCHESTRATOR, builtins::PLANNER};
 use codeterm_types::team::Team;
-use tauri::Manager;
 
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::{AgentRole, TabCloseReason};
@@ -366,10 +365,7 @@ async fn close_team_inner(
     let storage_commit = if let Some(teardown) = &storage_teardown {
         let completion = teardown.storage.team_teardown(teardown.request.clone());
         #[cfg(test)]
-        if let Some(probe) = svc
-            .app_handle
-            .try_state::<storage_teardown::StorageTeardownSubmitted>()
-        {
+        if let Some(probe) = svc.host_extension::<storage_teardown::StorageTeardownSubmitted>() {
             let _ = probe.0.send(());
         }
         match completion.await {
@@ -529,16 +525,10 @@ async fn close_team_inner(
 }
 
 fn delete_team_crons(svc: &ServiceContext, team_id: &str) {
-    let Some(cron) = svc
-        .app_handle
-        .try_state::<codeterm_service_core::CronState>()
-    else {
+    let Some(cron) = svc.try_ext::<codeterm_service_core::CronState>() else {
         return;
     };
-    let Some(wake) = svc
-        .app_handle
-        .try_state::<codeterm_service_core::CronWake>()
-    else {
+    let Some(wake) = svc.try_ext::<codeterm_service_core::CronWake>() else {
         return;
     };
     let job_ids: Vec<String> = cron
@@ -548,7 +538,7 @@ fn delete_team_crons(svc: &ServiceContext, team_id: &str) {
         .map(|job| job.id.clone())
         .collect();
     for job_id in job_ids {
-        if let Err(error) = svc.cron_delete(cron.inner(), wake.inner(), &job_id) {
+        if let Err(error) = svc.cron_delete(cron, wake, &job_id) {
             log::error!("Failed to delete Team cron {job_id}: {error}");
         }
     }
@@ -559,9 +549,8 @@ async fn finish_team_teardown(svc: &ServiceContext, team_id: &str) -> Result<(),
     let team_id = team_id.to_string();
     tokio::task::spawn_blocking(move || {
         delete_team_crons(&service, &team_id);
-        if let Some(ports) = service
-            .app_handle
-            .try_state::<codeterm_service_core::ports::sentinel::SentinelPorts>()
+        if let Some(ports) =
+            service.try_ext::<codeterm_service_core::ports::sentinel::SentinelPorts>()
         {
             ports.cleanup.remove_team(&team_id)?;
         }
@@ -588,11 +577,8 @@ pub fn adopt_plan_for_team(
     let plan =
         adopt_plan_for_team_core(&mut mux, &svc.plan_store, team_id, plan_id, caller, now_ms)?;
     drop(mux);
-    codeterm_service_core::events::emit_everywhere(
-        &svc.app_handle,
-        "plan-changed",
-        serde_json::json!({ "plan_id": plan_id }),
-    );
+    svc.ui
+        .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
     svc.emit_state_changed();
     Ok(plan)
 }

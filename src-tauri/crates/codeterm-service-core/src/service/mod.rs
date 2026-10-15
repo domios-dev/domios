@@ -323,6 +323,7 @@ pub(crate) use worker_persona::{WorkerIdentityAllocator, WorkerPersonaReservatio
 
 mod configuration;
 pub(crate) mod extensions;
+mod host_extensions;
 pub(crate) use extensions::Extensions;
 pub use extensions::ExtensionsBuilder;
 
@@ -340,7 +341,6 @@ pub struct ServiceContext {
     pub screen_state: ScreenStateHandle,
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
-    pub app_handle: crate::app_runtime::AppHandle,
     pub ui: Arc<dyn crate::ports::host::UiEvents>,
     pub shell: Arc<dyn crate::ports::host::Shell>,
     pub rt: tokio::runtime::Handle,
@@ -391,11 +391,18 @@ pub struct ServiceContext {
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub gateway: Arc<crate::service::message_gateway::MessageGateway>,
     pub(crate) extensions: Arc<Extensions>,
+    host_extensions: Arc<host_extensions::HostExtensions>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
 
 impl ServiceContext {
+    pub(crate) fn weak_self(&self) -> std::sync::Weak<Self> {
+        self.try_ext::<std::sync::Weak<Self>>()
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub fn ext<T: std::any::Any + Send + Sync>(&self) -> &T {
         self.extensions.get::<T>()
     }

@@ -154,7 +154,7 @@ pub async fn restart_app(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let app = state.svc.app_handle.clone();
+    let app = state.app.clone();
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::crash::shutdown::mark_shutting_down_for(
             codeterm_service_core::crash::lifecycle::ShutdownReason::Restart,

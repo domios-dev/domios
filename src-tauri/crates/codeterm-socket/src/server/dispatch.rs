@@ -7,7 +7,7 @@ pub(super) fn dispatch(
     mux: &MuxState,
     _pty: &PtyState,
     _notif: &NotifState,
-    app: &AppHandle,
+    app: Option<&AppHandle>,
     _output_buf: &OutputBufferState,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
@@ -50,13 +50,13 @@ pub(super) fn dispatch(
             )
         }
         "rest_api.status" | "rest_api.restart" => {
-            let control = app
+            let control = host_app(app)?
                 .state::<codeterm_service_core::startup::RestApiControlState>()
                 .inner()
                 .clone();
             return tauri::async_runtime::block_on(rest_api::execute(method, &control));
         }
-        "api.request" => return local_api::dispatch(&params, app),
+        "api.request" => return local_api::dispatch(&params, host_app(app)?),
         "system.identify" => {
             return Ok(serde_json::json!({
                 "name": "CodeTerm",
@@ -317,7 +317,7 @@ pub(super) fn dispatch(
             return Ok(serde_json::json!({ "methods": methods, "plugins": plugins }));
         }
         "mesh.status" => {
-            let mesh = app.state::<codeterm_service_core::MeshStateHandle>();
+            let mesh = svc.ext::<codeterm_service_core::MeshStateHandle>();
             let manager = mesh.lock();
             return serde_json::to_value(manager.status()).map_err(|error| JsonRpcError {
                 code: -32603,
@@ -326,7 +326,7 @@ pub(super) fn dispatch(
             });
         }
         "mesh.peers" => {
-            let mesh = app.state::<codeterm_service_core::MeshStateHandle>();
+            let mesh = svc.ext::<codeterm_service_core::MeshStateHandle>();
             let mut manager = mesh.lock();
             manager.cleanup_expired_requests();
             return serde_json::to_value(manager.peers_response()).map_err(|error| JsonRpcError {
@@ -383,26 +383,26 @@ pub(super) fn dispatch(
         plan_mode::authorize_plan_mutation(svc, &plan_id, &params)?;
     }
     match prefix {
-        "workspace" => workspace::dispatch(method, &params, mux, app, svc),
+        "workspace" => workspace::dispatch(method, &params, mux, svc),
         "team" => team::dispatch(method, &params, mux, svc),
-        "tab" | "agents" => tab::dispatch(method, &params, mux, app, svc),
+        "tab" | "agents" => tab::dispatch(method, &params, mux, svc),
         "notification" => notification::dispatch(method, &params, svc),
-        "agent" => agent::dispatch(method, &params, app, svc),
+        "agent" => agent::dispatch(method, &params, svc),
         "model_provider" => model_providers::dispatch(method, params, svc),
-        "orchestration" => orchestration::dispatch(method, &params, app, svc),
-        "orchestrator" => orchestrator::dispatch(method, &params, app, svc),
+        "orchestration" => orchestration::dispatch(method, &params, svc),
+        "orchestrator" => orchestrator::dispatch(method, &params, svc),
         "persona" => persona::dispatch(method, &params),
-        "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, app, svc),
-        "plan" | "task" => plan::dispatch(method, &params, app, svc),
-        "canvas" => canvas::dispatch(method, &params, app),
-        "spec" | "effort" => spec::dispatch(method, &params, app, svc),
+        "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, svc),
+        "plan" | "task" => plan::dispatch(method, &params, svc),
+        "canvas" => canvas::dispatch(method, &params, svc),
+        "spec" | "effort" => spec::dispatch(method, &params, svc),
         "plugin" if receiver_target::handles(method) => {
             receiver_target::dispatch(method, &params, svc)
         }
         "plugin" => agent_commands::dispatch(method, &params, svc),
         "blueprint" => blueprint::dispatch(method, &params, svc),
-        "cron" => cron::dispatch(method, &params, app, svc),
-        "services" | "activity" => services::dispatch(method, &params, app, svc),
+        "cron" => cron::dispatch(method, &params, svc),
+        "services" | "activity" => services::dispatch(method, &params, svc),
         "bridge" => bridge::dispatch(method, &params, svc),
         "mem" => mem::dispatch(method, params, svc),
         _ => Err(JsonRpcError {
@@ -424,20 +424,22 @@ pub(super) fn dispatch_with_post_response(
     svc: &ServiceState,
 ) -> Result<(serde_json::Value, Option<super::PostResponseAction>), JsonRpcError> {
     if method == "cron.complete" {
-        return cron::dispatch_complete(&params, app, svc);
+        return cron::dispatch_complete(&params, svc);
     }
-    dispatch(method, params, mux, pty, notif, app, output_buf, svc).map(|result| (result, None))
+    dispatch(method, params, mux, pty, notif, Some(app), output_buf, svc)
+        .map(|result| (result, None))
 }
 
 pub(crate) fn dispatch_service_rpc(
     method: &str,
     mut params: Option<serde_json::Value>,
     svc: &ServiceState,
+    app: Option<&AppHandle>,
 ) -> Result<serde_json::Value, JsonRpcError> {
     if let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) {
         object.remove("authenticated_mesh_peer_id");
     }
-    dispatch_service_rpc_inner(method, params, svc)
+    dispatch_service_rpc_inner(method, params, svc, app)
 }
 
 pub(crate) fn dispatch_mesh_rpc(
@@ -445,6 +447,7 @@ pub(crate) fn dispatch_mesh_rpc(
     mut params: Option<serde_json::Value>,
     svc: &ServiceState,
     peer_id: &str,
+    app: Option<&AppHandle>,
 ) -> Result<serde_json::Value, JsonRpcError> {
     if let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) {
         object.insert(
@@ -463,13 +466,14 @@ pub(crate) fn dispatch_mesh_rpc(
             data: None,
         });
     }
-    dispatch_service_rpc_inner(method, params, svc)
+    dispatch_service_rpc_inner(method, params, svc, app)
 }
 
 fn dispatch_service_rpc_inner(
     method: &str,
     params: Option<serde_json::Value>,
     svc: &ServiceState,
+    app: Option<&AppHandle>,
 ) -> Result<serde_json::Value, JsonRpcError> {
     dispatch(
         method,
@@ -477,7 +481,7 @@ fn dispatch_service_rpc_inner(
         &svc.mux,
         &svc.pty,
         &svc.notif,
-        &svc.app_handle,
+        app,
         &svc.output_buf,
         svc,
     )
@@ -492,7 +496,6 @@ mod tests {
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
     use std::sync::Arc;
-    use tauri::Manager;
 
     #[test]
     fn cron_settle_service_rpc_closes_completed_tab() {
@@ -545,10 +548,11 @@ mod tests {
             .unwrap();
         store.register_tab(&tab_id, &job_id, "service-rpc-complete-run");
         let cron: codeterm_service_core::CronState = Arc::new(parking_lot::Mutex::new(store));
-        fixture._app.manage(cron);
-        fixture
-            ._app
-            .manage::<codeterm_service_core::CronWake>(Arc::new(std::sync::Condvar::new()));
+        assert!(fixture.service.set_ext(cron).is_ok());
+        assert!(fixture
+            .service
+            .set_ext::<codeterm_service_core::CronWake>(Arc::new(std::sync::Condvar::new()))
+            .is_ok());
 
         let response = dispatch_service_rpc(
             "cron.complete",
@@ -558,10 +562,19 @@ mod tests {
                 "human_confirmed": true
             })),
             &Arc::new(fixture.service.clone()),
+            None,
         )
         .unwrap();
 
         assert_eq!(response["ok"], true);
         assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
     }
+}
+
+fn host_app(app: Option<&AppHandle>) -> Result<&AppHandle, JsonRpcError> {
+    app.ok_or_else(|| JsonRpcError {
+        code: -32603,
+        message: "host app is unavailable".into(),
+        data: None,
+    })
 }

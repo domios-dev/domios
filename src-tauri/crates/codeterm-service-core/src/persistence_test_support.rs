@@ -6,7 +6,6 @@ use crate::startup::StorageAuthority;
 use crate::storage::Storage;
 use std::path::Path;
 use std::time::Duration;
-use tauri::Manager;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -25,7 +24,6 @@ impl ServiceInstance {
             .clone();
         let fixture = ServiceFixture::new_at(mux, root);
         assert!(fixture.service.set_ext(authority.clone()).is_ok());
-        assert!(fixture._app.manage(authority.clone()));
         let svc = &fixture.service;
         crate::service::session_persist::install_storage_desk_adapter(
             svc,
@@ -70,7 +68,6 @@ impl ServiceInstance {
         };
         let fixture = ServiceFixture::new_at(mux, root);
         assert!(fixture.service.set_ext(authority.clone()).is_ok());
-        assert!(fixture._app.manage(authority.clone()));
         let svc = &fixture.service;
         crate::service::session_persist::install_storage_desk_adapter(
             svc,

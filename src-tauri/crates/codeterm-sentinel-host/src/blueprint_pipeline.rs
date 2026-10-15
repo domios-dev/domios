@@ -3,7 +3,6 @@ use codeterm_blueprint_types::blueprint_pipeline::{
     Trigger, ValidationError,
 };
 use serde_json::{json, Value};
-use tauri::Manager;
 
 use crate::scheduler::Handle;
 use codeterm_service_core::service::ServiceContext;
@@ -69,8 +68,7 @@ impl BlueprintExt for ServiceContext {
         limit: u16,
     ) -> Result<Vec<codeterm_service_core::storage::BlueprintJournalEntry>, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let completion = {
             let store = handle.store.lock();
@@ -197,8 +195,7 @@ impl BlueprintExt for ServiceContext {
             validate_pipeline_result_scope(&mux, caller, spec.owner, &spec.result.to)?;
         }
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let mut job = handle.store.lock().prepare_pipeline(
             spec.clone(),
@@ -293,8 +290,7 @@ impl BlueprintExt for ServiceContext {
         }
         next.set_pipeline(Some(spec));
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let authored_at = handle.store.lock().clock.now_ms();
         if next.pipeline().is_some_and(|pipeline| {
@@ -327,8 +323,7 @@ impl BlueprintExt for ServiceContext {
         expect_version: u64,
     ) -> Result<crate::store::Sentinel, String> {
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let store = handle.store.lock();
         store.ensure_available()?;
