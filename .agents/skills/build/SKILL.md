@@ -922,7 +922,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 39 -->
+<!-- revision: 41 -->
 
 ### Lane and batch scopes
 
@@ -969,7 +969,11 @@ Before committing, run `./build.sh lane-check <touched crate> [--tests]` on ever
 
 `lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. Cargo serializes lane checks with its build-directory lock; final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
 
-GC maps the shared directory through Cargo metadata and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
+Lane-check and retention resolve the shared directory with `scripts/lane-build-dir.mjs`: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). GC adds that directory explicitly, independently of canonical/gateway Cargo metadata, and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
+
+### Canonical or gateway jobs unexpectedly use the lane build directory
+
+A tracked repo-root `.cargo/config.toml` applies to every Cargo invocation beneath the repository, including canonical and the gateway check-worktree. Using it for the lane fallback caused shared lock contention, discarded warm canonical cache reuse and selected a profile cache outside the owner's machine root. Lane-only Cargo settings belong in lane-check's process environment, never in repo-root Cargo configuration or unconditional build setup. Scope both the machine-root choice and fallback to the lane operation. Verify effective build directories for a lane, canonical and the gateway with the machine root both set and unset; lane reuse alone cannot prove cache isolation.
 
 | Dedicated CI mode fails at catalogue inventory with ENOENT on the Windows stable drive root | Git reports the physical checkout while discovery compared it to a subst alias, then tried walking the drive root. | Catalogue discovery resolves the root with `realpathSync.native` before Git identity and file enumeration. Verify the temporary-subst regression with `node --test scripts/tests/test-catalogue.test.mjs`, then run the dedicated CI mode under the normal gateway alias. |
 
