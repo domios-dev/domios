@@ -511,7 +511,6 @@ function TabItemInner({
             {displayTitle}
             {pluginUpdate && <span aria-label="Plugin update available" className="ml-1 text-[10px] text-[var(--ct-accent)]">Update</span>}
           </span>
-          {tab.frozen && <span role="img" aria-label="Sleeping" title="Sleeping" className="shrink-0 text-[10px] text-[var(--ct-muted-fg)]">☾</span>}
           {hasAgent && (
             <TabWorkingActivity activity={tabState} />
           )}

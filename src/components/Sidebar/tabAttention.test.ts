@@ -63,6 +63,14 @@ describe("tab attention model", () => {
       expect(mark?.kind === "attention" ? mark.level : null).toBe(level);
     }
   });
+  it("uses the icon clock for frozen tabs and clears it on wake", () => {
+    const sleeping = tabAttention({ ...tab, frozen: true }, null, []);
+    expect(tabStatusMark(tab.title, sleeping)).toEqual({ kind: "sleeping", label: "Sleeping" });
+    expect(tabStatusMark(tab.title, sleeping, true)).toEqual({ kind: "sleeping", label: "Sleeping" });
+    expect(tabStatusMark(tab.title, tabAttention({ ...tab, frozen: false }, null, []))).toBe(null);
+    const starting = { ...tab, frozen: false, agent_type: "fixture", boot_stage: "agent_launching" as const };
+    expect(tabStatusMark(tab.title, tabAttention(starting, null, []))?.kind).toBe("starting");
+  });
   it("does not offer stale choices after resolution, answering or loss of the asking tab", () => {
     const n = notice("choice", "action_needed", { actions: [{ type: "answer", label: "choice-token" }] });
     expect(attentionActions(n)).toEqual(n.actions);
