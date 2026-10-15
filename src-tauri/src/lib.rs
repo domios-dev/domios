@@ -1,4 +1,5 @@
 mod command_registration;
+mod host_ports;
 mod plugin_bundle;
 mod run;
 mod startup;

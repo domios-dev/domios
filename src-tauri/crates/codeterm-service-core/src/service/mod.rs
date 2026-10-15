@@ -342,6 +342,9 @@ pub struct ServiceContext {
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
     pub app_handle: crate::app_runtime::AppHandle,
+    pub ui: Arc<dyn crate::ports::host::UiEvents>,
+    pub shell: Arc<dyn crate::ports::host::Shell>,
+    pub rt: tokio::runtime::Handle,
     pub agent_tracker: AgentTrackerState,
     pub report_store: ReportStoreState,
     /// Orchestration-economics event writer. Disabled (and file-less) unless `kpi.enabled`.
