@@ -316,6 +316,7 @@ pub fn build_service_context(
         worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
         gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         extensions: Arc::new(extensions.finish()),
+        host_extensions: Default::default(),
     };
     assert!(service.set_ext(states.storage.clone()).is_ok());
     assert!(service.set_ext(states.session.clone()).is_ok());
