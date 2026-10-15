@@ -1,6 +1,6 @@
 use super::*;
-use crate::config::schema::SupporterSources;
-use crate::mem::Relation;
+use codeterm_mem::Relation;
+use codeterm_types::config::SupporterSources;
 
 const ENTITY: &str = "tech_lighthouse";
 /// Graph-only memories share no word with `QUERY`; only the entity link reaches them.
@@ -39,7 +39,7 @@ pub(super) fn graph_seeded() -> SeededBackend {
         )
         .unwrap();
         for from in graph_ids.iter().chain([&recall_linked]) {
-            crate::mem::graph::insert_relation(
+            codeterm_mem::graph::insert_relation(
                 conn,
                 &Relation {
                     from_id: from.clone(),
