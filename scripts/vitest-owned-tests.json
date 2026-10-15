@@ -214,5 +214,6 @@
   "packages/chat-ui/src/MessageBubble.routing-tips.test.tsx",
   "packages/chat-ui/src/toolcard/ToolCallProgress.test.tsx",
   "packages/chat-ui/src/VoiceCard.test.tsx",
-  "packages/chat-ui/src/MessageBubble.envelope.test.tsx"
+  "packages/chat-ui/src/MessageBubble.envelope.test.tsx",
+  "src/components/Terminal/ComposerIssuesIndicator.test.tsx"
 ]

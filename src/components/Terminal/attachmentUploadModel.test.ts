@@ -111,9 +111,9 @@ test("upload remains pending until its attachment is committed to the draft", as
   assert.deepEqual(uploads, []);
 });
 
-test("a failed upload always shows its card, hover reveals only the others", () => {
-  assert.equal(uploadCardPresence({ state: "failed" }, false), "persistent");
-  assert.equal(uploadCardPresence({ state: "failed" }, true), "persistent");
+test("failed upload cards stay hidden, hover reveals only pending uploads", () => {
+  assert.equal(uploadCardPresence({ state: "failed" }, false), "hidden");
+  assert.equal(uploadCardPresence({ state: "failed" }, true), "hidden");
   assert.equal(uploadCardPresence({ state: "uploading" }, true), "hover");
   assert.equal(uploadCardPresence({ state: "uploading" }, false), "announce");
 });
