@@ -6,31 +6,31 @@ use serde::Deserialize;
 use crate::notification::reach::Unseen;
 
 #[derive(Deserialize)]
-pub(crate) struct CreateNotifBody {
-    pub(crate) title: String,
-    pub(crate) body: Option<String>,
-    pub(crate) severity: Option<String>,
+pub struct CreateNotifBody {
+    pub title: String,
+    pub body: Option<String>,
+    pub severity: Option<String>,
     /// Typed at the boundary as the CALLER-facing action set, which has no
     /// invoke variant: a command name has nowhere to land, so it is not a
     /// value some later click handler could interpret.
-    pub(crate) actions: Option<Vec<CallerAction>>,
-    pub(crate) sticky: Option<bool>,
-    pub(crate) tab_id: Option<String>,
+    pub actions: Option<Vec<CallerAction>>,
+    pub sticky: Option<bool>,
+    pub tab_id: Option<String>,
     /// Stamped by the Mesh relay from the signed sender; suppresses any tab claim.
-    pub(crate) source_peer: Option<String>,
-    pub(crate) level: Option<String>,
-    pub(crate) event_key: Option<String>,
+    pub source_peer: Option<String>,
+    pub level: Option<String>,
+    pub event_key: Option<String>,
     /// The surface this notification offers to turn on: `desktop`, or the
     /// service id of a registered push channel. A caller names a surface, never
     /// a config key, and the change still waits for the tap.
-    pub(crate) offer: Option<String>,
+    pub offer: Option<String>,
     /// Which offered label applies the offer. Must be one of this
     /// notification's own choices.
-    pub(crate) offer_accept: Option<String>,
+    pub offer_accept: Option<String>,
     /// The tab whose chat holds the message this notification jumps to.
-    pub(crate) target_tab_id: Option<String>,
+    pub target_tab_id: Option<String>,
     /// The exact chat message id inside `target_tab_id`.
-    pub(crate) chat_message_id: Option<String>,
+    pub chat_message_id: Option<String>,
 }
 
 /// Adopt a caller's offer to be louder. The surface is resolved against the
@@ -52,7 +52,7 @@ pub(crate) fn offer_requires_level(
     })
 }
 
-pub(crate) fn vet_offer(
+pub fn vet_offer(
     svc: &crate::service::ServiceState,
     offer: Option<String>,
     offer_accept: Option<String>,
@@ -78,7 +78,7 @@ pub(crate) fn vet_offer(
 
 /// An unknown level is rejected here rather than degrading to a runtime
 /// string, so an invented level can never be expressed on any transport.
-pub(crate) fn parse_push_intent(
+pub fn parse_push_intent(
     level: Option<&str>,
     event_key: Option<String>,
 ) -> Result<crate::service::notification::PushIntent, String> {
@@ -97,12 +97,12 @@ pub(crate) fn parse_push_intent(
 }
 
 /// A caller's title, trimmed and bounded by the one rule every transport shares.
-pub(crate) fn vet_title(title: &str) -> Result<String, String> {
+pub fn vet_title(title: &str) -> Result<String, String> {
     codeterm_notification_core::contract::validate_title(title).map(str::to_string)
 }
 
 /// A jump target must be a tab on this daemon, or the record would open nothing.
-pub(crate) fn vet_target_tab(
+pub fn vet_target_tab(
     target_tab_id: Option<&str>,
     tab_exists: impl FnOnce(&str) -> bool,
 ) -> Result<(), String> {
@@ -119,7 +119,7 @@ pub(crate) fn vet_target_tab(
 /// Vet a caller-supplied action set. Parsing already closed the kind - and the
 /// type it parsed into has no invoke variant at all; this closes the choice
 /// set, which only makes sense as a whole.
-pub(crate) fn vet_actions(
+pub fn vet_actions(
     actions: Option<Vec<CallerAction>>,
 ) -> Result<Option<Vec<CallerAction>>, String> {
     if let Some(ref actions) = actions {

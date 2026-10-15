@@ -183,7 +183,7 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<()
 /// leaf kind. Only a builtin leaf is promoted: a free-text executor role stays a
 /// plain Worker, and a managing kind (Planner, Watcher, Cartographer) is never
 /// demoted into a Worker subtype.
-pub(crate) fn builtin_worker_profile(executor_role: Option<&str>) -> Option<String> {
+pub fn builtin_worker_profile(executor_role: Option<&str>) -> Option<String> {
     let role = executor_role
         .map(str::trim)
         .filter(|role| !role.is_empty())?;

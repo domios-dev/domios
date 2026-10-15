@@ -480,7 +480,7 @@ fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> 
     cleanup_errors
 }
 
-pub(crate) trait OrchestrationPairExt {
+pub trait OrchestrationPairExt {
     fn create_orchestration_pair(
         &self,
         params: OrchestrationPairParams,
@@ -782,7 +782,7 @@ impl OrchestrationPairExt for ServiceContext {
 
 /// Bind a pending pair-spawned Planner when an Orchestrator creates its
 /// first plan. Returns true only when a pending tab was consumed.
-pub(crate) fn bind_pending_paired_planner(
+pub fn bind_pending_paired_planner(
     svc: &ServiceContext,
     plan_id: &str,
     owner: &OrchestratorRef,
@@ -838,7 +838,7 @@ pub(crate) fn bind_pending_paired_planner(
     Ok(true)
 }
 
-pub(crate) fn tab_has_pending_paired_planner(svc: &ServiceContext, tab_id: &str) -> bool {
+pub fn tab_has_pending_paired_planner(svc: &ServiceContext, tab_id: &str) -> bool {
     svc.mux
         .read()
         .get_tab(tab_id)

@@ -13,7 +13,7 @@ fn resolved_worker_launch_effort(
     identity.resolved.clone()
 }
 
-pub(crate) fn planned_task_title(task: &Task) -> Option<String> {
+pub fn planned_task_title(task: &Task) -> Option<String> {
     crate::service::plan::worker_identity::task_executor_name(task)
         .ok()
         .flatten()
@@ -323,7 +323,7 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
-    pub(crate) fn persist_dispatched_attempt_reasoning_effort(
+    pub fn persist_dispatched_attempt_reasoning_effort(
         &self,
         plan_id: &str,
         task_id: &str,
@@ -346,7 +346,7 @@ impl ServiceContext {
         )
     }
 
-    pub(crate) fn resolved_worker_launch_effort_for_tab(&self, tab_id: &str) -> Option<String> {
+    pub fn resolved_worker_launch_effort_for_tab(&self, tab_id: &str) -> Option<String> {
         let mux = self.mux.read();
         mux.get_tab(tab_id)
             .and_then(|tab| resolved_worker_launch_effort(&tab.reasoning_effort_identity))

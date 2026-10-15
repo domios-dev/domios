@@ -53,27 +53,27 @@ fn cron_end_context(job_name: &str, status: &CronRunStatus) -> String {
 }
 
 /// A cron run that has ended, by any path, and still owes its report and oneshot retirement.
-pub(crate) struct CronRunEnd<'a> {
-    pub(crate) job_id: &'a str,
-    pub(crate) run_id: &'a str,
-    pub(crate) status: CronRunStatus,
-    pub(crate) summary: &'a str,
+pub struct CronRunEnd<'a> {
+    pub job_id: &'a str,
+    pub run_id: &'a str,
+    pub status: CronRunStatus,
+    pub summary: &'a str,
 }
 
-pub(crate) struct CronCompleteAfterResponse {
-    pub(crate) tab_id: String,
-    pub(crate) job_id: String,
-    pub(crate) run_id: String,
-    pub(crate) summary: String,
-    pub(crate) cron: CronState,
-    pub(crate) wake: CronWake,
+pub struct CronCompleteAfterResponse {
+    pub tab_id: String,
+    pub job_id: String,
+    pub run_id: String,
+    pub summary: String,
+    pub cron: CronState,
+    pub wake: CronWake,
 }
 
 /// Newest owner-prompt value per tab while a Storage commit of that tab is settling.
 #[derive(Clone, Default)]
-struct OwnerPromptRequests(Arc<Mutex<HashMap<String, OwnerPromptRequest>>>);
+pub struct OwnerPromptRequests(Arc<Mutex<HashMap<String, OwnerPromptRequest>>>);
 
-struct OwnerPromptRequest {
+pub struct OwnerPromptRequest {
     awaiting: bool,
     requested: u64,
     admitted: u64,
@@ -486,7 +486,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn cron_settle_run_end(
+    pub fn cron_settle_run_end(
         &self,
         cron: &CronState,
         wake: Option<&CronWake>,
@@ -805,7 +805,7 @@ impl ServiceContext {
         Ok(run_info)
     }
 
-    pub(crate) fn cron_complete(
+    pub fn cron_complete(
         &self,
         cron: &CronState,
         wake: &CronWake,

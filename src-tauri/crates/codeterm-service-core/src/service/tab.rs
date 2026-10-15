@@ -14,16 +14,15 @@ mod lifecycle_exit;
 #[cfg(test)]
 #[path = "tab/tests.rs"]
 mod tests;
-#[cfg(test)]
-#[cfg(test)]
-pub(crate) use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
+#[cfg(any(test, feature = "test-support"))]
+pub use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
 
 pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 pub const MAX_TAB_TITLE_CHARS: usize = 64;
-pub(crate) const TAB_TITLE_ERROR: &str =
+pub const TAB_TITLE_ERROR: &str =
     "tab title must be one word of at most 64 characters with no whitespace or control characters; put descriptive text in description";
 
-pub(crate) fn validate_tab_title(title: &str) -> Result<(), String> {
+pub fn validate_tab_title(title: &str) -> Result<(), String> {
     if title.is_empty()
         || title.chars().count() > MAX_TAB_TITLE_CHARS
         || title.chars().any(|character| {
@@ -49,7 +48,7 @@ pub(crate) fn normalize_optional_tab_description(
 }
 
 /// Prefix on every self-termination refusal so transports can classify it.
-pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
+pub const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
 mod ownership;
 mod rename_guard;
@@ -255,16 +254,16 @@ impl ServiceContext {
     }
 
     /// Warnings for a close that bypassed the caller guard (human surfaces).
-    pub(crate) fn busy_worker_close_warnings_for(&self, tab_id: &str) -> Vec<String> {
+    pub fn busy_worker_close_warnings_for(&self, tab_id: &str) -> Vec<String> {
         busy_worker_close_warnings(tab_id, &self.in_progress_assignments_for_tab(tab_id))
     }
 
-    pub(crate) async fn close_tab_async(&self, tab_id: &str) -> Result<(), String> {
+    pub async fn close_tab_async(&self, tab_id: &str) -> Result<(), String> {
         self.close_tab_with_reason_async(tab_id, TabCloseReason::User)
             .await
     }
 
-    pub(crate) async fn close_tab_with_reason_async(
+    pub async fn close_tab_with_reason_async(
         &self,
         tab_id: &str,
         reason: TabCloseReason,
@@ -413,7 +412,7 @@ impl ServiceContext {
             .pty_id
     }
 
-    pub(crate) fn link_pty_with_claim(
+    pub fn link_pty_with_claim(
         &self,
         claim: &crate::service::pty_ownership::TabPtyClaim,
         tab_id: &str,
@@ -707,7 +706,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn respond_prompt(
+    pub fn respond_prompt(
         &self,
         tab_id: &str,
         value: &str,
@@ -715,7 +714,7 @@ impl ServiceContext {
         self.respond_prompt_inner(tab_id, value, None)
     }
 
-    pub(crate) fn respond_prompt_with_identity(
+    pub fn respond_prompt_with_identity(
         &self,
         tab_id: &str,
         value: &str,
@@ -859,7 +858,7 @@ impl ServiceContext {
         Ok(RespondPromptOutcome::Sent)
     }
 
-    pub(crate) fn clear_pending_prompt(
+    pub fn clear_pending_prompt(
         &self,
         tab_id: &str,
     ) -> Option<codeterm_types::pty::PromptIdentity> {
@@ -936,7 +935,7 @@ impl ServiceContext {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RespondPromptOutcome {
+pub enum RespondPromptOutcome {
     Sent,
     Structured,
     StalePrompt,

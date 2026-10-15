@@ -77,10 +77,10 @@ pub fn local_ip_address() -> Option<String> {
     socket.local_addr().ok().map(|a| a.ip().to_string())
 }
 
-pub(crate) fn uploads_dir() -> std::path::PathBuf {
+pub fn uploads_dir() -> std::path::PathBuf {
     crate::paths::data_dir().join("uploads")
 }
 
-pub(crate) const PEBBLE_WEBHOOK_PATH: &str = "/api/plugins/pebble/webhook";
+pub const PEBBLE_WEBHOOK_PATH: &str = "/api/plugins/pebble/webhook";
 
-pub(crate) const PEBBLE_WEBHOOK_SECRET: &str = "pebble_webhook_secret";
+pub const PEBBLE_WEBHOOK_SECRET: &str = "pebble_webhook_secret";

@@ -2,7 +2,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanError;
 
 #[derive(Debug)]
-pub(crate) enum TeamPlanError {
+pub enum TeamPlanError {
     Team(String),
     Plan(PlanError),
 }
@@ -10,7 +10,7 @@ pub(crate) enum TeamPlanError {
 /// Who is asking to mutate a Team. Headerless REST callers need a confirmed
 /// target echo; Tauri and local socket callers carry their own local identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TeamMutationCaller {
+pub enum TeamMutationCaller {
     AgentTab(String),
     AuthenticatedMeshPeer(String),
     Human,
@@ -19,7 +19,7 @@ pub(crate) enum TeamMutationCaller {
 }
 
 impl TeamMutationCaller {
-    pub(crate) fn from_tab(caller_tab_id: Option<&str>) -> Self {
+    pub fn from_tab(caller_tab_id: Option<&str>) -> Self {
         match caller_tab_id.map(str::trim).filter(|id| !id.is_empty()) {
             Some(tab_id) => Self::AgentTab(tab_id.to_string()),
             None => Self::Human,
@@ -36,7 +36,7 @@ impl TeamMutationCaller {
         }
     }
 
-    pub(crate) fn kind(&self) -> &'static str {
+    pub fn kind(&self) -> &'static str {
         match self {
             Self::AgentTab(_) => "AgentTab",
             Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",

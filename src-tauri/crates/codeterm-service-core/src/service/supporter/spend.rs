@@ -107,7 +107,7 @@ impl SpendBook {
         Ok(())
     }
 
-    pub(super) fn admit(&self, adapter: &str, now: i64) -> Result<(), DecisionError> {
+    pub fn admit(&self, adapter: &str, now: i64) -> Result<(), DecisionError> {
         let mut state = self.state.lock();
         if !state.storage_ready {
             return Err(DecisionError::Unavailable(
@@ -125,7 +125,7 @@ impl SpendBook {
         Ok(())
     }
 
-    pub(super) fn finish(
+    pub fn finish(
         &self,
         adapter: &str,
         name: &str,
@@ -171,7 +171,7 @@ impl SpendBook {
         Ok(alerts)
     }
 
-    pub(super) fn status(&self, adapter: &str, now: i64) -> Value {
+    pub fn status(&self, adapter: &str, now: i64) -> Value {
         let state = self.state.lock();
         let mut account = state.accounts.get(adapter).cloned().unwrap_or_default();
         account.rollover(now);

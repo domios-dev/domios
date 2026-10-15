@@ -15,7 +15,7 @@ use crate::service::ServiceState;
 pub(crate) const RERANK_EXCLUSIVE: &str = "rerank and supporter are mutually exclusive";
 
 #[derive(Deserialize, Clone, Default)]
-pub(crate) struct SearchParams {
+pub struct SearchParams {
     pub q: String,
     #[serde(skip)]
     pub caller_tab_id: Option<String>,
@@ -40,7 +40,7 @@ pub(crate) struct SearchParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SearchError {
+pub enum SearchError {
     InvalidParams(String),
     Internal(String),
 }
@@ -52,7 +52,7 @@ impl From<String> for SearchError {
 }
 
 impl SearchError {
-    pub(crate) fn into_http(self) -> (StatusCode, String) {
+    pub fn into_http(self) -> (StatusCode, String) {
         match self {
             Self::InvalidParams(message) => (StatusCode::BAD_REQUEST, message),
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
@@ -68,9 +68,7 @@ pub(crate) trait RecallBackend {
 }
 
 /// Recall and stage 2 block on SQLite and adapter IO, so they never run on the async runtime.
-pub(crate) async fn run_blocking_search<F>(
-    search: F,
-) -> Result<serde_json::Value, (StatusCode, String)>
+pub async fn run_blocking_search<F>(search: F) -> Result<serde_json::Value, (StatusCode, String)>
 where
     F: FnOnce() -> Result<serde_json::Value, SearchError> + Send + 'static,
 {
@@ -85,7 +83,7 @@ where
         .map_err(SearchError::into_http)
 }
 
-pub(crate) fn execute_search(
+pub fn execute_search(
     svc: &ServiceState,
     p: SearchParams,
 ) -> Result<serde_json::Value, SearchError> {

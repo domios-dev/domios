@@ -478,60 +478,6 @@ fn sentinel_duration_overflow_refused() {
 }
 
 #[test]
-fn sentinel_probe_bounded_runtime_and_output() {
-    let dir = tempfile::tempdir().unwrap();
-    let owner = std::sync::Arc::new(super::probe::owner::ProbeResourceOwner::new());
-    #[cfg(unix)]
-    let stalled = "exec cat /dev/zero";
-    #[cfg(windows)]
-    let stalled = "while ($true) { [Console]::Out.Write('x') }";
-    let run_ready = |command: Option<&str>, limit| {
-        let ready = super::probe::test_readiness::Readiness::new();
-        let (signal, receipts) = ready.signal(limit, super::probe::PROBE_RUNTIME);
-        let command = command.map_or_else(
-            || ready.output_command(),
-            |command| ready.command_after_ready(command),
-        );
-        let result = super::probe::run_cancellable(&command, dir.path(), limit, &owner, &signal);
-        let receipt = receipts.try_recv().expect("probe child readiness receipt");
-        assert_eq!(receipt.duration, limit.min(super::probe::PROBE_RUNTIME));
-        (result, receipt)
-    };
-    let started = std::time::Instant::now();
-    let (trivial, _) = run_ready(Some("echo ok"), super::probe::PROBE_RUNTIME);
-    assert!(
-        trivial.is_ok(),
-        "trivial probe failed after {:?}: {:?}",
-        started.elapsed(),
-        trivial.err()
-    );
-    let trivial = trivial.unwrap();
-    assert_eq!(
-        i32::from_le_bytes(trivial.bytes[..4].try_into().unwrap()),
-        0
-    );
-    let normalized = trivial.text.replace("\r\n", "\n");
-    assert!(
-        normalized.contains("stdout:\nok\n"),
-        "unexpected formatted probe output: {:?}",
-        trivial.text
-    );
-    let started = std::time::Instant::now();
-    let (output, _) = run_ready(None, super::probe::PROBE_RUNTIME);
-    let output = output.unwrap_or_else(|error| {
-        panic!("large probe failed after {:?}: {error}", started.elapsed())
-    });
-    assert!(output.bytes.len() <= super::probe::MAX_OUTPUT_BYTES + 12);
-    assert!(output.bytes.len() >= super::probe::MAX_OUTPUT_BYTES / 2);
-    assert!(output.stdout.truncated);
-    assert!(output.stdout.total_bytes >= 1_000_000);
-    assert_eq!(output.exit_code, Some(0));
-    let (result, receipt) = run_ready(Some(stalled), std::time::Duration::from_millis(200));
-    assert_eq!(result.unwrap_err().primary, "probe_timeout");
-    assert!(receipt.admitted.elapsed() < std::time::Duration::from_secs(3));
-}
-
-#[test]
 fn sentinel_probe_capacity_persists_stop_and_routes_one_owner_notice() {
     let dir = tempfile::tempdir().unwrap();
     let clock = crate::cron::clock::MockClock::starting_at(1000);

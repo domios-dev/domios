@@ -112,7 +112,7 @@ pub(crate) struct GrabTarget {
 
 impl GrabTarget {
     /// The frontend card shape: the collected facts plus the accessibility role and name.
-    pub(crate) fn to_json(&self) -> Value {
+    pub fn to_json(&self) -> Value {
         let pairs = |items: &[(String, String)]| -> Value {
             items
                 .iter()

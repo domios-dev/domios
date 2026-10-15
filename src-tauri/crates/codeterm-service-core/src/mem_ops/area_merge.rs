@@ -11,7 +11,7 @@ pub struct AreaMergeBody {
     pub worker_id: Option<String>,
 }
 
-pub(crate) fn merge_area(
+pub fn merge_area(
     svc: &ServiceState,
     body: &AreaMergeBody,
     worker_id: Option<&str>,

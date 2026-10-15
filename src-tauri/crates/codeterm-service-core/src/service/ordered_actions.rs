@@ -1,18 +1,18 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum OrderedPtyAction {
+pub enum OrderedPtyAction {
     Submit,
     Raw(Vec<u8>),
     Delay(std::time::Duration),
 }
 
-pub(crate) fn await_action_deadline(delay: std::time::Duration) {
+pub fn await_action_deadline(delay: std::time::Duration) {
     let gate = parking_lot::Mutex::new(());
     let changed = parking_lot::Condvar::new();
     let mut guard = gate.lock();
     let _ = changed.wait_for(&mut guard, delay);
 }
 
-pub(crate) fn execute_ordered_actions<E>(
+pub fn execute_ordered_actions<E>(
     text: &str,
     actions: &[OrderedPtyAction],
     mut submit: impl FnMut(&str, bool) -> Result<(), E>,

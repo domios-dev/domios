@@ -1,21 +1,20 @@
 pub mod agent;
 pub mod agent_commands;
-mod api;
-mod api_support;
+pub mod api_support;
 pub mod app_runtime;
 pub use codeterm_util::attachments;
 mod autostart;
+pub use autostart::{
+    disable as disable_autostart, enable as enable_autostart, is_enabled as autostart_is_enabled,
+};
 pub mod bridge;
 pub mod bridge_host;
 pub mod bubble;
 pub mod chatbackend;
 pub mod chatpipeline;
 pub mod chatpreprocessor;
-pub mod clipboard_files;
-pub mod commands;
-mod commands_mesh;
-mod config;
-mod crash;
+pub mod config;
+pub mod crash;
 pub mod cron;
 pub mod delayed_send;
 pub mod dispatch;
@@ -24,20 +23,20 @@ mod flow_trace;
 pub mod frontend_bundle_api_version;
 pub mod glance;
 mod instance_lifetime;
-mod keepawake;
+pub mod keepawake;
 mod liveness;
 pub mod lock_hold;
 pub mod logs;
 pub mod mem;
 pub mod mem_host;
-mod mem_ops;
+pub mod mem_ops;
 pub mod mesh;
-mod mesh_host;
+pub mod mesh_host;
 pub mod message_markers;
 pub mod multiplexer;
 #[cfg(windows)]
 mod native_resize;
-mod notification;
+pub mod notification;
 pub mod pasteboard;
 pub mod paths;
 pub mod sentinel;
@@ -56,14 +55,12 @@ pub mod secrets;
 pub mod service;
 pub mod session;
 pub mod shell;
-mod socket;
-mod startup;
+pub mod startup;
 pub mod storage;
 #[cfg(test)]
 mod telegram269_wire_contract;
 pub mod transcribe;
 pub mod transcribe_adapter;
-pub mod update;
 pub mod update_state;
 pub mod usage;
 pub mod user_last_activity;
@@ -78,7 +75,7 @@ use parking_lot::Mutex;
 use tauri::Manager;
 
 use multiplexer::commands::MuxState;
-use notification::NotifState;
+pub use notification::NotifState;
 use pty::manager::{OutputBuffer, PtyManager};
 use pty::screen_state::ScreenState;
 use service::{ServiceContext, ServiceState};
@@ -95,12 +92,6 @@ pub type UpdateStateHandle = Arc<Mutex<update_state::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
-
-pub use api::routes::register_rest_hooks;
-
-pub fn register_socket() {
-    socket::register_rpc_bridge();
-}
 
 pub fn register_orchestration() {
     service::register_orchestration();
@@ -1038,3 +1029,6 @@ mod windows_rc_ownership_regression;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod persistence_test_support;

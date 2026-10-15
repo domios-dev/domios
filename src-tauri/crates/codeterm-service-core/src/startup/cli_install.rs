@@ -270,7 +270,7 @@ pub(crate) fn install_bundled_cli(app: &crate::app_runtime::App) {
 /// bundle, so `~/.codeterm/bin/codeterm` matches the freshly-installed app's
 /// resource CLI without waiting for (or depending on) the next cold startup.
 /// Synchronous: the caller is already off the UI hot path (update apply).
-pub(crate) fn refresh_bundled_cli(app: &impl tauri::Manager<crate::app_runtime::Runtime>) {
+pub fn refresh_bundled_cli(app: &impl tauri::Manager<crate::app_runtime::Runtime>) {
     let Some(src) = resolve_bundled_cli_src(app) else {
         log::debug!("[cli-install] post-update: no bundled CLI in resources, skipping");
         return;
