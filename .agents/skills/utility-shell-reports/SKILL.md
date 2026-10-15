@@ -165,3 +165,8 @@ failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
 <!-- revision: 10 -->
+
+DEV app stdout/stderr use .NET Framework synchronous pipes on Windows and regular
+files on Unix, through `scripts/dev-app-process.mjs`. The reader forwards log chunks
+into the report stream, preserving READY health validation without exposing the
+Rust app to overlapped pipeline handles. Both foreground and `--wait` share it.

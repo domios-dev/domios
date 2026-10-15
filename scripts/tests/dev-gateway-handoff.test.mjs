@@ -18,7 +18,10 @@ cargo() { [ "$owned" = 1 ]; printf 'cargo %s\\n' "$*"; return ${failure}; }
 git() { printf opaque-sha; }
 write_dev_provenance() { [ "$owned" = 1 ]; echo provenance; }
 retain_dev_pdb() { :; }
-complete_build_gateway_before_handoff() { owned=0; echo released; }
+release_stable_build_path() { [ "$owned" = 1 ]; mapping=0; }
+tauri_debug_dir() { echo opaque-target; }
+record_dev_target() { [ "$mapping" = 0 ]; }
+complete_build_gateway_before_handoff() { [ "$mapping" = 0 ]; owned=0; echo released; }
 launch() { [ "$owned" = 0 ]; printf 'launch %s\\n' "$*"; }
 build_and_launch_dev --wait --notify-tab opaque-tab`;
     const result = spawnSync(bash, ['-c', script], { encoding: 'utf8' });
