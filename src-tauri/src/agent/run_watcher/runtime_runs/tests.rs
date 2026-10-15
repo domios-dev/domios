@@ -204,6 +204,30 @@ impl Scene {
         };
         self.events(tab, events);
     }
+    // cron-run-finished is a generic cron change broadcast (session commits emit it too),
+    // so each event only prompts a re-check of the run's end state.
+    fn await_cron_end(&self, changed: &mpsc::Receiver<()>, run: &CronRunInfo) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !self.cron_end_settled(run) {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            changed
+                .recv_timeout(remaining)
+                .expect("cron run did not settle before the deadline");
+        }
+    }
+    fn cron_end_settled(&self, run: &CronRunInfo) -> bool {
+        let settled = {
+            let store = self.cron.lock();
+            let (_, history) = store.find_run_by_id(&run.run_id).unwrap();
+            history.status != CronRunStatus::Running && history.report_delivery.is_some()
+        };
+        settled
+            && !self
+                .fixture
+                .service
+                .run_watcher
+                .has_runtime_run(run.tab_id.as_ref().unwrap())
+    }
     fn assert_cron_end(&self, job: &str, run: &CronRunInfo, status: CronRunStatus) {
         let store = self.cron.lock();
         let (_, history) = store.find_run_by_id(&run.run_id).unwrap();
@@ -268,7 +292,7 @@ fn runtime_oneshot_explicit_complete_retains_final_answer_then_closes_in_both_ev
         );
         let ended = scene.ended("cron-run-finished");
         scene.idle(tab, true, idle_first);
-        ended.recv_timeout(Duration::from_secs(5)).unwrap();
+        scene.await_cron_end(&ended, &run);
         scene.assert_cron_end(&job, &run, CronRunStatus::Success);
         let path = scene.cron.lock().log_file(&job, &run.run_id).unwrap();
         let log = std::fs::read_to_string(path).unwrap();
@@ -283,7 +307,7 @@ fn runtime_oneshot_idle_without_report_settles_success_and_keeps_history() {
     let (job, run) = scene.cron();
     let ended = scene.ended("cron-run-finished");
     scene.idle(run.tab_id.as_ref().unwrap(), true, false);
-    ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    scene.await_cron_end(&ended, &run);
     scene.assert_cron_end(&job, &run, CronRunStatus::Success);
 }
 
@@ -302,7 +326,7 @@ fn runtime_oneshot_process_exit_settles_failure_and_keeps_history() {
         },
         None,
     ));
-    ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    scene.await_cron_end(&ended, &run);
     scene.assert_cron_end(&job, &run, CronRunStatus::Failed);
 }
 
@@ -416,6 +440,6 @@ fn runtime_end_rejects_foreign_thread_and_nonce() {
     );
     let ended = scene.ended("cron-run-finished");
     scene.idle(tab, true, false);
-    ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    scene.await_cron_end(&ended, &run);
     scene.assert_cron_end(&job, &run, CronRunStatus::Success);
 }
