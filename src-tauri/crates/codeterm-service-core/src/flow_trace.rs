@@ -99,7 +99,7 @@ pub(crate) fn init() {
         });
 }
 
-pub(crate) fn record(
+pub fn record(
     id: &str,
     stage: &str,
     tab: &str,
