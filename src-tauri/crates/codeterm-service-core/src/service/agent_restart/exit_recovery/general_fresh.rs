@@ -1,8 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tauri::Manager;
-
 use super::super::{
     AgentRestartError, RestartAttemptError, RestartOutcome, TabRestartSnapshot,
     RESTART_READY_TIMEOUT_SECS,
@@ -16,8 +14,7 @@ impl ServiceContext {
         force: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         let config = self
-            .app_handle
-            .try_state::<crate::config::ConfigState>()
+            .try_ext::<crate::config::ConfigState>()
             .ok_or_else(|| {
                 AgentRestartError::Internal("General Agent configuration is unavailable".into())
             })?;

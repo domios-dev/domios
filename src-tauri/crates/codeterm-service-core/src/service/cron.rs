@@ -12,7 +12,6 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
-use tauri::Manager;
 
 pub(crate) fn cron_fired_payload(cron_id: &str, run_id: &str, tab_id: &str) -> serde_json::Value {
     serde_json::json!({"cron_id": cron_id, "run_id": run_id, "tab_id": tab_id})
@@ -106,7 +105,7 @@ impl OwnerPromptRequests {
             return;
         };
         let (requests, cron, tab_id) = (self.clone(), cron.clone(), tab_id.to_string());
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             let mut settling = Some(first);
             while let Some(commit) = settling.take() {
                 let outcome = commit.await;
@@ -151,34 +150,27 @@ impl ServiceContext {
     /// Under Storage the change is staged and settles on its completion's wake; the legacy
     /// JSON backend still commits before returning.
     pub(crate) fn set_cron_owner_prompt_waiting(&self, tab_id: &str, awaiting: bool) {
-        let Some(cron) = self.app_handle.try_state::<CronState>() else {
+        let Some(cron) = self.extensions.try_get::<CronState>() else {
             return;
         };
         let staged = cron.lock().commits_to_storage();
         if staged {
             let service = self.clone();
-            self.owner_prompt_requests().request(
-                cron.inner(),
-                tab_id,
-                awaiting,
-                move |tab_id, updated| service.report_owner_prompt(tab_id, updated),
-            );
+            self.owner_prompt_requests()
+                .request(cron, tab_id, awaiting, move |tab_id, updated| {
+                    service.report_owner_prompt(tab_id, updated)
+                });
             return;
         }
-        let updated = commit(cron.inner(), |store| {
+        let updated = commit(cron, |store| {
             Ok(store.prepare_owner_prompt(tab_id, awaiting))
         });
         self.report_owner_prompt(tab_id, updated);
     }
 
     fn owner_prompt_requests(&self) -> OwnerPromptRequests {
-        if let Some(requests) = self.app_handle.try_state::<OwnerPromptRequests>() {
-            return requests.inner().clone();
-        }
-        self.app_handle.manage(OwnerPromptRequests::default());
-        self.app_handle
-            .state::<OwnerPromptRequests>()
-            .inner()
+        self.extensions
+            .get_or_init(OwnerPromptRequests::default)
             .clone()
     }
 
@@ -628,13 +620,13 @@ impl ServiceContext {
         run_id: &str,
     ) -> Result<(), String> {
         let cron = self
-            .app_handle
-            .try_state::<CronState>()
+            .extensions
+            .try_get::<CronState>()
             .ok_or("Runtime cron state unavailable")?;
         if !runtime_cron_owner_needs_registration(&cron.lock(), tab_id, job_id, run_id)? {
             return Ok(());
         }
-        commit(&cron, |store| {
+        commit(cron, |store| {
             Ok(store.prepare_set_run_tab(job_id, run_id, tab_id))
         })
         .map_err(|error| error.to_string())?;

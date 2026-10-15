@@ -534,7 +534,7 @@ fn idle_poll_stores_provider_prompt_without_notification() {
 
 #[test]
 fn dead_cron_run_is_reaped_on_process_exit() {
-    use tauri::{Listener as _, Manager as _};
+    use tauri::Listener as _;
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
     let pty_id = "cron-process-exit-pty".to_string();
@@ -555,10 +555,11 @@ fn dead_cron_run_is_reaped_on_process_exit() {
     let cron = std::sync::Arc::new(parking_lot::Mutex::new(
         crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("crons.json")),
     ));
-    fixture._app.manage(cron.clone());
-    fixture
-        ._app
-        .manage::<crate::CronWake>(std::sync::Arc::new(std::sync::Condvar::new()));
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
+    assert!(fixture
+        .service
+        .set_ext::<crate::CronWake>(std::sync::Arc::new(std::sync::Condvar::new()))
+        .is_ok());
     let run_id = "process-exit-run";
     let job_id = {
         let mut store = cron.lock();

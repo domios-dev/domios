@@ -24,7 +24,6 @@ pub(crate) fn enabled() -> bool {
 }
 
 pub(crate) fn tab_flow(service: &crate::service::ServiceContext, tab: &str) -> Option<String> {
-    use tauri::Manager;
     if SENDER.get().is_none() {
         return None;
     }
@@ -39,8 +38,7 @@ pub(crate) fn tab_flow(service: &crate::service::ServiceContext, tab: &str) -> O
         }
     }
     service
-        .app_handle
-        .try_state::<crate::CronState>()
+        .try_ext::<crate::CronState>()
         .and_then(|state| state.lock().get_tab_owner(tab).map(|(_, run)| run.clone()))
 }
 

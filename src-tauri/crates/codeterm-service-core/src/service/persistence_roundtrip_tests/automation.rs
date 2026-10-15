@@ -5,7 +5,6 @@ use crate::service::ServiceContext;
 use crate::storage::Storage;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tauri::Manager;
 
 fn cron_for(
     service: &ServiceContext,
@@ -31,8 +30,8 @@ fn cron_for(
     .expect("startup hydrates cron from Storage");
     let cron = Arc::new(Mutex::new(store));
     let wake = Arc::new(std::sync::Condvar::new());
-    assert!(service.app_handle.manage(cron.clone()));
-    assert!(service.app_handle.manage(wake.clone()));
+    assert!(service.set_ext(cron.clone()).is_ok());
+    assert!(service.set_ext(wake.clone()).is_ok());
     (cron, wake)
 }
 

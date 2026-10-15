@@ -1,7 +1,6 @@
 use codeterm_types::pty::{BootStage, PendingPrompt, PromptIdentity, PromptKind, PromptOption};
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tauri::Manager;
 
 use super::{condition_owner, ConditionOwner};
 use crate::multiplexer::state::MultiplexerState;
@@ -262,7 +261,7 @@ fn user_owned_cron_prompt_stays_out_of_bell_and_tracks_waiting_state() {
     let cron = Arc::new(Mutex::new(crate::cron::store::CronStore::new_with_path(
         fixture.temp.path().join("crons.json"),
     )));
-    fixture._app.manage(cron.clone());
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
     let run_id = "owner-prompt-run";
     let job_id = {
         let mut store = cron.lock();

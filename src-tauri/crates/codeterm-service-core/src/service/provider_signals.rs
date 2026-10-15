@@ -2,15 +2,13 @@ use super::ServiceContext;
 use crate::agent::tab_state::{Surface, TabState, TabStateAction, TabStateClassification};
 use codeterm_provider_signals::{ApiErrorKind, PermissionMode};
 use codeterm_types::agent::provider_signals::ProviderSignals;
-use tauri::Manager;
 
 mod incident;
 mod update;
 use incident::{deliver_turn, incident, incident_transition, IncidentTransition};
 
 fn enabled(svc: &ServiceContext, provider: &str) -> bool {
-    svc.app_handle
-        .try_state::<crate::config::ConfigState>()
+    svc.try_ext::<crate::config::ConfigState>()
         .is_some_and(|config| {
             config.lock().agents.get(provider).is_some_and(|config| {
                 ["structured_signals", "capability_probe_enabled"]
