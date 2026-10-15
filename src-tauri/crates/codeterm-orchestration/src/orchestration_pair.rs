@@ -678,6 +678,7 @@ impl OrchestrationPairExt for ServiceContext {
             workspace_id: Some(workspace_id.clone()),
             spawned_by_tab_id: params.spawned_by_tab_id.clone(),
             task: None,
+            user_created: startup_supervisor.is_none(),
             manager_bootstrap: Some(orchestrator_bootstrap),
             existing_tab_id: Some(reserved.orchestrator_tab_id.clone()),
             skip_orchestrator_onboarding: Some(true),
@@ -730,6 +731,7 @@ impl OrchestrationPairExt for ServiceContext {
             workspace_id: Some(workspace_id.clone()),
             spawned_by_tab_id: Some(orch_tab_id.clone()),
             task: None,
+            user_created: startup_supervisor.is_none(),
             manager_bootstrap: Some(planner_bootstrap),
             existing_tab_id: Some(reserved.planner_tab_id.clone()),
             ..Default::default()

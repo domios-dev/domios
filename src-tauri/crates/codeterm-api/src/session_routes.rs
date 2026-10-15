@@ -546,6 +546,7 @@ pub async fn resume_session_api(
         activate: None,
         audience: Default::default(),
         manager_bootstrap: None,
+            user_created: false,
         structured_prompt_server: None,
     };
         Ok::<_, (StatusCode, String)>(Ok((spawn_params, identity, ws_id, meta, cwd, resume_cmd_preview)))
