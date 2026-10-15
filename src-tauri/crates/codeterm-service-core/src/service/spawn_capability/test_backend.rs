@@ -3,8 +3,8 @@
 
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
 
-pub(crate) struct SpawnableTestBackend {
-    pub(crate) id: &'static str,
+pub struct SpawnableTestBackend {
+    pub id: &'static str,
 }
 
 impl ChatBackendProvider for SpawnableTestBackend {
@@ -41,7 +41,7 @@ impl ChatBackendProvider for SpawnableTestBackend {
     }
 }
 
-pub(crate) fn registry_with_spawnable(id: &'static str) -> crate::chatbackend::ChatBackendRegistry {
+pub fn registry_with_spawnable(id: &'static str) -> crate::chatbackend::ChatBackendRegistry {
     let registry = crate::chatbackend::ChatBackendRegistry::new();
     registry.register(id, std::sync::Arc::new(SpawnableTestBackend { id }));
     registry
@@ -59,6 +59,7 @@ impl ChatBackendProvider for RuntimeTestBackend {
     fn describe(&self) -> crate::agent::provider::ProviderDescriptor {
         let mut descriptor = self.0.describe();
         descriptor.agent_runtime = Some(codeterm_plugin::agent_runtime::AgentRuntimeCapability {
+            stored_history: false,
             usage: false,
             runtime: codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc,
             command: codeterm_plugin::agent_runtime::AgentRuntimeCommand {
@@ -93,7 +94,7 @@ impl ChatBackendProvider for RuntimeTestBackend {
     }
 }
 
-pub(crate) fn registry_with_runtime(id: &'static str) -> crate::chatbackend::ChatBackendRegistry {
+pub fn registry_with_runtime(id: &'static str) -> crate::chatbackend::ChatBackendRegistry {
     let registry = crate::chatbackend::ChatBackendRegistry::new();
     registry.register(
         id,

@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-api"
-version = "1.14.9-dev.6"
+version = "0.0.0"
 edition = "2021"
 
 [lints]
@@ -12,6 +12,8 @@ name = "codeterm_api"
 [dependencies]
 codeterm-commands = { path = "../codeterm-commands" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-orchestration = { path = "../codeterm-orchestration" }
+codeterm-sentinel-host = { path = "../codeterm-sentinel-host" }
 codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-account = { path = "../codeterm-account" }
 codeterm-billing = { path = "../codeterm-billing" }
@@ -63,4 +65,6 @@ codeterm-plugins = { path = "../codeterm-plugins" }
 
 [dev-dependencies]
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
+codeterm-orchestration = { path = "../codeterm-orchestration", features = ["test-support"] }
+codeterm-sentinel-host = { path = "../codeterm-sentinel-host", features = ["test-support"] }
 mockito = "1"

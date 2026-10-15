@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
@@ -8,6 +8,8 @@ import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerAction
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { insertIntoComposer } from "./composerInsertion";
+import { RestoreStatePanel } from "./RestoreStatePanel";
+import { restoreStageView } from "../../lib/restoreStageView";
 import { TabContent } from "./TabContent";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
@@ -87,3 +89,77 @@ it("keeps the composer draft and attachment through runtime status changes", asy
   }
 });
 
+
+it("requests one wake when a sleeping tab becomes visible without awaiting materialization", async () => {
+  const tab: Tab = {
+    id: "wake-visible-fixture", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, frozen: true, agent_type: "fixture",
+  };
+  const state: ExtendedState = {
+    workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  const calls: string[] = [];
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "wake_tab") {
+      calls.push(String(args?.tabId));
+      return new Promise<T>(() => {});
+    }
+    return Promise.resolve({} as T);
+  });
+  __setListenForTest(async () => () => {});
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const store = createMuxStateStore(() => state);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  const render = (visible: boolean) => act(async () => root.render(
+    <StrictMode><MuxStateStoreContext.Provider value={store}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused={visible} isVisible={visible} onFocusTab={() => {}} onPtySpawned={() => {}}
+          theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider></StrictMode>,
+  ));
+  try {
+    await render(false);
+    expect(calls).toEqual([]);
+    expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).toBeNull();
+    await render(true);
+    expect(calls).toEqual([tab.id]);
+    expect(host.querySelector('[role="img"][aria-label="Session provider icon"]')).not.toBeNull();
+    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
+    await render(false);
+    await render(true);
+    expect(calls).toEqual([tab.id]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
+it("projects sleeping, restoring and failed snapshots into the state panel and wires one retry", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const retry = vi.fn();
+  const render = (tab: Partial<Tab>) => act(async () => root.render(
+    <RestoreStatePanel providerId="fixture" view={restoreStageView(tab)} onRetry={retry} />,
+  ));
+  try {
+    await render({ frozen: true });
+    expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).not.toBeNull();
+    expect(host.querySelector('[role="img"][aria-label="Session provider icon"]')).not.toBeNull();
+    await render({ frozen: false, boot_stage: "pty_starting" });
+    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
+    await render({ frozen: false, boot_stage: "spawn_failed", boot_failure_reason: "fixture-error" });
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("fixture-error");
+    const button = [...host.querySelectorAll("button")].find(button => button.textContent === "Wake again")!;
+    await act(async () => button.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

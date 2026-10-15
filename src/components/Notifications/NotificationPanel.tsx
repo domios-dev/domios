@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useState } from "react";
 import { NotificationBody } from "./NotificationBody";
 import type { Notification } from "../../lib/types";
@@ -164,7 +165,7 @@ export function NotificationPanel({
                           overscrollBehavior: "contain",
                         }}
                       >
-                        <NotificationBody text={notif.body} tabId={notif.tab_id} />
+                        <NotificationBody text={notif.body} tabId={notif.tab_id} failure={notif.level === "failure" || notif.severity === "Error"} operation={notif.title} />
                       </div>
                     )}
                   </>
@@ -184,7 +185,7 @@ export function NotificationPanel({
                 )}
                 {notif.local_actions?.map((action) => <button key={action.label} type="button" className="mt-1.5 mr-2 text-xs text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); void action.run(); }}>{action.label}</button>)}
                 {notif.answer_pending && <div role="status">Sending answer…</div>}
-                {notif.answer_error && <div role="alert">{notif.answer_error}</div>}
+                {notif.answer_error && <InlineErrorNotice error={notif.answer_error} operation="answering this notification" blocking />}
                 {notif.resolved ? (
                   <div
                     data-testid="notification-resolved"

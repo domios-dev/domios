@@ -10,6 +10,26 @@ use codeterm_service_core::service::permission_decision::{
     wait_for_answer, PendingGuard, Request, BROKER, DEADLINE,
 };
 
+struct OffRuntimePendingGuard(Option<PendingGuard>);
+
+impl OffRuntimePendingGuard {
+    fn take(mut self) -> Option<PendingGuard> {
+        self.0.take()
+    }
+}
+
+impl Drop for OffRuntimePendingGuard {
+    fn drop(&mut self) {
+        if let Some(guard) = self.0.take() {
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn_blocking(move || drop(guard));
+            } else {
+                drop(guard);
+            }
+        }
+    }
+}
+
 pub(crate) async fn handle(
     state: &AppState,
     tab_id: &str,
@@ -19,7 +39,11 @@ pub(crate) async fn handle(
     if !is_permission_request(body) {
         return None;
     }
-    let tab = state.svc.mux.read().get_tab(tab_id).cloned()?;
+    let owner = state.svc.clone();
+    let target = tab_id.to_owned();
+    let tab = tokio::task::spawn_blocking(move || owner.mux.read().get_tab(&target).cloned())
+        .await
+        .ok()??;
     let provider_id = tab.agent_type.as_deref()?;
     let enabled = enabled(state.config.lock().agents.get(provider_id));
     if !enabled {
@@ -71,18 +95,36 @@ pub(crate) async fn handle(
     if !BROKER.lock().register(tab_id, request) {
         return no_decision();
     }
-    let _guard = PendingGuard {
+    let guard = OffRuntimePendingGuard(Some(PendingGuard {
         svc: state.svc.clone(),
         tab_id: tab_id.into(),
         id: id.clone(),
         identity: identity.clone(),
-    };
-    sync_display(&state.svc, tab_id);
-    notify(&state.svc, tab_id, &tab.title, &prompt, &id);
+    }));
+    let owner = state.svc.clone();
+    let target = tab_id.to_owned();
+    let title = tab.title.clone();
+    let display_prompt = prompt.clone();
+    let display_id = id.clone();
+    tokio::task::spawn_blocking(move || {
+        sync_display(&owner, &target);
+        notify(&owner, &target, &title, &display_prompt, &display_id);
+    })
+    .await
+    .ok()?;
     let answer = wait_for_answer(receiver, DEADLINE).await;
-    let binding_matches = state.svc.mux.read().get_tab(tab_id).is_some_and(|current| {
-        current.agent_session_id == tab.agent_session_id
-            && current.session_binding_nonce == tab.session_binding_nonce
-    });
-    Some(decision(answer.filter(|_| binding_matches)))
+    let owner = state.svc.clone();
+    let target = tab_id.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard.take();
+        let state = owner;
+        let tab_id = target.as_str();
+        let binding_matches = state.mux.read().get_tab(tab_id).is_some_and(|current| {
+            current.agent_session_id == tab.agent_session_id
+                && current.session_binding_nonce == tab.session_binding_nonce
+        });
+        Some(decision(answer.filter(|_| binding_matches)))
+    })
+    .await
+    .ok()?
 }

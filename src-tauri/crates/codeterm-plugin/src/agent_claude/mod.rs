@@ -33,7 +33,7 @@ impl AgentClaudePlugin {
         PluginManifest {
             plugin: PluginMeta {
                 name: PLUGIN_ID.into(),
-                version: env!("CARGO_PKG_VERSION").into(),
+                version: codeterm_build_info::version().into(),
                 description: "Claude Code agent provider — detection, sessions, TUI control".into(),
                 tier: PluginTier::Native,
                 entrypoint: None,

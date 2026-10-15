@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useEffect, useState } from "react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { ApiConfig } from "../../../lib/types";
@@ -114,7 +115,7 @@ function SkillDetailPanel({
         <strong>{title}</strong>
         <span className="plan-skill-detail-slug">{slug}</span>
       </div>
-      {error && <p className="plan-skill-detail-error">{error}</p>}
+      {error && <InlineErrorNotice error={error} operation="loading plan skills" />}
       {body && (
         <div data-testid="plan-skill-markdown" className="plan-skill-markdown">
           <RichMarkdown text={body} />

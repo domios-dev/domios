@@ -3,7 +3,6 @@ use std::sync::LazyLock;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 
 use super::{session_persist, ServiceContext};
 use crate::multiplexer::state::StructureState;
@@ -69,14 +68,14 @@ fn saved_blueprint(
 fn validate_saved_blueprints(resources: &Resources) -> Result<(), String> {
     for saved in &resources.blueprints {
         saved_blueprint(saved)?;
-        serde_json::from_value::<crate::sentinel::store::Sentinel>(saved.clone())
+        serde_json::from_value::<codeterm_sentinel::store::Sentinel>(saved.clone())
             .map_err(|error| format!("Saved blueprint is unreadable: {error}"))?;
     }
     Ok(())
 }
 
 impl ServiceContext {
-    pub(crate) fn recover_close_inventories(&self) -> Result<(), String> {
+    pub fn recover_close_inventories(&self) -> Result<(), String> {
         let records = self.mux.read().closed_structure_records()?;
         for record in records
             .into_iter()
@@ -87,7 +86,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(super) fn capture_close_inventory(
+    pub fn capture_close_inventory(
         &self,
         workspace: &str,
         team: Option<&str>,
@@ -128,8 +127,8 @@ impl ServiceContext {
             )
         };
         let crons = self
-            .app_handle
-            .try_state::<crate::CronState>()
+            .extensions
+            .try_get::<crate::CronState>()
             .map(|state| {
                 state
                     .lock()
@@ -141,8 +140,8 @@ impl ServiceContext {
             })
             .unwrap_or_default();
         let blueprints = self
-            .app_handle
-            .try_state::<crate::ports::sentinel::SentinelPorts>()
+            .extensions
+            .try_get::<crate::ports::sentinel::SentinelPorts>()
             .map(|ports| {
                 ports
                     .store
@@ -163,7 +162,7 @@ impl ServiceContext {
         Ok(Some(id))
     }
 
-    pub(super) fn settle_close_inventory(&self, id: Option<&str>) -> Result<(), String> {
+    pub fn settle_close_inventory(&self, id: Option<&str>) -> Result<(), String> {
         let Some(id) = id else {
             return Ok(());
         };
@@ -186,15 +185,15 @@ impl ServiceContext {
                 .get(&saved.id)
                 .is_none_or(|current| current.team_id != saved.team_id)
         });
-        if let Some(cron) = self.app_handle.try_state::<crate::CronState>() {
+        if let Some(cron) = self.extensions.try_get::<crate::CronState>() {
             changed |= resources
                 .crons
                 .iter()
                 .any(|saved| cron.lock().get(&saved.id).is_none());
         }
         if let Some(blueprints) = self
-            .app_handle
-            .try_state::<crate::ports::sentinel::SentinelPorts>()
+            .extensions
+            .try_get::<crate::ports::sentinel::SentinelPorts>()
         {
             for saved in &resources.blueprints {
                 changed |= blueprints
@@ -318,11 +317,11 @@ impl ServiceContext {
     fn restore_history_automation(&self, resources: &Resources) -> Result<(), String> {
         if !resources.crons.is_empty() {
             let cron = self
-                .app_handle
-                .try_state::<crate::CronState>()
+                .extensions
+                .try_get::<crate::CronState>()
                 .ok_or("Cron store unavailable")?;
             for job in &resources.crons {
-                crate::cron::store::commit(cron.inner(), |store| {
+                crate::cron::store::commit(cron, |store| {
                     if let Some(existing) = store.get(&job.id) {
                         if existing.workspace_id != job.workspace_id
                             || existing.team_id != job.team_id
@@ -341,15 +340,15 @@ impl ServiceContext {
                 })
                 .map_err(|error| error.to_string())?;
             }
-            if let Some(wake) = self.app_handle.try_state::<crate::CronWake>() {
+            if let Some(wake) = self.extensions.try_get::<crate::CronWake>() {
                 wake.notify_all();
             }
             self.emit_cron_changed();
         }
         if !resources.blueprints.is_empty() {
             let ports = self
-                .app_handle
-                .try_state::<crate::ports::sentinel::SentinelPorts>()
+                .extensions
+                .try_get::<crate::ports::sentinel::SentinelPorts>()
                 .ok_or("Blueprint store unavailable")?;
             for saved in &resources.blueprints {
                 let job = saved_blueprint(saved)?;
@@ -396,7 +395,7 @@ impl ServiceContext {
     }
 
     fn persist_history_desk(&self) -> Result<(), String> {
-        match session_persist::write_session_snapshot(&self.app_handle, &self.mux)? {
+        match session_persist::write_session_snapshot(self, &self.mux)? {
             crate::session::store::SaveOutcome::Saved => Ok(()),
             crate::session::store::SaveOutcome::RefusedReduction(_) => {
                 Err("Restored desk was not persisted".into())

@@ -461,7 +461,7 @@ impl RecordingLeases {
 
 fn schedule_clip_cleanup(paths: Vec<std::path::PathBuf>) {
     if !paths.is_empty() {
-        tauri::async_runtime::spawn_blocking(move || CaptureClips::cleanup(paths));
+        crate::async_runtime::spawn_blocking(move || CaptureClips::cleanup(paths));
     }
 }
 

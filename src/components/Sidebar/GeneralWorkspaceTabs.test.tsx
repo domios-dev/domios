@@ -106,6 +106,7 @@ async function run() {
     const submit = Array.from(dialog.querySelectorAll("button")).find((node) => node.textContent?.trim() === "Start session");
     assert(submit);
     await act(async () => submit.click());
+    await act(async () => document.querySelector('[data-testid="new-session-picker"]')?.dispatchEvent(new Event("animationend", { bubbles: true })));
     const spawns = requests.filter((request) => request.command === "spawn_general_agent_session");
     assert.deepEqual(spawns, [{ command: "spawn_general_agent_session", args: { params: {
       workspaceId: "general", providerId: "chosen-provider", cwd: "/instance/general",

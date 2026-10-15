@@ -13,7 +13,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, Plan, Task, TaskStatus};
 use crate::service::plan::NewTask;
-use crate::service::test_fixture::ServiceFixture;
+use crate::service::test_fixture::{RecordedAgentDeliveries, ServiceFixture};
 
 const PAYLOAD: &str = "ATTRIBUTION_TRUTH_PAYLOAD";
 
@@ -23,6 +23,7 @@ const PAYLOAD: &str = "ATTRIBUTION_TRUTH_PAYLOAD";
 /// the reporting shell's stale task id points into.
 struct Moved {
     fx: ServiceFixture,
+    _orchestrators: Vec<RecordedAgentDeliveries>,
     former_orch: String,
     live_orch: Option<String>,
     caller: String,
@@ -63,6 +64,10 @@ fn moved_worker(attached: bool) -> Moved {
     mux.get_tab_mut(&caller).unwrap().agent_type = Some("claude".into());
 
     let fx = ServiceFixture::new(mux);
+    let orchestrators = std::iter::once(&former_orch)
+        .chain(live_orch.as_ref())
+        .map(|orch| fx.bind_recorded_agent_recipient(orch, "orch-session", "orch-nonce"))
+        .collect();
     {
         let mut mux = fx.service.mux.write();
         let tab = mux.get_tab_mut(&caller).unwrap();
@@ -98,6 +103,7 @@ fn moved_worker(attached: bool) -> Moved {
         .unwrap();
     Moved {
         fx,
+        _orchestrators: orchestrators,
         former_orch,
         live_orch,
         caller,

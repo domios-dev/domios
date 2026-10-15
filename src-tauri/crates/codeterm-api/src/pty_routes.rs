@@ -59,19 +59,38 @@ pub async fn pty_read(
     Query(query): Query<PtyTailQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let requested_offset = {
-        let buf = state.svc.output_buf.lock();
-        query.offset.unwrap_or_else(|| buf.total_written(&pty_id))
-    };
+    let owner = state.svc.clone();
+    let target = pty_id.clone();
+    let requested_offset = tokio::task::spawn_blocking(move || {
+        let buf = owner.output_buf.lock();
+        query.offset.unwrap_or_else(|| buf.total_written(&target))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?;
     let mut offset = requested_offset;
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
     loop {
-        // Message avoids "PTY not found"/"PTY closed" — those trigger frontend respawn.
-        if state.svc.pty.lock().get_session(&pty_id).is_none() {
-            return Err((StatusCode::NOT_FOUND, "pty session ended".to_string()));
-        }
-        let (data, next_offset) = state.svc.output_buf.lock().read_since(&pty_id, offset);
+        let owner = state.svc.clone();
+        let target = pty_id.clone();
+        let (data, next_offset) = tokio::task::spawn_blocking(move || {
+            if owner.pty.lock().get_session(&target).is_none() {
+                return Err((StatusCode::NOT_FOUND, "pty session ended".to_string()));
+            }
+            Ok(owner.output_buf.lock().read_since(&target, offset))
+        })
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "blocking task failed".to_string(),
+            )
+        })??;
         offset = next_offset;
         if !data.is_empty() || tokio::time::Instant::now() >= deadline {
             // ring evicted bytes ahead of it — surface the gap, never hide it.
@@ -108,54 +127,56 @@ pub async fn pty_write(
     Json(body): Json<PtyWriteBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let diagnostic_level = crate::stream_diagnostics::configured_level(
-        state.config.lock().diagnostics.terminal_transport,
-    );
-    if let Some(level) = diagnostic_level {
-        let (tab_id, is_current_pty) = {
-            let mux = state.svc.mux.read();
-            let tab_id = mux.tab_id_for_pty(&pty_id);
-            let is_current_pty = tab_id
-                .as_deref()
-                .and_then(|tab| mux.get_tab(tab))
-                .and_then(|tab| tab.pty_id.as_deref())
-                == Some(pty_id.as_str());
-            (tab_id, is_current_pty)
-        };
-        log::log!(
-            level,
-            "[pty-write-route] tab={} pty_id={} bytes={} is_current_pty={}",
-            tab_id.as_deref().unwrap_or("unmapped"),
-            pty_id,
-            body.data.len(),
-            is_current_pty,
+    tokio::task::spawn_blocking(move || {
+        let diagnostic_level = crate::stream_diagnostics::configured_level(
+            state.config.lock().diagnostics.terminal_transport,
         );
-    }
-    if body.raw {
-        codeterm_commands::commands::write_pty_string_core(&state.svc, pty_id, body.data)
-            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    } else {
-        // off the async runtime.
-        let svc = state.svc.clone();
-        tokio::task::spawn_blocking(move || {
-            let text_stripped = body.data.trim_end_matches('\r');
-            let enter = text_stripped.len() != body.data.len();
-            if enter {
-                svc.send_text_to_pty(&pty_id, text_stripped)
-            } else {
-                svc.insert_text_to_pty(&pty_id, text_stripped)
+        if let Some(level) = diagnostic_level {
+            let (tab_id, is_current_pty) = {
+                let mux = state.svc.mux.read();
+                let tab_id = mux.tab_id_for_pty(&pty_id);
+                let is_current_pty = tab_id
+                    .as_deref()
+                    .and_then(|tab| mux.get_tab(tab))
+                    .and_then(|tab| tab.pty_id.as_deref())
+                    == Some(pty_id.as_str());
+                (tab_id, is_current_pty)
+            };
+            log::log!(
+                level,
+                "[pty-write-route] tab={} pty_id={} bytes={} is_current_pty={}",
+                tab_id.as_deref().unwrap_or("unmapped"),
+                pty_id,
+                body.data.len(),
+                is_current_pty,
+            );
+        }
+        if body.raw {
+            codeterm_commands::commands::write_pty_string_core(&state.svc, pty_id, body.data)
+                .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        } else {
+            // off the async runtime.
+            let svc = state.svc.clone();
+            {
+                let text_stripped = body.data.trim_end_matches('\r');
+                let enter = text_stripped.len() != body.data.len();
+                if enter {
+                    svc.send_text_to_pty(&pty_id, text_stripped)
+                } else {
+                    svc.insert_text_to_pty(&pty_id, text_stripped)
+                }
             }
-        })
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("send task failed: {e}"),
-            )
-        })?
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    }
-    Ok(Json(serde_json::json!({"ok": true})))
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        }
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("send task failed: {e}"),
+        )
+    })?
 }
 
 #[derive(Deserialize)]
@@ -172,20 +193,29 @@ pub async fn pty_resize(
     Json(body): Json<PtyResizeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    if let Some(client_id) = body.client_id.as_deref() {
-        if !state.resize_owner.lock().is_owner(&pty_id, client_id) {
-            return Ok(Json(serde_json::json!({"ok": true, "ignored": true})));
+    tokio::task::spawn_blocking(move || {
+        if let Some(client_id) = body.client_id.as_deref() {
+            if !state.resize_owner.lock().is_owner(&pty_id, client_id) {
+                return Ok(Json(serde_json::json!({"ok": true, "ignored": true})));
+            }
         }
-    }
-    codeterm_commands::commands::resize_pty_core(
-        &state.svc.pty,
-        &state.svc.screen_state,
-        pty_id,
-        body.cols,
-        body.rows,
-    )
-    .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+        codeterm_commands::commands::resize_pty_core(
+            &state.svc.pty,
+            &state.svc.screen_state,
+            pty_id,
+            body.cols,
+            body.rows,
+        )
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 #[derive(Deserialize)]
@@ -234,29 +264,38 @@ pub async fn claim_resize_owner(
     Path(tab_id): Path<String>,
     Json(body): Json<ResizeOwnerBody>,
 ) -> Result<Json<codeterm_service_core::resize_owner::ResizeOwnerClaim>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let owner = state.resize_owner.lock().claim(
-        tab_id,
-        body.pty_id,
-        body.client_id,
-        body.cols,
-        body.rows,
-        body.force,
-    );
-    let current_size = state
-        .svc
-        .pty
-        .lock()
-        .size(&owner.pty_id)
-        .map(codeterm_service_core::resize_owner::ResizePtySize::from);
-    state.events.publish(crate::events::SystemEvent::Generic {
-        event_type: "pty-resize-owner-changed".to_string(),
-        data: serde_json::to_value(&owner).unwrap_or_default(),
-    });
-    Ok(Json(
-        codeterm_service_core::resize_owner::ResizeOwnerClaim {
-            owner,
-            current_size,
-        },
-    ))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        let owner = state.resize_owner.lock().claim(
+            tab_id,
+            body.pty_id,
+            body.client_id,
+            body.cols,
+            body.rows,
+            body.force,
+        );
+        let current_size = state
+            .svc
+            .pty
+            .lock()
+            .size(&owner.pty_id)
+            .map(codeterm_service_core::resize_owner::ResizePtySize::from);
+        state.events.publish(crate::events::SystemEvent::Generic {
+            event_type: "pty-resize-owner-changed".to_string(),
+            data: serde_json::to_value(&owner).unwrap_or_default(),
+        });
+        Ok(Json(
+            codeterm_service_core::resize_owner::ResizeOwnerClaim {
+                owner,
+                current_size,
+            },
+        ))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }

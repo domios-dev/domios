@@ -2,7 +2,7 @@
 # Caller: build.sh nextest-archive|nextest|test-one; scripts/nextest-archive.test.mjs
 
 app_test_archive_path() {
-  printf '%s/test-archives/%s/app.tar.zst\n' "$(ct_gateway_dir)" "$1"
+  printf '%s/test-archives/%s/app-no-embeddings.tar.zst\n' "$(ct_gateway_dir)" "$1"
 }
 
 find_app_test_archive() {
@@ -39,7 +39,7 @@ build_app_test_archive() {
   temporary="${archive%.tar.zst}.$CT_BUILD_JOB_ID.tar.zst"
   started="$(date +%s)"
   CARGO_TARGET_DIR="$cw/target/app" cargo nextest archive --manifest-path src-tauri/Cargo.toml \
-    -p codeterm-service-core -p codeterm --lib --cargo-profile test --archive-file "$temporary" || return $?
+    -p codeterm-service-core -p codeterm --lib --no-default-features --cargo-profile test --archive-file "$temporary" || return $?
   [ -s "$temporary" ] || { echo 'ERROR: nextest archive produced no artifact' >&2; return 74; }
   mv "$temporary" "$archive"
   echo "nextest-archive: built sha=$sha wall=$(( $(date +%s) - started ))s archive=$archive"

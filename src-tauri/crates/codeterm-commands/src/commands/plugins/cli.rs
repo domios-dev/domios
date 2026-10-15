@@ -17,7 +17,7 @@ pub(super) fn run_plugin_cli(args: &[impl AsRef<str>]) -> Result<Value, String> 
     let action = parse_plugin_args(&parts)?;
     let ctx = PluginCtx {
         data_root: codeterm_service_core::paths::data_dir(),
-        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        version: codeterm_build_info::installed_version().map(str::to_string),
     };
     codeterm_plugins::run(ctx, action)
 }

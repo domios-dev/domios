@@ -18,16 +18,13 @@ const IDENTIFY_FEATURES: &[&str] = &[
 ];
 
 pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
-    match codeterm_service_core::dispatch::dispatch(
-        &codeterm_service_core::dispatch::Command::Health,
-        state.svc.as_ref(),
-    ) {
+    match codeterm_service_core::dispatch::health_result() {
         Ok(r) => {
             let mut json = r.into_json();
             if let Some(obj) = json.as_object_mut() {
                 obj.insert(
                     "version".into(),
-                    serde_json::json!(env!("CARGO_PKG_VERSION")),
+                    serde_json::json!(codeterm_build_info::version()),
                 );
                 obj.insert(
                     "build".into(),
@@ -74,7 +71,7 @@ pub async fn identify(
     check_auth(&state, &headers)?;
     Ok(Json(serde_json::json!({
         "name": "CodeTerm",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": codeterm_build_info::version(),
         "platform": std::env::consts::OS,
         "features": IDENTIFY_FEATURES
     })))

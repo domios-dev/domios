@@ -5,7 +5,6 @@ use std::sync::{Arc, LazyLock};
 use codeterm_plugin::tab_state::TabState;
 use codeterm_types::pty::{PendingPrompt, PromptKind};
 use parking_lot::Mutex;
-use tauri::Manager;
 
 const MAX_AUTOMATIC_ANSWERS: usize = 5;
 const MAX_TRACKED_LAUNCHES: usize = 256;
@@ -284,14 +283,11 @@ impl super::ServiceContext {
         }
         .filter(|title| !title.trim().is_empty())
         .unwrap_or_else(|| tab_id.to_string());
-        let cron_name = self
-            .app_handle
-            .try_state::<crate::CronState>()
-            .and_then(|cron| {
-                let store = cron.lock();
-                let (job_id, _) = store.get_tab_owner(tab_id)?;
-                store.get(job_id).map(|job| job.name.clone())
-            });
+        let cron_name = self.try_ext::<crate::CronState>().and_then(|cron| {
+            let store = cron.lock();
+            let (job_id, _) = store.get_tab_owner(tab_id)?;
+            store.get(job_id).map(|job| job.name.clone())
+        });
         notice_subject(&title, cron_name.as_deref())
     }
 

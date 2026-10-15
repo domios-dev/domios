@@ -1,4 +1,6 @@
 [
+  "src/components/shared/DeferredPresence.test.tsx",
+  "src/components/shared/ErrorNotice.test.tsx",
   "src/components/Sidebar/Sidebar.edge.test.tsx",
   "src/help/guideScrollModel.test.ts",
   "src/store/multiplexer/pageSelection.test.ts",
@@ -86,7 +88,6 @@
   "src/components/Usage/SupporterAllowanceRow.test.tsx",
   "src/components/Supporter/ActivityFeed.test.tsx",
   "src/components/Supporter/reflexFeed.test.ts",
-  "src/components/Titlebar/SupporterActivityTray.test.tsx",
   "src/components/Terminal/NewSessionPicker.modal.test.tsx",
   "src/components/Terminal/SurfaceTabView.test.tsx",
   "src/components/Surface/useSurfaceDecl.test.tsx",
@@ -115,6 +116,7 @@
   "src/components/FrontendUpdateNotice.test.tsx",
   "src/lib/generalSession.adapter.test.ts",
   "src/components/Terminal/ComposerActions.uploads.test.tsx",
+  "src/components/Terminal/ComposerCapsuleField.test.tsx",
   "src/components/Terminal/ChatComposer.uploads.test.tsx",
   "src/hooks/terminal/terminalScroll.test.ts",
   "src/components/Notifications/attentionSurfaceModel.test.ts",
@@ -213,5 +215,7 @@
   "src/components/Terminal/ChatSendDelete.test.tsx",
   "packages/chat-ui/src/MessageBubble.routing-tips.test.tsx",
   "packages/chat-ui/src/toolcard/ToolCallProgress.test.tsx",
-  "packages/chat-ui/src/VoiceCard.test.tsx"
+  "packages/chat-ui/src/VoiceCard.test.tsx",
+  "packages/chat-ui/src/MessageBubble.envelope.test.tsx",
+  "src/components/Terminal/ComposerIssuesIndicator.test.tsx"
 ]

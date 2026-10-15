@@ -20,7 +20,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const bash = existsSync("/bin/bash") ? "/bin/bash" : "bash";
+const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : (existsSync("/bin/bash") ? "/bin/bash" : "bash");
 const helperPath = path.join(root, "scripts/dev-notify.sh");
 const qaReportPath = path.join(root, "scripts/qa-report.sh");
 const buildPath = path.join(root, "build.sh");
@@ -421,6 +421,7 @@ test("dev_notify_stream_waiter_deadline", () => {
     );
     chmodSync(fakeTail, 0o755);
     const script = [
+      'export PATH="$(cd ' + shellQuote(tailBin) + ' && pwd):$PATH"',
       "source " + shellQuote(helperPath),
       "dev_notify_capture_parent",
       "DEV_NOTIFY_SENT_MARKER=" + shellQuote(marker),
@@ -470,6 +471,7 @@ test("dev_notify_stream_waiter_tail_exit_reports_stream_failure", () => {
     );
     chmodSync(fakeTail, 0o755);
     const script = [
+      'export PATH="$(cd ' + shellQuote(tailBin) + ' && pwd):$PATH"',
       "source " + shellQuote(helperPath),
       "dev_notify_capture_parent",
       "DEV_NOTIFY_SENT_MARKER=" + shellQuote(marker),

@@ -1,5 +1,7 @@
 # Playwright — isolated dev console
 
+> Suspended: see `.agents/skills/testing/SKILL.md`; runs only on an explicit owner request. Catalogue runner `playwright` in `tests/catalogue.json` (tier manual, never pr); its stale cases are listed in `tests/README.md`.
+
 The default profile drives a **real, dedicated** CodeTerm dev console (Tauri,
 named instance `playwright`, port 7786 by default), not a browser mock.
 `PW_TARGET=dev` explicitly adopts the interactive instance on port 7686 in

@@ -15,46 +15,26 @@ use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::service::web_access::uploads_dir;
-use codeterm_service_core::startup::snapshot_bound;
 
 pub use crate::web_plugin_routes::plugin_ui;
 
-/// Full multiplexer snapshot — the web bundle's `mux_get_state`.
-///
-/// Bounded: the snapshot clones the whole multiplexer under two locks, so a
-/// request storm or lifecycle contention is refused at the door instead of
-/// queued. The build itself runs on the blocking pool — it never starves the
-/// async runtime.
+/// Published multiplexer JSON; lifecycle writers never delay this read.
 pub async fn mux_state(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use axum::response::IntoResponse;
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .ensure_storage_available()
         .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
 
-    let Some(_permit) = state.snapshot_bound.try_enter() else {
-        return Err((
-            snapshot_bound::SNAPSHOT_OVERLOAD_STATUS,
-            snapshot_bound::SNAPSHOT_OVERLOAD_BODY.to_string(),
-        ));
-    };
-
-    let svc = state.svc.clone();
-    let snapshot = tokio::task::spawn_blocking(move || svc.try_snapshot_with_reconciled_status())
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let Some(snapshot) = snapshot else {
-        state.svc.emit_state_changed_when_snapshot_readable();
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            codeterm_service_core::service::SNAPSHOT_BUSY_ERROR.to_string(),
-        ));
-    };
-    Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        state.svc.published_mux_state(),
+    )
+        .into_response())
 }
 
 pub async fn tab_focus(
@@ -62,28 +42,37 @@ pub async fn tab_focus(
     headers: HeaderMap,
     Path((workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let exists = state
-        .svc
-        .mux
-        .read()
-        .snapshot()
-        .workspaces
-        .into_iter()
-        .find(|ws| ws.id == workspace_id)
-        .is_some_and(|ws| ws.tabs.contains(&tab_id));
-    if !exists {
-        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
-    }
-    state
-        .svc
-        .set_active_tab(&workspace_id, &tab_id)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    state
-        .svc
-        .focus_tab(&tab_id)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        let exists = state
+            .svc
+            .mux
+            .read()
+            .snapshot()
+            .workspaces
+            .into_iter()
+            .find(|ws| ws.id == workspace_id)
+            .is_some_and(|ws| ws.tabs.contains(&tab_id));
+        if !exists {
+            return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
+        }
+        state
+            .svc
+            .set_active_tab(&workspace_id, &tab_id)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        state
+            .svc
+            .focus_tab(&tab_id)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 pub async fn tab_close(
@@ -111,15 +100,24 @@ pub async fn tab_chat_view(
     Path(tab_id): Path<String>,
     Json(body): Json<ChatViewBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state.svc.set_chat_view(&tab_id, body.enabled);
-    // Explicit API request = remote-control command (bridge / agents / tests):
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "tab-chat-view",
-        serde_json::json!({ "tab_id": tab_id, "enabled": body.enabled }),
-    );
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        state.svc.set_chat_view(&tab_id, body.enabled);
+        // Explicit API request = remote-control command (bridge / agents / tests):
+        crate::events::emit_everywhere(
+            &state.svc.app_handle,
+            "tab-chat-view",
+            serde_json::json!({ "tab_id": tab_id, "enabled": body.enabled }),
+        );
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 /// Peer services for the Mesh tab — same cache+failover logic as the
@@ -582,62 +580,8 @@ pub(crate) async fn store_upload(
     Ok(path)
 }
 
-pub async fn upload(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    mut multipart: axum::extract::Multipart,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let dir = uploads_dir();
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
-    {
-        if field.name() != Some("file") {
-            continue;
-        }
-        let name = sanitize_filename(field.file_name().unwrap_or("upload.bin"));
-        let data = field
-            .bytes()
-            .await
-            .map_err(|e| (StatusCode::PAYLOAD_TOO_LARGE, e.to_string()))?;
-        if data.is_empty() {
-            return Err((StatusCode::BAD_REQUEST, "empty file".to_string()));
-        }
-        let path = store_upload(&dir, &name, &data)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-        return Ok(Json(serde_json::json!({
-            "path": path.to_string_lossy(),
-            "size": data.len(),
-        })));
-    }
-    Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
-}
-
-#[derive(Deserialize)]
-pub struct SaveTempFileBody {
-    data: String,
-    extension: String,
-    name: Option<String>,
-}
-
-/// Web-mirror twin of the `save_temp_file` Tauri command.
-pub async fn save_temp_file(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<SaveTempFileBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let path = tokio::task::spawn_blocking(move || {
-        commands::save_temp_file(body.data, body.extension, body.name)
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({ "path": path })))
-}
+/// Largest attachment a chat may upload (voice notes, recordings, files).
+pub const MAX_TEMP_FILE_DECODED_BYTES: usize = 150 * 1024 * 1024;
 
 #[derive(Deserialize)]
 pub struct CopyImageToClipboardBody {
@@ -1117,6 +1061,7 @@ pub async fn chat_raw_stop(
 #[derive(Deserialize)]
 pub struct ChatBackfillBody {
     before_offset: u64,
+    offset_kind: Option<codeterm_service_core::service::tab_chat::results::ChatOffsetKind>,
 }
 
 pub async fn chat_raw_backfill(
@@ -1128,7 +1073,7 @@ pub async fn chat_raw_backfill(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        commands::chat_backfill_core(&svc, tab_id, body.before_offset)
+        commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.offset_kind)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

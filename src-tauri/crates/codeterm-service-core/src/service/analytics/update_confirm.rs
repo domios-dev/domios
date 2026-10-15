@@ -1,7 +1,7 @@
 use codeterm_analytics::{Event, UpdateKind, Worker};
 use std::path::Path;
 pub fn stage(path: &Path, target: &str) -> Result<(), String> {
-    if target == env!("CARGO_PKG_VERSION") {
+    if target == codeterm_build_info::version() {
         return Ok(());
     }
     let staging = path.with_extension("pending");
@@ -27,7 +27,7 @@ pub(crate) fn confirm(path: &Path, running: &str, worker: &Worker) -> Result<(),
     if target != running {
         return Ok(());
     }
-    tauri::async_runtime::block_on(worker.record(Event::UpdateInstalled {
+    crate::async_runtime::block_on(worker.record(Event::UpdateInstalled {
         kind: UpdateKind::App,
     }))?;
     std::fs::remove_file(path).map_err(|e| e.to_string())

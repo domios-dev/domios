@@ -1,4 +1,4 @@
-import { test, beforeAll } from "vitest";
+import { test, beforeAll, beforeEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -9,6 +9,9 @@ import {
 } from "./chatModelBubbleApi";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import type { ModelInfo, ProviderDescriptor } from "../../lib/types";
+import { invalidateAgentProviders } from "../../hooks/useAgentProviders";
+
+beforeEach(() => invalidateAgentProviders());
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);

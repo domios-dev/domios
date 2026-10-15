@@ -13,6 +13,10 @@ on:
       - 'scripts/provider-boundary-allowlist.json'
       - 'scripts/check-provider-boundary.mjs'
       - 'scripts/tests/check-provider-boundary.test.mjs'
+      - 'scripts/check-tauri-reach.sh'
+      - 'scripts/check-tauri-reach.mjs'
+      - 'scripts/tauri-reach-baseline.json'
+      - 'scripts/tests/check-tauri-reach.test.mjs'
       - 'src-tauri/src/**'
       - 'src-tauri/crates/**'
       - 'crates/**'
@@ -42,6 +46,12 @@ jobs:
           node-version: 22
       - name: Test provider boundary guard
         run: node --test scripts/tests/check-provider-boundary.test.mjs
+      - name: Test tauri reach guard
+        run: node --test scripts/tests/check-tauri-reach.test.mjs
+      - name: Check tauri reach against target baseline
+        env:
+          TAURI_REACH_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash scripts/check-tauri-reach.sh
       - name: Check provider boundary against target baseline
         env:
           PROVIDER_BOUNDARY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -49,7 +59,7 @@ jobs:
         run: |
           # A release PR carries develop's already-guarded allowlist; master predates it.
           if [ "$RELEASE_TO_MASTER" = true ]; then
-            git fetch --no-tags --depth=200 origin develop
+            git fetch --no-tags origin develop
             PROVIDER_BOUNDARY_BASE="$(git rev-parse FETCH_HEAD)"
           fi
           PROVIDER_BOUNDARY_BASE="$PROVIDER_BOUNDARY_BASE" node scripts/check-provider-boundary.mjs

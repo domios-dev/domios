@@ -5,6 +5,8 @@ description: Test Domios dev instance via API and look at its UI. Use when you n
 
 # Dev Testing
 
+For an owner-requested integrated all-tab round, follow `evals/startup-matrix/README.md` and `EXPLORE.md`, including its event and no-loss extension; keep it local and on request.
+
 Test Domios dev instance (port 7686) by interacting with agents via REST API and verifying mem state.
 
 ## ⚠ Hard rule: never `codeterm` CLI for dev work
@@ -22,6 +24,10 @@ If you absolutely need the CLI for a specific subcommand, prefix with both env v
 CODETERM_SOCKET_PATH=/fake/codeterm-dev/sock CODETERM_API_PORT=7686 codeterm <cmd>
 ```
 The fake socket path just has to contain the substring `codeterm-dev` so the CLI picks the dev config dir; the actual socket connection is only used by a few subcommands.
+
+| Measurement | Command and observable output |
+|---|---|
+| DEV lock storm | `./build.sh qa-lock-storm --seconds 120 --out target-check/lock-storm.json` (PowerShell: `.\build.ps1 qa-lock-storm ...`): requires an existing tab; three independent DEV-only `dev_get` workers request mux state, tabs and one tab's chat on a 250 ms load cadence for a bounded 1..3600-second window. Reports helper-inclusive per-route p50/p95/max milliseconds and HTTP/transport status counts, plus per-lock/per-site LOCK-HOLD counts from the DEV log in JSON and a table. Slow requests never overlap on the same route; the final request can finish up to the helper's 5-second health check plus 30-second request deadline after the load window. Log timestamps have second precision, so both boundary seconds are included; unmatched older diagnostic formats are counted separately. This cadence generates load and proves no readiness state. Fixture selector: `node --test scripts/tests/qa-lock-storm.test.mjs`. |
 
 ## Setup
 
@@ -43,6 +49,18 @@ node scripts/dev-screenshot.mjs /tmp/prod.png '' --api-port 7685   # another ins
 ```
 
 It prints the file path and the running build SHA; open the PNG with your file-read/image tool to see it. Check the build SHA before judging a change: the screenshot shows what is running, not what is merged. For state the picture cannot show (counts, attributes), evaluate DOM over the same port (`Runtime.evaluate`) instead of guessing from pixels.
+
+## Prove a wheel/scroll bug (real wheel probe)
+
+`scripts/dev-wheel-probe.mjs` sends a real CDP `mouseWheel` (`deltaY` 240) at an element's center and reports the nearest scrollable ancestor's `scrollTop` before/after, the wheel event target and `defaultPrevented`, and the hit element's ancestor chain with computed overflow, overscroll, pointer-events and app-region. It waits on the scroll event or two rAFs, never a sleep.
+
+```bash
+node scripts/dev-wheel-probe.mjs                                   # sidebar: tab label, same row icon, empty space
+node scripts/dev-wheel-probe.mjs '[data-testid=tab-title]' '.sidebar-tab-badge'   # custom points
+node scripts/dev-wheel-probe.mjs --api-port 7686 --delta 480
+```
+
+Exit 1 means a probe did not move its scroller: first make sure the sidebar actually overflows (open enough tabs), then compare the `chain` of the failing point with the passing one; the first node that differs is the cause.
 
 DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; production writes no trace events. Unledgered PTY input uses a fresh trace ID; existing sends retain their IDs.
 From a DEV-bound shell, use `codeterm trace recent --limit 20`, then `codeterm trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.

@@ -1,4 +1,5 @@
 pub use codeterm_events::*;
+pub use codeterm_service_core::events::emit_everywhere;
 
 #[cfg(test)]
 mod tests {
@@ -145,6 +146,13 @@ mod tests {
         let mut offenders = Vec::new();
         for (path, source) in &backend_sources {
             for capture in raw_re.captures_iter(source) {
+                let receiver = source[..capture.get(0).unwrap().start()]
+                    .rsplit(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '.')
+                    .next()
+                    .unwrap_or_default();
+                if receiver == "ui" || receiver.ends_with(".ui") {
+                    continue;
+                }
                 let names = if let Some(value) = capture.get(1) {
                     BTreeSet::from([event_family(value.as_str())])
                 } else if let Some(name) = capture.get(2) {

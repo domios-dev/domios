@@ -12,6 +12,7 @@ import {
   readDevToken,
 } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
+import { pinHeadsToStub, requireStubbedProvider, type StubbedProvider } from "../../helpers/stub-pin";
 
 const WEB_URL = `${API_BASE}/`;
 const RAW_PROVIDER_IDS = new Set([
@@ -201,18 +202,11 @@ function singleAgentProviderSelect(page: Page) {
 
 async function selectSingleAgentProvider(
   page: Page,
-  provider: ProviderDescriptor,
+  provider: StubbedProvider,
 ): Promise<void> {
   const select = singleAgentProviderSelect(page);
   await expect(select).toBeVisible({ timeout: 10_000 });
-  await select.click();
-  const item = page.getByRole("menuitem", {
-    name: provider.display_name,
-    exact: true,
-  });
-  await expect(item).toBeVisible({ timeout: 10_000 });
-  await item.click();
-  await expect(select).toHaveAttribute("data-value", provider.id);
+  await pinHeadsToStub(page, provider, [{ kind: "menu", trigger: select }]);
 }
 
 async function expectProviderMenuContract(
@@ -309,7 +303,7 @@ async function waitForSpawnedTab(
 
 async function clickNewSession(
   page: Page,
-  provider: ProviderDescriptor,
+  provider: StubbedProvider,
   workspaceId: string,
 ): Promise<void> {
   await openSidebarIfNeeded(page);
@@ -478,6 +472,11 @@ test.describe("@golden web-native parity", () => {
       providers.length,
       "at least one PTY provider is required for the naming gate",
     ).toBeGreaterThan(0);
+    // Both spawn paths launch every provider, so each must be proven stubbed before the first launch.
+    const stubbed = new Map<string, StubbedProvider>();
+    for (const provider of providers) {
+      stubbed.set(provider.id, await requireStubbedProvider(api, provider.id));
+    }
 
     const workspaceName = `pw-naming-gate-${Date.now()}`;
     await api.createWorkspace(workspaceName);
@@ -503,7 +502,7 @@ test.describe("@golden web-native parity", () => {
         await test.step(`T1/provider: ${provider.id}`, async () => {
           await test.step("New session", async () => {
             const before = allTabIds(await currentMux(api));
-            await clickNewSession(page, provider, workspaceId);
+            await clickNewSession(page, stubbed.get(provider.id)!, workspaceId);
             const spawned = await waitForSpawnedTab(api, before, provider.id);
             tabCleanup.track(spawned.backendTabId);
             await expect(

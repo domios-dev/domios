@@ -20,12 +20,14 @@ impl ServiceContext {
         tab_id: &str,
         batch: Vec<super::SendBatchItem>,
     ) -> Result<(), String> {
+        self.wake_frozen_tab(tab_id)?;
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
             for item in batch {
                 self.chatbackend_send(&plugin_id, &session_id, &item.text)?;
             }
             return Ok(());
         }
+        self.wake_frozen_tab(tab_id)?;
         self.ensure_tab_pty_for_send(tab_id)?;
         self.await_agent_boot_blocking(tab_id, std::time::Duration::from_secs(90))?;
         let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;

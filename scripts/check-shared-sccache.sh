@@ -176,6 +176,22 @@ printf 'PASS unresolved keys never downgrade S3; local-to-S3 needs keys and idle
 printf 'PASS CI verification never configures or refuses busy matching S3\n'
 
 (
+  export FIXTURE_BUSY=1 CODETERM_SCCACHE_VERIFY_ONLY=1
+  curl() { printf 200; }
+  ct_sccache_server_live() { [ -e "$WORK/location" ]; }
+  rm -f "$WORK/events" "$WORK/location"
+  if FIXTURE_SECRET=0 ct_sccache_verify; then exit 1; else [ "$?" = 2 ]; fi
+  [ ! -e "$WORK/events" ]
+  ct_configure_sccache
+  [ "$(cat "$WORK/events")" = start ]
+  [ "$(cat "$WORK/location")" = 's3, name: sccache, prefix: /' ]
+  ct_sccache_verify
+  [ "$(cat "$WORK/events")" = start ]
+) > "$WORK/absent.log" 2>&1
+! rg -q 'fixture-access|fixture-secret' "$WORK/absent.log"
+printf 'PASS CI verification starts shared S3 only when no server is live\n'
+
+(
   codeterm() { printf 'vault-call\n' >> "$WORK/events"; return 1; }
   rm -f "$WORK/events"
   export CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner
@@ -192,6 +208,35 @@ printf 'PASS CI verification never configures or refuses busy matching S3\n'
 ) > "$WORK/runner.log" 2>&1
 ! grep -Eq 'fixture-access|fixture-secret' "$WORK/runner.log"
 printf 'PASS runner process credentials require both keys and never query vault\n'
+
+(
+  codeterm() { printf 'vault-call\n' >> "$WORK/events"; return 1; }
+  rm -f "$WORK/events"
+  export CODETERM_SCCACHE_STORAGE=local CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner
+  export AWS_ACCESS_KEY_ID=fixture-access AWS_SECRET_ACCESS_KEY=fixture-secret SCCACHE_ENDPOINT=http://stale
+  ct_sccache_storage
+  [ "$CT_SCCACHE_STORAGE" = local ]
+  [ -z "${SCCACHE_ENDPOINT:-}" ]
+  [ ! -e "$WORK/events" ]
+  ! ct_sccache_storage_matches 's3, name: sccache, prefix: /'
+  ct_sccache_storage_matches 'Local disk: "C:/Developer/RustCaches/sccache"'
+) > "$WORK/pinned.log" 2>&1
+printf 'PASS a machine pinned to local storage ignores S3 credentials and restarts an S3 server\n'
+
+(
+  repo="$(ct_abs_path "$WORK/repo")"
+  alias_target="$(ct_abs_path "$WORK/drive-alias/target-check")"
+  outside="$(ct_abs_path "$WORK/outside")"
+  ct_repo_root() { printf '%s\n' "$repo"; }
+  git() {
+    [ "$1 $3 $4" = "-C rev-parse --show-toplevel" ] || return 128
+    case "$2" in "$alias_target") printf '%s\n' "$repo" ;; *) return 128 ;; esac
+  }
+  cygpath() { printf '%s\n' "$2"; }
+  CARGO_TARGET_DIR="$alias_target" ct_verify_target_dir
+  ! CARGO_TARGET_DIR="$outside" ct_verify_target_dir
+) > "$WORK/alias-target.log" 2>&1
+printf 'PASS a target reached through the stable drive alias belongs to the worktree; outside targets stay rejected\n'
 
 (
   printf 's3, name: sccache, prefix: /' > "$WORK/location"

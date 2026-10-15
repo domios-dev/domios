@@ -99,11 +99,13 @@ fn provision_competitor_lane(
     plan: &codeterm_service_core::plan::Plan,
     task_id: &str,
     draft: &mut codeterm_service_core::service::plan::task_attempts::TaskCompeteDraft,
+    lane_settings: &[codeterm_service_core::agent::provider::WorkerLaneSetting],
 ) -> Result<codeterm_service_core::service::ProvisionedWorkerLane, JsonRpcError> {
     let canonical = super::plan_task_dispatch::lane_safety::canonical_path_of(plan).to_string();
     let label = format!("{}-{}-c{}", plan.id, task_id, draft.lane);
-    let lane = codeterm_service_core::service::provision_isolated_lane(&canonical, &label)
-        .map_err(lane_provision_failed)?;
+    let lane =
+        codeterm_service_core::service::provision_isolated_lane(&canonical, &label, lane_settings)
+            .map_err(lane_provision_failed)?;
     let provenance = match lane.verify() {
         Ok(provenance) => provenance,
         Err(error) => {
@@ -171,6 +173,7 @@ fn provision_all_competitor_lanes(
     plan: &codeterm_service_core::plan::Plan,
     task_id: &str,
     mut drafts: Vec<codeterm_service_core::service::plan::task_attempts::TaskCompeteDraft>,
+    lane_settings: &[codeterm_service_core::agent::provider::WorkerLaneSetting],
 ) -> Result<
     (
         Vec<codeterm_service_core::service::plan::task_attempts::TaskCompeteDraft>,
@@ -183,7 +186,7 @@ fn provision_all_competitor_lanes(
         return Ok((drafts, lanes));
     }
     for index in 0..drafts.len() {
-        match provision_competitor_lane(plan, task_id, &mut drafts[index]) {
+        match provision_competitor_lane(plan, task_id, &mut drafts[index], lane_settings) {
             Ok(lane) => lanes[index] = Some(lane),
             Err(error) => {
                 let provisioned = unowned_lanes(&mut lanes, 0);
@@ -423,7 +426,8 @@ pub(super) fn compete(
         .ok_or_else(|| plan_rpc_err(codeterm_service_core::service::plan::PlanError::NotFound))?;
     // Phase 1 — provision and verify EVERY mutating lane before the first spawn,
     // so a provisioning failure can never delete underneath a running competitor.
-    let (mut drafts, mut lanes) = provision_all_competitor_lanes(&plan, &tid, drafts)?;
+    let (mut drafts, mut lanes) =
+        provision_all_competitor_lanes(&plan, &tid, drafts, &svc.worker_lane_settings())?;
     let mut attempts = Vec::new();
     let mut spawns = Vec::new();
     let mut live: Vec<SpawnedCompetitor> = Vec::new();

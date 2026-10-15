@@ -203,7 +203,7 @@ pub async fn spawn(
     let stderr = child.stderr.take().ok_or("Missing sidecar stderr")?;
     let ready_stdout = ready.clone();
     let expected_stdout = expected.clone();
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if line.contains(&expected_stdout) {
@@ -215,7 +215,7 @@ pub async fn spawn(
     });
     let ready_stderr = ready.clone();
     let stderr_output = output.clone();
-    let stderr_reader = tauri::async_runtime::spawn(async move {
+    let stderr_reader = crate::async_runtime::spawn(async move {
         let mut stderr = stderr;
         let mut bytes = [0u8; 4096];
         while let Ok(count) = stderr.read(&mut bytes).await {
@@ -253,7 +253,7 @@ pub async fn spawn(
             }
         })
     });
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         #[cfg(unix)]
         let status = {
             let group_may_exit = tokio::select! {

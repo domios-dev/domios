@@ -196,6 +196,7 @@ pub async fn check_hooks_api(
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    tokio::task::spawn_blocking(move || {
     check_auth(&state, &headers)?;
     let (status, has_hooks) = state
         .svc
@@ -220,6 +221,9 @@ pub async fn check_hooks_api(
             &live_session_ids,
         ),
     ))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 #[derive(Deserialize)]
@@ -293,6 +297,7 @@ pub async fn install_hooks_api(
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    tokio::task::spawn_blocking(move || {
     let (status, has_hooks) = state
         .svc
         .agent_registry
@@ -319,6 +324,8 @@ pub async fn install_hooks_api(
         "provider": q.provider,
         "status": status,
     })))
+
+}).await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed".to_string()))?
 }
 
 pub async fn uninstall_hooks_api(

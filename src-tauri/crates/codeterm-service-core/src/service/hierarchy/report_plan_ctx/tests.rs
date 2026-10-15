@@ -15,7 +15,7 @@ use crate::plan::{
     AgentRef, OrchestratorRef, Plan, PlanEvidenceClass, PlannerRef, Task, TaskStatus,
 };
 use crate::service::plan::{NewTask, PlanStore};
-use crate::service::test_fixture::ServiceFixture;
+use crate::service::test_fixture::{RecordedAgentDeliveries, ServiceFixture};
 use crate::service::AuthenticatedPlanCaller;
 use codeterm_types::agent::ReportOutcomeClass;
 
@@ -218,6 +218,7 @@ fn stale_task_report_absent_hint_paths_are_unchanged() {
 
 struct ReportHarness {
     fx: ServiceFixture,
+    _root_recipient: RecordedAgentDeliveries,
     root: String,
     caller: String,
     plan_id: String,
@@ -325,6 +326,7 @@ fn seed_plan(
     holding: Holding,
 ) -> ReportHarness {
     let fx = ServiceFixture::new(mux);
+    let root_recipient = fx.bind_recorded_agent_recipient(&root, "root-session", "root-nonce");
     {
         let mut mux = fx.service.mux.write();
         let tab = mux.get_tab_mut(&caller).unwrap();
@@ -362,6 +364,7 @@ fn seed_plan(
     }
     ReportHarness {
         fx,
+        _root_recipient: root_recipient,
         root,
         caller,
         plan_id: plan.id,
@@ -662,6 +665,7 @@ fn stale_task_report_plan_owner_in_recovery_cannot_land_a_stale_binding() {
 
 struct PlannerReportHarness {
     fx: ServiceFixture,
+    _root_recipient: RecordedAgentDeliveries,
     root: String,
     planner_tab: String,
     foreign_tab: String,
@@ -708,14 +712,12 @@ fn planner_report_harness() -> PlannerReportHarness {
     let planner_tab = mux.create_tab(&workspace).unwrap();
     let foreign_tab = mux.create_tab(&workspace).unwrap();
     let fx = ServiceFixture::new(mux);
+    let root_recipient = fx.bind_recorded_agent_recipient(&root, "owner-session", "owner-nonce");
     {
         let mut mux = fx.service.mux.write();
         let owner = mux.get_tab_mut(&root).unwrap();
         owner.role = Some(AgentRole::Manager);
         owner.role_profile = Some("orchestrator".into());
-        owner.agent_session_id = Some("owner-session".into());
-        owner.session_binding_nonce = Some("owner-nonce".into());
-        owner.reported_session_binding_nonce = Some("owner-nonce".into());
         for (tab_id, session) in [(&planner_tab, "planner"), (&foreign_tab, "foreign")] {
             let tab = mux.get_tab_mut(tab_id).unwrap();
             tab.agent_session_id = Some(format!("{session}-session"));
@@ -744,6 +746,7 @@ fn planner_report_harness() -> PlannerReportHarness {
     store.save(&mut foreign_plan, 2).unwrap();
     PlannerReportHarness {
         fx,
+        _root_recipient: root_recipient,
         root,
         planner_tab,
         foreign_tab,
@@ -969,6 +972,7 @@ fn planner_report_refuses_an_unknown_plan_before_any_fallback() {
 
 struct PlanEvidenceHarness {
     fx: ServiceFixture,
+    _root_recipient: RecordedAgentDeliveries,
     root: String,
     reporter: String,
     ordinary: String,
@@ -1024,6 +1028,7 @@ fn plan_evidence_harness() -> PlanEvidenceHarness {
         tab.parent_tab_id = Some(root.clone());
     }
     let fx = ServiceFixture::new(mux);
+    let root_recipient = fx.bind_recorded_agent_recipient(&root, "owner-session", "owner-nonce");
     let mut plan = Plan::new(
         "plan evidence".into(),
         fx.temp.path().display().to_string(),
@@ -1070,6 +1075,7 @@ fn plan_evidence_harness() -> PlanEvidenceHarness {
         .unwrap();
     PlanEvidenceHarness {
         fx,
+        _root_recipient: root_recipient,
         root,
         reporter,
         ordinary,

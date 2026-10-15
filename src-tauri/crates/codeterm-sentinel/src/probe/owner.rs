@@ -603,10 +603,7 @@ impl ProbeResourceOwner {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn wait_for_terminal_unconfirmed_with_timeout(
-        &self,
-        timeout: std::time::Duration,
-    ) -> bool {
+    pub fn wait_for_terminal_unconfirmed_with_timeout(&self, timeout: std::time::Duration) -> bool {
         self.wait_for_unconfirmed_state(timeout, true)
     }
 

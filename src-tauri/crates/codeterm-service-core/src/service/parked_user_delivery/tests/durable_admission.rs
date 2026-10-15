@@ -120,7 +120,7 @@ fn close_during_durable_claim_revokes_before_any_writer_handoff_and_preserves_bo
         settled.recv_timeout(TEST_DEADLINE).unwrap()["send_id"],
         first.send_id
     );
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
     fixture
         .service
         .pending_delivery_payloads

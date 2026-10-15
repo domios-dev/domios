@@ -191,7 +191,7 @@ pub fn run_action(action: PluginManagerAction, svc: &ServiceContext) -> Result<V
         {
             if let Err(error) = codeterm_plugins::sync_core_cached(codeterm_plugins::PluginCtx {
                 data_root: codeterm_service_core::paths::data_dir(),
-                version: Some(env!("CARGO_PKG_VERSION").into()),
+                version: codeterm_build_info::installed_version().map(str::to_string),
             }) {
                 log::warn!("[plugin-update] silent core sync failed: {error}");
             }

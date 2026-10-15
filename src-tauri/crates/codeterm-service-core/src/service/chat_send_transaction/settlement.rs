@@ -10,7 +10,7 @@ pub(super) struct EvidenceDeadline {
 }
 
 impl ChatSendLedger {
-    pub(crate) fn bind_settlement_owner(&self, service: &Arc<crate::service::ServiceContext>) {
+    pub fn bind_settlement_owner(&self, service: &Arc<crate::service::ServiceContext>) {
         *self.owner.lock() = Some(Arc::downgrade(service));
     }
 
@@ -34,7 +34,10 @@ impl ChatSendLedger {
             };
             let status = expire_at(&mut state.lock(), &send_id, Instant::now());
             if let (Some(status), Some(owner)) = (status, owner.upgrade()) {
-                codeterm_events::emit_everywhere(&owner.app_handle, "chat-send-status", &status);
+                owner.ui.emit(
+                    "chat-send-status",
+                    serde_json::to_value(&status).unwrap_or_default(),
+                );
                 owner.wake_user_owner(
                     &status.tab_id,
                     crate::service::parked_user_delivery::UserWake::Housekeeping,

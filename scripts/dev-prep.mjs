@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs
 import crypto from "node:crypto";
+import { StringDecoder } from "node:string_decoder";
+import { runDevApp } from "./dev-app-process.mjs";
+import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
 import {
   accessSync,
-  closeSync,
   constants,
   existsSync,
   lstatSync,
@@ -12,18 +14,18 @@ import {
   readFileSync,
   readdirSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
-  writeSync,
 } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repo = realpathSync.native(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
 const require = createRequire(import.meta.url);
 const { gitOutput } = require("./build-identity.cjs");
 const isWin = process.platform === "win32";
@@ -51,6 +53,10 @@ const inputPathspecs = [
   "crates",
   "src-tauri",
   "scripts/dev-prep.mjs",
+  "scripts/dev-app-process.mjs",
+  "scripts/dev-runtime-environment.mjs",
+  "scripts/windows-dev-app.ps1",
+  "scripts/windows-dev-app.cs",
   "scripts/bundle-cli.js",
   "scripts/bundle-embed.js",
   "scripts/prepare-cli-stub.js",
@@ -135,8 +141,12 @@ function listTree(root) {
   return files;
 }
 
+function artifactPath(requested) {
+  return realpathSync.native(resolve(requested));
+}
+
 function hashPath(requested, expectedType, requireExecutable = false) {
-  const path = resolve(requested);
+  const path = artifactPath(requested);
   if (!existsSync(path)) throw new Error(`artifact is absent: ${path}`);
   const stat = lstatSync(path);
   if (expectedType === "file" && !stat.isFile()) throw new Error(`artifact is not a file: ${path}`);
@@ -263,8 +273,8 @@ function assertKeys(value, keys, label) {
 
 function validateArtifact(recorded, expectedPath, expectedType, label, requireExecutable = false) {
   assertKeys(recorded, ["path", "type", "sha256", "bytes", "mode"], `${label} artifact`);
-  const expected = resolve(expectedPath);
-  if (resolve(recorded.path) !== expected) throw new Error(`${label} artifact path mismatch`);
+  const expected = artifactPath(expectedPath);
+  if (artifactPath(recorded.path) !== expected) throw new Error(`${label} artifact path mismatch`);
   if (recorded.type !== expectedType) throw new Error(`${label} artifact type mismatch`);
   const current = hashPath(expected, expectedType, requireExecutable);
   if (recorded.sha256 !== current.sha256 || recorded.bytes !== current.bytes || recorded.mode !== current.mode) {
@@ -274,8 +284,8 @@ function validateArtifact(recorded, expectedPath, expectedType, label, requireEx
 
 function validateEmbedArtifact(recorded) {
   assertKeys(recorded, ["path", "type", "sha256", "bytes", "mode"], "embed artifact");
-  const expectedRoot = resolve(repo, "src-tauri", "bundled-embed");
-  const path = resolve(recorded.path);
+  const expectedRoot = artifactPath(join(repo, "src-tauri", "bundled-embed"));
+  const path = artifactPath(recorded.path);
   const withinRoot = path.startsWith(`${expectedRoot}${sep}`);
   if (!withinRoot || dirname(path) !== expectedRoot) throw new Error("embed artifact path is outside bundled-embed");
   if (!/^codeterm-embed-[a-zA-Z0-9_.-]+(?:\.exe)?$/.test(path.slice(expectedRoot.length + 1))) {
@@ -390,43 +400,37 @@ async function supervisePrebuilt(options) {
   const app = resolve(option(options, "--app"));
   const log = resolve(option(options, "--log"));
   const apiPort = option(options, "--api-port");
-  mkdirSync(dirname(log), { recursive: true });
-  writeFileSync(log, "");
-  const logHandle = openSync(log, "a");
-  const partial = { stdout: "", stderr: "" };
+  const decoder = new StringDecoder("utf8");
+  let partial = "";
   let ready = false;
-  const child = spawn(app, [], {
-    cwd: repo,
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
-  const consume = (source, chunk) => {
-    writeSync(logHandle, chunk);
-    const lines = `${partial[source]}${chunk.toString("utf8")}`.split(/\r?\n/);
-    partial[source] = lines.pop() ?? "";
-    const signal = lines.find((line) => readinessSignal(line, apiPort));
-    if (!ready && signal) {
-      ready = true;
-      if (process.connected) process.send({ type: "ready", signal });
-      disconnectSupervisor();
-    }
-  };
-  child.stdout.on("data", (chunk) => consume("stdout", chunk));
-  child.stderr.on("data", (chunk) => consume("stderr", chunk));
-  child.once("error", (error) => {
-    writeSync(logHandle, `[dev-prebuilt] app spawn failed: ${error.message}\n`);
-    if (process.connected) process.send({ type: "failed", error: error.message });
-    disconnectSupervisor();
-  });
-  child.once("exit", (code, signal) => {
+  try {
+    const { code, signal } = await runDevApp({ app, log, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
+      const lines = `${partial}${decoder.write(chunk)}`.split(/\r?\n/);
+      partial = lines.pop() ?? "";
+      const signal = lines.find(line => readinessSignal(line, apiPort));
+      if (!ready && signal) {
+        ready = true;
+        if (process.connected) process.send({ type: "ready", signal });
+        disconnectSupervisor();
+      }
+    } });
     if (!ready && process.connected) {
       process.send({ type: "failed", error: `prebuilt app exited before readiness (code=${code}, signal=${signal})` });
-      disconnectSupervisor();
     }
-    closeSync(logHandle);
     process.exitCode = code ?? (signal ? 1 : 0);
+  } catch (error) {
+    if (process.connected) process.send({ type: "failed", error: error.message });
+    process.exitCode = 1;
+  } finally { disconnectSupervisor(); }
+
+}
+
+async function runPrebuilt(options) {
+  const { code, signal } = await runDevApp({
+    app: resolve(option(options, "--app")), log: resolve(option(options, "--log")),
+    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => process.stdout.write(chunk),
   });
+  process.exitCode = code ?? (signal ? 1 : 0);
 }
 
 async function launchPrebuilt(options) {
@@ -513,6 +517,7 @@ try {
   else if (command === "--check-provenance") checkProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-runtime") checkRuntime(parseOptions(process.argv.slice(3)));
   else if (command === "--supervise-prebuilt") await supervisePrebuilt(parseOptions(process.argv.slice(3)));
+  else if (command === "--run-prebuilt") await runPrebuilt(parseOptions(process.argv.slice(3)));
   else if (command === "--launch-prebuilt") await launchPrebuilt(parseOptions(process.argv.slice(3)));
   else runRegularPrep();
 } catch (error) {

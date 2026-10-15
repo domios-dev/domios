@@ -176,7 +176,7 @@ pub(super) fn emit_activity(svc: &ServiceState, op: &str, mem_ids: Vec<String>) 
         ts_ms: now_ms(),
     };
     svc.activity.record(event.clone());
-    codeterm_events::emit_everywhere(&svc.app_handle, "mem-activity", &event);
+    codeterm_service_core::events::emit_everywhere(&svc.app_handle, "mem-activity", &event);
 }
 
 fn mem_get(
@@ -600,7 +600,11 @@ fn mem_worker_progress(
         svc.workers.update_status(&id, s).map_err(not_found)?;
     }
     if let Some(info) = svc.workers.get(&id) {
-        codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-progress", &info);
+        codeterm_service_core::events::emit_everywhere(
+            &svc.app_handle,
+            "graph-worker-progress",
+            &info,
+        );
     }
     Ok(serde_json::json!({ "ok": true }))
 }
@@ -620,7 +624,7 @@ fn mem_worker_report(
     let (pty_id, session_id, run_cwd) = worker_tab_id
         .as_ref()
         .map(|pid| {
-            let mux = svc.mux.write();
+            let mux = svc.mux.read();
             let tab = mux.get_tab(pid);
             (
                 tab.and_then(|p| p.pty_id.clone()),
@@ -648,7 +652,7 @@ fn mem_worker_report(
     }
     codeterm_service_core::mem::dream_runs::record_reported_finalization(svc, &id, &reported);
     let info = svc.workers.complete(&id, summary).map_err(not_found)?;
-    codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-reported", &info);
+    codeterm_service_core::events::emit_everywhere(&svc.app_handle, "graph-worker-reported", &info);
     if svc.run_watcher.runtime_worker_reported(&info.tab_id, &id) {
         return Ok(serde_json::json!({ "ok": true, "info": info }));
     }
@@ -672,7 +676,7 @@ fn mem_worker_kill(
     if let Err(e) = svc.close_tab_with_reason(&info.tab_id, TabCloseReason::Cancelled) {
         log::warn!("[graph-workers] kill Tab {}: {}", info.tab_id, e);
     }
-    codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
+    codeterm_service_core::events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
     Ok(serde_json::json!({ "ok": true }))
 }
 

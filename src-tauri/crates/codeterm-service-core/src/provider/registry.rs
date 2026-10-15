@@ -4,13 +4,26 @@
 
 use std::sync::Arc;
 
+use super::catalogue_cache::RevisionCache;
 use crate::agent::provider::{observe_launch_binary, ProviderDescriptor, ProviderTransport};
 use crate::agent::registry::{AgentRegistry, ProviderStartupStatus};
 use crate::chatbackend::ChatBackendRegistryHandle;
 
+type CliRevision = (u64, u64, u64);
+pub(super) type CatalogueRevision = (
+    Vec<crate::agent::model_catalog::ModelCatalogueChanged>,
+    u64,
+    u64,
+);
+
 pub struct ProviderRegistry {
     agents: Arc<AgentRegistry>,
     chat_backends: ChatBackendRegistryHandle,
+    cli_status_cache: parking_lot::Mutex<
+        RevisionCache<CliRevision, codeterm_plugin::provider_cli::ProviderCliStatus>,
+    >,
+    pub(super) catalogue_values_cache:
+        parking_lot::Mutex<RevisionCache<CatalogueRevision, Vec<serde_json::Value>>>,
 }
 
 impl ProviderRegistry {
@@ -18,6 +31,8 @@ impl ProviderRegistry {
         Self {
             agents,
             chat_backends,
+            cli_status_cache: Default::default(),
+            catalogue_values_cache: Default::default(),
         }
     }
 
@@ -52,11 +67,47 @@ impl ProviderRegistry {
         id: &str,
         platform: &str,
     ) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
+        let revision = self.cli_revision(id);
+        let key = format!("{id}:{platform}");
+        if let Some(status) = self.cli_status_cache.lock().get(&key, &revision) {
+            return Ok(status);
+        }
+        let status = self.compute_cli_status(id, platform)?;
+        if self.cli_revision(id) == revision {
+            self.cli_status_cache
+                .lock()
+                .insert(key, revision, status.clone());
+        }
+        Ok(status)
+    }
+
+    fn cli_revision(&self, id: &str) -> CliRevision {
+        (
+            crate::agent::model_catalog::current_version(id),
+            codeterm_plugin::provider_version::revision(),
+            crate::service::provider_update::revision(),
+        )
+    }
+
+    pub(super) fn catalogue_revision(&self) -> CatalogueRevision {
+        (
+            crate::agent::model_catalog::version_snapshot(),
+            codeterm_plugin::provider_version::revision(),
+            crate::service::provider_update::revision(),
+        )
+    }
+
+    fn compute_cli_status(
+        &self,
+        id: &str,
+        platform: &str,
+    ) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
         match self.transport_of(id) {
             Some(ProviderTransport::ChatBackend)
                 if self
                     .agents
-                    .with_provider(id, |p| p.agent_runtime().is_some())
+                    .provider_arc(id)
+                    .map(|p| p.agent_runtime().is_some())
                     != Some(true) =>
             {
                 Ok(codeterm_plugin::provider_cli::no_cli())
@@ -64,7 +115,8 @@ impl ProviderRegistry {
             Some(ProviderTransport::Pty | ProviderTransport::ChatBackend) => {
                 let (binary, installer, updater, compatibility) = self
                     .agents
-                    .with_provider(id, |p| {
+                    .provider_arc(id)
+                    .map(|p| {
                         (
                             p.cli_binary()
                                 .map(str::to_owned)
@@ -95,7 +147,7 @@ impl ProviderRegistry {
         if self.chat_backends.get(id).is_some() {
             return Some(ProviderTransport::ChatBackend);
         }
-        self.agents.with_provider(id, |provider| {
+        self.agents.provider_arc(id).map(|provider| {
             if provider.agent_runtime().is_some() {
                 ProviderTransport::ChatBackend
             } else {

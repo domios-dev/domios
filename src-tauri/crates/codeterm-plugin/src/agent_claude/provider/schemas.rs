@@ -5,17 +5,12 @@ use crate::provider::{
     SettingField,
 };
 
-/// Bundled manifest is the single shipped Claude alias catalog; the native
-/// provider registers this exact seed, never a mirrored Rust vector.
-const BUNDLED_MANIFEST: &str =
-    include_str!("../../../../../../plugins/provider-claude/plugin.json");
-
 pub(crate) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
     static SEED: std::sync::OnceLock<crate::model_catalog::RegisteredDefaults> =
         std::sync::OnceLock::new();
     SEED.get_or_init(|| {
         let manifest: crate::js_runtime::PluginManifest =
-            serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+            serde_json::from_str(super::MANIFEST_JSON).expect("bundled Claude manifest parses");
         crate::model_catalog::RegisteredDefaults {
             models: manifest
                 .models
@@ -31,7 +26,7 @@ pub(crate) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
 
 pub(crate) fn reasoning_effort_defaults() -> (Vec<ReasoningEffortInfo>, Option<String>) {
     let manifest: crate::js_runtime::PluginManifest =
-        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+        serde_json::from_str(super::MANIFEST_JSON).expect("bundled Claude manifest parses");
     (
         manifest
             .reasoning_efforts
@@ -44,13 +39,13 @@ pub(crate) fn reasoning_effort_defaults() -> (Vec<ReasoningEffortInfo>, Option<S
 
 pub(crate) fn reasoning_effort_launch_args_format() -> Vec<String> {
     let manifest: crate::js_runtime::PluginManifest =
-        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+        serde_json::from_str(super::MANIFEST_JSON).expect("bundled Claude manifest parses");
     manifest.commands.reasoning_effort_launch_args_format
 }
 
 pub(super) fn model_switch_commands() -> provider::ModelSwitchCommands {
     let manifest: crate::js_runtime::PluginManifest =
-        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+        serde_json::from_str(super::MANIFEST_JSON).expect("bundled Claude manifest parses");
     manifest
         .commands
         .model_switch_commands
@@ -59,12 +54,12 @@ pub(super) fn model_switch_commands() -> provider::ModelSwitchCommands {
 
 pub(super) fn launch_permissions() -> Option<provider::LaunchPermissionCapability> {
     let manifest: crate::js_runtime::PluginManifest =
-        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+        serde_json::from_str(super::MANIFEST_JSON).expect("bundled Claude manifest parses");
     manifest.spawn.launch_permissions
 }
 
 pub(super) fn fork_session_args() -> Option<Vec<String>> {
-    serde_json::from_str::<crate::js_runtime::PluginManifest>(BUNDLED_MANIFEST)
+    serde_json::from_str::<crate::js_runtime::PluginManifest>(super::MANIFEST_JSON)
         .ok()?
         .spawn
         .fork_session_args
@@ -475,7 +470,7 @@ mod tests {
 }
 
 pub(super) fn capability_probe() -> Option<crate::provider::CapabilityProbe> {
-    serde_json::from_str::<crate::js_runtime::PluginManifest>(BUNDLED_MANIFEST)
+    serde_json::from_str::<crate::js_runtime::PluginManifest>(super::MANIFEST_JSON)
         .ok()?
         .spawn
         .capability_probe

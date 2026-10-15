@@ -715,10 +715,10 @@ impl ServiceContext {
                             report_outcome = Some(ReportOutcomeClass::BlockProposed);
                         }
                         self.plan_turn_counter.reset_activity(tab_id);
-                        codeterm_events::emit_everywhere(
-                            &self.app_handle,
+                        self.ui.emit(
                             "plan-changed",
-                            serde_json::json!({ "plan_id": plan_id }),
+                            serde_json::to_value(serde_json::json!({ "plan_id": plan_id }))
+                                .unwrap_or_default(),
                         );
                     }
                     Err(cause) => {
@@ -802,16 +802,16 @@ impl ServiceContext {
                 "report_outcome": report_outcome,
             }),
         );
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "agent-report",
-            report_event::agent_report_event(
+            serde_json::to_value(report_event::agent_report_event(
                 &storage_key,
                 tab_id,
                 &from_title,
                 &report,
                 task_report,
-            ),
+            ))
+            .unwrap_or_default(),
         );
 
         match target {
@@ -923,8 +923,9 @@ impl ServiceContext {
         let text = format!(
             "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
         );
-        let _ = crate::ports::orchestration::installed(&self.extensions)
-            .deliver_orchestrator_notice_exact(plan_id, owner, "plan", &text);
+        let _ = crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
+            self, plan_id, owner, "plan", &text,
+        );
     }
 
     /// Nudge the gate asker tab when a gate is answered.
@@ -1021,7 +1022,7 @@ impl ServiceContext {
             body,
             delivery_id: None,
         };
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {
                 Ok(r) if r.ok => {
                     log::info!("[plan/mesh] batch relayed to {}/{}", peer, plan_id)

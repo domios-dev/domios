@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::*;
-use codeterm_cron::clock::MockClock;
 use crate::store::{Create, Owner};
+use codeterm_cron::clock::MockClock;
 use parking_lot::Mutex;
 
 fn fixture() -> (tempfile::TempDir, Store, Sentinel) {

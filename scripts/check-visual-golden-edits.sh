@@ -11,9 +11,9 @@ SNAP_DIR="tests/playwright/suites/13-canvas/visual-regression.spec.ts-snapshots"
 base="${VISUAL_GOLDEN_BASE:-}"
 if [ -z "$base" ]; then
   if git rev-parse --verify @{upstream} >/dev/null 2>&1; then
-    base="$(git merge-base HEAD @{upstream})"
+    base="$(git merge-base HEAD @{upstream})" || { echo "no merge base with @{upstream}; set VISUAL_GOLDEN_BASE" >&2; exit 1; }
   elif git rev-parse --verify origin/master >/dev/null 2>&1; then
-    base="$(git merge-base HEAD origin/master)"
+    base="$(git merge-base HEAD origin/master)" || { echo "no merge base with origin/master; set VISUAL_GOLDEN_BASE" >&2; exit 1; }
   else
     base="HEAD"
   fi

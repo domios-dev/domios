@@ -105,7 +105,7 @@ pub(crate) fn honest_boot_stage(
 
 /// A latched failure that the tab's own nonce-verified session binding
 /// contradicts. The binding is the agent naming itself on its own launch.
-pub(crate) fn binding_disproves_latched_failure(tab: &Tab) -> bool {
+pub fn binding_disproves_latched_failure(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::SpawnFailed) && tab.launch_session_authenticated()
 }
 
@@ -143,7 +143,7 @@ pub fn binding_observes_in_tab_launch(tab: &Tab) -> bool {
 
 /// Record a stage on the tab. Only a reason-carrying stage keeps its reason, so
 /// any other stage clears a previously latched failure and its launch identity.
-pub(crate) fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
+pub fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
     tab.boot_stage = Some(stage);
     tab.boot_failure_reason = stage
         .carries_reason()
@@ -177,6 +177,7 @@ pub(crate) fn provisional_launch_for(
         pty_id: pty_id.to_string(),
         binding_nonce: binding_nonce.to_string(),
         reason: reason.to_string(),
+        awaiting_binding_ack: false,
     })
 }
 
@@ -212,6 +213,8 @@ pub(crate) fn boot_stage_event(
     serde_json::json!({
         "tab_id": tab_id,
         "stage": stage,
+        "agent_booting": tab.agent_booting,
+        "session_bound": tab.agent_session_id.as_deref().is_some_and(|id| !id.trim().is_empty()),
         "reason": stage.carries_reason().then_some(reason).flatten(),
         "launch_generation": {
             "epoch": tab.lifecycle_epoch,
@@ -309,10 +312,11 @@ impl ServiceContext {
                     })
             };
             if let Some(attempt) = pending_binding {
-                self.record_provisional_launch(
+                self.record_provisional_launch_with_binding_wait(
                     &attempt,
                     BootStage::LaunchBindingUnconfirmed,
                     "current launch session binding has not been authenticated",
+                    true,
                 );
                 let binding = {
                     let mux = self.mux.read();
@@ -379,17 +383,19 @@ impl ServiceContext {
         stage: BootStage,
         reason: Option<&str>,
     ) {
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        crate::startup::boot_timing::mark(tab_id, tab.pty_id.as_deref(), stage);
+        self.ui.emit(
             "tab-boot-stage",
-            boot_stage_event(tab_id, tab, stage, reason),
+            serde_json::to_value(boot_stage_event(tab_id, tab, stage, reason)).unwrap_or_default(),
         );
     }
 
     fn finish_boot_stage_transition(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+        crate::startup::boot_timing::mark(tab_id, None, "finish_stage_enter");
         super::boot_wait::notify_boot_changed();
         crate::service::general_agent::binding_wait::notify_binding_state_changed();
         self.emit_session_binding_state(tab_id);
+        crate::startup::boot_timing::mark(tab_id, None, "finish_binding_done");
         if stage.carries_reason() {
             self.wake_user_owner_on_state_change(tab_id);
         }
@@ -402,7 +408,7 @@ impl ServiceContext {
             if let Some(pty_id) = pty_id {
                 if let Some(key) = self.provider_tree_key_for_tab(tab_id, &pty_id) {
                     let service = self.clone();
-                    drop(tauri::async_runtime::spawn_blocking(move || {
+                    drop(crate::async_runtime::spawn_blocking(move || {
                         let tree = service.observe_provider_process_tree_for_key(&key);
                         log::info!(
                             "[provider-tree] observed source=provider-readiness tree_evidence={} tab={} pty={}",
@@ -414,9 +420,11 @@ impl ServiceContext {
                 }
             }
         }
+        crate::startup::boot_timing::mark(tab_id, None, "finish_tree_done");
         // A boot stage is the only moment a tab's agent liveness can change on
         // the launch side; the restore wave settles here rather than on a tick.
         self.settle_restore_report();
+        crate::startup::boot_timing::mark(tab_id, None, "finish_restore_done");
         if stage == BootStage::ShellReady {
             self.resume_exited_member_on_shell_ready(tab_id);
         }
@@ -424,16 +432,22 @@ impl ServiceContext {
             if let Ok(authority) = self.user_send_authority(tab_id) {
                 self.latch_user_authority_ready(&authority);
             }
+            crate::startup::boot_timing::mark(tab_id, None, "finish_authority_done");
             // Sealing transition: this is the only place an operation becomes
             // restorable, and only if provider + session already committed.
             self.record_lifecycle(
                 tab_id,
                 crate::session::lifecycle::LifecycleTransition::LaunchReady,
             );
+            crate::startup::boot_timing::mark(tab_id, None, "finish_journal_done");
             self.schedule_planner_replay(tab_id);
+            crate::startup::boot_timing::mark(tab_id, None, "finish_planner_done");
             self.schedule_parked_user_send(tab_id);
+            crate::startup::boot_timing::mark(tab_id, None, "finish_user_wake_done");
             self.heal_recovery_state_if_ready();
+            crate::startup::boot_timing::mark(tab_id, None, "finish_recovery_done");
             self.retire_superseded_process_conditions(tab_id);
+            crate::startup::boot_timing::mark(tab_id, None, "finish_conditions_done");
         }
         if stage == BootStage::SpawnFailed {
             self.wake_agent_deliveries_on_state_change(tab_id);
@@ -487,16 +501,32 @@ impl ServiceContext {
         stage: BootStage,
         reason: &str,
     ) {
+        self.record_provisional_launch_with_binding_wait(attempt, stage, reason, false);
+    }
+
+    fn record_provisional_launch_with_binding_wait(
+        &self,
+        attempt: &crate::service::launch_readiness::LaunchAttempt,
+        stage: BootStage,
+        reason: &str,
+        awaiting_binding_ack: bool,
+    ) {
         debug_assert!(stage.is_provisional());
         let recorded =
             self.record_boot_stage_transition(&attempt.tab_id, stage, Some(reason), |tab| {
-                apply_provisional_launch(
+                if !apply_provisional_launch(
                     tab,
                     &attempt.pty_id,
                     &attempt.binding_nonce,
                     stage,
                     reason,
-                )
+                ) {
+                    return false;
+                }
+                if let Some(launch) = tab.provisional_launch.as_mut() {
+                    launch.awaiting_binding_ack = awaiting_binding_ack;
+                }
+                true
             });
         if !recorded {
             log::info!(
@@ -637,10 +667,9 @@ impl ServiceContext {
                 .collect::<Vec<_>>()
         };
         if crate::crash::lifecycle::heal_current_epoch(&healthy) {
-            codeterm_events::emit_everywhere(
-                &self.app_handle,
+            self.ui.emit(
                 "recovery-state-changed",
-                crate::crash::lifecycle::recovery_state(),
+                serde_json::to_value(crate::crash::lifecycle::recovery_state()).unwrap_or_default(),
             );
         }
     }

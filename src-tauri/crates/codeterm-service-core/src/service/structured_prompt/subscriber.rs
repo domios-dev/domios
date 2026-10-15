@@ -194,12 +194,12 @@ async fn apply_event(
 
 fn transport_state(svc: &ServiceContext, tab_id: &str, status: &str, detail: &str) {
     log::info!("[structured-channel] tab={tab_id} status={status} detail={detail}");
-    codeterm_events::emit_everywhere(
-        &svc.app_handle,
+    svc.ui.emit(
         "structured-channel-state",
-        serde_json::json!({
+        serde_json::to_value(serde_json::json!({
             "tab_id":tab_id, "status":status, "detail":detail
-        }),
+        }))
+        .unwrap_or_default(),
     );
     if status == "failed" {
         svc.log_system_notice(

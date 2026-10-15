@@ -126,6 +126,7 @@ function packageForPath(repoRoot, file, packages) {
 
 function packageScope(pkg, file) {
   if (file.startsWith("src-tauri/pty-fork/")) return "pty-fork";
+  if (pkg.name === "codeterm") return "shell";
   return scopeAliases.get(pkg.name) || pkg.name;
 }
 
@@ -149,7 +150,7 @@ function modulePathForRust(repoRoot, file, pkg) {
 
 function rustInputs(files) {
   return files.filter((file) =>
-    file.endsWith(".rs") ||
+    file.endsWith(".rs") && !file.startsWith("scripts/tests/fixtures/") ||
     (file.startsWith("src-tauri/") || file.startsWith("cli/")) &&
       ["Cargo.toml", "Cargo.lock"].includes(path.posix.basename(file)),
   );
@@ -383,7 +384,8 @@ function printSelection(options, files) {
   };
 
   for (const file of files.filter((candidate) => candidate.startsWith("src-tauri/prompts/"))) {
-    contract("codeterm", "test(/^prompts::tests::/)", `${file} changes the prompt contract suite`);
+    contract("codeterm-prompts", "test(/^prompts::tests::/)", `${file} changes the prompt contract suite`);
+    contract("codeterm-service-core", "test(/^prompts::/)", `${file} changes the onboarding prompt contract suite`);
   }
   for (const file of files.filter((candidate) => candidate.startsWith("prod-docs/"))) {
     contract(

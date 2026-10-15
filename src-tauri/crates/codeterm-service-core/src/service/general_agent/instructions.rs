@@ -68,7 +68,7 @@ fn render_role_contract_at(
     provider_name: &str,
     wake_up_section: &str,
 ) -> String {
-    let version = env!("CARGO_PKG_VERSION");
+    let version = codeterm_build_info::version();
     let platform = if cfg!(target_os = "windows") {
         "Windows"
     } else if cfg!(target_os = "macos") {

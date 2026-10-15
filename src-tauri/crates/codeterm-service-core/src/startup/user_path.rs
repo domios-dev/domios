@@ -9,16 +9,15 @@
 use std::path::Path;
 
 const SEPARATOR: &str = ";";
-const REPAIR_ARG: &str = "repair-user-path";
 
 /// Reads and writes the persistent user PATH.
-pub(crate) trait UserPathStore {
+pub trait UserPathStore {
     /// `None` when this platform has no persistent user PATH (no registry).
     fn read(&self) -> Option<String>;
     fn write(&self, value: &str) -> std::io::Result<()>;
 }
 
-pub(crate) struct SystemUserPathStore;
+pub struct SystemUserPathStore;
 
 /// What the user PATH must become for `dir` to be on it.
 #[derive(Debug, PartialEq, Eq)]
@@ -151,7 +150,7 @@ pub(crate) fn add_to_user_path(dir: &Path) {
     add_to_user_path_with(&SystemUserPathStore, dir, &std::env::temp_dir());
 }
 
-pub(crate) fn repair_user_path_with(
+pub fn repair_user_path_with(
     store: &dyn UserPathStore,
     temp_dir: &Path,
 ) -> std::io::Result<Vec<String>> {
@@ -166,7 +165,7 @@ pub(crate) fn repair_user_path_with(
     Ok(repair.removed)
 }
 
-pub(crate) fn user_path_repair_report(removed: &[String]) -> String {
+pub fn user_path_repair_report(removed: &[String]) -> String {
     let mut report = format!(
         "Domios user PATH repair: removed {} dead entries\n",
         removed.len()
@@ -177,28 +176,6 @@ pub(crate) fn user_path_repair_report(removed: &[String]) -> String {
         report.push('\n');
     }
     report
-}
-
-/// `CodeTerm repair-user-path` — never automatic, never part of startup. The
-/// GUI binary has no console on Windows, so the report is also written to a
-/// file whose path the caller is told.
-pub(crate) fn run_user_path_repair_if_invoked() {
-    if std::env::args().nth(1).as_deref() != Some(REPAIR_ARG) {
-        return;
-    }
-    let (report, code) = match repair_user_path_with(&SystemUserPathStore, &std::env::temp_dir()) {
-        Ok(removed) => (user_path_repair_report(&removed), 0),
-        Err(error) => (format!("Domios user PATH repair failed: {error}\n"), 1),
-    };
-    let report_path = std::env::temp_dir().join("codeterm-user-path-repair.txt");
-    let _ = std::fs::write(&report_path, &report);
-    use std::io::Write;
-    let _ = writeln!(
-        std::io::stdout(),
-        "{report}Report written to {}",
-        report_path.display()
-    );
-    std::process::exit(code);
 }
 
 #[cfg(windows)]

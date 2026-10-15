@@ -9,11 +9,7 @@ pub struct CaptureGuard {
     claimed: AtomicBool,
 }
 
-pub fn retain(
-    core: &Arc<Core>,
-    index: Option<usize>,
-    resources: Box<dyn RetainedResources>,
-) {
+pub fn retain(core: &Arc<Core>, index: Option<usize>, resources: Box<dyn RetainedResources>) {
     let capture = Arc::new(CaptureGuard {
         resources: Mutex::new(Some(resources)),
         claimed: AtomicBool::new(false),

@@ -1,4 +1,5 @@
 import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
+import { runtimeStoredHistory } from "./runtimeStoredHistory";
 import { codexToolOutputText } from "./toolOutput";
 import {parseSessionObservations} from "./signals";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
@@ -184,6 +185,7 @@ function hasPromptAndStatusFooter(screen: string): boolean {
 }
 
 const plugin: PluginModule = {
+  runtimeStoredHistory,
   runtimePlan,
   runtimeResponse,
   runtimeReduce,

@@ -117,10 +117,10 @@ impl ServiceContext {
         }
         let service = self.clone();
         let tab = tab_id.to_string();
-        tauri::async_runtime::spawn_blocking(move || service.flush_agent_deliveries(&tab));
+        crate::async_runtime::spawn_blocking(move || service.flush_agent_deliveries(&tab));
     }
 
-    pub(crate) fn schedule_restored_agent_delivery_reconciliation(&self) {
+    pub fn schedule_restored_agent_delivery_reconciliation(&self) {
         let tab_ids = self
             .mux
             .read()
@@ -135,7 +135,7 @@ impl ServiceContext {
                 continue;
             }
             let service = self.clone();
-            tauri::async_runtime::spawn_blocking(move || {
+            crate::async_runtime::spawn_blocking(move || {
                 service.reconcile_retired_agent_deliveries(&tab_id, &owner);
                 owner.finish_worker(&tab_id);
                 let bound_pending = owner
@@ -200,7 +200,7 @@ impl ServiceContext {
         if owner.pending_head(tab_id).ok().flatten().is_some() {
             self.schedule_agent_delivery_flush(tab_id);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         test_boundary::finished(tab_id);
     }
 
@@ -798,5 +798,5 @@ fn worker_brief_flagged(role: Option<crate::multiplexer::types::AgentRole>) -> b
 #[path = "agent_delivery_outbox/tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) mod test_boundary;

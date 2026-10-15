@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_health_returns_ok() {
-    let result = cmd_health().unwrap();
+    let result = health_result().unwrap();
     let json = result.into_json();
     assert_eq!(json["status"], "ok");
     assert_eq!(json["name"], "CodeTerm");

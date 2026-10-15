@@ -1,3 +1,4 @@
+import { describeError } from "./describeError";
 export interface AgentRuntimeState {
   auth?: "signedIn"|"signedOut"|"unknown";
   loginMethods?: ("browser"|"device"|"apiKey")[];
@@ -57,29 +58,15 @@ export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: st
   return { ...current, state: "degraded", reason: reason.trim() || current.reason || "Agent runtime unavailable" };
 }
 
-const RUNTIME_FAILURE_REASONS: readonly (readonly [RegExp, string])[] = [
-  [/\bSizeLimit\b|runtime(?: hook state)? size limit/i, "The agent runtime exceeded its size limit."],
-  [/^(?:SpawnFailed\b|Runtime could not start:)/, "The agent runtime could not start."],
-  [/^(?:ProcessExited\b|Runtime (?:exited|stopped)\b)/, "The agent runtime stopped."],
-  [/^(?:PipeEof\b|Runtime connection closed)/, "The connection to the agent runtime closed."],
-  [/^(?:PipeFailure\b|Runtime \S+ connection failed:)/, "The connection to the agent runtime failed."],
-  [/^(?:InvalidFrame\b|Runtime sent an invalid response:)/, "The agent runtime sent an invalid response."],
-  [/^(?:Deadline\b|Runtime did not respond in time)/, "The agent runtime did not respond in time."],
-  [/^(?:HookFailed\b|Provider operation failed:)/, "The provider plugin failed while handling a response."],
-  [/^(?:Refused\b|Provider refused:)/, "The provider refused the operation."],
-  [/^(?:PrewriteRefused\b|Input was not sent:)/, "The input could not be sent to the agent runtime."],
-  [/^(?:Superseded\b|Runtime session changed;)/, "The agent session changed and the operation was canceled."],
-];
-
-export function runtimeStatusPresentation(state: AgentRuntimeState | null) {
+export function runtimeStatusPresentation(state: AgentRuntimeState | null, startupOwned = false) {
   if (!state || state.state === "loaded") return null;
+  if (startupOwned && state.state === "loading") return null;
   const loading = state.state === "loading";
   return {
     severity: loading ? "transient" as const : "action_needed" as const,
     label: loading ? "Recovering agent runtime" : "Agent runtime unavailable",
     reason: loading ? "Loading the agent runtime."
-      : RUNTIME_FAILURE_REASONS.find(([pattern]) => pattern.test(state.reason ?? ""))?.[1]
-        ?? "The agent runtime is unavailable.",
+      : describeError(state.reason, { operation: "connecting to the agent runtime" }).title,
     details: state.reason?.trim() ? state.reason : null,
     canRetry: !loading,
   };

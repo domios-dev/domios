@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.14.9-dev.6",
+  "version": "1.14.9",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -50,6 +50,7 @@
     "check:release-locks": "node scripts/check-release-locks.mjs",
     "sync:plugin-versions": "node scripts/sync-plugin-versions.mjs",
     "check:plugin-versions": "node scripts/sync-plugin-versions.mjs --check",
+    "check:errors": "node scripts/check-error-presentation.mjs",
     "check:api-effects": "node scripts/check-api-effect-dependencies.mjs"
   },
   "keywords": [],

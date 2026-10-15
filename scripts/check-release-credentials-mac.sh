@@ -16,7 +16,15 @@ assert key.stat().st_mode & 0o777 == 0o600
 assert base64.b64decode(key.read_text()).startswith(b'untrusted comment:')
 PY
 if [ "$?" = 0 ]; then echo "Updater key decodes"; else echo "::error::Invalid updater key"; rc=1; fi
-gh auth status >/dev/null 2>&1 || { echo "::error::gh not authenticated"; rc=1; }
+# tauri build reads only TAURI_SIGNING_PRIVATE_KEY, so the job material must export it as the key file.
+if [ "${TAURI_SIGNING_PRIVATE_KEY:-}" = "$TAURI_SIGNING_PRIVATE_KEY_PATH" ]; then
+  echo "Updater key exposed to the Tauri bundler"
+else
+  echo "::error::Signing material does not export TAURI_SIGNING_PRIVATE_KEY as the key path; the bundle would fail after bundling"
+  rc=1
+fi
+# gh auth status fails on any stale stored account; probe the token this job actually uses.
+gh api rate_limit --silent >/dev/null 2>&1 || { echo "::error::gh token rejected or gh missing"; rc=1; }
 log="$RELEASE_SIGNING_DIR/notary-preflight.log"
 if xcrun notarytool history --keychain-profile "${APPLE_KEYCHAIN_PROFILE:?}" --keychain "$RELEASE_KEYCHAIN" >"$log" 2>&1; then
   echo "Apple notary credentials accepted"

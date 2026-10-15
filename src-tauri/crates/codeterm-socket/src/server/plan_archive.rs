@@ -82,7 +82,7 @@ pub(super) fn unarchive(
     now: u64,
 ) -> Result<Value, JsonRpcError> {
     let id = plan_refs::resolve_plan(store, params)?;
-    codeterm_service_core::service::unarchive_team_plan(svc, &id, now)
+    codeterm_orchestration::unarchive_team_plan(svc, &id, now)
         .map_err(super::team::team_plan_rpc_err)?;
     Ok(json!({ "ok": true }))
 }
@@ -98,7 +98,11 @@ fn push_hints(value: &mut Value, hints: Vec<String>) {
 }
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+    codeterm_service_core::events::emit_everywhere(
+        app,
+        "plan-changed",
+        json!({ "plan_id": plan_id }),
+    );
 }
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {

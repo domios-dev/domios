@@ -54,6 +54,7 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            stored_history: false,
             usage: false,
             runtime: AgentRuntimeProtocol::StdioJsonrpc,
             command: AgentRuntimeCommand {
@@ -214,7 +215,7 @@ pub(super) fn scene() -> Scene {
                 .to_string_lossy()
                 .into_owned()
                 .into(),
-            host_version: env!("CARGO_PKG_VERSION").into(),
+            host_version: codeterm_build_info::version().into(),
             ..Default::default()
         }),
         completions: Mutex::new(Default::default()),

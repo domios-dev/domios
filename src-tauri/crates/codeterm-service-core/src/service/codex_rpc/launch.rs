@@ -94,7 +94,7 @@ pub(crate) fn selection_plan(
 
 pub(crate) fn prepare_selection(svc: &ServiceContext, tab: &str, spawn: Spawn) -> Option<String> {
     let provider = spawn.provider.clone();
-    match tauri::async_runtime::block_on(super::lifecycle::ensure_for_spawn(svc, tab, spawn)) {
+    match crate::async_runtime::block_on(super::lifecycle::ensure_for_spawn(svc, tab, spawn)) {
         Ok(sidecar) => Some(remote_command(&sidecar)),
         Err(error) => {
             log::error!("[codex-rpc] launch tab={tab} fallback: {error}");
@@ -184,7 +184,7 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
         })
         .flatten();
     let spawn = deferred_spawn(provider, &plan.params, instructions);
-    match tauri::async_runtime::block_on(super::lifecycle::ensure_for_spawn(svc, tab, spawn)) {
+    match crate::async_runtime::block_on(super::lifecycle::ensure_for_spawn(svc, tab, spawn)) {
         Ok(sidecar) => remote_command(&sidecar),
         Err(error) => {
             if let Some(sidecar) = super::lifecycle::for_tab(tab) {

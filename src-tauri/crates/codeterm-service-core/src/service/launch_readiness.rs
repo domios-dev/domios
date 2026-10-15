@@ -68,7 +68,7 @@ pub enum LaunchEvidence {
 
 /// How the shared owner records one piece of evidence.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum LaunchSettlement {
+pub enum LaunchSettlement {
     Ready,
     AwaitingFirstTurn,
     OwnerPromptDeadline {
@@ -619,7 +619,7 @@ fn owner_prompt_pending_until(tab_id: &str, question: &str, deadline: Instant) {
     );
 }
 
-pub(crate) fn owner_prompt_cleared(tab_id: &str) {
+pub fn owner_prompt_cleared(tab_id: &str) {
     let mut state = OBSERVATIONS.state.lock();
     update_owner_prompt_locked(&mut state, tab_id, None);
     let wake = state.input_wakes.get(tab_id).and_then(|(attempt, signal)| {
@@ -822,6 +822,8 @@ fn observe_with_owner_prompt(
             drop(state);
             owner_prompt_changed(prompt.as_ref().map(|active| active.question.as_str()));
             state = OBSERVATIONS.state.lock();
+            // A clear or acknowledgement noted while unlocked already notified; re-check it.
+            continue;
         }
         let deadline = owner_deadline.unwrap_or(normal_deadline);
         if OBSERVATIONS
@@ -833,7 +835,9 @@ fn observe_with_owner_prompt(
                 .armed
                 .get(&attempt.tab_id)
                 .filter(|observed| &observed.attempt == attempt)
-                .is_some_and(|observed| Some(observed.prompt_revision) != last_revision)
+                .is_some_and(|observed| {
+                    observed.evidence.is_some() || Some(observed.prompt_revision) != last_revision
+                })
             {
                 continue;
             }
@@ -1149,17 +1153,17 @@ impl ServiceContext {
             attempt.tab_id,
             attempt.pty_id
         );
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "agent-launch-failed",
-            serde_json::json!({
+            serde_json::to_value(serde_json::json!({
                 "kind": "exited_before_readiness",
                 "tab_id": attempt.tab_id,
                 "attempt_id": attempt.pty_id,
                 "launch_nonce": attempt.binding_nonce,
                 "exit_code": exit_code,
                 "reason": reason,
-            }),
+            }))
+            .unwrap_or_default(),
         );
         self.emit_boot_stage(&attempt.tab_id, BootStage::SpawnFailed, Some(reason));
     }

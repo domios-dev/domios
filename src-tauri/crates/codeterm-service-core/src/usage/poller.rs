@@ -142,7 +142,7 @@ impl UsagePoller {
 
     pub fn spawn(self) {
         let inner = self.inner.clone();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             loop {
                 if let Err(e) = tick(&inner).await {
                     log::warn!("[usage.poller] tick error: {}", e);
@@ -176,7 +176,7 @@ impl UsagePoller {
             return;
         }
         let inner = self.inner.clone();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             if let Err(e) = run_probe_for(inner, key.clone()).await {
                 log::warn!(
                     "[usage.poller] manual refresh probe {:?}/{:?} failed: {}",
@@ -566,7 +566,7 @@ fn probe_command_for(svc: &ServiceContext, provider: &str) -> Option<String> {
 }
 
 fn visible_tabs_for_provider(svc: &ServiceContext, provider: &str) -> Vec<String> {
-    let mux = svc.mux.write();
+    let mux = svc.mux.read();
     let snap = mux.snapshot();
     snap.tabs
         .values()
@@ -585,7 +585,10 @@ fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
         "account_id": key.account_id,
         "snapshot_id": snapshot_id,
     });
-    codeterm_events::emit_everywhere(&svc.app_handle, "usage-snapshot-updated", &payload);
+    svc.ui.emit(
+        "usage-snapshot-updated",
+        serde_json::to_value(&payload).unwrap_or_default(),
+    );
     svc.events.broadcast("usage-snapshot-updated", payload);
 }
 

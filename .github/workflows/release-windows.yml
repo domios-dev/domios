@@ -39,11 +39,18 @@ name: Release Windows platforms
         required: false
         default: false
         type: boolean
+      arch:
+        description: x64 or arm64; each architecture is its own caller job and graph node
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
   DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
@@ -62,18 +69,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-pc-windows-msvc
-            platform_key: windows-x86_64
-            vsarch: x64
-            sdkarch: x64
-            label: x64
-            runner_label: ${{ vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build' }}
-          - target: aarch64-pc-windows-msvc
-            platform_key: windows-aarch64
-            vsarch: x64_arm64
-            sdkarch: arm64
-            label: arm64
-            runner_label: ${{ vars.RELEASE_WINDOWS_ARM64_LABEL || 'windows-build' }}
+          - target: ${{ inputs.arch == 'x64' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
+            platform_key: ${{ inputs.arch == 'x64' && 'windows-x86_64' || 'windows-aarch64' }}
+            vsarch: ${{ inputs.arch == 'x64' && 'x64' || 'x64_arm64' }}
+            sdkarch: ${{ inputs.arch }}
+            label: ${{ inputs.arch }}
+            runner_label: ${{ inputs.arch == 'x64' && (vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build') || (vars.RELEASE_WINDOWS_ARM64_LABEL || 'windows-build') }}
     timeout-minutes: 120
     env:
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
@@ -304,6 +305,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build release bundle inputs
+        id: compile
         shell: pwsh
         run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -File build.ps1 release-inputs
 
@@ -415,9 +417,14 @@ jobs:
           platform: release-Windows
           target: ${{ matrix.target }}
 
+      # Without a compile step no sccache server ever started, so there is nothing to report.
       - name: Shared compile cache statistics
-        if: always()
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
         shell: pwsh
         run: |
           & .\build.ps1 cache-stats
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs

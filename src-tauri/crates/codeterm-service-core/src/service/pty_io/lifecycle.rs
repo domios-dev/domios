@@ -507,7 +507,9 @@ impl ServiceContext {
         if let Some(refusal) = self.tab_surface_input_refusal(&resolved) {
             return Err(refusal);
         }
+        crate::startup::boot_timing::mark(&resolved, None, "pty_claim_enter");
         let pty_claim = self.pty_ownership.acquire(&resolved);
+        crate::startup::boot_timing::mark(&resolved, None, "pty_claim_acquired");
         self.ensure_tab_pty_for_send_inner(&pty_claim)
     }
 
@@ -555,6 +557,7 @@ impl ServiceContext {
             SHELL_BACKEND_COLS
         };
         let t0 = std::time::Instant::now();
+        crate::startup::boot_timing::mark(tab_id, None, "pty_build_enter");
         let spawn_gate = self.pty.lock().spawn_gate();
         let built = crate::pty::manager::build_session_with_profile(
             spawn_gate,
@@ -565,8 +568,11 @@ impl ServiceContext {
             env_vars,
             profile.as_ref().filter(|_| agent_type.is_none()),
         )?;
+        crate::startup::boot_timing::mark(tab_id, None, "pty_built");
         let (pty_id, _) = self.pty.lock().register_session(None, built);
+        crate::startup::boot_timing::mark(tab_id, Some(&pty_id), "pty_registered");
         super::super::pty_resize::resize(&self.pty, &self.screen_state, &pty_id, None)?;
+        crate::startup::boot_timing::mark(tab_id, Some(&pty_id), "pty_resized");
         log::info!(
             "[ensure-pty] Tab {} activated backend pty {} (build={}ms)",
             tab_id,
@@ -602,6 +608,7 @@ impl ServiceContext {
         claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {
         let tab_id = claim.tab_id();
+        crate::startup::boot_timing::mark(tab_id, None, "restore_prepare_enter");
         self.recover_missing_restored_provider(tab_id)?;
         let (provider_id, mut session_id, cwd, launch_parameters, exact_session, session_cwd) = {
             let mux = self.mux.read();
@@ -646,14 +653,16 @@ impl ServiceContext {
                     .with_provider(&provider_id, |p| p.session_exists(dir, sid))
             })
             .flatten();
+        crate::startup::boot_timing::mark(tab_id, None, "session_exists_checked");
         let permission_bypass_authorization =
             crate::service::restored_launch::restore_permission_bypass_authorization(
-                &self.app_handle,
+                self,
                 &self.agent_registry,
                 tab_id,
                 &provider_id,
                 &launch_parameters,
             )?;
+        crate::startup::boot_timing::mark(tab_id, None, "permission_checked");
         let session_valid = resume_session_id.is_some()
             && crate::service::restored_launch::restored_session_resumable(session_exists);
         let permissions_preserved = launch_parameters.permission_bypass_requested
@@ -689,6 +698,7 @@ impl ServiceContext {
         let mut command_error = None;
         self.restore_durable_user_statuses(tab_id)?;
         self.reconcile_chat_send_evidence(tab_id);
+        crate::startup::boot_timing::mark(tab_id, None, "delivery_evidence_checked");
         let scheduled = restore_materialization_core(
             &self.mux,
             tab_id,
@@ -725,6 +735,7 @@ impl ServiceContext {
                     &provider_id,
                     &input,
                 );
+                crate::startup::boot_timing::mark(tab_id, None, "launch_command_built");
                 if let Err(reason) = require_restored_launch_command(
                     &launch_cmd,
                     input.params.resume_session_id.as_deref(),
@@ -748,6 +759,7 @@ impl ServiceContext {
                     None,
                     input.params.resume_session_id,
                 );
+                crate::startup::boot_timing::mark(tab_id, None, "launch_scheduled");
             },
         );
         if scheduled.is_err() {
@@ -1119,9 +1131,12 @@ mod kill_tab_pty_tests {
     #[test]
     fn service_kill_tab_pty_helper_uses_kill_semantics() {
         let mut manager = crate::pty::manager::PtyManager::new();
-        let (pty_id, session) = manager
-            .spawn(None, None, 80, 24, HashMap::new())
-            .expect("spawn default shell");
+        let (pty_id, session) = {
+            let gate = manager.spawn_gate();
+            crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+                .map(|built| manager.register_session(None, built))
+        }
+        .expect("spawn default shell");
 
         kill_live_tab_pty(&mut manager, &pty_id).expect("kill succeeds");
 

@@ -246,10 +246,9 @@ pub fn sync_display(svc: &ServiceContext, tab_id: &str) {
         tab.pending_prompt_kind = prompt.as_ref().map(|_| PromptKind::Structured);
         prompt
     };
-    codeterm_events::emit_everywhere(
-        &svc.app_handle,
+    svc.ui.emit(
         "prompt-state-changed",
-        json!({"tab_id":tab_id,"prompt":prompt}),
+        serde_json::to_value(json!({"tab_id":tab_id,"prompt":prompt})).unwrap_or_default(),
     );
     svc.emit_state_changed();
 }

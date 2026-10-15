@@ -79,7 +79,11 @@ pub(super) fn dispatch_complete(
                         summary: &completion.summary,
                     },
                 );
-                codeterm_events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+                codeterm_service_core::events::emit_everywhere(
+                    &svc.app_handle,
+                    "cron-run-finished",
+                    (),
+                );
             });
         }) as PostResponseAction
     });

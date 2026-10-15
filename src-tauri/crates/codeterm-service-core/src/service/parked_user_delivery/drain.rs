@@ -9,6 +9,8 @@ impl super::super::ServiceContext {
         if super::super::agent_runtime::requested_for_tab(self, tab_id) {
             return super::super::agent_runtime::user_delivery::drain(self, tab_id);
         }
+        let owner = self.pending_delivery_payloads.user_sends.tab(tab_id);
+        let _drain = owner.pty_drain.lock();
         if self
             .pending_delivery_payloads
             .user_sends
@@ -29,7 +31,7 @@ impl super::super::ServiceContext {
         })
     }
 
-    fn drain_user_owner_with(
+    pub(super) fn drain_user_owner_with(
         &self,
         tab_id: &str,
         mut submit: impl FnMut(
@@ -41,9 +43,12 @@ impl super::super::ServiceContext {
     ) -> Result<UserDrain, String> {
         let store = &self.pending_delivery_payloads.user_sends;
         for _ in 0..crate::service::pending_delivery_payloads::user_sends::MAX_UNSETTLED * 2 {
-            let Some(mut head) = store.queued(tab_id)?.into_iter().next() else {
+            let Some(mut head) = store.head(tab_id)? else {
                 return Ok(UserDrain::Idle);
             };
+            if head.state != UserSendState::Queued {
+                return Ok(UserDrain::Idle);
+            }
             self.chat_send_ledger.restore_user_record(&head);
             if let Some(carried) = self.carry_held_user_send(&head)? {
                 head = carried;
@@ -74,10 +79,9 @@ impl super::super::ServiceContext {
                                 .chat_send_ledger
                                 .expire_owned_before_write(&head.send_id, REASON)
                             {
-                                codeterm_events::emit_everywhere(
-                                    &self.app_handle,
+                                self.ui.emit(
                                     "chat-send-status",
-                                    &status,
+                                    serde_json::to_value(&status).unwrap_or_default(),
                                 );
                             } else {
                                 log::warn!(
@@ -116,10 +120,9 @@ impl super::super::ServiceContext {
                         &head.send_id,
                         "recording_recipient_changed_before_write",
                     ) {
-                        codeterm_events::emit_everywhere(
-                            &self.app_handle,
+                        self.ui.emit(
                             "chat-send-status",
-                            &status,
+                            serde_json::to_value(&status).unwrap_or_default(),
                         );
                     }
                     self.local_recordings.retire_write_ticket(&head.send_id);

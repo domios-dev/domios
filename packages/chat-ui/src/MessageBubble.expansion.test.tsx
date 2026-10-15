@@ -3,7 +3,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 
 import { reduceToolEvents, type NormalizedChatMessage } from "@codeterm/chat-core";
-import { detectChatPrefix } from "../../../src/lib/chatPrefixes";
+import { framePrefix } from "../../../src/lib/chatPrefixes";
 import { MessageBubble } from "./MessageBubble";
 
 const windowInstance = new Window({ url: "http://localhost/chat-ui-expansion-tests" });
@@ -47,11 +47,11 @@ async function run() {
   const completedRead = command("collapsed-read", "src/coordination.ts");
   const completedCommand = command("collapsed-command", "git status --short");
   const completedEdit = command("expanded-edit", "edit src/coordination.ts");
-  const tabPrefix = detectChatPrefix('<domios from="tab" label="Auditor" tab="tab-dom-12" model="model-dom-4">/agent-pad/pointer/opaque-dom-tab-12.md</domios>');
+  const tabPrefix = framePrefix({ from: "tab", label: "Auditor", tab: "tab-dom-12", model: "model-dom-4" }, "/agent-pad/pointer/opaque-dom-tab-12.md");
   assert(tabPrefix?.origin.kind === "tab", "parser supplies the Tab origin used by the DOM fixture");
-  const reportPrefix = detectChatPrefix('<domios from="report" label="Worker" tab="tab-report-dom-13" model="model-report-dom-5">/agent-pad/pointer/opaque-dom-report-13.md</domios>');
+  const reportPrefix = framePrefix({ from: "report", label: "Worker", tab: "tab-report-dom-13", model: "model-report-dom-5" }, "/agent-pad/pointer/opaque-dom-report-13.md");
   assert(reportPrefix?.origin.kind === "tab" && reportPrefix.origin.report, "parser supplies the report origin used by the DOM fixture");
-  const systemPrefix = detectChatPrefix('<domios from="system" context="sYsTeM">/agent-pad/pointer/opaque-dom-system-14.md</domios>');
+  const systemPrefix = framePrefix({ from: "system", context: "sYsTeM" }, "/agent-pad/pointer/opaque-dom-system-14.md");
   assert(systemPrefix?.origin.kind === "system", "parser supplies the System origin used by the DOM fixture");
   const tabPointerMessage: NormalizedChatMessage = {
     id: "parsed-tab-pointer-message",

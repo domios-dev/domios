@@ -12,6 +12,8 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
+mod construct;
+pub use construct::build_service_context;
 pub mod account;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
@@ -19,16 +21,15 @@ pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
 pub mod agent_runtime;
-mod agent_transition;
+pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
+pub mod lazy_restore;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
 mod analytics_host;
 pub(crate) mod background_work;
 pub(crate) mod background_work_watch;
 pub mod billing;
-pub mod blueprint_pipeline;
-pub mod blueprint_portable;
 pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
@@ -52,10 +53,9 @@ pub mod hook_session_binding;
 pub mod inject_verify;
 pub mod input_parser;
 pub mod input_transport;
-pub(crate) mod instance_env;
+pub mod instance_env;
 pub mod integration_silence;
 pub mod kpi_hooks;
-pub mod lane_clean;
 pub mod lane_removal;
 pub mod lane_stats;
 pub mod launch_artifacts;
@@ -64,7 +64,7 @@ pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_in
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
-pub(crate) mod launch_session_detection;
+pub mod launch_session_detection;
 pub mod local_preview;
 pub(crate) mod mesh_artifacts;
 pub use mesh_artifacts::transfer as mesh_artifacts_transfer;
@@ -78,21 +78,22 @@ mod notification_desktop;
 pub(crate) mod notification_push;
 pub(crate) mod open_url;
 pub use open_url::open_url as open_url_open_url;
-pub mod orchestration_pair;
-mod orchestration_port;
-pub(crate) use orchestration_port::register_orchestration;
+mod paired_planner;
+pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
 pub(crate) mod orchestrator;
 pub mod ordered_actions;
 pub mod parked_user_delivery;
 pub mod post_update;
 pub(crate) mod process_tree;
-pub(crate) mod prompt_resolution;
+pub mod prompt_resolution;
 #[cfg(any(test, feature = "test-support"))]
 pub use prompt_resolution::tests as prompt_resolution_tests;
 pub(crate) mod protocol_recorder;
 pub use protocol_recorder::ProtocolRecorder;
 pub mod provider_cli;
+mod published_mux_state;
 pub use provider_cli::provider_cli_status as provider_cli_provider_cli_status;
+use published_mux_state::PublishedMuxState;
 pub mod provider_cli_actions;
 pub mod provider_hooks;
 pub(crate) mod provider_signals;
@@ -102,7 +103,6 @@ pub(crate) mod provider_update;
 pub(crate) mod pty_resize;
 pub use pty_resize::resize as pty_resize_resize;
 pub(crate) mod public_send_readiness;
-pub mod sentinel;
 pub(crate) mod skill_mirror;
 pub(crate) mod startup_turn;
 pub(crate) mod task_files;
@@ -110,26 +110,25 @@ pub use orchestrator::build_agent_command_for_service;
 pub(crate) use orchestrator::provider_launch_task;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
-pub use orchestrator::tab_relink_signal::await_relink;
+pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
 mod folder_trust_carryover;
 pub mod orchestrator_digests;
-mod orchestrator_onboard;
 mod output;
 mod output_feed;
 pub mod output_stream_activity;
 pub mod pending_delivery_payloads;
 pub(crate) mod permission_auto_confirm;
 pub mod permission_decision;
-pub(crate) mod permission_policy;
+pub mod permission_policy;
 pub use permission_policy::configured_permission_bypass_for as permission_policy_configured_permission_bypass_for;
 pub mod persona;
 pub mod plan;
 pub mod plan_authority;
 pub mod plan_batch_authority;
 mod plan_pause;
-mod plan_reconcile;
+pub mod plan_reconcile;
 mod prompt_chain;
 mod provider_handoff;
 use codeterm_util::pty_frame_timing;
@@ -154,7 +153,7 @@ pub mod remote_workers;
 pub mod reply_relay;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
-mod role_identity;
+pub mod role_identity;
 pub mod role_preset;
 pub mod role_profile;
 mod role_target;
@@ -168,18 +167,18 @@ pub use shell_exec::ExecWaiter;
 mod shell_restart;
 pub mod smart_add;
 pub mod spawn;
-pub(crate) mod spawn_capability;
+pub mod spawn_capability;
 mod spawn_chatbackend;
 mod spawn_cli;
 pub mod spawn_cwd;
 pub use spawn_cwd::CwdRefusal;
-mod spawn_factory;
+pub mod spawn_factory;
 mod spawn_hidden_launch;
 pub mod spawn_launch_verdict;
-mod spawn_params;
+pub mod spawn_params;
 pub mod spawn_plan_task;
 pub mod task_assignment;
-pub(crate) mod unattended_launch;
+pub mod unattended_launch;
 pub use spawn_plan_task::planned_task_title;
 mod spawn_rollback;
 mod spawn_shell;
@@ -198,7 +197,7 @@ pub(crate) mod utility_deadline_model;
 pub use utility_deadline_model::parse_timeout as utility_deadline_model_parse_timeout;
 mod utility_tabs;
 pub use status_reconciliation::SNAPSHOT_BUSY_ERROR;
-pub(crate) mod blocking;
+pub mod blocking;
 pub use blocking::run as blocking_run;
 pub(crate) mod restored_launch;
 pub mod store;
@@ -207,7 +206,7 @@ pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
 pub mod supporter;
 pub(crate) mod supporter_notify;
-pub(crate) mod supporter_tab_state;
+pub mod supporter_tab_state;
 pub mod surface;
 pub mod sync_watcher;
 pub mod tab;
@@ -220,16 +219,9 @@ pub mod tab_repair;
 pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
-pub mod team;
-mod team_core;
-#[cfg(any(test, feature = "test-support"))]
-pub use team::close_team_with_state_change;
-#[cfg(any(test, feature = "test-support"))]
-pub use team::rename_team_core;
-#[cfg(any(test, feature = "test-support"))]
-pub use team::rename_team_with_state_change;
-pub use team::TeamCloseResult;
 pub mod task_lane_guard;
+pub mod team_core;
+pub mod team_membership;
 pub use task_lane_guard::{
     canonical_path_of, classify_mutating_lane, live_canonical_writer, recorded_lane_matches,
     UnsafeMutatingLane,
@@ -278,7 +270,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::Emitter;
 
 use crate::agent::registry::AgentRegistry;
 use crate::multiplexer::commands::MuxState;
@@ -292,37 +283,25 @@ use codeterm_events::EventBroadcaster;
 // Re-export public types used by callers.
 pub use agent_transition::AgentPlacement;
 pub use agent_transition::AgentTransitionRequest;
+#[cfg(any(test, feature = "test-support"))]
+pub use agent_transition::{execute_transition_at, TransitionFailurePoint};
 pub use hierarchy::TabStatusInfo;
 pub use hierarchy::{TeamPlanCaller, TeamPlanCreationError, WorkerTurnSignal};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
 };
-pub use orchestration_pair::{
-    bind_pending_paired_planner, tab_has_pending_paired_planner, OrchestrationPairExt,
-};
-pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::arm_provider_session_for_test;
-pub use orchestrator::batch;
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::launch_waits_for_first_turn_binding;
-pub use orchestrator::refresh::{maybe_refresh_after_reflection, orchestrator_refresh};
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::spawn_onboarding_task;
 pub use orchestrator::{
     move_chatbackend_task_to_system_prompt, record_provider_session, LaunchGeneration,
     ProviderSessionBinding, RemoteTaskBinding, TaskLaunchAuthority,
 };
-pub use orchestrator::{
-    BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
-    SpawnIdentityProvenance, SpawnResult,
-};
-#[cfg(test)]
-pub(crate) use orchestrator_onboard::deliver_orchestrator_onboarding;
-pub use orchestrator_onboard::{
-    make_orchestrator, maybe_deliver_orchestrator_promotion_onboarding,
-};
+pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult};
 pub use plan_authority::{
     ensure_planner_task_fields_are_structural, launch_binding_is_pending,
     planner_forbidden_task_field, AuthenticatedPlanCaller, OrchestratorLearningError,
@@ -332,14 +311,6 @@ pub use session_binding_state::SessionBindingState;
 pub use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
-pub use team::{
-    add_team_member, adopt_agent_for_team, adopt_plan_for_team, resume_team_plan,
-    transfer_team_plan, unarchive_team_plan, validate_active_team_plan_bindings,
-    validate_plan_team_binding, TeamExt,
-};
-pub(crate) use team::{live_team_ids, reconcile_dangling_team_plan_bindings_and_emit};
-pub use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
-pub use team::{CartographerAttachLocks, OrchestratorAttachLocks};
 pub use team_core::TeamMutationCaller;
 pub use team_core::TeamPlanError;
 pub use worker_identity::{
@@ -353,6 +324,7 @@ pub(crate) use worker_persona::{WorkerIdentityAllocator, WorkerPersonaReservatio
 mod configuration;
 pub(crate) mod extensions;
 pub(crate) use extensions::Extensions;
+pub use extensions::ExtensionsBuilder;
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
@@ -369,6 +341,9 @@ pub struct ServiceContext {
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
     pub app_handle: crate::app_runtime::AppHandle,
+    pub ui: Arc<dyn crate::ports::host::UiEvents>,
+    pub shell: Arc<dyn crate::ports::host::Shell>,
+    pub rt: tokio::runtime::Handle,
     pub agent_tracker: AgentTrackerState,
     pub report_store: ReportStoreState,
     /// Orchestration-economics event writer. Disabled (and file-less) unless `kpi.enabled`.
@@ -424,6 +399,14 @@ impl ServiceContext {
     pub fn ext<T: std::any::Any + Send + Sync>(&self) -> &T {
         self.extensions.get::<T>()
     }
+
+    pub fn try_ext<T: std::any::Any + Send + Sync>(&self) -> Option<&T> {
+        self.extensions.try_get::<T>()
+    }
+
+    pub fn set_ext<T: std::any::Any + Send + Sync>(&self, value: T) -> Result<(), T> {
+        self.extensions.set(value)
+    }
 }
 
 /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
@@ -478,7 +461,7 @@ fn wall_now_ms() -> u64 {
         .as_millis() as u64
 }
 
-pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
+pub fn start_plan_reminder_scheduler(svc: ServiceState) {
     hierarchy::start_plan_reminder_scheduler(svc);
 }
 
@@ -679,8 +662,7 @@ impl ServiceContext {
     /// hook, inbound report) so the sidebar refreshes consistently.
     pub fn emit_remote_workers_changed(&self, orchestrator_tab: &str) {
         // SSE bus, so the web mirror updates live too — not only on next remount.
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "remote-workers-changed",
             serde_json::json!({
                 "orchestrator_tab_id": orchestrator_tab,
@@ -694,7 +676,7 @@ impl ServiceContext {
         self.emit_state_changed_after_bus_publish();
     }
 
-    pub(crate) fn emit_state_changed_after_bus_publish(&self) {
+    pub fn emit_state_changed_after_bus_publish(&self) {
         self.publish_authoritative_tab_statuses();
         self.output_stream_mux_changed();
         self.ext::<Arc<crate::service::MuxEmitStats>>()
@@ -726,12 +708,15 @@ impl ServiceContext {
         self.ext::<Arc<crate::service::MuxEmitStats>>()
             .pending_since_ms
             .store(wall_now_ms(), Ordering::Relaxed);
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
+        let service = self.clone();
         let pending = self.ext::<crate::service::MuxEmitPending>().0.clone();
         let mux = self.mux.clone();
         let agent_tracker = self.agent_tracker.clone();
         let agent_registry = self.agent_registry.clone();
         let stats = self.ext::<Arc<crate::service::MuxEmitStats>>().clone();
+        let published = self.ext::<Arc<PublishedMuxState>>().clone();
+        let events = self.events.clone();
         let spawned = std::thread::Builder::new()
             .name("mux-emit".into())
             .spawn(move || {
@@ -742,9 +727,16 @@ impl ServiceContext {
                     &pending,
                     std::time::Duration::from_millis(50),
                 );
+                match published.publish(snapshot.generation, &snapshot) {
+                    Ok(true) => {
+                        events.publish_generic("mux-state-changed", serde_json::json!({}));
+                    }
+                    Ok(false) => {}
+                    Err(error) => log::error!("[mux-snapshot] publication failed: {error}"),
+                }
                 if let Err(error) =
                     crate::service::session_persist::submit_session_snapshot_with_intent(
-                        &handle,
+                        &service,
                         &mux,
                         crate::session::store::SaveIntent::PreserveDesk,
                     )
@@ -754,7 +746,10 @@ impl ServiceContext {
                 stats.pending_since_ms.store(0, Ordering::Relaxed);
                 if !stats.frozen.load(Ordering::Acquire) {
                     stats.fires.fetch_add(1, Ordering::Relaxed);
-                    let _ = handle.emit("mux-state-changed", &snapshot);
+                    ui.emit_native(
+                        "mux-state-changed",
+                        serde_json::to_value(&snapshot).unwrap_or_default(),
+                    );
                 }
             });
         // Evidence build: surface a spawn failure instead of silently latching.
@@ -764,32 +759,9 @@ impl ServiceContext {
         }
     }
 
-    /// Emit an empty-payload `mux-state-changed` (frontend does a full refetch).
-    /// The socket handlers use this so fault injection (`frozen`) covers EVERY
-    /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
+    /// Socket mutations use the same published view and coalescing as local mutations.
     pub fn emit_mux_state_changed_empty(&self) {
-        self.output_stream_mux_changed();
-        self.ext::<Arc<crate::service::MuxEmitStats>>()
-            .requests
-            .fetch_add(1, Ordering::Relaxed);
-        self.schedule_session_persist_debounced();
-        #[cfg(debug_assertions)]
-        if self
-            .ext::<Arc<crate::service::MuxEmitStats>>()
-            .frozen
-            .load(Ordering::Acquire)
-        {
-            self.ext::<Arc<crate::service::MuxEmitStats>>()
-                .suppressed
-                .fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        let handle = self.app_handle.clone();
-        let stats = self.ext::<Arc<crate::service::MuxEmitStats>>().clone();
-        std::thread::spawn(move || {
-            stats.fires.fetch_add(1, Ordering::Relaxed);
-            let _ = handle.emit("mux-state-changed", ());
-        });
+        self.emit_state_changed();
     }
 
     /// Sleep out the coalesce window, then read a fresh snapshot. The pending
@@ -821,10 +793,10 @@ impl ServiceContext {
                 tab_id: tab_id.to_string(),
                 title: title.to_string(),
             });
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
         let payload = serde_json::json!({"tab_id": tab_id, "title": title});
         std::thread::spawn(move || {
-            let _ = handle.emit("tab-title-pinned", payload);
+            ui.emit_native("tab-title-pinned", payload);
         });
     }
 
@@ -838,11 +810,11 @@ impl ServiceContext {
             .publish(codeterm_events::SystemEvent::TabFocused {
                 tab_id: tab_id.to_string(),
             });
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
         let payload = serde_json::json!({"tab_id": tab_id});
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(75));
-            let _ = handle.emit("tab-focused", payload);
+            ui.emit_native("tab-focused", payload);
         });
     }
 
@@ -869,9 +841,9 @@ impl ServiceContext {
                 .0
                 .lock()
                 .insert(project_root.clone());
-            let orchestration = crate::ports::orchestration::installed(&self.extensions);
-            let live_team_ids = orchestration.live_team_ids();
-            orchestration.reconcile_dangling_team_plan_bindings(
+            let live_team_ids = team_core::live_team_ids(self);
+            team_core::reconcile_dangling_team_plan_bindings_and_emit(
+                self,
                 &live_team_ids,
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -886,7 +858,7 @@ impl ServiceContext {
                 &project_root,
                 self.plan_store.clone(),
                 std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
-                    self.app_handle.clone(),
+                    self.ui.clone(),
                 )),
             ) {
                 Ok(watcher) => {
@@ -915,7 +887,7 @@ impl ServiceContext {
     /// OS notifications are NOT sent here — use in-app toasts only.
     pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
         // 1. Native webview + SSE bus (web mirror) through the single seam.
-        codeterm_events::emit_everywhere(&self.app_handle, event_type, &payload);
+        self.ui.emit(event_type, payload.clone());
         // 2. External webhooks + websockets (Telegram, Discord, etc.)
         self.events.broadcast(event_type, payload);
     }
@@ -948,7 +920,7 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn publish_mux_state_changed(events: &codeterm_events::EventBroadcaster) {
+pub fn publish_mux_state_changed(events: &codeterm_events::EventBroadcaster) {
     events.publish(codeterm_events::SystemEvent::MuxStateChanged);
 }
 
@@ -1019,12 +991,12 @@ pub struct RejectedTaskTransition {
 }
 
 /// Helper: extract optional string from JSON value.
-pub(crate) fn json_str(v: &serde_json::Value, key: &str) -> Option<String> {
+pub fn json_str(v: &serde_json::Value, key: &str) -> Option<String> {
     v.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
 /// Replace "$ref" strings in params with actual tab_ids from previous results.
-pub(crate) fn resolve_refs(
+pub fn resolve_refs(
     params: &serde_json::Value,
     refs: &std::collections::HashMap<String, String>,
 ) -> serde_json::Value {
@@ -1090,3 +1062,11 @@ pub use structured_endpoint::sse as structured_endpoint_sse;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use pty_ownership::OwnershipEvent;
+
+pub use model_defaults::start as start_model_defaults;
+pub use provider_update::check_available as check_provider_update_available;
+pub use restore_exited_member::{apply_restore_decisions, mark_legacy_role_shell_failures};
+pub use skill_mirror::{mirror_skills_to_providers, seed_bundled_skills};
+pub use utility_deadline::restore as restore_utility_deadlines;
+
+pub use supporter_notify::record_launch as supporter_record_launch;

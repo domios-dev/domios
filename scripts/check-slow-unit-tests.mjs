@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Caller: build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-shards.mjs, confirm-slow-unit-tests.mjs; skill build, testing
+// Caller: build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs, ci-rust-tests.mjs, confirm-slow-unit-tests.mjs; skill build, testing
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -130,6 +130,19 @@ export function slowTestVerdict(timings, document, previousDocument = document, 
   return { errors, regressions };
 }
 
+// Parallel timings include contention, so without serial confirmation they only advise.
+export function parallelAdvice(candidates, document) {
+  const allowed = new Map(validateBaseline(document).map(entry => [entry.key, entry.measuredSeconds]));
+  return [
+    ...candidates.map(candidate => {
+      const key = allowanceKey(allowed, identity(candidate));
+      const limit = key ? regressionLimit(allowed.get(key)) : newSlowFailureSeconds;
+      return `${candidate.measuredSeconds > limit ? '::warning::' : ''}Unit timing (parallel only): ${candidate.measuredSeconds.toFixed(3)}s, limit ${limit.toFixed(3)}s ${describeEntry(candidate)}`;
+    }),
+    `Slow unit ratchet ADVISORY: ${candidates.length} candidates reported from parallel timings without serial confirmation.`,
+  ];
+}
+
 export function checkSlowTests(...args) {
   const { errors, regressions } = slowTestVerdict(...args);
   return [...errors, ...regressions];
@@ -164,7 +177,9 @@ function main() {
   if (!['enforce', 'advisory'].includes(options.policy)) throw new Error('Invalid timing policy');
   if (options.candidates && options.alone) throw new Error('--candidates and --alone are mutually exclusive');
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-  const resolved = execFileSync('git', ['rev-parse', '--verify', `${options.base}^{commit}`], { cwd: root, encoding: 'utf8' }).trim();
+  const base = execFileSync('git', ['rev-parse', '--verify', `${options.base}^{commit}`], { cwd: root, encoding: 'utf8' }).trim();
+  // The baseline is where this branch left `base`; later moves on `base` (even schema changes) must not apply here.
+  const resolved = execFileSync('git', ['merge-base', 'HEAD', base], { cwd: root, encoding: 'utf8' }).trim();
   const load = (path, optional = false) => {
     let current;
     try { current = JSON.parse(readFileSync(resolve(root, path), 'utf8')); }
@@ -198,6 +213,15 @@ function main() {
     console.log(`Slow unit candidates: ${candidates.length} of ${timings.length} tests require serial measurement.`);
     return;
   }
+  if (!options.alone && options.policy === 'advisory') {
+    const errors = checkBaseline(document, previous);
+    if (errors.length) throw new Error(errors.join('\n'));
+    for (const line of parallelAdvice(candidates, document)) console.log(line);
+    if (candidates.length && process.env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n::warning::Slow unit ratchet ADVISORY (parallel only): ${candidates.map(describeEntry).join('; ')}\n`);
+    }
+    return;
+  }
   const alone = options.alone ? parseTimings(readFileSync(options.alone, 'utf8')) : [];
   const measuredAlone = new Map(alone.map(entry => [runIdentity(entry), entry.measuredSeconds]));
   for (const candidate of candidates) {
@@ -214,7 +238,7 @@ function main() {
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${warning}\n`);
     return;
   }
-  console.log(`Slow unit ratchet PASS: ${timings.length} measured tests, ${candidates.length} serial confirmations, ${document.entries.length} existing slow units; baseline ${options.base}.`);
+  console.log(`Slow unit ratchet PASS: ${timings.length} measured tests, ${candidates.length} serial confirmations, ${document.entries.length} existing slow units; baseline ${options.base} at fork point ${resolved}.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

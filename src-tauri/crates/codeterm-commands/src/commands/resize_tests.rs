@@ -7,10 +7,19 @@ use codeterm_service_core::pty::{manager::PtyManager, screen_state::ScreenState}
 fn client_resize_updates_pty_and_screen_geometry() {
     let pty = Arc::new(TimedMutex::new("pty", PtyManager::new()));
     let screens = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-    let (id, session) = pty
-        .lock()
-        .spawn(None, None, 120, 40, Default::default())
-        .unwrap();
+    let (id, session) = {
+        let gate = pty.lock().spawn_gate();
+        codeterm_service_core::pty::manager::build_session(
+            gate,
+            None,
+            None,
+            120,
+            40,
+            Default::default(),
+        )
+        .map(|built| pty.lock().register_session(None, built))
+    }
+    .unwrap();
     codeterm_service_core::service::pty_resize_resize(&pty, &screens, &id, None).unwrap();
     crate::commands::resize_pty_core(&pty, &screens, id.clone(), 152, 58).unwrap();
     assert_eq!(pty.lock().size(&id), Some((152, 58)));

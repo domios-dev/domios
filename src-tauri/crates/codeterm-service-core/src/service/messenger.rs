@@ -6,21 +6,7 @@ mod turn_resume;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum MessageKind {
-    /// A direct message from one tab (or peer) to another.
-    #[default]
-    Message,
-    /// A hierarchy / cron report bubbling up to a parent or inbox.
-    Report,
-    /// A host-owned event with no reply address.
-    System,
-    /// A fired delayed reminder injected back into a tab.
-    Reminder,
-    Mesh,
-    Telegram,
-    Pebble,
-}
+pub use codeterm_agent_model::MessageKind;
 
 #[derive(Debug, Default, Clone)]
 pub struct MessageEnvelope {
@@ -113,32 +99,6 @@ pub enum Delivery {
 impl Delivery {
     pub(crate) fn is_written(&self) -> bool {
         !matches!(self, Self::Pending { .. })
-    }
-}
-
-impl MessageKind {
-    fn marker_kind(self) -> &'static str {
-        match self {
-            Self::Message => "tab",
-            Self::Report => "report",
-            Self::System => "system",
-            Self::Reminder => "reminder",
-            Self::Mesh => "mesh",
-            Self::Telegram => "telegram",
-            Self::Pebble => "pebble",
-        }
-    }
-
-    fn inbound_kind(self) -> &'static str {
-        match self {
-            Self::Message => "tab",
-            Self::Report => "report",
-            Self::System => "system",
-            Self::Reminder => "reminder",
-            Self::Mesh => "mesh",
-            Self::Telegram => "telegram",
-            Self::Pebble => "pebble",
-        }
     }
 }
 
@@ -448,6 +408,7 @@ impl Messenger {
             return Err(refusal);
         }
         if svc.tab_chat_backing(to_tab).is_some() {
+            svc.wake_frozen_tab(to_tab)?;
             svc.chatbackend_reopen_if_restored(to_tab)?;
             let (plugin_id, session_id) = svc
                 .tab_chat_backing(to_tab)
@@ -470,7 +431,7 @@ impl Messenger {
         }
 
         let (resolved_target, should_prefix, pty_agent_target) = {
-            let mux = svc.mux.write();
+            let mux = svc.mux.read();
             let resolved_target = mux
                 .resolve_tab_id(to_tab)
                 .unwrap_or_else(|| to_tab.to_string());
@@ -610,6 +571,7 @@ impl Messenger {
             )
         };
         if is_chatbackend {
+            svc.wake_frozen_tab(to_tab)?;
             svc.chatbackend_reopen_if_restored(to_tab)?;
         }
         let backing = {
@@ -771,7 +733,7 @@ impl Messenger {
                 })
                 .unwrap_or((None, None));
             crate::service::tab_chat::structured_sink::emit_chat_msgs(
-                &svc.app_handle,
+                svc.ui.as_ref(),
                 to_tab,
                 std::slice::from_ref(&msg),
                 None,
@@ -1024,6 +986,7 @@ fn build_chatbackend_inbound(
         id: message_id,
         kind: "user".into(),
         content: body.to_string(),
+        segments: Some(codeterm_wire::envelope::parse_envelope(&marked)),
         timestamp: Some(chrono::Utc::now().to_rfc3339()),
         from_label: Some(clean_name(&envelope.from_label)).filter(|s| !s.is_empty()),
         from_tab: Some(short_id(&envelope.from_tab).to_string()).filter(|s| !s.is_empty()),

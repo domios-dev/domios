@@ -93,6 +93,16 @@ pub fn stop(tab: &str) {
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
+    if svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|target| target.frozen)
+    {
+        return Err(RuntimeFailure::Refused(
+            "Tab is sleeping; open or address it to wake".into(),
+        ));
+    }
     super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
     let prompt_service = svc.clone();
     let prompt_tab = tab.to_string();
@@ -154,7 +164,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                         settings: super::model::settings_from_config(&config),
                         provider_settings: super::model::public_provider_settings(&config),
                         cwd: cwd.clone(),
-                        host_version: env!("CARGO_PKG_VERSION").into(),
+                        host_version: codeterm_build_info::version().into(),
                         claimed_sends: Vec::new(),
                         active_turns: Vec::new(),
                         thread_parents: Vec::new(),
@@ -814,7 +824,23 @@ fn bind(svc: &ServiceContext, session: &Session, thread: &str) -> Result<(), Run
     let tab = mux
         .get_tab_mut(&context.tab_id)
         .ok_or(RuntimeFailure::Superseded)?;
-    if tab.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str())
+    commit_runtime_binding(tab, &context.binding_nonce, thread, |tab| {
+        svc.publish_boot_stage_transition(
+            &context.tab_id,
+            tab,
+            codeterm_types::pty::BootStage::AgentReady,
+            None,
+        );
+    })
+}
+
+fn commit_runtime_binding(
+    tab: &mut crate::multiplexer::types::Tab,
+    nonce: &str,
+    thread: &str,
+    publish: impl FnOnce(&crate::multiplexer::types::Tab),
+) -> Result<(), RuntimeFailure> {
+    if tab.session_binding_nonce.as_deref() != Some(nonce)
         || tab
             .agent_session_id
             .as_deref()
@@ -823,14 +849,21 @@ fn bind(svc: &ServiceContext, session: &Session, thread: &str) -> Result<(), Run
         return Err(RuntimeFailure::Superseded);
     }
     tab.agent_session_id = Some(thread.into());
-    tab.reported_session_binding_nonce = Some(context.binding_nonce);
-    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    tab.reported_session_binding_nonce = Some(nonce.into());
+    tab.agent_booting = false;
+    crate::service::boot_stage::apply_boot_stage(
+        tab,
+        codeterm_types::pty::BootStage::AgentReady,
+        None,
+    );
     if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } = &mut tab.backing
     {
         *session_id = thread.into();
     }
+    publish(tab);
     Ok(())
 }
+
 pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
     session.control_changes.send_replace(());
     let context = session.context.lock().clone();
@@ -871,6 +904,18 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
             || target.session_binding_nonce.as_deref() != Some(context.binding_nonce.as_str())
         {
             return;
+        }
+        if ["active_turn_started_at_ms", "last_turn_duration_ms"]
+            .iter()
+            .any(|field| {
+                target
+                    .agent_runtime_state
+                    .as_ref()
+                    .and_then(|saved| saved.get(*field))
+                    != value.get(*field)
+            })
+        {
+            target.record_activity();
         }
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = matches!(state.phase, RuntimePhase::Loading);

@@ -51,9 +51,9 @@ test("@perf hidden tabs do not re-render on unrelated agent_state churn", async 
   await waitForRenderCounter(page);
 
   if (tabB.tab_id) {
-    const tabB = page.locator(`[data-testid="tab-item"][data-tab-id="${tabB.tab_id}"]`).first();
-    await expect(tabB).toBeVisible({ timeout: 30_000 });
-    await tabB.click();
+    const tabBButton = page.locator(`[data-testid="tab-item"][data-tab-id="${tabB.tab_id}"]`).first();
+    await expect(tabBButton).toBeVisible({ timeout: 30_000 });
+    await tabBButton.click();
   }
 
   const visibleChat = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabB.id}"]`);
@@ -107,9 +107,9 @@ test("@perf hidden tabs do not re-render on unrelated agent_state churn", async 
 
   // The churn owner is itself hidden here, so the hidden-tab optimization rightly suppresses its re-renders too; the signal must not be LOST — surfacing the tab replays the churned state.
   if (tabA.tab_id) {
-    const tabA = page.locator(`[data-testid="tab-item"][data-tab-id="${tabA.tab_id}"]`).first();
-    await expect(tabA).toBeVisible({ timeout: 30_000 });
-    await tabA.click();
+    const tabAButton = page.locator(`[data-testid="tab-item"][data-tab-id="${tabA.tab_id}"]`).first();
+    await expect(tabAButton).toBeVisible({ timeout: 30_000 });
+    await tabAButton.click();
   }
   await expect
     .poll(async () => (await readRenderCounts(page))[tabA.id] ?? 0, { timeout: 15_000 })

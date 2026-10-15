@@ -113,7 +113,7 @@ impl RunWatcherRegistry {
         });
         self.runs.lock().insert(pty_id, state.clone());
         // Use tauri's runtime handle so this works even when register() is called from outside a tokio reactor (e.g. main thread spawn paths).
-        tauri::async_runtime::spawn(watchdog_loop(svc, state, timeout_secs));
+        crate::async_runtime::spawn(watchdog_loop(svc, state, timeout_secs));
     }
 
     /// Tell the watcher this run is already finished via an explicit
@@ -426,7 +426,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         ) {
             if claim_run_end(&state) {
                 let (svc_end, state_end) = (svc.clone(), state.clone());
-                let _ = tauri::async_runtime::spawn_blocking(move || {
+                let _ = crate::async_runtime::spawn_blocking(move || {
                     end_on_blocking_prompt(&svc_end, &state_end)
                 })
                 .await;
@@ -439,7 +439,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 return;
             }
             let (svc_end, state_end) = (svc.clone(), state.clone());
-            let _ = tauri::async_runtime::spawn_blocking(move || {
+            let _ = crate::async_runtime::spawn_blocking(move || {
                 end_on_hard_timeout(&svc_end, &state_end, elapsed_total)
             })
             .await;
@@ -742,7 +742,7 @@ fn resume_hidden_run(
         return;
     };
     let full_access = match crate::service::permission_policy::configured_permission_bypass_for(
-        &svc.app_handle,
+        &svc,
         &svc.agent_registry,
         &provider,
     ) {
@@ -864,7 +864,7 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
 
     // Bound to the tab by the SessionStart hook; capture session_id + cwd before close_tab so the run stays renderable in the read-only chat-ui.
     let (session_id, run_cwd) = {
-        let mux = svc.mux.write();
+        let mux = svc.mux.read();
         let tab = mux.get_tab(&state.tab_id);
         (
             tab.and_then(|p| p.agent_session_id.clone()),

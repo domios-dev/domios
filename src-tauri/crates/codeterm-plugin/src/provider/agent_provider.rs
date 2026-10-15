@@ -39,6 +39,14 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn runtime_stored_history(
+        &self,
+        _session_id: &str,
+        _records: &str,
+    ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
+        Err("Provider has no native stored runtime history projection".into())
+    }
+
     fn authorize_agent_runtime(
         &self,
         authority: &crate::agent_runtime::LaunchAuthority,
@@ -111,6 +119,10 @@ pub trait AgentProvider: Send + Sync {
 
     fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
         None
+    }
+
+    fn worker_lane_settings(&self) -> Vec<crate::provider::WorkerLaneSetting> {
+        Vec::new()
     }
 
     /// Maximum text body size accepted as an inline paste. `None` means undeclared.

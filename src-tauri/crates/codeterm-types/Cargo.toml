@@ -4,6 +4,7 @@ version = "1.6.2"
 edition = "2021"
 
 [dependencies]
+codeterm-wire = { path = "../codeterm-wire" }
 codeterm-provider-signals = { path = "../codeterm-provider-signals" }
 codeterm-notify-types = { path = "../codeterm-notify-types" }
 serde = { version = "1", features = ["derive"] }

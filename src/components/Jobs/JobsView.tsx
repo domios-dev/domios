@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Clock3, Network, Plus, Square, Trash2, Workflow } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
@@ -238,7 +239,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
       <div className="min-w-0 px-4 py-3">
         {openedBlueprint
           ? <BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} initialRunId={initialRunId} />
-          : graphsRead ? <p role="alert" className="ct-job-note">The selected Blueprint is unavailable.</p> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
+          : graphsRead ? <InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
       </div>
     </section>;
   }
@@ -249,8 +250,8 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;
   return <div ref={list} className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-4 sm:px-6">
-    {missing && <p ref={removed} tabIndex={-1} role="alert" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2 outline-none">The selected Blueprint is unavailable. It may have been removed; choose another job.</p>}
-    {crons.failed && <p role="alert" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2">Cron jobs unavailable. {crons.jobs ? "Showing the last list read." : "No cron records could be read."}</p>}
+    {missing && <div ref={removed} tabIndex={-1} role="status" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2 outline-none"><InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /></div>}
+    {crons.failed && <InlineErrorNotice error={{ code: "cron_list_unavailable", raw: "" }} />}
     <AutomationNotices state={notices} noun="Blueprints" />
     {reading && <p role="status" className="mb-3 text-[var(--ct-muted-fg)]">Reading jobs…</p>}
     <div role="status" aria-label={empty ? "No jobs" : undefined} className={empty ? "flex flex-1 flex-col items-center justify-center gap-1.5 py-10 text-center" : undefined}>
@@ -343,7 +344,7 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
       {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: `${tab.title} (${teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id})` }))} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
-        : !layout.teamAvailable ? <p role="alert" className="p-4">The selected Team is unavailable.</p>
+        : !layout.teamAvailable ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} />
           : <JobsSurface key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} />}
     </div>
   </section>;

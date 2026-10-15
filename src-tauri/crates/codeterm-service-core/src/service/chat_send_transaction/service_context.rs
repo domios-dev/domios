@@ -1,5 +1,4 @@
 use super::*;
-use tauri::Manager;
 
 impl crate::service::ServiceContext {
     pub fn start_chat_send(
@@ -30,6 +29,7 @@ impl crate::service::ServiceContext {
         client_token: Option<String>,
         capture: Option<super::super::local_recording::chat::CapturedChat>,
     ) -> Result<ChatSendStatus, String> {
+        self.wake_frozen_tab(tab_id)?;
         if let Some(capture) = &capture {
             capture
                 .validate(self.captured_chat_identity(tab_id))
@@ -115,7 +115,10 @@ impl crate::service::ServiceContext {
                     .active
                     .store(false, std::sync::atomic::Ordering::Release);
             }
-            codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
+            svc.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(&status).unwrap_or_default(),
+            );
             if let Some(error) = status.error.as_deref() {
                 log::warn!(
                     "[chat-send] send_id={} tab={} failed: {}",
@@ -146,8 +149,8 @@ impl crate::service::ServiceContext {
         self.chat_send_ledger
             .restore_before_user_admission(tab_id, || self.restore_durable_user_statuses(tab_id))?;
         let authority = self.user_send_authority(tab_id)?;
-        if let Some(service) = self.app_handle.try_state::<super::super::ServiceState>() {
-            let weak = Arc::downgrade(service.inner());
+        if let Some(weak) = self.try_ext::<std::sync::Weak<super::super::ServiceContext>>() {
+            let weak = weak.clone();
             *self.chat_send_ledger.owner.lock() = Some(weak.clone());
             let tab = tab_id.to_string();
             self.pending_delivery_payloads
@@ -360,7 +363,10 @@ impl crate::service::ServiceContext {
                     })
             })
             .transpose()?;
-        codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        self.ui.emit(
+            "chat-send-status",
+            serde_json::to_value(&status).unwrap_or_default(),
+        );
         let tab = record.authority.tab_id.clone();
         if self.user_authority_is_ready(&record.authority) {
             if let Some(pty_id) = record.authority.pty_id.as_deref() {
@@ -409,7 +415,10 @@ impl crate::service::ServiceContext {
             .admit_question_answer(&reservation, &input.text, resolution, held)?;
         let status = self.chat_send_ledger.admit_user(&record);
         let tab = record.authority.tab_id.clone();
-        codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        self.ui.emit(
+            "chat-send-status",
+            serde_json::to_value(&status).unwrap_or_default(),
+        );
         drop(reservation);
         self.record_product_activity();
         self.wake_user_owner(

@@ -77,10 +77,9 @@ impl ServiceContext {
             if !finalized {
                 return;
             }
-            codeterm_events::emit_everywhere(
-                &service.app_handle,
+            service.ui.emit(
                 "plan-changed",
-                json!({"plan_id": plan_id}),
+                serde_json::to_value(json!({"plan_id": plan_id})).unwrap_or_default(),
             );
             let payload = json!({
                 "kind": if peer_online { "remote_ack_timeout" } else { "remote_peer_offline" },

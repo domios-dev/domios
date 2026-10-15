@@ -217,6 +217,16 @@ async function flush(): Promise<void> {
   });
 }
 
+async function withDeadline(event: Promise<void>, ms: number, label: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(label)), ms); });
+  try {
+    await Promise.race([event, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function settleUntil(done: () => boolean, label: string): Promise<void> {
   for (let turn = 0; turn < 200 && !done(); turn++) {
     await act(async () => {
@@ -238,11 +248,12 @@ async function main(): Promise<void> {
   setAgentDescriptors([]);
   const { useAgentProviderCachePublisher } = await import("../../hooks/useAgentProviders");
   const { setRelayTarget, invalidateWebRequestContext } = await import("../../lib/webApi");
-  const catalogRequests: string[] = [];
+  let markPeerCatalogRequested!: () => void;
+  const peerCatalogRequested = new Promise<void>((resolve) => { markPeerCatalogRequested = resolve; });
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
-    catalogRequests.push(String(input));
     if (String(input).endsWith("/api/mesh/relay-to")) {
+      markPeerCatalogRequested();
       const call = JSON.parse(String(init?.body));
       assert(call.target_peer_id === "owning-peer", "catalog requested from wrong peer");
       assert(call.path === "/api/agents/providers", "catalog used wrong relay route");
@@ -297,7 +308,9 @@ async function main(): Promise<void> {
   await act(async () => {
     window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind"));
   });
-  await settleUntil(() => catalogRequests.some((url) => url.endsWith("/api/mesh/relay-to")), "peer switch did not refresh catalog");
+  await act(async () => {
+    await withDeadline(peerCatalogRequested, 10_000, "peer switch did not refresh catalog");
+  });
   await settleUntil(() => !host.querySelector('[data-testid="provider-capability-state"]'), "resolved descriptor retained missing state");
   const switchBeforeRefresh = host.querySelector('[data-testid="tab-mode-switch"]');
   assert(switchBeforeRefresh, "bound provider did not expose the Terminal/Chat switch");

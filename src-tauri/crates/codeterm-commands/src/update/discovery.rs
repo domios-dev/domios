@@ -29,8 +29,8 @@ pub async fn check(
         cached.items.push(AvailabilityItem::release(
             "app",
             UpdateKind::App,
-            env!("CARGO_PKG_VERSION"),
-            env!("CARGO_PKG_VERSION"),
+            codeterm_build_info::version(),
+            codeterm_build_info::version(),
             true,
         ));
     }
@@ -80,7 +80,7 @@ async fn refresh(
     }
     let ctx = PluginCtx {
         data_root: codeterm_service_core::paths::data_dir(),
-        version: Some(env!("CARGO_PKG_VERSION").into()),
+        version: Some(codeterm_build_info::version().into()),
     };
     let stage_bundles = bundles.clone();
     let mut result = tokio::task::spawn_blocking(move || {
@@ -147,7 +147,11 @@ pub fn publish(
         }
     };
     if changed {
-        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_service_core::events::emit_everywhere(
+            app,
+            "update-availability-changed",
+            snapshot,
+        );
     }
 }
 
@@ -175,7 +179,11 @@ pub fn publish_plugins(
         }
     };
     if let Some(snapshot) = next {
-        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_service_core::events::emit_everywhere(
+            app,
+            "update-availability-changed",
+            snapshot,
+        );
     }
 }
 
@@ -186,7 +194,7 @@ pub async fn plugins_changed(
         let inventory = codeterm_plugins::update_inventory(
             PluginCtx {
                 data_root: codeterm_service_core::paths::data_dir(),
-                version: Some(env!("CARGO_PKG_VERSION").into()),
+                version: Some(codeterm_build_info::version().into()),
             },
             false,
         )?;
@@ -293,7 +301,11 @@ pub fn frontend_installed(app: &codeterm_service_core::app_runtime::AppHandle, i
         }
     };
     if let Some(snapshot) = next {
-        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_service_core::events::emit_everywhere(
+            app,
+            "update-availability-changed",
+            snapshot,
+        );
     }
 }
 
@@ -322,6 +334,10 @@ pub fn publish_frontend(
         }
     };
     if let Some(snapshot) = next {
-        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_service_core::events::emit_everywhere(
+            app,
+            "update-availability-changed",
+            snapshot,
+        );
     }
 }

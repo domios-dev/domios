@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+mod activity;
 mod shell;
 pub use shell::{CloseRestoreTabState, ShellActivity, ShellCommandState, ShellPurpose};
 mod managed_tab;
@@ -535,6 +536,10 @@ pub struct PendingModelSelection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
+    #[serde(default, skip_deserializing)]
+    pub frozen: bool,
+    #[serde(default)]
+    pub last_active_at_ms: Option<u64>,
     #[serde(default, skip_deserializing)]
     pub provider_signals: codeterm_types::agent::provider_signals::ProviderSignals,
     #[serde(default, skip_deserializing)]

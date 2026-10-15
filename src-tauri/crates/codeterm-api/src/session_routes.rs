@@ -43,33 +43,34 @@ pub async fn save_session_api(
             "session save accepts one continuation action".to_string(),
         ));
     }
-    let caller = crate::tab_routes::caller_tab_header(&headers);
-    let continuation = body.continue_tab.map(|tab_id| {
-        let Some(caller_tab_id) = caller.as_deref() else {
-            return serde_json::json!({
-                "tab_id": tab_id,
-                "registered": false,
-                "reason": codeterm_service_core::service::turn_resume::CALLER_TAB_REQUIRED,
-            });
-        };
-        let prompt = body
-            .continue_prompt
-            .filter(|prompt| !prompt.trim().is_empty())
-            .unwrap_or_else(|| {
-                codeterm_service_core::service::turn_resume::DEFAULT_CONTINUE.to_string()
-            });
-        match state
-            .svc
-            .request_turn_resume_for_caller(caller_tab_id, &tab_id, &prompt)
-        {
-            Ok(()) => serde_json::json!({"tab_id": tab_id, "registered": true}),
-            Err(reason) => {
-                serde_json::json!({"tab_id": tab_id, "registered": false, "reason": reason})
+    let (continuation, suppression, withdrawal) = tokio::task::spawn_blocking(move || {
+        let caller = crate::tab_routes::caller_tab_header(&headers);
+        let continuation = body.continue_tab.map(|tab_id| {
+            let Some(caller_tab_id) = caller.as_deref() else {
+                return serde_json::json!({
+                    "tab_id": tab_id,
+                    "registered": false,
+                    "reason": codeterm_service_core::service::turn_resume::CALLER_TAB_REQUIRED,
+                });
+            };
+            let prompt = body
+                .continue_prompt
+                .filter(|prompt| !prompt.trim().is_empty())
+                .unwrap_or_else(|| {
+                    codeterm_service_core::service::turn_resume::DEFAULT_CONTINUE.to_string()
+                });
+            match state
+                .svc
+                .request_turn_resume_for_caller(caller_tab_id, &tab_id, &prompt)
+            {
+                Ok(()) => serde_json::json!({"tab_id": tab_id, "registered": true}),
+                Err(reason) => {
+                    serde_json::json!({"tab_id": tab_id, "registered": false, "reason": reason})
+                }
             }
-        }
-    });
-    let suppression = body.suppress_continue_tab.map(|tab_id| {
-        let result = match caller.as_deref() {
+        });
+        let suppression = body.suppress_continue_tab.map(|tab_id| {
+            let result = match caller.as_deref() {
             Some(caller_tab_id) if caller_tab_id == tab_id => state
                 .svc
                 .suppress_turn_resume_for_caller(caller_tab_id)
@@ -77,26 +78,26 @@ pub async fn save_session_api(
             Some(_) => Err(codeterm_service_core::service::turn_resume::NOT_CALLER_TAB.into()),
             None => Err(codeterm_service_core::service::turn_resume::CALLER_TAB_REQUIRED.into()),
         };
-        result.unwrap_or_else(
+            result.unwrap_or_else(
             |reason| serde_json::json!({"tab_id": tab_id, "suppressed": false, "reason": reason}),
         )
-    });
-    let withdrawal = body.withdraw_continue_tab.map(|tab_id| {
-        let prompt = body.withdraw_continue_prompt.as_deref().unwrap_or_default();
-        let result = match caller.as_deref() {
+        });
+        let withdrawal =
+            body.withdraw_continue_tab.map(|tab_id| {
+                let prompt = body.withdraw_continue_prompt.as_deref().unwrap_or_default();
+                let result = match caller.as_deref() {
             Some(caller_tab_id) => state
                 .svc
                 .withdraw_turn_resume_request(caller_tab_id, &tab_id, prompt)
                 .map(|withdrawn| serde_json::json!({"tab_id": tab_id, "withdrawn": withdrawn})),
             None => Err(codeterm_service_core::service::turn_resume::CALLER_TAB_REQUIRED.into()),
         };
-        result.unwrap_or_else(
+                result.unwrap_or_else(
             |reason| serde_json::json!({"tab_id": tab_id, "withdrawn": false, "reason": reason}),
         )
-    });
-    let svc = state.svc.clone();
-    tokio::task::spawn_blocking(move || {
-        codeterm_commands::update::shutdown::persist_session(&svc.app_handle, &svc)
+            });
+        codeterm_commands::update::shutdown::persist_session(&state.svc)?;
+        Ok::<_, String>((continuation, suppression, withdrawal))
     })
     .await
     .map_err(|error| {
@@ -362,7 +363,7 @@ pub async fn resume_session_api(
 
     let permission_bypass_authorization =
         codeterm_service_core::service::permission_policy_configured_permission_bypass_for(
-            &state.svc.app_handle,
+            &state.svc,
             &state.svc.agent_registry,
             &meta.provider,
         )
@@ -378,6 +379,9 @@ pub async fn resume_session_api(
 
     let persisted_identity =
         persisted_resume_identity(&state, &meta.provider, &meta.session_id).await;
+    let owner = state.clone();
+    let prepared = tokio::task::spawn_blocking(move || {
+        let state = owner;
     let identity = restorable_identity(persisted_identity, |parent| {
         state
             .svc
@@ -389,7 +393,7 @@ pub async fn resume_session_api(
 
     // both spawn.
     {
-        let mux = state.svc.mux.write();
+        let mux = state.svc.mux.read();
         let existing_tab = mux.tab_ids_with_session(&session_id).into_iter().next();
         if let Some(tab_id) = existing_tab {
             let snap = mux.snapshot();
@@ -422,7 +426,7 @@ pub async fn resume_session_api(
                         "actions": roleless_actions(&tab_id),
                     })
                 });
-            return Ok(Json(serde_json::json!({
+            return Ok(Err(Json(serde_json::json!({
                 "tab_id": tab_id,
                 "workspace_id": ws_id,
                 "provider": meta.provider,
@@ -430,7 +434,7 @@ pub async fn resume_session_api(
                 "cwd": cwd,
                 "resume_command": resume_cmd_preview,
                 "identity": live_identity,
-            })));
+            }))));
         }
     }
 
@@ -542,48 +546,64 @@ pub async fn resume_session_api(
         activate: None,
         audience: Default::default(),
         manager_bootstrap: None,
+            user_created: false,
         structured_prompt_server: None,
+    };
+        Ok::<_, (StatusCode, String)>(Ok((spawn_params, identity, ws_id, meta, cwd, resume_cmd_preview)))
+    }).await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed".to_string()))??;
+    let (spawn_params, identity, ws_id, meta, cwd, resume_cmd_preview) = match prepared {
+        Ok(prepared) => prepared,
+        Err(response) => return Ok(response),
     };
     let spawned = state
         .svc
         .spawn_agent(spawn_params, None)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    state.svc.set_and_lock_tab_agent_type_from(
-        &spawned.tab_id,
-        meta.provider.clone(),
-        codeterm_service_core::session::lifecycle::AgentTypeWriteOrigin::Spawn,
-        None,
-    );
-    state.svc.emit_state_changed();
+    tokio::task::spawn_blocking(move || {
+        state.svc.set_and_lock_tab_agent_type_from(
+            &spawned.tab_id,
+            meta.provider.clone(),
+            codeterm_service_core::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            None,
+        );
+        state.svc.emit_state_changed();
 
-    let identity_json = match identity {
-        Some(identity) => serde_json::json!({
-            "status": "restored",
-            "role": identity.role,
-            "role_profile": identity.role_profile,
-            "parent_tab_id": identity.parent_tab_id,
-            "can_spawn": identity.can_spawn,
-        }),
-        None => serde_json::json!({
-            "status": "roleless",
-            "role": null,
-            "role_profile": null,
-            "parent_tab_id": null,
-            "can_spawn": false,
-            "actions": roleless_actions(&spawned.tab_id),
-        }),
-    };
+        let identity_json = match identity {
+            Some(identity) => serde_json::json!({
+                "status": "restored",
+                "role": identity.role,
+                "role_profile": identity.role_profile,
+                "parent_tab_id": identity.parent_tab_id,
+                "can_spawn": identity.can_spawn,
+            }),
+            None => serde_json::json!({
+                "status": "roleless",
+                "role": null,
+                "role_profile": null,
+                "parent_tab_id": null,
+                "can_spawn": false,
+                "actions": roleless_actions(&spawned.tab_id),
+            }),
+        };
 
-    Ok(Json(serde_json::json!({
-        "tab_id": spawned.tab_id,
-        "workspace_id": ws_id,
-        "provider": meta.provider,
-        "session_id": meta.session_id,
-        "cwd": cwd,
-        "resume_command": resume_cmd_preview,
-        "identity": identity_json,
-    })))
+        Ok(Json(serde_json::json!({
+            "tab_id": spawned.tab_id,
+            "workspace_id": ws_id,
+            "provider": meta.provider,
+            "session_id": meta.session_id,
+            "cwd": cwd,
+            "resume_command": resume_cmd_preview,
+            "identity": identity_json,
+        })))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 #[cfg(test)]

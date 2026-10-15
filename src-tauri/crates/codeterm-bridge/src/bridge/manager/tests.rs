@@ -493,9 +493,13 @@ async fn multiple_voice_attachments_each_transcribed() {
     });
 
     let body = build_message_body(&msg, &registry_for(&cfg), "builtin-http").await;
-    // Two voice markers, each with "ok" as its transcript payload.
     assert_eq!(body.matches("kind=\"voice\"").count(), 2, "body: {}", body);
-    assert_eq!(body.matches("/>\nok").count(), 2, "body: {}", body);
+    assert_eq!(
+        body.matches("<transcript>ok</transcript>").count(),
+        2,
+        "body: {}",
+        body
+    );
     assert!(body.contains("path=\"/tmp/a.oga\""));
     assert!(body.contains("path=\"/tmp/b.oga\""));
 
@@ -515,7 +519,8 @@ async fn malformed_url_notes_unavailable() {
     )
     .await;
     assert!(body.contains("transcription unavailable"), "body: {}", body);
-    assert!(body.contains("file=/tmp/voice.oga"), "body: {}", body);
+    assert!(body.contains("status=\"untranscribed\""), "body: {}", body);
+    assert!(body.contains("path=\"/tmp/voice.oga\""), "body: {}", body);
 }
 
 #[test]

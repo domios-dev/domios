@@ -59,11 +59,7 @@ fn claude_context_feed_is_off_by_default_and_rejects_foreign_session() {
     use crate::service::test_fixture::ServiceFixture;
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
-    let config = fixture
-        ._app
-        .state::<crate::config::ConfigState>()
-        .inner()
-        .clone();
+    let config = fixture.service.ext::<crate::config::ConfigState>().clone();
     {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(&tab_id).unwrap();

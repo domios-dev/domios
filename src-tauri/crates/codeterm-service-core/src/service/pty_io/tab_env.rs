@@ -7,7 +7,7 @@ use crate::service::ServiceContext;
 use std::collections::HashMap;
 
 /// Which launch surface is composing. Identity is identical for both surfaces;
-/// the only permitted difference is `FRONTEND_ONLY_ENV`.
+/// the only permitted difference is `frontend_only_env()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LaunchSurface {
     /// Daemon-side activation: agent launch, send-activation, restore sweep.
@@ -19,8 +19,9 @@ pub(crate) enum LaunchSurface {
 /// Non-identity vars only the frontend surface has ever stamped. Deliberate and
 /// asserted, so a new divergence cannot arrive by accident; identity never
 /// belongs here.
-pub(crate) const FRONTEND_ONLY_ENV: &[(&str, &str)] =
-    &[("CODETERM_VERSION", env!("CARGO_PKG_VERSION"))];
+pub(crate) fn frontend_only_env() -> [(&'static str, &'static str); 1] {
+    [("CODETERM_VERSION", codeterm_build_info::version())]
+}
 
 /// Everything a launch stamps because a tab record exists. A PTY with no tab
 /// record yet composes without it and therefore carries no identity at all.
@@ -53,8 +54,8 @@ pub(crate) fn compose_launch_env(
     }
     if matches!(surface, LaunchSurface::Frontend) {
         env_vars.extend(
-            FRONTEND_ONLY_ENV
-                .iter()
+            frontend_only_env()
+                .into_iter()
                 .map(|(key, value)| (key.to_string(), value.to_string())),
         );
     }

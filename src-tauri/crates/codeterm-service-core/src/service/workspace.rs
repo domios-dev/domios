@@ -7,7 +7,6 @@ use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::{ClosedTab, TabCloseReason};
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::TeamMutationCaller;
-use tauri::Manager;
 
 pub(crate) fn create_workspace_with_count(
     mux: &mut crate::multiplexer::state::MultiplexerState,
@@ -47,7 +46,7 @@ fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> 
 enum WorkspaceCloseCaller<'a> {
     LocalTab(&'a str),
     AuthenticatedMeshPeer(&'a str),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Human,
     HumanConfirmedHeaderless,
     Unattributed,
@@ -58,7 +57,7 @@ impl WorkspaceCloseCaller<'_> {
         match self {
             Self::LocalTab(_) => "AgentTab",
             Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Self::Human => "Human",
             Self::HumanConfirmedHeaderless => "human-attributed (headerless, confirmed)",
             Self::Unattributed => "Unattributed",
@@ -71,7 +70,7 @@ impl WorkspaceCloseCaller<'_> {
             Self::AuthenticatedMeshPeer(peer_id) => {
                 TeamMutationCaller::AuthenticatedMeshPeer(peer_id.to_string())
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             Self::Human => TeamMutationCaller::Human,
             Self::HumanConfirmedHeaderless => TeamMutationCaller::HumanConfirmedHeaderless,
             Self::Unattributed => TeamMutationCaller::Unattributed,
@@ -81,10 +80,7 @@ impl WorkspaceCloseCaller<'_> {
 
 impl ServiceContext {
     pub fn ensure_storage_available(&self) -> Result<(), String> {
-        let Some(authority) = self
-            .app_handle
-            .try_state::<crate::startup::StorageAuthority>()
-        else {
+        let Some(authority) = self.try_ext::<crate::startup::StorageAuthority>() else {
             return Ok(());
         };
         authority
@@ -248,7 +244,7 @@ impl ServiceContext {
         workspace_id: &str,
         force: bool,
     ) -> Result<(), String> {
-        tauri::async_runtime::block_on(self.close_workspace_guarded_async(
+        crate::async_runtime::block_on(self.close_workspace_guarded_async(
             caller_tab_id,
             workspace_id,
             force,
@@ -268,8 +264,8 @@ impl ServiceContext {
             .await
     }
 
-    #[cfg(test)]
-    pub(crate) async fn close_workspace_as_human(
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn close_workspace_as_human(
         &self,
         workspace_id: &str,
         force: bool,
@@ -299,7 +295,7 @@ impl ServiceContext {
         workspace_id: &str,
         force: bool,
     ) -> Result<(), String> {
-        tauri::async_runtime::block_on(self.close_workspace_from_authenticated_mesh_peer_async(
+        crate::async_runtime::block_on(self.close_workspace_from_authenticated_mesh_peer_async(
             peer_id,
             workspace_id,
             force,
@@ -364,7 +360,7 @@ impl ServiceContext {
                 log::info!("workspace close authorized for mesh peer {peer_id}");
                 false
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             WorkspaceCloseCaller::Human => false,
             WorkspaceCloseCaller::HumanConfirmedHeaderless => false,
             // An empty workspace holds nothing a confirmation would protect.
@@ -407,9 +403,14 @@ impl ServiceContext {
             .close_workspace_members(caller, workspace_id, force)
             .await;
         let service = self.clone();
-        tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
-            .await
-            .map_err(|error| error.to_string())??;
+        match tokio::task::spawn_blocking(move || {
+            service.settle_close_inventory(inventory.as_deref())
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            other => log::warn!("[workspace-close] close history settlement failed: {other:?}"),
+        }
         result
     }
 
@@ -552,22 +553,15 @@ impl ServiceContext {
                 cleanup_errors.push(format!("{tab_id}: {error}"));
             }
         }
-        if let Some(cron) = self.app_handle.try_state::<crate::CronState>() {
-            let wake = self.app_handle.try_state::<crate::CronWake>();
-            if let Err(error) = self.cron_delete_workspace(
-                cron.inner(),
-                wake.as_ref().map(|state| state.inner()),
-                id,
-            ) {
+        if let Some(cron) = self.try_ext::<crate::CronState>() {
+            let wake = self.try_ext::<crate::CronWake>();
+            if let Err(error) = self.cron_delete_workspace(cron, wake, id) {
                 cleanup_errors.push(format!("crons: {error}"));
             }
         }
         // After the members are gone, never before: a Team that still holds a
         // live tab is left untouched.
-        if let Some(ports) = self
-            .app_handle
-            .try_state::<crate::ports::sentinel::SentinelPorts>()
-        {
+        if let Some(ports) = self.try_ext::<crate::ports::sentinel::SentinelPorts>() {
             if let Err(error) = ports.cleanup.remove_workspace(id) {
                 cleanup_errors.push(format!("Blueprints: {error}"));
             }

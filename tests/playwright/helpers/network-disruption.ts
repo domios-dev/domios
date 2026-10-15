@@ -85,7 +85,7 @@ export function networkDisruption(page: Page): NetworkDisruption {
   async function abortRegistered(target: SelectiveTarget): Promise<void> {
     await page.evaluate(
       ({ key, t }) => {
-        const win = window as AbortRegistryWindow;
+        const win = window as unknown as AbortRegistryWindow;
         const registry = win[key] as Record<SelectiveTarget, AbortController[]> | undefined;
         const controllers = registry?.[t] ?? [];
         for (const controller of controllers.splice(0)) {

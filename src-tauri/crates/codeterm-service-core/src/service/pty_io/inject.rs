@@ -74,6 +74,7 @@ impl ServiceContext {
     /// bracketed-paste. Ensures the PTY exists and awaits the PTY link before
     /// writing; delegates to `send_shell_spawn` which calls `await_shell_ready`.
     pub fn send_shell_cmd(&self, tab_id: &str, cmd: &str) -> Result<(), String> {
+        self.wake_frozen_tab(tab_id)?;
         self.ensure_tab_pty_for_send(tab_id)?;
         let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
         let profile = self

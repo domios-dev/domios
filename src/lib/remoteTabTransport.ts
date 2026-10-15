@@ -83,6 +83,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "read_local_preview_file": return call("POST", "/preview/read", { path: args.path, kind: args.kind });
     case "read_html_preview_file": return call("POST", "/preview/read", { path: args.path, kind: "page" }, (value) => (value as { data: string }).data);
     case "check_local_preview_files": return call("POST", "/preview/check", { paths: args.paths });
+    case "wake_tab": return call("POST", "/wake");
     case "mux_close_tab": return call("POST", "/close");
     case "mux_rename_tab": return call("POST", "/rename", { title: args.title ?? args.name });
     case "mux_set_focused_tab": return call("POST", "/focus");
@@ -115,7 +116,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     }
     case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId });
     case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
-    case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes });
+    case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes, offset_kind: args.offsetKind });
     case "chat_send_text": return call("POST", "/chat-send", {
       text: args.text,
       client_token: args.clientToken,

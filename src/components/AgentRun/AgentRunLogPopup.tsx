@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
@@ -132,7 +133,7 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
           style={{ background: "var(--ct-bg)" }}
         >
           {error && (
-            <div className="text-[var(--ct-red)] mb-2">stream error: {error}</div>
+            <InlineErrorNotice error={error} operation="reading the agent log" />
           )}
 
           {events.length === 0 && rawLines.length === 0 && !showFallback && (

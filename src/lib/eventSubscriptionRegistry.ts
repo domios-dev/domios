@@ -4,7 +4,7 @@ type Listener = (name: string, data: unknown) => void;
 type Options = NonNullable<Parameters<TransportClient["subscribe"]>[2]>;
 type Connect = TransportClient["subscribe"];
 interface Consumer { listener: Listener; options: Options; stop: Unsubscribe }
-interface Connection { path: string; consumers: Set<Consumer>; close: Unsubscribe; generation: number; connected: boolean }
+interface Connection { path: string; consumers: Set<Consumer>; close: Unsubscribe; generation: number; connected: boolean; ready: boolean }
 
 export function eventStreamKey(path: string): string | undefined {
   const url = new URL(path, "http://daemon");
@@ -34,6 +34,7 @@ export function createEventSubscriptionRegistry(connect: Connect) {
   let generation = 0;
   const open = (key: string, connection: Connection) => {
     connection.connected = true;
+    connection.ready = false;
     const current = connection.generation = ++generation;
     const valid = () => connections.get(key) === connection && connection.generation === current;
     connection.close = connect(connection.path, (name, data) => {
@@ -59,12 +60,18 @@ export function createEventSubscriptionRegistry(connect: Connect) {
       if (failures.length) throw failures[0];
     }, {
       raw: true,
+      onReady: () => {
+        if (!valid() || connection.ready) return;
+        connection.ready = true;
+        for (const consumer of [...connection.consumers]) consumer.options.onReady?.();
+      },
       onActivity: () => {
         if (valid()) for (const consumer of [...connection.consumers]) consumer.options.onActivity?.();
       },
       onEnd: (end: StreamEnd) => {
         if (!valid()) return;
         connection.connected = false;
+        connection.ready = false;
         connection.generation = ++generation;
         const consumers = [...connection.consumers].filter((consumer) => consumer.options.onEnd);
         for (const consumer of consumers) consumer.stop();
@@ -89,7 +96,7 @@ export function createEventSubscriptionRegistry(connect: Connect) {
           url.searchParams.set("since", cursor);
           path = url.pathname + url.search;
         }
-        connection = { path, consumers: new Set(), close: () => {}, generation: 0, connected: false };
+        connection = { path, consumers: new Set(), close: () => {}, generation: 0, connected: false, ready: false };
         connections.set(key, connection);
       }
       const owned = connection;
@@ -108,6 +115,7 @@ export function createEventSubscriptionRegistry(connect: Connect) {
       owned.consumers.add(consumer);
       options.signal?.addEventListener("abort", abort, { once: true });
       if (created || !owned.connected) open(key, owned);
+      else if (owned.ready) options.onReady?.();
       return consumer.stop;
     },
     replace(next: Connect) {

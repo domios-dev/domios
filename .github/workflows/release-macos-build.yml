@@ -16,11 +16,18 @@ on:
         required: false
         default: false
         type: boolean
+      arch:
+        description: arm64 or x86_64; each architecture is its own caller job and graph node
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
   DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
@@ -31,19 +38,16 @@ env:
 
 jobs:
   build:
-    name: build (${{ matrix.arch }})
+    name: build
     runs-on: [self-hosted, "${{ matrix.runner_label }}"]
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
-            artifact_arch: aarch64
-            runner_label: ${{ vars.RELEASE_MACOS_ARM64_LABEL || 'codeterm-builder' }}
-          - arch: x86_64
-            artifact_arch: x64
-            runner_label: ${{ vars.RELEASE_MACOS_X64_LABEL || 'codeterm-builder' }}
+          - arch: ${{ inputs.arch }}
+            artifact_arch: ${{ inputs.arch == 'arm64' && 'aarch64' || 'x64' }}
+            runner_label: ${{ inputs.arch == 'arm64' && (vars.RELEASE_MACOS_ARM64_LABEL || 'codeterm-builder') || (vars.RELEASE_MACOS_X64_LABEL || 'codeterm-builder') }}
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
@@ -125,6 +129,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build signed and notarized macOS bundle
+        id: compile
         run: |
           rm -rf "$ART"
           mkdir -p "$ART"
@@ -160,6 +165,11 @@ jobs:
           platform: release-macOS
           target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
 
+      # Without a compile step no sccache server ever started, so there is nothing to report.
       - name: Shared compile cache statistics
-        if: always()
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
         run: bash build.sh cache-stats
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs

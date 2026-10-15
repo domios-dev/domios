@@ -78,7 +78,26 @@
 }
 
 .ct-composer-readonly, .ct-composer-status { padding-inline: var(--ct-composer-gutter-x); }
-.ct-composer-status { padding-top: 6px; }
+.ct-composer-status {
+  padding-top: 6px;
+  transition: padding-inline-start var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+.ct-chat-bottom-bar:has(.ct-composer-issue[data-active="true"]) .ct-composer-status {
+  padding-inline-start: calc(var(--ct-composer-gutter-x) + 2rem);
+}
+.ct-composer-issue {
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.96);
+  transform-origin: bottom left;
+  transition: opacity var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    visibility var(--ct-duration-liquid-toggle) allow-discrete;
+}
+.ct-composer-issue[data-active="true"] { opacity: 1; visibility: visible; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .ct-composer-status, .ct-composer-issue { transition: none; }
+}
 
 .ct-chat-shell { container: ct-chat / inline-size; }
 .ct-chat-bottom-bar {

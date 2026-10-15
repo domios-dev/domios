@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use codeterm_types::pty::{PendingPrompt, PromptKind, PromptOption};
 use parking_lot::Mutex;
-use tauri::Manager;
 
 use super::OwnerPromptRequests;
 use crate::cron::clock::system_clock;
@@ -279,7 +278,7 @@ fn cron_owner_prompt_held_writer_does_not_block_route_pending_prompt() {
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let cron = CronFixture::owned_by(&tab_id);
-    fixture.service.app_handle.manage(cron.state.clone());
+    assert!(fixture.service.set_ext(cron.state.clone()).is_ok());
     let asked = prompt();
     {
         let mut mux = fixture.service.mux.write();
@@ -316,7 +315,7 @@ fn cron_owner_prompt_json_backend_commits_before_returning() {
     let path = fixture.temp.path().join("crons.json");
     let cron: CronState = Arc::new(Mutex::new(CronStore::new_with_path(path.clone())));
     own_run(&cron, &tab_id);
-    fixture.service.app_handle.manage(cron.clone());
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
 
     fixture.service.set_cron_owner_prompt_waiting(&tab_id, true);
 
@@ -331,11 +330,7 @@ fn cron_owner_prompt_json_backend_commits_before_returning() {
         "and the file was saved before return"
     );
     assert!(
-        fixture
-            .service
-            .app_handle
-            .try_state::<OwnerPromptRequests>()
-            .is_none(),
+        fixture.service.try_ext::<OwnerPromptRequests>().is_none(),
         "the JSON backend never stages"
     );
 }

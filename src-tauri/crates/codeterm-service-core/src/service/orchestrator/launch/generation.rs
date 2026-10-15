@@ -259,8 +259,13 @@ impl LaunchGeneration {
     }
 
     pub(super) fn write_if_current<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
+        let requested = std::time::Instant::now();
         let registry = LAUNCH_REGISTRY.lock();
-        registry.owns(self).then(write)
+        let acquired = std::time::Instant::now();
+        let result = registry.owns(self).then(write);
+        drop(registry);
+        self.log_gate_timing("write", requested, acquired);
+        result
     }
 
     pub fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {
@@ -273,20 +278,44 @@ impl LaunchGeneration {
     }
 
     pub(super) fn commit_if_current(&self, commit: impl FnOnce()) -> bool {
+        let requested = std::time::Instant::now();
         let registry = LAUNCH_REGISTRY.lock();
-        if !registry.owns(self) {
-            return false;
+        let acquired = std::time::Instant::now();
+        let current = registry.owns(self);
+        if current {
+            commit();
         }
-        commit();
-        true
+        drop(registry);
+        self.log_gate_timing("commit", requested, acquired);
+        current
     }
 
     pub(super) fn finish_if_current(&self, commit: impl FnOnce()) -> bool {
+        let requested = std::time::Instant::now();
         let mut registry = LAUNCH_REGISTRY.lock();
-        if !registry.finish(self) {
-            return false;
+        let acquired = std::time::Instant::now();
+        let current = registry.finish(self);
+        if current {
+            commit();
         }
-        commit();
-        true
+        drop(registry);
+        self.log_gate_timing("finish", requested, acquired);
+        current
+    }
+
+    fn log_gate_timing(
+        &self,
+        operation: &str,
+        requested: std::time::Instant,
+        acquired: std::time::Instant,
+    ) {
+        log::debug!(
+            "[launch-gate] tab={} stage={:?} operation={} waited_us={} held_us={}",
+            self.tab_id,
+            self.stage,
+            operation,
+            acquired.duration_since(requested).as_micros(),
+            acquired.elapsed().as_micros(),
+        );
     }
 }

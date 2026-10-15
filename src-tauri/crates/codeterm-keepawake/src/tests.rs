@@ -261,3 +261,51 @@ fn macos_wrapper_kills_caffeinate_when_parent_disappears() {
     assert!(script.contains("[ \"$ppid\" = \"1\" ]"));
     assert!(script.contains("cleanup"));
 }
+
+#[derive(Clone, Default)]
+struct RecordingEmitter(Arc<Mutex<Vec<serde_json::Value>>>);
+
+impl StatusEmitter for RecordingEmitter {
+    fn emit_status(&self, status: &KeepAwakeStatus) {
+        self.0.lock().push(serde_json::to_value(status).unwrap());
+    }
+}
+
+#[test]
+fn expiry_persists_and_emits_the_same_inactive_status() {
+    let state = active_test_state();
+    let emitter = RecordingEmitter::default();
+    let mut persisted = None;
+    clear_if_owner_with(
+        &state,
+        42,
+        &emitter,
+        |status| {
+            assert!(state.lock().is_none());
+            assert!(emitter.0.lock().is_empty());
+            persisted = Some(serde_json::to_value(status).unwrap());
+        },
+        || None,
+    );
+    let emitted = emitter.0.lock();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(Some(&emitted[0]), persisted.as_ref());
+    assert_eq!(emitted[0]["active"], false);
+    assert_eq!(emitted[0]["display"], false);
+    assert!(emitted[0]["expires_at"].is_null());
+}
+
+#[test]
+fn stale_expiry_preserves_the_current_owner_without_emitting() {
+    let state = active_test_state();
+    let emitter = RecordingEmitter::default();
+    clear_if_owner_with(
+        &state,
+        41,
+        &emitter,
+        |_| panic!("stale owner persisted"),
+        || panic!("stale owner inspected diagnostics"),
+    );
+    assert_eq!(state.lock().as_ref().unwrap().session_id, 42);
+    assert!(emitter.0.lock().is_empty());
+}

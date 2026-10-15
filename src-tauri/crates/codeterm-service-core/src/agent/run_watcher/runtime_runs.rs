@@ -5,7 +5,6 @@ use crate::service::agent_runtime::engine;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::RuntimeContext;
 use std::time::Duration;
-use tauri::Manager;
 
 pub(super) struct RuntimeRun {
     nonce: String,
@@ -75,7 +74,7 @@ impl RunWatcherRegistry {
         {
             let owner = svc.clone();
             let tab = tab.to_string();
-            tauri::async_runtime::spawn(async move {
+            crate::async_runtime::spawn(async move {
                 if tokio::time::timeout(Duration::from_secs(timeout_secs), completion.changed())
                     .await
                     .is_err()
@@ -304,7 +303,10 @@ impl RunWatcherRegistry {
                 }
                 let _ = svc.close_tab_with_reason(tab, TabCloseReason::AgentRunEnded);
                 if let Some(info) = svc.workers.get(&worker_id) {
-                    codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-done", info);
+                    svc.ui.emit(
+                        "graph-worker-done",
+                        serde_json::to_value(info).unwrap_or_default(),
+                    );
                 }
             }
         }
@@ -342,8 +344,7 @@ impl ServiceContext {
                 &metadata.owner_linkage
             {
                 let timeout = self
-                    .app_handle
-                    .try_state::<crate::CronState>()
+                    .try_ext::<crate::CronState>()
                     .and_then(|cron| cron.lock().get(job_id).and_then(|job| job.timeout_seconds))
                     .unwrap_or(self.configuration().memory.worker_timeout_seconds);
                 (

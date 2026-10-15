@@ -118,7 +118,12 @@ pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
+#[path = "../../src-tauri/src/plugin_bundle.rs"]
+mod plugin_bundle;
+
 fn main() {
+    codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
+    plugin_bundle::install();
     stdout::run(main_impl);
 }
 

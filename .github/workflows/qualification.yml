@@ -45,6 +45,11 @@ concurrency:
   group: ${{ (inputs.evaluator_scope == 'rust-windows-task-local' || inputs.evaluator_scope == 'windows-sccache-maintenance') && format('qualification-rust-windows-task-local-{0}', github.ref) || format('qualification-{0}-{1}', inputs.evaluator_scope, github.ref) }}
   cancel-in-progress: false
 
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+
 jobs:
   jev-linux:
     name: Jev local evaluator (linux)

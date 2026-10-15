@@ -119,9 +119,16 @@ pub(super) fn start(
 
     let pty_claim = svc.pty_ownership.acquire(&tab_id);
     let pty_id = {
-        let mut manager = pty.lock();
-        match manager.spawn_with_id(None, None, Some(general_cwd.clone()), cols, rows, env_vars) {
-            Ok((id, _)) => id,
+        let gate = pty.lock().spawn_gate();
+        match crate::pty::manager::build_session(
+            gate,
+            None,
+            Some(general_cwd.clone()),
+            cols,
+            rows,
+            env_vars,
+        ) {
+            Ok(built) => pty.lock().register_session(None, built).0,
             Err(e) => {
                 log::error!("[general-agent] Failed to spawn PTY: {}", e);
                 let _ = svc.revoke_agent_pad(&tab_id);

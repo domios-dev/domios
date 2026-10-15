@@ -2,14 +2,13 @@ use super::ServiceContext;
 use crate::agent::tab_state::{Surface, TabState, TabStateAction, TabStateClassification};
 use codeterm_provider_signals::{ApiErrorKind, PermissionMode};
 use codeterm_types::agent::provider_signals::ProviderSignals;
-use tauri::Manager;
 
 mod incident;
+mod update;
 use incident::{deliver_turn, incident, incident_transition, IncidentTransition};
 
 fn enabled(svc: &ServiceContext, provider: &str) -> bool {
-    svc.app_handle
-        .try_state::<crate::config::ConfigState>()
+    svc.try_ext::<crate::config::ConfigState>()
         .is_some_and(|config| {
             config.lock().agents.get(provider).is_some_and(|config| {
                 ["structured_signals", "capability_probe_enabled"]
@@ -99,62 +98,18 @@ pub fn apply(
     let structured = provider
         .as_deref()
         .is_some_and(|provider| enabled(svc, provider));
-    let (changed, changed_error, refresh_needed, transition, fresh) = {
-        let mut mux = svc.mux.write();
-        let Some(tab) = mux.get_tab_mut(tab_id) else {
-            return;
-        };
-        if tab.agent_session_id.as_deref() != Some(session)
-            || tab.session_binding_nonce.as_deref() != Some(nonce)
-            || tab.agent_type != provider
-        {
-            log::debug!("[provider-access] rejected stale session tab={tab_id}");
-            return;
-        }
-        let previous = tab.provider_signals.clone();
-
-        observe_records(&mut tab.provider_signals, session, records, structured);
-        let refresh_needed = previous.auth.as_ref().is_some_and(|auth| !auth.logged_in)
-            && records.iter().any(|record| {
-                if record
-                    .provider_session_id
-                    .as_deref()
-                    .is_some_and(|id| id != session)
-                {
-                    return false;
-                }
-                record
-                    .provider_observations
-                    .as_ref()
-                    .is_some_and(|observation| observation.clears_api_error)
-            });
-        let fresh = fresh_turn_incidents(tab, session, records);
-        (
-            previous != tab.provider_signals,
-            (previous.api_error != tab.provider_signals.api_error)
-                .then_some(tab.provider_signals.api_error)
-                .flatten(),
-            refresh_needed,
-            match incident_transition(previous.access_lost(), tab.provider_signals.access_lost()) {
-                IncidentTransition::Unchanged
-                    if !tab.provider_signals.access_lost()
-                        && records.iter().any(|record| {
-                            record
-                                .provider_session_id
-                                .as_deref()
-                                .is_none_or(|id| id == session)
-                                && record
-                                    .provider_observations
-                                    .as_ref()
-                                    .is_some_and(|observation| observation.clears_api_error)
-                        }) =>
-                {
-                    IncidentTransition::Recover
-                }
-                transition => transition,
-            },
-            fresh,
-        )
+    let Some(update::ComputedSignals {
+        changed,
+        changed_error,
+        refresh_needed,
+        transition,
+        fresh,
+        ..
+    }) = update::update(
+        &svc.mux, tab_id, session, nonce, &provider, records, structured,
+    )
+    else {
+        return;
     };
     for turn in &fresh {
         if turn.pauses_for_exhaustion {
@@ -196,49 +151,6 @@ pub fn apply(
             refresh_auth(svc, tab_id);
         }
     }
-}
-
-fn fresh_turn_incidents(
-    tab: &mut crate::multiplexer::types::Tab,
-    session: &str,
-    records: &[crate::agent::chat_types::RichMessage],
-) -> Vec<codeterm_provider_signals::ProviderTurnIncident> {
-    use codeterm_provider_signals::{admit_key, ProviderTurnIncident};
-    let task = tab
-        .task_binding
-        .as_ref()
-        .and_then(|binding| binding.task_id.clone());
-    let provider = tab.agent_type.clone().unwrap_or_default();
-    let worker = tab.id.clone();
-    let mut fresh = Vec::new();
-    for record in records {
-        if record
-            .provider_session_id
-            .as_deref()
-            .is_some_and(|id| id != session)
-        {
-            continue;
-        }
-        let Some(observation) = record.provider_observations.as_ref() else {
-            continue;
-        };
-        let Some(turn) = ProviderTurnIncident::from_observation(
-            &worker,
-            task.as_deref(),
-            &provider,
-            observation,
-            record.uuid.as_deref(),
-        ) else {
-            continue;
-        };
-        if admit_key(
-            &mut tab.provider_signals.admitted_provider_incidents,
-            &turn.idempotency_key,
-        ) {
-            fresh.push(turn);
-        }
-    }
-    fresh
 }
 
 fn observe_records(

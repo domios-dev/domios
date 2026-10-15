@@ -50,10 +50,26 @@ command short unless the continuation itself must be customized.
 
 ## Choose one operation
 
+The service-core Tauri reach ratchet runs in verify, release-preflight and the
+file-sizes QA/CI gate. Run `bash scripts/check-tauri-reach.sh` and
+`node --test scripts/tests/check-tauri-reach.test.mjs` for focused proof. Its
+per-file baseline counts `tauri::`, `AppHandle` and `app_handle`; lower counts
+must lower the baseline, and zero removes the entry. Growth against the branch
+fork point is refused. Root host adapters remain outside the guarded core.
+
+The provider-boundary ratchet uses the branch fork point, floored at the audited
+allowlist migration `86b30145e90e9d2f31294ead517b82716fd44da8` when that commit is
+on the branch and descends from the fork point. This re-anchors stale allowances
+left by historical crate moves without raising any token's total budget. Newer
+fork points retain their own lower budgets; unrelated histories retain their own
+baseline. Never move this anchor to excuse new occurrences. Run
+`node scripts/check-provider-boundary.mjs` and
+`node --test scripts/tests/check-provider-boundary.test.mjs` for focused proof.
+
 These flows are deliberately separate. Full rebuilds, dev instances, full
 suites and gates run from the warm canonical checkout under Orchestrator
 authority. A Worker lane may run isolated checks only; in this repository that
-means `tsc --noEmit`, a single node test file, `cargo fmt --check`,
+means `CARGO_BUILD_JOBS=4 cargo check -p <touched crate> --lib` (plus `--tests` for changed tests), `tsc --noEmit`, a single node test file, `cargo fmt --check`,
 `./build.sh test-one plan|pty <NAME>`, and `./build.sh check-queue` (see below). `check-tests` compiles app and CLI test
 targets without running them; its artifacts are reused by matching `test-one`
 app and CLI calls in the same worktree. These app builds are deferred to the
@@ -169,9 +185,10 @@ SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
 
 
 Release-input preparation now calls the same cache policy before invoking Cargo.
-`ci-archives` owns archive compilation through that policy; on Windows use
-`.\build.ps1 ci-archives`, which locates Git Bash explicitly without requiring it
-on PATH. Native release jobs export `RUSTC_WRAPPER=sccache` at job scope so the
+`ci-tests full|platform` owns CI test compilation and execution through that
+policy (full suite, or this OS's cfg-gated subset plus the native input crates); on
+Windows use `.\build.ps1 ci-tests <mode>`, which locates Git Bash explicitly without
+requiring it on PATH. Native release jobs export `RUSTC_WRAPPER=sccache` at job scope so the
 separate Tauri invocation inherits it, verify shared storage before compiling,
 and print `cache-stats` in their final step.
 
@@ -221,21 +238,24 @@ can differ until the next idle setup restarts the server.
 
 CI uses `./build.sh cache-verify` (Windows: `.\build.ps1 cache-verify`). It prints
 configured and actual storage plus endpoint health, exits 0 only when both storage
-checks select the shared S3 bucket, and otherwise exits 2. It never starts or
-restarts a server or checks for an idle machine. Set
+checks select the shared S3 bucket, and otherwise exits 2. It never restarts a
+server or checks for an idle machine. When no server is live and both S3 keys
+resolve, it starts the shared server with `SCCACHE_IDLE_TIMEOUT=0`: sccache
+servers exit after ten idle minutes, so runners otherwise have none between jobs. Set
 `CODETERM_SCCACHE_VERIFY_ONLY=1` in each CI build process so build setup follows
 that same verification path. Provision local-to-S3 storage separately while idle.
 
-BLACKSTAR-CI WSL builds are owned by a Windows runner. That Windows parent runs
-`codeterm mem secret sync`, resolves both vault entries into `AWS_ACCESS_KEY_ID`
-and `AWS_SECRET_ACCESS_KEY`, and sets `CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`.
-Forward these three names through `WSLENV` to the WSL process; append them to any
-existing `WSLENV` list. Values stay exclusively in process environment, never
-runner `.env`, command arguments, files or logs. This explicit source selects
-inherited runner credentials instead of querying an unavailable WSL vault CLI.
-Both values are required. No standalone WSL Worker builds are supported; keep
-Windows interop and mount settings unchanged. Select pinned Rust 1.95.0 only in
-the build process, preserving the machine's default toolchain.
+CI never reads the vault. Every workflow that builds Rust or verifies the cache
+sets workflow-level `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from the repo
+secrets `SCCACHE_AWS_ACCESS_KEY_ID` and `SCCACHE_AWS_SECRET_ACCESS_KEY`, plus
+`CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`, so cache-policy takes the keys from
+the job environment on every runner, including the BLACKSTAR WSL runners that
+have no `codeterm` CLI. Reusable workflows receive them through `secrets: inherit`;
+containerized builds forward the names with bare `-e NAME`. Values stay in process
+environment, never runner `.env`, command arguments, files or logs; both are
+required. The vault entries above remain the source on dev machines and peers.
+Select pinned Rust 1.95.0 only in the build process, preserving the machine's
+default toolchain.
 
 Post-release follow-up: establish a shared Linux user or an approved `/opt` path
 and compare cold/consumer hit and miss data at identical checkout, Cargo and
@@ -295,11 +315,11 @@ calls; a successful build alone is not cache-hit proof.
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
 
-The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in script-catalog CI.
+The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in the script-catalog CI workflow. This also runs `scripts/check-crate-layering.sh` and its fixture tests: lower crates cannot import service-core or Tauri; two tracked Tauri violations must be removed when repaired.
 
 ## Warm check queue for lanes
 
-`./build.sh check-queue [<sha>] [--max-errors N] [--max-warnings N] [--touched-only] [--all] [--lane]` gives a Worker compile feedback on a committed lane SHA without a cold lane build. It takes the machine gateway slot (fail-fast, exit 75 when busy, `--wait-build` only when blocking is intended), verifies and publishes the SHA in the single per-machine check worktree `<gateway dir>/check-worktree`, and runs `cargo clippy --all-targets --no-deps --message-format=short -- <scripts/clippy-allow.sh>` with the worktree's own `target/app` and `target/cli`. The same job also runs an app `cargo check --lib` with the dev profile, the manifest's dev/default features (excluding custom-protocol), no test cfg, and the same inherited Rust flags/profile overrides as dev. Both dev launch and this check use `configure_dev_cargo`; errors and warnings share the same log and policy. Packages come from `git diff <merge-base with develop> <sha>`: `src-tauri/crates/<name>` maps to `-p <name>`, `src-tauri/src` to `codeterm`, `cli/` to the CLI manifest; a crate change also checks `codeterm` unless `--touched-only`. Output is the first N `file:line:col: error[...]` lines, an `errors=N shown=M` total (a nonzero Cargo exit with no parsed diagnostic contributes one failure), the first `--max-warnings` (default 40) unique warning lines, `warnings crate=<name> count=N` per warned crate, `warnings=N shown=M failing=<crates|none>`, and the full log path. Any rustc or clippy warning in a touched crate fails the run (exit 1); `--all` checks the whole app workspace plus the CLI and fails on any warning. `./build.sh check` prints the same per-crate warning lines and a `check: warnings=N` total. Crates deny `warnings` through Cargo `[lints]`, so check-queue warnings normally surface as errors. It never builds in canonical or a lane target. The first run on a machine is cold; subsequent runs are incremental.
+`./build.sh check-queue [<sha>] [--max-errors N] [--max-warnings N] [--touched-only] [--all] [--lane]` gives a Worker compile feedback on a committed lane SHA as an integration/clippy gate after the lane's own crate checks. It takes the machine gateway slot (fail-fast, exit 75 when busy, `--wait-build` only when blocking is intended), verifies and publishes the SHA in the single per-machine check worktree `<gateway dir>/check-worktree`, and runs `cargo clippy --lib --bins --no-deps --message-format=short -- <scripts/clippy-allow.sh>` with the worktree's own `target/app` and `target/cli`. Product Clippy retains default features. Full checks additionally type-check service-core tests with `--profile test --tests --no-default-features`; there is no duplicate dev-lib check. Packages come from `git diff <merge-base with develop> <sha>`: `src-tauri/crates/<name>` maps to `-p <name>`, `src-tauri/src` to `codeterm`, `cli/` to the CLI manifest; a crate change also checks `codeterm` unless `--touched-only`. Output is the first N `file:line:col: error[...]` lines, an `errors=N shown=M` total (a nonzero Cargo exit with no parsed diagnostic contributes one failure), the first `--max-warnings` (default 40) unique warning lines, `warnings crate=<name> count=N` per warned crate, `warnings=N shown=M failing=<crates|none>`, and the full log path. Any rustc or clippy warning in a touched crate fails the run (exit 1); `--all` checks the whole app workspace plus the CLI and fails on any warning. `./build.sh check` prints the same per-crate warning lines and a `check: warnings=N` total. Crates deny `warnings` through Cargo `[lints]`, so check-queue warnings normally surface as errors. It never builds in canonical or a lane target. The first run on a machine is cold; subsequent runs are incremental.
 
 Troubleshooting:
 - Symptom `sccache: incremental compilation is prohibited` from `rustc -vV`: cause an exported `CARGO_INCREMENTAL`; recovery is to leave it unset (the verb unsets it) and let the profile decide.
@@ -318,11 +338,11 @@ Mesh peers run the same verbs in their own gateway, with their own warm cache an
 | `./build.sh test-one <scope> <name> --peer <name>` and `--prereq DIFF` on any peer verb | `test-one` runs the same focused test in the peer's gateway. `--prereq DIFF` ships a unified diff (base64 in the job command) that the peer applies with `git apply --index` and commits locally on top of the job SHA before the runner starts. Use it for an identical prerequisite such as a unix compile fix the SHA predates. The commit is never pushed, the next job's checkout discards it, and check-queue then checks `HEAD`. The dispatcher prints and records the diff's name and sha256. A diff that does not apply reports `outcome=bootstrap_failed stage=prereq` and leaves the checkout clean at the SHA. |
 | `./build.sh peer-route [--os OS]` | Shows what `--peer auto` would choose. |
 
-Dispatch returns at once with `peer-job: id=... peer=... remote-tab=... deadline=...` and writes a record under `<gateway dir>/peer-jobs/`. The SHA must be on a remote-tracking branch (push first). Completion is one message to the calling agent tab (`CODETERM_TAB_ID`, or `--reply-tab`) through `codeterm send --require-agent --mesh <origin instance id>`; nothing polls. The message starts `[peer-job <id>] peer=<peer> verb=<verb> sha=<sha> outcome=passed|failed|busy|deadline exit=N wall=Ns`, then the same summary lines the local verb prints (`errors=`, `warnings=... failing=`, `check-queue: dev-lib ...` and `app-test ...` receipts, `check-queue: sha=...`, nextest `Summary [...] N tests run: ...`, `check-workspace: ...`), up to 12 error or failing-test lines, and `remote-log=<peer path> gateway-log=<peer gateway log>`. Bootstrap failures report `outcome=not_setup|busy|bootstrap_failed stage=<step>` instead.
+Dispatch returns at once with `peer-job: id=... peer=... remote-tab=... deadline=...` and writes a record under `<gateway dir>/peer-jobs/`. The SHA must be on a remote-tracking branch (push first). Completion is one message to the calling agent tab (`CODETERM_TAB_ID`, or `--reply-tab`) through `codeterm send --require-agent --mesh <origin instance id>`; nothing polls. The message starts `[peer-job <id>] peer=<peer> verb=<verb> sha=<sha> outcome=passed|failed|busy|deadline exit=N wall=Ns`, then the same summary lines the local verb prints (`errors=`, `warnings=... failing=`, `app-test ...` receipts, `check-queue: sha=...`, nextest `Summary [...] N tests run: ...`, `check-workspace: ...`), up to 12 error or failing-test lines, and `remote-log=<peer path> gateway-log=<peer gateway log>`. Bootstrap failures report `outcome=not_setup|busy|bootstrap_failed stage=<step>` instead.
 
 `--peer auto` reads each OS-matching routable peer's load over mesh: `codeterm tab list --mesh <peer>` finds its `Buildpeer` tab and `codeterm tab exec --mesh <peer>` runs `./build.sh peer-status`, which prints one lock-free `PEER_STATUS {json}` line (gateway state, active job, queue length, last job end, peer job lock). The least-loaded idle peer wins, ties going to the peer idle longest; a peer that is unreachable, not set up or slower than the 20 s probe deadline is skipped, and when no peer is idle the dispatch exits 75 with each peer's state.
 
-Bounds: a mesh tab cannot carry `--timeout` (only a local owning agent can), so each job tab is `--eager` and stays open after the job for inspection (close finished ones with `codeterm tab close --mesh <peer>`); the verb deadline (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`) is enforced by the peer runner, which kills the build tree at the deadline and still reports `outcome=deadline`; clone and fetch abort below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab, never `tab restart`.
+Bounds: a mesh tab cannot carry `--timeout` (only a local owning agent can), so each job tab is `--eager` and stays open after the job for inspection (close finished ones with `codeterm tab close --mesh <peer>`); the verb deadline (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`) is enforced by the peer runner, which kills the build tree at the deadline and still reports `outcome=deadline`; clone and fetch abort below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab for its own job identity; `tab restart` renews a shell's previous lifetime.
 
 Peer `path` (in `peers.json`): mesh shells are non-login, so a peer whose node or cargo is outside the default PATH lists those directories (ubunta: `$HOME/.local/node22/bin`); the job command and the status probe export them first, and a job without node reports `outcome=bootstrap_failed stage=node_missing`.
 
@@ -683,10 +703,18 @@ does not cancel the remaining timing inventory.
 For an explicitly authorized bootstrap measurement, use `NEXTEST_TEST_THREADS=1
 SLOW_UNIT_TESTS_MEASUREMENT=alone` on the exact candidate selector; the runner
 refuses that mode without serial execution. Ordinary suites retain default
-parallelism.
+parallelism. Integration batch checks that only need pass/fail set
+`SLOW_UNIT_TESTS_MEASUREMENT=off`, which skips the serial re-measurement of
+candidates (it can take longer than the tests themselves).
 The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
 crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
-may only shrink after its first landing. `scripts/unit-test-benchmarks.json`
+may only shrink after its first landing. Baseline entries are
+`{key, measuredSeconds}` with the crate-independent `module_path::test_name`
+key of `scripts/rust-test-inventory.mjs` (`testKey`), so a crate move never
+reads as a new slow unit. When crate-split turns an app module into a crate
+root the key loses one leading segment; the inventory's `facadeMatch` pairs the
+two keys when the match is unique, whatever the crate is named, and the
+inventory diff uses the same rule. Any other module path change is a new key. `scripts/unit-test-benchmarks.json`
 contains exact benchmark identities with explicit throughput/latency reasons.
 Exemptions print their identity, timing and reason, preserve test failures,
 and cannot be added or changed after their first landing without review.
@@ -750,7 +778,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Symptom | Cause | Recovery |
 |---|---|---|
 | `worktree-check` refuses with a busy-slot blocker | It enters the build gateway (it maps the stable `X:` build path, a machine-global drive, so it must be serialized); the slot is held by another job. | Report the blocker and continue source-only work; use `--wait-build` only when blocking is intended. Success shows `[cache-policy] stable build path X: -> <checkout>`. |
-| A gateway cargo run is `Finished` in seconds with an empty `targets/exceptional/<id>/debug` | `~/.cargo/config.toml` sets `build.build-dir` to `RustCaches/build/{workspace-path-hash}`; the stable `X:` path gives every gateway worktree the same hash, so intermediates are shared (gateway-serialized) and only final artifacts go to the target dir. | Expected. For a cold measurement remove that one hash directory and the target dir; never point two checkouts at one `CARGO_TARGET_DIR`, and never point two unserialized builds at one build-dir: worktrees share intermediates only through the stable gateway path, which the job unmaps on exit and `scripts/check-build-check-queue.sh` guards. |
+| A gateway cargo run is `Finished` in seconds with an empty `targets/exceptional/<id>/debug` | `~/.cargo/config.toml` sets `build.build-dir` to `RustCaches/build/{workspace-path-hash}`; the stable `X:` path gives every gateway worktree the same hash, so intermediates are shared (gateway-serialized) and only final artifacts go to the target dir. | Expected. For a cold measurement remove that one hash directory and the target dir; never point two checkouts at one `CARGO_TARGET_DIR`, and only `lane-check` shares `$CODETERM_RUST_CACHE_ROOT/lanes` (fallback `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`). Canonical gateway operations keep the user-level per-workspace build directory. Only the gateway may map the stable path, which `scripts/check-build-check-queue.sh` guards. |
 | `agent_restart` fails the surviving-shell stale-metadata fixture while retaining `agent_type` | The fixture declares a session nonce without its provider-reported match, so lifecycle cleanup correctly refuses the unauthenticated identity. | Seed matching reported nonce for this verified-exit scenario; retain the production authentication gate and rerun `test-one app agent_restart --wait-build`. |
 | A touched test file exceeds the 1200-line source limit | One harness accumulated several independent test groups | Move a group into a module with injected shared harness functions, retain the runner entrypoint, and rerun its focused suite plus the size check. |
 | `tsc --noEmit` reports TS6133 after a provider delegates parsing to a shared helper | The old parser import remains after its last call was removed | Remove the unused import, regenerate the provider bundle, and rerun TypeScript plus the focused plugin suite. |
@@ -781,17 +809,18 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | History/status sees a missing, partial or delete-pending job record during replacement | A reader observed a transient filesystem view while a writer published a complete temporary JSON file. | Readers skip the unavailable record once, without retries; gateway-status serializes normal observations with the metadata mutex. Verify `readers skip missing, incomplete and inaccessible replacement observations without retry`, `gateway status skips a partial JSON record and keeps a valid job`, and the build-history unreadable-record CLI fixture. |
 | Shared-cache fixture says `rg: command not found` in a utility shell | The fixture depended on an optional search executable absent from that shell PATH. | The fixture now uses portable grep from the required Bash toolchain. Run `bash scripts/check-shared-sccache.sh`; do not count a launcher/search failure as a passing policy check. |
 | `sccache: error: ... os error 10048` during concurrent check-tests/check-queue | Both gateway and non-gateway verbs observed no server and attempted startup. | All build-script cache configuration, verification and restart paths now share a dedicated per-machine startup mutex. The gateway metadata mutex remains free. Verify `four concurrent cache clients start the server exactly once and leave gateway metadata free` in `scripts/build-gateway-cache.test.mjs`; do not restart or bypass a cache serving active compilers. |
-| `check-queue` reports no warnings but dev fails a dead-code lint | All-target test feature/cfg unification covered a helper that the ordinary dev library configuration could not reach. | Check-queue now additionally checks the exact regular app library dev profile/features without test targets in the same gateway job. The summary and full log record `check-queue: dev-lib args=... exit=...` for that pass. An `app-test scope=nextest,test-one args=... exit=...` receipt covers their shared service-core test cfg and default embeddings features; dev, root default, core default and test features must agree. Dev and the check share the configuration helper; verify `scripts/dev-build-configuration.test.mjs`, then rerun canonical check-queue and dev. |
+| `check-queue` and dev features drift | Product library Clippy and dev must retain the manifest defaults, including embeddings. | The ordinary test profile disables defaults; `ci-tests embeddings` covers the memory feature separately. Do not remove product defaults to speed up tests. |
 | An owned check-queue exits 75 because Cargo/rustc is running elsewhere | Sccache restart used a whole-machine process scan even after the caller acquired the gateway slot. | The current step validates the slot's job/pid/start tuple and uses that ownership to configure under the shared startup mutex. Only callers without exact ownership retain the global idle refusal; every supported Cargo verb uses the common entry. Verify the busy-machine owned/foreign-caller cases in `scripts/check-shared-sccache.sh`, then rerun the owned canonical check. |
 | Gateway exits with `Cannot establish publication helper identity` under load | A one-shot Windows process lookup was unknown, and publication guard construction threw before the bounded mutex refusal handler. | The current guard waits on ownership filesystem events before trying the lookup again. Its deadline returns retry-safe exit 75 with no helper ownership published. Verify the transient helper-identity regression in `scripts/build-gateway-mutex.test.mjs`; unknown identity never authorizes reclamation. |
 | Tracked modules or CLI manifests vanish through `X:` while another fixture runs | Fake gateway jobs held an isolated fixture slot but remapped the global production `subst` drive. Production release could also unmap that fixture's alias. | Fixture scope now skips both mapping and release; mapping requires the exact production job/pid/start owner, and release checks the mapped job still owns the slot. Verify the stable-drive isolation regression in `scripts/build-gateway-cache.test.mjs`. Never repair a live drive manually. |
 | Warm check reports E0583 for tracked modules or a missing `cli/Cargo.toml` after a rename wave | In-place `git checkout --force` published no verified physical-tree boundary before Cargo. An interrupted switch could leave HEAD/index and disk inconsistent. | The current check prepares a detached staging worktree, verifies requested HEAD tree, index tree and tracked files, then publishes under the exact gateway owner. Its journal recovers interrupted publication on the next job and retains warm target caches. Verify `node --test scripts/check-worktree.test.mjs`; any tree mismatch refuses Cargo with exit 75. |
+| `test-one` fails before compiling with `[cache-policy] ERROR: external CARGO_TARGET_DIR rejected: /x/target-check` while DEV is live | Under the gateway's `X:` mapping `test-capped.sh` places the isolated Windows test target at `$ROOT/target-check` = `/x/target-check`; `pwd -P` keeps the subst drive while `git rev-parse --show-toplevel` returns the real checkout, so the path comparison saw an external target | `ct_verify_target_dir` also accepts a target whose git worktree root is the checkout (`ct_target_in_worktree`); verify with `bash scripts/check-shared-sccache.sh`. Never work around it with `CODETERM_ALLOW_EXTERNAL_TARGET` |
 | Queue updates time out during cache retention | Retention held gateway metadata while measuring/deleting caches and running cargo-sweep. | Retention and target marking now share a separate per-machine mutex. Verify `cache retention holds its own mutex while gateway metadata stays available`; the normal queue can update while cache work owns its lock. |
 | A warm check starts with one guard implementation and finishes with another | Helper paths followed cwd after checking out the requested SHA. | Gateway/cache helper paths are pinned to the launching scripts. Verify `gateway helpers stay pinned to the launching scripts after checkout cwd changes`. |
 | `--wait-build` repeatedly reacquires the metadata mutex while queued | The former slot wait used a sleep loop. | Update the gateway scripts; queue/slot filesystem events now drive the wait after releasing the mutex. The captured slot snapshot closes the release-to-subscribe race; expiry is a failure deadline. Verify with `node --test scripts/build-gateway-slot.test.mjs` (four fixture check-queue clients finish in ticket order). A caller lost without a filesystem update is reaped on the next gateway operation; the wait has a bounded failure deadline. |
 | `EPERM rename state.lock.guard -> state.guard.released.owner.*` under parallel checks | Directory guard release raced concurrent readers on Windows, leaving a guard that could cause state-mutex timeouts. | Update the gateway scripts; the publication guard now uses atomic exclusive file creation and owner-checked unlink. Incomplete ownership stays a bounded refusal; a proven dead owner is reclaimed by one exclusive reaper. A crashed reaper leaves a conservative refusal requiring an owner decision, never manual deletion during live checks. Verify with `node --test scripts/build-gateway-mutex.test.mjs` (six concurrent Bash callers all complete). |
 | A build exits with `Timed out acquiring build gateway state mutex` | Another live or stale gateway owner held the state mutex through the acquisition deadline. Owner liveness probes now run outside publication exclusivity; the owner tuple is revalidated before reclamation, so a slow probe cannot block release or remove a successor. The failed invocation terminates only its own Cargo/rustc descendants before returning. | Run `./build.sh gateway-status` to inspect the active and queued job IDs. If a job is stale, run `./build.sh gateway-cancel <job-id>`, then rerun the original command. |
-| `build.ps1 check` exits 75 because the visible dev owns the gateway | The canonical incremental target is intentionally single-owner; waiting behind a foreground dev process cannot complete. | Stop and make an explicit canonical integration decision. Do not move the command into a Worker lane, add `--wait-build`, or hand-compose `CARGO_TARGET_DIR`. |
+| Checks queue silently behind a running DEV (fixed) | The old Tauri dev parent retained the gateway for the app lifetime. | Update and run `dev`: Cargo builds under the gateway, then `dev-prebuilt` validates and launches outside it. Confirm `gateway-status` is idle while the app runs and a `check-queue` completes. |
 | A Windows dev build fails while writing `codeterm_lib.lib` with `os error 112` or a localized “not enough disk space” message | The canonical `src-tauri/target` exhausted the checkout drive while Cargo was replacing the debug archive. | Verify the failure owns the canonical target and no dev build is running, then run `.\build.ps1 clean`. Confirm free space before restarting `.\build.ps1 dev`; do not delete another worktree's target or touch production. |
 | A Windows native dependency fails with `LNK1106` and `dumpbin` shows a cached `.o` ending before its COFF string-table length | `sccache` retained a truncated C/C++ object; a clean Cargo target can restore the same corrupt cache entry. | In PowerShell set `$env:SCCACHE_RECACHE='1'`, rerun the failing `.\build.ps1` operation once, then remove the environment variable. Verify the rebuilt object with `dumpbin` before retrying normally. |
 | A build in one worktree could reuse a cached artifact built from a different worktree's sources (codeterm#327). Never reproduced on demand — this is a configuration hazard, not an observed rebuild; see `scripts/check-sccache-basedir-isolation.sh`. | `scripts/cache-policy.sh` and `scripts/test-capped.sh` defaulted `SCCACHE_BASEDIRS` to the current worktree root. That tells sccache to strip the worktree path before hashing, so two worktrees sharing one `SCCACHE_DIR`/server can derive the same cache key even though their absolute paths differ. | Basedir rewriting is disabled for this repo: `ct_reject_basedir_rewriting` in `scripts/cache-policy.sh` unsets `SCCACHE_BASEDIRS` (warning if a parent shell leaked one in) before every `ct_configure_sccache`/`ct_require_prestarted_sccache` call, and `scripts/test-capped.sh` no longer sets it. Machine-level `sccache` and per-worktree `CARGO_TARGET_DIR` isolation are unaffected. Verify with `bash scripts/check-sccache-basedir-isolation.sh`; do not reintroduce `SCCACHE_BASEDIRS` for this repo. |
@@ -806,6 +835,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | `npm run test:plugins` reports `'node' is not recognized` before the suite header, or Git Bash cannot find Node | An oversized/polluted Windows `PATH` was lost at a `cmd.exe` boundary; the former `npx.cmd` runner added another shell boundary. | Run `node scripts/run-plugin-tests.mjs` through a known Node executable. The aggregator pins `process.execPath` into Git Bash and uses the checked-in local tsx CLI; shorten the inherited `PATH` before retrying the npm wrapper. |
 | TypeScript rejects a narrowed optional mutation error inside a state callback | Narrowing an object property is not retained across the deferred callback. | Capture the error in a local constant before the guard and callback, then rerun type checking and the owning Settings suite. |
 | `test-one app` reports E0308 after removing a hook event | A fixture retained the old fixed array length after its event roster shrank. | Update the owning fixture length to the actual roster and rerun the failed focused app filter; plugin-only compilation does not cover app test fixtures. |
+| `check-queue --all` reports missing lazy-restore fields or an unresolved `multiplexer::restore_policy` import | Full Tab test constructors need new fields; service-core exposes only selected multiplexer facade modules. | Initialize `frozen` and `last_active_at_ms` in full Tab fixtures; import policy through `codeterm_pty::multiplexer::restore_policy`. Preserve the failed SHA receipt and let the owner authorize a corrected-SHA check when the lane has a one-check limit. |
 | `test-one app` reports a missing field in `SpawnTabSpec` after adding spawn routing state | A full constructor or test fixture bypassed `Default`, so ordinary source review missed the new required field. | Set the field explicitly in every full constructor and fixture, then rerun the exact focused test before continuing. |
 | The docs gate reports `API-TRANSPORT exceeds 24 KiB` after adding an RPC row | The transport index is at its embedded size boundary. | Keep the index row concise and put the purge procedure and storage limits in MEMORY; rerun the focused embedded-doc test without raising its limit. |
 | `test-one cli cmd::docs` reports an embedded document over its line boundary | Independently valid reference additions accumulated past the agent reading limit, and ordinary compilation does not exercise the embedded-doc contract. | Compact repeated prose without deleting behavior, or split the document by responsibility and register the new whole document. Rerun the exact docs filter. |
@@ -860,7 +890,7 @@ A moved repository-watcher source guard can fail with “expected the repository
 ## Focused analytics checks
 
 `./build.sh test-one analytics tests::` runs the isolated product analytics crate
-through the capped Rust runner in canonical. Workers only format its Rust sources;
+through the capped Rust runner in canonical. Workers type-check touched crates with four jobs and format their Rust sources;
 its HTTP fixtures use a local fake destination with synthetic retry timestamps.
 
 ## Related documents
@@ -919,13 +949,13 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 30 -->
+<!-- revision: 41 -->
 
 ### Lane and batch scopes
 
-Workers run rustfmt, source-size and service-core-boundary guards locally, then one `./build.sh check-queue --lane <sha>`. Lane checks use Clippy libraries for existing touched workspace packages, root bins only on root changes, and leaf test targets only for changed test paths or moved crates. Service-core tests stay at the batch; CLI uses its own binary-only check when cli/ changes. Require errors=0 and warnings=0, retain the summary and list test-one selectors. Never poll a busy gateway. Batches use the default full check-queue; a batch failure bounces the owning lane with the integration SHA.
+Workers run `CARGO_BUILD_JOBS=4 cargo check -p <touched crate> --lib` (plus `--tests` for changed tests), rustfmt, source-size and service-core-boundary guards locally before committing, then one `./build.sh check-queue --lane <sha>`. Lane checks use Clippy libraries for existing touched workspace packages, root bins only on root changes, and leaf test targets only for changed test paths or moved crates. Service-core tests stay at the batch; CLI uses its own binary-only check when cli/ changes. Require errors=0 and warnings=0, retain the summary and list test-one selectors. Never poll a busy gateway. Batches use the default full check-queue; a batch failure bounces the owning lane with the integration SHA.
 
-Canonical QA builds `./build.sh nextest-archive <sha>` once. The verified warm worktree builds root and service-core default-feature library tests into one atomically published gateway `test-archives/<sha>/app.tar.zst`. `test-one app <selector>` and `nextest app [filterset]` reuse it on the same clean Rust SHA, without recompilation; a missing archive uses the ordinary build path. rdeps filtersets use the ordinary workspace path. Both app runners use default embeddings. The feature guard refuses divergence between root dev, root defaults and core default/test features. Canonical measurements use `./build.sh nextest-archive <sha> --measure <selector>...`, within the verified warm checkout for that SHA. Archives print build wall time; archived test-one prints selector wall time. Preserve logs and history for measurements; never infer archive reuse from a short duration.
+Canonical QA builds `./build.sh nextest-archive <sha>` once. The verified warm worktree builds root and service-core library tests without default features into one atomically published gateway `test-archives/<sha>/app-no-embeddings.tar.zst`. `test-one app <selector>` and `nextest app [filterset]` reuse it on the same clean Rust SHA, without recompilation; a missing archive uses the ordinary build path. rdeps filtersets use the ordinary workspace path. Both app runners omit embeddings. The feature guard keeps the product dev and root/core defaults aligned; ordinary tests explicitly disable defaults. Canonical measurements use `./build.sh nextest-archive <sha> --measure <selector>...`, within the verified warm checkout for that SHA. Archives print build wall time; archived test-one prints selector wall time. Preserve logs and history for measurements; never infer archive reuse from a short duration.
 
 If a completed job reports `logging_degraded`, its command exit and completed/failed state are retained; the warning names the partial log. A tee/EOF drain failure formerly overwrote successful Cargo exit 0 with wrapper exit 74. Inspect the full check log for diagnostics; run `./build.sh gateway-logging-check`. An unknown command exit or metadata publication failure still refuses readiness.
 A mutex refusal prints the state.lock owner PID, start token, job ID, publication age and queued waiter tuples. Unknown values remain unknown; age never authorizes reclamation. Capture this evidence with the job receipt before investigating contention.
@@ -939,3 +969,60 @@ Canonical P3 measurement on core-touching SHA `5df475f92` (205 files): full chec
 An archived nextest run rejects Cargo package/target selection such as `-p` and `--lib` together with `--archive-file`. Select the archived core library using `--filter-expr 'package(=codeterm-service-core) & kind(lib)'`, intersecting any caller filterset, while retaining workspace remapping and zero-match refusal. Both app runners use the same archive argument builder. Run `node --test scripts/nextest-archive.test.mjs`; its exact captured selector argv is checked by the installed nextest parser with a nonexistent archive (no Cargo build or test execution), and the former conflicting argv must refuse as a usage error. Canonical then reruns `./build.sh nextest-archive d001809b8 --measure service::close_history service::team service::workspace service::plugin_host sentinel:: socket::server::plan_review api::mesh_routes::rpc commands::html_preview startup:: update::`.
 
 If an archived selector refuses `workspace root manifest at X:\Cargo.toml does not exist` (job `20261015T000926-46028-23229`), the remap points at the checkout rather than the Cargo workspace. App archive runners and serial slow-test confirmation remap to `<checkout>/src-tauri`, where Cargo.toml contains `[workspace]`. The shared Bash builder refuses a missing manifest before running nextest; archive and serial-confirmation fixtures assert the target manifest. The failed first selector's exit 96 / 4 s is not a test execution measurement. Rerun the canonical measurement command above after merging the repair.
+
+DEV releases its gateway job and closes the build log before invoking the existing
+`dev-prebuilt` provenance validator and launch path. App lifetime and dev-only
+`kill` no longer depend on a gateway job; a rebuild acquires a new job.
+
+A gateway DEV build records physical artifact paths through the existing provenance
+writer, so standalone `dev-prebuilt` verifies after the mapped drive is released.
+For a same-build restart, call `dev-prebuilt --wait` directly: provenance and runtime
+preflight precede dev-only stop. Never prepend `kill` to a prebuilt restart.
+
+DEV Cargo runs at the gateway's Windows `X:` cwd: default target directories are
+`X:/src-tauri/target` and `X:/cli/target` (the physical checkout targets). Named
+`--wait` instances retain their explicit instance target. `check-queue` instead
+uses its own check-worktree `target/app` and `target/cli`, so it does not share
+DEV target directories. `dev-prebuilt` never invokes Cargo or `dev-prep --no-server`;
+its staging is complete before provenance is written under the gateway.
+
+## Product and test feature sets
+
+DEV and check-queue library Clippy retain default product features, including embeddings. Ordinary `test-one`, `nextest`, `check-tests`, archives and CI use `--no-default-features`. Check-queue does not repeat the separate dev-lib check; its library Clippy pass type-checks the product configuration. Full check-queue also checks service-core tests in the test profile without defaults. The CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, covering the memory crate and service-core memory tests with embeddings enabled. Receipt validation requires this job. Archives use `app-no-embeddings.tar.zst` so old feature-enabled archives cannot be reused.
+
+## Lane crate checks and shared intermediates
+
+Before committing, run `./build.sh lane-check <touched crate> [--tests]` on every platform. It loads the machine toolchain and stages frontend/sidecar resources without building them. Binary-only crates use their owning manifest and `--bins` in place of `--lib`. These type checks take no gateway slot and do not start or reconfigure sccache.
+
+`lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. Cargo serializes lane checks with its build-directory lock; final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
+
+Lane-check and retention resolve the shared directory with `scripts/lane-build-dir.mjs`: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). GC adds that directory explicitly, independently of canonical/gateway Cargo metadata, and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
+
+### Canonical or gateway jobs unexpectedly use the lane build directory
+
+A tracked repo-root `.cargo/config.toml` applies to every Cargo invocation beneath the repository, including canonical and the gateway check-worktree. Using it for the lane fallback caused shared lock contention, discarded warm canonical cache reuse and selected a profile cache outside the owner's machine root. Lane-only Cargo settings belong in lane-check's process environment, never in repo-root Cargo configuration or unconditional build setup. Scope both the machine-root choice and fallback to the lane operation. Verify effective build directories for a lane, canonical and the gateway with the machine root both set and unset; lane reuse alone cannot prove cache isolation.
+
+| Dedicated CI mode fails at catalogue inventory with ENOENT on the Windows stable drive root | Git reports the physical checkout while discovery compared it to a subst alias, then tried walking the drive root. | Catalogue discovery resolves the root with `realpathSync.native` before Git identity and file enumeration. Verify the temporary-subst regression with `node --test scripts/tests/test-catalogue.test.mjs`, then run the dedicated CI mode under the normal gateway alias. |
+
+Product check-queue Clippy disables Cargo defaults and explicitly enables the selected root/core/mem package product features. This keeps embeddings enabled while avoiding the extra synthetic `default` feature marker that direct core selection otherwise adds. Ordinary tests still disable defaults without product features. The embedding-worker imports, protocol types and ORT setup are feature-gated so shell test targets compile without embeddings under denied warnings.
+
+## Repeatable core feature measurements
+
+In a temporary worktree on one fixed Rust SHA, run `./build.sh feature-cycle before mem::dream_status_tests::wip_placeholder_does_not_imply_running` and then the same command with `after`. Both run under the normal gateway. The dev phase is an equivalent product library `cargo check`, without launching DEV; the queue phases use the original all-target/default/test configuration or the aligned product/ordinary-test configuration. One focused core test executes through test-capped after compilation. This is an equivalent-configuration cycle, not a DEV app build or full check-queue timing.
+
+Each job retains phase logs, wall times and `units.json` under its artifact directory. The collector counts distinct completed service-core artifact hashes, including fresh reused units, separately from distinct feature sets; never infer that two feature sets means two Cargo unit hashes. Compare actual full check-queue runs separately, loading the old/new build driver against the same committed source SHA in a temporary worktree. Do not clean shared caches for a measurement or include queue wait in a reported Cargo/check-queue wall time.
+
+On Cargo 1.95 the measured service-core result is four to three `.rmeta` hashes across two feature sets: product/dev, product/Clippy and ordinary tests. Clippy uses `RUSTC_WORKSPACE_WRAPPER`; Cargo deliberately gives wrapper-built workspace units separate filename hashes ([Cargo reference](https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-reads)). Dev and Clippy therefore retain separate hashes even with identical product features. Do not alter wrappers or fingerprints to force two hashes. Count linked test executables separately from `.rmeta` files; the collector includes both in its all-artifact count.
+
+One equivalent two-package cycle on Rust SHA `b6d0ef3e14b3787a9678ff436a6ce6739e0df91e` measured queue phases at 294 seconds before and 181 seconds after (38% lower). This excludes queue wait, initial dev checking and final focused test compilation; it is not a full check-queue timing pair or a general speed guarantee.
+
+Queued build invocations parse the entire driver inside `codeterm_build_main` before waiting for a gateway slot. Editing build.sh while an older shell waited previously changed the unread tail of that shell's script, producing an EOF syntax error after a successful Cargo check. The driver snapshot regression waits on an explicit input event, replaces only a temporary script, and requires its already-parsed dispatch to complete. App nextest configurations also replace the initial target arguments so `--no-default-features` appears once; nextest rejects duplicate occurrences.
+
+Lane-check prompt additions affect both the 5000-byte worker suffix and the 1450-byte worker charter. The charter includes testing_discipline without worker_suffix, so keep the raw check command in that shared fragment while compressing it. Preserve both ceilings and verify all composed surfaces with the focused core prompts selector.
+
+### CLI package absent from lane-check workspace
+
+`lane-check codeterm-cli --tests` exits 101 because the CLI has its own Cargo
+workspace, while this verb selects the app manifest. No CLI compilation ran.
+For a CLI contract change, `./build.sh cli` compiles the checkout CLI and
+regenerates its artifacts; committed check-queue includes CLI test targets.

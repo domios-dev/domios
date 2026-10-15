@@ -4,6 +4,7 @@ version = "1.6.2"
 edition = "2021"
 
 [dependencies]
+codeterm-build-info = { path = "../codeterm-build-info" }
 async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
@@ -39,8 +40,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 wait-timeout = "0.2"
 libc = "0.2"
 
-[build-dependencies]
-sha2 = "0.10"
+[features]
+test-support = []
 
 [dev-dependencies]
 axum = { version = "0.8", features = ["json"] }

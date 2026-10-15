@@ -1,6 +1,6 @@
 use crate::plan::{Plan, PlanMode, PlanStatus, Task, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::{
-    self, Decision, Gate, HardWake, Observation, ReminderKind, Scope, Snapshot, Supporter, TickFact,
+    self, Decision, Gate, HardWake, Observation, ReminderKind, Scope, Snapshot, TickFact,
 };
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::plan::reminders::{NudgeKind, TurnCounter};
@@ -23,15 +23,15 @@ use approval::{Emission, Recipient, ReminderHost, ReminderRequest, Transport};
 const MAX_PLAN_REMINDER_POLL_SECS: u64 = 60;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum PlanReminderTarget {
+pub enum PlanReminderTarget {
     Owner { plan_id: String },
     Worker,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct TimedPlanReminderTarget {
-    pub(crate) tab_id: String,
-    pub(crate) target: PlanReminderTarget,
+pub struct TimedPlanReminderTarget {
+    pub tab_id: String,
+    pub target: PlanReminderTarget,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,14 +45,14 @@ pub(crate) struct BlockedNotice {
 }
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(plan_reminder_poll_secs(
                 &svc.configuration().orchestration,
             )))
             .await;
             let svc_for_scan = svc.clone();
-            if let Err(e) = tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = crate::async_runtime::spawn_blocking(move || {
                 svc_for_scan.send_due_plan_time_reminders();
                 svc_for_scan.run_lane_watchdog();
             })
@@ -116,7 +116,7 @@ fn send_due_plan_time_reminders_noting(
 }
 
 /// One scheduler pass over every automatic producer: mode change, timed Owner
-/// and Worker, and complete-plan wrap-up. Each needs its own Choice approval.
+/// and Worker, and complete-plan wrap-up. Each uses the deterministic gate.
 fn run_reminder_tick(
     host: &impl ReminderHost,
     plans: &[Plan],
@@ -463,8 +463,8 @@ impl ReminderHost for LiveHost<'_> {
             .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
     }
 
-    fn supporter(&self) -> Supporter<'_> {
-        Supporter::live(self.svc)
+    fn journal_runtime(&self) -> std::sync::Arc<crate::service::supporter::SupporterRuntime> {
+        crate::service::supporter::runtime_with_notifications(self.svc)
     }
 
     fn interval(&self) -> u64 {
@@ -549,26 +549,26 @@ impl ReminderHost for LiveHost<'_> {
                 learning_ids,
                 plain,
                 mode_transition,
-            } => crate::ports::orchestration::installed(&self.svc.extensions)
-                .deliver_gated_heartbeat_exact(
-                    plan_id,
-                    tab_id,
-                    &emission.text,
-                    learning_ids.as_deref(),
-                    *plain,
-                    *mode_transition,
-                    observer,
-                )
-                .map(|delivery| {
-                    if delivery.is_written() {
-                        self.svc.record_kpi_event(
-                            tab_id,
-                            crate::agent::kpi_ledger::KpiEventKind::Nudge,
-                            emission.text.len(),
-                        );
-                    }
-                    delivery.is_written()
-                }),
+            } => crate::service::orchestrator_digests::deliver_gated_heartbeat_exact(
+                self.svc,
+                plan_id,
+                tab_id,
+                &emission.text,
+                learning_ids.as_deref(),
+                *plain,
+                *mode_transition,
+                observer,
+            )
+            .map(|delivery| {
+                if delivery.is_written() {
+                    self.svc.record_kpi_event(
+                        tab_id,
+                        crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                        emission.text.len(),
+                    );
+                }
+                delivery.is_written()
+            }),
             Transport::Automated => {
                 self.svc
                     .deliver_automated_plan_reminder(tab_id, &emission.text, observer)
@@ -739,8 +739,11 @@ impl ServiceContext {
                         text = format!("{defer}\n\n{text}");
                     }
                 }
-                let digests = crate::ports::orchestration::installed(&self.extensions)
-                    .collect_digest_lines(plan, if preview { None } else { Some(tab_id) });
+                let digests = crate::service::orchestrator_digests::collect_digest_lines(
+                    self,
+                    plan,
+                    if preview { None } else { Some(tab_id) },
+                );
                 let heartbeat = if plain {
                     String::new()
                 } else {
@@ -903,7 +906,7 @@ fn worker_reminder_eligible(plan: &Plan, task: &Task) -> bool {
     )
 }
 
-pub(crate) fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
+pub fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
     let mut targets = BTreeMap::<(String, String), PlanReminderTarget>::new();
     for plan in plans.iter().filter(|plan| owner_reminder_eligible(plan)) {
         if let Some(tab_id) = non_empty(plan.owner.tab_id.as_deref()) {

@@ -111,12 +111,18 @@ fn drain_tab_output(
     pty_id: &str,
     offset: &mut u64,
 ) -> Vec<TabOutputFrame> {
+    let buffer = output_buf.lock();
+    drain_buffered_tab_output(&buffer, pty_id, offset)
+}
+
+fn drain_buffered_tab_output(
+    buffer: &codeterm_service_core::pty::manager::OutputBuffer,
+    pty_id: &str,
+    offset: &mut u64,
+) -> Vec<TabOutputFrame> {
     let mut frames = Vec::new();
     loop {
-        let (chunk, total) = {
-            let buffer = output_buf.lock();
-            buffer.read_since(pty_id, *offset)
-        };
+        let (chunk, total) = buffer.read_since(pty_id, *offset);
         if chunk.is_empty() {
             break;
         }
@@ -146,7 +152,24 @@ pub(crate) fn tab_output_frames(
         };
         let mut offset = initial_offset;
         loop {
-            for frame in drain_tab_output(&output_buf, &pty_id, &mut offset) {
+            let immediate = output_buf.try_lock().map(|buffer| {
+                drain_buffered_tab_output(&buffer, &pty_id, &mut offset)
+            });
+            let frames = if let Some(frames) = immediate {
+                frames
+            } else {
+                let buffer = std::sync::Arc::downgrade(&output_buf);
+                let target = pty_id.clone();
+                let Ok(Some((frames, next_offset))) = tokio::task::spawn_blocking(move || {
+                    let buffer = buffer.upgrade()?;
+                    let mut offset = offset;
+                    let frames = drain_tab_output(&buffer, &target, &mut offset);
+                    Some((frames, offset))
+                }).await else { return; };
+                offset = next_offset;
+                frames
+            };
+            for frame in frames {
                 yield frame;
             }
             let Some(wake) = wait_for_activity(&mut activity, Some(&pty_id)).await else {
@@ -183,17 +206,24 @@ pub async fn stream_tab_output(
         .ext::<codeterm_service_core::service::output_stream_activity::OutputStreamActivityTx>()
         .0
         .subscribe();
-    let chat = state.svc.tab_chat_backing(&raw_tab_id).is_some();
-    let pty_id = if chat {
-        None
-    } else {
-        Some(resolve_pty_id_with_fallback(&state, &raw_tab_id)?)
-    };
-    let output_buf = state.svc.output_buf.clone();
-    let initial_total = pty_id.as_ref().map_or(0, |pty_id| {
-        let output = output_buf.lock();
-        output.total_written(pty_id)
-    });
+    let owner = state.clone();
+    let (pty_id, output_buf, initial_total) = tokio::task::spawn_blocking(move || {
+        let state = owner;
+        let chat = state.svc.tab_chat_backing(&raw_tab_id).is_some();
+        let pty_id = if chat {
+            None
+        } else {
+            Some(resolve_pty_id_with_fallback(&state, &raw_tab_id)?)
+        };
+        let output_buf = state.svc.output_buf.clone();
+        let initial_total = pty_id.as_ref().map_or(0, |pty_id| {
+            let output = output_buf.lock();
+            output.total_written(pty_id)
+        });
+        Ok::<_, (StatusCode, &'static str)>((pty_id, output_buf, initial_total))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))??;
     let offset = tab_output_start_offset(query.from, initial_total);
     let frames = tab_output_frames(activity, output_buf, pty_id, offset);
     let stream = frames.map(|frame| {

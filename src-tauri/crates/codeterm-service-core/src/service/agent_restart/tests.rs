@@ -213,12 +213,19 @@ fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("claude").with_launch_binary("claude"),
     ));
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("spawn the surviving shell PTY");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("spawn the surviving shell PTY");
     let tree_key = fixture
         .service
         .provider_tree_key_for_tab(&tab_id, pty_id)
@@ -275,12 +282,19 @@ fn absent_restart_target_preserves_spawn_failed_identity_with_live_shell() {
         tab.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
     }
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("spawn live shell PTY");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("spawn live shell PTY");
 
     assert_eq!(
         fixture
@@ -334,12 +348,19 @@ fn agent_restart_without_verified_session_launches_fresh() {
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("restart-fixture"),
     ));
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("spawn the tab's surviving shell PTY");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("spawn the tab's surviving shell PTY");
     fixture
         .service
         .screen_state

@@ -78,7 +78,7 @@ describe("transportClient", () => {
     const { client, fetch } = clientWith(Response.json({ path: "/saved", size: 3 }));
     const form = new FormData();
     form.append("file", new Blob(["abc"]), "a.txt");
-    expect(await client.upload("/api/upload", form)).toEqual({ path: "/saved", size: 3 });
+    expect(await client.upload("/api/attachments/upload", form)).toEqual({ path: "/saved", size: 3 });
     expect(fetch.mock.calls[0][1]?.body).toBe(form);
     expect(new Headers(fetch.mock.calls[0][1]?.headers).has("Content-Type")).toBe(false);
   });
@@ -87,6 +87,17 @@ describe("transportClient", () => {
     const client = createTransportClient({ origin, token: () => null, fetch });
     await expect(client.json("GET", "/api/config")).rejects.toThrow("Daemon bearer token required");
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it("signals readiness for an accepted quiet stream before any event arrives", async () => {
+    let connected!: () => void;
+    const ready = new Promise<void>((resolve) => { connected = resolve; });
+    const { client } = clientWith(new Response(new ReadableStream<Uint8Array>()));
+    const handler = vi.fn();
+    const stop = client.subscribe("/api/events/stream", handler, { onReady: connected });
+    try {
+      await ready;
+      expect(handler).not.toHaveBeenCalled();
+    } finally { stop(); }
   });
   it("reads fragmented CRLF SSE and unsubscribe cancels the reader", async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;

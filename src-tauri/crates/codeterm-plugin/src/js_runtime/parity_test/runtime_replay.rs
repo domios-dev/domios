@@ -120,6 +120,19 @@ fn paths() -> Vec<FixturePaths> {
     discovered
 }
 
+/// The runtime bundle that declares history bounds, with those bounds.
+fn history_bounds_inputs() -> (FixturePaths, Value) {
+    let inputs = paths()
+        .into_iter()
+        .find(|input| input.dir.with_file_name("history-bounds.json").is_file())
+        .expect("a runtime bundle declares history bounds");
+    let sizes = serde_json::from_str(
+        &std::fs::read_to_string(inputs.dir.with_file_name("history-bounds.json")).unwrap(),
+    )
+    .unwrap();
+    (inputs, sizes)
+}
+
 fn load_provider(manifest_path: &Path, declaration_path: &Path) -> JsProvider {
     let mut raw: Value =
         serde_json::from_str(&std::fs::read_to_string(manifest_path).unwrap()).unwrap();
@@ -506,10 +519,7 @@ fn observed_rates(fixtures: &[(PathBuf, Fixture)]) -> (f64, f64) {
 
 #[tokio::test]
 async fn runtime_large_history_streams_bounded_quickjs_state() {
-    let inputs = paths()
-        .into_iter()
-        .find(|input| input.manifest.parent().unwrap().file_name().unwrap() == "provider-codex")
-        .unwrap();
+    let (inputs, _) = history_bounds_inputs();
     let provider = load_provider(&inputs.manifest, &inputs.declaration);
     let fixture: Fixture =
         serde_json::from_str(&std::fs::read_to_string(inputs.dir.join("resume.json")).unwrap())
@@ -575,18 +585,11 @@ async fn runtime_large_history_streams_bounded_quickjs_state() {
 
 #[tokio::test]
 async fn runtime_multi_mib_history_is_bounded_before_and_after_quickjs() {
-    let inputs = paths()
-        .into_iter()
-        .find(|input| input.manifest.parent().unwrap().file_name().unwrap() == "provider-codex")
-        .unwrap();
+    let (inputs, sizes) = history_bounds_inputs();
     let provider = load_provider(&inputs.manifest, &inputs.declaration);
     let fixture: Fixture =
         serde_json::from_str(&std::fs::read_to_string(inputs.dir.join("resume.json")).unwrap())
             .unwrap();
-    let sizes: Value = serde_json::from_str(include_str!(
-        "../../../../../../plugins/provider-codex/tests/fixtures/history-bounds.json"
-    ))
-    .unwrap();
     let context = fixture.context;
     let op = RuntimeOperation::ReadHistory {
         thread_id: context.thread_id.clone().unwrap(),

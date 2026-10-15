@@ -120,6 +120,7 @@ export {
   reduceTranscript,
   transcriptBackfillCursor,
   transcriptCommittedEnd,
+  transcriptOffsetKind,
   transcriptRowCount,
   transcriptRows,
   type TranscriptAuthority,
@@ -206,8 +207,9 @@ export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactD
 
 export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactParts";
 
-export { messageRowParts, parseMessageParts, splitExactSendTexts, projectMessageParts, projectTranscriptParts, type MessagePart, type ExactSendText } from "./messageParts";
+export { splitExactSendTexts, projectMessageParts, projectTranscriptParts, type ExactSendText } from "./messageParts";
 
 export { emptyQuestionSelection, questionOptionValue, selectQuestionOption, selectQuestionFreeText, questionAnswerSelection, questionAnswerText } from "./questionSelection";
 
 export { placedAttachmentSegments, type PlacedAttachmentSegment } from "./userAttachments";
+export { envelopeRows, envelopeText, type MessageSegment, type EnvelopeRow } from "./envelope";

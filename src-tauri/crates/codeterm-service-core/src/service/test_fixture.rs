@@ -10,13 +10,65 @@ use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanStore;
 
+pub fn install_test_runtime() {
+    crate::async_runtime::install(tauri::async_runtime::handle().inner().clone());
+}
+
 pub struct ServiceFixture {
     pub service: ServiceContext,
+    pub ui: Arc<RecordedUiEvents>,
     /// The waiter lifetime owner. The registry keeps only a `Weak` of this, so
     /// dropping the fixture is itself the teardown signal.
     _owner: Arc<ServiceContext>,
     pub _app: crate::app_runtime::App,
     pub temp: tempfile::TempDir,
+}
+
+type UiListener = Arc<dyn Fn(&serde_json::Value) + Send + Sync>;
+
+#[derive(Default)]
+pub struct RecordedUiEvents(
+    pub Mutex<Vec<(String, serde_json::Value)>>,
+    Mutex<Vec<(usize, String, UiListener)>>,
+    std::sync::atomic::AtomicUsize,
+);
+
+impl RecordedUiEvents {
+    pub fn listen(
+        &self,
+        event: &str,
+        callback: impl Fn(&serde_json::Value) + Send + Sync + 'static,
+    ) -> usize {
+        let id = self.2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.1
+            .lock()
+            .push((id, event.to_owned(), Arc::new(callback)));
+        id
+    }
+
+    pub fn unlisten(&self, id: usize) {
+        self.1.lock().retain(|(key, _, _)| *key != id);
+    }
+}
+
+impl crate::ports::host::UiEvents for RecordedUiEvents {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        self.0.lock().push((event.to_owned(), payload.clone()));
+        let listeners: Vec<_> = self
+            .1
+            .lock()
+            .iter()
+            .filter(|(_, name, _)| name == event)
+            .map(|(_, _, listener)| listener.clone())
+            .collect();
+        for listener in listeners {
+            listener(&payload);
+        }
+    }
+
+    fn emit_to(&self, _: &str, event: &str, payload: serde_json::Value) {
+        self.emit(event, payload);
+    }
 }
 
 #[derive(Default)]
@@ -47,7 +99,7 @@ impl TestReadySendTasks {
 
     pub fn wait(&self, tab_id: &str, deadline: std::time::Duration) {
         let pending = self.pending.lock().remove(tab_id).unwrap_or_default();
-        tauri::async_runtime::block_on(async {
+        crate::async_runtime::block_on(async {
             tokio::time::timeout(deadline, async {
                 for task in pending {
                     assert!(
@@ -71,6 +123,12 @@ impl Drop for TestPtyGuard {
     fn drop(&mut self) {
         let _ = self.pty.lock().kill(&self.pty_id);
     }
+}
+
+/// Authenticated agent submissions captured at the PTY boundary, in order.
+pub struct RecordedAgentDeliveries {
+    _boundary: super::agent_delivery_outbox::test_boundary::Boundary,
+    pub texts: Arc<Mutex<Vec<String>>>,
 }
 
 #[derive(Default)]
@@ -118,6 +176,50 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
 }
 
 impl ServiceFixture {
+    /// Makes `tab_id` a live, session-bound agent recipient whose submissions are recorded,
+    /// because a bare shell recipient waits out the submit deadlines for turn evidence.
+    pub fn bind_recorded_agent_recipient(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        binding_nonce: &str,
+    ) -> RecordedAgentDeliveries {
+        {
+            let mut mux = self.service.mux.write();
+            mux.link_pty(tab_id, format!("recorded-{tab_id}"));
+            let tab = mux.get_tab_mut(tab_id).expect("recipient tab");
+            tab.agent_type.get_or_insert_with(|| "alpha".into());
+            tab.backing = crate::multiplexer::types::TabBacking::Pty;
+            tab.agent_booting = false;
+            tab.agent_session_id = Some(session_id.to_string());
+            tab.session_binding_nonce = Some(binding_nonce.to_string());
+            tab.reported_session_binding_nonce = Some(binding_nonce.to_string());
+            tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        }
+        self.record_agent_deliveries(tab_id)
+    }
+
+    pub fn record_agent_deliveries(&self, tab_id: &str) -> RecordedAgentDeliveries {
+        let texts = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&texts);
+        let boundary = super::agent_delivery_outbox::test_boundary::Boundary::install(
+            tab_id,
+            Arc::new(move |payload| {
+                let text = match &payload.transport {
+                    super::messenger::QueuedAgentPayload::Text { text } => text.clone(),
+                    super::messenger::QueuedAgentPayload::RoutedFrame { body, .. } => body.clone(),
+                };
+                captured.lock().push(text);
+                Ok(())
+            }),
+            Arc::new(|| {}),
+        );
+        RecordedAgentDeliveries {
+            _boundary: boundary,
+            texts,
+        }
+    }
+
     pub fn install_seeded_storage_desk(&self) -> crate::storage::Storage {
         let storage = crate::storage::Storage::open(
             &self.temp.path().join("runtime-desk"),
@@ -143,7 +245,7 @@ impl ServiceFixture {
                 assert!(persisted.tabs.iter().any(|entry| entry.id == tab.id));
             }
         }
-        super::session_persist::install_storage_desk_adapter(self._app.handle(), adapter)
+        super::session_persist::install_storage_desk_adapter(&self.service, adapter)
             .expect("install seeded fixture storage desk");
         storage
     }
@@ -173,12 +275,12 @@ impl ServiceFixture {
         session_id: &str,
         binding_nonce: &str,
     ) -> TestPtyGuard {
-        let (pty_id, _) = self
-            .service
-            .pty
-            .lock()
-            .spawn(None, None, 80, 24, HashMap::new())
-            .expect("test PTY");
+        let (pty_id, _) = {
+            let gate = self.service.pty.lock().spawn_gate();
+            crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+                .map(|built| self.service.pty.lock().register_session(None, built))
+        }
+        .expect("test PTY");
         {
             let mut mux = self.service.mux.write();
             mux.link_pty(tab_id, pty_id.clone());
@@ -219,7 +321,7 @@ impl ServiceFixture {
         let mut config = crate::config::schema::AppConfig::default();
         config.agent.full_access = Some(false);
         let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
-        assert!(app.manage(config));
+        assert!(app.manage(config.clone()));
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         let chatbackend_registry = Arc::new(crate::chatbackend::ChatBackendRegistry::new());
         let provider_registry = Arc::new(crate::provider::ProviderRegistry::new(
@@ -256,7 +358,15 @@ impl ServiceFixture {
             crate::service::store::ServicesStore::open(&data_dir.join("services.db")).unwrap(),
         );
         let usage_store = crate::usage::UsageStore::open(&data_dir).unwrap();
+        let mux = Arc::new(TimedRwLock::new("mux", mux));
+        let agent_tracker = Arc::new(TimedMutex::new(
+            "agent_tracker",
+            crate::agent::status::TabStatusTracker::new(),
+        ));
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+        extensions.insert_service_slots();
+        extensions.insert(config);
+
         extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
             Arc::new(parking_lot::Mutex::new(())),
         ));
@@ -272,8 +382,7 @@ impl ServiceFixture {
         extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(
             Mutex::new(HashMap::new()),
         )));
-        extensions.insert(crate::service::CartographerAttachLocks(Default::default()));
-        extensions.insert(crate::service::OrchestratorAttachLocks(Default::default()));
+        crate::ports::orchestration::register_fixture_extensions(&mut extensions);
         extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
         extensions.insert::<crate::ShellCapabilityState>(Arc::new(Mutex::new(Default::default())));
         extensions.insert::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(Arc::new(
@@ -332,10 +441,10 @@ impl ServiceFixture {
         extensions.insert::<crate::bubble::BubbleRegistryHandle>(Arc::new(
             crate::bubble::BubbleRegistry::new(),
         ));
+        let ui = Arc::new(RecordedUiEvents::default());
+        let repo_sink = Arc::new(crate::repowatch::TauriRepoEventSink::new(ui.clone()));
         extensions.insert::<crate::repowatch::RepoWatchRegistryHandle>(Arc::new(
-            crate::repowatch::RepoWatchRegistry::new(Arc::new(
-                crate::repowatch::TauriRepoEventSink::new(app.handle().clone()),
-            )),
+            crate::repowatch::RepoWatchRegistry::new(repo_sink.clone()),
         ));
         extensions.insert::<crate::view_host::ViewRegistryHandle>(Arc::new(
             crate::view_host::ViewRegistry::new(),
@@ -391,6 +500,15 @@ impl ServiceFixture {
         extensions.insert(crate::service::PublishedTabStatuses(Arc::new(
             Default::default(),
         )));
+        let initial_mux = super::status_reconciliation::snapshot_with_reconciled_status(
+            &mux,
+            &agent_tracker,
+            &agent_registry,
+        );
+        extensions.insert(Arc::new(
+            super::PublishedMuxState::new(initial_mux.generation, &initial_mux)
+                .expect("initial fixture mux snapshot serialization"),
+        ));
         extensions.insert(
             crate::service::output_stream_activity::OutputStreamActivityTx(
                 super::output_stream_activity::channel(),
@@ -428,13 +546,14 @@ impl ServiceFixture {
         extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(
             Mutex::new(Default::default()),
         )));
+        install_test_runtime();
         let service = ServiceContext {
             lifecycle_journal: Arc::new(crate::session::lifecycle::TabLifecycleJournal::for_dir(
                 data_dir.join("sessions"),
             )),
             ready_user_send_tasks: Arc::new(TestReadySendTasks::default()),
             agent_pad_data_dir: data_dir.clone(),
-            mux: Arc::new(TimedRwLock::new("mux", mux)),
+            mux,
             pty: Arc::new(TimedMutex::new(
                 "pty",
                 crate::pty::manager::PtyManager::new(),
@@ -457,10 +576,10 @@ impl ServiceFixture {
             })),
             events: Arc::new(codeterm_events::EventBroadcaster::new()),
             app_handle: app.handle().clone(),
-            agent_tracker: Arc::new(TimedMutex::new(
-                "agent_tracker",
-                crate::agent::status::TabStatusTracker::new(),
-            )),
+            ui: ui.clone(),
+            shell: Arc::new(crate::ports::host::NoShell),
+            rt: crate::async_runtime::handle().clone(),
+            agent_tracker,
             report_store: Arc::new(Mutex::new(if persistent {
                 crate::agent::reports::ReportStore::with_ledger(
                     10,
@@ -516,10 +635,12 @@ impl ServiceFixture {
         };
         assert!(app.manage(Arc::clone(&service.mux)));
         let owner = Arc::new(service.clone());
-        crate::service::register_orchestration();
-        crate::ports::orchestration::install(&owner);
+        repo_sink.bind_service(Arc::downgrade(&owner));
+        assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
+        crate::ports::orchestration::install_fixture(&owner);
         Self {
             service,
+            ui,
             _owner: owner,
             _app: app,
             temp,
@@ -567,6 +688,40 @@ impl ServiceFixture {
 mod tests {
     use super::*;
     use tauri::{Emitter, Listener};
+
+    #[test]
+    fn recorded_ui_preserves_event_payloads_in_order() {
+        use crate::ports::host::UiEvents;
+        let ui = RecordedUiEvents::default();
+        let payload = serde_json::json!({ "probe": [1, 2] });
+        ui.emit("broadcast", payload.clone());
+        ui.emit_to("main", "targeted", serde_json::Value::Null);
+        assert_eq!(
+            *ui.0.lock(),
+            vec![
+                ("broadcast".to_owned(), payload),
+                ("targeted".to_owned(), serde_json::Value::Null)
+            ]
+        );
+    }
+
+    #[test]
+    fn service_runtime_uses_the_host_pool_from_blocking_workers() {
+        let fixture = ServiceFixture::new(MultiplexerState::new().0);
+        let expected = fixture.service.rt.id();
+        crate::async_runtime::block_on(async move {
+            let spawned =
+                crate::async_runtime::spawn(async { tokio::runtime::Handle::current().id() });
+            assert_eq!(spawned.await.unwrap(), expected);
+            let blocking = crate::async_runtime::spawn_blocking(|| {
+                crate::async_runtime::block_on(async {
+                    tokio::task::yield_now().await;
+                    tokio::runtime::Handle::current().id()
+                })
+            });
+            assert_eq!(blocking.await.unwrap(), expected);
+        });
+    }
 
     #[test]
     fn fixture_constructs_emits_and_drops_on_an_owned_thread_without_windows() {
@@ -622,7 +777,7 @@ mod tests {
         }
         assert!(matches!(
             super::super::session_persist::write_session_snapshot(
-                fixture._app.handle(),
+                &fixture.service,
                 &fixture.service.mux,
             )
             .unwrap(),
@@ -636,7 +791,7 @@ mod tests {
             tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"],
             "supplied-identity"
         );
-        super::super::session_persist::stop_worker(fixture._app.handle()).unwrap();
+        super::super::session_persist::stop_worker(&fixture.service).unwrap();
     }
 
     #[test]

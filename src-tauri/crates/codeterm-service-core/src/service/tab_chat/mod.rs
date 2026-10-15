@@ -20,8 +20,11 @@ pub mod registry;
 pub(crate) mod restore_notice;
 pub use restore_notice::snapshot as restore_notice_snapshot;
 pub mod results;
+pub mod runtime_stored;
 pub mod session_window;
+pub mod snapshot_source;
 pub mod store_watch;
+mod stored_snapshot;
 pub mod structured_poller;
 pub mod structured_sink;
 pub mod tailer;
@@ -207,6 +210,7 @@ fn flatten_rich(rich: &RichMessage, fallback_base: &str, seq: i64) -> Vec<ChatMs
     );
     for m in &mut out {
         m.seq = seq;
+        m.refresh_segments();
     }
     out
 }
@@ -675,6 +679,13 @@ fn tab_transcript_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
+    match snapshot_source::for_tab(svc, tab_id)? {
+        snapshot_source::SnapshotSource::Stored => {
+            return stored_snapshot::read(svc, tab_id, since);
+        }
+        snapshot_source::SnapshotSource::Waking => return Ok((Vec::new(), 0)),
+        snapshot_source::SnapshotSource::Live => {}
+    }
     if crate::service::agent_runtime::requested_for_tab(svc, tab_id) {
         let (_, messages) = crate::service::agent_runtime::transport::snapshot(svc, tab_id)?;
         let total = messages.len();
@@ -691,7 +702,7 @@ fn tab_transcript_snapshot(
         return Ok((messages.into_iter().skip(since).collect(), total));
     }
     let backing = {
-        let m = svc.mux.write();
+        let m = svc.mux.read();
         m.get_tab(tab_id).ok_or("Tab not found")?.backing.clone()
     };
     match backing {
@@ -708,7 +719,7 @@ fn tab_transcript_snapshot(
         crate::multiplexer::types::TabBacking::Surface(_) => Ok((Vec::new(), 0)),
         crate::multiplexer::types::TabBacking::Pty => {
             let (provider_id, cwd, session_id) = {
-                let m = svc.mux.write();
+                let m = svc.mux.read();
                 let tab = m.get_tab(tab_id).ok_or("Tab not found")?;
                 let provider = tab.agent_type.clone().ok_or("Tab has no agent_type")?;
                 let cwd = tab.cwd.clone().unwrap_or_default();
@@ -760,7 +771,11 @@ fn chatbackend_snapshot_from(
         from_disk
     };
     let total = all.len();
-    let slice = all.into_iter().skip(since).collect();
+    let slice = all
+        .into_iter()
+        .skip(since)
+        .map(ChatMsg::with_segments)
+        .collect();
     Ok((slice, total))
 }
 
@@ -798,7 +813,11 @@ pub fn session_chat_snapshot(
     };
 
     let total = all.len();
-    let slice = all.into_iter().skip(since).collect();
+    let slice = all
+        .into_iter()
+        .skip(since)
+        .map(ChatMsg::with_segments)
+        .collect();
     Ok((slice, total))
 }
 
