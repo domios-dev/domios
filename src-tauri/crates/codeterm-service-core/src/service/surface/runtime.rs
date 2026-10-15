@@ -15,7 +15,7 @@ use crate::service::browser::viewport::ViewportRequest;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SurfaceState {
+pub struct SurfaceState {
     pub owner: String,
     pub title: String,
     pub url: String,
@@ -45,7 +45,7 @@ pub(crate) enum NoticeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct SurfaceNotice {
+pub struct SurfaceNotice {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tone: Option<NoticeTone>,
