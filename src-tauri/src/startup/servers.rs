@@ -28,6 +28,7 @@ fn should_materialize_restored_backend(
 use codeterm_service_core::startup::FRONTEND_READINESS_DEADLINE_ELAPSED;
 
 fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
+    codeterm_service_core::startup::boot_timing::mark("-", None, "restore_scheduled");
     codeterm_util::named_thread::spawn("restore-pty-backends", move || {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         let mut queued = Vec::new();
@@ -36,6 +37,7 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
             || note_frontend_deadline(&service_state),
             || restored_backend_tab_ids(&service_state),
             |tab_id| {
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "wave_queued");
                 queued.push(tab_id.to_string());
                 Ok(())
             },
@@ -57,6 +59,7 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                 focused.and_then(|id| queued.iter().position(|tab_id| *tab_id == id))
             },
             |tab_id| {
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "cwd_check_enter");
                 let cwd = service_state
                     .mux
                     .read()
@@ -69,9 +72,11 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                     publish_backend_materialization_failure(&service_state, tab_id, reason);
                     log::error!("[startup-pty] tab={tab_id} cwd refused: {reason}");
                 }
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "cwd_check_done");
                 result
             },
             |tab_id| {
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "wave_admitted");
                 let result = if service_state.tab_chat_backing(tab_id).is_some() {
                     service_state
                         .chatbackend_reopen_if_restored(tab_id)
@@ -88,6 +93,7 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                     started.elapsed().as_millis(),
                     result.is_ok()
                 );
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "materialized");
                 result
             },
         );

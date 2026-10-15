@@ -3,6 +3,7 @@
 //!
 //! Layout matches the order the entry-point in `lib.rs` calls them in.
 
+pub mod boot_timing;
 mod bridge;
 mod cli_install;
 pub(crate) mod conpty_cleanup;

@@ -158,6 +158,15 @@ must not have its default-DEV refusal bypassed.
   reply evidence and cold/warm history results. Shells use unique-token echoes
   and real shell readiness/output. A missing start, slow ready, blocked input,
   absent own-session reply or lost used history fails that provider's row.
+- [ ] When PTY readiness is slow, save the pre-fix phase table before changing
+  behavior: process start, restore scheduling, frontend wait, wave queue/admission,
+  cwd check, PTY claim/build/register/resize, first output, launch preparation,
+  shell/provider readiness, authenticated session and `AgentReady`. DEV
+  `[boot-phase]` records carry microsecond timestamps and exact tab/PTY IDs;
+  join first output by PTY ID. Distinguish shell output from provider readiness,
+  queue time from materialization, and SSE replay receipt from emission time.
+  Unknown phases stay unknown. Preserve attempted sends while reconciling late
+  own-session replies; a harness correction never authorizes resubmission.
 
 - [ ] Before measuring, require a successful focused repair gate when applicable,
   the exact committed build in health, and startup beyond service state
