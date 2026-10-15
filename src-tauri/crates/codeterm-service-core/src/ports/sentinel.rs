@@ -60,8 +60,6 @@ pub fn register_runtime(make: fn() -> Arc<dyn SentinelRuntime>) {
 }
 
 pub fn runtime() -> &'static Arc<dyn SentinelRuntime> {
-    #[cfg(test)]
-    crate::sentinel::register_sentinel();
     RUNTIME
         .get()
         .expect("sentinel runtime is registered before startup")

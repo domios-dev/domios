@@ -326,7 +326,7 @@ impl SupporterRuntime {
         self.append(event)
     }
 
-    pub(crate) fn sentinel_event(&self, event: Value) -> std::io::Result<()> {
+    pub fn sentinel_event(&self, event: Value) -> std::io::Result<()> {
         self.append(event)
     }
 
@@ -399,7 +399,7 @@ impl SupporterRuntime {
         (hour.len(), free_at)
     }
 
-    pub(crate) fn reserve(
+    pub fn reserve(
         &self,
         cap: usize,
         kind: VerdictKind,

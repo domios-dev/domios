@@ -11,6 +11,7 @@ name = "codeterm_socket"
 
 [dependencies]
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-sentinel-host = { path = "../codeterm-sentinel-host" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-bridge = { path = "../codeterm-bridge" }
 codeterm-events = { path = "../codeterm-events" }
@@ -46,3 +47,4 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [dev-dependencies]
 codeterm-api = { path = "../codeterm-api" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
+codeterm-sentinel-host = { path = "../codeterm-sentinel-host", features = ["test-support"] }
