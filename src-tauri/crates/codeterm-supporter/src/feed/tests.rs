@@ -55,7 +55,7 @@ fn supporter_feed_projects_only_sanitized_error_categories_for_error_fallbacks()
     let projected = entry(&invalid).unwrap();
     assert!(projected.get("error_category").is_none());
 }
-use crate::service::supporter::narrative::{self, QuestionAnswer};
+use crate::narrative::{self, QuestionAnswer};
 
 fn record(asked: Value) -> Value {
     json!({ "time": 1, "kind": "rerank", "label": "ranked", "action": "rerank",

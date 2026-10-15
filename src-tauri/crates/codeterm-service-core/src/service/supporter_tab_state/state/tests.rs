@@ -11,14 +11,6 @@ fn tab() -> String {
 }
 
 #[test]
-fn tab_state_band_mapping() {
-    assert_eq!(confidence_band(0.80), ConfidenceBand::Strong);
-    assert_eq!(confidence_band(0.79), ConfidenceBand::Weak);
-    assert_eq!(confidence_band(0.60), ConfidenceBand::Weak);
-    assert_eq!(confidence_band(0.59), ConfidenceBand::Ignored);
-}
-
-#[test]
 fn tab_state_single_strong_hint_non_actionable() {
     let tab = tab();
     assert_eq!(

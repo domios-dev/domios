@@ -1940,6 +1940,7 @@ dependencies = [
  "codeterm-sentinel",
  "codeterm-shutdown",
  "codeterm-storage",
+ "codeterm-supporter",
  "codeterm-types",
  "codeterm-usage",
  "codeterm-util",
@@ -2070,6 +2071,33 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-supporter"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "codeterm-agent-model",
+ "codeterm-decision",
+ "codeterm-mem",
+ "codeterm-notification-core",
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-types",
+ "codeterm-util",
+ "codeterm-worker-services",
+ "libc",
+ "log",
+ "parking_lot",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.2",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 

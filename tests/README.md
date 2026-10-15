@@ -41,6 +41,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `test-catalogue` | guard | js | pr | no | no | 60 | single | `node scripts/test-catalogue.mjs validate` | `tests/README.md` |
 | `rust-agent-model` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-agent-model` | `.agents/skills/gates/SKILL.md` |
 | `rust-prompts` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-prompts` | `.agents/skills/gates/SKILL.md` |
+| `rust-supporter` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-supporter` | `.agents/skills/gates/SKILL.md` |
 | `rust-service-core` | unit | rust | release | no | no | 3600 | nextest-list (fallback static-scan) | `./build.sh nextest app` | `.agents/skills/gates/SKILL.md` |
 | `rust-app` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest shell` | `.agents/skills/gates/SKILL.md` |
 | `rust-app-agent-state-replay` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test agent_state_replay -- --nocapture` | `evals/agent-state/README.md` |

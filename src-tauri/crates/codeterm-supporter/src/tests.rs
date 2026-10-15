@@ -1,9 +1,10 @@
 use super::*;
-use crate::mem::decision::rerank::{
+use codeterm_decision::{DecisionPrimitives, DecisionQuestion};
+use codeterm_mem::decision::rerank::{
     run_stage, FallbackReason, RerankCandidate, StageConfig, StageOutcome,
 };
-use codeterm_decision::{DecisionPrimitives, DecisionQuestion};
 use serde_json::json;
+use serde_json::Value;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
