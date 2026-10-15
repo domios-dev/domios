@@ -1,6 +1,5 @@
 //! `services.*` JSON-RPC handlers.
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::Value;
 
 use codeterm_service_core::service::activity::{ActivitySource, ActivityWriter};
@@ -12,7 +11,6 @@ use super::{get_string_param, JsonRpcError};
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    _app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {

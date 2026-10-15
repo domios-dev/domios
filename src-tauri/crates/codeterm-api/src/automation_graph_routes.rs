@@ -5,7 +5,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tauri::Manager;
 
 use super::{
     auth::{caller_access_level, caller_peer_id},
@@ -96,8 +95,7 @@ pub async fn event_ingress(
             {
                 if let Some(handle) = state
                     .svc
-                    .app_handle
-                    .try_state::<codeterm_sentinel_host::scheduler::Handle>()
+                    .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
                 {
                     handle.notify_event_subscription_changed(&pipeline_id);
                 }
@@ -116,8 +114,7 @@ pub async fn event_ingress(
             {
                 if let Some(handle) = state
                     .svc
-                    .app_handle
-                    .try_state::<codeterm_sentinel_host::scheduler::Handle>()
+                    .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
                 {
                     handle.notify_event_subscription_changed(&pipeline_id);
                 }
@@ -355,7 +352,7 @@ mod tests {
             http::{Method, Request},
             Router,
         };
-        use codeterm_service_core::service::test_fixture::ServiceFixture;
+        use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
         use std::sync::Arc;
         use tauri::Manager;
         use tower::ServiceExt;
@@ -404,14 +401,14 @@ mod tests {
                 if let Some(raw) = raw {
                     std::fs::write(&sentinel_path, raw).unwrap();
                 }
-                let handle = codeterm_sentinel_host::scheduler::fixture_handle(
+                let handle = codeterm_sentinel_host::scheduler::fixture_handle_with_ui(
                     codeterm_sentinel_host::store::Store::new(
                         sentinel_path,
                         codeterm_service_core::cron::clock::MockClock::starting_at(1000),
                     ),
-                    runtime.service.app_handle.clone(),
+                    runtime.service.ui.clone(),
                 );
-                runtime.service.app_handle.manage(handle);
+                codeterm_sentinel_host::manage_fixture_ports(&runtime.service, &handle);
                 let mut config = codeterm_service_core::config::schema::AppConfig::default();
                 config.api.token = Some("fixture-instance-bearer".into());
                 config.mesh.enabled = true;
@@ -419,6 +416,7 @@ mod tests {
                     codeterm_service_core::mesh::MeshManager::new("fixture-instance".into(), 0);
                 mesh.disk_persist = false;
                 let state = AppState {
+                    app: runtime.app.handle().clone(),
                     svc: Arc::new(runtime.service.clone()),
                     cron: Arc::new(parking_lot::Mutex::new(
                         codeterm_service_core::cron::store::CronStore::new_with_path(
@@ -450,8 +448,8 @@ mod tests {
                     web_dist: None,
                 };
                 let managed_config = runtime
-                    .service
-                    .app_handle
+                    .app
+                    .handle()
                     .state::<codeterm_service_core::config::ConfigState>()
                     .inner()
                     .clone();
@@ -461,8 +459,7 @@ mod tests {
                     config: managed_config,
                     ..state
                 };
-                runtime.service.app_handle.manage(state.cron.clone());
-                runtime.service.app_handle.manage(state.events.clone());
+                assert!(runtime.service.set_ext(state.cron.clone()).is_ok());
                 let router = crate::routes::create_router(state.clone());
                 Self {
                     runtime,
@@ -519,8 +516,8 @@ mod tests {
             fn stopped(&self, id: &str) -> bool {
                 self.runtime
                     .service
-                    .app_handle
-                    .state::<codeterm_sentinel_host::scheduler::Handle>()
+                    .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
+                    .unwrap()
                     .store
                     .lock()
                     .get(id)
@@ -614,8 +611,8 @@ mod tests {
             let handle = fixture
                 .runtime
                 .service
-                .app_handle
-                .state::<codeterm_sentinel_host::scheduler::Handle>();
+                .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
+                .unwrap();
             let lease = handle.store.lock().due().unwrap().remove(0);
             let (status, result) = fixture
                 .request(Method::POST, &stop, Some("fixture-instance-bearer"), body)
@@ -647,18 +644,16 @@ mod tests {
 
         #[tokio::test]
         async fn sentinel_graph_delete_removes_the_graph_from_the_list_and_persisted_file() {
-            use tauri::Listener;
             let fixture = Fixture::new(None);
             let job = fixture.create();
             let mut web_events = fixture.state.events.subscribe();
             let (tx, mut desktop_events) = tokio::sync::mpsc::unbounded_channel();
-            let listener = fixture.runtime.service.app_handle.listen_any(
-                "automation-graph-changed",
-                move |event| {
-                    tx.send(serde_json::from_str::<Value>(event.payload()).unwrap())
-                        .unwrap();
-                },
-            );
+            let listener = fixture
+                .runtime
+                .ui
+                .listen("automation-graph-changed", move |event| {
+                    tx.send(event.clone()).unwrap();
+                });
             let path = format!("/api/automation/blueprints/{}", job.id);
             let body = json!({"workspace_id":fixture.workspace,"team_id":null});
             assert_eq!(
@@ -685,7 +680,7 @@ mod tests {
                 }
                 other => panic!("unexpected web event: {other:?}"),
             }
-            fixture.runtime.service.app_handle.unlisten(listener);
+            fixture.runtime.ui.unlisten(listener);
             let (status, graph) = fixture
                 .request(
                     Method::GET,
@@ -837,7 +832,6 @@ mod tests {
         #[tokio::test]
         async fn sentinel_graph_actual_connected_cron_change_emits_scoped_invalidation_then_current_snapshot(
         ) {
-            use tauri::Listener;
             let fixture = Fixture::new(None);
             let cron=fixture.state.cron.lock().create(serde_json::from_value(json!({"name":"nightly-ci-review","workspace_id":fixture.workspace,"creator_tab_id":fixture.creator,"schedule":"0 * * * *","task":"private task"})).unwrap()).unwrap();
             let caller = fixture
@@ -862,20 +856,20 @@ mod tests {
             let handle = fixture
                 .runtime
                 .service
-                .app_handle
-                .state::<codeterm_sentinel_host::scheduler::Handle>();
-            codeterm_sentinel_host::service_adapter::graph::install_invalidations(
+                .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
+                .unwrap();
+            codeterm_sentinel_host::service_adapter::graph::install_fixture_invalidations(
                 &fixture.runtime.service,
                 handle.store.clone(),
+                &fixture.runtime.ui,
             );
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-            let listener = fixture.runtime.service.app_handle.listen_any(
-                "automation-graph-changed",
-                move |event| {
-                    tx.send(serde_json::from_str::<Value>(event.payload()).unwrap())
-                        .unwrap();
-                },
-            );
+            let listener = fixture
+                .runtime
+                .ui
+                .listen("automation-graph-changed", move |event| {
+                    tx.send(event.clone()).unwrap();
+                });
             fixture
                 .runtime
                 .service
@@ -906,13 +900,12 @@ mod tests {
                     .unwrap()["state"],
                 "disabled"
             );
-            fixture.runtime.service.app_handle.unlisten(listener);
+            fixture.runtime.ui.unlisten(listener);
         }
         #[tokio::test]
         async fn sentinel_graph_actual_connected_worker_status_event_refreshes_authoritative_snapshot(
         ) {
             use codeterm_service_core::agent::status::TabStatus;
-            use tauri::Listener;
             let fixture = Fixture::new(None);
             let worker = fixture
                 .runtime
@@ -959,20 +952,20 @@ mod tests {
             let handle = fixture
                 .runtime
                 .service
-                .app_handle
-                .state::<codeterm_sentinel_host::scheduler::Handle>();
-            codeterm_sentinel_host::service_adapter::graph::install_invalidations(
+                .host_extension::<codeterm_sentinel_host::scheduler::Handle>()
+                .unwrap();
+            codeterm_sentinel_host::service_adapter::graph::install_fixture_invalidations(
                 &fixture.runtime.service,
                 handle.store.clone(),
+                &fixture.runtime.ui,
             );
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-            let listener = fixture.runtime.service.app_handle.listen_any(
-                "automation-graph-changed",
-                move |event| {
-                    tx.send(serde_json::from_str::<Value>(event.payload()).unwrap())
-                        .unwrap();
-                },
-            );
+            let listener = fixture
+                .runtime
+                .ui
+                .listen("automation-graph-changed", move |event| {
+                    tx.send(event.clone()).unwrap();
+                });
             fixture
                 .runtime
                 .service
@@ -1003,7 +996,7 @@ mod tests {
                     .unwrap()["state"],
                 "working"
             );
-            fixture.runtime.service.app_handle.unlisten(listener);
+            fixture.runtime.ui.unlisten(listener);
         }
     }
 }

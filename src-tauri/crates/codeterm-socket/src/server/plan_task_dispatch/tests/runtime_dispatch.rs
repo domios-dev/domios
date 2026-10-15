@@ -163,7 +163,6 @@ fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() 
             "execution_intent":"read_only","authorized_gates":["opaque-gate"],
             "provider_reserve_pct":17.25,
         })),
-        harness.fixture._app.handle(),
         &Arc::new(svc.clone()),
         10,
     )

@@ -176,7 +176,10 @@ pub(super) fn emit_activity(svc: &ServiceState, op: &str, mem_ids: Vec<String>) 
         ts_ms: now_ms(),
     };
     svc.activity.record(event.clone());
-    codeterm_host_runtime::events::emit_everywhere(&svc.app_handle, "mem-activity", &event);
+    svc.ui.emit(
+        "mem-activity",
+        serde_json::to_value(&event).unwrap_or(serde_json::Value::Null),
+    );
 }
 
 fn mem_get(
@@ -600,10 +603,9 @@ fn mem_worker_progress(
         svc.workers.update_status(&id, s).map_err(not_found)?;
     }
     if let Some(info) = svc.workers.get(&id) {
-        codeterm_host_runtime::events::emit_everywhere(
-            &svc.app_handle,
+        svc.ui.emit(
             "graph-worker-progress",
-            &info,
+            serde_json::to_value(&info).unwrap_or(serde_json::Value::Null),
         );
     }
     Ok(serde_json::json!({ "ok": true }))
@@ -652,7 +654,10 @@ fn mem_worker_report(
     }
     codeterm_service_core::mem::dream_runs::record_reported_finalization(svc, &id, &reported);
     let info = svc.workers.complete(&id, summary).map_err(not_found)?;
-    codeterm_host_runtime::events::emit_everywhere(&svc.app_handle, "graph-worker-reported", &info);
+    svc.ui.emit(
+        "graph-worker-reported",
+        serde_json::to_value(&info).unwrap_or(serde_json::Value::Null),
+    );
     if svc.run_watcher.runtime_worker_reported(&info.tab_id, &id) {
         return Ok(serde_json::json!({ "ok": true, "info": info }));
     }
@@ -676,7 +681,10 @@ fn mem_worker_kill(
     if let Err(e) = svc.close_tab_with_reason(&info.tab_id, TabCloseReason::Cancelled) {
         log::warn!("[graph-workers] kill Tab {}: {}", info.tab_id, e);
     }
-    codeterm_host_runtime::events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
+    svc.ui.emit(
+        "graph-worker-done",
+        serde_json::to_value(&info).unwrap_or(serde_json::Value::Null),
+    );
     Ok(serde_json::json!({ "ok": true }))
 }
 

@@ -29,11 +29,10 @@ pub async fn mesh_pair_request(
         record_incoming_pairing_request(&mut mesh, request)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?
     };
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     state.svc.log_system_notice(
         "Mesh pairing request".into(),
         Some(format!("{} is waiting for owner approval.", peer_name)),
@@ -76,7 +75,7 @@ impl std::fmt::Display for ApproveError {
 /// handshake with a 502 (#126).
 pub async fn do_approve(
     mesh: codeterm_service_core::mesh::MeshState,
-    app_handle: codeterm_host_runtime::app_runtime::AppHandle,
+    ui: std::sync::Arc<dyn codeterm_service_core::ports::host::UiEvents>,
     request_id: String,
 ) -> Result<(), ApproveError> {
     let (request, our_pubkey, our_id, our_name) = {
@@ -114,7 +113,7 @@ pub async fn do_approve(
         manager.pending_requests.remove(&request_id);
         let _ = manager.save();
         drop(manager);
-        crate::events::emit_everywhere(&app_handle, "mesh-state-changed", serde_json::Value::Null);
+        ui.emit("mesh-state-changed", serde_json::Value::Null);
         return Ok(());
     }
 
@@ -189,7 +188,7 @@ pub async fn do_approve(
         let _ = m.save();
     }
 
-    crate::events::emit_everywhere(&app_handle, "mesh-state-changed", serde_json::Value::Null);
+    ui.emit("mesh-state-changed", serde_json::Value::Null);
     log::info!(
         "[mesh] Pairing complete (owner-approved) with {}",
         request.from_instance_id
@@ -286,11 +285,10 @@ pub async fn mesh_pair_accept(
     }
 
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
 
     // immediately (issue #9). broadcast_sync still follows for gossip about other peers in our mesh.
     {
@@ -365,11 +363,10 @@ pub async fn mesh_pair_reject(
         .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
     drop(mesh);
 
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -418,11 +415,10 @@ pub async fn mesh_unpair(
     }
     drop(mesh);
 
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -452,11 +448,10 @@ pub async fn mesh_unrevoke(
         "[mesh] Owner explicitly lifted revocation for peer {}",
         instance_id
     );
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "mesh-state-changed",
-        serde_json::Value::Null,
-    );
+    state
+        .svc
+        .ui
+        .emit("mesh-state-changed", serde_json::Value::Null);
     Ok(Json(
         serde_json::json!({"ok": true, "instance_id": instance_id}),
     ))

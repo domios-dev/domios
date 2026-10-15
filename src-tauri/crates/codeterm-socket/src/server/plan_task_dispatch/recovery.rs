@@ -97,8 +97,7 @@ pub(crate) fn publish_action_needed_event(
             "report": report.clone(),
         }),
     );
-    codeterm_host_runtime::events::emit_everywhere(
-        &svc.app_handle,
+    svc.ui.emit(
         "agent-report",
         json!({
             "target_tab_id": parent_tab_id,

@@ -39,7 +39,14 @@ pub async fn check_for_update(
     };
 
     if info.update_available {
-        codeterm_host_runtime::events::emit_everywhere(&app, "update-available", &info);
+        let ui = app
+            .state::<codeterm_service_core::service::ServiceState>()
+            .ui
+            .clone();
+        ui.emit(
+            "update-available",
+            serde_json::to_value(&info).unwrap_or(serde_json::Value::Null),
+        );
     }
 
     let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;
