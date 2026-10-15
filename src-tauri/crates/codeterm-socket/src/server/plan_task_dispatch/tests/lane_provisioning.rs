@@ -784,10 +784,10 @@ fn response_and_dispatch_ready_share_canonical_project_path() {
     .unwrap()
     .existing
     .unwrap();
-    assert_eq!(
-        Path::new(&pre_created_provenance.canonical_cwd),
-        std::fs::canonicalize(&fixture.project).unwrap(),
-        "an existing lane names its owning repository's primary checkout as canonical"
+    assert!(
+        same_dir(&pre_created_provenance.canonical_cwd, &fixture.project),
+        "an existing lane names its owning repository's primary checkout as canonical: {}",
+        pre_created_provenance.canonical_cwd
     );
     assert_payloads_agree(&pre_created_provenance, &fixture.project);
 

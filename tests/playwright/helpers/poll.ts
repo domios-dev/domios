@@ -3,7 +3,7 @@ export async function pollUntil<T>(
   timeout: number,
   interval = 250,
   label = "condition",
-): Promise<T> {
+): Promise<NonNullable<T>> {
   const started = Date.now();
   const deadline = started + timeout;
   let delay = interval;

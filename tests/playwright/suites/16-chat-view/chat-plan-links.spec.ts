@@ -24,9 +24,9 @@ interface CreateTaskResponse {
 
 declare global {
   interface Window {
-    __codetermTestChat?: {
-      pushMessages: (tabId: string, messages: Array<Record<string, unknown>>) => void;
-    };
+
+
+
     __ctCopiedPlanRef?: string;
   }
 }
