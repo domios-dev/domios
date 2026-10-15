@@ -1,5 +1,3 @@
-use tauri::Manager;
-
 use crate::{graph, scheduler::Handle, storage};
 use codeterm_service_core::service::ServiceContext;
 
@@ -25,8 +23,7 @@ impl AutomationFilesExt for ServiceContext {
             identity.team_id.as_deref(),
         )?;
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let (jobs, _) = storage::committed_scope(
             &handle.store,

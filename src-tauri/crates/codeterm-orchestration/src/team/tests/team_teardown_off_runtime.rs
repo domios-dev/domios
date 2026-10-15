@@ -60,7 +60,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
         codeterm_sentinel::storage::commit(&sentinels, |current| current.stage_insert(job))
             .unwrap();
     let sentinel_id = sentinel.id;
-    super::sentinel_fixture::manage(&fixture._app.handle().clone(), &sentinels);
+    super::sentinel_fixture::manage(&fixture.service, &sentinels);
 
     let hold = storage.hold_writer().unwrap();
     hold.wait_held(DEADLINE).unwrap();

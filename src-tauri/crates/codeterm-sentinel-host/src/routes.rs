@@ -1,5 +1,3 @@
-use tauri::Manager;
-
 use super::machine::{EscalateTarget, Route, Verdict};
 use super::store::{Sentinel, StopNotice};
 use codeterm_blueprint_types::blueprint_pipeline::{BlueprintOwner, BlueprintSpec};
@@ -136,16 +134,14 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
         Route::Send(target) => resolve_send(&svc.mux.read(), job, target),
         Route::Sentinel(target) => {
             let handle = svc
-                .app_handle
-                .try_state::<super::scheduler::Handle>()
+                .host_extension::<super::scheduler::Handle>()
                 .ok_or("blueprints not initialized")?;
             handle.store.lock().validate_target(job, target)?;
             Ok(route.clone())
         }
         Route::Cron(target) => {
             let cron = svc
-                .app_handle
-                .try_state::<codeterm_service_core::CronState>()
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or("cron not initialized")?;
             let resolved = resolve_cron_target(&cron.lock(), job, target);
             Ok(Route::Cron(resolved?))
@@ -370,10 +366,9 @@ pub fn run(
         Route::Send(target) => deliver_body(svc, &target, job, output).map(|()| None),
         Route::Cron(id) => {
             let cron = svc
-                .app_handle
-                .try_state::<codeterm_service_core::CronState>()
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or("cron not initialized")?;
-            svc.cron_trigger(cron.inner(), &id).map(|run| {
+            svc.cron_trigger(cron, &id).map(|run| {
                 codeterm_service_core::flow_trace::record(
                     transition_id,
                     "blueprint.cron",

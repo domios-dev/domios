@@ -39,7 +39,6 @@ fn ack(caller: &LiveCaller) -> Value {
             "tab_id": caller.tab_id(),
             "session_binding_nonce": CALLER_NONCE,
         })),
-        &caller.svc.app_handle,
         &caller.svc,
     )
     .unwrap()
@@ -472,7 +471,6 @@ fn current_attempt_ack_rejects_foreign_nonce_before_announcement() {
     let result = crate::server::agent::dispatch(
         "agent.ack",
         &Some(json!({ "tab_id": caller.tab_id(), "session_binding_nonce": "foreign-nonce" })),
-        &caller.svc.app_handle,
         &caller.svc,
     );
     assert!(result.is_err());
@@ -607,7 +605,6 @@ fn current_attempt_early_ack_late_ready_refuses_unproven_binding_without_mutatio
     let error = crate::server::agent::dispatch(
         "agent.ack",
         &Some(json!({ "tab_id": tab_id, "session_binding_nonce": CALLER_NONCE })),
-        &caller.svc.app_handle,
         &caller.svc,
     )
     .unwrap_err();

@@ -62,7 +62,7 @@ fn isolated_peer() -> PairedPeer {
     }
 }
 
-fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixture) -> AppState {
+fn app_state(fixture: &codeterm_host_runtime::test_fixture::HostFixture) -> AppState {
     let config = codeterm_service_core::config::schema::AppConfig::default();
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("relay-owner-gate".into(), 0);
     mesh.disk_persist = false;
@@ -70,6 +70,7 @@ fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixt
     mesh.paired_peers
         .insert(ISOLATED_PEER.into(), isolated_peer());
     AppState {
+        app: fixture.app.handle().clone(),
         svc: std::sync::Arc::new(fixture.service.clone()),
         cron: std::sync::Arc::new(parking_lot::Mutex::new(
             codeterm_service_core::cron::store::CronStore::new_with_path(
@@ -120,7 +121,7 @@ const TAB_WRITES: [&str; 5] = ["send", "exec", "respond", "prompt/respond", "att
 #[tokio::test]
 async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
     let (mux, tabs) = mux_with_tabs();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
     let state = app_state(&fixture);
     for foreign in [&tabs.unowned, &tabs.other_peers] {
         for suffix in TAB_WRITES {
@@ -155,7 +156,7 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
 #[tokio::test]
 async fn relayed_writes_into_an_owned_tab_pass_the_shared_owner_check() {
     let (mux, tabs) = mux_with_tabs();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
     let state = app_state(&fixture);
     let owner = |tab_id: &str| crate::auth::tab_owner_peer_id(&state, tab_id);
     for suffix in TAB_WRITES {
@@ -201,7 +202,7 @@ async fn relayed_writes_into_an_owned_tab_pass_the_shared_owner_check() {
 #[tokio::test]
 async fn dot_segments_cannot_retarget_an_authorized_relay() {
     let (mux, tabs) = mux_with_tabs();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
     let state = app_state(&fixture);
     let (owned, foreign) = (&tabs.owned, &tabs.unowned);
     for path in [
@@ -218,7 +219,7 @@ async fn dot_segments_cannot_retarget_an_authorized_relay() {
 #[test]
 fn relayed_isolated_listing_keeps_only_owned_rows() {
     let (mux, tabs) = mux_with_tabs();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
     let state = app_state(&fixture);
     let mut listing = serde_json::json!([
         { "id": tabs.owned, "other_workspace_tab_count": 3 },

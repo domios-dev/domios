@@ -43,11 +43,9 @@ pub async fn clock_advance(
     let now_ms = clock.advance_ms(body.ms);
     state.cron_wake.notify_all();
     {
-        use tauri::Manager;
         if let Some(ports) = state
             .svc
-            .app_handle
-            .try_state::<codeterm_service_core::ports::sentinel::SentinelPorts>()
+            .try_ext::<codeterm_service_core::ports::sentinel::SentinelPorts>()
         {
             ports.wake.notify();
         }
@@ -176,7 +174,7 @@ pub async fn clean_restart(
             "clean restart is only available in debug builds".to_string(),
         ));
     }
-    let app = state.svc.app_handle.clone();
+    let app = state.app.clone();
     log::info!("[shutdown] clean-restart request accepted");
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::crash::shutdown::mark_shutting_down_for(

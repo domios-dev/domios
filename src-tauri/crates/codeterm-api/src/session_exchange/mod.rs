@@ -6,7 +6,6 @@ use axum::{
 };
 use codeterm_service_core::session::store::{SessionSnapshot, SplitNodeSnapshot};
 use serde_json::{json, Value};
-use tauri::Manager;
 
 mod sanitize;
 
@@ -182,14 +181,9 @@ pub async fn import(
             }
         }
         let authority = svc
-            .app_handle
-            .try_state::<codeterm_service_core::startup::StorageAuthority>()
+            .try_ext::<codeterm_service_core::startup::StorageAuthority>()
             .ok_or("Storage authority unavailable")?;
-        let storage = authority
-            .inner()
-            .storage()
-            .ok_or("Storage unavailable")?
-            .clone();
+        let storage = authority.storage().ok_or("Storage unavailable")?.clone();
         let projected =
             codeterm_service_core::session::store::project_snapshot(&snapshot, Vec::new())?;
         for workspace in &projected.workspaces {

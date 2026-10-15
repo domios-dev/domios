@@ -86,6 +86,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-blueprint-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-blueprint-types` | `.agents/skills/gates/SKILL.md` |
 | `rust-local-recording` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-local-recording` | `.agents/skills/gates/SKILL.md` |
 | `rust-notify-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-notify-types` | `.agents/skills/gates/SKILL.md` |
+| `rust-host-runtime` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-host-runtime` | `.agents/skills/gates/SKILL.md` |
 | `rust-events` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-events` | `.agents/skills/gates/SKILL.md` |
 | `rust-config` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-config` | `.agents/skills/gates/SKILL.md` |
 | `rust-secrets` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-secrets` | `.agents/skills/gates/SKILL.md` |

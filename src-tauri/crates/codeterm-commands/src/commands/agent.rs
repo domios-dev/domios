@@ -46,8 +46,7 @@ pub fn install_provider_in_tab_with_fixture_failure(
         let pty_id = svc
             .resolve_pty_id(tab_id)
             .map_err(|error| format!("installer PTY acknowledgement failed: {error}"))?;
-        codeterm_service_core::events::emit_everywhere(
-            &svc.app_handle,
+        svc.ui.emit(
             "provider-install-fixture-dispatch-refused",
             serde_json::json!({ "tab_id": tab_id, "pty_id": pty_id }),
         );
@@ -68,7 +67,6 @@ mod install_provider_tests {
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
-    use tauri::Manager;
 
     struct InstallerProvider {
         id: String,
@@ -131,7 +129,7 @@ mod install_provider_tests {
             Arc::new(parking_lot::Mutex::new(SessionStore::for_test_dir(
                 fixture.temp.path().join("sessions"),
             )));
-        fixture._app.manage(session);
+        assert!(fixture.service.set_ext(session).is_ok());
         fixture
             .service
             .agent_registry

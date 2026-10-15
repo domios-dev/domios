@@ -105,12 +105,11 @@ fn assert_status(
 
 #[test]
 fn service_completion_publishes_idle_without_duplicate_events() {
-    use tauri::Manager;
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("service-completion-pty".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
-    fixture._app.manage(service.events.clone());
+
     let mut receiver = service.events.subscribe();
     assert!(service.mark_agent_turn_started(&tab_id));
     assert_status(&mut receiver, &tab_id, "Working");
@@ -207,11 +206,10 @@ fn rpc_declared_turns_publish_once_and_reconcile_pty_idle() {
 
 #[test]
 fn rpc_turn_status_owner_updates_api_and_publishes_once() {
-    use tauri::Manager;
     let (mux, tab_id) = rpc_tab();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
-    fixture._app.manage(service.events.clone());
+
     service
         .agent_registry
         .register_provider(Box::new(rpc_provider()));

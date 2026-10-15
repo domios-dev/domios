@@ -262,7 +262,6 @@ impl ServiceContext {
                     &service.pty,
                     &service.screen_state,
                     config,
-                    &service.app_handle,
                 );
             }
             EventAction::FailureNotification => {

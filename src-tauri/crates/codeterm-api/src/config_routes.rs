@@ -259,8 +259,7 @@ pub async fn patch_config_api(
 
     if serde_json::to_value(&cfg.plugins).ok() != serde_json::to_value(&new_cfg.plugins).ok() {
         if let Err(error) =
-            codeterm_commands::update::discovery::plugins_changed(state.svc.app_handle.clone())
-                .await
+            codeterm_commands::update::discovery::plugins_changed(state.svc.ui.clone()).await
         {
             log::warn!("[plugin-update] settings availability refresh failed: {error}");
         }
@@ -272,8 +271,7 @@ pub async fn patch_config_api(
     );
 
     // this, browser clients save the config but never see it applied.
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
+    state.svc.ui.emit(
         "config-changed",
         serde_json::to_value(&new_cfg).unwrap_or_default(),
     );
@@ -288,11 +286,10 @@ pub async fn patch_config_api(
             }
             m.discovered_peers.clear();
         }
-        crate::events::emit_everywhere(
-            &state.svc.app_handle,
-            "mesh-state-changed",
-            serde_json::Value::Null,
-        );
+        state
+            .svc
+            .ui
+            .emit("mesh-state-changed", serde_json::Value::Null);
     }
 
     if renamed {
