@@ -12,7 +12,7 @@ fn sentinel_create_update_and_stop_round_trip_expected_pass() {
     let store = crate::store::Store::with_storage(&instance.storage, clock::system_clock());
     let handle = crate::scheduler::fixture_handle(store, instance.fixture._app.handle().clone());
     assert!(instance.fixture.service.app_handle.manage(handle.clone()));
-    crate::manage_fixture_ports(&instance.fixture.service.app_handle, &handle);
+    crate::manage_fixture_ports(&instance.fixture.service, &handle);
     let caller = instance
         .fixture
         .service
@@ -75,6 +75,6 @@ fn sentinel_create_update_and_stop_round_trip_expected_pass() {
     assert!(restored.machine.stopped);
     assert_eq!(restored.last_reason.as_deref(), Some("stopped_by_creator"));
     assert!(restarted.fixture.service.app_handle.manage(handle.clone()));
-    crate::manage_fixture_ports(&restarted.fixture.service.app_handle, &handle);
+    crate::manage_fixture_ports(&restarted.fixture.service, &handle);
     close(restarted);
 }

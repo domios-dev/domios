@@ -1,6 +1,5 @@
 use super::ServiceContext;
 use crate::agent::status::TabStatus;
-use tauri::Manager;
 
 pub(crate) mod delivery_readiness;
 
@@ -76,10 +75,7 @@ impl ServiceContext {
         let observed_tab = { self.mux.read().tab_id_for_pty(pty_id) };
         if let Some(tab_id) = observed_tab {
             super::supporter_tab_state::note_output(&tab_id);
-            if let Some(ports) = self
-                .app_handle
-                .try_state::<crate::ports::sentinel::SentinelPorts>()
-            {
+            if let Some(ports) = self.try_ext::<crate::ports::sentinel::SentinelPorts>() {
                 ports.wake.terminal_output(&tab_id, generation, data);
             }
         }

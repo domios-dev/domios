@@ -7,7 +7,7 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use parking_lot::Mutex;
 use serde_json::json;
 use std::sync::{mpsc, Arc};
-use tauri::{Listener, Manager};
+use tauri::Listener;
 
 const PROVIDER: &str = "run-end-fixture";
 const SOURCE: &str = r#"
@@ -58,8 +58,8 @@ impl Scene {
             fixture.temp.path().join("cron.json"),
         )));
         let wake = Arc::new(std::sync::Condvar::new());
-        fixture._app.manage(cron.clone());
-        fixture._app.manage(wake.clone());
+        assert!(fixture.service.set_ext(cron.clone()).is_ok());
+        assert!(fixture.service.set_ext(wake.clone()).is_ok());
         let methods = [
             "initialize",
             "resumeThread",

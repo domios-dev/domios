@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use codeterm_plugin::{provider::AgentProvider, tab_state::TabStateSnapshot};
-use tauri::Manager;
 
 use super::ServiceContext;
 pub use codeterm_provider_ops::provider_update::*;
@@ -18,8 +17,7 @@ impl ProviderUpdateHost for ServiceContext {
     }
 
     fn auto_update_enabled(&self) -> bool {
-        self.app_handle
-            .try_state::<crate::config::ConfigState>()
+        self.try_ext::<crate::config::ConfigState>()
             .is_some_and(|config| config.lock().updater.auto_update_provider_clis)
     }
 

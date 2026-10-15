@@ -1,6 +1,5 @@
 use super::ServiceContext;
 use codeterm_types::agent::background_work::{BackgroundWorkObservation, BackgroundWorkState};
-use tauri::Manager;
 
 pub(crate) fn restart_guard(
     items: Vec<String>,
@@ -23,8 +22,7 @@ pub(crate) fn running(svc: &ServiceContext, tab_id: &str) -> Vec<String> {
         return Vec::new();
     };
     let enabled = svc
-        .app_handle
-        .try_state::<crate::config::ConfigState>()
+        .try_ext::<crate::config::ConfigState>()
         .is_some_and(|config| {
             config
                 .lock()

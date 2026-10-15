@@ -110,6 +110,10 @@ pub fn build_service_context(
         crate::usage::UsageStore::open(&crate::paths::data_dir()).expect("usage.db init");
 
     let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+    extensions.insert_service_slots();
+    extensions.insert(states.config.clone());
+    extensions.insert(states.mesh.clone());
+
     extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
         Arc::new(parking_lot::Mutex::new(())),
     ));
@@ -269,7 +273,7 @@ pub fn build_service_context(
     extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(
         parking_lot::Mutex::new(crate::service::WorkerPersonaReservations::default()),
     )));
-    ServiceContext {
+    let service = ServiceContext {
         lifecycle_journal: crate::session::lifecycle::TabLifecycleJournal::shared_arc(),
         #[cfg(any(test, feature = "test-support"))]
         ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),
@@ -316,5 +320,8 @@ pub fn build_service_context(
         worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
         gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         extensions: Arc::new(extensions.finish()),
-    }
+    };
+    assert!(service.set_ext(states.storage.clone()).is_ok());
+    assert!(service.set_ext(states.session.clone()).is_ok());
+    service
 }

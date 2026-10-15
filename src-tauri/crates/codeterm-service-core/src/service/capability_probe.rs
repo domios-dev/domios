@@ -6,7 +6,6 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tauri::Manager;
 
 pub use codeterm_provider_ops::capability_probe::invalidate_and_rebuild;
 
@@ -32,8 +31,7 @@ impl CapabilityProbeHost for ServiceContext {
             )
         };
         let enabled = self
-            .app_handle
-            .try_state::<crate::config::ConfigState>()
+            .try_ext::<crate::config::ConfigState>()
             .is_some_and(|config| {
                 config
                     .lock()

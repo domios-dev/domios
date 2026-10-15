@@ -10,6 +10,10 @@ use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::plan::PlanStore;
 
+pub fn install_test_runtime() {
+    crate::async_runtime::install(tauri::async_runtime::handle().inner().clone());
+}
+
 pub struct ServiceFixture {
     pub service: ServiceContext,
     pub ui: Arc<RecordedUiEvents>,
@@ -61,7 +65,7 @@ impl TestReadySendTasks {
 
     pub fn wait(&self, tab_id: &str, deadline: std::time::Duration) {
         let pending = self.pending.lock().remove(tab_id).unwrap_or_default();
-        tauri::async_runtime::block_on(async {
+        crate::async_runtime::block_on(async {
             tokio::time::timeout(deadline, async {
                 for task in pending {
                     assert!(
@@ -283,7 +287,7 @@ impl ServiceFixture {
         let mut config = crate::config::schema::AppConfig::default();
         config.agent.full_access = Some(false);
         let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
-        assert!(app.manage(config));
+        assert!(app.manage(config.clone()));
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         let chatbackend_registry = Arc::new(crate::chatbackend::ChatBackendRegistry::new());
         let provider_registry = Arc::new(crate::provider::ProviderRegistry::new(
@@ -326,6 +330,9 @@ impl ServiceFixture {
             crate::agent::status::TabStatusTracker::new(),
         ));
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+        extensions.insert_service_slots();
+        extensions.insert(config);
+
         extensions.insert(crate::service::workspace_cwd::WorkspaceRelocationLock(
             Arc::new(parking_lot::Mutex::new(())),
         ));
@@ -505,7 +512,7 @@ impl ServiceFixture {
         extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(
             Mutex::new(Default::default()),
         )));
-        crate::async_runtime::install(tauri::async_runtime::handle().inner().clone());
+        install_test_runtime();
         let ui = Arc::new(RecordedUiEvents::default());
         let service = ServiceContext {
             lifecycle_journal: Arc::new(crate::session::lifecycle::TabLifecycleJournal::for_dir(
@@ -595,6 +602,7 @@ impl ServiceFixture {
         };
         assert!(app.manage(Arc::clone(&service.mux)));
         let owner = Arc::new(service.clone());
+        assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
         crate::ports::orchestration::install_fixture(&owner);
         Self {
             service,

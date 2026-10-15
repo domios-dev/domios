@@ -182,7 +182,6 @@ async fn workspace_close_handles_crons() {
     use crate::cron::store::{CronCreateParams, CronStore};
     use parking_lot::Mutex;
     use std::sync::Arc;
-    use tauri::Manager;
 
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.create_workspace("Cron workspace".into(), None).id;
@@ -224,8 +223,9 @@ async fn workspace_close_handles_crons() {
     cron.lock()
         .create(add_cron(retained_workspace_id.clone(), "Retained cron"))
         .unwrap();
-    fixture._app.manage(cron.clone());
-    fixture._app.manage(Arc::new(std::sync::Condvar::new()));
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
+    let wake: crate::CronWake = Arc::new(std::sync::Condvar::new());
+    assert!(fixture.service.set_ext(wake.clone()).is_ok());
 
     fixture
         .service
