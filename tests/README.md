@@ -51,6 +51,9 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-billing` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest billing` | `.agents/skills/gates/SKILL.md` |
 | `rust-analytics` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest analytics` | `.agents/skills/gates/SKILL.md` |
 | `rust-frontend-bundle` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest frontend-bundle` | `.agents/skills/gates/SKILL.md` |
+| `rust-worker-services` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-worker-services` | `.agents/skills/gates/SKILL.md` |
+| `rust-local-preview` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-local-preview` | `.agents/skills/gates/SKILL.md` |
+| `rust-lanes` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-lanes` | `.agents/skills/gates/SKILL.md` |
 | `rust-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest types` | `.agents/skills/gates/SKILL.md` |
 | `rust-wire` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest wire` | `.agents/skills/gates/SKILL.md` |
 | `rust-sentinel` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest sentinel` | `.agents/skills/gates/SKILL.md` |
