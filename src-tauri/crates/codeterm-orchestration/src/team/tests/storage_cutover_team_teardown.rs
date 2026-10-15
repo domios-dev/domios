@@ -16,7 +16,6 @@ use codeterm_service_core::storage::{
     DeskWorkspace, Fault, Storage, StorageConfig, WorkspaceId, WorkspaceRecord,
 };
 use parking_lot::Mutex;
-use tauri::Manager;
 
 const DEADLINE: Duration = Duration::from_secs(30);
 
@@ -35,8 +34,6 @@ fn team_storage_fixture() -> TeamStorageFixture {
     let (mux, team_id, orchestrator, _, _) = super::team_members();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
     let service = ServiceFixture::new(mux);
-    let events: codeterm_events::EventBroadcasterState = service.service.events.clone();
-    assert!(service._app.manage(events));
     let storage = Storage::open(
         service.temp.path().join("instance"),
         StorageConfig::default(),
@@ -142,10 +139,15 @@ fn team_storage_fixture() -> TeamStorageFixture {
             .unwrap()
             .id;
     let wake = Arc::new(std::sync::Condvar::new());
-    assert!(service._app.manage(storage.clone()));
-    assert!(service._app.manage(cron.clone()));
-    assert!(service._app.manage(wake));
-    super::sentinel_fixture::manage(&service._app.handle().clone(), &sentinel);
+    assert!(service
+        .service
+        .set_ext(codeterm_service_core::startup::StorageAuthority::Ready(
+            storage.clone()
+        ))
+        .is_ok());
+    assert!(service.service.set_ext(cron.clone()).is_ok());
+    assert!(service.service.set_ext(wake).is_ok());
+    super::sentinel_fixture::manage(&service.service, &sentinel);
 
     TeamStorageFixture {
         service,
@@ -287,8 +289,9 @@ fn storage_cutover_team_teardown_commits_all_domains_and_publishes_after_commit(
     let (submitted, settled) = std::sync::mpsc::channel();
     assert!(fixture
         .service
-        ._app
-        .manage(StorageTeardownSubmitted(submitted)));
+        .service
+        .register_host_extension(Arc::new(StorageTeardownSubmitted(submitted)))
+        .is_ok());
     let hold = fixture.storage.hold_writer().unwrap();
     hold.wait_held(DEADLINE).unwrap();
     let committed_before = fixture.storage.metrics().committed_operations;

@@ -6,7 +6,6 @@ use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest,
 };
 use serde_json::json;
-use tauri::Manager;
 
 use super::machine::{regex_verdict, Verdict};
 use super::provenance::{Classification, Failure, Source};
@@ -24,8 +23,7 @@ pub fn connected_model(
     codeterm_service_core::config::schema::SupporterConfig,
 )> {
     let config = svc
-        .app_handle
-        .state::<codeterm_service_core::config::ConfigState>()
+        .ext::<codeterm_service_core::config::ConfigState>()
         .lock()
         .supporter
         .clone();

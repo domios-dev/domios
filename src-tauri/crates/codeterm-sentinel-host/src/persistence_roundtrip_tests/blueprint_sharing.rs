@@ -1,7 +1,6 @@
 use super::ServiceInstance;
 use codeterm_blueprint_types::blueprint_recipe::{Recipe, SCHEMA_VERSION};
 use serde_json::json;
-use tauri::Manager;
 
 use crate::{amend::DefinitionSnapshot, store::Store};
 use crate::{AutomationGraphExt, BlueprintPortableExt, SentinelExt};
@@ -30,14 +29,13 @@ fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
         tab.role_profile = Some("orchestrator".into());
     }
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
-    let handle = crate::scheduler::fixture_handle(
+    let handle = crate::scheduler::fixture_handle_with_ui(
         Store::with_storage(
             &instance.storage,
             codeterm_service_core::cron::clock::system_clock(),
         ),
-        instance.fixture._app.handle().clone(),
+        instance.fixture.service.ui.clone(),
     );
-    assert!(instance.fixture.service.app_handle.manage(handle.clone()));
     crate::manage_fixture_ports(&instance.fixture.service, &handle);
     let service = &instance.fixture.service;
     let original_caller = service.sentinel_caller(&original_tab, None).unwrap();
