@@ -1,18 +1,30 @@
 #!/usr/bin/env node
 // Caller: CI tests.yml, release-macos-build.yml, release-linux.yml, release-linux-arm64.yml, release-windows.yml; scripts tests/ci-workspace-cleanup.test.mjs; skill github-release
-// Removes a finished job's Rust targets and archives from its runner workspace, keeping the git checkout.
+// Removes a finished job's archives and sweeps its Rust targets by age, so the next job starts warm
+// while unused artifacts never accumulate; the git checkout stays.
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const JOB_OUTPUTS = [
-  'target',
-  'src-tauri/target',
-  'cli/target',
-  'scripts/ci-test-classifier/target',
-  'ci-rust-receipts',
-  'release-artifacts',
-];
+export const JOB_OUTPUTS = ['ci-rust-receipts', 'release-artifacts'];
+export const RUST_PROJECTS = ['.', 'src-tauri', 'cli', 'scripts/ci-test-classifier'];
+export const SWEEP_DAYS = process.env.CI_TARGET_SWEEP_DAYS || '2';
+
+export function sweepRustTargets(workspace, run = spawnSync) {
+  const swept = [];
+  for (const project of RUST_PROJECTS) {
+    const dir = path.resolve(workspace, project);
+    if (!fs.existsSync(path.join(dir, 'target'))) continue;
+    const result = run('cargo', ['sweep', '--time', SWEEP_DAYS, dir], { stdio: 'inherit' });
+    if (result.error || result.status !== 0) {
+      console.log(`cargo-sweep unavailable or failed for ${project}; target kept`);
+      continue;
+    }
+    swept.push(project);
+  }
+  return swept;
+}
 
 const inside = (root, candidate) => {
   const relative = path.relative(root, candidate);
@@ -45,4 +57,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const extra = process.argv.slice(2);
   const removed = removeJobOutputs(workspace, extra.length ? [...JOB_OUTPUTS, ...extra] : JOB_OUTPUTS);
   console.log(removed.length ? `Removed ${removed.join(', ')}` : 'No job outputs to remove');
+  const swept = sweepRustTargets(workspace);
+  console.log(swept.length ? `Swept Rust targets older than ${SWEEP_DAYS} days in ${swept.join(', ')}` : 'No Rust targets swept');
 }

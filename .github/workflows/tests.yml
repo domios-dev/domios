@@ -238,6 +238,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          # Keep the warm target between jobs; the cleanup step sweeps it by age.
+          clean: false
           fetch-depth: 0
         env:
           GIT_CONFIG_COUNT: '1'
@@ -394,6 +396,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          # Keep the warm target between jobs; the cleanup step sweeps it by age.
+          clean: false
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
