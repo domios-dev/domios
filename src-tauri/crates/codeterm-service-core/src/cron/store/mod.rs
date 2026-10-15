@@ -21,7 +21,7 @@ mod tabs;
 mod tests;
 
 use std::collections::HashMap;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -45,7 +45,7 @@ pub use tabs::write_log;
 #[cfg(any(test, feature = "test-support"))]
 use crate::cron::clock::system_clock;
 use crate::cron::clock::SharedClock;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::persisted_state::{Loaded, StateFile};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -171,14 +171,14 @@ pub struct CronStore {
 }
 
 impl CronStore {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new() -> Self {
         Self::new_with_clock(system_clock())
     }
 
     /// Production path + an injected clock — the daemon uses this with a
     /// MockClock when CODETERM_TEST_CLOCK=1 (e2e time travel).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new_with_clock(clock: SharedClock) -> Self {
         let dir = crate::paths::data_dir();
         Self::load(
@@ -242,7 +242,7 @@ impl CronStore {
     }
 
     /// Legacy JSON save; a Storage-backed store refuses it.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn save(&self) -> Result<(), String> {
         let path = self.backend.legacy_path()?;
         let json = serde_json::to_string_pretty(&self.file).map_err(|e| e.to_string())?;
@@ -250,17 +250,17 @@ impl CronStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn state_file(path: &Path) -> StateFile {
     StateFile::new(path).with_validator(validate_cron_file)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn parse_cron_file(text: &str) -> Result<CronFile, String> {
     serde_json::from_str(text).map_err(|error| error.to_string())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn validate_cron_file(text: &str) -> Result<(), String> {
     parse_cron_file(text).map(|_| ())
 }
