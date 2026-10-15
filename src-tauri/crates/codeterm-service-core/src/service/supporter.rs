@@ -14,27 +14,30 @@ use crate::mem::decision::token_store::TokenStore;
 
 mod activity;
 mod backoff;
-pub(crate) mod connections;
+pub mod connections;
 mod feed;
 mod journal;
 mod narrative;
 mod physical;
-pub(crate) mod registry;
+pub mod registry;
 pub(crate) mod rerank;
 mod spend;
 mod storage;
 
-pub(crate) use activity::SupporterRuntime;
-pub(crate) use journal::{Action, ActionRecord, VerdictKind};
-pub(crate) use narrative::sentinel as sentinel_questions;
+pub use activity::SupporterRuntime;
+pub use journal::Action;
+pub use journal::ActionRecord;
+pub use journal::VerdictKind;
+pub use narrative::sentinel as sentinel_questions;
+pub use narrative::ActivityContext;
+pub use narrative::QuestionAnswer;
 pub(crate) use narrative::{
     provider_update as update_questions, recovery as recovery_questions, tab_state as tab_questions,
 };
-pub(crate) use narrative::{ActivityContext, QuestionAnswer};
 use registry::SupporterRegistry;
 
 #[derive(Default)]
-pub(crate) struct TokenSnapshot {
+pub struct TokenSnapshot {
     pub(crate) usable: bool,
     pub(crate) acl_invalid: bool,
 }
@@ -57,7 +60,7 @@ impl TokenSnapshot {
     }
 }
 
-pub(crate) fn read_token_snapshot(
+pub fn read_token_snapshot(
     runtime: &SupporterRuntime,
     store: &TokenStore,
     adapter: &str,
@@ -75,7 +78,7 @@ pub(crate) fn report_token_acl_state(
     runtime.token_acl_state_changed(adapter, snapshot.acl_invalid);
 }
 
-pub(crate) fn supporter_connected(
+pub fn supporter_connected(
     cfg: &SupporterConfig,
     registry: &SupporterRegistry,
     token_store: &TokenSnapshot,
@@ -84,7 +87,7 @@ pub(crate) fn supporter_connected(
         .is_some_and(|model| model.token_mode() != TokenMode::Required || token_store.usable)
 }
 
-pub(crate) fn configured_model(
+pub fn configured_model(
     cfg: &SupporterConfig,
     registry: &SupporterRegistry,
 ) -> Option<Arc<dyn DecisionModel>> {
@@ -102,11 +105,7 @@ pub(crate) fn configured_model(
     Some(adapter)
 }
 
-pub(crate) fn restore_model(
-    cfg: &SupporterConfig,
-    id: &str,
-    adapter: &Arc<dyn DecisionModel>,
-) -> bool {
+pub fn restore_model(cfg: &SupporterConfig, id: &str, adapter: &Arc<dyn DecisionModel>) -> bool {
     let model = cfg
         .connection(id)
         .model
@@ -127,7 +126,7 @@ pub(crate) fn runtime() -> Arc<SupporterRuntime> {
         .clone()
 }
 
-pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<SupporterRuntime> {
+pub fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<SupporterRuntime> {
     let runtime = runtime();
     let mux = svc.mux.clone();
     let app = svc.app_handle.clone();
@@ -158,11 +157,11 @@ pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<Sup
     runtime
 }
 
-pub(crate) fn criteria_hash(bytes: &[u8]) -> String {
+pub fn criteria_hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-pub(crate) fn budgeted_model_with_activity(
+pub fn budgeted_model_with_activity(
     model: Arc<dyn DecisionModel>,
     runtime: Arc<SupporterRuntime>,
     cap: usize,
@@ -355,7 +354,7 @@ impl DecisionModel for BudgetedModel {
     }
 }
 
-pub(crate) fn activity_status(runtime: &SupporterRuntime, cap: usize) -> Value {
+pub fn activity_status(runtime: &SupporterRuntime, cap: usize) -> Value {
     let mut status = runtime.status(cap);
     status["observation_scheduler"] = super::supporter_tab_state::scheduler::status();
     status

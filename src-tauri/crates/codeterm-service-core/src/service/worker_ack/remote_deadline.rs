@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tauri::Manager;
 
 impl ServiceContext {
-    pub(crate) fn acknowledge_remote_worker_ack(
+    pub fn acknowledge_remote_worker_ack(
         &self,
         plan_id: &str,
         task_id: &str,
@@ -16,7 +16,7 @@ impl ServiceContext {
         self.worker_ack.acknowledge(&identity);
     }
 
-    pub(crate) fn arm_remote_worker_ack_deadline(
+    pub fn arm_remote_worker_ack_deadline(
         &self,
         plan_id: &str,
         task_id: &str,
@@ -108,7 +108,7 @@ impl ServiceContext {
     }
 }
 
-fn remote_worker_ack_identity(
+pub fn remote_worker_ack_identity(
     plan_id: &str,
     task_id: &str,
     attempt_id: &str,

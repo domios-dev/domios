@@ -69,14 +69,14 @@ fn saved_blueprint(
 fn validate_saved_blueprints(resources: &Resources) -> Result<(), String> {
     for saved in &resources.blueprints {
         saved_blueprint(saved)?;
-        serde_json::from_value::<crate::sentinel::store::Sentinel>(saved.clone())
+        serde_json::from_value::<codeterm_sentinel::store::Sentinel>(saved.clone())
             .map_err(|error| format!("Saved blueprint is unreadable: {error}"))?;
     }
     Ok(())
 }
 
 impl ServiceContext {
-    pub(crate) fn recover_close_inventories(&self) -> Result<(), String> {
+    pub fn recover_close_inventories(&self) -> Result<(), String> {
         let records = self.mux.read().closed_structure_records()?;
         for record in records
             .into_iter()
@@ -108,7 +108,7 @@ impl ServiceContext {
             workspace,
             team,
             id.clone(),
-            super::team::now_ms(),
+            super::team_core::now_ms(),
         )?;
         let team_ids: HashSet<_> = record.teams.iter().map(|team| team.id.as_str()).collect();
         let plans = self
@@ -305,7 +305,7 @@ impl ServiceContext {
     fn restore_history_plans(&self, resources: &Resources) -> Result<(), String> {
         for saved in &resources.plans {
             self.plan_store
-                .with_plan(&saved.id, super::team::now_ms(), |current| {
+                .with_plan(&saved.id, super::team_core::now_ms(), |current| {
                     restore_plan_metadata(current, saved);
                     Ok(())
                 })

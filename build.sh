@@ -2226,7 +2226,7 @@ CodeTerm build commands
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-archives                 Compile and archive test profiles with the shared cache
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <input-macos|input-windows|billing|account|analytics|app|shell|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
+  test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
@@ -2478,7 +2478,7 @@ EOF
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires billing, account, analytics, app, shell, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
+    test_scope="${2:?test-one requires billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -2506,6 +2506,16 @@ EOF
       paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
       input-macos|input-windows)
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
+        ;;
+      root)
+        prepare_dev_frontend_dist "$(pwd -P)"
+        prepare_bundle_stubs
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        ;;
+      api|socket|commands|sentinel-host|codeterm-api|codeterm-socket|codeterm-commands|codeterm-sentinel-host)
+        prepare_dev_frontend_dist "$(pwd -P)"
+        prepare_bundle_stubs
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-${test_scope#codeterm-}" --lib "$test_filter"
         ;;
       frontend-bundle|codeterm-frontend-bundle)
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-frontend-bundle --lib "$test_filter"
@@ -2554,7 +2564,7 @@ EOF
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
       codeterm-*) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$test_scope" --lib "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, shell, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package)" >&2; exit 2 ;;
     esac
     ;;
   nextest)

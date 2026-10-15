@@ -11,7 +11,7 @@ use super::utility_deadline_model::{
 use super::ServiceContext;
 
 #[derive(Clone, Serialize, Deserialize)]
-struct Deadline {
+pub struct Deadline {
     tab_id: String,
     owner: String,
     started_ms: u64,
@@ -21,7 +21,7 @@ struct Deadline {
     command_started_ms: Option<u64>,
 }
 
-struct Armed {
+pub struct Armed {
     deadline: Deadline,
     cancel: mpsc::Sender<()>,
 }
@@ -56,7 +56,7 @@ impl ServiceContext {
             .map(|entry| serde_json::to_value(&entry.deadline).unwrap_or_default())
     }
 
-    pub(crate) fn set_utility_timeout(
+    pub fn set_utility_timeout(
         &self,
         tab_id: &str,
         owner: &str,
@@ -130,7 +130,7 @@ impl ServiceContext {
         remove_deadline(self, tab_id, &mut armed)
     }
 
-    pub(crate) fn prepare_utility_command(&self, tab_id: &str, command: &str) {
+    pub fn prepare_utility_command(&self, tab_id: &str, command: &str) {
         {
             let mut mux = self.mux.write();
             if let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| tab.is_utility_shell()) {
@@ -253,7 +253,7 @@ fn remove_deadline(
     Ok(())
 }
 
-fn arm(
+pub fn arm(
     service: &ServiceContext,
     deadline: Deadline,
     armed: &mut HashMap<String, Armed>,
@@ -294,7 +294,7 @@ fn arm(
     Ok(())
 }
 
-pub(crate) fn restore(service: &ServiceContext) {
+pub fn restore(service: &ServiceContext) {
     let directory = service.agent_pad_data_dir.join("utility-deadlines");
     let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries,

@@ -79,7 +79,7 @@ impl super::ServiceContext {
         }
     }
 
-    pub(crate) fn require_managed_send_allowed(
+    pub fn require_managed_send_allowed(
         &self,
         target: &str,
         source: Option<&str>,
@@ -109,7 +109,7 @@ impl super::ServiceContext {
         managed_send_refusal(state.as_ref(), origin).map_or(Ok(()), Err)
     }
 
-    pub(crate) fn require_managed_terminal_input_allowed(
+    pub fn require_managed_terminal_input_allowed(
         &self,
         pty_id: &str,
         bytes: &[u8],

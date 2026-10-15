@@ -67,13 +67,17 @@ class TrustedFramingTests(unittest.TestCase):
 
         argv = run.call_args.args[0]
         trusted_system = prompt_under_test + self.runner.EVAL_WRAPPER_SUFFIX
-        salt = self.runner._cache.sample_salt(0)
+        salt = "isolated-tools-disabled:" + self.runner._cache.sample_salt(0)
         self.assertTrue(sample.ok)
         self.assertFalse(sample.from_cache)
         self.assertEqual(command_envelope, sample.text)
         self.assertEqual(raw_eval, self.argv_value(argv, "-p"))
         self.assertNotIn(self.runner.EVAL_WRAPPER_SUFFIX, self.argv_value(argv, "-p"))
         self.assertNotIn("--system-prompt", argv)
+        self.assertEqual("", self.argv_value(argv, "--tools"))
+        self.assertNotIn("--allowedTools", argv)
+        self.assertEqual("", self.argv_value(argv, "--setting-sources"))
+        self.assertIn("--strict-mcp-config", argv)
         self.assertEqual(spawned_system["cwd"] / "system-prompt.md", spawned_system["path"])
         self.assertEqual(trusted_system, spawned_system["text"])
         cache_get.assert_called_once_with(
@@ -150,10 +154,23 @@ class TrustedFramingTests(unittest.TestCase):
             [call.args for call in cache_get.call_args_list],
         )
         self.assertEqual(
-            [{"namespace": "agent", "salt": self.runner._cache.sample_salt(0)}] * 2,
+            [{"namespace": "agent", "salt": "isolated-tools-disabled:" + self.runner._cache.sample_salt(0)}] * 2,
             [call.kwargs for call in cache_get.call_args_list],
         )
         self.assertNotEqual(system_a, system_b)
+
+    def test_empty_actor_output_is_an_error_and_never_cached(self):
+        for envelope in ({"result": ""}, {"result": "  "}, {"result": "partial", "is_error": True, "subtype": "error_max_turns"}):
+            with (
+                patch.object(self.runner.subprocess, "run", return_value=self.completed("")) as run,
+                patch.object(self.runner._cache, "get", return_value=None),
+                patch.object(self.runner._cache, "put") as cache_put,
+            ):
+                run.return_value.stdout = json.dumps(envelope)
+                sample = self.runner.run_agent("opaque scenario", "opaque prompt")
+            self.assertFalse(sample.ok)
+            self.assertIn("invalid actor response", sample.text)
+            cache_put.assert_not_called()
 
 
 class Utf8ProcessEntryTests(unittest.TestCase):

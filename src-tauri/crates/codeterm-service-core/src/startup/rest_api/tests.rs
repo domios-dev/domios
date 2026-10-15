@@ -661,28 +661,26 @@ async fn socket_restart_recovers_after_foreign_port_owner_is_released() {
         status.phase == RestApiPhase::Failed
     })
     .await;
-    let failed = crate::socket::server::rest_api::execute("rest_api.status", &control)
-        .await
-        .unwrap();
-    assert_eq!(failed["phase"], "failed");
-    assert_eq!(failed["diagnostic"], "bind_ownership_failed");
-    assert!(failed["message"]
-        .as_str()
+    let failed = control.status();
+    assert_eq!(failed.phase, RestApiPhase::Failed);
+    assert_eq!(
+        failed.diagnostic,
+        Some(RestApiDiagnostic::BindOwnershipFailed)
+    );
+    assert!(failed
+        .message
+        .as_deref()
         .unwrap()
         .contains(&address.to_string()));
-    let still_occupied = crate::socket::server::rest_api::execute("rest_api.restart", &control)
-        .await
-        .unwrap_err();
+    let still_occupied = control.restart_and_wait().await.unwrap();
     assert_eq!(
-        still_occupied.data.unwrap()["diagnostic"],
-        "bind_ownership_failed"
+        still_occupied.diagnostic,
+        Some(RestApiDiagnostic::BindOwnershipFailed)
     );
     drop(occupier);
-    let recovered = crate::socket::server::rest_api::execute("rest_api.restart", &control)
-        .await
-        .unwrap();
-    assert_eq!(recovered["phase"], "listening");
-    assert!(recovered["generation"].as_u64().unwrap() > failed["generation"].as_u64().unwrap());
+    let recovered = control.restart_and_wait().await.unwrap();
+    assert_eq!(recovered.phase, RestApiPhase::Listening);
+    assert!(recovered.generation > failed.generation);
     let response = reqwest::Client::builder()
         .no_proxy()
         .build()

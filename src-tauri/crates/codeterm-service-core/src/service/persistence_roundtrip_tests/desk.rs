@@ -1,5 +1,6 @@
 use super::{close, started};
 use crate::multiplexer::state::MultiplexerState;
+use crate::service::TeamExt;
 use crate::service::{TeamMutationCaller, TeamPlanCaller};
 use crate::session::store::StorageDeskAdapter;
 
@@ -498,10 +499,7 @@ fn team_create_round_trip_expected_red() {
     }
     mux.set_orchestrator_role(&tab_id).unwrap();
     let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
-    instance
-        .fixture
-        .service
-        .deliver_orchestrator_onboarding(&tab_id);
+    crate::service::deliver_orchestrator_onboarding(&instance.fixture.service, &tab_id);
     let team_id = instance
         .fixture
         .service
@@ -519,37 +517,6 @@ fn team_create_round_trip_expected_red() {
         .read()
         .get_team(&team_id)
         .is_some());
-    close(restarted);
-}
-
-#[test]
-fn team_rename_round_trip_expected_red() {
-    let root = tempfile::tempdir().unwrap();
-    let (mut mux, tab_id) = MultiplexerState::new();
-    let team_id = mux
-        .resolve_or_mint_team_for_parent(&tab_id)
-        .unwrap()
-        .team_id;
-    let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
-    crate::commands::mux_commands::mux_rename_team_service_core(
-        &instance.fixture.service,
-        team_id.clone(),
-        "renamed in service".into(),
-        None,
-    )
-    .expect("rename Team through the command service boundary");
-
-    let restarted = instance.restart(root.path());
-    assert_eq!(
-        restarted
-            .fixture
-            .service
-            .mux
-            .read()
-            .get_team(&team_id)
-            .and_then(|team| team.name.as_deref()),
-        Some("renamed in service")
-    );
     close(restarted);
 }
 

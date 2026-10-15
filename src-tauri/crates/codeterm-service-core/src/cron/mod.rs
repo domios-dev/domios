@@ -7,3 +7,5 @@ pub mod skill_block;
 pub(crate) mod spawn_spec;
 pub mod store;
 pub mod task_text;
+
+pub use recovery::{reconcile_restored_runs, RestoredCronSession};

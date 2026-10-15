@@ -11,7 +11,7 @@ use crate::AgentTrackerState;
 /// Stable, observable refusal used when an authoritative snapshot would have
 /// to wait for a lifecycle owner. Callers must wait for the next state event;
 /// this path never turns a readiness wait into a blocking lock acquisition.
-pub(crate) const SNAPSHOT_BUSY_ERROR: &str =
+pub const SNAPSHOT_BUSY_ERROR: &str =
     "state snapshot unavailable while tab state is initializing or changing";
 
 fn reconcile_tab_status(registry: &AgentRegistry, tab: &Tab, raw: TabStatus) -> TabStatus {
@@ -102,7 +102,7 @@ static SNAPSHOT_RELEASE_WAKE_ARMED: AtomicBool = AtomicBool::new(false);
 impl ServiceContext {
     /// Keeps a refusal's promise of a later state event, including when the
     /// lock owner itself never emits one (a session save, for example).
-    pub(crate) fn emit_state_changed_when_snapshot_readable(self: &Arc<Self>) {
+    pub fn emit_state_changed_when_snapshot_readable(self: &Arc<Self>) {
         if SNAPSHOT_RELEASE_WAKE_ARMED.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -126,14 +126,14 @@ impl ServiceContext {
 
     /// One tab's status as every surface reports it. The caller already holds
     /// `mux`; `agent_tracker` is taken second, per lock order.
-    pub(crate) fn resolved_tab_status(&self, tab: &Tab) -> Option<TabStatus> {
+    pub fn resolved_tab_status(&self, tab: &Tab) -> Option<TabStatus> {
         let tracker = self.agent_tracker.lock();
         crate::multiplexer::state::resolved_tab_status(tab, &tracker, |tab, raw| {
             self.reconcile_tab_status(tab, raw)
         })
     }
 
-    pub(crate) fn reconciled_tab_status_for_id(&self, tab_id: &str, raw: TabStatus) -> TabStatus {
+    pub fn reconciled_tab_status_for_id(&self, tab_id: &str, raw: TabStatus) -> TabStatus {
         self.mux
             .read()
             .get_tab(tab_id)
@@ -147,7 +147,7 @@ impl ServiceContext {
         snapshot_with_reconciled_status(&self.mux, &self.agent_tracker, &self.agent_registry)
     }
 
-    pub(crate) fn try_snapshot_with_reconciled_status(
+    pub fn try_snapshot_with_reconciled_status(
         &self,
     ) -> Option<crate::multiplexer::state::MultiplexerSnapshot> {
         try_snapshot_with_reconciled_status(&self.mux, &self.agent_tracker, &self.agent_registry)

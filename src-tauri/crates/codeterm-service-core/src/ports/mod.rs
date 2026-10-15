@@ -9,11 +9,11 @@
 //! - Every trait is object-safe and `Send + Sync`, asserted with `assert_port`.
 //! - Doc comments on ports stay within two lines.
 
+pub mod orchestration;
 pub mod rest;
-pub mod socket;
 pub mod sentinel;
+pub mod socket;
 pub mod transport;
-pub mod update;
 
 // Later lanes add one `assert_port::<dyn Trait>()` line per port trait.
 #[cfg(test)]

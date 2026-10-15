@@ -1,3 +1,5 @@
+pub const FRONTEND_READINESS_DEADLINE_ELAPSED: &str = "frontend_readiness_deadline_elapsed";
+
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -16,7 +18,7 @@ struct FrontendReadyState {
 }
 
 impl FrontendReadySignal {
-    fn arm(&self) -> u64 {
+    pub fn arm(&self) -> u64 {
         let mut state = self.state.lock();
         state.generation = state.generation.wrapping_add(1);
         state.ready_generation = None;
@@ -75,11 +77,11 @@ fn frontend_ready_signal() -> &'static FrontendReadySignal {
     SIGNAL.get_or_init(FrontendReadySignal::default)
 }
 
-pub(crate) fn arm_frontend_readiness() -> u64 {
+pub fn arm_frontend_readiness() -> u64 {
     frontend_ready_signal().arm()
 }
 
-pub(crate) fn frontend_readiness_generation() -> u64 {
+pub fn frontend_readiness_generation() -> u64 {
     frontend_ready_signal().generation()
 }
 
@@ -87,11 +89,11 @@ pub(crate) fn observe_frontend_boot() -> u64 {
     frontend_ready_signal().observe_boot()
 }
 
-pub(crate) fn mark_frontend_ready(generation: u64) -> bool {
+pub fn mark_frontend_ready(generation: u64) -> bool {
     frontend_ready_signal().mark_ready(generation)
 }
 
-pub(crate) fn wait_for_frontend_ready_until(generation: u64, deadline: Instant) -> bool {
+pub fn wait_for_frontend_ready_until(generation: u64, deadline: Instant) -> bool {
     frontend_ready_signal().wait_until(generation, deadline)
 }
 

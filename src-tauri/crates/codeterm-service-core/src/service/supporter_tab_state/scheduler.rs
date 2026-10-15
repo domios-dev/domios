@@ -69,7 +69,7 @@ pub(crate) struct ObservationHandle {
 
 #[cfg(test)]
 impl ObservationHandle {
-    pub(crate) fn join(self) -> std::thread::Result<Option<ShadowVerdict>> {
+    pub fn join(self) -> std::thread::Result<Option<ShadowVerdict>> {
         self.result.recv().unwrap_or(Ok(None))
     }
 }
@@ -109,7 +109,7 @@ impl Scheduler {
         Self(shared)
     }
 
-    pub(crate) fn submit(
+    pub fn submit(
         &self,
         tab: String,
         critical: bool,
@@ -180,7 +180,7 @@ impl Scheduler {
         })
     }
 
-    pub(crate) fn status(&self) -> Status {
+    pub fn status(&self) -> Status {
         let queue = self.0.queue.lock();
         Status {
             active: queue.tabs.len(),

@@ -2,7 +2,7 @@
 
 mod gate_delivery;
 pub(crate) mod heartbeat_gate;
-pub(crate) mod plan_reminder_nudge;
+pub mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
 mod remote_report;
@@ -12,21 +12,21 @@ mod report_delivery;
 mod report_diagnostics;
 mod report_event;
 mod report_persistence;
-pub(crate) mod report_plan_ctx;
+pub mod report_plan_ctx;
 mod report_target;
 pub(crate) mod stalled_team;
 mod status;
-mod team_plan_creation;
+pub mod team_plan_creation;
 mod worker_handoff;
-pub(crate) use worker_handoff::WorkerTurnSignal;
+pub use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub(crate) use report_delivery::HierarchyReportDelivery;
-pub(crate) use report_plan_ctx::{
+pub use report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
 };
 pub use status::TabStatusInfo;
-pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
+pub use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
 use planner_delivery::{epoch_ms, planner_rehydrate_payload, planner_request_payload};
 use report_persistence::{
@@ -84,7 +84,7 @@ impl ServiceContext {
         clear_planner_bindings_for_lifecycle_exit(&self.plan_store, tab_id, epoch_ms());
     }
 
-    pub(crate) fn replay_planner_requests_if_routable(&self, tab_id: &str) {
+    pub fn replay_planner_requests_if_routable(&self, tab_id: &str) {
         let now_ms = epoch_ms();
         for plan in self.plan_store.list_full() {
             let Some(crate::plan::PlannerRef::Tab {
@@ -279,7 +279,7 @@ impl ServiceContext {
             Some(crate::plan::PlannerRef::Tab { tab_id: bound, session_id: Some(session), .. })
                 if bound == tab_id && session == expected_session_id
         );
-        crate::service::orchestrator_digests::deliver_exact_role_target(
+        crate::service::role_target::deliver_exact_role_target(
             "planner",
             plan_id,
             intended_target,
@@ -313,7 +313,7 @@ impl ServiceContext {
         .map(|_| ())
     }
 
-    pub(crate) fn acknowledge_planner_request(
+    pub fn acknowledge_planner_request(
         &self,
         plan_id: &str,
         request_id: &str,
@@ -923,9 +923,8 @@ impl ServiceContext {
         let text = format!(
             "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
         );
-        let _ = crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
-            self, plan_id, owner, "plan", &text,
-        );
+        let _ = crate::ports::orchestration::installed(&self.extensions)
+            .deliver_orchestrator_notice_exact(plan_id, owner, "plan", &text);
     }
 
     /// Nudge the gate asker tab when a gate is answered.

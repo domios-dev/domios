@@ -9,10 +9,10 @@ use serde_json::{json, Value};
 use crate::mem::decision::token_store::TokenStore;
 use crate::service::supporter::registry::SupporterRegistry;
 
-pub(crate) static TRANSACTION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+pub static TRANSACTION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 #[derive(Debug, Serialize)]
-pub(crate) struct ConnectionError {
+pub struct ConnectionError {
     pub code: &'static str,
     pub message: &'static str,
 }
@@ -21,7 +21,7 @@ impl ConnectionError {
     fn new(code: &'static str, message: &'static str) -> Self {
         Self { code, message }
     }
-    pub(crate) fn unavailable() -> Self {
+    pub fn unavailable() -> Self {
         Self::new(
             "unavailable",
             "The adapter or local storage is unavailable. Refresh and try again.",
@@ -55,7 +55,7 @@ pub(crate) fn members(
     Ok(ids)
 }
 
-pub(crate) fn list(
+pub fn list(
     cfg: &SupporterConfig,
     registry: &SupporterRegistry,
     store: &TokenStore,
@@ -112,7 +112,7 @@ pub(crate) fn list(
     Ok(rows)
 }
 
-pub(crate) struct Connections<'a, F> {
+pub struct Connections<'a, F> {
     pub cfg: &'a mut SupporterConfig,
     pub registry: &'a SupporterRegistry,
     pub store: &'a TokenStore,
@@ -156,7 +156,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         Ok(())
     }
 
-    pub(crate) fn connect(
+    pub fn connect(
         &mut self,
         id: &str,
         requested: Option<String>,
@@ -216,7 +216,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         }
     }
 
-    pub(crate) fn use_adapter(&mut self, id: &str, requested: Option<String>) -> Result<Value> {
+    pub fn use_adapter(&mut self, id: &str, requested: Option<String>) -> Result<Value> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             return self.connect(id, requested, None, false);
         }
@@ -234,7 +234,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         Ok(json!({ "state": "active", "adapter": id, "model": model }))
     }
 
-    pub(crate) fn activate(&mut self, id: &str) -> Result<Value> {
+    pub fn activate(&mut self, id: &str) -> Result<Value> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             return Err(ConnectionError::new(
                 "unknown_adapter",
@@ -286,7 +286,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         Ok(())
     }
 
-    pub(crate) fn set_model(&mut self, id: &str, requested: String) -> Result<Value> {
+    pub fn set_model(&mut self, id: &str, requested: String) -> Result<Value> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             return Err(ConnectionError::new(
                 "unknown_adapter",
@@ -298,7 +298,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         Ok(json!({ "adapter": id, "model": model }))
     }
 
-    pub(crate) fn replace_token(&mut self, id: &str, token: &str) -> Result<Value> {
+    pub fn replace_token(&mut self, id: &str, token: &str) -> Result<Value> {
         let adapter = self.adapter(id)?;
         if adapter.token_mode() == TokenMode::None {
             return Err(ConnectionError::new(
@@ -318,7 +318,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         Ok(json!({ "adapter": id, "present": true }))
     }
 
-    pub(crate) fn clear_token(&mut self, id: &str) -> Result<Value> {
+    pub fn clear_token(&mut self, id: &str) -> Result<Value> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             self.adapter(id)?;
             return Ok(json!({ "adapter": id, "removed": false }));
@@ -340,7 +340,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         Ok(json!({ "adapter": id, "removed": present }))
     }
 
-    pub(crate) fn disconnect(&mut self, id: &str) -> Result<Value> {
+    pub fn disconnect(&mut self, id: &str) -> Result<Value> {
         if !members(self.cfg, self.registry, self.store)?.contains(id) {
             return Err(ConnectionError::new(
                 "unknown_adapter",

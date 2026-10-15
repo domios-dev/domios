@@ -33,7 +33,7 @@ pub(crate) fn agent_spawned(provider: Option<&str>, role: Option<&str>) -> Optio
     })
 }
 impl ServiceContext {
-    pub(crate) fn record_product_event(&self, event: Event) {
+    pub fn record_product_event(&self, event: Event) {
         if let Some(worker) = self
             .ext::<crate::service::analytics::AnalyticsCell>()
             .0
@@ -58,7 +58,7 @@ impl ServiceContext {
             }
         }
     }
-    pub(crate) fn record_product_feature(&self, feature: codeterm_analytics::Feature) {
+    pub fn record_product_feature(&self, feature: codeterm_analytics::Feature) {
         self.record_product_event(Event::FeatureUsed { feature });
     }
     pub(crate) fn record_product_agent_spawned(&self, tab_id: &str) {
@@ -193,3 +193,5 @@ pub(crate) fn subscription_event(
 }
 #[cfg(test)]
 mod tests;
+
+pub use update_confirm::stage_app;

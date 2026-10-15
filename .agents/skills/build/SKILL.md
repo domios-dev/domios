@@ -572,6 +572,7 @@ automation that needs a detached health gate and does not prove a visible window
 | Symptom | Cause | Recovery |
 |---|---|---|
 | A moved browser locator fails with E0433 at `dirs::home_dir()` | The extracted crate did not declare an existing third-party dependency that the app previously supplied | Declare `dirs = "6"` directly in the browser manifest, refresh the workspace lockfile, and rerun the focused check when the build owner authorizes it. |
+| `nextest <new-crate>` on Windows ends with `creating test list failed` and `--list` aborted with `0xc0000139` (procedure not found) | The extracted crate's test binary links tauri but has no Common Controls v6 manifest; only crates with the manifest `build.rs` get it | Copy `src-tauri/crates/codeterm-service-core/build.rs` into the new crate, then rerun the same nextest scope. Every crate whose tests link tauri needs it. |
 
 ### Focused Windows test prerequisite troubleshooting
 

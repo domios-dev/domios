@@ -782,8 +782,8 @@ fn cwd_relative_metadata_path(base: &std::path::Path, value: &str) -> Option<std
     canonical_path_from_path(&path)
 }
 
-#[cfg(test)]
-pub(crate) fn registered_launch_marker(tab_id: &str) -> Option<String> {
+#[cfg(any(test, feature = "test-support"))]
+pub fn registered_launch_marker(tab_id: &str) -> Option<String> {
     LAUNCH_MARKERS.lock().get(tab_id).cloned()
 }
 

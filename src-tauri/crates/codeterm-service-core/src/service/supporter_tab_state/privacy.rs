@@ -2,9 +2,9 @@ use serde_json::Value;
 
 const MAX_BYTES: usize = 8192;
 
-pub(crate) use codeterm_util::redact::text;
+pub use codeterm_util::redact::text;
 
-pub(crate) fn screen(input: &str) -> String {
+pub fn screen(input: &str) -> String {
     let redacted = text(&super::screen_tail(input));
     let mut start = redacted.len().saturating_sub(MAX_BYTES);
     while !redacted.is_char_boundary(start) {
@@ -18,7 +18,7 @@ pub(crate) fn complete_screen(input: &str) -> bool {
         && screen(input) == super::screen_tail(input)
 }
 
-pub(crate) fn value(input: &Value) -> Value {
+pub fn value(input: &Value) -> Value {
     match input {
         Value::String(s) => Value::String(text(s)),
         Value::Array(items) => Value::Array(items.iter().map(value).collect()),

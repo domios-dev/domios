@@ -14,16 +14,16 @@ use crate::service::startup_lease::{
 use super::ServiceContext;
 
 #[path = "worker_ack/launch_binding.rs"]
-mod launch_binding;
+pub mod launch_binding;
 #[path = "worker_ack/plan_deadline.rs"]
-mod plan_deadline;
+pub mod plan_deadline;
 #[path = "worker_ack/registry.rs"]
-mod registry;
+pub mod registry;
 #[path = "worker_ack/remote_deadline.rs"]
-mod remote_deadline;
+pub mod remote_deadline;
 #[cfg(test)]
 use plan_deadline::worker_ack_reminder_message;
-pub(crate) use registry::WorkerAckIdentity;
+pub use registry::WorkerAckIdentity;
 use registry::WorkerAckState;
 
 const MEASURED_CLAUDE_COLD_START_SECS: u64 = 34;
@@ -31,10 +31,10 @@ const MEASURED_CODEX_COLD_START_SECS: u64 = 38;
 const COLD_START_DEADLINE_SECS: u64 = 120;
 const COLD_START_MEASUREMENT_METHOD: &str =
     "visible-spawn launch to first session binding in lifecycle logs";
-pub(crate) const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
-pub(crate) const ATTEMPT_STATE_FINALIZED: &str = "finalized";
-pub(crate) const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
-pub(crate) const REMOTE_WORKER_ACK_DEADLINE: Duration =
+pub const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
+pub const ATTEMPT_STATE_FINALIZED: &str = "finalized";
+pub const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
+pub const REMOTE_WORKER_ACK_DEADLINE: Duration =
     Duration::from_secs(COLD_START_DEADLINE_SECS * 2);
 const WORKER_ACK_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
@@ -59,14 +59,14 @@ fn interactive_child_pty_recovery(tab_id: &str, attempt_id: &str) -> Value {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WorkerAckSignal {
+pub enum WorkerAckSignal {
     Acknowledged,
     Superseded,
     StartupHeld,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AgentStartupSignal {
+pub enum AgentStartupSignal {
     Ready,
     Held,
     LaunchCommandFinished(Option<i32>),
@@ -75,25 +75,25 @@ pub(crate) enum AgentStartupSignal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AgentStartupAcknowledgement {
+pub enum AgentStartupAcknowledgement {
     Acknowledged,
     AlreadyAcknowledged,
     NotRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AgentStartupNoticeOutcome {
+pub enum AgentStartupNoticeOutcome {
     Resolved,
     Overdue { exit_code: Option<i32> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WorkerAckWaitOutcome {
+pub enum WorkerAckWaitOutcome {
     Resolved,
     Overdue,
 }
 
-pub(crate) fn await_remote_worker_ack(
+pub fn await_remote_worker_ack(
     receiver: &Receiver<WorkerAckSignal>,
     timeout: Duration,
 ) -> bool {
@@ -104,13 +104,13 @@ pub(crate) fn await_remote_worker_ack(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WaiterExpiry {
+pub enum WaiterExpiry {
     Expired,
     Extended,
     NoLongerCurrent,
 }
 
-enum AgentStartupArm {
+pub enum AgentStartupArm {
     Armed(Receiver<AgentStartupSignal>),
     Extended,
     AlreadyAcknowledged,
@@ -183,18 +183,18 @@ fn await_worker_ack(
     }
 }
 
-struct WorkerAckWaiter {
+pub struct WorkerAckWaiter {
     observers: Vec<Sender<WorkerAckSignal>>,
 }
 
-struct AgentStartupWaiter {
+pub struct AgentStartupWaiter {
     authority: StartupAuthority,
     deadline_generation: u64,
     sender: Sender<AgentStartupSignal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PendingAgentStartupSupervisor {
+pub struct PendingAgentStartupSupervisor {
     supervisor_tab_id: String,
     agent_title: String,
     team_id: Option<String>,
@@ -223,7 +223,7 @@ fn startup_authority_matches_binding(
         && authority.binding_nonce.as_deref() == Some(binding_nonce)
 }
 
-pub(crate) fn startup_task_identity_from_env(
+pub fn startup_task_identity_from_env(
     env: &HashMap<String, String>,
 ) -> Option<StartupTaskIdentity> {
     Some(StartupTaskIdentity {
@@ -234,7 +234,7 @@ pub(crate) fn startup_task_identity_from_env(
 }
 
 #[derive(Default)]
-pub(crate) struct WorkerAckRegistry {
+pub struct WorkerAckRegistry {
     waiters: Mutex<WorkerAckState>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
     startup_acknowledged: Mutex<HashMap<String, StartupAuthority>>,
@@ -520,7 +520,7 @@ impl WorkerAckRegistry {
 
     /// Authorize and hold under one lock so a replacement attempt armed
     /// concurrently can never be held by the previous attempt's creator.
-    pub(crate) fn hold_startup_authorized(
+    pub fn hold_startup_authorized(
         &self,
         caller_tab_id: &str,
         tab_id: &str,
@@ -716,7 +716,7 @@ impl WorkerAckRegistry {
     }
 }
 
-pub(crate) fn worker_ack_timeout_event(
+pub fn worker_ack_timeout_event(
     plan_id: &str,
     task_id: &str,
     tab_id: &str,
