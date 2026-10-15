@@ -144,7 +144,9 @@ describe('build nextest ratchet', () => {
       return { status: 0, stdout: 'PASS [ 0.2s] codeterm opaque\nSummary [ 0.2s] 1 tests run\n' };
     }), 0);
     assert.equal(args[args.indexOf('--archive-file') + 1], 'opaque-archive.tar.zst');
-    assert.ok(args.includes('--workspace-remap'));
+    const workspace = args[args.indexOf('--workspace-remap') + 1];
+    assert.equal(workspace, resolve('src-tauri'));
+    assert.match(readFileSync(join(workspace, 'Cargo.toml'), 'utf8'), /\[workspace\]/);
     assert.ok(!args.includes('--binaries-metadata'));
   });
 
