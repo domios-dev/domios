@@ -33,7 +33,7 @@ DEV_NOTIFY_TAB=""
 # Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
 # (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
 case "$CMD" in
-  check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|install-local|build|test|verify|fmt-check)
+  qa-lock-storm|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -2209,6 +2209,7 @@ CodeTerm build commands
                               Scripted iPhone touch scroll over the mounted Chat window; fails on any visual jump
   install-local               Build and install locally (cheap fmt/size/clean gates first)
   script-guards               Run the script catalogue gate and uncalled fixture guards
+  qa-lock-storm [--seconds N] --out FILE  Measure DEV routes and lock holds (default 120s; --notify-tab supported)
   qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
   lane-recover keep|merge ...  Park a wrong-base lane on keep/<lane>, then merge it back
 
@@ -2664,6 +2665,149 @@ EOF
       sg_run node --test scripts/check-analytics-catalog.test.mjs
     fi
     exit "$sg_failed"
+    ;;
+  qa-lock-storm)
+    storm_seconds=120
+    storm_out=""
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --seconds|--out)
+          [ "$#" -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 2; }
+          case "$1" in --seconds) storm_seconds="$2" ;; --out) storm_out="$2" ;; esac
+          shift 2 ;;
+        *) echo "ERROR: usage: qa-lock-storm [--seconds N] --out FILE" >&2; exit 2 ;;
+      esac
+    done
+    [[ "$storm_seconds" =~ ^[1-9][0-9]*$ ]] && [ "$storm_seconds" -le 3600 ] && [ -n "$storm_out" ] || {
+      echo "ERROR: --seconds must be 1..3600 and --out FILE is required" >&2; exit 2;
+    }
+    source evals/_lib/lib.sh
+    storm_tabs="$(dev_get /api/tabs)"
+    storm_tab="$(printf '%s' "$storm_tabs" | python3 -c 'import json,sys; tabs=json.load(sys.stdin); print(tabs[0]["id"] if tabs else "")')"
+    [ -n "$storm_tab" ] || { echo "ERROR: DEV needs an existing tab" >&2; exit 1; }
+    storm_log="$(dev_data_dir)/logs/codeterm.log"
+    storm_bash="$BASH"
+    if is_windows; then
+      storm_bash="$(cygpath -m "$storm_bash")"
+      storm_log="$(cygpath -m "$storm_log")"
+      storm_out="$(cygpath -m "$storm_out")"
+    fi
+    python3 - "$storm_seconds" "$storm_out" "$storm_tab" "$storm_log" "$storm_bash" <<'LOCK_STORM_PY'
+import collections
+import concurrent.futures
+import datetime
+import json
+import math
+import pathlib
+import re
+import subprocess
+import sys
+import threading
+import time
+
+
+def percentile(values, fraction):
+    return sorted(values)[max(0, math.ceil(len(values) * fraction) - 1)] if values else None
+
+
+def lock_histogram(lines, start, end):
+    locks, sites = collections.Counter(), collections.Counter()
+    unmatched = 0
+    for line in lines:
+        if "[LOCK-HOLD]" not in line:
+            continue
+        stamp = re.search(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", line)
+        if not stamp:
+            continue
+        moment = datetime.datetime.fromisoformat(stamp[0].replace("Z", "+00:00")).timestamp()
+        # The logger has second precision: include both boundary seconds.
+        if not math.floor(start) <= moment <= math.floor(end):
+            continue
+        match = re.search(r"\[LOCK-HOLD\] (.+?)\.\w+\(\) held \d+ms \(waited \d+ms\) at (.+:\d+)", line)
+        if match:
+            locks[match[1]] += 1
+            sites[f"{match[1]} at {match[2]}"] += 1
+        else:
+            unmatched += 1
+    return {"per_lock": dict(locks), "per_site": dict(sites), "unmatched": unmatched}
+
+
+WORKER = r'''
+source evals/_lib/lib.sh
+err="$(mktemp)"
+trap 'rm -f "$err"' EXIT
+while IFS= read -r route; do
+  route="${route%$'\r'}"
+  rc=0
+  CODETERM_HTTP_STATUS_LOG=1 dev_get "$route" > /dev/null 2> "$err" || rc=$?
+  status=transport_error
+  while IFS= read -r line; do
+    if [[ "$line" == "[dev-http] "* && "$line" =~ HTTP\ ([0-9]{3}) ]]; then status="${BASH_REMATCH[1]}"; fi
+  done < "$err"
+  printf '%s %s\n' "$rc" "$status"
+done
+'''
+
+
+def measure(route, deadline):
+    values, statuses = [], collections.Counter()
+    with subprocess.Popen([sys.argv[5], "-c", WORKER], stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE, text=True) as worker:
+        next_tick = time.monotonic()
+        while time.monotonic() < deadline:
+            before = time.monotonic()
+            worker.stdin.write(route + "\n")
+            worker.stdin.flush()
+            response = worker.stdout.readline().split()
+            values.append((time.monotonic() - before) * 1000)
+            if len(response) != 2:
+                raise RuntimeError(f"DEV helper exited for {route}")
+            statuses[response[1]] += 1
+            next_tick += 0.250
+            # Cadence generates load; it never establishes readiness or success.
+            if next_tick < time.monotonic():
+                next_tick = time.monotonic()
+            threading.Event().wait(max(0, min(next_tick, deadline) - time.monotonic()))
+        worker.stdin.close()
+        worker.wait(timeout=35)
+    return {"samples": len(values), "p50_ms": percentile(values, .50),
+            "p95_ms": percentile(values, .95), "max_ms": max(values, default=None),
+            "status_counts": dict(statuses)}
+
+
+def main():
+    seconds, out, tab, log = int(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3], pathlib.Path(sys.argv[4])
+    routes = ["/api/mux/state", "/api/tabs", f"/api/tabs/{tab}/chat"]
+    start, deadline = time.time(), time.monotonic() + seconds
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {route: pool.submit(measure, route, deadline) for route in routes}
+        measurements = {route: future.result() for route, future in futures.items()}
+    end = time.time()
+    with log.open(encoding="utf-8", errors="replace") as stream:
+        holds = lock_histogram(stream, start, end)
+    result = {"start_epoch": start, "end_epoch": end, "requested_seconds": seconds,
+              "cadence_ms": 250, "latency_scope": "dev_get including DEV identity checks",
+              "log_window_precision": "inclusive boundary seconds", "log_path": str(log),
+              "routes": measurements, "lock_holds": holds}
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print("Route                                      n    p50 ms    p95 ms    max ms  statuses")
+    for route, stats in measurements.items():
+        print(f"{route:42} {stats['samples']:4} {stats['p50_ms'] or 0:9.1f} {stats['p95_ms'] or 0:9.1f} {stats['max_ms'] or 0:9.1f}  {stats['status_counts']}")
+    for group in ("per_lock", "per_site"):
+        print(f"LOCK-HOLD {group}:")
+        for name, count in sorted(holds[group].items(), key=lambda item: (-item[1], item[0])):
+            print(f"  {count:5}  {name}")
+        if not holds[group]:
+            print("      0  (none)")
+    print(f"Unmatched LOCK-HOLD lines: {holds['unmatched']}; JSON: {out}")
+    print("Latency includes dev_get checks. Log window includes both boundary seconds.")
+
+
+if __name__ == "__main__":
+    main()
+LOCK_STORM_PY
     ;;
   qa-batch)
     # ./build.sh qa-batch <label> [--notify-tab <tab>] '<cmd>' ... — `check` always runs first.
