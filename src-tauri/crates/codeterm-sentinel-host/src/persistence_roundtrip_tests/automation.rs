@@ -1,7 +1,6 @@
 use super::{close, ServiceInstance};
 use crate::SentinelExt;
 use codeterm_service_core::cron::clock;
-use tauri::Manager;
 
 #[test]
 fn sentinel_create_update_and_stop_round_trip_expected_pass() {
@@ -10,8 +9,8 @@ fn sentinel_create_update_and_stop_round_trip_expected_pass() {
     mux.get_tab_mut(&tab_id).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let store = crate::store::Store::with_storage(&instance.storage, clock::system_clock());
-    let handle = crate::scheduler::fixture_handle(store, instance.fixture._app.handle().clone());
-    assert!(instance.fixture.service.app_handle.manage(handle.clone()));
+    let handle =
+        crate::scheduler::fixture_handle_with_ui(store, instance.fixture.service.ui.clone());
     crate::manage_fixture_ports(&instance.fixture.service, &handle);
     let caller = instance
         .fixture
@@ -60,9 +59,9 @@ fn sentinel_create_update_and_stop_round_trip_expected_pass() {
         .expect("stop sentinel through ServiceContext");
 
     let restarted = instance.restart(root.path());
-    let handle = crate::scheduler::fixture_handle(
+    let handle = crate::scheduler::fixture_handle_with_ui(
         crate::store::Store::with_storage(&restarted.storage, clock::system_clock()),
-        restarted.fixture._app.handle().clone(),
+        restarted.fixture.service.ui.clone(),
     );
     let restored = handle
         .store
@@ -74,7 +73,6 @@ fn sentinel_create_update_and_stop_round_trip_expected_pass() {
     assert_eq!(restored.question, "updated question");
     assert!(restored.machine.stopped);
     assert_eq!(restored.last_reason.as_deref(), Some("stopped_by_creator"));
-    assert!(restarted.fixture.service.app_handle.manage(handle.clone()));
     crate::manage_fixture_ports(&restarted.fixture.service, &handle);
     close(restarted);
 }

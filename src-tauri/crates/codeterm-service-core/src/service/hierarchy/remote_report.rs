@@ -1,5 +1,4 @@
 use super::{resolve_peer_client_by_name, ServiceContext};
-use tauri::Manager;
 
 impl ServiceContext {
     pub(super) fn relay_report_to_peer(
@@ -12,7 +11,7 @@ impl ServiceContext {
         body: String,
     ) {
         let client = {
-            let mesh_handle = self.app_handle.state::<crate::MeshStateHandle>();
+            let mesh_handle = self.ext::<crate::MeshStateHandle>();
             let mesh = mesh_handle.lock();
             resolve_peer_client_by_name(&mesh, &peer)
         };

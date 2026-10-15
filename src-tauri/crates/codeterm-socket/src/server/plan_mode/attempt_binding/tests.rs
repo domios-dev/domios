@@ -162,13 +162,8 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         "task_id": task_id,
         "session_binding_nonce": CURRENT_NONCE,
     }));
-    let failed_ack = crate::server::agent::dispatch(
-        "agent.ack",
-        &ack_params,
-        &fixture.service.app_handle,
-        &service,
-    )
-    .expect_err("ACK cannot use the attempt's superseded nonce");
+    let failed_ack = crate::server::agent::dispatch("agent.ack", &ack_params, &service)
+        .expect_err("ACK cannot use the attempt's superseded nonce");
     assert_eq!(failed_ack.code, -32603);
     assert!(failed_ack
         .message
@@ -209,13 +204,9 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
             let mux = fixture.service.mux.read();
             serde_json::to_value(mux.get_tab(&tab_id).unwrap()).unwrap()
         };
-        let refusal = super::super::dispatch(
-            "plan.session.rebind",
-            &Some(caller.clone()),
-            &fixture.service.app_handle,
-            &service,
-        )
-        .expect_err("targeted restoration requires the current Worker and its Team");
+        let refusal =
+            super::super::dispatch("plan.session.rebind", &Some(caller.clone()), &service)
+                .expect_err("targeted restoration requires the current Worker and its Team");
         assert_eq!(
             refusal.data.as_ref().unwrap()["type"],
             "attempt_binding_restore_refused"
@@ -257,13 +248,8 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         let mux = fixture.service.mux.read();
         serde_json::to_value(mux.get_tab(&tab_id).unwrap()).unwrap()
     };
-    let refusal = super::super::dispatch(
-        "plan.session.rebind",
-        &Some(caller.clone()),
-        &fixture.service.app_handle,
-        &service,
-    )
-    .expect_err("the plan Team must match the authenticated Worker Team");
+    let refusal = super::super::dispatch("plan.session.rebind", &Some(caller.clone()), &service)
+        .expect_err("the plan Team must match the authenticated Worker Team");
     assert_eq!(
         refusal.data.as_ref().unwrap()["type"],
         "attempt_binding_restore_refused"
@@ -286,13 +272,8 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         .unwrap();
     let mut stale_epoch = caller.clone();
     stale_epoch["owner_epoch"] = json!(owner_epoch + 1);
-    let stale = super::super::dispatch(
-        "plan.session.rebind",
-        &Some(stale_epoch),
-        &fixture.service.app_handle,
-        &service,
-    )
-    .expect_err("a stale owner epoch cannot restore an attempt");
+    let stale = super::super::dispatch("plan.session.rebind", &Some(stale_epoch), &service)
+        .expect_err("a stale owner epoch cannot restore an attempt");
     assert_eq!(stale.data.as_ref().unwrap()["kind"], "stale_task_epoch");
     assert_eq!(
         store.show_task(&task_id).unwrap().task,
@@ -305,13 +286,8 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         })
         .unwrap();
     let retired_task = store.show_task(&task_id).unwrap().task;
-    let retired = super::super::dispatch(
-        "plan.session.rebind",
-        &Some(caller.clone()),
-        &fixture.service.app_handle,
-        &service,
-    )
-    .expect_err("retired attempts cannot regain authority");
+    let retired = super::super::dispatch("plan.session.rebind", &Some(caller.clone()), &service)
+        .expect_err("retired attempts cannot regain authority");
     assert_eq!(retired.data.as_ref().unwrap()["kind"], "attempt_not_unique");
     assert_eq!(store.show_task(&task_id).unwrap().task, retired_task);
     store
@@ -320,13 +296,8 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
             Ok(())
         })
         .unwrap();
-    let rebound = super::super::dispatch(
-        "plan.session.rebind",
-        &Some(caller.clone()),
-        &fixture.service.app_handle,
-        &service,
-    )
-    .expect("the existing rebind RPC should restore the exact acknowledged attempt");
+    let rebound = super::super::dispatch("plan.session.rebind", &Some(caller.clone()), &service)
+        .expect("the existing rebind RPC should restore the exact acknowledged attempt");
 
     let restored_task = store.show_task(&task_id).unwrap().task;
     let mut expected = before_role_and_team_refusals.clone();
@@ -335,13 +306,8 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         .binding_restorations
         .clone();
     assert_eq!(restored_task, expected);
-    let ack = crate::server::agent::dispatch(
-        "agent.ack",
-        &ack_params,
-        &fixture.service.app_handle,
-        &service,
-    )
-    .expect("same-session restored attempt must ACK without session env injection");
+    let ack = crate::server::agent::dispatch("agent.ack", &ack_params, &service)
+        .expect("same-session restored attempt must ACK without session env injection");
     assert_eq!(ack["attempt_id"], attempt_id);
     assert_eq!(store.show_task(&task_id).unwrap().task, restored_task);
 
@@ -369,13 +335,11 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     for invalid_session in [json!(null), json!(""), json!(42)] {
         let mut invalid_caller = caller.clone();
         invalid_caller["session_id"] = invalid_session;
-        let refusal = super::super::dispatch(
-            "plan.session.rebind",
-            &Some(invalid_caller),
-            &fixture.service.app_handle,
-            &service,
-        )
-        .expect_err("a supplied session claim must be valid even when omission is supported");
+        let refusal =
+            super::super::dispatch("plan.session.rebind", &Some(invalid_caller), &service)
+                .expect_err(
+                    "a supplied session claim must be valid even when omission is supported",
+                );
         assert_eq!(
             refusal.data.as_ref().unwrap()["kind"],
             "caller_session_mismatch"
@@ -390,13 +354,8 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     ] {
         let mut wrong_caller = caller.clone();
         wrong_caller[field] = json!(invalid);
-        let refusal = super::super::dispatch(
-            "plan.session.rebind",
-            &Some(wrong_caller),
-            &fixture.service.app_handle,
-            &service,
-        )
-        .expect_err("a caller without exact live tab identity must be refused");
+        let refusal = super::super::dispatch("plan.session.rebind", &Some(wrong_caller), &service)
+            .expect_err("a caller without exact live tab identity must be refused");
         assert_eq!(
             refusal.data.as_ref().unwrap()["type"],
             "attempt_binding_restore_refused"
@@ -409,13 +368,8 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
             .unwrap()
             .reported_session_binding_nonce = Some("unrelated-reported-nonce".into());
     }
-    let refusal = super::super::dispatch(
-        "plan.session.rebind",
-        &Some(caller.clone()),
-        &fixture.service.app_handle,
-        &service,
-    )
-    .expect_err("the provider-reported nonce must equal the issued current nonce");
+    let refusal = super::super::dispatch("plan.session.rebind", &Some(caller.clone()), &service)
+        .expect_err("the provider-reported nonce must equal the issued current nonce");
     assert_eq!(
         refusal.data.as_ref().unwrap()["type"],
         "attempt_binding_restore_refused"
@@ -457,13 +411,8 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
             Some(CURRENT_NONCE)
         );
     }
-    let replay = super::super::dispatch(
-        "plan.session.rebind",
-        &Some(caller),
-        &fixture.service.app_handle,
-        &service,
-    )
-    .expect("the exact current binding should be idempotent");
+    let replay = super::super::dispatch("plan.session.rebind", &Some(caller), &service)
+        .expect("the exact current binding should be idempotent");
     assert_eq!(replay["status"], "already_current");
     assert_eq!(store.show_task(&task_id).unwrap().task, after_restore);
     assert_eq!(

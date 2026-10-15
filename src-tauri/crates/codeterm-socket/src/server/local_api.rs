@@ -1,5 +1,5 @@
 use axum::{body::Body, http::Request};
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::Value;
 use tauri::Manager;
 use tower::ServiceExt;

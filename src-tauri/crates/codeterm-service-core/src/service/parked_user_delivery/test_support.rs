@@ -3,7 +3,6 @@ use crate::service::test_fixture::ServiceFixture;
 use parking_lot::Mutex;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
-use tauri::Manager;
 
 pub(super) const TEST_DEADLINE: Duration = Duration::from_secs(10);
 
@@ -22,10 +21,6 @@ pub(crate) fn pre_ready_fixture() -> (ServiceFixture, String) {
         crate::session::SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
     ));
     assert!(fixture.service.set_ext(session.clone()).is_ok());
-    assert!(fixture._app.manage(session));
-    assert!(fixture
-        ._app
-        .manage(Arc::new(fixture.service.clone()) as crate::service::ServiceState));
     (fixture, tab_id)
 }
 

@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_service_core::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::service::plan::PlanError;
@@ -34,18 +33,13 @@ fn learning_error(error: OrchestratorLearningError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_service_core::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let body = params.as_ref().ok_or(JsonRpcError {
@@ -80,7 +74,7 @@ pub(super) fn dispatch(
                     epoch_ms(),
                 )
                 .map_err(learning_error)?;
-            emit_plan_changed(app, &result.plan_id);
+            emit_plan_changed(svc, &result.plan_id);
             if let Some(tab_id) = body.get("tab_id").and_then(|v| v.as_str()) {
                 codeterm_orchestration::maybe_refresh_after_reflection(
                     svc,
