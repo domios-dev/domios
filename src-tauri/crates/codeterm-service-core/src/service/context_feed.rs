@@ -1,5 +1,4 @@
 use codeterm_types::agent::context::TurnContext;
-use tauri::Manager;
 
 pub(crate) fn merge(
     previous: Option<&TurnContext>,
@@ -41,7 +40,7 @@ pub fn update(
     if session_id.is_empty() || nonce.is_empty() {
         return false;
     }
-    let Some(config) = svc.app_handle.try_state::<crate::config::ConfigState>() else {
+    let Some(config) = svc.try_ext::<crate::config::ConfigState>() else {
         return false;
     };
     let provider_id = svc

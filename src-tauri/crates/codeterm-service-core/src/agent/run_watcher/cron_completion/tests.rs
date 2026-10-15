@@ -85,7 +85,7 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
     use parking_lot::Mutex;
     use std::sync::{mpsc, Arc};
     use std::time::{Duration, Instant};
-    use tauri::{Listener, Manager};
+    use tauri::Listener;
 
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&tab_id).unwrap();
@@ -128,8 +128,8 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
     let store = CronStore::new_with_path(fixture.temp.path().join("crons.json"));
     let cron: crate::CronState = Arc::new(Mutex::new(store));
     let wake: crate::CronWake = Arc::new(std::sync::Condvar::new());
-    fixture._app.manage(cron.clone());
-    fixture._app.manage(wake.clone());
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
+    assert!(fixture.service.set_ext(wake.clone()).is_ok());
     let job = cron
         .lock()
         .create(CronCreateParams {

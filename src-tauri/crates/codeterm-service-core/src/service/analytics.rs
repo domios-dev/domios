@@ -1,7 +1,6 @@
 use super::ServiceContext;
 use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Worker};
 use std::sync::Arc;
-use tauri::Manager;
 
 pub(crate) mod update_confirm;
 
@@ -84,8 +83,7 @@ impl ServiceContext {
             .get_or_try_init(|| async {
                 let secrets = self.secrets.clone();
                 let mesh_machines = self
-                    .app_handle
-                    .try_state::<crate::mesh::MeshState>()
+                    .try_ext::<crate::mesh::MeshState>()
                     .map_or(1, |mesh| mesh.lock().machine_count());
                 let workspaces = self.mux.read().workspace_count();
                 let startup = app_started(
@@ -132,7 +130,7 @@ impl ServiceContext {
                 self.plan_store.bind_product_observer(Arc::new(move || {
                     let _ = observer.record_nowait(Event::PlanCreated {});
                 }));
-                if let Some(mesh) = self.app_handle.try_state::<crate::mesh::MeshState>() {
+                if let Some(mesh) = self.try_ext::<crate::mesh::MeshState>() {
                     let counts = worker.clone();
                     mesh.lock().bind_pairing_observers(
                         mesh_observer(worker.clone()),

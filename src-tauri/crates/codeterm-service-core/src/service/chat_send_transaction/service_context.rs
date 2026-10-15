@@ -1,5 +1,4 @@
 use super::*;
-use tauri::Manager;
 
 impl crate::service::ServiceContext {
     pub fn start_chat_send(
@@ -147,8 +146,8 @@ impl crate::service::ServiceContext {
         self.chat_send_ledger
             .restore_before_user_admission(tab_id, || self.restore_durable_user_statuses(tab_id))?;
         let authority = self.user_send_authority(tab_id)?;
-        if let Some(service) = self.app_handle.try_state::<super::super::ServiceState>() {
-            let weak = Arc::downgrade(service.inner());
+        if let Some(weak) = self.try_ext::<std::sync::Weak<super::super::ServiceContext>>() {
+            let weak = weak.clone();
             *self.chat_send_ledger.owner.lock() = Some(weak.clone());
             let tab = tab_id.to_string();
             self.pending_delivery_payloads
