@@ -5,6 +5,7 @@ import test from 'node:test';
 import path from 'node:path';
 
 const bash = process.platform === 'win32' ? path.join(process.env.ProgramFiles, 'Git', 'bin', 'bash.exe') : 'bash';
+const python = process.platform === 'win32' ? 'python' : 'python3';
 
 const build = readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const source = build.split("<<'LOCK_STORM_PY'\n")[1].split('\nLOCK_STORM_PY')[0];
@@ -52,6 +53,7 @@ esac
             self.assertEqual(result['routes']['/api/tabs']['status_counts'], {'200': 1, '503': 1})
 unittest.main()
 `;
-  const result = spawnSync('python', ['-c', checks], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const result = spawnSync(python, ['-c', checks], { encoding: 'utf8' });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, `signal=${result.signal}\n${result.stdout}${result.stderr}`);
 });
