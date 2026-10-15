@@ -486,8 +486,7 @@ fn handle_pty_death_with_cause(
         let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
         svc.emit_tab_status_if_changed(pty_id, prev, crate::agent::status::TabStatus::Dead);
 
-        use tauri::Manager;
-        if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
+        if let Some(cron_state) = svc.try_ext::<crate::CronState>() {
             crate::cron::pty_death_fallback::fail_run_on_pty_death(svc, &cron_state, pid, pty_id);
         }
 

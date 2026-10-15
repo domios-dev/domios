@@ -1,7 +1,5 @@
 use std::collections::HashSet;
 
-use tauri::Manager;
-
 use crate::multiplexer::types::{AgentRole, ShellActivity};
 use crate::plan::{Plan, TaskStatus};
 use crate::service::plan::digest_rules::PlanDigestCounters;
@@ -13,13 +11,11 @@ pub(super) fn populate(svc: &ServiceContext, plan: &Plan, counters: &mut PlanDig
         return;
     };
     let crons = svc
-        .app_handle
-        .try_state::<crate::CronState>()
+        .try_ext::<crate::CronState>()
         .map(|state| state.lock().list_for_team(team_id).len())
         .unwrap_or_default();
     let scenarios = svc
-        .app_handle
-        .try_state::<crate::ports::sentinel::SentinelPorts>()
+        .try_ext::<crate::ports::sentinel::SentinelPorts>()
         .map(|ports| {
             let records = ports.store.records();
             count_job_roots(

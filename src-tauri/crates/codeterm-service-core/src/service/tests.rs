@@ -381,6 +381,7 @@ fn confirmed_delivery_cleanup_is_scoped_to_its_exact_attempt() {
     let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
         SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
     ));
+    assert!(fixture.service.set_ext(session.clone()).is_ok());
     fixture._app.manage(session);
     fixture
         .service
@@ -442,6 +443,7 @@ fn unproven_delivery_attempt_is_never_cleanup_wildcard() {
     let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
         SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
     ));
+    assert!(fixture.service.set_ext(session.clone()).is_ok());
     fixture._app.manage(session);
     fixture
         .service

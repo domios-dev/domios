@@ -367,6 +367,8 @@ pub(crate) fn start_servers(
             }
         };
 
+    assert!(service_state.set_ext(cron_state.clone()).is_ok());
+    assert!(service_state.set_ext(cron_wake.clone()).is_ok());
     app.manage(cron_state.clone());
     app.manage(cron_wake.clone());
     let fence_wake = cron_wake.clone();

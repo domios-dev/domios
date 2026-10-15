@@ -477,6 +477,7 @@ pub fn run(
             );
             codeterm_service_core::service::supporter::runtime_with_notifications(&svc_ctx);
             let service_state: ServiceState = Arc::new(svc_ctx);
+            assert!(service_state.set_ext(Arc::downgrade(&service_state)).is_ok());
             codeterm_service_core::ports::orchestration::install(&service_state);
             service_state.chat_send_ledger.bind_settlement_owner(&service_state);
             {

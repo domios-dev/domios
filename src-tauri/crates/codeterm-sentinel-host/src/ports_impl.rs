@@ -102,7 +102,6 @@ impl SentinelCleanup for HandlePorts {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-pub fn manage_fixture_ports(app: &codeterm_service_core::app_runtime::AppHandle, handle: &Handle) {
-    use tauri::Manager;
-    assert!(app.manage(ports(handle)));
+pub fn manage_fixture_ports(svc: &codeterm_service_core::service::ServiceContext, handle: &Handle) {
+    assert!(svc.set_ext(ports(handle)).is_ok());
 }
