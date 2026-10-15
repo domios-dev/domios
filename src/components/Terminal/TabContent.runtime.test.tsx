@@ -8,6 +8,8 @@ import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerAction
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { insertIntoComposer } from "./composerInsertion";
+import { RestoreStatePanel } from "./RestoreStatePanel";
+import { restoreStageView } from "../../lib/restoreStageView";
 import { TabContent } from "./TabContent";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
@@ -121,8 +123,11 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
   try {
     await render(false);
     expect(calls).toEqual([]);
+    expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).not.toBeNull();
+    expect(host.querySelector('[role="img"][aria-label="Session provider icon"]')).not.toBeNull();
     await render(true);
     expect(calls).toEqual([tab.id]);
+    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
     await render(false);
     await render(true);
     expect(calls).toEqual([tab.id]);
@@ -131,5 +136,30 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
     host.remove();
     __setInvokeForTest(null);
     __setListenForTest(null);
+  }
+});
+
+it("projects sleeping, restoring and failed snapshots into the state panel and wires one retry", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const retry = vi.fn();
+  const render = (tab: Partial<Tab>) => act(async () => root.render(
+    <RestoreStatePanel providerId="fixture" view={restoreStageView(tab)} onRetry={retry} />,
+  ));
+  try {
+    await render({ frozen: true });
+    expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).not.toBeNull();
+    expect(host.querySelector('[role="img"][aria-label="Session provider icon"]')).not.toBeNull();
+    await render({ frozen: false, boot_stage: "pty_starting" });
+    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
+    await render({ frozen: false, boot_stage: "spawn_failed", boot_failure_reason: "fixture-error" });
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("fixture-error");
+    const button = [...host.querySelectorAll("button")].find(button => button.textContent === "Wake again")!;
+    await act(async () => button.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });
