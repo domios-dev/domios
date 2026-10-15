@@ -188,3 +188,61 @@ fn claude_init_probe_model_merge_preserves_declared_effort_metadata() {
     assert_eq!(models[0].default_reasoning_effort.as_deref(), Some("high"));
     assert_eq!(models[1].id, "new-alias");
 }
+
+struct HostFixture {
+    enabled: std::sync::atomic::AtomicBool,
+    published: Mutex<Vec<ProbeSnapshot>>,
+}
+
+impl CapabilityProbeHost for HostFixture {
+    fn validate(&self, _: &str) -> Result<ProbeTarget, ProbeFailure> {
+        if !self.enabled.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(ProbeFailure::Disabled);
+        }
+        Ok(ProbeTarget {
+            provider: "fixture".into(),
+            project: "project".into(),
+        })
+    }
+
+    fn cli_binary(&self, _: &str) -> Option<String> {
+        panic!("validation failure must stop before binary lookup")
+    }
+
+    fn matching_tabs(&self, _: &str, _: Option<&Path>) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn publish(&self, provider: &str, project: Option<&Path>, snapshot: Option<&ProbeSnapshot>) {
+        assert_eq!(provider, "fixture");
+        assert_eq!(project, Some(Path::new("project")));
+        self.published.lock().push(snapshot.unwrap().clone());
+    }
+}
+
+#[test]
+fn rejected_host_request_does_not_resolve_or_publish() {
+    let host = Arc::new(HostFixture {
+        enabled: false.into(),
+        published: Mutex::default(),
+    });
+    assert_eq!(
+        refresh(host.clone(), "tab", false),
+        unavailable(ProbeFailure::Disabled)
+    );
+    assert!(host.published.lock().is_empty());
+}
+
+#[test]
+fn publication_revalidates_the_originating_tab() {
+    let host = Arc::new(HostFixture {
+        enabled: true.into(),
+        published: Mutex::default(),
+    });
+    let request = request(host.clone(), "tab").unwrap();
+    publish(&request, &ProbeSnapshot::Pending);
+    host.enabled
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    publish(&request, &unavailable(ProbeFailure::Protocol));
+    assert_eq!(*host.published.lock(), vec![ProbeSnapshot::Pending]);
+}
