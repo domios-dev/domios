@@ -24,7 +24,7 @@ pub async fn clock_status(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct AdvanceBody {
+pub struct AdvanceBody {
     ms: u64,
 }
 

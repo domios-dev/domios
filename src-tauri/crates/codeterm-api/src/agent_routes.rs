@@ -30,7 +30,7 @@ const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::fr
 use codeterm_service_core::provider::values_list_agent_provider_values as list_agent_provider_values;
 
 #[derive(Deserialize)]
-pub(crate) struct SpawnAgentBody {
+pub struct SpawnAgentBody {
     /// Agent provider to run. Omitted resolves the configured General Agent.
     agent: Option<String>,
     /// Claude agent name from .claude/agents/ (e.g. "architect" → --agent architect)
@@ -115,7 +115,7 @@ pub async fn remote_workers(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct RecordRemoteWorkerBody {
+pub struct RecordRemoteWorkerBody {
     /// Local report-target / orchestrator tab the remote worker reports to
     /// (tab id or `main`/`general` alias). Resolved the same way as the
     /// inbound report path so spawn-time and report-time entries share a key.
@@ -168,7 +168,7 @@ pub async fn record_remote_worker(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ForgetRemoteWorkerBody {
+pub struct ForgetRemoteWorkerBody {
     /// Foreign tab id on the remote peer.
     remote_tab: String,
     peer: Option<String>,
@@ -520,7 +520,7 @@ fn validate_spawn_role(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct BatchBody {
+pub struct BatchBody {
     commands: Vec<BatchOp>,
 }
 
@@ -553,7 +553,7 @@ pub async fn batch_commands(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct SetRoleBody {
+pub struct SetRoleBody {
     role: String,
     #[serde(default)]
     role_profile: Option<String>,
@@ -697,7 +697,7 @@ pub async fn make_orchestrator(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct MakePlannerBody {
+pub struct MakePlannerBody {
     plan_id: String,
 }
 
@@ -737,7 +737,7 @@ pub async fn get_tab_status(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ReportBody {
+pub struct ReportBody {
     message: String,
     plan_id: Option<String>,
     task_id: Option<String>,
@@ -805,7 +805,7 @@ pub async fn submit_report(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ReportsQuery {
+pub struct ReportsQuery {
     clear: Option<bool>,
 }
 
@@ -822,7 +822,7 @@ pub async fn get_reports(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct CanSpawnBody {
+pub struct CanSpawnBody {
     can_spawn: bool,
 }
 

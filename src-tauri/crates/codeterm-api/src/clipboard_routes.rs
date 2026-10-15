@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]
-pub(crate) struct SaveClipboardImageBody {
+pub struct SaveClipboardImageBody {
     bytes: Vec<u8>,
     ext: String,
 }
@@ -25,7 +25,7 @@ pub async fn save_clipboard_image(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct SaveClipboardFileBody {
+pub struct SaveClipboardFileBody {
     bytes: Vec<u8>,
     filename: String,
 }

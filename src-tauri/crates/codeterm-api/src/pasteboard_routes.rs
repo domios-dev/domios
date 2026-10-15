@@ -15,7 +15,7 @@ use crate::routes::{check_auth, AppState};
 use codeterm_service_core::pasteboard::PutParams;
 
 #[derive(Deserialize)]
-pub(crate) struct PasteCreateBody {
+pub struct PasteCreateBody {
     body: String,
     #[serde(default)]
     content_type: Option<String>,
@@ -51,7 +51,7 @@ pub async fn paste_create(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct PasteGetQuery {
+pub struct PasteGetQuery {
     #[serde(default)]
     pop: Option<bool>,
 }

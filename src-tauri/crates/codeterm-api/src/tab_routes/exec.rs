@@ -13,7 +13,7 @@ use super::await_pty_link;
 const DEFAULT_EXEC_TIMEOUT_MS: u64 = 10_000;
 
 #[derive(Deserialize)]
-pub(crate) struct ExecBody {
+pub struct ExecBody {
     pub(crate) command: String,
     pub(crate) timeout_ms: Option<u64>,
     pub(crate) strip_ansi: Option<bool>,

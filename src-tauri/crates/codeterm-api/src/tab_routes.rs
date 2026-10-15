@@ -450,7 +450,7 @@ pub async fn focus_tab(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct OutputQuery {
+pub struct OutputQuery {
     offset: Option<usize>,
     strip_ansi: Option<bool>,
     #[allow(dead_code)]
@@ -480,7 +480,7 @@ pub async fn get_tab_output(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct CloseTabQuery {
+pub struct CloseTabQuery {
     #[serde(default)]
     force: bool,
 }
@@ -558,7 +558,7 @@ pub async fn release_remote_ownership(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct RestartShellTabBody {
+pub struct RestartShellTabBody {
     cwd: Option<String>,
 }
 
@@ -642,7 +642,7 @@ pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct RenameTabBody {
+pub struct RenameTabBody {
     title: String,
 }
 
@@ -672,7 +672,7 @@ pub async fn rename_tab(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct DescribeTabBody {
+pub struct DescribeTabBody {
     description: String,
 }
 
@@ -696,7 +696,7 @@ pub async fn describe_tab(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ResizeTabBody {
+pub struct ResizeTabBody {
     cols: u16,
     rows: u16,
 }
@@ -814,7 +814,7 @@ pub(crate) fn resolve_pty_id_with_fallback(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct GetTextQuery {
+pub struct GetTextQuery {
     #[serde(default)]
     formatted: bool,
 }
@@ -986,7 +986,7 @@ pub async fn stop_capture(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct LinkPtyBody {
+pub struct LinkPtyBody {
     pty_id: String,
 }
 

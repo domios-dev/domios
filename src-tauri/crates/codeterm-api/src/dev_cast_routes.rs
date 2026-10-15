@@ -16,7 +16,7 @@ use crate::routes::{check_auth, resolve_tab, AppState};
 use codeterm_service_core::pty::cast::{self, CastEvent, ParsedCast};
 
 #[derive(Deserialize)]
-pub(crate) struct InjectCastBody {
+pub struct InjectCastBody {
     tab_id: String,
     /// Repo-relative path under `testbench/replays/`.
     cast_path: Option<String>,

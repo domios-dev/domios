@@ -95,7 +95,7 @@ pub struct SpawnTabSpec {
     pub eager: bool,
     pub command: TabCommand,
     #[serde(skip)]
-    pub(crate) chatbackend_launch: Option<Box<ChatBackendLaunchMetadata>>,
+    pub chatbackend_launch: Option<Box<ChatBackendLaunchMetadata>>,
 }
 
 #[derive(Debug, Clone)]
