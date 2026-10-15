@@ -403,6 +403,9 @@ fn commit_reported_session(
     } else {
         None
     };
+    if tab.launch_session_authenticated() {
+        crate::startup::boot_timing::mark(tab_id, tab.pty_id.as_deref(), "session_authenticated");
+    }
     Ok(Some(SessionStartClaim {
         prev: previous,
         changed,

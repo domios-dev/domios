@@ -383,6 +383,7 @@ impl ServiceContext {
         stage: BootStage,
         reason: Option<&str>,
     ) {
+        crate::startup::boot_timing::mark(tab_id, tab.pty_id.as_deref(), stage);
         self.ui.emit(
             "tab-boot-stage",
             serde_json::to_value(boot_stage_event(tab_id, tab, stage, reason)).unwrap_or_default(),

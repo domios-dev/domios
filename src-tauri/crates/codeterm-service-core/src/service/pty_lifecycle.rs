@@ -180,6 +180,7 @@ async fn backend_read_loop(
 
                 if !first_byte_logged {
                     first_byte_logged = true;
+                    crate::startup::boot_timing::mark("-", Some(&pty_id), "first_output");
                     if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
                         log::info!(
                             "[pty-first-byte] pty={} elapsed={}ms bytes={}",
