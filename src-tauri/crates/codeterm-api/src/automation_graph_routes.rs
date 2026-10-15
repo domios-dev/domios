@@ -11,8 +11,9 @@ use super::{
     auth::{caller_access_level, caller_peer_id},
     routes::AppState,
 };
-use codeterm_service_core::sentinel::graph::Snapshot;
-use codeterm_service_core::service::sentinel::graph::explicit_team;
+use codeterm_sentinel_host::graph::Snapshot;
+use codeterm_sentinel_host::service_adapter::graph::explicit_team;
+use codeterm_sentinel_host::AutomationGraphExt;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -96,8 +97,8 @@ pub async fn event_ingress(
                 if let Some(handle) = state
                     .svc
                     .app_handle
-                    .try_state::<codeterm_service_core::sentinel::scheduler::Handle>(
-                ) {
+                    .try_state::<codeterm_sentinel_host::scheduler::Handle>()
+                {
                     handle.notify_event_subscription_changed(&pipeline_id);
                 }
             }
@@ -116,8 +117,8 @@ pub async fn event_ingress(
                 if let Some(handle) = state
                     .svc
                     .app_handle
-                    .try_state::<codeterm_service_core::sentinel::scheduler::Handle>(
-                ) {
+                    .try_state::<codeterm_sentinel_host::scheduler::Handle>()
+                {
                     handle.notify_event_subscription_changed(&pipeline_id);
                 }
             }
@@ -291,6 +292,7 @@ fn failure((status, message): (StatusCode, String)) -> GraphError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codeterm_sentinel_host::SentinelExt;
 
     #[test]
     fn blueprint_event_ingress_refusal_statuses_cover_admission_table() {
@@ -402,8 +404,8 @@ mod tests {
                 if let Some(raw) = raw {
                     std::fs::write(&sentinel_path, raw).unwrap();
                 }
-                let handle = codeterm_service_core::sentinel::scheduler::fixture_handle(
-                    codeterm_service_core::sentinel::store::Store::new(
+                let handle = codeterm_sentinel_host::scheduler::fixture_handle(
+                    codeterm_sentinel_host::store::Store::new(
                         sentinel_path,
                         codeterm_service_core::cron::clock::MockClock::starting_at(1000),
                     ),
@@ -474,7 +476,7 @@ mod tests {
                 }
             }
 
-            fn create(&self) -> codeterm_service_core::sentinel::store::Sentinel {
+            fn create(&self) -> codeterm_sentinel_host::store::Sentinel {
                 let caller = self
                     .runtime
                     .service
@@ -519,7 +521,7 @@ mod tests {
                 self.runtime
                     .service
                     .app_handle
-                    .state::<codeterm_service_core::sentinel::scheduler::Handle>()
+                    .state::<codeterm_sentinel_host::scheduler::Handle>()
                     .store
                     .lock()
                     .get(id)
@@ -614,7 +616,7 @@ mod tests {
                 .runtime
                 .service
                 .app_handle
-                .state::<codeterm_service_core::sentinel::scheduler::Handle>();
+                .state::<codeterm_sentinel_host::scheduler::Handle>();
             let lease = handle.store.lock().due().unwrap().remove(0);
             let (status, result) = fixture
                 .request(Method::POST, &stop, Some("fixture-instance-bearer"), body)
@@ -622,7 +624,7 @@ mod tests {
             assert_eq!(status, StatusCode::OK);
             assert_eq!(result["reason"], "stopped_by_host");
             assert!(lease.is_cancelled());
-            let restored = codeterm_service_core::sentinel::store::Store::new(
+            let restored = codeterm_sentinel_host::store::Store::new(
                 fixture.runtime.temp.path().join("sentinels.json"),
                 codeterm_service_core::cron::clock::MockClock::starting_at(1000),
             );
@@ -862,8 +864,8 @@ mod tests {
                 .runtime
                 .service
                 .app_handle
-                .state::<codeterm_service_core::sentinel::scheduler::Handle>();
-            codeterm_service_core::service::sentinel::graph::install_invalidations(
+                .state::<codeterm_sentinel_host::scheduler::Handle>();
+            codeterm_sentinel_host::service_adapter::graph::install_invalidations(
                 &fixture.runtime.service,
                 handle.store.clone(),
             );
@@ -959,8 +961,8 @@ mod tests {
                 .runtime
                 .service
                 .app_handle
-                .state::<codeterm_service_core::sentinel::scheduler::Handle>();
-            codeterm_service_core::service::sentinel::graph::install_invalidations(
+                .state::<codeterm_sentinel_host::scheduler::Handle>();
+            codeterm_sentinel_host::service_adapter::graph::install_invalidations(
                 &fixture.runtime.service,
                 handle.store.clone(),
             );
