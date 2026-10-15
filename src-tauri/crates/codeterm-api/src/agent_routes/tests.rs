@@ -574,6 +574,8 @@ fn unknown_is_a_wire_state_of_its_own_not_a_synonym_for_unavailable() {
         )))
         .remove(0);
     descriptor["availability"] = serde_json::json!("unknown");
+    // Debug listings overlay stub_replay, which the descriptor itself does not carry.
+    descriptor.as_object_mut().unwrap().remove("stub_replay");
 
     let parsed: codeterm_service_core::agent::provider::ProviderDescriptor =
         serde_json::from_value(descriptor).unwrap();
