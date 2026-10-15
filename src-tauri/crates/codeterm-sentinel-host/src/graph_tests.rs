@@ -766,3 +766,33 @@ fn blueprint_snapshot_keeps_fallback_separate_from_execution() {
     assert_eq!(graph.nodes[0]["detail"]["version"], 1);
     assert_eq!(graph.nodes[0]["detail"]["decisions"]["adapter_used"], false);
 }
+
+#[test]
+fn fixture_core_event_invalidates_graph_through_recorded_ui() {
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+    use std::sync::Arc;
+    let (_dir, mut store, mux, owner) = setup();
+    create(&mut store, &owner, false, json!({}));
+    let revision = store
+        .committed_revision(&owner.workspace_id, owner.team_id.as_deref())
+        .unwrap()
+        .to_owned();
+    let fixture = ServiceFixture::new(mux);
+    let store = Arc::new(parking_lot::Mutex::new(store));
+    crate::service_adapter::graph::install_fixture_invalidations(
+        &fixture.service,
+        store,
+        &fixture.ui,
+    );
+    fixture.service.ui.emit("cron-fired", json!({}));
+    let events = fixture.ui.0.lock();
+    let invalidations = events
+        .iter()
+        .filter(|(event, _)| event == "automation-graph-changed")
+        .collect::<Vec<_>>();
+    assert_eq!(invalidations.len(), 1);
+    assert_eq!(
+        invalidations[0].1,
+        json!({"workspace_id":owner.workspace_id,"team_id":owner.team_id,"revision":revision})
+    );
+}
