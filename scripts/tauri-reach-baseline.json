@@ -1,9 +1,4 @@
 {
   "version": 1,
-  "files": {
-    "src-tauri/crates/codeterm-service-core/src/app_runtime.rs": 12,
-    "src-tauri/crates/codeterm-service-core/src/service/construct.rs": 4,
-    "src-tauri/crates/codeterm-service-core/src/service/mod.rs": 2,
-    "src-tauri/crates/codeterm-service-core/src/service/test_fixture.rs": 4
-  }
+  "files": {}
 }

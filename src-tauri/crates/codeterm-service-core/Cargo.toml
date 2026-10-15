@@ -24,21 +24,14 @@ codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-repowatch = { path = "../codeterm-repowatch" }
 codeterm-account = { path = "../codeterm-account" }
 codeterm-billing = { path = "../codeterm-billing" }
-tauri-plugin-deep-link = "2"
 codeterm-analytics = { path = "../codeterm-analytics" }
 codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
 tempfile = "3"
-tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run
 # here when called from headless / background Rust code paths). Features chosen to keep
 # binary size minimal — no parallel/multi-context, no async, just the
 # core eval surface + ES modules.
 rquickjs = { version = "0.11", features = ["loader", "macro", "parallel"] }
-tauri-plugin-shell = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-dialog = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 portable-pty = { path = "../../pty-fork" }
 tokio = { version = "1", features = ["full", "test-util"] }
 serde = { version = "1", features = ["derive"] }

@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 pub fn build_service_context(
     states: &crate::startup::AppStates,
-    app_handle: &crate::app_runtime::AppHandle,
     ui: Arc<dyn crate::ports::host::UiEvents>,
     shell: Arc<dyn crate::ports::host::Shell>,
     rt: tokio::runtime::Handle,
@@ -280,7 +279,6 @@ pub fn build_service_context(
         screen_state: states.screen_state.clone(),
         notif: states.notif.clone(),
         events: states.event_broadcaster.clone(),
-        app_handle: app_handle.clone(),
         ui,
         shell,
         rt,

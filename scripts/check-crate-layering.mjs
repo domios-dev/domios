@@ -65,6 +65,11 @@ for (const base of ["src-tauri/crates", "crates"]) {
         && dependencies.includes("codeterm-host-runtime")) {
       violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: core or leaf crate depends on codeterm-host-runtime`);
     }
+    if (entry.name === "codeterm-service-core") {
+      for (const dependency of dependencies.filter((name) => /^tauri(?:-|$)/.test(name))) {
+        violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: service core depends on ${dependency}`);
+      }
+    }
     if (hosts.has(entry.name)) continue;
     for (const dependency of dependencies) {
       if (tierFor(dependency) > tierFor(entry.name)) {

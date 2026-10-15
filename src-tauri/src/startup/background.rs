@@ -25,7 +25,10 @@ pub(crate) fn start_background_tasks(
     {
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
-        let app_h = app_handle.clone();
+        let ui = app_handle
+            .state::<codeterm_service_core::service::ServiceState>()
+            .ui
+            .clone();
         codeterm_util::named_thread::spawn("mesh-health", move || {
             std::thread::sleep(std::time::Duration::from_secs(10));
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -151,11 +154,7 @@ pub(crate) fn start_background_tasks(
                         peers.iter().map(|p| p.instance_id.clone()).collect();
                     last_sync_secs.retain(|id, _| paired_ids.contains(id));
                     if changed {
-                        codeterm_host_runtime::events::emit_everywhere(
-                            &app_h,
-                            "mesh-state-changed",
-                            serde_json::Value::Null,
-                        );
+                        ui.emit("mesh-state-changed", serde_json::Value::Null);
                     }
                 }
             });
