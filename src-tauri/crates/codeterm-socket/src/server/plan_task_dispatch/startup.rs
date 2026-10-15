@@ -254,7 +254,7 @@ pub(crate) fn run_startup(
 
 /// Keep uncertain startups available for parent recovery; roll back only when
 /// failure evidence is definitive.
-pub(crate) fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
+pub(in crate::server) fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
     deadline: Instant,
     await_ready: Ready,
     wait_binding: Binding,

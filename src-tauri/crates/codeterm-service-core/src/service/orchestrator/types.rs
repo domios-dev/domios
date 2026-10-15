@@ -90,9 +90,9 @@ pub struct SpawnResult {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SpawnAgentParams {
     #[serde(default, skip)]
-    pub(crate) context_files: Option<crate::plan::TaskFiles>,
+    pub context_files: Option<crate::plan::TaskFiles>,
     #[serde(default, skip)]
-    pub(crate) context_skills: Option<String>,
+    pub context_skills: Option<String>,
     pub agent: Option<String>,
     pub agent_name: Option<String>,
     pub args: Option<Vec<String>>,
@@ -114,13 +114,13 @@ pub struct SpawnAgentParams {
     pub can_spawn: Option<bool>,
     pub task: Option<String>,
     #[serde(default, skip)]
-    pub(crate) starter_prompt: crate::agent::provider::StarterPrompt,
+    pub starter_prompt: crate::agent::provider::StarterPrompt,
     /// Bound task id (CODETERM_TASK_ID).
     pub task_id: Option<String>,
     #[serde(default, skip)]
     pub task_launch_authority: Option<TaskLaunchAuthority>,
     #[serde(default, skip)]
-    pub(crate) remote_task_binding: Option<RemoteTaskBinding>,
+    pub remote_task_binding: Option<RemoteTaskBinding>,
     #[serde(default, skip)]
     pub plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
@@ -153,7 +153,7 @@ pub struct SpawnAgentParams {
     pub skip_permissions: Option<bool>,
     /// Host-only proof that the selected bypass passed centralized policy.
     #[serde(default, skip)]
-    pub(crate) permission_bypass_authorization:
+    pub permission_bypass_authorization:
         Option<crate::service::permission_policy::PermissionBypassAuthorization>,
     /// CODETERM_TAB_ID of the caller — recorded for report routing fallback.
     pub spawned_by_tab_id: Option<String>,
@@ -171,7 +171,7 @@ pub struct SpawnAgentParams {
     pub planned_model: Option<String>,
     /// Host-owned plan-task dispatch intent. Generic spawn payloads cannot set it.
     #[serde(default, skip_deserializing)]
-    pub(crate) planned_reasoning_effort: Option<String>,
+    pub planned_reasoning_effort: Option<String>,
     /// Explicitly requested reasoning effort. Capability-validated against the
     /// provider before launch; an unsupported value is rejected structurally
     /// (no silent downgrade). Provider maps it to launch flags via
@@ -179,11 +179,11 @@ pub struct SpawnAgentParams {
     pub reasoning_effort: Option<String>,
     pub system_prompt: Option<String>,
     #[serde(default, skip)]
-    pub(crate) manager_bootstrap: Option<crate::service::role_identity::ManagerBootstrapInputs>,
+    pub manager_bootstrap: Option<crate::service::role_identity::ManagerBootstrapInputs>,
     pub preset: Option<String>,
     pub resume_session_id: Option<String>,
     #[serde(default, skip_deserializing)]
-    pub(crate) fork_session: bool,
+    pub fork_session: bool,
     pub charter: Option<String>,
     pub tick_interval_secs: Option<u64>,
     pub nudge_cooldown_secs: Option<u64>,
@@ -212,10 +212,10 @@ impl SpawnAgentParams {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskLaunchAuthority {
-    pub(crate) plan_id: String,
-    pub(crate) task_id: String,
-    pub(crate) attempt_id: String,
-    pub(crate) lane_base: Option<String>,
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub lane_base: Option<String>,
 }
 
 #[derive(Debug, Clone)]

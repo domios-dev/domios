@@ -54,10 +54,10 @@ fn cron_end_context(job_name: &str, status: &CronRunStatus) -> String {
 
 /// A cron run that has ended, by any path, and still owes its report and oneshot retirement.
 pub struct CronRunEnd<'a> {
-    pub(crate) job_id: &'a str,
-    pub(crate) run_id: &'a str,
-    pub(crate) status: CronRunStatus,
-    pub(crate) summary: &'a str,
+    pub job_id: &'a str,
+    pub run_id: &'a str,
+    pub status: CronRunStatus,
+    pub summary: &'a str,
 }
 
 pub struct CronCompleteAfterResponse {

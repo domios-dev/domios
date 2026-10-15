@@ -17,12 +17,12 @@ pub struct LiveTabCwd {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LaneRemovalRequest {
-    pub(crate) worktree_path: String,
-    pub(crate) branch: Option<String>,
-    pub(crate) force: bool,
+    pub worktree_path: String,
+    pub branch: Option<String>,
+    pub force: bool,
     /// Canonical checkout the lane was branched from. Derived from the lane's
     /// own git common dir when the caller does not name one.
-    pub(crate) canonical_cwd: Option<String>,
+    pub canonical_cwd: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
