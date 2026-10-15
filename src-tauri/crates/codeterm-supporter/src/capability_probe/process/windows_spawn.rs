@@ -42,7 +42,7 @@ impl AsRawHandle for Child {
     }
 }
 
-impl crate::service::provider_update::ProcessChild for Child {
+impl crate::provider_update::ProcessChild for Child {
     fn id(&self) -> u32 {
         self.id
     }

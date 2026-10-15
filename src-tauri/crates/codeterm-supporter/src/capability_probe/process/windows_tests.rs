@@ -46,7 +46,7 @@ fn capability_probe_spawn_excludes_a_foreign_inheritable_pipe() {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut tree = crate::service::provider_update::ProcessTree::prepare(&mut command).unwrap();
+    let mut tree = crate::provider_update::ProcessTree::prepare(&mut command).unwrap();
     let mut child = spawn(&mut command).unwrap();
     tree.record_spawn(&child).unwrap();
     let parent_ends_isolated = [
