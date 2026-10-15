@@ -219,13 +219,14 @@ pub(super) fn dispatch(
             .plan_store
             .get(&id)
             .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-        let lanes = svc
-            .clean_plan_lanes(&plan, confirm, fetch)
-            .map_err(|message| JsonRpcError {
-                code: -32003,
-                message,
-                data: None,
-            })?;
+        let lanes = codeterm_service_core::service::lane_clean::clean_plan_lanes(
+            svc, &plan, confirm, fetch,
+        )
+        .map_err(|message| JsonRpcError {
+            code: -32003,
+            message,
+            data: None,
+        })?;
         if confirm {
             emit_plan_changed(app, &id);
         }
@@ -408,7 +409,7 @@ pub(super) fn dispatch(
         }
 
         "plan.list" => {
-            svc.validate_active_team_plan_bindings()
+            codeterm_service_core::service::validate_active_team_plan_bindings(svc)
                 .map_err(super::team::team_plan_rpc_err)?;
             let want =
                 if let Some(project) = p.and_then(|x| x.get("project")).and_then(|v| v.as_str()) {
@@ -506,7 +507,7 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let caller = transfer_caller(params)?;
-            svc.transfer_team_plan(&id, to, reason, caller, now)
+            codeterm_service_core::service::transfer_team_plan(svc, &id, to, reason, caller, now)
                 .map_err(super::team::team_plan_rpc_err)?;
             Ok(json!({ "ok": true, "plan_id": id }))
         }

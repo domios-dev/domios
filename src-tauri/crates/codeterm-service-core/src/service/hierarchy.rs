@@ -279,7 +279,7 @@ impl ServiceContext {
             Some(crate::plan::PlannerRef::Tab { tab_id: bound, session_id: Some(session), .. })
                 if bound == tab_id && session == expected_session_id
         );
-        crate::service::orchestrator_digests::deliver_exact_role_target(
+        crate::service::role_target::deliver_exact_role_target(
             "planner",
             plan_id,
             intended_target,
@@ -923,9 +923,8 @@ impl ServiceContext {
         let text = format!(
             "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
         );
-        let _ = crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
-            self, plan_id, owner, "plan", &text,
-        );
+        let _ = crate::ports::orchestration::installed(&self.extensions)
+            .deliver_orchestrator_notice_exact(plan_id, owner, "plan", &text);
     }
 
     /// Nudge the gate asker tab when a gate is answered.

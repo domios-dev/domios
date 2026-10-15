@@ -100,7 +100,7 @@ impl ServiceContext {
             from_spec,
             now_ms,
         )?;
-        if self
+        if crate::ports::orchestration::installed(&self.extensions)
             .bind_pending_paired_planner(&outcome.plan.id, &outcome.plan.owner, now_ms)
             .map_err(TeamPlanCreationError::Team)?
         {

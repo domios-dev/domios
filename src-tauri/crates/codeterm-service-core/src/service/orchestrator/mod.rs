@@ -9,6 +9,7 @@ mod spawn;
 pub mod tab_relink_signal;
 mod types;
 
+pub use batch::batch;
 #[cfg(any(test, feature = "test-support"))]
 pub use launch::arm_provider_session_for_test;
 #[cfg(any(test, feature = "test-support"))]
