@@ -84,3 +84,21 @@ Normal (non-dev) reverse dependencies inside the workspace, from `cargo metadata
 | codeterm-commands | 12,570 | commands, api, codeterm |
 
 Before Wave A every edit in these areas re-checked one 485k-line crate. Route, socket and command edits now skip the core; core edits still re-check every upper crate. Timed before/after numbers belong to task_47lm5j (same machine, same window).
+
+## Wave A measured (task_47lm5j)
+
+Warm `check-queue` after a one-line edit, same machine (eight, macOS), BEFORE bd8e5e69f versus AFTER cd3438853, one quiet gateway, re-warmed per area. Both bases carry one identical scratch prerequisite (codeterm-sentinel probe.rs:99 unix cfg); the AFTER sentinel pair also carries the include-path fix that landed as 9317fe1dc. Runners c215eaaed (11 pairs) and af5f3a20c (sentinel AFTER); check-queue is identical between them.
+
+| area | 30-day share | BEFORE edit | AFTER edit | change |
+|---|---:|---:|---:|---:|
+| codex_rpc (core) | 107/965 | 35 s | 25 s | -29% |
+| pty_io (core) | 181/965 | 32 s | 24 s | -25% |
+| api hook_routes | 95/965 | 35 s | 20 s | -43% |
+| api mem_routes | 66/965 | 33 s | 8 s | -76% |
+| socket server | 299/965 | 32 s | 7 s | -78% |
+| sentinel host | 217/965 | 33 s | 8 s | -76% |
+| churn-weighted | 965/965 | 32.92 s | 13.76 s | -58.2% |
+
+No-op floors stay at 2-4 s. Verdict: continue (the stop rule needs a 10% gain). Source coupling at the same SHAs: service/hierarchy caller units 135 -> 20, service/supporter 53 -> 15, service/pty_io unchanged at 34 (C1 was then stopped as a two-way hub, see the C1 record).
+
+Wave B order from the method map: all five candidates form one cycle (B1 -> B2,B3,B4,B5; B2 <-> B3; B4 -> B1). Next is B4 surfaces (13 ServiceContext methods, 6 caller units) once B1 lands, with core -> B4 through SurfacesPort and B4 -> B1 direct. B3 needs a GeneralAgentPort cut before B2; B2 stays parked at 23 methods.
