@@ -25,7 +25,7 @@ pub use frontend_ready::arm_frontend_readiness;
 pub use frontend_ready::frontend_readiness_generation;
 pub use frontend_ready::mark_frontend_ready;
 pub(crate) use frontend_ready::observe_frontend_boot;
-pub(crate) use frontend_ready::wait_for_frontend_ready_until;
+pub use frontend_ready::wait_for_frontend_ready_until;
 pub use progress::StartupStep;
 pub use rest_api::RestApiDiagnostic;
 pub use rest_api::{
@@ -45,3 +45,13 @@ pub use frontend_ready::FRONTEND_READINESS_DEADLINE_ELAPSED;
 
 mod user_path;
 pub use user_path::{repair_user_path_with, user_path_repair_report, SystemUserPathStore};
+
+pub use frontend_bundles::open as frontend_bundles_open;
+pub use frontend_shell::{
+    application_context as frontend_shell_application_context,
+    create_window as frontend_shell_create_window, retry as frontend_shell_retry,
+    start as frontend_shell_start,
+};
+pub use progress::Boundary;
+pub use rest_api::listeners::additional_bind as rest_api_additional_bind;
+pub use storage::open_instance_storage;

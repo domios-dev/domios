@@ -25,7 +25,7 @@ impl<F> StartupStep<F>
 where
     F: Fn(Boundary, &'static str, Option<Duration>),
 {
-    pub(crate) fn with_sink(name: &'static str, sink: F) -> Self {
+    pub fn with_sink(name: &'static str, sink: F) -> Self {
         sink(Boundary::Started, name, None);
         Self {
             name,

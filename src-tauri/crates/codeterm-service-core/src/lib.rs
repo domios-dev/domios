@@ -106,3 +106,11 @@ pub mod test_support;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod persistence_test_support;
+
+pub use fdlimit::raise_fd_limit;
+pub use instance_lifetime::acquire as acquire_instance_lifetime;
+pub use liveness::start_api_liveness_watchdog;
+#[cfg(windows)]
+pub use native_resize::install as install_native_resize;
+pub use webview2_reap::reap_orphaned_webview2;
+pub use webview_watchdog::spawn as spawn_webview_watchdog;

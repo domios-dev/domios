@@ -81,7 +81,7 @@ impl ListenerPublication {
     }
 }
 
-pub(crate) fn additional_bind(
+pub fn additional_bind(
     config: &crate::config::schema::ApiConfig,
     dev_build: bool,
 ) -> Result<Option<SocketAddr>, String> {
