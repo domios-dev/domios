@@ -127,9 +127,18 @@ gh run watch --repo rollacode/codeterm --exit-status "$(gh run list --repo rolla
 ```
 
 It runs `scripts/check-release-credentials-mac.sh` on the Mac builder (Developer ID, minisign key,
-`gh`, Apple notary) and checks the updater signing key and repository write tokens on the Linux and
-Windows runners. The release builder runs the same Mac script, so a green check here is what the
-release run will see. 1.12.2 was tagged before anyone looked and the Mac job died on
+`TAURI_SIGNING_PRIVATE_KEY` exported as the job key path for the Tauri bundler, `gh`, Apple notary)
+and checks the updater signing key and repository write tokens on the Linux and Windows runners.
+The release builder runs the same Mac script, so a green check here is what the release run will see.
+The same workflow (named *Release preflight*) also checks the infrastructure before anything builds:
+
+| Job | Proves |
+|---|---|
+| `runners` | `scripts/check-release-runners.sh`: every release label plus the test labels `rust-shard`, `linux-ci`, `windows-ci`, `light` has an online runner (`GH_RELEASE_TOKEN` needs Administration read) |
+| `shared-cache` | `build.sh cache-verify` (`build.ps1` on Windows) with `CODETERM_SCCACHE_VERIFY_ONLY=1` on each release builder label and `windows-ci`: shared S3 reachable and selected |
+| `linux-arm64-image` | `scripts/check-linux-arm64-builder.sh` on the Mac: `codeterm-build-linux-arm64` exists, is arm64 and runs `sccache` |
+
+A label job proves one machine carrying that label, not every machine with it. 1.12.2 was tagged before anyone looked and the Mac job died on
 `403 A required agreement is missing or has expired`: the Account Holder must accept the new Apple
 Developer agreement at https://developer.apple.com/account; the password is not the problem, and
 Apple may take a minute or two to honour a fresh acceptance. The weekly schedule surfaces an
