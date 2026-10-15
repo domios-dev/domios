@@ -610,11 +610,14 @@ impl ServiceContext {
                 detail,
             });
         }
-        self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
-            .map_err(|detail| DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail,
-            })?;
+        self.await_public_agent_input_ready_blocking(
+            tab_id,
+            readiness::public_input_ready_deadline(),
+        )
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab_id.to_string(),
+            detail,
+        })?;
         let pty_id = match self.resolve_pty_id(tab_id) {
             Ok(pty_id) => pty_id,
             Err(_) => self.prepare_tab_pty_delivery(tab_id)?,
