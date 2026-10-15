@@ -111,7 +111,7 @@ jobs:
             -e DOMIOS_ACCOUNT_REDEEM_URL -e DOMIOS_BILLING_FUNCTIONS_URL \
             -e DOMIOS_AMPLITUDE_API_KEY_TEST -e DOMIOS_AMPLITUDE_API_KEY_PROD \
             -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner \
-            -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 -e CARGO_BUILD_JOBS=6 \
+            -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 -e CARGO_BUILD_JOBS="$(getconf _NPROCESSORS_ONLN)" \
             -e CARGO_TARGET_DIR=/src/src-tauri/target -e CODETERM_RELEASE_FEATURES=embeddings \
             codeterm-build-linux-arm64 bash /build-linux.sh source deb,appimage
 
