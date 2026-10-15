@@ -165,6 +165,7 @@ export function remoteCommand({ peer, repository, jobId, verb, sha, clone, runne
     + `; elif ! ct_step detach git checkout --quiet --detach; then ct_fail bootstrap_failed`
     + `; elif ! ct_step fetch git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 fetch --quiet --no-tags origin +refs/heads/develop:refs/heads/develop ${sha}; then ct_fail bootstrap_failed`
     + `; elif ! ct_step checkout git checkout --quiet --detach ${sha}; then ct_fail bootstrap_failed`
+    + `; elif ! ct_step runner_missing test -f scripts/build-peer.mjs; then ct_fail bootstrap_failed`
     + `; else node scripts/build-peer.mjs ${runner.map(shellQuote).join(' ')}; fi`,
   );
   return parts.join('; ');
