@@ -2,7 +2,7 @@ use codeterm_service_core::multiplexer::commands::MuxState;
 use tauri::Manager;
 
 pub(crate) fn handle_window_event(
-    window: &codeterm_service_core::app_runtime::Window,
+    window: &codeterm_host_runtime::app_runtime::Window,
     event: &tauri::WindowEvent,
 ) {
     if matches!(event, tauri::WindowEvent::Focused(true)) && window.label() == "main" {

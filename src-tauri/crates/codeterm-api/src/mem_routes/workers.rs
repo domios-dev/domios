@@ -108,7 +108,10 @@ pub async fn workers_progress(
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     }
     if let Some(info) = state.svc.workers.get(&id) {
-        crate::events::emit_everywhere(&state.svc.app_handle, "graph-worker-progress", &info);
+        state.svc.ui.emit(
+            "graph-worker-progress",
+            serde_json::to_value(&info).unwrap_or(serde_json::Value::Null),
+        );
     }
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -191,7 +194,10 @@ pub async fn workers_report(
             .workers
             .complete(&id, b.summary)
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-        crate::events::emit_everywhere(&state.svc.app_handle, "graph-worker-reported", &info);
+        state.svc.ui.emit(
+            "graph-worker-reported",
+            serde_json::to_value(&info).unwrap_or(serde_json::Value::Null),
+        );
 
         Ok::<_, (StatusCode, String)>(info)
     })

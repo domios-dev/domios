@@ -6,7 +6,6 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::Manager;
 
 #[test]
 fn nonceless_duplicate_does_not_take_the_acknowledged_shortcut() {
@@ -84,7 +83,7 @@ fn hook_session_offruntime_keeps_runtime_responsive_while_cron_writer_is_held() 
         .unwrap();
     store.register_tab(&tab_id, &job.id, "run-1");
     let cron = Arc::new(parking_lot::Mutex::new(store));
-    assert!(fixture._app.manage(cron.clone()));
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
 
     let (locked_tx, locked_rx) = std::sync::mpsc::sync_channel(0);
     let (release_tx, release_rx) = std::sync::mpsc::channel();

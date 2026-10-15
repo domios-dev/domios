@@ -4,7 +4,6 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use tauri::Manager;
 
 use crate::routes::{check_auth, AppState};
 use codeterm_service_core::api_support::OptionalJson;
@@ -273,9 +272,7 @@ async fn persisted_resume_identity(
 ) -> Option<ResumableIdentity> {
     let storage = state
         .svc
-        .app_handle
-        .try_state::<codeterm_service_core::startup::StorageAuthority>()?
-        .inner()
+        .try_ext::<codeterm_service_core::startup::StorageAuthority>()?
         .storage()?
         .clone();
     let adapter = codeterm_service_core::session::store::StorageDeskAdapter::from_storage(storage);

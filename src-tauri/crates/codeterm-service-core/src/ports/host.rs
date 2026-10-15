@@ -35,6 +35,7 @@ pub struct WebviewRequest {
     pub height: f64,
 }
 
+/// Window operations must run off the main thread; host adapters may wait for it.
 pub trait Shell: Send + Sync {
     fn focus_window(&self, label: &str) -> Result<(), ShellError>;
     fn window_exists(&self, label: &str) -> bool;
@@ -43,11 +44,16 @@ pub trait Shell: Send + Sync {
     fn open_webview(&self, request: WebviewRequest) -> Result<(), ShellError>;
     fn current_exe(&self) -> Result<PathBuf, ShellError>;
     fn config_dir(&self) -> Result<PathBuf, ShellError>;
+    fn resource_dir(&self) -> Result<PathBuf, ShellError>;
 }
 
 pub struct NoShell;
 
 impl Shell for NoShell {
+    fn resource_dir(&self) -> Result<PathBuf, ShellError> {
+        Err(ShellError::Unavailable)
+    }
+
     fn focus_window(&self, _: &str) -> Result<(), ShellError> {
         Err(ShellError::Unavailable)
     }

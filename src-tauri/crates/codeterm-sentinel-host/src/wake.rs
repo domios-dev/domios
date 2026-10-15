@@ -6,8 +6,11 @@ use codeterm_service_core::service::ServiceState;
 
 const WAKE_EVENTS: [&str; 2] = ["prompt-state-changed", "tab-status-changed"];
 
-pub(super) fn listen_any(svc: ServiceState, handle: Handle) {
-    let app = svc.app_handle.clone();
+pub(super) fn listen_any(
+    svc: ServiceState,
+    handle: Handle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+) {
     for event_name in WAKE_EVENTS {
         let handle = handle.clone();
         app.listen_any(event_name, move |event| {

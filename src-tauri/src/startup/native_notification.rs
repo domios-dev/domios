@@ -1,4 +1,4 @@
-use codeterm_service_core::app_runtime::{AppHandle, Window};
+use codeterm_host_runtime::app_runtime::{AppHandle, Window};
 use tauri::{plugin::Plugin, webview::PageLoadPayload, RunEvent, Runtime, Webview};
 
 pub(crate) struct NativeNotificationPlugin<R: Runtime>(tauri::plugin::TauriPlugin<R>);
@@ -49,9 +49,9 @@ mod tests {
     #[test]
     fn frontend_shell_contract_notifications_have_no_browser_initialization() {
         let upstream =
-            tauri_plugin_notification::init::<codeterm_service_core::app_runtime::Runtime>();
+            tauri_plugin_notification::init::<codeterm_host_runtime::app_runtime::Runtime>();
         assert!(upstream.initialization_script_2().is_some());
-        let native = native_notification::<codeterm_service_core::app_runtime::Runtime>();
+        let native = native_notification::<codeterm_host_runtime::app_runtime::Runtime>();
         assert_eq!(native.name(), upstream.name());
         assert!(native.initialization_script().is_none());
         assert!(native.initialization_script_2().is_none());
