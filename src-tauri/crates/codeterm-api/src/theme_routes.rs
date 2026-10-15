@@ -92,12 +92,8 @@ pub async fn apply_theme_api(
     Json(body): Json<ApplyThemeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    use tauri::Manager;
 
-    let config_state = state
-        .svc
-        .app_handle
-        .state::<codeterm_service_core::config::ConfigState>();
+    let config_state = &state.config;
     let mut config = config_state.lock().clone();
     config.theme.name = body.name.clone();
     if let Some(mut theme) = codeterm_service_core::config::schema::get_any_theme(&body.name) {
@@ -107,7 +103,10 @@ pub async fn apply_theme_api(
     codeterm_service_core::config::save_config_pub(&config)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
     *config_state.lock() = config.clone();
-    crate::events::emit_everywhere(&state.svc.app_handle, "config-changed", &config);
+    state.svc.ui.emit(
+        "config-changed",
+        serde_json::to_value(&config).unwrap_or(serde_json::Value::Null),
+    );
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

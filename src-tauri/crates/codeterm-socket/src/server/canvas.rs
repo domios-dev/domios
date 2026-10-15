@@ -1,16 +1,16 @@
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_service_core::service::ServiceState;
 use serde_json::{json, Value};
 
 use super::JsonRpcError;
 
-fn emit_canvas_focus(app: &AppHandle, payload: Value) {
-    codeterm_service_core::events::emit_everywhere(app, "canvas-focus", payload);
+fn emit_canvas_focus(svc: &ServiceState, payload: Value) {
+    svc.ui.emit("canvas-focus", payload);
 }
 
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
+    svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
     match method {
@@ -20,7 +20,7 @@ pub(super) fn dispatch(
                 "tab_id": p.and_then(|x| x.get("tab_id")).and_then(|v| v.as_str()),
                 "plan_id": p.and_then(|x| x.get("plan_id")).and_then(|v| v.as_str()),
             });
-            emit_canvas_focus(app, payload.clone());
+            emit_canvas_focus(svc, payload.clone());
             Ok(json!({ "ok": true, "event": "canvas-focus", "payload": payload }))
         }
         "canvas.filter" => {
@@ -33,7 +33,7 @@ pub(super) fn dispatch(
                     data: None,
                 })?;
             let payload = json!({ "facet": facet, "dim": true });
-            emit_canvas_focus(app, payload.clone());
+            emit_canvas_focus(svc, payload.clone());
             Ok(json!({ "ok": true, "event": "canvas-focus", "payload": payload }))
         }
         _ => Err(JsonRpcError {

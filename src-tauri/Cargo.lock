@@ -1108,6 +1108,7 @@ dependencies = [
  "codeterm-decision",
  "codeterm-events",
  "codeterm-frontend-bundle",
+ "codeterm-host-runtime",
  "codeterm-mem",
  "codeterm-orchestration",
  "codeterm-plan",
@@ -1243,6 +1244,7 @@ dependencies = [
  "codeterm-decision",
  "codeterm-events",
  "codeterm-frontend-bundle",
+ "codeterm-host-runtime",
  "codeterm-mem",
  "codeterm-mesh",
  "codeterm-notification-core",
@@ -1365,6 +1367,7 @@ dependencies = [
  "codeterm-build-info",
  "codeterm-events",
  "codeterm-frontend-bundle",
+ "codeterm-host-runtime",
  "codeterm-mesh",
  "codeterm-orchestration",
  "codeterm-plugin",
@@ -1412,6 +1415,32 @@ dependencies = [
  "toml 0.8.2",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-crash"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "codeterm-build-info",
+ "codeterm-keepawake",
+ "codeterm-paths",
+ "codeterm-shutdown",
+ "codeterm-util",
+ "crash-context",
+ "crash-handler",
+ "hostname",
+ "libc",
+ "log",
+ "minidump-writer",
+ "objc2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1464,6 +1493,17 @@ dependencies = [
  "tempfile",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-host-runtime"
+version = "0.0.0"
+dependencies = [
+ "codeterm-events",
+ "codeterm-service-core",
+ "serde",
+ "serde_json",
+ "tauri",
 ]
 
 [[package]]
@@ -1623,6 +1663,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-notifications"
+version = "0.0.0"
+dependencies = [
+ "codeterm-agent-model",
+ "codeterm-bridge",
+ "codeterm-config",
+ "codeterm-notification-core",
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-pty",
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.2",
+ "uuid",
+]
+
+[[package]]
 name = "codeterm-notify-types"
 version = "1.6.2"
 dependencies = [
@@ -1635,6 +1697,7 @@ version = "0.0.0"
 dependencies = [
  "codeterm-analytics",
  "codeterm-events",
+ "codeterm-host-runtime",
  "codeterm-paths",
  "codeterm-sentinel",
  "codeterm-service-core",
@@ -1910,6 +1973,7 @@ dependencies = [
  "codeterm-cron",
  "codeterm-decision",
  "codeterm-events",
+ "codeterm-host-runtime",
  "codeterm-plugin",
  "codeterm-pty",
  "codeterm-sentinel",
@@ -1957,6 +2021,7 @@ dependencies = [
  "codeterm-browser",
  "codeterm-build-info",
  "codeterm-config",
+ "codeterm-crash",
  "codeterm-cron",
  "codeterm-decision",
  "codeterm-events",
@@ -1971,6 +2036,7 @@ dependencies = [
  "codeterm-mem-store",
  "codeterm-mesh",
  "codeterm-notification-core",
+ "codeterm-notifications",
  "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",
@@ -1986,14 +2052,13 @@ dependencies = [
  "codeterm-shutdown",
  "codeterm-storage",
  "codeterm-supporter",
+ "codeterm-surface",
  "codeterm-types",
  "codeterm-usage",
  "codeterm-util",
  "codeterm-wire",
  "codeterm-worker-services",
  "conpty",
- "crash-context",
- "crash-handler",
  "cron",
  "dirs 6.0.0",
  "ed25519-dalek",
@@ -2014,7 +2079,6 @@ dependencies = [
  "log",
  "md-5",
  "mdns-sd",
- "minidump-writer",
  "mockito",
  "ndarray",
  "notify",
@@ -2036,13 +2100,6 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "sqlite-vec",
- "tauri",
- "tauri-plugin-deep-link",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-shell",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
@@ -2080,6 +2137,7 @@ dependencies = [
  "codeterm-bridge",
  "codeterm-build-info",
  "codeterm-events",
+ "codeterm-host-runtime",
  "codeterm-mem",
  "codeterm-notification-core",
  "codeterm-orchestration",
@@ -2140,6 +2198,33 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml 0.8.2",
+ "uuid",
+]
+
+[[package]]
+name = "codeterm-surface"
+version = "0.0.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "base64 0.22.1",
+ "codeterm-browser",
+ "codeterm-input-macos",
+ "codeterm-input-windows",
+ "codeterm-local-recording",
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-util",
+ "futures-core",
+ "futures-util",
+ "image",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
  "uuid",
 ]
 

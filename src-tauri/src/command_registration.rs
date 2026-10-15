@@ -1,4 +1,4 @@
-use codeterm_service_core::app_runtime::Runtime;
+use codeterm_host_runtime::app_runtime::Runtime;
 
 pub(crate) fn register_commands(builder: tauri::Builder<Runtime>) -> tauri::Builder<Runtime> {
     builder.invoke_handler(tauri::generate_handler![

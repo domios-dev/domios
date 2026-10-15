@@ -265,7 +265,7 @@ fn open_thread(params: &Option<Value>, svc: &ServiceState) -> Result<Value, Json
         .and_then(|p| p.get("chat_id"))
         .and_then(|v| v.as_i64());
     let svc = svc.clone();
-    let opened = tauri::async_runtime::block_on(async move {
+    let opened = codeterm_service_core::async_runtime::block_on(async move {
         svc.open_bridge_thread(Some(&caller), &target, chat_id)
             .await
     })

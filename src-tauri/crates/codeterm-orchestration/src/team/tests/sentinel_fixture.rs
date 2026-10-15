@@ -5,20 +5,21 @@ use codeterm_service_core::ports::sentinel::{
     BlueprintRecord, BlueprintStore, SentinelCleanup, SentinelPorts, SentinelWake,
 };
 use parking_lot::Mutex;
-use tauri::Manager;
 
 struct FixtureSentinels(Arc<Mutex<Store>>);
 
 pub(super) fn manage(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    svc: &codeterm_service_core::service::ServiceContext,
     store: &Arc<Mutex<Store>>,
 ) {
     let adapter = Arc::new(FixtureSentinels(store.clone()));
-    assert!(app.manage(SentinelPorts {
-        store: adapter.clone(),
-        wake: adapter.clone(),
-        cleanup: adapter,
-    }));
+    assert!(svc
+        .set_ext(SentinelPorts {
+            store: adapter.clone(),
+            wake: adapter.clone(),
+            cleanup: adapter,
+        })
+        .is_ok());
 }
 
 impl BlueprintStore for FixtureSentinels {

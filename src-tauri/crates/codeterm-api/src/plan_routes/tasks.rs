@@ -618,11 +618,9 @@ fn task_update_core(
             .or_else(|| body.get("status_label").and_then(|v| v.as_str()));
         service.notify_owner_task_in_review(id, tid, by_tab, intent);
     }
-    crate::events::emit_everywhere(
-        &service.app_handle,
-        "plan-changed",
-        serde_json::json!({ "plan_id": id }),
-    );
+    service
+        .ui
+        .emit("plan-changed", serde_json::json!({ "plan_id": id }));
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

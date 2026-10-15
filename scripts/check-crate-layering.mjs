@@ -4,16 +4,17 @@ import path from "node:path";
 
 const root = path.resolve(process.argv[2] ?? path.join(import.meta.dirname, ".."));
 const hosts = new Set([
-  "codeterm-service-core", "codeterm-api", "codeterm-commands",
+  "codeterm-service-core", "codeterm-api", "codeterm-commands", "codeterm-host-runtime",
   "codeterm-orchestration", "codeterm-sentinel-host", "codeterm-socket",
 ]);
 const leafTiers = [
   [],
-  ["events", "config", "secrets", "keepawake", "cron", "shutdown", "prompts", "local-preview", "worker-services", "lanes"],
+  ["events", "config", "secrets", "keepawake", "crash", "cron", "shutdown", "prompts", "local-preview", "worker-services", "lanes"],
   ["sentinel"],
   ["agent-model"],
   ["supporter"],
   ["provider-ops", "recall"],
+  ["surface", "notifications"],
 ];
 const tierByCrate = new Map(leafTiers.flatMap((names, tier) => names.map((name) => [`codeterm-${name}`, tier])));
 // Unlisted foundation crates are tier zero; extracted leaves must never become their dependencies.
@@ -56,11 +57,22 @@ for (const base of ["src-tauri/crates", "crates"]) {
   const directory = path.join(root, base);
   if (!fs.existsSync(directory)) continue;
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isDirectory() || hosts.has(entry.name)) continue;
+    if (!entry.isDirectory()) continue;
     const crate = path.join(directory, entry.name);
     const manifest = path.join(crate, "Cargo.toml");
     if (!fs.existsSync(manifest)) continue;
-    for (const dependency of cargoDependencies(fs.readFileSync(manifest, "utf8"))) {
+    const dependencies = cargoDependencies(fs.readFileSync(manifest, "utf8"));
+    if ((!hosts.has(entry.name) || entry.name === "codeterm-service-core")
+        && dependencies.includes("codeterm-host-runtime")) {
+      violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: core or leaf crate depends on codeterm-host-runtime`);
+    }
+    if (entry.name === "codeterm-service-core") {
+      for (const dependency of dependencies.filter((name) => /^tauri(?:-|$)/.test(name))) {
+        violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: service core depends on ${dependency}`);
+      }
+    }
+    if (hosts.has(entry.name)) continue;
+    for (const dependency of dependencies) {
       if (tierFor(dependency) > tierFor(entry.name)) {
         violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: leaf tier inversion: ${entry.name} (tier ${tierFor(entry.name)}) -> ${dependency} (tier ${tierFor(dependency)})`);
       }
@@ -74,6 +86,7 @@ for (const base of ["src-tauri/crates", "crates"]) {
         const core = isManifest ? /\bcodeterm[-_]service[-_]core\b/ : /\bcodeterm_service_core\b/;
         const tauri = isManifest ? /\btauri(?:[-_]\w+)?\b/ : /\btauri(?:_\w+)?\s*::|\b(?:use|extern\s+crate)\s+tauri\b/;
         const location = `${path.relative(root, file).replaceAll("\\", "/")}:${index + 1}`;
+        if (!isManifest && /\bServiceContext\b/.test(line)) violations.push(`${location}: leaf crate names ServiceContext`);
         if (core.test(line)) violations.push(`${location}: leaf crate names codeterm-service-core`);
         if (tauri.test(line)) {
           seenTauri.add(entry.name);

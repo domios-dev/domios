@@ -3,7 +3,6 @@ use std::sync::OnceLock;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::app_runtime::AppHandle;
 use crate::multiplexer::commands::MuxState;
 use crate::notification::NotifState;
 use crate::plan::{PlanMode, Task, TaskExecutionAttempt, TaskLaneMetadata};
@@ -19,7 +18,6 @@ pub struct RpcError {
 }
 
 pub struct DispatchStartup {
-    pub app: AppHandle,
     pub svc: ServiceState,
     pub plan_id: String,
     pub task_id: String,
@@ -40,16 +38,23 @@ pub struct DispatchStartup {
 
 pub type StartupReady = tokio::sync::oneshot::Receiver<Result<(), String>>;
 
+pub type ServiceRpc =
+    dyn Fn(&str, Option<Value>, &ServiceState) -> Result<Value, RpcError> + Send + Sync;
+pub type MeshRpc =
+    dyn Fn(&str, Option<Value>, &ServiceState, &str) -> Result<Value, RpcError> + Send + Sync;
+pub type StartServer = dyn Fn(MuxState, PtyState, NotifState, OutputBufferState, ServiceState) -> Result<(), String>
+    + Send
+    + Sync;
+
 /// Socket-owned RPC entry points, registered once at startup so HTTP routes never name socket internals.
 pub struct RpcBridge {
     pub protocol_version: fn() -> u64,
     pub version_skew_gate: fn(Option<&Value>) -> Option<RpcError>,
-    pub dispatch_service_rpc: fn(&str, Option<Value>, &ServiceState) -> Result<Value, RpcError>,
-    pub dispatch_mesh_rpc: fn(&str, Option<Value>, &ServiceState, &str) -> Result<Value, RpcError>,
+    pub dispatch_service_rpc: Box<ServiceRpc>,
+    pub dispatch_mesh_rpc: Box<MeshRpc>,
     pub recover_remote_attempts: fn(&ServiceState, &str, &str, u64, bool) -> Result<(), RpcError>,
     pub respawn_remote: fn(
         &Option<Value>,
-        &AppHandle,
         &ServiceState,
         &str,
         &str,
@@ -57,14 +62,7 @@ pub struct RpcBridge {
         u64,
     ) -> Result<Value, RpcError>,
     pub run_dispatch_startup: fn(DispatchStartup, StartupReady),
-    pub start_server: fn(
-        MuxState,
-        PtyState,
-        NotifState,
-        AppHandle,
-        OutputBufferState,
-        ServiceState,
-    ) -> Result<(), String>,
+    pub start_server: Box<StartServer>,
 }
 
 static BRIDGE: OnceLock<RpcBridge> = OnceLock::new();
@@ -94,12 +92,12 @@ pub fn register_test_stub() {
     register(RpcBridge {
         protocol_version: || 1,
         version_skew_gate: |_| None,
-        dispatch_service_rpc: |_, _, _| Err(stub_error()),
-        dispatch_mesh_rpc: |_, _, _, _| Err(stub_error()),
+        dispatch_service_rpc: Box::new(|_, _, _| Err(stub_error())),
+        dispatch_mesh_rpc: Box::new(|_, _, _, _| Err(stub_error())),
         recover_remote_attempts: |_, _, _, _, _| Ok(()),
-        respawn_remote: |_, _, _, _, _, _, _| Err(stub_error()),
+        respawn_remote: |_, _, _, _, _, _| Err(stub_error()),
         run_dispatch_startup: |_, _| {},
-        start_server: |_, _, _, _, _, _| Err(stub_error().message),
+        start_server: Box::new(|_, _, _, _, _| Err(stub_error().message)),
     });
 }
 

@@ -96,7 +96,7 @@ mod update_apply_phase_tests {
 }
 
 pub(super) async fn check_and_apply(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
@@ -111,11 +111,15 @@ pub(super) async fn check_and_apply(
 /// Filesystem copies and, on Windows, a `reg` subprocess: never on the Tauri
 /// async runtime, where it would stall every other tab's IPC.
 async fn refresh_bundled_cli_off_runtime(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), String> {
-    let handle = app.clone();
+    use tauri::Manager;
+    let shell = app
+        .state::<codeterm_service_core::service::ServiceState>()
+        .shell
+        .clone();
     tokio::task::spawn_blocking(move || {
-        codeterm_service_core::startup::refresh_bundled_cli(&handle)
+        codeterm_service_core::startup::refresh_bundled_cli(shell.as_ref())
     })
     .await
     .map_err(|e| format!("bundled CLI refresh task failed: {e}"))
@@ -137,7 +141,7 @@ async fn resolve_manifest_endpoint(opts: &ApplyOptions) -> Result<String, String
 }
 
 async fn check_and_apply_plugin(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
@@ -280,7 +284,7 @@ async fn check_and_apply_plugin(
 
 #[cfg(windows)]
 fn restart_after_plugin_install(
-    _: &codeterm_service_core::app_runtime::AppHandle,
+    _: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<ApplyResult, String> {
     // tauri-plugin-updater exits this process after launching the NSIS installer.
     Ok(ApplyResult::Restarting)
@@ -288,14 +292,14 @@ fn restart_after_plugin_install(
 
 #[cfg(not(windows))]
 fn restart_after_plugin_install(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<ApplyResult, String> {
     codeterm_service_core::startup::restart_stdio_detach_for_restart();
     app.restart()
 }
 
 async fn check_and_apply_deb(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
@@ -320,7 +324,7 @@ async fn check_and_apply_deb(
 }
 
 pub async fn check_stage_deb_update(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: &ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<DebianUpdatePlan, String> {
@@ -405,7 +409,7 @@ where
 }
 
 pub(super) async fn install_staged_deb_and_restart(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     version: String,
     path: std::path::PathBuf,
     initiating_tab_id: Option<&str>,
