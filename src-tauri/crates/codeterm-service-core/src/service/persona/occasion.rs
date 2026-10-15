@@ -38,7 +38,7 @@ pub const ALL: &[Occasion] = &[
 
 /// Which resolved presets a row answers for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Selector {
+pub enum Selector {
     /// One builtin kind id. A Worker subtype can never resolve to a managing
     /// kind id, so these rows only ever match Manager presets.
     Kind(&'static str),
@@ -60,7 +60,7 @@ impl Selector {
 
 /// Which fragments of the preset an occasion consumes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Slot {
+pub enum Slot {
     /// The kind's own contract: bundled or inherited base plus disk overlays.
     Contract,
     /// Only the persona this delivery supplied.
@@ -98,7 +98,7 @@ pub enum Fallback {
     Declared(fn() -> String),
 }
 
-struct OccasionRules {
+pub struct OccasionRules {
     occasion: Occasion,
     rows: &'static [(Selector, Placement)],
     fallback: Fallback,

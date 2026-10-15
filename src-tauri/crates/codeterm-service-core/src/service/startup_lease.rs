@@ -11,7 +11,7 @@ use crate::multiplexer::state::MultiplexerState;
 /// The exact Team a pair mint owns plus the launch tabs reserved with it. A
 /// Team the claimed tab already belonged to is adopted, never leased.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct StartupTeamLease {
+pub struct StartupTeamLease {
     pub team_id: String,
     pub creator_tab_id: String,
     pub member_tab_ids: Vec<String>,
@@ -223,7 +223,7 @@ pub fn authorize_startup_hold(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TeamReapOutcome {
+pub enum TeamReapOutcome {
     Reaped,
     TeamGone,
     NotForming,

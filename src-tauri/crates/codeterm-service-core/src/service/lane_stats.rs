@@ -16,7 +16,7 @@ const GIT_COMMAND_DEADLINE: Duration = Duration::from_secs(4);
 const CHECKPOINTS_PER_ATTEMPT: usize = 20;
 const MAX_GIT_OUTPUT_BYTES: usize = 1024 * 1024;
 
-struct LaneAttemptTarget {
+pub struct LaneAttemptTarget {
     plan_id: String,
     task_id: String,
     attempt_id: String,
@@ -32,7 +32,7 @@ pub enum CaptureFailure {
 }
 
 #[derive(Debug)]
-enum CheckpointResult {
+pub enum CheckpointResult {
     Created(String),
     Refused(LaneCheckpointRefusal),
 }
@@ -350,7 +350,7 @@ fn create_checkpoint(
     )
 }
 
-struct GitCheckpoint<'a> {
+pub struct GitCheckpoint<'a> {
     cwd: &'a Path,
     deadline: Instant,
     index: Option<tempfile::TempDir>,

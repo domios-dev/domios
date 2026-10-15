@@ -19,7 +19,7 @@ use crate::service::plan::{PlanError, PlanStore};
 pub(crate) const STALE_TASK_BINDING_TYPE: &str = "stale_task_binding";
 
 /// Why this caller may write. Every entrance states one; there is no default.
-pub(crate) enum BatchAuthority<'a> {
+pub enum BatchAuthority<'a> {
     /// Identified only by the tab id it sent, so every task it names is checked.
     Caller { tab_id: Option<&'a str> },
     /// Established upstream by a path that already authenticated the caller and

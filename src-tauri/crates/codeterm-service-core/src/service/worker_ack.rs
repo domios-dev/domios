@@ -75,20 +75,20 @@ pub enum AgentStartupSignal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AgentStartupAcknowledgement {
+pub enum AgentStartupAcknowledgement {
     Acknowledged,
     AlreadyAcknowledged,
     NotRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AgentStartupNoticeOutcome {
+pub enum AgentStartupNoticeOutcome {
     Resolved,
     Overdue { exit_code: Option<i32> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WorkerAckWaitOutcome {
+pub enum WorkerAckWaitOutcome {
     Resolved,
     Overdue,
 }
@@ -104,13 +104,13 @@ pub fn await_remote_worker_ack(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WaiterExpiry {
+pub enum WaiterExpiry {
     Expired,
     Extended,
     NoLongerCurrent,
 }
 
-enum AgentStartupArm {
+pub enum AgentStartupArm {
     Armed(Receiver<AgentStartupSignal>),
     Extended,
     AlreadyAcknowledged,
@@ -183,18 +183,18 @@ fn await_worker_ack(
     }
 }
 
-struct WorkerAckWaiter {
+pub struct WorkerAckWaiter {
     observers: Vec<Sender<WorkerAckSignal>>,
 }
 
-struct AgentStartupWaiter {
+pub struct AgentStartupWaiter {
     authority: StartupAuthority,
     deadline_generation: u64,
     sender: Sender<AgentStartupSignal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PendingAgentStartupSupervisor {
+pub struct PendingAgentStartupSupervisor {
     supervisor_tab_id: String,
     agent_title: String,
     team_id: Option<String>,
@@ -234,7 +234,7 @@ pub(crate) fn startup_task_identity_from_env(
 }
 
 #[derive(Default)]
-pub(crate) struct WorkerAckRegistry {
+pub struct WorkerAckRegistry {
     waiters: Mutex<WorkerAckState>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
     startup_acknowledged: Mutex<HashMap<String, StartupAuthority>>,

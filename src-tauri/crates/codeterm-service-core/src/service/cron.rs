@@ -71,9 +71,9 @@ pub struct CronCompleteAfterResponse {
 
 /// Newest owner-prompt value per tab while a Storage commit of that tab is settling.
 #[derive(Clone, Default)]
-struct OwnerPromptRequests(Arc<Mutex<HashMap<String, OwnerPromptRequest>>>);
+pub struct OwnerPromptRequests(Arc<Mutex<HashMap<String, OwnerPromptRequest>>>);
 
-struct OwnerPromptRequest {
+pub struct OwnerPromptRequest {
     awaiting: bool,
     requested: u64,
     admitted: u64,
