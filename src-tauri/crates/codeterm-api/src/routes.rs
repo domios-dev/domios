@@ -1139,6 +1139,22 @@ fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {
 mod tests;
 
 /// Resolve a tab ID path parameter: supports both direct IDs and aliases.
+pub(crate) async fn resolve_tab_async(
+    state: &AppState,
+    raw_id: &str,
+) -> Result<String, (StatusCode, &'static str)> {
+    let state = state.clone();
+    let raw_id = raw_id.to_owned();
+    tokio::task::spawn_blocking(move || resolve_tab(&state, &raw_id))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Tab resolution task failed",
+            )
+        })?
+}
+
 pub(crate) fn resolve_tab(
     state: &AppState,
     raw_id: &str,

@@ -7,7 +7,9 @@ pub async fn chat_send_dismissals(
     Path(id): Path<String>,
 ) -> Result<Json<Vec<UserSendDismissal>>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
-    let tab = resolve_tab(&state, &id).map_err(SendRejection::from)?;
+    let tab = crate::routes::resolve_tab_async(&state, &id)
+        .await
+        .map_err(SendRejection::from)?;
     let svc = state.svc.clone();
     let receipts = tokio::task::spawn_blocking(move || {
         svc.pending_delivery_payloads.user_sends.dismissals(&tab)
@@ -30,7 +32,9 @@ pub async fn chat_send_delete(
     Json(body): Json<UserSendDismissal>,
 ) -> Result<Json<UserSendDismissal>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
-    let tab = resolve_tab(&state, &id).map_err(SendRejection::from)?;
+    let tab = crate::routes::resolve_tab_async(&state, &id)
+        .await
+        .map_err(SendRejection::from)?;
     let svc = state.svc.clone();
     let receipt = tokio::task::spawn_blocking(move || svc.delete_chat_send(&tab, body))
         .await

@@ -18,10 +18,12 @@ const IDENTIFY_FEATURES: &[&str] = &[
 ];
 
 pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
-    match codeterm_service_core::dispatch::dispatch(
-        &codeterm_service_core::dispatch::Command::Health,
-        state.svc.as_ref(),
-    ) {
+    match codeterm_service_core::dispatch::dispatch_blocking(
+        codeterm_service_core::dispatch::Command::Health,
+        state.svc.clone(),
+    )
+    .await
+    {
         Ok(r) => {
             let mut json = r.into_json();
             if let Some(obj) = json.as_object_mut() {

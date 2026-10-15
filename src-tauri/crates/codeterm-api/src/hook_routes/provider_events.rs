@@ -4,8 +4,8 @@ use axum::{
     Json,
 };
 
+use super::header_str;
 use super::recording::record_hook_post;
-use super::{header_str, resolve_hook_tab};
 use crate::routes::AppState;
 
 #[derive(serde::Deserialize)]
@@ -21,7 +21,8 @@ pub(crate) async fn hook_provider_event(
     Json(body): Json<ProviderEventBody>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     let started = std::time::Instant::now();
-    let tab_id = resolve_hook_tab(&state, &raw_tab_id, "provider_event")?;
+    let tab_id =
+        crate::hook_routes::resolve_hook_tab_async(&state, &raw_tab_id, "provider_event").await?;
     if let Some(response) = super::hook_authority::telemetry_response(&tab_id, "provider_event") {
         return Ok(axum::response::IntoResponse::into_response(response));
     }
@@ -33,21 +34,35 @@ pub(crate) async fn hook_provider_event(
         StatusCode::UNAUTHORIZED,
         "binding nonce missing".to_string(),
     ))?;
-    let (tab_provider, session_id, expected_nonce, acknowledged_nonce, pty_id) = state
-        .svc
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .map(|tab| {
-            (
-                tab.agent_type.clone(),
-                tab.agent_session_id.clone(),
-                tab.session_binding_nonce.clone(),
-                tab.reported_session_binding_nonce.clone(),
-                tab.pty_id.clone(),
-            )
+    let owner = state.clone();
+    let target = tab_id.clone();
+    let (tab_provider, session_id, expected_nonce, acknowledged_nonce, pty_id) =
+        tokio::task::spawn_blocking(move || {
+            let state = owner;
+            let tab_id = target;
+            state
+                .svc
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .map(|tab| {
+                    (
+                        tab.agent_type.clone(),
+                        tab.agent_session_id.clone(),
+                        tab.session_binding_nonce.clone(),
+                        tab.reported_session_binding_nonce.clone(),
+                        tab.pty_id.clone(),
+                    )
+                })
+                .unwrap_or_default()
         })
-        .unwrap_or_default();
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "blocking task failed".to_string(),
+            )
+        })?;
     if tab_provider.as_deref() != Some(provider)
         || session_id.as_deref() != Some(body.session_id.as_str())
         || expected_nonce.as_deref() != Some(nonce)
@@ -82,17 +97,16 @@ pub(crate) async fn hook_provider_event(
         let registry = state.svc.agent_registry.clone();
         let provider = provider.to_string();
         let session = body.session_id.clone();
-        let cwd = state
-            .svc
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .and_then(|tab| tab.cwd.clone())
-            .unwrap_or_default();
         let svc = state.svc.clone();
         let target = tab_id.clone();
         let binding_nonce = nonce.to_string();
         tokio::task::spawn_blocking(move || {
+            let cwd = svc
+                .mux
+                .read()
+                .get_tab(&target)
+                .and_then(|tab| tab.cwd.clone())
+                .unwrap_or_default();
             let records = registry
                 .with_provider(&provider, |provider| {
                     provider
@@ -111,54 +125,66 @@ pub(crate) async fn hook_provider_event(
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     }
-    if turn_error {
-        if pty_id.is_none() || !state.svc.mark_agent_turn_error(&tab_id) {
+    let nonce = nonce.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let nonce = nonce.as_str();
+        if turn_error {
+            if pty_id.is_none() || !state.svc.mark_agent_turn_error(&tab_id) {
+                return Err((
+                    StatusCode::CONFLICT,
+                    "provider error tab has no PTY status".to_string(),
+                ));
+            }
+        } else if turn_complete {
+            let has_error = state
+                .svc
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .is_some_and(|tab| tab.provider_signals.api_error.is_some());
+            let marked = if has_error {
+                state.svc.mark_agent_turn_error(&tab_id)
+            } else {
+                state.svc.mark_agent_turn_complete(&tab_id)
+            };
+            if pty_id.is_none() || !marked {
+                return Err((
+                    StatusCode::CONFLICT,
+                    "provider idle tab has no PTY status".to_string(),
+                ));
+            }
+            state.svc.schedule_session_model_refresh_after_stop(&tab_id);
+            state
+                .svc
+                .staged_model_turn_completed(&tab_id, &body.session_id, nonce);
+        } else if turn_started && (pty_id.is_none() || !state.svc.mark_agent_turn_started(&tab_id))
+        {
             return Err((
                 StatusCode::CONFLICT,
-                "provider error tab has no PTY status".to_string(),
+                "provider active tab has no PTY status".to_string(),
             ));
         }
-    } else if turn_complete {
-        let has_error = state
-            .svc
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .is_some_and(|tab| tab.provider_signals.api_error.is_some());
-        let marked = if has_error {
-            state.svc.mark_agent_turn_error(&tab_id)
+        let response = Json(serde_json::json!({
+            "ok": true,
+            "turn_error": turn_error,
+            "turn_complete": turn_complete,
+            "turn_started": turn_started,
+        }));
+        log::info!(
+            "[hook/timing] tab={tab_id} route=provider_event phase=response_ready elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
+        Ok(if turn_started || turn_complete || turn_error {
+            super::reconciliation::after_response(response, state.svc, tab_id, "provider_event")
         } else {
-            state.svc.mark_agent_turn_complete(&tab_id)
-        };
-        if pty_id.is_none() || !marked {
-            return Err((
-                StatusCode::CONFLICT,
-                "provider idle tab has no PTY status".to_string(),
-            ));
-        }
-        state.svc.schedule_session_model_refresh_after_stop(&tab_id);
-        state
-            .svc
-            .staged_model_turn_completed(&tab_id, &body.session_id, nonce);
-    } else if turn_started && (pty_id.is_none() || !state.svc.mark_agent_turn_started(&tab_id)) {
-        return Err((
-            StatusCode::CONFLICT,
-            "provider active tab has no PTY status".to_string(),
-        ));
-    }
-    let response = Json(serde_json::json!({
-        "ok": true,
-        "turn_error": turn_error,
-        "turn_complete": turn_complete,
-        "turn_started": turn_started,
-    }));
-    log::info!(
-        "[hook/timing] tab={tab_id} route=provider_event phase=response_ready elapsed_ms={}",
-        started.elapsed().as_millis()
-    );
-    Ok(if turn_started || turn_complete || turn_error {
-        super::reconciliation::after_response(response, state.svc, tab_id, "provider_event")
-    } else {
-        axum::response::IntoResponse::into_response(response)
+            axum::response::IntoResponse::into_response(response)
+        })
     })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }

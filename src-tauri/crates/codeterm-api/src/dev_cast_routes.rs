@@ -159,9 +159,21 @@ pub async fn inject_cast(
         ));
     }
     let cast = load_cast(&body)?;
-    let pty_id = resolve_target_pty(&state, &body.tab_id)?;
+    let owner = state.clone();
+    let target = body.tab_id.clone();
+    let (pty_id, start_offset) = tokio::task::spawn_blocking(move || {
+        let pty_id = resolve_target_pty(&owner, &target)?;
+        let start_offset = owner.svc.output_buf.lock().total_written(&pty_id);
+        Ok::<_, (StatusCode, String)>((pty_id, start_offset))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })??;
     let planned = cast::output_byte_count(&cast.events);
-    let start_offset = state.svc.output_buf.lock().total_written(&pty_id);
 
     if body.instant {
         let svc = state.svc.clone();

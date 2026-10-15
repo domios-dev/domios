@@ -37,9 +37,13 @@ async fn update_cwd(
     Json(body): Json<CwdBody>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
     local_target(&caller, &raw)?;
-    let tab_id = crate::routes::resolve_tab(&state, &raw)?;
-    state.svc.update_tab_cwd(&tab_id, body.cwd);
-    Ok(Json(json!({ "ok": true })))
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw).await?;
+    tokio::task::spawn_blocking(move || {
+        state.svc.update_tab_cwd(&tab_id, body.cwd);
+        Ok(Json(json!({ "ok": true })))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 async fn history(
@@ -48,7 +52,8 @@ async fn history(
     Path(raw): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     local_target(&caller, &raw).map_err(|(status, message)| (status, message.into()))?;
-    let tab_id = crate::routes::resolve_tab(&state, &raw)
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw)
+        .await
         .map_err(|(status, message)| (status, message.into()))?;
     let command = codeterm_service_core::dispatch::Command::GetOutput {
         tab_id,

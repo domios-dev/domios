@@ -14,74 +14,106 @@ pub async fn spawn_pty_core(
     predicted_id: Option<String>,
     tab_id: Option<String>,
 ) -> Result<String, String> {
-    if let Some(id) = tab_id.as_deref() {
-        if codeterm_service_core::service::agent_runtime::requested_for_tab(svc, id) {
-            codeterm_service_core::service::agent_runtime::restore_tab(svc, id)?;
-            return Err("This agent uses Chat; terminal launch is unavailable".into());
+    let owner = svc.clone();
+    let requested_tab = tab_id.clone();
+    tokio::task::spawn_blocking(move || {
+        let svc = &owner;
+        let tab_id = requested_tab;
+        if let Some(id) = tab_id.as_deref() {
+            if codeterm_service_core::service::agent_runtime::requested_for_tab(svc, id) {
+                codeterm_service_core::service::agent_runtime::restore_tab(svc, id)?;
+                return Err("This agent uses Chat; terminal launch is unavailable".to_string());
+            }
         }
-    }
+        Ok::<_, String>(())
+    })
+    .await
+    .map_err(|error| format!("spawn preflight task failed: {error}"))??;
     let mut pty_claim = match tab_id.clone() {
         Some(id) => Some(svc.pty_ownership.acquire_async(id).await?),
         None => None,
     };
-    let state = &svc.pty;
-    let mux_state = &svc.mux;
-    // Protected tabs belong to the backend lifecycle, including while it is starting.
-    if let Some(ref pid) = tab_id {
-        if mux_state.read().get_tab(pid).is_some_and(|tab| {
+    let owner = svc.clone();
+    let requested_tab = tab_id.clone();
+    let preflight = tokio::task::spawn_blocking(move || {
+        let Some(pid) = requested_tab.as_deref() else {
+            return Ok((false, None));
+        };
+        if owner.mux.read().get_tab(pid).is_some_and(|tab| {
             tab.close_restore
                 .as_ref()
                 .is_some_and(|state| state.stopped)
         }) {
-            return Err("Restored shell is stopped; use Rerun command or Start shell".into());
+            return Err("Restored shell is stopped; use Rerun command or Start shell".to_string());
         }
-        let (is_protected, existing) = {
-            let m = mux_state.read();
-            let p = m.get_tab(pid);
+        let (protected, existing) = {
+            let mux = owner.mux.read();
+            let tab = mux.get_tab(pid);
             (
-                p.map(|p| p.protected).unwrap_or(false),
-                p.and_then(|p| p.pty_id.clone()),
+                tab.is_some_and(|tab| tab.protected),
+                tab.and_then(|tab| tab.pty_id.clone()),
             )
         };
-        // Reuse a live PTY when possible; remounts should not re-trigger agent resume.
-        if let Some(existing) = existing {
-            let alive = state.lock().get_session(&existing).is_some();
-            if alive {
-                let restored = mux_state
+        let live = existing
+            .filter(|existing| owner.pty.lock().get_session(existing).is_some())
+            .map(|existing| {
+                let restored = owner
+                    .mux
                     .read()
                     .get_tab(pid)
                     .is_some_and(|tab| tab.restored_from_snapshot && !tab.protected);
-                let restore_service = svc.clone();
-                return reuse_live_pty_with_claim(
-                    pty_claim.take().expect("Tab claim"),
-                    existing,
-                    restored,
-                    |claim, existing| svc.link_pty_with_claim(claim, pid, existing, false),
-                    move |claim| restore_service.materialize_restored_agent_with_claim(claim),
-                )
-                .await;
-            }
+                (existing, restored)
+            });
+        Ok((protected, live))
+    })
+    .await
+    .map_err(|error| format!("spawn preflight task failed: {error}"))??;
+    if let Some(ref pid) = tab_id {
+        if let Some((existing, restored)) = preflight.1 {
+            let link_service = svc.clone();
+            let link_tab = pid.clone();
+            let restore_service = svc.clone();
+            return reuse_live_pty_with_claim(
+                pty_claim.take().expect("Tab claim"),
+                existing,
+                restored,
+                move |claim, existing| {
+                    link_service.link_pty_with_claim(claim, &link_tab, existing, false)
+                },
+                move |claim| restore_service.materialize_restored_agent_with_claim(claim),
+            )
+            .await;
         }
-        if is_protected {
+        if preflight.0 {
             drop(pty_claim.take());
-            return codeterm_service_core::service::await_relink(|| {
-                let existing = {
-                    let mux = mux_state.read();
-                    let Some(tab) = mux.get_tab(pid) else {
-                        return Some(Err(format!("Tab {pid} closed before PTY link")));
-                    };
-                    tab.pty_id.clone()
-                }?;
-                state
-                    .lock()
-                    .get_session(&existing)
-                    .is_some()
-                    .then_some(Ok(existing))
+            let owner = svc.clone();
+            let target = pid.clone();
+            return codeterm_service_core::service::await_relink_async(move || {
+                let owner = owner.clone();
+                let target = target.clone();
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        let existing = {
+                            let mux = owner.mux.read();
+                            let Some(tab) = mux.get_tab(&target) else {
+                                return Some(Err(format!("Tab {target} closed before PTY link")));
+                            };
+                            tab.pty_id.clone()
+                        }?;
+                        owner
+                            .pty
+                            .lock()
+                            .get_session(&existing)
+                            .is_some()
+                            .then_some(Ok(existing))
+                    })
+                    .await
+                    .unwrap_or_else(|error| Some(Err(format!("PTY relink task failed: {error}"))))
+                }
             })
             .await;
         }
     }
-
     // One stamper for every launch path: a restored tab must not come back
     // identity-poorer than the same record launched by the daemon.
     let env_svc = svc.clone();
@@ -91,14 +123,21 @@ pub async fn spawn_pty_core(
             .await
             .map_err(|error| format!("spawn_pty env join error: {error}"))?;
 
-    let profile = tab_id.as_deref().and_then(|id| {
-        let mux = mux_state.read();
-        mux.get_tab(id)
-            .filter(|tab| tab.agent_type.is_none())
-            .and_then(|tab| tab.shell_profile.clone())
-    });
+    let owner = svc.clone();
+    let requested_tab = tab_id.clone();
+    let (profile, spawn_gate) = tokio::task::spawn_blocking(move || {
+        let profile = requested_tab.as_deref().and_then(|id| {
+            let mux = owner.mux.read();
+            mux.get_tab(id)
+                .filter(|tab| tab.agent_type.is_none())
+                .and_then(|tab| tab.shell_profile.clone())
+        });
+        let gate = owner.pty.lock().spawn_gate();
+        (profile, gate)
+    })
+    .await
+    .map_err(|error| format!("spawn profile task failed: {error}"))?;
     let t0 = std::time::Instant::now();
-    let spawn_gate = state.lock().spawn_gate();
     let built = tokio::task::spawn_blocking(move || {
         codeterm_service_core::pty::manager::build_session_with_profile(
             spawn_gate,
@@ -114,35 +153,49 @@ pub async fn spawn_pty_core(
     .map_err(|e| format!("spawn_pty join error: {}", e))??;
     let build_ms = t0.elapsed().as_millis();
 
-    let (mut pty_id, _session) = state.lock().register_session(predicted_id, built);
-    codeterm_service_core::service::pty_resize_resize(&svc.pty, &svc.screen_state, &pty_id, None)?;
-    log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
+    let owner = svc.clone();
+    let requested_tab = tab_id.clone();
+    let (pty_id, mut pty_claim) = tokio::task::spawn_blocking(move || {
+        let svc = &owner;
+        let tab_id = requested_tab;
+        let (mut pty_id, _session) = svc.pty.lock().register_session(predicted_id, built);
+        codeterm_service_core::service::pty_resize_resize(
+            &svc.pty,
+            &svc.screen_state,
+            &pty_id,
+            None,
+        )?;
+        log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
 
-    let reader_pty_id = if let Some(ref pid) = tab_id {
-        let selected =
-            svc.link_pty_with_claim(pty_claim.as_ref().expect("Tab claim"), pid, pty_id, false);
-        if !selected.linked {
-            return Err(format!("Tab {} closed before PTY link", pid));
+        let reader_pty_id = if let Some(ref pid) = tab_id {
+            let selected =
+                svc.link_pty_with_claim(pty_claim.as_ref().expect("Tab claim"), pid, pty_id, false);
+            if !selected.linked {
+                return Err(format!("Tab {} closed before PTY link", pid));
+            }
+            let reader_pty_id = selected.reader_pty_id().map(str::to_string);
+            pty_id = selected.pty_id;
+            reader_pty_id
+        } else {
+            Some(pty_id.clone())
+        };
+        if let Some(reader_pty_id) = reader_pty_id {
+            if let Err(e) = codeterm_service_core::service::pty_lifecycle::start_backend_reader(
+                &svc,
+                &reader_pty_id,
+                false,
+            ) {
+                log::warn!(
+                    "[spawn_pty] failed to start backend reader for {}: {}",
+                    &reader_pty_id[..reader_pty_id.len().min(8)],
+                    e
+                );
+            }
         }
-        let reader_pty_id = selected.reader_pty_id().map(str::to_string);
-        pty_id = selected.pty_id;
-        reader_pty_id
-    } else {
-        Some(pty_id.clone())
-    };
-    if let Some(reader_pty_id) = reader_pty_id {
-        if let Err(e) = codeterm_service_core::service::pty_lifecycle::start_backend_reader(
-            &svc,
-            &reader_pty_id,
-            false,
-        ) {
-            log::warn!(
-                "[spawn_pty] failed to start backend reader for {}: {}",
-                &reader_pty_id[..reader_pty_id.len().min(8)],
-                e
-            );
-        }
-    }
+        Ok::<_, String>((pty_id, pty_claim))
+    })
+    .await
+    .map_err(|error| format!("spawn registration task failed: {error}"))??;
     // Auto-resume tab session after shell is ready.
     if let Some(ref pid) = tab_id {
         let recovery_service = svc.clone();
@@ -159,13 +212,20 @@ pub async fn spawn_pty_core(
             }
             return Err(error);
         }
-        let exact_restore = mux_state.read().get_tab(pid).is_some_and(|tab| {
-            tab.restored_from_snapshot
-                && tab
-                    .close_restore
-                    .as_ref()
-                    .is_some_and(|state| state.exact_session)
-        });
+        let owner = svc.clone();
+        let target = pid.clone();
+        let exact_restore = tokio::task::spawn_blocking(move || {
+            let exact_restore = owner.mux.read().get_tab(&target).is_some_and(|tab| {
+                tab.restored_from_snapshot
+                    && tab
+                        .close_restore
+                        .as_ref()
+                        .is_some_and(|state| state.exact_session)
+            });
+            exact_restore
+        })
+        .await
+        .map_err(|error| format!("restore snapshot task failed: {error}"))?;
         if exact_restore {
             let restore_service = svc.clone();
             let claim = pty_claim.take().expect("Tab claim");
@@ -175,6 +235,12 @@ pub async fn spawn_pty_core(
             .await?;
             return Ok(pty_id);
         }
+        let owner = svc.clone();
+        let pid = pid.clone();
+        return tokio::task::spawn_blocking(move || {
+            let svc = &owner;
+            let mux_state = &svc.mux;
+            let pid = &pid;
         let Some(restore) =
             codeterm_service_core::service::pty_io::claim_restored_pty_boot(mux_state, pid)?
         else {
@@ -329,6 +395,9 @@ pub async fn spawn_pty_core(
                 );
             }
         }
+
+            Ok(pty_id)
+        }).await.map_err(|error| format!("restore launch task failed: {error}"))?;
     }
 
     Ok(pty_id)
@@ -339,15 +408,22 @@ async fn reuse_live_pty_with_claim(
     existing: String,
     restored: bool,
     link: impl FnOnce(
-        &codeterm_service_core::service::TabPtyClaim,
-        String,
-    ) -> codeterm_service_core::service::PtySelection,
+            &codeterm_service_core::service::TabPtyClaim,
+            String,
+        ) -> codeterm_service_core::service::PtySelection
+        + Send
+        + 'static,
     materialize: impl FnOnce(&codeterm_service_core::service::TabPtyClaim) -> Result<(), String>
         + Send
         + 'static,
 ) -> Result<String, String> {
     let tab_id = claim.tab_id().to_string();
-    let selected = link(&claim, existing);
+    let (claim, selected) = tokio::task::spawn_blocking(move || {
+        let selected = link(&claim, existing);
+        (claim, selected)
+    })
+    .await
+    .map_err(|error| format!("PTY reuse task failed: {error}"))?;
     if !selected.linked {
         return Err(format!("Tab {tab_id} closed before PTY link"));
     }

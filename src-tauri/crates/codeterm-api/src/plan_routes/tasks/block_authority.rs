@@ -212,11 +212,28 @@ pub(super) async fn verify_task_mutation_owner(
             "task mutation owner epoch is stale",
         ));
     }
-    let binding_matches = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
-        tab.agent_session_id.as_deref() == Some(session_id)
-            && tab.session_binding_nonce.as_deref() == Some(nonce)
-            && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
-    });
+    let owner = svc.clone();
+    let target = tab_id.to_owned();
+    let session = session_id.to_owned();
+    let binding = nonce.to_owned();
+    let binding_matches = tokio::task::spawn_blocking(move || {
+        let svc = owner;
+        let tab_id = target.as_str();
+        let session_id = session.as_str();
+        let nonce = binding.as_str();
+        svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(session_id)
+                && tab.session_binding_nonce.as_deref() == Some(nonce)
+                && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+        })
+    })
+    .await
+    .map_err(|_| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed",
+        )
+    })?;
     if !binding_matches {
         return Err(text_err(
             axum::http::StatusCode::CONFLICT,
@@ -235,6 +252,23 @@ pub(super) async fn verify_task_mutation_owner(
         }
         Err(_) => {}
     }
-    svc.verify_task_owner_session(task_id, tab_id, session_id, caller_epoch)
-        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
+    let owner = svc.clone();
+    let task = task_id.to_owned();
+    let target = tab_id.to_owned();
+    let session = session_id.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let svc = owner;
+        let task_id = task.as_str();
+        let tab_id = target.as_str();
+        let session_id = session.as_str();
+        svc.verify_task_owner_session(task_id, tab_id, session_id, caller_epoch)
+            .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
+    })
+    .await
+    .map_err(|_| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed",
+        )
+    })?
 }

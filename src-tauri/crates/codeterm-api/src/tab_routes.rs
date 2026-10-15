@@ -232,13 +232,14 @@ pub async fn inspect_tabs(
     if tab_ids.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "tab_ids is required"));
     }
-    let result = codeterm_service_core::dispatch::dispatch(
-        &codeterm_service_core::dispatch::Command::TabInspect {
+    let result = codeterm_service_core::dispatch::dispatch_blocking(
+        codeterm_service_core::dispatch::Command::TabInspect {
             tab_ids,
             lifecycle: query.lifecycle,
         },
-        state.svc.as_ref(),
+        state.svc.clone(),
     )
+    .await
     .map_err(|_| (StatusCode::NOT_FOUND, "Requested Tab was not found"))?;
     Ok(Json(result.into_json()))
 }
@@ -440,11 +441,12 @@ pub async fn focus_tab(
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)?;
-    let result = codeterm_service_core::dispatch::dispatch(
-        &codeterm_service_core::dispatch::Command::TabFocus { tab_id },
-        state.svc.as_ref(),
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
+    let result = codeterm_service_core::dispatch::dispatch_blocking(
+        codeterm_service_core::dispatch::Command::TabFocus { tab_id },
+        state.svc.clone(),
     )
+    .await
     .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found"))?;
     Ok(Json(result.into_json()))
 }
@@ -465,7 +467,7 @@ pub async fn get_tab_output(
     Query(query): Query<OutputQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
     let cmd = codeterm_service_core::dispatch::Command::GetOutput {
         tab_id,
         offset: query.offset,
@@ -492,7 +494,9 @@ pub async fn close_tab(
     Query(query): Query<CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|(s, m)| (s, m.to_string()))?;
     if let Some(caller_tab_id) = caller_tab_header(&headers) {
         let result = codeterm_service_core::dispatch::dispatch_blocking(
             codeterm_service_core::dispatch::Command::TabClose {
@@ -530,7 +534,8 @@ pub async fn release_remote_ownership(
             "remote peers cannot release local tab ownership".into(),
         ));
     }
-    let tab_id = resolve_tab(&state, &raw_tab_id)
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
         .map_err(|(status, message)| (status, message.to_string()))?;
     let caller_tab_id = caller_tab_header(&headers);
     let service = state.svc.clone();
@@ -583,7 +588,8 @@ pub async fn restart_shell_tab(
     Json(body): Json<RestartShellTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
         .map_err(|(status, message)| (status, message.to_string()))?;
     let svc = state.svc.clone();
     let outcome = tokio::task::spawn_blocking(move || svc.restart_shell_tab(&tab_id, body.cwd))
@@ -659,14 +665,15 @@ pub async fn rename_tab(
             codeterm_service_core::service::tab::TAB_TITLE_ERROR,
         )
     })?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)?;
-    let result = codeterm_service_core::dispatch::dispatch(
-        &codeterm_service_core::dispatch::Command::TabRename {
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
+    let result = codeterm_service_core::dispatch::dispatch_blocking(
+        codeterm_service_core::dispatch::Command::TabRename {
             tab_id,
             title: body.title,
         },
-        state.svc.as_ref(),
+        state.svc.clone(),
     )
+    .await
     .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found"))?;
     Ok(Json(result.into_json()))
 }
@@ -683,14 +690,17 @@ pub async fn describe_tab(
     Json(body): Json<DescribeTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
-    let result = codeterm_service_core::dispatch::dispatch(
-        &codeterm_service_core::dispatch::Command::TabDescribe {
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
+        .await
+        .map_err(|(s, m)| (s, m.to_string()))?;
+    let result = codeterm_service_core::dispatch::dispatch_blocking(
+        codeterm_service_core::dispatch::Command::TabDescribe {
             tab_id,
             description: body.description,
         },
-        state.svc.as_ref(),
+        state.svc.clone(),
     )
+    .await
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(result.into_json()))
 }
@@ -708,15 +718,16 @@ pub async fn resize_tab(
     Json(body): Json<ResizeTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)?;
-    let result = codeterm_service_core::dispatch::dispatch(
-        &codeterm_service_core::dispatch::Command::PtyResize {
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
+    let result = codeterm_service_core::dispatch::dispatch_blocking(
+        codeterm_service_core::dispatch::Command::PtyResize {
             tab_id,
             cols: body.cols,
             rows: body.rows,
         },
-        state.svc.as_ref(),
+        state.svc.clone(),
     )
+    .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
     Ok(Json(result.into_json()))
 }
@@ -824,34 +835,38 @@ pub async fn get_tab_usage(
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)?;
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
+        let tab_id = resolve_tab(&state, &raw_tab_id)?;
 
-    let (agent_type, session_id, cwd) = {
-        let mux = state.svc.mux.write();
-        let tab = mux
-            .get_tab(&tab_id)
-            .ok_or((StatusCode::NOT_FOUND, "Tab not found"))?;
-        (
-            tab.agent_type.clone(),
-            tab.agent_session_id.clone(),
-            tab.cwd.clone(),
-        )
-    };
+        let (agent_type, session_id, cwd) = {
+            let mux = state.svc.mux.write();
+            let tab = mux
+                .get_tab(&tab_id)
+                .ok_or((StatusCode::NOT_FOUND, "Tab not found"))?;
+            (
+                tab.agent_type.clone(),
+                tab.agent_session_id.clone(),
+                tab.cwd.clone(),
+            )
+        };
 
-    let (Some(agent_type), Some(session_id), Some(cwd)) = (agent_type, session_id, cwd) else {
-        return Ok(Json(
-            serde_json::json!({ "usage": serde_json::Value::Null }),
-        ));
-    };
+        let (Some(agent_type), Some(session_id), Some(cwd)) = (agent_type, session_id, cwd) else {
+            return Ok(Json(
+                serde_json::json!({ "usage": serde_json::Value::Null }),
+            ));
+        };
 
-    let usage = state
-        .svc
-        .agent_registry
-        .with_provider(&agent_type, |p| p.read_usage(&cwd, &session_id))
-        .flatten();
+        let usage = state
+            .svc
+            .agent_registry
+            .with_provider(&agent_type, |p| p.read_usage(&cwd, &session_id))
+            .flatten();
 
-    Ok(Json(serde_json::json!({ "usage": usage })))
+        Ok(Json(serde_json::json!({ "usage": usage })))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 /// Returns the current visible screen; history remains in the tab's scrollback buffer.
@@ -862,7 +877,7 @@ pub async fn get_tab_text(
     Query(query): Query<GetTextQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)?;
+    let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
     let cmd = codeterm_service_core::dispatch::Command::GetText {
         tab_id: tab_id.clone(),
         formatted: query.formatted,
@@ -888,18 +903,22 @@ pub async fn shell_command_snapshot(
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_id = resolve_pty_id_with_fallback(&state, &raw_tab_id).ok();
-    let snap = pty_id.and_then(|pty_id| {
-        state
-            .svc
-            .ext::<codeterm_service_core::ShellCapabilityState>()
-            .lock()
-            .snapshot(&pty_id)
-    });
-    let snap = snap.unwrap_or_default();
-    serde_json::to_value(snap)
-        .map(Json)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "serialize failed"))
+    tokio::task::spawn_blocking(move || {
+        let pty_id = resolve_pty_id_with_fallback(&state, &raw_tab_id).ok();
+        let snap = pty_id.and_then(|pty_id| {
+            state
+                .svc
+                .ext::<codeterm_service_core::ShellCapabilityState>()
+                .lock()
+                .snapshot(&pty_id)
+        });
+        let snap = snap.unwrap_or_default();
+        serde_json::to_value(snap)
+            .map(Json)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "serialize failed"))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 #[derive(Deserialize)]
@@ -915,41 +934,45 @@ pub async fn start_capture(
     Path(raw_tab_id): Path<String>,
     Json(body): Json<CaptureStartBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let pty_id = resolve_pty_id_with_fallback(&state, &raw_tab_id)?;
-    let (cols, rows) = {
-        let mgr = state.svc.pty.lock();
-        match mgr.get_session(&pty_id) {
-            Some(s) => *s
-                .size
-                .lock()
-                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "pty size lock poisoned"))?,
-            None => (80, 24),
-        }
-    };
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let out = std::path::PathBuf::from(&body.out);
-    let prefill = state
-        .svc
-        .output_buf
-        .lock()
-        .get_full(&pty_id)
-        .map(|bytes| bytes.to_vec())
-        .unwrap_or_default();
-    codeterm_service_core::pty::capture::CaptureRegistry::global()
-        .start(&pty_id, out, cols, rows, timestamp, prefill)
-        .map_err(|_| {
-            (
-                StatusCode::CONFLICT,
-                "Failed to start capture (already active?)",
-            )
-        })?;
-    Ok(Json(serde_json::json!({
-        "ok": true, "out": body.out, "width": cols, "height": rows,
-    })))
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
+        let pty_id = resolve_pty_id_with_fallback(&state, &raw_tab_id)?;
+        let (cols, rows) = {
+            let mgr = state.svc.pty.lock();
+            match mgr.get_session(&pty_id) {
+                Some(s) => *s
+                    .size
+                    .lock()
+                    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "pty size lock poisoned"))?,
+                None => (80, 24),
+            }
+        };
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let out = std::path::PathBuf::from(&body.out);
+        let prefill = state
+            .svc
+            .output_buf
+            .lock()
+            .get_full(&pty_id)
+            .map(|bytes| bytes.to_vec())
+            .unwrap_or_default();
+        codeterm_service_core::pty::capture::CaptureRegistry::global()
+            .start(&pty_id, out, cols, rows, timestamp, prefill)
+            .map_err(|_| {
+                (
+                    StatusCode::CONFLICT,
+                    "Failed to start capture (already active?)",
+                )
+            })?;
+        Ok(Json(serde_json::json!({
+            "ok": true, "out": body.out, "width": cols, "height": rows,
+        })))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 /// POST /api/tabs/{id}/capture/stop — flush+close `.cast`, write sidecar screen.txt.
@@ -959,9 +982,14 @@ pub async fn stop_capture(
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_id = resolve_pty_id_with_fallback(&state, &raw_tab_id)?;
-    // Render the final grid from the SAME vt100 ScreenState the daemon uses.
-    let screen = state.svc.screen_state.lock().get_screen_text(&pty_id);
+    let owner = state.clone();
+    let (pty_id, screen) = tokio::task::spawn_blocking(move || {
+        let pty_id = resolve_pty_id_with_fallback(&owner, &raw_tab_id)?;
+        let screen = owner.svc.screen_state.lock().get_screen_text(&pty_id);
+        Ok::<_, (StatusCode, &'static str)>((pty_id, screen))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))??;
     let reg = codeterm_service_core::pty::capture::CaptureRegistry::global();
     // stop() joins the writer thread (file IO) — keep it off the async runtime.
     let pty_for_stop = pty_id.clone();
@@ -998,10 +1026,14 @@ pub async fn link_pty(
     Json(body): Json<LinkPtyBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let selected_pty_id = state.svc.link_pty(&tab_id, body.pty_id);
-    Ok(Json(
-        serde_json::json!({"ok": true, "pty_id": selected_pty_id}),
-    ))
+    tokio::task::spawn_blocking(move || {
+        let selected_pty_id = state.svc.link_pty(&tab_id, body.pty_id);
+        Ok(Json(
+            serde_json::json!({"ok": true, "pty_id": selected_pty_id}),
+        ))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
 #[cfg(test)]

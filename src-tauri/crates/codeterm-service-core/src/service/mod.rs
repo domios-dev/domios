@@ -110,7 +110,7 @@ pub use orchestrator::build_agent_command_for_service;
 pub(crate) use orchestrator::provider_launch_task;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
-pub use orchestrator::tab_relink_signal::await_relink;
+pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
 mod folder_trust_carryover;
