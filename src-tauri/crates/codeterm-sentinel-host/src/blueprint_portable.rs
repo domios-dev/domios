@@ -1,6 +1,5 @@
 use codeterm_blueprint_types::blueprint_recipe::Recipe;
 use serde_json::Value;
-use tauri::Manager;
 
 use crate::blueprint_pipeline::BlueprintExt;
 use crate::service_adapter::{SentinelCaller, SentinelExt};
@@ -99,8 +98,7 @@ impl BlueprintPortableExt for ServiceContext {
             crate::graph::validate_scope(&mux, workspace, team)?;
         }
         let handle = self
-            .app_handle
-            .try_state::<Handle>()
+            .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let job = {
             let store = handle.store.lock();

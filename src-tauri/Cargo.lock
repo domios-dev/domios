@@ -1474,6 +1474,7 @@ name = "codeterm-host-runtime"
 version = "0.0.0"
 dependencies = [
  "codeterm-events",
+ "codeterm-service-core",
  "serde",
  "serde_json",
  "tauri",

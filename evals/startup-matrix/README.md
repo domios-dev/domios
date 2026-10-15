@@ -49,6 +49,12 @@ Any tab whose prior run attempted a send is opened and measured but gets no new
 payload. Its unresolved round trip remains a failure with the retained receipt.
 This prevents a held send from being replayed during recovery.
 
+Before starting, inspect the saved inventory and existing input. Pass
+`--preserve-input <comma-separated-tab-ids>` for unresolved sends or owner drafts
+that must remain untouched (including aiderF while its delivery is unresolved).
+Those rows retain startup observations and receive a visual visit, but get no
+new payload. They remain explicit incomplete reply coverage, never a passing row.
+
 The inventory classifies every visible agent tab. The action matrix covers all
 General tabs, every Endure fixture, an outside recent tab when available, and a
 frozen tab. Missing activity means asleep outside General. Expected policy is

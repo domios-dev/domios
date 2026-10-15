@@ -103,5 +103,8 @@ impl SentinelCleanup for HandlePorts {
 
 #[cfg(any(test, feature = "test-support"))]
 pub fn manage_fixture_ports(svc: &codeterm_service_core::service::ServiceContext, handle: &Handle) {
+    assert!(svc
+        .register_host_extension(Arc::new(handle.clone()))
+        .is_ok());
     assert!(svc.set_ext(ports(handle)).is_ok());
 }
