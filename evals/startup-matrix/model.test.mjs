@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { policy, WINDOW_MS, matrix, lockSites, evaluateSla } from './model.mjs';
+import { policy, WINDOW_MS, matrix, lockSites, evaluateSla, replyWindow, remainingDeadline } from './model.mjs';
 test('General and activity boundary classify independently from observed frozen state', () => {
   const now = WINDOW_MS * 3;
   assert.equal(policy({}, { name: 'General' }, now), 'awake');
@@ -33,4 +33,15 @@ test('owner SLA accepts its boundary and rejects slow or refused sends and missi
   assert.equal(evaluateSla(pty).pass, true);
   assert.equal(evaluateSla({ ...pty, wake_ms: 5001 }).pass, false);
   assert.equal(evaluateSla({ ...pty, wake_ms: null }).pass, false);
+});
+test('kernel microsecond timestamps yield integer AbortSignal deadlines', () => {
+  assert.equal(remainingDeadline(1000, 800.0390625, 120000), 119801);
+  assert.equal(remainingDeadline(130000, 0.0390625, 120000), 1);
+});
+test('only assistant items after the exact probe and before another user count', () => {
+  const messages = [{ type: 'assistant', content: 'PONG' }, { type: 'user', id: 'u', content: 'routed: unique-probe' },
+    { type: 'assistant', id: 'a', content: 'PONG' }, { type: 'user', content: 'owner turn' },
+    { type: 'assistant', content: 'another answer' }];
+  assert.deepEqual(replyWindow(messages, 'unique-probe').following.map(m => m.id), ['a']);
+  assert.equal(replyWindow(messages, 'absent'), null);
 });

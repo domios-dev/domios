@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [ "${1:-}" = --help ]; then
-  echo 'Usage: bash evals/startup-matrix/run.sh [--expect-build SHA] [--out DIR] [--dependencies CHECKOUT] [--resume UNSENT_RUN_DIR]'
+  echo 'Usage: bash evals/startup-matrix/run.sh [--expect-build SHA] [--out DIR] [--dependencies CHECKOUT] [--resume UNSENT_RUN_DIR | --attach CRASHED_RUN_DIR]'
   echo 'After ARMED, the Orchestrator restarts canonical DEV. See README.md. Spends provider tokens.'
   exit 0
 fi

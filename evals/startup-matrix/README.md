@@ -30,6 +30,12 @@ and use `--resume <old-dir>` with a fresh `--out`. This reuses its pre-restart
 inventory and listener proof and attaches to the new boot's replay ring. It is
 only for a run that sent no prompts; it does not repeat a completed probe.
 
+After a process crash, `--attach <crashed-dir>` adopts the freshly restarted DEV
+using the crashed run's listener identity, then takes a fresh policy inventory.
+Any tab whose prior run attempted a send is opened and measured but gets no new
+payload. Its unresolved round trip remains a failure with the retained receipt.
+This prevents a held send from being replayed during recovery.
+
 The inventory classifies every visible agent tab. The action matrix covers all
 General tabs, every Endure fixture, an outside recent tab when available, and a
 frozen tab. Missing activity means asleep outside General. Expected policy is
@@ -64,6 +70,10 @@ frames explicitly preserve gaps. Frozen tabs have no boot-ready duration; their
 separate `wake_ms` is relative to the action. No screenshot implies agent readiness.
 `reply_ms` records the first new assistant content observed through the API;
 `completed_ms` separately includes waiting for idle after the exact PONG transcript.
+Each probe carries a unique run/tab token; only assistant items after that exact
+user turn and before the next user turn qualify, even if a sleeping tab's initial
+chat snapshot was unavailable. A retained pending CLI receipt is not a refusal
+or proof of a reply; only the own-session transcript can complete the round trip.
 
 Validate with `node evals/startup-matrix/contract.mjs <dir>`: exit 0 means complete
 passing evidence; 3 means complete evidence with observed failures; 1 means an

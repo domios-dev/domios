@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { render } from './model.mjs';
+import { render, replyWindow } from './model.mjs';
 import { chatMessages, replyVerdict } from '../core-journeys/lib/oracle.mjs';
 export function validate(dir) {
   const r = JSON.parse(readFileSync(join(dir, 'results.json')));
@@ -21,7 +21,8 @@ export function validate(dir) {
       if (!t.reply_evidence || !existsSync(join(dir, t.reply_evidence))) errors.push(`${t.id}: transcript absent`);
       else {
         const proof = JSON.parse(readFileSync(join(dir, t.reply_evidence)));
-        const verdict = replyVerdict({ messages: chatMessages(proof.chat), baselineIds: new Set(proof.baseline_ids),
+        const window = replyWindow(chatMessages(proof.chat), proof.prompt);
+        const verdict = replyVerdict({ messages: window?.following ?? [], baselineIds: new Set(proof.baseline_ids),
           marker: 'PONG', record: proof.record, boundSession: proof.session_before });
         if (!verdict.done) errors.push(`${t.id}: exact own-session PONG is unproven`);
       }
