@@ -6,7 +6,7 @@ use std::path::Path;
 mod bundled_plugin_dirs;
 
 pub(crate) fn fixtures() -> BundledPlugins {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let root = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let mut hashes = Vec::new();
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(&root).expect("read plugin fixtures") {
