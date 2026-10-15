@@ -641,6 +641,11 @@ pub struct SaveTempFileBody {
     name: Option<String>,
 }
 
+/// Largest attachment a chat may upload (voice notes, recordings, files).
+pub const MAX_TEMP_FILE_DECODED_BYTES: usize = 150 * 1024 * 1024;
+/// The body carries the file as base64 JSON, so it is 4/3 the file plus envelope.
+pub const MAX_TEMP_FILE_BYTES: usize = MAX_TEMP_FILE_DECODED_BYTES / 3 * 4 + 1024 * 1024;
+
 /// Web-mirror twin of the `save_temp_file` Tauri command.
 pub async fn save_temp_file(
     AxumState(state): AxumState<AppState>,
