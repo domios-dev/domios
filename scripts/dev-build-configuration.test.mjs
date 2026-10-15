@@ -147,6 +147,7 @@ test('app test checks share both runner configurations and persist per-pass rece
     }
     assert.ok(nextestArgs.includes('--no-default-features'));
     assert.ok(focusedArgs.includes('--no-default-features'));
+    assert.equal(nextestArgs.split(' ').filter(arg => arg === '--no-default-features').length, 1);
     const markers = fs.readFileSync(path.join(directory, 'pass.log'), 'utf8').trim().split('\n');
     assert.equal(markers.length, 1);
     for (const [index, runner] of ['nextest,test-one'].entries()) {

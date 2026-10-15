@@ -21,6 +21,7 @@
 #   ./build.sh e2e:llm   — run LLM E2E tests against dev (real provider tokens)
 #   source build.sh env  — load MSVC env vars into current shell (Windows only)
 
+codeterm_build_main() {
 set -e
 
 source scripts/dev-notify.sh
@@ -364,7 +365,7 @@ run_nextest_scope() {
       configure_app_test_cargo nextest
       manifest="$CT_APP_TEST_MANIFEST"
       package="$CT_APP_TEST_PACKAGE"
-      targets+=("${CT_APP_TEST_TARGET_ARGS[@]}")
+      targets=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
     shell) package="codeterm"; targets+=(--lib --test main) ;;
     mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets+=(--lib) ;;
@@ -3147,3 +3148,6 @@ LOCK_STORM_PY
     exit 1
     ;;
 esac
+
+}
+codeterm_build_main "$@"
