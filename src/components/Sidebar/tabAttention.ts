@@ -16,6 +16,7 @@ export interface TabAttention {
   cleared: boolean;
   showMark: boolean;
   starting: "starting" | "connecting" | null;
+  sleeping: boolean;
 }
 
 export function attentionNotifications(tabId: string, notifications: readonly Notification[]): Notification[] {
@@ -31,6 +32,7 @@ export function tabAttention(tab: Tab, status: TabStatus | null | undefined, not
   const waiting = activity.kind === "waiting-on-user";
   const kind = notification ? notification.level === "failure" ? "failure" : "action_needed" : waiting ? "waiting" : null;
   return {
+    sleeping: tab.frozen === true,
     wantsAttention: kind !== null,
     kind,
     reason: notification?.title ?? (waiting ? activity.label : ""),
@@ -60,10 +62,11 @@ export function attentionActions(notification: Notification | null) {
 }
 
 export type TabStatusMark = { kind: "attention"; label: string; level: TabAttentionKind | null }
-  | { kind: "starting"; label: string };
+  | { kind: "starting" | "sleeping"; label: string };
 
 export function tabStatusMark(title: string, attention: TabAttention | null | undefined, active = false): TabStatusMark | null {
   if (!attention) return null;
+  if (attention.sleeping) return { kind: "sleeping", label: "Sleeping" };
   if (attention.showMark && !active) return { kind: "attention", label: tabAttentionLabel(title, attention), level: attention.kind };
   if (attention.starting) return { kind: "starting", label: `${title} ${attention.starting === "connecting" ? "waiting to connect" : "starting"}` };
   return null;
