@@ -184,7 +184,6 @@ async function run(mode) {
     for (const lane of lanes) {
       const targetDir = laneTargetDir(lane.manifest, process.env.CI_TARGET_ROOT);
       if (targetDir) process.env.CARGO_TARGET_DIR = env.CARGO_TARGET_DIR = targetDir;
-      if (lane.lane === 'workspace') execFileSync('cargo', ['build', '--locked', '--no-default-features', '--manifest-path', lane.manifest, '--bin', 'codeterm-embed'], { stdio: 'inherit' });
       const messages = compile(lane);
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));

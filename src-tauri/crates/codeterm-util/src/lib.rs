@@ -1,6 +1,5 @@
 pub mod atomic_write;
 pub mod attachments;
-pub mod child_slot;
 pub mod headless_cli;
 pub mod lock_hold;
 pub mod named_thread;
