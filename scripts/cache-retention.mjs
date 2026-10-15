@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { collectCargoBuilds } from './cargo-build-gc.mjs';
+import { collectCargoBuilds, mapCheckouts, trimBuildDirectories } from './cargo-build-gc.mjs';
 
 const DAY = 86400000;
 const markerName = '.codeterm-cache.json';
@@ -140,10 +140,20 @@ export function retain(gateway, checkout, { dryRun = false, automatic = false, n
     reclaimed += record.size;
   }
   if (total > capBytes) log(`cap exceeded by protected targets: ${total} bytes retained`);
-  if (sweep) sweepCheckout(checkout, dryRun, maxAgeDays, runner);
+  if (sweep) {
+    sweepCheckout(checkout, dryRun, maxAgeDays, runner);
+    trimCheckoutBuilds(checkout, dryRun, runner);
+  }
   if (!dryRun) writeJson(stamp, { lastRun: now });
   log(`${dryRun ? 'would reclaim' : 'reclaimed'} ${reclaimed} exceptional bytes`);
   return reclaimed;
+}
+
+// cargo-sweep keys on access time, which NTFS keeps fresh, so build directories are trimmed by unit identity instead.
+function trimCheckoutBuilds(checkout, dryRun, runner) {
+  try {
+    trimBuildDirectories(mapCheckouts([checkout], { runner }), { dryRun, runner });
+  } catch (error) { log(`build-directory trim refused: ${error.message}; build continues`); }
 }
 
 function sweepCheckout(checkout, dryRun, maxAgeDays, runner) {

@@ -105,3 +105,56 @@ test('links and paths outside the hash root refuse deletion', (t) => {
   assert.equal(fs.readFileSync(path.join(outside, 'keep'), 'utf8'), 'keep');
   assert.equal(spawnSync(python, [helper, f.root, outside]).status, 2);
 });
+
+function trimFixture(t) {
+  const f = fixture(t);
+  const dir = f.create('ab', '1');
+  const stale = path.join(dir, 'debug', 'deps', 'libold-aaaaaaaaaaaaaaaa.rlib');
+  const live = path.join(dir, 'debug', 'deps', 'libold-bbbbbbbbbbbbbbbb.rlib');
+  const session = path.join(dir, 'debug', 'incremental', 'old-1x2y');
+  fs.mkdirSync(path.dirname(stale), { recursive: true });
+  fs.mkdirSync(session, { recursive: true });
+  for (const file of [stale, live, path.join(session, 'dep-graph.bin'), path.join(dir, 'debug', '.cargo-lock')]) fs.writeFileSync(file, 'x');
+  const trim = (paths, dry = false) => {
+    const list = path.join(f.root, 'paths.json');
+    fs.writeFileSync(list, JSON.stringify(paths));
+    return spawnSync(python, [helper, '--trim', f.root, dir, list, ...(dry ? ['--dry-run'] : [])], { encoding: 'utf8' });
+  };
+  return { ...f, dir, stale, live, session, trim };
+}
+
+test('trim removes exactly the listed variants under the Cargo lock; dry run keeps them', (t) => {
+  const f = trimFixture(t);
+  const dry = f.trim([f.stale, f.session], true);
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.equal(JSON.parse(dry.stdout).status, 'would trim');
+  assert.equal(fs.existsSync(f.stale) && fs.existsSync(f.session), true);
+  const real = f.trim([f.stale, f.session]);
+  assert.equal(JSON.parse(real.stdout).status, 'trimmed');
+  assert.deepEqual([fs.existsSync(f.stale), fs.existsSync(f.session), fs.existsSync(f.live)], [false, false, true]);
+  assert.equal(fs.existsSync(path.join(f.dir, 'debug', '.cargo-lock')), true);
+});
+
+test('trim refuses paths outside the hash directory and Cargo bookkeeping files', (t) => {
+  const f = trimFixture(t);
+  const outside = path.join(f.root, 'keep');
+  fs.writeFileSync(outside, 'keep');
+  assert.equal(f.trim([outside]).status, 2);
+  assert.equal(f.trim([path.join(f.dir, 'debug', '.cargo-lock')]).status, 2);
+  assert.equal(fs.existsSync(outside), true);
+});
+
+test('a held Cargo lock protects the whole build directory from trim', async (t) => {
+  const f = trimFixture(t);
+  const lock = path.join(f.dir, 'debug', '.cargo-lock');
+  const code = 'import importlib.util,sys; s=importlib.util.spec_from_file_location("gc",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)\nwith m.cargo_lock(sys.argv[2]):\n print("ready",flush=True)\n sys.stdin.read(1)';
+  const child = spawn(python, ['-c', code, helper, lock], { stdio: ['pipe', 'pipe', 'inherit'] });
+  t.after(() => child.kill());
+  const exited = once(child, 'exit');
+  await once(child.stdout, 'data');
+  assert.equal(JSON.parse(f.trim([f.stale]).stdout).status, 'protected');
+  assert.equal(fs.existsSync(f.stale), true);
+  child.stdin.end('x');
+  assert.equal((await exited)[0], 0);
+  assert.equal(JSON.parse(f.trim([f.stale]).stdout).status, 'trimmed');
+});
