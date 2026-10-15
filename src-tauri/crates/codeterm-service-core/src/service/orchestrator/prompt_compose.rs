@@ -65,7 +65,7 @@ pub(crate) fn role_launch_task(
     }
 }
 
-pub(crate) fn provider_launch_task(
+pub fn provider_launch_task(
     registry: &AgentRegistry,
     provider_id: &str,
     assignment: Option<&str>,
