@@ -129,7 +129,8 @@ test('native release processes share a job wrapper and verify before compiling',
     const compile = commands.findIndex(command => /mac-bundle|build\.(?:sh|ps1) release-inputs/.test(command));
     assert.ok(verify >= 0 && compile > verify, name);
     const stats = job.steps.at(-2);
-    assert.equal(stats.if, 'always()');
+    assert.equal(stats.if, "${{ always() && steps.compile.outcome != 'skipped' }}");
+    assert.equal(job.steps[compile].id, 'compile', name);
     assert.match(stats.run, /build\.(?:sh|ps1) cache-stats/);
     if (name === 'release-windows') {
       assert.equal(stats.shell, 'pwsh');
