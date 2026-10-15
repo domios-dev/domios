@@ -822,6 +822,7 @@ fn from_agent_params_carries_model_into_spec() {
         activate: None,
         audience: Default::default(),
         manager_bootstrap: None,
+        user_created: false,
         structured_prompt_server: None,
         remote_task_binding: None,
     };
@@ -981,6 +982,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         activate: None,
         audience: Default::default(),
         manager_bootstrap: None,
+        user_created: false,
         structured_prompt_server: None,
         remote_task_binding: None,
     };
@@ -1054,6 +1056,7 @@ fn from_agent_params_carries_activate_into_spec() {
         activate: Some(true),
         audience: Default::default(),
         manager_bootstrap: None,
+        user_created: false,
         structured_prompt_server: None,
         remote_task_binding: None,
     };
