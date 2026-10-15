@@ -6,6 +6,8 @@ One row per merged split, regenerated with `python3 scripts/split-metrics.py` (c
 |---|---|---:|---:|---:|---|---:|
 | 2026-10-14 | 3d82935ad (develop ee2f09e99 merged) | 36 | 135 | 119 | 142 / 239,150 | 486,526 |
 | 2026-10-14 | 0e24a11da (M0: root-aware scripts, hot-path table) | 36 | 136 | 119 | 142 / 239,051 | 486,456 |
+| 2026-10-15 | 1d086a7d4 (Wave 0: P1 core crate, P2a-P5 ports, ServiceContext 100 -> 40 fields) | 37 | 136 | 127 | 123 / 208,918 | 485,494 (core) |
+| 2026-10-15 | 86e78908a (Wave A: codeterm-api, codeterm-socket, codeterm-commands; B1 phase 1 port) | 39 | 134 | 176 | 121 / 188,594 | 383,595 (core) |
 
 M0: the core is still the whole app crate (`codeterm`, `src-tauri/src`); no hot area lives in its own crate yet. Both scripts take `--root PATH` and default to `src-tauri/crates/codeterm-service-core/src` when it exists, else `src-tauri/src`.
 
@@ -69,3 +71,16 @@ The four failing tests (hook_routes 1, socket::server 1, pty_io 2) ran on a tree
 | service core clusters (codex_rpc, pty_io, orchestrator, agent_restart) | most of the hot edits | many | not splittable by path: the method-edge layer in `module-graph.md` shows `service/hierarchy` (104 pub fns, 161 caller units), `service/pty_io` (143 pub fns) and `service/supporter` as method hubs |
 
 When a split is NOT worth it: shims or edges grow faster than check time falls. Concretely: a carve below about 2k lines, a carve whose moved code is still called through more than ~10 distinct caller units by method (see the method-edge table), or one that needs a new `pub use` per moved module instead of one per crate.
+
+## Wave A rebuild reach (86e78908a)
+
+Normal (non-dev) reverse dependencies inside the workspace, from `cargo metadata`; the root `codeterm` crate is 4,420 lines.
+
+| edited crate | lines (incl. tests) | crates re-checked |
+|---|---:|---|
+| codeterm-service-core | 383,595 | core, api, socket, commands, codeterm |
+| codeterm-api | 55,741 | api, codeterm |
+| codeterm-socket | 34,971 | socket, codeterm |
+| codeterm-commands | 12,570 | commands, api, codeterm |
+
+Before Wave A every edit in these areas re-checked one 485k-line crate. Route, socket and command edits now skip the core; core edits still re-check every upper crate. Timed before/after numbers belong to task_47lm5j (same machine, same window).
