@@ -1,4 +1,4 @@
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use codeterm_service_core::plan::TaskLaneMetadata;
 use codeterm_service_core::service::plan::milestone_gates::{
     regression_dispatch_decision, RegressionDispatchDecision,

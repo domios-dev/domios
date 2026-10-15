@@ -44,7 +44,6 @@ use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
 use crate::plan::AgentRef;
 use codeterm_types::agent::ReportOutcomeClass;
-use tauri::Manager;
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
     plan_reminder_nudge::start_plan_reminder_scheduler(svc);
@@ -985,7 +984,7 @@ impl ServiceContext {
         ms_kind: String,
     ) -> Result<(), String> {
         let client = {
-            let mesh_handle = self.app_handle.state::<crate::MeshStateHandle>();
+            let mesh_handle = self.ext::<crate::MeshStateHandle>();
             let mesh = mesh_handle.lock();
             resolve_peer_client_by_name(&mesh, &peer)
         };

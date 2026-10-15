@@ -1,10 +1,10 @@
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use super::JsonRpcError;
 
 fn emit_canvas_focus(app: &AppHandle, payload: Value) {
-    codeterm_service_core::events::emit_everywhere(app, "canvas-focus", payload);
+    codeterm_host_runtime::events::emit_everywhere(app, "canvas-focus", payload);
 }
 
 pub(super) fn dispatch(

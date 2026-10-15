@@ -36,7 +36,7 @@ pub fn build_service_context(
     tab_menu_registry: &codeterm_plugin::tab_menu::TabMenuRegistryHandle,
     surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle,
     cap_registries: &crate::plugin::js_runtime::CapabilityRegistries,
-) -> ServiceContext {
+) -> Arc<ServiceContext> {
     let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
         crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
         mem.db_path().to_path_buf(),
@@ -319,5 +319,7 @@ pub fn build_service_context(
     };
     assert!(service.set_ext(states.storage.clone()).is_ok());
     assert!(service.set_ext(states.session.clone()).is_ok());
+    let service = Arc::new(service);
+    assert!(service.set_ext(Arc::downgrade(&service)).is_ok());
     service
 }

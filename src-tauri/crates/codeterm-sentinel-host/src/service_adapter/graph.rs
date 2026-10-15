@@ -507,7 +507,7 @@ pub fn install_invalidations(
                     .collect::<Vec<_>>()
             };
             for change in changes {
-                codeterm_service_core::events::emit_everywhere(&app, "automation-graph-changed", change);
+                codeterm_host_runtime::events::emit_everywhere(&app, "automation-graph-changed", change);
             }
         });
     }

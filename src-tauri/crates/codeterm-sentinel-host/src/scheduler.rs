@@ -60,7 +60,7 @@ pub struct Handle {
     pending_run_bindings: Arc<Mutex<BTreeMap<String, super::run_binding::PendingRunBinding>>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
     pub(super) probe_owner: Arc<probe::owner::ProbeResourceOwner>,
-    app: Option<codeterm_service_core::app_runtime::AppHandle>,
+    app: Option<codeterm_host_runtime::app_runtime::AppHandle>,
     _shutdown: Option<Arc<codeterm_service_core::crash::shutdown::ShutdownSubscription>>,
 }
 
@@ -152,7 +152,7 @@ impl Handle {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-pub fn fixture_handle(store: Store, app: codeterm_service_core::app_runtime::AppHandle) -> Handle {
+pub fn fixture_handle(store: Store, app: codeterm_host_runtime::app_runtime::AppHandle) -> Handle {
     Handle {
         store: Arc::new(Mutex::new(store)),
         inbox: Arc::new(Mutex::new(super::terminal::Inbox::default())),
@@ -166,11 +166,11 @@ pub fn fixture_handle(store: Store, app: codeterm_service_core::app_runtime::App
 
 pub(super) fn emit_changes(
     store: &Arc<Mutex<Store>>,
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) {
     let changes = store.lock().take_changes();
     for change in changes {
-        codeterm_service_core::events::emit_everywhere(app, "automation-graph-changed", change);
+        codeterm_host_runtime::events::emit_everywhere(app, "automation-graph-changed", change);
     }
 }
 
