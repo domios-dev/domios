@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::AgentRef;
@@ -25,12 +24,8 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_host_runtime::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 fn actor(params: Option<&Value>) -> AgentRef {
@@ -79,7 +74,6 @@ fn maybe_nudge_implementer(svc: &ServiceState, tab_id: Option<&str>, task_id: &s
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
@@ -93,7 +87,7 @@ pub(super) fn dispatch(
                 let result = store
                     .enqueue_qa(&plan_id, task_id, note(p), actor(p), now)
                     .map_err(plan_rpc_err)?;
-                emit_plan_changed(app, &plan_id);
+                emit_plan_changed(svc, &plan_id);
                 serde_json::to_value(result).map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e.to_string(),
@@ -120,7 +114,7 @@ pub(super) fn dispatch(
                 let gate = store
                     .record_group_regression(&plan_id, group, note(p), actor(p), now)
                     .map_err(plan_rpc_err)?;
-                emit_plan_changed(app, &plan_id);
+                emit_plan_changed(svc, &plan_id);
                 return Ok(json!({ "plan_id": plan_id, "regression_gate": gate }));
             }
             let claim = p.and_then(|x| x.get("claim")).and_then(|v| v.as_bool()) == Some(true);
@@ -134,7 +128,7 @@ pub(super) fn dispatch(
             let result = store
                 .claim_next_qa(&plan_id, note(p), actor(p), tester, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(json!({ "plan_id": plan_id, "claimed": result }))
         }
         "plan.qa.override" => {
@@ -160,7 +154,7 @@ pub(super) fn dispatch(
                 plan.map(|pl| codeterm_service_core::service::plan::milestone_gates::blocking_regression_gates(&pl))
                     .unwrap_or_default()
             };
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(json!({
                 "plan_id": plan_id,
                 "override": record,
@@ -172,7 +166,7 @@ pub(super) fn dispatch(
             let result = store
                 .pass_qa(&plan_id, &task_id, note(p), actor(p), now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -193,7 +187,7 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             maybe_nudge_implementer(svc, result.nudged_tab_id.as_deref(), &task_id, note(p));
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),

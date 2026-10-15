@@ -1,4 +1,3 @@
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
@@ -382,7 +381,6 @@ fn compensate_competition(
 
 pub(super) fn compete(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -537,7 +535,6 @@ pub(super) fn compete(
             lane: lanes[index].take(),
         });
         let svc_for_ready = svc.clone();
-        let app_for_ready = app.clone();
         let plan_id = id.clone();
         let task_id = tid.clone();
         let tab_id = spawn.tab_id.clone();
@@ -588,7 +585,7 @@ pub(super) fn compete(
                         &attempt_id,
                         format!("codeterm plan task compete {plan_id} {task_id}"),
                     );
-                    emit_plan_changed(&app_for_ready, &plan_id);
+                    emit_plan_changed(&svc_for_ready, &plan_id);
                     super::plan_task_dispatch::publish_startup_report(
                         &svc_for_ready,
                         &parent_tab_id,
@@ -609,7 +606,7 @@ pub(super) fn compete(
                 Err(error) => {
                     let _ =
                         svc_for_ready.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
-                    emit_plan_changed(&app_for_ready, &plan_id);
+                    emit_plan_changed(&svc_for_ready, &plan_id);
                     super::plan_task_dispatch::publish_startup_report(
                         &svc_for_ready,
                         &parent_tab_id,
@@ -629,7 +626,7 @@ pub(super) fn compete(
         attempts.push(created.attempt);
         spawns.push(spawn);
     }
-    emit_plan_changed(app, &id);
+    emit_plan_changed(svc, &id);
     let group = attempts
         .first()
         .and_then(|attempt| attempt.competition_group_id.clone())
@@ -708,7 +705,6 @@ mod tests {
 
 pub(super) fn judge(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -725,7 +721,7 @@ pub(super) fn judge(
     let judged = store
         .judge_task_attempt(&id, &tid, &attempt_id, &verdict, reason, winner, now)
         .map_err(plan_rpc_err)?;
-    emit_plan_changed(app, &id);
+    emit_plan_changed(svc, &id);
     Ok(json!({
         "ok": true,
         "plan_id": id,

@@ -1,5 +1,4 @@
 use serde_json::{json, Value};
-use tauri::Manager;
 
 use crate::server::JsonRpcError;
 use codeterm_service_core::plan::TaskExecutionAttempt;
@@ -18,12 +17,11 @@ pub(crate) fn observe_worker(
         .as_deref()
         .ok_or("attempt has no mesh peer")?;
     let client = svc
-        .app_handle
-        .state::<codeterm_service_core::MeshStateHandle>()
+        .ext::<codeterm_service_core::MeshStateHandle>()
         .lock()
         .client_for(peer)
         .ok_or("remote peer has no signed route")?;
-    tauri::async_runtime::block_on(client.auth_post_json_within(
+    codeterm_service_core::async_runtime::block_on(client.auth_post_json_within(
         "/api/mesh/worker-observation",
         &json!({
             "plan_id": plan, "task_id": task, "attempt_id": attempt.id,
@@ -117,7 +115,6 @@ pub(crate) fn recover_remote_attempts(
 
 pub(crate) fn respawn_remote(
     params: &Option<Value>,
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
     svc: &ServiceState,
     plan: &str,
     task: &str,
@@ -135,7 +132,7 @@ pub(crate) fn respawn_remote(
         ));
     }
     let forwarded = remote_respawn_params(params, attempt);
-    super::remote::dispatch(&Some(forwarded), app, svc, now)
+    super::remote::dispatch(&Some(forwarded), svc, now)
 }
 
 fn remote_respawn_params(params: &Option<Value>, attempt: &TaskExecutionAttempt) -> Value {

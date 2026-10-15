@@ -204,11 +204,10 @@ pub async fn take(
             epoch_ms(),
         )
         .map_err(plan_err)?;
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+    state
+        .svc
+        .ui
+        .emit("plan-changed", json!({ "plan_id": plan_id }));
     Ok(Json(
         json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))
@@ -230,11 +229,10 @@ pub async fn drop_task(
         .plan_store
         .set_task_assignment(&task_id, None, None, epoch_ms())
         .map_err(plan_err)?;
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+    state
+        .svc
+        .ui
+        .emit("plan-changed", json!({ "plan_id": plan_id }));
     Ok(Json(
         json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))
@@ -316,11 +314,10 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
             .set_task_assignment(&task_id, Some(tab), assign_role, epoch_ms())
             .map_err(plan_err)?;
     }
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+    state
+        .svc
+        .ui
+        .emit("plan-changed", json!({ "plan_id": plan_id }));
     Ok(Json(json!({
         "plan_id": plan_id.clone(),
         "task_id": task_id.clone(),
@@ -354,7 +351,10 @@ pub async fn canvas_focus(
         "tab_id": body.tab_id,
         "plan_id": body.plan_id,
     });
-    crate::events::emit_everywhere(&state.svc.app_handle, "canvas-focus", payload.clone());
+    state.svc.ui.emit(
+        "canvas-focus",
+        serde_json::to_value(payload.clone()).unwrap_or(serde_json::Value::Null),
+    );
     Ok(Json(
         json!({ "ok": true, "event": "canvas-focus", "payload": payload }),
     ))

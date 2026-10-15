@@ -54,14 +54,7 @@ fn split_creates_children_with_parent_and_inherited_routing() {
         {"name":"Part B", "body":"Part-specific context", "criteria":["part works"], "test_plan":"verify this part", "tags":["area:ui"]}
     ]);
 
-    let response = dispatch(
-        "plan.task.split",
-        &Some(params),
-        &fixture.service.app_handle,
-        &service,
-        10,
-    )
-    .unwrap();
+    let response = dispatch("plan.task.split", &Some(params), &service, 10).unwrap();
     assert_eq!(response["parent_task_id"], parent_id);
     let children = response["children"].as_array().unwrap();
     assert_eq!(children.len(), 2);
@@ -122,14 +115,7 @@ fn split_invalid_second_child_is_atomic() {
     params["task_id"] = json!(parent_id);
     params["children"] =
         json!([{"name":"Valid"}, {"name":"Invalid", "sections":"missing-section"}]);
-    assert!(dispatch(
-        "plan.task.split",
-        &Some(params),
-        &fixture.service.app_handle,
-        &service,
-        10
-    )
-    .is_err());
+    assert!(dispatch("plan.task.split", &Some(params), &service, 10).is_err());
     assert_eq!(
         fixture
             .service
@@ -198,14 +184,7 @@ fn split_rejects_terminal_and_child_parents() {
         params["plan_id"] = json!(plan_id);
         params["task_id"] = json!(target_id);
         params["children"] = json!([{"name":"Nested"}]);
-        let error = dispatch(
-            "plan.task.split",
-            &Some(params),
-            &fixture.service.app_handle,
-            &service,
-            10,
-        )
-        .unwrap_err();
+        let error = dispatch("plan.task.split", &Some(params), &service, 10).unwrap_err();
         assert_eq!(error.code, -32602);
         assert_eq!(error.data.as_ref().unwrap()["type"], "invalid_split_parent");
         assert_eq!(error.data.as_ref().unwrap()["reason"], expected_reason);
@@ -245,14 +224,7 @@ fn task_update_cancel_parent_with_open_child_returns_open_subtasks() {
     params["task_id"] = json!(parent_id.clone());
     params["status"] = json!("cancelled");
     let service = Arc::new(fixture.service.clone());
-    let error = dispatch(
-        "plan.task.update",
-        &Some(params),
-        &fixture.service.app_handle,
-        &service,
-        10,
-    )
-    .unwrap_err();
+    let error = dispatch("plan.task.update", &Some(params), &service, 10).unwrap_err();
     assert_eq!(error.data.as_ref().unwrap()["type"], "open_subtasks");
     assert_eq!(
         fixture
@@ -287,14 +259,7 @@ fn draft_split_children_remain_locked_until_plan_approval() {
     params["plan_id"] = json!(plan_id.clone());
     params["task_id"] = json!(parent_id);
     params["children"] = json!([{"name":"Child"}]);
-    let response = dispatch(
-        "plan.task.split",
-        &Some(params),
-        &fixture.service.app_handle,
-        &service,
-        10,
-    )
-    .unwrap();
+    let response = dispatch("plan.task.split", &Some(params), &service, 10).unwrap();
     let child_id = response["children"][0]["task_id"].as_str().unwrap();
     let caller = codeterm_service_core::service::AuthenticatedPlanCaller {
         tab_id: Some(owner),

@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use tauri::Manager;
-
 use crate::cron_routes::off_runtime_gate::StorageCron;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::service::test_fixture::ServiceFixture;
@@ -15,8 +13,8 @@ async fn cron_entry_off_runtime_plan_pause_schedule_write_frees_the_runtime_work
     let storage_cron = StorageCron::open();
     let held = storage_cron.create("held", "ws-held");
     let svc = Arc::new(fixture.service.clone());
-    svc.app_handle.manage(storage_cron.cron.clone());
-    svc.app_handle.manage(storage_cron.wake.clone());
+    assert!(svc.set_ext(storage_cron.cron.clone()).is_ok());
+    assert!(svc.set_ext(storage_cron.wake.clone()).is_ok());
     let mut gate = storage_cron.gate_next_commit();
 
     let pausing = {

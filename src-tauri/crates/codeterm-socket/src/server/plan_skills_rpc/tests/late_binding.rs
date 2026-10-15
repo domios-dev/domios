@@ -43,6 +43,7 @@ impl LateLaunch {
                 "tab_id": tab, "session_binding_nonce": CALLER_NONCE,
             })),
             &caller.svc,
+            None,
         )
         .unwrap();
         caller.show(caller.production_params()).unwrap();
@@ -143,6 +144,7 @@ impl LateLaunch {
                 "tab_id": self.tab, "session_binding_nonce": CALLER_NONCE,
             })),
             &self.caller.svc,
+            None,
         )
     }
 
@@ -275,7 +277,7 @@ fn retained_launch_refuses_missing_replaced_finalized_and_foreign_live_authority
             } else {
                 "attempt_id"
             }] = json!("foreign-claim");
-            crate::server::dispatch_service_rpc("agent.ack", Some(params), &launch.caller.svc)
+            crate::server::dispatch_service_rpc("agent.ack", Some(params), &launch.caller.svc, None)
         } else {
             launch.ack()
         };

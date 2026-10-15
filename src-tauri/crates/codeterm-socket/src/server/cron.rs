@@ -1,8 +1,6 @@
 //! `cron.*` JSON-RPC handlers.
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::Value;
-use tauri::Manager;
 
 use codeterm_service_core::service::ServiceState;
 
@@ -10,7 +8,6 @@ use super::{get_string_param, JsonRpcError, PostResponseAction};
 
 pub(super) fn dispatch_complete(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<(Value, Option<PostResponseAction>), JsonRpcError> {
     let run_id = get_string_param(params, "run_id")?;
@@ -31,15 +28,15 @@ pub(super) fn dispatch_complete(
         .and_then(|p| p.get("human_confirmed"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let cron_state = app
-        .try_state::<codeterm_service_core::CronState>()
+    let cron_state = svc
+        .try_ext::<codeterm_service_core::CronState>()
         .ok_or_else(|| JsonRpcError {
             code: -32603,
             message: "Cron not initialized".into(),
             data: None,
         })?;
-    let cron_wake = app
-        .try_state::<codeterm_service_core::CronWake>()
+    let cron_wake = svc
+        .try_ext::<codeterm_service_core::CronWake>()
         .ok_or_else(|| JsonRpcError {
             code: -32603,
             message: "Cron not initialized".into(),
@@ -47,8 +44,8 @@ pub(super) fn dispatch_complete(
         })?;
     let completion = svc
         .cron_complete(
-            &cron_state,
-            &cron_wake,
+            cron_state,
+            cron_wake,
             &run_id,
             summary,
             caller_tab_id,
@@ -79,11 +76,7 @@ pub(super) fn dispatch_complete(
                         summary: &completion.summary,
                     },
                 );
-                codeterm_host_runtime::events::emit_everywhere(
-                    &svc.app_handle,
-                    "cron-run-finished",
-                    (),
-                );
+                svc.ui.emit("cron-run-finished", serde_json::Value::Null);
             });
         }) as PostResponseAction
     });
@@ -93,7 +86,6 @@ pub(super) fn dispatch_complete(
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
@@ -102,15 +94,15 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|p| p.get("workspace_id"))
                 .and_then(|v| v.as_str());
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
             let jobs = svc
-                .cron_list(&cron_state, ws_id)
+                .cron_list(cron_state, ws_id)
                 .map_err(|message| JsonRpcError {
                     code: -32603,
                     message,
@@ -125,15 +117,15 @@ pub(super) fn dispatch(
 
         "cron.get" => {
             let id = get_string_param(params, "id")?;
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
             let job = svc
-                .cron_get(&cron_state, &id)
+                .cron_get(cron_state, &id)
                 .map_err(|message| JsonRpcError {
                     code: if message.starts_with("cron storage unavailable:") {
                         -32603
@@ -162,22 +154,22 @@ pub(super) fn dispatch(
                     message: format!("Invalid params: {}", e),
                     data: None,
                 })?;
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let cron_wake = app
-                .try_state::<codeterm_service_core::CronWake>()
+            let cron_wake = svc
+                .try_ext::<codeterm_service_core::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
             let job = svc
-                .cron_create(&cron_state, &cron_wake, create_params)
+                .cron_create(cron_state, cron_wake, create_params)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
@@ -203,22 +195,22 @@ pub(super) fn dispatch(
                     message: format!("Invalid params: {}", e),
                     data: None,
                 })?;
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let cron_wake = app
-                .try_state::<codeterm_service_core::CronWake>()
+            let cron_wake = svc
+                .try_ext::<codeterm_service_core::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
             let job = svc
-                .cron_update(&cron_state, &cron_wake, &id, patch)
+                .cron_update(cron_state, cron_wake, &id, patch)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
@@ -233,21 +225,21 @@ pub(super) fn dispatch(
 
         "cron.delete" => {
             let id = get_string_param(params, "id")?;
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let cron_wake = app
-                .try_state::<codeterm_service_core::CronWake>()
+            let cron_wake = svc
+                .try_ext::<codeterm_service_core::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            svc.cron_delete(&cron_state, &cron_wake, &id)
+            svc.cron_delete(cron_state, cron_wake, &id)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
@@ -258,22 +250,22 @@ pub(super) fn dispatch(
 
         "cron.enable" => {
             let id = get_string_param(params, "id")?;
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let cron_wake = app
-                .try_state::<codeterm_service_core::CronWake>()
+            let cron_wake = svc
+                .try_ext::<codeterm_service_core::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
             let job = svc
-                .cron_enable(&cron_state, &cron_wake, &id, true)
+                .cron_enable(cron_state, cron_wake, &id, true)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
@@ -288,22 +280,22 @@ pub(super) fn dispatch(
 
         "cron.disable" => {
             let id = get_string_param(params, "id")?;
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let cron_wake = app
-                .try_state::<codeterm_service_core::CronWake>()
+            let cron_wake = svc
+                .try_ext::<codeterm_service_core::CronWake>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
             let job = svc
-                .cron_enable(&cron_state, &cron_wake, &id, false)
+                .cron_enable(cron_state, cron_wake, &id, false)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
@@ -318,15 +310,15 @@ pub(super) fn dispatch(
 
         "cron.trigger" => {
             let id = get_string_param(params, "id")?;
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
             let run = svc
-                .cron_trigger(&cron_state, &id)
+                .cron_trigger(cron_state, &id)
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
@@ -341,34 +333,34 @@ pub(super) fn dispatch(
 
         "cron.cancel" => {
             let id = get_string_param(params, "id")?;
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let cancelled =
-                svc.cron_cancel_running(&cron_state, &id)
-                    .map_err(|e| JsonRpcError {
-                        code: -32603,
-                        message: e,
-                        data: None,
-                    })?;
+            let cancelled = svc
+                .cron_cancel_running(cron_state, &id)
+                .map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e,
+                    data: None,
+                })?;
             Ok(serde_json::json!({"cancelled": cancelled}))
         }
 
         "cron.history" => {
             let id = get_string_param(params, "id")?;
-            let cron_state = app
-                .try_state::<codeterm_service_core::CronState>()
+            let cron_state = svc
+                .try_ext::<codeterm_service_core::CronState>()
                 .ok_or_else(|| JsonRpcError {
                     code: -32603,
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
             let history = svc
-                .cron_history(&cron_state, &id)
+                .cron_history(cron_state, &id)
                 .map_err(|message| JsonRpcError {
                     code: if message.starts_with("cron storage unavailable:") {
                         -32603
@@ -386,7 +378,7 @@ pub(super) fn dispatch(
         }
 
         "cron.complete" => {
-            let (result, after_response) = dispatch_complete(params, app, svc)?;
+            let (result, after_response) = dispatch_complete(params, svc)?;
             if let Some(after_response) = after_response {
                 after_response();
             }

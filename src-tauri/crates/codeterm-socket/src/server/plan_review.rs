@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 #[cfg(test)]
@@ -26,12 +25,8 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_host_runtime::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 fn continuation_binding_nonce(
@@ -209,7 +204,6 @@ fn bounce_continuation_failure(
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
@@ -238,7 +232,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             Ok(json!({ "plan_id": plan_id, "task_id": task_id, "recorded": true }))
         }
         "plan.review.reconcile-credit" => {
@@ -247,7 +241,7 @@ pub(super) fn dispatch(
             let result = store
                 .reconcile_review_credit(&plan_id, str_field(p, "reason"), from, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             serde_json::to_value(result).map_err(|error| JsonRpcError {
                 code: -32603,
                 message: error.to_string(),
@@ -266,7 +260,7 @@ pub(super) fn dispatch(
             let result = store
                 .grant_review_capacity(&plan_id, &task_id, class, from, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             serde_json::to_value(result).map_err(|error| JsonRpcError {
                 code: -32603,
                 message: error.to_string(),
@@ -290,7 +284,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(|message| unauthorized(&message))?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             serde_json::to_value(result).map_err(|error| JsonRpcError {
                 code: -32603,
                 message: error.to_string(),
@@ -329,16 +323,15 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             if let Some(worker) = worker {
-                use tauri::Manager;
                 if let Some(ports) =
-                    app.try_state::<codeterm_service_core::ports::sentinel::SentinelPorts>()
+                    svc.try_ext::<codeterm_service_core::ports::sentinel::SentinelPorts>()
                 {
                     if let Err(error) = ports.cleanup.remove_worker_watchers(&worker) {
                         log::error!("[blueprint] accepted task watcher cleanup failed: {error}");
                     }
                 }
             }
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             svc.record_kpi_review_verdict(
                 from.tab_id.as_deref().unwrap_or("unknown"),
                 &plan_id,
@@ -403,7 +396,7 @@ pub(super) fn dispatch(
                 );
             }
             let Some(mut continuation) = result.continuation.clone() else {
-                emit_plan_changed(app, &plan_id);
+                emit_plan_changed(svc, &plan_id);
                 return serde_json::to_value(result).map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e.to_string(),
@@ -432,7 +425,7 @@ pub(super) fn dispatch(
                     )
                     .map_err(plan_rpc_err)?;
                 result.continuation = None;
-                emit_plan_changed(app, &plan_id);
+                emit_plan_changed(svc, &plan_id);
                 return serde_json::to_value(result).map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e.to_string(),
@@ -500,14 +493,14 @@ pub(super) fn dispatch(
                     )
                     .map_err(plan_rpc_err)?;
                 result.continuation = None;
-                emit_plan_changed(app, &plan_id);
+                emit_plan_changed(svc, &plan_id);
                 return serde_json::to_value(result).map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e.to_string(),
                     data: None,
                 });
             }
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             finish_continuation_result(
                 finished,
                 delivery,
@@ -530,7 +523,7 @@ pub(super) fn dispatch(
             let result = store
                 .hold_review(&plan_id, &task_id, note(p), from, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -889,9 +882,9 @@ mod tests {
             "session_id": "review-owner-session",
             "session_binding_nonce": "review-owner-nonce",
         }));
-        let app = fixture._app.handle().clone();
+
         let svc = std::sync::Arc::new(fixture.service.clone());
-        dispatch("plan.review.bounce", &params, &app, &svc)
+        dispatch("plan.review.bounce", &params, &svc)
     }
 
     #[test]

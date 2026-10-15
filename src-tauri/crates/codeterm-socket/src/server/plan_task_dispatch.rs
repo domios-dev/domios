@@ -1,4 +1,3 @@
-use codeterm_host_runtime::app_runtime::AppHandle;
 use codeterm_service_core::plan::TaskLaneMetadata;
 use codeterm_service_core::service::plan::milestone_gates::{
     regression_dispatch_decision, RegressionDispatchDecision,
@@ -141,9 +140,9 @@ pub(super) fn await_agent_ready(
             "agent readiness deadline expired".into(),
         ));
     }
-    match tauri::async_runtime::block_on(
-        async move { tokio::time::timeout(remaining, ready_rx).await },
-    ) {
+    match codeterm_service_core::async_runtime::block_on(async move {
+        tokio::time::timeout(remaining, ready_rx).await
+    }) {
         Ok(Ok(Ok(()))) => Ok(()),
         Ok(Ok(Err(error))) => Err(DispatchWaitFailure::Definitive(error)),
         // A dropped sender only means a newer generation superseded it; the worker may still be starting, so it is not failure evidence.
@@ -366,13 +365,11 @@ pub(crate) fn regression_dispatch_warning(decision: RegressionDispatchDecision) 
 /// Failure before ACK restores plan state and closes the spawned tab.
 pub(super) fn dispatch(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
     dispatch_with_spawn(
         params,
-        app,
         svc,
         now,
         |svc, spawn_params, ready_tx| svc.spawn_agent_sync_with_ready(spawn_params, ready_tx),
@@ -382,7 +379,6 @@ pub(super) fn dispatch(
 
 pub(super) fn dispatch_with_spawn<S, O>(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
     now: u64,
     spawn_agent: S,
@@ -402,11 +398,10 @@ where
         .and_then(Value::as_str)
         .is_some_and(|peer| !peer.trim().is_empty())
     {
-        return remote::dispatch(params, app, svc, now);
+        return remote::dispatch(params, svc, now);
     }
     dispatch_with_spawn_approval_exemption(
         params,
-        app,
         svc,
         now,
         None,
@@ -417,7 +412,6 @@ where
 
 fn dispatch_with_spawn_approval_exemption<S, O>(
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
     now: u64,
     approval_exempt_task_id: Option<&str>,
@@ -935,7 +929,7 @@ where
                     .and_then(Value::as_str)
                     != Some("dispatch_in_flight")
                 {
-                    emit_plan_changed(app, &plan_id);
+                    emit_plan_changed(svc, &plan_id);
                 }
                 return Err(error);
             }
@@ -962,7 +956,7 @@ where
                 reserved_tab_id,
                 attempt_id
             );
-            emit_plan_changed(app, &plan_id);
+            emit_plan_changed(svc, &plan_id);
             return Err(dispatch_failed(
                 "agent_spawn",
                 match cleanup {
@@ -999,7 +993,7 @@ where
             reserved_tab_id,
             attempt_id
         );
-        emit_plan_changed(app, &plan_id);
+        emit_plan_changed(svc, &plan_id);
         return Err(dispatch_failed(
             "tab_reservation",
             match cleanup {
@@ -1048,7 +1042,7 @@ where
             tab_id,
             attempt_id
         );
-        emit_plan_changed(app, &plan_id);
+        emit_plan_changed(svc, &plan_id);
         return Err(dispatch_failed(
             "skill_manifest",
             match cleanup {
@@ -1076,7 +1070,7 @@ where
             tab_id,
             attempt_id
         );
-        emit_plan_changed(app, &plan_id);
+        emit_plan_changed(svc, &plan_id);
         return Err(dispatch_failed(
             "task_binding",
             match cleanup {
@@ -1086,9 +1080,8 @@ where
         ));
     }
     svc.persist_current_attempt_session_model(&tab_id);
-    emit_plan_changed(app, &plan_id);
+    emit_plan_changed(svc, &plan_id);
     let startup = DispatchStartup {
-        app: app.clone(),
         svc: svc.clone(),
         plan_id: plan_id.clone(),
         task_id: task_id.clone(),
