@@ -20,6 +20,9 @@ if (args[0] === 'mesh' && args[1] === 'status') {
 } else if (args[0] === 'tab' && args[1] === 'exec') {
   const status = statuses[mesh];
   if (status === 'exec_timeout') out({ data: { completion: 'timeout', output: '' }, ok: false });
+  else if (status?.late) out({ completion: 'timeout', exit_code: null, output: `$ ./build.sh peer-status
+PEER_STATUS ${JSON.stringify(status.late)}
+$ ` });
   else out({ completion: 'command_finished', exit_code: 0, output: `MSVC env loaded\nPEER_STATUS ${JSON.stringify(status)}\n` });
 } else if (args[0] === 'tab' && args[1] === 'new') {
   out({ tab_id: 'remote01', budget_notice: null });
