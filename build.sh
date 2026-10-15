@@ -35,7 +35,7 @@ DEV_NOTIFY_TAB=""
 # Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
 # (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
 case "$CMD" in
-  qa-lock-storm|feature-cycle|lane-check|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -2167,6 +2167,7 @@ CodeTerm build commands
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
+  embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package> [--tests]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
@@ -2381,6 +2382,16 @@ EOF
     ;;
   lane-check)
     lane_check "${@:2}"
+    ;;
+  embedding-parity)
+    configure_lane_build_dir
+    CARGO_BUILD_JOBS=4 cargo build --release --manifest-path src-tauri/Cargo.toml \
+      -p codeterm-mem --example embedding_oracle
+    oracle_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
+    if [ -n "${CARGO_BUILD_TARGET:-}" ]; then oracle_dir="$oracle_dir/$CARGO_BUILD_TARGET"; fi
+    oracle_ext=""
+    case "$OSTYPE" in msys*|cygwin*|win32) oracle_ext=".exe" ;; esac
+    python scripts/embedding-parity.py --new-binary "$oracle_dir/release/examples/embedding_oracle$oracle_ext" "${@:2}"
     ;;
   feature-cycle)
     source scripts/feature-cycle.sh

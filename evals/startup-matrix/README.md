@@ -1,7 +1,7 @@
 # Curated startup matrix
 
 This live bench adopts the owner's real DEV window (default instance, API 7686,
-WebView2 CDP from health). It spends provider tokens: one minimal PONG prompt per
+WebView2 CDP from health). It spends provider tokens: one unique response-token prompt per
 tab. The scripted matrix never closes tabs, replaces drafts, or changes product code.
 After its table, follow [EXPLORE.md](EXPLORE.md) for the required agent-driven
 visual pass, including the explicitly authorized single-fixture close/restore probe.
@@ -45,13 +45,13 @@ only for a run that sent no prompts; it does not repeat a completed probe.
 
 After a process crash, `--attach <crashed-dir>` adopts the freshly restarted DEV
 using the crashed run's listener identity, then takes a fresh policy inventory.
-Any tab whose prior run attempted a send is opened and measured but gets no new
-payload. Its unresolved round trip remains a failure with the retained receipt.
-This prevents a held send from being replayed during recovery.
+Prior attempted receipts remain in the evidence. Each tab receives a new unique
+probe, and only that probe's own response token can complete its round trip.
 
-Before starting, inspect the saved inventory and existing input. Pass
-`--preserve-input <comma-separated-tab-ids>` for unresolved sends or owner drafts
-that must remain untouched (including aiderF while its delivery is unresolved).
+New unique probes may be sent to every DEV tab even when earlier probes remain
+unresolved. OpenCode and Aider stay in every provider sweep. Optionally pass
+`--preserve-input <comma-separated-tab-ids>` when a particular tab should receive
+no new input; there are no default preserved IDs.
 Those rows retain startup observations and receive a visual visit, but get no
 new payload. They remain explicit incomplete reply coverage, never a passing row.
 
@@ -90,7 +90,7 @@ start. SSE has no emission timestamp: replay gives an upper bound, and overflow
 frames explicitly preserve gaps. Frozen tabs have no boot-ready duration; their
 separate `wake_ms` is relative to the action. No screenshot implies agent readiness.
 `reply_ms` records the first new assistant content observed through the API;
-`completed_ms` separately includes waiting for idle after the exact PONG transcript.
+`completed_ms` separately includes waiting for idle after the exact response token.
 Each probe carries a unique run/tab token; only assistant items after that exact
 user turn and before the next user turn qualify, even if a sleeping tab's initial
 chat snapshot was unavailable. A retained pending CLI receipt is not a refusal
@@ -101,3 +101,38 @@ passing evidence; 3 means complete evidence with observed failures; 1 means an
 incomplete evidence contract. The driver uses 3 for observed failures. Offline
 checks: `node --test evals/startup-matrix/*.test.mjs`. An unresponsive entry with
 complete request evidence also exits 3; it does not imply tabs were exercised.
+
+### Independent Windows terminal baseline (manual, on request)
+
+Use this only to compare installed providers outside Domios launch admission.
+It is not a CI gate. Start a visible system PowerShell without its profile:
+
+    Start-Process powershell.exe -WindowStyle Normal -ArgumentList '-NoLogo','-NoProfile','-NoExit','-File','C:/Developer/codeterm/codeterm/evals/startup-matrix/native-baseline.ps1','-Provider','claude','-OutputDirectory','C:/Developer/codeterm/codeterm/target-check/evals/native-baseline/UNIQUE-RUN/claude'
+
+Repeat sequentially for grok, aider, opencode and codex. The script removes
+Domios routing variables, writes launch.json and uses an independent workspace
+under C:/Developer/codeterm-native-baseline, outside repository ancestry.
+Keep existing authentication and user plugins/configuration; do not label this
+a factory-reset profile or an idle-machine measurement. Codex uses --no-daemon
+and measures its CLI, which differs from the app's Codex Chat transport.
+
+Use native-console.ps1 with the exact shell PID and an output file to capture
+the native console viewport. Capture and actually view the same window with
+native-window.ps1 using its verified native window handle. It brings that window
+forward and fits it to the primary display. Record each action, UTC, process,
+token, image path and observation in steps.jsonl.
+
+For a provider whose actual composer has been inspected and is ready, a fresh
+probe may be written with native-input.ps1 using -ShellProcessId, -InputFile
+(a body in the caller's pad) and -ReceiptFile. Never answer a login, trust or
+permission prompt this way. OS input acceptance is not delivery; require the
+exact new reply in this console/session. Aider requires a separately configured
+model/key; a credential prompt is an uncovered case, not a slow launch.
+
+Separate first frame, setup completion, actual editable-input readiness,
+first engine turn and reply completion. Use timestamped provider signals or
+own-session records; screenshots captured later do not establish startup time.
+Retain blocked attempts and configuration differences. OpenCode --print-logs
+can overlap its TUI; note this instrumentation interference. Compare matched
+fresh/resumed commands and current machine load before attributing a delta
+to Domios.

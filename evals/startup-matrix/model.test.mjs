@@ -1,6 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { policy, WINDOW_MS, matrix, lockSites, evaluateSla, replyWindow, remainingDeadline } from './model.mjs';
+import { policy, WINDOW_MS, matrix, lockSites, evaluateSla, replyWindow, remainingDeadline, probeMarker } from './model.mjs';
+import { replyVerdict } from '../core-journeys/lib/oracle.mjs';
+
+test('a new run or tab requires its own response token even after an unresolved probe', () => {
+  const old = probeMarker('run-a', 'tab-a');
+  const current = probeMarker('run-b', 'tab-a');
+  assert.equal(new Set([old, current, probeMarker('run-b', 'tab-b')]).size, 3);
+  const record = { agent_session_id: 'own-session', agent_state: { state: 'idle' } };
+  const verdict = messages => replyVerdict({ messages, baselineIds: new Set(), marker: current, record, boundSession: 'own-session' });
+  assert.ok(verdict([{ id: 'late-old', type: 'assistant', content: old }]).pending);
+  assert.ok(verdict([{ id: 'new', type: 'assistant', content: current }]).done);
+});
 test('General and activity boundary classify independently from observed frozen state', () => {
   const now = WINDOW_MS * 3;
   assert.equal(policy({}, { name: 'General' }, now), 'awake');
