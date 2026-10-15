@@ -590,3 +590,11 @@ fn cleanup_digest_conditions_and_overrides_roundtrip() {
         assert_eq!(restored.rules[0].template, "{count}");
     }
 }
+
+#[test]
+fn restore_window_defaults_to_two_days() {
+    let config: super::AppConfig = serde_json::from_str("{}").unwrap();
+    assert_eq!(config.restore.active_window_hours, 48);
+    let config: super::RestoreConfig = serde_json::from_str("{}").unwrap();
+    assert_eq!(config.active_window_hours, 48);
+}

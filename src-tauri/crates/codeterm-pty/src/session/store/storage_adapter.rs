@@ -553,3 +553,19 @@ fn layout_activity(node: &DeskLayoutNode) -> Option<u64> {
         DeskLayoutNode::Split { children, .. } => children.iter().find_map(layout_activity),
     }
 }
+
+#[cfg(test)]
+mod activity_tests {
+    use super::*;
+    use crate::multiplexer::state::MultiplexerState;
+
+    #[test]
+    fn activity_survives_storage_desk_conversion() {
+        let (mut mux, id) = MultiplexerState::new();
+        mux.get_tab_mut(&id).unwrap().last_active_at_ms = Some(98765);
+        let saved = to_desk_snapshot(&mux.to_session_snapshot(), vec![]).unwrap();
+        let restored = from_desk_snapshot(saved).unwrap();
+        let mux = MultiplexerState::from_session_snapshot(&restored);
+        assert_eq!(mux.get_tab(&id).unwrap().last_active_at_ms, Some(98765));
+    }
+}

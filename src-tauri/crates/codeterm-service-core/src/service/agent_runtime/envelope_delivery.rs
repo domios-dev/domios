@@ -29,6 +29,7 @@ pub(super) fn send(
     token: &str,
     observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<Delivery, String> {
+    svc.wake_frozen_tab(tab)?;
     let token = format!("runtime-envelope:{token}");
     svc.restore_durable_user_statuses(tab)?;
     let store = &svc.pending_delivery_payloads.user_sends;
