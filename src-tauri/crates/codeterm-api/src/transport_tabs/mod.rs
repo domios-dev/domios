@@ -1,3 +1,5 @@
+mod wake;
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -16,6 +18,7 @@ pub(crate) struct CwdBody {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/api/tabs/{id}/wake", post(wake::wake))
         .route("/api/tabs/{id}/cwd", post(update_cwd))
         .route("/api/tabs/{id}/history", get(history))
 }

@@ -58,9 +58,13 @@ fn wake_with(
     {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(&id).ok_or("Sleeping tab closed")?;
+        if !tab.frozen {
+            return Ok(());
+        }
         tab.frozen = false;
         tab.record_activity();
     }
+    svc.emit_state_changed();
     let result = materialize(&id);
     svc.emit_state_changed();
     result
@@ -86,6 +90,22 @@ mod tests {
         for id in [&general, &sibling] {
             assert!(!fixture.service.mux.read().get_tab(id).unwrap().frozen);
         }
+    }
+
+    #[test]
+    fn repeated_wakes_materialize_once() {
+        let (mut mux, id) = MultiplexerState::new();
+        mux.get_tab_mut(&id).unwrap().frozen = true;
+        let fixture = ServiceFixture::new(mux);
+        let calls = std::cell::Cell::new(0);
+        for _ in 0..2 {
+            wake_with(&fixture.service, &id, |_| {
+                calls.set(calls.get() + 1);
+                Ok(())
+            })
+            .unwrap();
+        }
+        assert_eq!(calls.get(), 1);
     }
 
     #[test]
