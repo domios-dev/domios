@@ -267,7 +267,7 @@ function jobFixture(t, buildScript) {
   return { dir, env, runJob, event: () => calls(env.FAKE_CODETERM_LOG).find((c) => c.args[0] === 'send') };
 }
 
-test('peer job runs the verb with --wait-build, sends one completion event and releases the lock', (t) => {
+test('peer job runs the verb with --wait-build, releases the lock, then sends one completion event', (t) => {
   const log = posixPath(path.join(fixtures, 'check-queue.log'));
   const fx = jobFixture(t, `echo "args=$*"\ncat ${JSON.stringify(log)}\nexit 101\n`);
   const result = fx.runJob(60, 'check-queue', SHA);
@@ -278,7 +278,7 @@ test('peer job runs the verb with --wait-build, sends one completion event and r
   assert.match(event.stdin, /^\[peer-job peer-9\] peer=ROG verb=check-queue sha=a{40} outcome=failed exit=101 wall=\d+s\n/);
   assert.match(event.stdin, /\nwarnings=2 shown=2 failing=codeterm-plan\n/);
   assert.match(event.stdin, /\nremote-log=.*codeterm-peer-jobs[\\/]peer-9\.log gateway-log=/);
-  assert.ok(!fs.existsSync(path.join(fx.dir, '.git/codeterm-peer-job.lock')));
+  assert.equal(event.lockHeld, false, 'the event cues the next dispatch, so the checkout is free when it is sent');
 });
 
 test('peer job past its deadline is killed and reported as deadline', (t) => {
