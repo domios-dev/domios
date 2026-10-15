@@ -321,7 +321,6 @@ fn scheduler_gates_each_owner_tick_and_marks_only_delivered_wakes() {
     }
     let writes = RefCell::new(Vec::new());
     let gate = crate::service::hierarchy::heartbeat_gate::Gate::default();
-    let model = super::approval_tests::FakeChoice::new(super::approval_tests::approve());
     assert!(!counter.time_nudge_due(&tab_id, 0, interval));
 
     for (now, expected_deliveries) in [(interval - 1, 0), (interval, 1), (interval, 1)] {
@@ -333,12 +332,9 @@ fn scheduler_gates_each_owner_tick_and_marks_only_delivered_wakes() {
             if now >= interval {
                 snapshot
                     .delta
-                    .insert("stride:fixture".into(), "opaque evidence".into());
+                    .insert("task:fixture".into(), "opaque evidence".into());
             }
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            let decision = gate
-                .decide(id, &snapshot, now, Some(model.as_ref()), deadline)
-                .unwrap();
+            let decision = gate.decide(id, &snapshot, now).unwrap();
             if decision.wake {
                 writes.borrow_mut().push(id.to_string());
                 gate.delivered(id, &snapshot, &decision, now);

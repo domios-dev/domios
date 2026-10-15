@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use crate::multiplexer::types::Tab;
-use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
+use crate::plan::{Plan, PlanMode, PlanStatus};
 use crate::service::hierarchy::heartbeat_gate::{
-    self, Claim, Decision, Gate, Observation, ReminderKind, Scope, Snapshot, Supporter, TickFact,
+    self, Claim, Decision, Gate, Observation, ReminderKind, Scope, Snapshot, TickFact,
 };
 use codeterm_plan::service_plan::state::orchestrator_actionable_task_ids;
 
@@ -84,7 +84,7 @@ pub(crate) struct Recipient {
 /// each supply one, so the approval policy itself has a single implementation.
 pub(crate) trait ReminderHost {
     fn gate(&self) -> &Gate;
-    fn supporter(&self) -> Supporter<'_>;
+    fn journal_runtime(&self) -> std::sync::Arc<crate::service::supporter::SupporterRuntime>;
     fn interval(&self) -> u64;
     fn plan(&self, plan_id: &str) -> Option<Plan>;
     fn with_plans<R>(&self, read: impl FnOnce(&[Plan]) -> R) -> R;
@@ -142,8 +142,7 @@ pub(crate) fn scope_keys(plans: &[Plan]) -> HashSet<String> {
         .collect()
 }
 
-/// The only path to an automatic plan reminder: exact scope, an approving Choice
-/// verdict or the Owner cadence floor, fresh revalidation, then one emitter call.
+/// Automatic reminders require a rule verdict and fresh scope revalidation.
 pub(crate) fn admit(
     host: &impl ReminderHost,
     request: &ReminderRequest,
@@ -212,91 +211,43 @@ fn admit_claimed(
     now: u64,
 ) -> ReminderOutcome {
     let gate = host.gate();
-    let supporter = host.supporter();
-    let soft_cooldown = if scope.kind == ReminderKind::Worker {
-        0
-    } else {
-        host.interval()
-    };
     let key = claim.key();
-    let connection = supporter
-        .connected(&scope.tab_id)
-        .zip(supporter.generation());
-    let floor = scope.kind == ReminderKind::Owner
-        && owner_can_act(&plan)
-        && gate.cadence_due(key, now, host.interval());
-    if connection.is_none() && !floor {
-        return suppress(gate, claim, request, now, "no_adapter");
-    }
-    let adapter = connection.as_ref().map(|(_, adapter)| adapter.clone());
     let previous = gate.observation(key);
     let (mut snapshot, observed) = observe(host, &plan, &scope, &previous, now);
     gate.observed(key, observed);
     snapshot.scope = Scope {
-        adapter: adapter.clone().unwrap_or_default(),
         criteria: heartbeat_gate::criteria_version(),
         ..scope.clone()
     };
-    let decision = match &connection {
-        _ if floor => gate.decide_cadence(key, &snapshot, now),
-        Some((model, _)) => {
-            if scope.kind == ReminderKind::Owner {
-                if let Err(reason) = gate.admit_judgement(key, &snapshot, now, host.interval()) {
-                    return suppress(gate, claim, request, now, reason);
+    if scope.kind == ReminderKind::Worker
+        && scope.task_id.as_deref().is_some_and(|id| {
+            plan.tasks
+                .iter()
+                .any(|task| task.id == id && task.status == crate::plan::TaskStatus::Blocked)
+        })
+    {
+        if let Some(owner) = non_empty(plan.owner.tab_id.as_deref()) {
+            for notice in super::blocked_notices(&plan, &scope, &snapshot) {
+                if gate.claim_blocker_notice(&notice.event_key) {
+                    host.notify_blocked(owner, &notice);
                 }
             }
-            gate.decide_with_interval(
-                key,
-                &snapshot,
-                now,
-                Some(model.as_ref()),
-                supporter.deadline(),
-                soft_cooldown,
-            )
-            .ok()
-            .map(|mut decision| {
-                decision.adapter = Some(model.id().to_string());
-                decision.model = model.model_id();
-                decision
-            })
         }
-        None => None,
-    };
+        return suppress(gate, claim, request, now, "recipient_not_actionable");
+    }
+    let decision = gate
+        .decide_with_interval(key, &snapshot, now, host.interval())
+        .ok();
     let Some(decision) = decision else {
         return suppress(gate, claim, request, now, "gate_unavailable");
     };
     if !matches!(decision.reason, "same_snapshot" | "healthy_snapshot") {
-        heartbeat_gate::journal(&supporter.runtime, &decision, &plan.id, now);
+        heartbeat_gate::journal(&host.journal_runtime(), &decision, &plan.id, now);
     }
     let current = |plan_id: &str| match resolve(host, request, Some(plan_id)) {
-        Ok((plan, fresh))
-            if fresh == scope && connected_as(host, &supporter, adapter.as_deref()) =>
-        {
-            Some(plan)
-        }
+        Ok((plan, fresh)) if fresh == scope => Some(plan),
         _ => None,
     };
-    if decision.tick_label == "blocked" {
-        if decision.reason != "model_answer" || decision.decided_by == "cache" {
-            return suppress(gate, claim, request, now, decision.reason);
-        }
-        let Some(plan) = current(&plan.id) else {
-            return suppress(gate, claim, request, now, "stale_scope");
-        };
-        let (mut fresh, _) = observe(host, &plan, &scope, &previous, now);
-        fresh.scope = snapshot.scope.clone();
-        if fresh.hash() != decision.snapshot_hash {
-            return suppress(gate, claim, request, now, "stale_observation");
-        }
-        if let Some(owner_tab) = non_empty(plan.owner.tab_id.as_deref()) {
-            for notice in super::blocked_notices(&plan, &scope, &fresh) {
-                if gate.claim_blocker_notice(&notice.event_key) {
-                    host.notify_blocked(owner_tab, &notice);
-                }
-            }
-        }
-        return suppress(gate, claim, request, now, "recipient_blocked");
-    }
     if !decision.wake {
         return suppress(gate, claim, request, now, decision.reason);
     }
@@ -354,21 +305,6 @@ fn admit_claimed(
     }
 }
 
-/// Blocked tasks wait on the owner or an outside party and carry their own notice.
-fn owner_can_act(plan: &Plan) -> bool {
-    let actionable = orchestrator_actionable_task_ids(plan);
-    plan.tasks
-        .iter()
-        .any(|task| task.status != TaskStatus::Blocked && actionable.contains(&task.id))
-}
-
-/// The connection epoch and adapter fingerprint, or its absence for a floor
-/// verdict, still equal the decision's; a fresh Supporter view is read on every call.
-fn connected_as(host: &impl ReminderHost, approved: &Supporter<'_>, adapter: Option<&str>) -> bool {
-    let current = host.supporter();
-    current.epoch == approved.epoch && current.generation().as_deref() == adapter
-}
-
 fn observe(
     host: &impl ReminderHost,
     plan: &Plan,
@@ -376,10 +312,25 @@ fn observe(
     previous: &Observation,
     now: u64,
 ) -> (Snapshot, Observation) {
-    match scope.kind {
+    let (mut snapshot, observation) = match scope.kind {
         ReminderKind::Worker => host.observe_worker(plan, scope, previous, now),
         _ => host.observe_owner(plan, &scope.tab_id, previous, now),
-    }
+    };
+    snapshot.actionable_tasks = if scope.kind == ReminderKind::Worker {
+        scope
+            .task_id
+            .iter()
+            .filter(|id| {
+                plan.tasks
+                    .iter()
+                    .any(|task| &task.id == *id && task.status != crate::plan::TaskStatus::Blocked)
+            })
+            .cloned()
+            .collect()
+    } else {
+        orchestrator_actionable_task_ids(plan)
+    };
+    (snapshot, observation)
 }
 
 fn note_request_tick(gate: &Gate, request: &ReminderRequest, now: u64, fact: TickFact) {
