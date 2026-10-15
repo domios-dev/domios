@@ -481,7 +481,6 @@ pub fn run(
             let service_state: ServiceState = Arc::new(svc_ctx);
             assert!(service_state.set_ext(Arc::downgrade(&service_state)).is_ok());
             codeterm_service_core::ports::orchestration::install(&service_state);
-            assert!(service_state.set_ext(states.session.clone()).is_ok());
             repo_sink.bind_service(Arc::downgrade(&service_state));
             service_state.chat_send_ledger.bind_settlement_owner(&service_state);
             {
