@@ -15,7 +15,7 @@ const BACKOFF_MAX: Duration = Duration::from_secs(30);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Start the renderer watchdog for the main window. No-op on non-macOS.
-pub fn spawn(window: crate::app_runtime::WebviewWindow) {
+pub fn spawn(window: codeterm_host_runtime::app_runtime::WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
         let _ = std::thread::Builder::new()
@@ -27,7 +27,7 @@ pub fn spawn(window: crate::app_runtime::WebviewWindow) {
 }
 
 #[cfg(target_os = "macos")]
-fn run(window: crate::app_runtime::WebviewWindow) {
+fn run(window: codeterm_host_runtime::app_runtime::WebviewWindow) {
     let mut ever_alive = false;
     let mut backoff = POLL_INTERVAL;
     loop {
@@ -61,7 +61,7 @@ enum Probe {
 }
 
 #[cfg(target_os = "macos")]
-fn probe(window: &crate::app_runtime::WebviewWindow) -> Probe {
+fn probe(window: &codeterm_host_runtime::app_runtime::WebviewWindow) -> Probe {
     let (tx, rx) = std::sync::mpsc::channel::<i32>();
     let posted = window.with_webview(move |wv| {
         let pid = unsafe { web_process_identifier(wv.inner()) };
