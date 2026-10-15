@@ -1058,6 +1058,10 @@ pub(super) fn create_router_with_preview_admission(
         router
     };
 
+    apply_middleware(router, state)
+}
+
+pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Router {
     let frontend_origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
         &state.config.lock().api,
         state.svc.app_handle.config().build.dev_url.as_ref(),
