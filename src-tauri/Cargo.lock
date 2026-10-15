@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-api"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1294,7 +1294,7 @@ version = "0.1.0"
 
 [[package]]
 name = "codeterm-commands"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 dependencies = [
  "async-trait",
  "axum",
@@ -1723,7 +1723,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-sentinel-host"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 dependencies = [
  "chrono",
  "codeterm-analytics",
@@ -1755,7 +1755,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-service-core"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 dependencies = [
  "aes-gcm",
  "annembed",
@@ -1881,7 +1881,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-socket"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 dependencies = [
  "axum",
  "base64 0.22.1",
