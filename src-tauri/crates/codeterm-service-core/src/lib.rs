@@ -39,7 +39,6 @@ mod native_resize;
 pub mod notification;
 pub mod pasteboard;
 pub mod paths;
-pub mod sentinel;
 pub use codeterm_util::persisted_state;
 pub mod plan;
 pub mod plugin;

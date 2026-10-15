@@ -322,7 +322,7 @@ fn decoded_cron() -> CronImport {
 }
 
 fn decoded_sentinels() -> Vec<SentinelImport> {
-    crate::sentinel::storage::legacy_import(SENTINELS).expect("sentinel fixture")
+    codeterm_sentinel::storage::legacy_import(SENTINELS).expect("sentinel fixture")
 }
 
 /// Every file under `root` by forward-slash relative path.
