@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, RotateCw } from "lucide-react";
@@ -453,7 +454,7 @@ function ModelPickerPopover({
           </div>
         </div>
       )}
-      {error && <p role="alert" className="ct-model-picker__error">{error}</p>}
+      {error && <InlineErrorNotice error={error} operation="changing the agent model" blocking />}
       {error && gate.timing === "live_command" && !confirming && staged && (
         <button type="button" className={UI_BUTTON.ghost} disabled={busy}
           onClick={() => { setRestartFallback(true); setConfirming(staged); }}>

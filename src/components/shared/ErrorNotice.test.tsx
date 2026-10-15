@@ -7,6 +7,7 @@ import { ErrorNotice, InlineErrorNotice } from "./ErrorNotice";
 
 it("wires the supplied title, actions, collapsed raw disclosure and copy control", async () => {
   const run = vi.fn();
+  const parentClick = vi.fn();
   const copy = vi.fn(async () => {});
   vi.stubGlobal("navigator", { clipboard: { writeText: copy } });
   const host = document.createElement("div");
@@ -14,7 +15,7 @@ it("wires the supplied title, actions, collapsed raw disclosure and copy control
   const root = createRoot(host);
   const description = { title: "fixture-title", cause: "fixture-cause", raw: "<raw>\nopaque-fault", actions: [] };
   try {
-    await act(async () => root.render(<ErrorNotice description={description} actions={[{ label: "fixture-action", onClick: run }]} blocking />));
+    await act(async () => root.render(<div onClick={parentClick}><ErrorNotice description={description} actions={[{ label: "fixture-action", onClick: run }]} blocking /></div>));
     expect(host.querySelector('[role="alert"]')?.textContent).toContain(description.title);
     const button = host.querySelector<HTMLButtonElement>('button[aria-label="fixture-action"]')!;
     await act(async () => button.click());
@@ -26,6 +27,7 @@ it("wires the supplied title, actions, collapsed raw disclosure and copy control
     expect(details.querySelector("pre")?.textContent).toBe(description.raw);
     await act(async () => details.querySelector("button")!.click());
     expect(copy).toHaveBeenCalledExactlyOnceWith(description.raw);
+    expect(parentClick).not.toHaveBeenCalled();
     await act(async () => root.render(<InlineErrorNotice description={description} />));
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.querySelector('[role="status"]')).not.toBeNull();

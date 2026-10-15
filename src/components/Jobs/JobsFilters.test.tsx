@@ -80,7 +80,7 @@ async function main() {
       await settle(() => renderedJobs(view.host).length === 2);
       assert.deepEqual(renderedJobs(view.host), [`cron:${teamCron.id}`, scenarioA].sort());
       await act(async () => view.root.render(<JobsView workspaces={workspaces} teams={[remoteTeam]} initialFilter={{ workspaceId: null, teamId: teamA.id }} adapter={machineTransport()} />));
-      assert.ok(view.host.querySelector('[role="alert"]'), "a removed Team is reported, not shown as empty");
+      assert.ok(view.host.querySelector('[role="status"][aria-label]'), "a removed Team is reported, not shown as empty");
       assert.equal(view.host.querySelector('ul[aria-label="Jobs"]'), null);
       assert.ok(named(view.host, "Remove filter: Team Unavailable Team"), "the stale capsule stays removable");
     } finally { await view.close(); }

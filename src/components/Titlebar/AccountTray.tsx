@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { ChevronDown, LogIn, Mail, UserPlus, UserRound } from "lucide-react";
 import { useAccount } from "../Settings/useAccount";
@@ -45,6 +46,6 @@ export function AccountTray() {
         <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
       </button>
     } />
-    {error && <span role="alert" className="text-[11px] text-[var(--ct-text-muted)]">{error}</span>}
+    {error && <InlineErrorNotice error={error} operation="signing in" blocking />}
   </div>;
 }

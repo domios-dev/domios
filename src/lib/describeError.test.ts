@@ -3,6 +3,18 @@ import { test } from "node:test";
 import { describeError, type ErrorAction } from "./describeError";
 
 const fixtures: { input: unknown; title: string; actions: ErrorAction[] }[] = [
+  { input: { code: "constructor", raw: "opaque" }, title: "Something went wrong while opening this file", actions: ["retry"] },
+  { input: { code: "memory_run_incomplete", raw: "opaque" }, title: "The memory run needs attention", actions: ["retry"] },
+  { input: { code: "frontend_version_mismatch", raw: "opaque" }, title: "The interface needs an update", actions: ["retry"] },
+  { input: { code: "frontend_crash", raw: "opaque" }, title: "The interface could not render", actions: [] },
+  { input: { code: "plugin_load_failed", raw: "opaque" }, title: "The plugin could not load", actions: ["retry"] },
+  { input: { code: "plugin_reload_failed", raw: "opaque" }, title: "The plugin could not reload", actions: ["retry"] },
+  { input: { code: "plugin_removed", raw: "opaque" }, title: "This chat's plugin was removed", actions: [] },
+  { input: { code: "mesh_partial_failure", raw: "opaque" }, title: "Some mesh resources could not be refreshed", actions: ["retry"] },
+  { input: { code: "terminal_input_failed", raw: "" }, title: "Terminal input failed", actions: ["retry"] },
+  { input: { code: "automation_unavailable", raw: "" }, title: "Automations could not be loaded", actions: ["retry"] },
+  { input: { code: "blueprint_unavailable", raw: "" }, title: "The Blueprint is unavailable", actions: ["retry"] },
+
   { input: { code: "close_failed", raw: "opaque" }, title: "The workspace or Team could not close", actions: ["retry"] },
   { input: { code: "close_inventory_unavailable", raw: "opaque" }, title: "The close status could not be checked", actions: ["retry"] },
   { input: { code: "workspace_cwd_missing", message: "opaque" }, title: "The tab's folder no longer exists", actions: ["choose-folder"] },

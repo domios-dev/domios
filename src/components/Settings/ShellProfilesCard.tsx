@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { TerminalSquare } from "lucide-react";
 import { useShellProfiles } from "../../hooks/useShellProfiles";
 import type { AppConfig } from "../../lib/types";
@@ -28,7 +29,7 @@ export function ShellProfilesCard({ config, onUpdate }: {
       <button type="button" disabled={loading} onClick={() => void refresh()} className="text-xs text-[var(--ct-accent)] disabled:opacity-50">
         Refresh shells
       </button>
-      {error && <p role="alert" className="text-xs">{error}</p>}
+      {error && <InlineErrorNotice error={error} operation="detecting shells" blocking />}
     </SettingsCard>
   );
 }

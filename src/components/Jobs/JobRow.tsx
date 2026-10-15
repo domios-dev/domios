@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { probeStateLabel } from "../Automation/probeProgress";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -56,7 +57,7 @@ export function JobRow({ jobKey: key, icon, name, meta, idHint, type, tone, stat
         trigger={<RowMenuButton ref={onTriggerRef} label={actionsLabel} touchMode={touchMode} />}
       />
     </div>
-    {error && <p role="alert" className="px-3 pt-1 text-xs text-[var(--ct-fg)]">{error}</p>}
+    {error && <InlineErrorNotice error={error} operation="updating this job" blocking />}
   </li>;
 }
 

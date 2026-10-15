@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { formatCompact, formatExact } from "../../lib/formatCompact";
 import type { SupporterSpend, SupporterSpendTotals, SupporterStatus } from "./useDecisionToken";
 
@@ -33,15 +34,9 @@ export function SupporterSpendLine({ spend }: { spend: SupporterSpend }) {
         <span className="text-[var(--ct-fg)]">{usd(spend.month)}</span> this month
       </span>
       {spend.exhausted && (
-        <span role="alert" className="text-[var(--ct-yellow,#d97706)]">
-          Credit unavailable. Supporter uses deterministic results until{" "}
-          {spend.next_probe_at === null
-            ? "the next check"
-            : `the next check at ${new Date(spend.next_probe_at * 1000).toLocaleTimeString()}`}
-          .
-        </span>
+        <InlineErrorNotice error={{ code: "supporter_credit_unavailable", raw: "" }} />
       )}
-      {!spend.storage_ready && <span role="alert">Spinal Cord spend storage needs attention.</span>}
+      {!spend.storage_ready && <InlineErrorNotice error={{ code: "supporter_storage_unavailable", raw: "" }} />}
     </div>
   );
 }
