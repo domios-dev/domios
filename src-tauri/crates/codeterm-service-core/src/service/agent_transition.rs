@@ -258,7 +258,7 @@ impl ServiceContext {
                 }
             }
         }
-        let mux = self.mux.write();
+        let mux = self.mux.read();
         let change = AgentLifecyclePlanChange {
             tab_id: String::new(),
             preserve_owned_plans: true,

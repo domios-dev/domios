@@ -1143,7 +1143,7 @@ pub(crate) fn resolve_tab(
     state: &AppState,
     raw_id: &str,
 ) -> Result<String, (StatusCode, &'static str)> {
-    let mux = state.svc.mux.write();
+    let mux = state.svc.mux.read();
     mux.resolve_tab_id(raw_id)
         .ok_or((StatusCode::NOT_FOUND, "Tab not found"))
 }

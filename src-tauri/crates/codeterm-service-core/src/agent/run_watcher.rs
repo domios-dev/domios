@@ -864,7 +864,7 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
 
     // Bound to the tab by the SessionStart hook; capture session_id + cwd before close_tab so the run stays renderable in the read-only chat-ui.
     let (session_id, run_cwd) = {
-        let mux = svc.mux.write();
+        let mux = svc.mux.read();
         let tab = mux.get_tab(&state.tab_id);
         (
             tab.and_then(|p| p.agent_session_id.clone()),

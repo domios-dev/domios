@@ -691,7 +691,7 @@ fn tab_transcript_snapshot(
         return Ok((messages.into_iter().skip(since).collect(), total));
     }
     let backing = {
-        let m = svc.mux.write();
+        let m = svc.mux.read();
         m.get_tab(tab_id).ok_or("Tab not found")?.backing.clone()
     };
     match backing {
@@ -708,7 +708,7 @@ fn tab_transcript_snapshot(
         crate::multiplexer::types::TabBacking::Surface(_) => Ok((Vec::new(), 0)),
         crate::multiplexer::types::TabBacking::Pty => {
             let (provider_id, cwd, session_id) = {
-                let m = svc.mux.write();
+                let m = svc.mux.read();
                 let tab = m.get_tab(tab_id).ok_or("Tab not found")?;
                 let provider = tab.agent_type.clone().ok_or("Tab has no agent_type")?;
                 let cwd = tab.cwd.clone().unwrap_or_default();
