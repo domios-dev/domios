@@ -49,6 +49,17 @@ impl AgentProvider for NativeRuntime {
         Some(self.0.clone())
     }
 
+    fn runtime_stored_history(&self, session: &str, records: &str) -> Result<Vec<ChatMsg>, String> {
+        if !self.0.stored_history {
+            return Err("unsupported".into());
+        }
+        let value: Value = serde_json::from_str(records).map_err(|error| error.to_string())?;
+        if value["session"].as_str() != Some(session) {
+            return Err("foreign session".into());
+        }
+        serde_json::from_value(value["messages"].clone()).map_err(|error| error.to_string())
+    }
+
     async fn runtime_plan(
         &self,
         ctx: &RuntimeContext,

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { retentionPaths } from './rust-build-dir-retention.mjs';
+import { laneBuildDirectory } from './lane-build-dir.mjs';
 
 const log = (value) => console.log(`[cargo-build-gc] ${value}`);
 const key = (value) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
@@ -59,21 +60,25 @@ export function orphanCandidates(root, mappings) {
 }
 
 const HASHED_BUILD = (build) => /^[a-f0-9]{14}$/.test(path.basename(build)) && /^[a-f0-9]{2}$/.test(path.basename(path.dirname(build)));
+const SHARED_BUILD = (build) => ['lanes', 'codeterm-lanes'].includes(path.basename(build));
 
 // Superseded variants of each live build directory go under Cargo's own locks; a locked directory is left whole.
-export function trimBuildDirectories(mappings, { dryRun = false, runner = spawnSync, plan = retentionPaths } = {}) {
+export function trimBuildDirectories(mappings, { dryRun = false, runner = spawnSync, plan = retentionPaths, env = process.env } = {}) {
   const python = ['python3', 'python'].find((program) => runner(program, ['--version'], { encoding: 'utf8' }).status === 0);
   if (!python) throw new Error('Python is required for Cargo-compatible build-directory locks');
   const helper = fileURLToPath(new URL('./cargo-build-gc.py', import.meta.url));
   let trimmed = 0;
-  for (const build of [...new Set(mappings.map((mapping) => mapping.build))]) {
-    if (!HASHED_BUILD(build) || !fs.existsSync(build)) continue;
+  const directories = new Map([...mappings.map((mapping) => mapping.build), laneBuildDirectory({ env })]
+    .map((build) => [key(build), path.resolve(build)]));
+  for (const build of directories.values()) {
+    if ((!HASHED_BUILD(build) && !SHARED_BUILD(build)) || !fs.existsSync(build)) continue;
     const paths = plan(build);
     if (!paths.length) continue;
     const list = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'build-trim-')), 'paths.json');
     try {
       fs.writeFileSync(list, JSON.stringify(paths));
-      const result = JSON.parse(command(python, [helper, '--trim', path.dirname(path.dirname(build)), build, list, ...(dryRun ? ['--dry-run'] : [])], path.dirname(build), runner));
+      const root = SHARED_BUILD(build) ? path.dirname(build) : path.dirname(path.dirname(build));
+      const result = JSON.parse(command(python, [helper, '--trim', root, build, list, ...(dryRun ? ['--dry-run'] : [])], path.dirname(build), runner));
       log(`${result.status} ${build}: ${(result.bytes / 1024 ** 3).toFixed(3)} GiB${result.reason ? ` (${result.reason})` : ''}`);
       trimmed += result.bytes;
     } finally {

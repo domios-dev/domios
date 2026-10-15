@@ -36,6 +36,14 @@ impl AgentProvider for JsProvider {
         self.manifest.capabilities.agent_runtime.clone()
     }
 
+    fn runtime_stored_history(
+        &self,
+        session_id: &str,
+        records: &str,
+    ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
+        self.js_runtime_stored_history(session_id, records)
+    }
+
     fn authorize_agent_runtime(
         &self,
         authority: &crate::agent_runtime::LaunchAuthority,
@@ -489,20 +497,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
-        // Hook-reported evidence wins over any reconstruction; absence falls through.
-        let path = crate::session_evidence::stored_transcript_path(session_id)
-            .or_else(|| self.owned_session_file_path(cwd, session_id))?;
-        if self
-            .manifest
-            .commands
-            .model_switch_commands
-            .as_ref()
-            .is_some_and(|commands| commands.turn_completion.is_some())
-        {
-            self.permitted_session_path(path)
-        } else {
-            Some(path)
-        }
+        self.js_session_file_path(cwd, session_id)
     }
 
     fn additional_usage_sources(&self, session_file: &Path, session_id: &str) -> Vec<PathBuf> {

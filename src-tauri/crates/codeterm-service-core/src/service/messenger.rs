@@ -6,21 +6,7 @@ mod turn_resume;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum MessageKind {
-    /// A direct message from one tab (or peer) to another.
-    #[default]
-    Message,
-    /// A hierarchy / cron report bubbling up to a parent or inbox.
-    Report,
-    /// A host-owned event with no reply address.
-    System,
-    /// A fired delayed reminder injected back into a tab.
-    Reminder,
-    Mesh,
-    Telegram,
-    Pebble,
-}
+pub use codeterm_agent_model::MessageKind;
 
 #[derive(Debug, Default, Clone)]
 pub struct MessageEnvelope {
@@ -113,32 +99,6 @@ pub enum Delivery {
 impl Delivery {
     pub(crate) fn is_written(&self) -> bool {
         !matches!(self, Self::Pending { .. })
-    }
-}
-
-impl MessageKind {
-    fn marker_kind(self) -> &'static str {
-        match self {
-            Self::Message => "tab",
-            Self::Report => "report",
-            Self::System => "system",
-            Self::Reminder => "reminder",
-            Self::Mesh => "mesh",
-            Self::Telegram => "telegram",
-            Self::Pebble => "pebble",
-        }
-    }
-
-    fn inbound_kind(self) -> &'static str {
-        match self {
-            Self::Message => "tab",
-            Self::Report => "report",
-            Self::System => "system",
-            Self::Reminder => "reminder",
-            Self::Mesh => "mesh",
-            Self::Telegram => "telegram",
-            Self::Pebble => "pebble",
-        }
     }
 }
 
@@ -773,7 +733,7 @@ impl Messenger {
                 })
                 .unwrap_or((None, None));
             crate::service::tab_chat::structured_sink::emit_chat_msgs(
-                &svc.app_handle,
+                svc.ui.as_ref(),
                 to_tab,
                 std::slice::from_ref(&msg),
                 None,

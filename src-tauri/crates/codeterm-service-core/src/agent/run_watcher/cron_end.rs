@@ -1,7 +1,5 @@
 use std::thread::JoinHandle;
 
-use tauri::Manager;
-
 use crate::cron::store::{finish_run, CronRunStatus, CronStore, RunSession};
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::cron::CronRunEnd;
@@ -31,11 +29,7 @@ fn finish_with<D>(svc: &ServiceContext, run: EndedCronRun<'_>, deliver: D) -> Op
 where
     D: FnOnce(&str, MessageEnvelope, &str) -> Result<(), String> + Send + 'static,
 {
-    let cron = svc
-        .app_handle
-        .try_state::<crate::CronState>()?
-        .inner()
-        .clone();
+    let cron = svc.try_ext::<crate::CronState>()?.clone();
     let status = if run.success {
         CronRunStatus::Success
     } else {
@@ -45,10 +39,7 @@ where
         "--- SUMMARY ---\n{}\n\n--- RAW OUTPUT ---\n{}",
         run.summary, run.raw_output
     );
-    let wake = svc
-        .app_handle
-        .try_state::<crate::CronWake>()
-        .map(|wake| wake.inner().clone());
+    let wake = svc.try_ext::<crate::CronWake>().cloned();
     let svc = svc.clone();
     let tab_id = run.tab_id.to_string();
     let job_id = run.job_id.to_string();
@@ -87,7 +78,10 @@ where
                 },
                 deliver,
             );
-            codeterm_events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+            svc.ui.emit(
+                "cron-run-finished",
+                serde_json::to_value(()).unwrap_or_default(),
+            );
         },
     ))
 }

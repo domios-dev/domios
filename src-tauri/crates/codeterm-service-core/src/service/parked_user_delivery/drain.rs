@@ -79,10 +79,9 @@ impl super::super::ServiceContext {
                                 .chat_send_ledger
                                 .expire_owned_before_write(&head.send_id, REASON)
                             {
-                                codeterm_events::emit_everywhere(
-                                    &self.app_handle,
+                                self.ui.emit(
                                     "chat-send-status",
-                                    &status,
+                                    serde_json::to_value(&status).unwrap_or_default(),
                                 );
                             } else {
                                 log::warn!(
@@ -121,10 +120,9 @@ impl super::super::ServiceContext {
                         &head.send_id,
                         "recording_recipient_changed_before_write",
                     ) {
-                        codeterm_events::emit_everywhere(
-                            &self.app_handle,
+                        self.ui.emit(
                             "chat-send-status",
-                            &status,
+                            serde_json::to_value(&status).unwrap_or_default(),
                         );
                     }
                     self.local_recordings.retire_write_ticket(&head.send_id);

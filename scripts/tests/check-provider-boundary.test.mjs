@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { allowlistPath, checkBoundary, detectOccurrences, isCoreSource, readBaseline, scanWorkingTree, seedAllowlist, validateAllowlist } from '../check-provider-boundary.mjs';
+import { allowlistPath, baselineRevision, checkBoundary, detectOccurrences, isCoreSource, readBaseline, scanWorkingTree, seedAllowlist, validateAllowlist } from '../check-provider-boundary.mjs';
 
 const checker = fileURLToPath(new URL('../check-provider-boundary.mjs', import.meta.url));
 const file = 'src-tauri/src/runtime.rs';
@@ -44,6 +44,19 @@ test('detects literal ids, casing, identifier and environment variants', () => {
   assert.equal(detectOccurrences(file, 'let agent_runtime = "chat_backend";').length, 0);
 });
 
+test('migration anchor replaces only an older ancestor baseline and retains the ratchet', () => repository(({ root, git, commit, seedBase }) => {
+  const anchor = commit();
+  assert.equal(baselineRevision(root, seedBase, anchor), anchor);
+  source(root, file, 'fn codex_runtime() {}\nfn codex_runtime() {}\n');
+  const later = commit();
+  assert.equal(baselineRevision(root, later, anchor), later);
+  const baseline = readBaseline(root, anchor);
+  assert.ok(checkBoundary(scanWorkingTree(root), seedAllowlist(scanWorkingTree(root)), baseline)
+    .some(error => error.includes('increased baseline')));
+  git('checkout', '--quiet', seedBase);
+  assert.equal(baselineRevision(root, seedBase, anchor), seedBase);
+}));
+
 test('source-backed production and test tokens are included', () => repository(({ root }) => {
   source(root, 'src-tauri/crates/example/tests/provider.rs', 'let token = "CLAUDE_CONFIG_DIR";');
   source(root, 'crates/example/src/fixtures.json', '{"provider":"OpenCode"}');
@@ -69,6 +82,48 @@ test('a file/token count cannot allow repeated copies or another file', () => {
   assert.ok(checkBoundary(duplicate, document, document.entries).some(error => error.includes('added occurrence')));
   assert.ok(checkBoundary(detectOccurrences('crates/runtime/src/lib.rs', 'x\ncodex\nx\n'), document, document.entries).length > 0);
 });
+
+test('CLI transfers an exact allowance across a git rename, including a facade left behind', () => repository(({ root, git, commit, document, check }) => {
+  const base = commit();
+  const moved = 'src-tauri/crates/codeterm-leaf/src/runtime.rs';
+  mkdirSync(dirname(join(root, moved)), { recursive: true });
+  renameSync(join(root, file), join(root, moved));
+  source(root, file, 'pub use codeterm_leaf::runtime::*;\n');
+  source(root, allowlistPath, JSON.stringify({ ...document, entries: document.entries.map(entry => ({ ...entry, file: moved })) }));
+  git('add', '-A');
+  assert.equal(check(base).status, 0, check(base).stderr);
+  source(root, moved, 'fn codex_runtime() {}\nfn codex_runtime() {}\n');
+  assert.match(check(base).stderr, /added occurrence|increased baseline/);
+}));
+
+test('CLI does not transfer an allowance to a copy', () => repository(({ root, commit, document, check }) => {
+  const base = commit();
+  const copied = 'src-tauri/crates/codeterm-leaf/src/runtime.rs';
+  source(root, copied, 'fn codex_runtime() {}\n');
+  source(root, allowlistPath, JSON.stringify({ ...document, entries: [...document.entries, { ...document.entries[0], file: copied }] }));
+  assert.match(check(base).stderr, /increased baseline/);
+}));
+
+test('CLI divides each renamed token budget between its facade and destination without growth', () => repository(({ root, git, commit, check }) => {
+  const original = 'const CODEX_HOME: &str = "";\nfn codex_rpc() {}\nfn codex_rpc() {}\n';
+  source(root, file, original);
+  const document = seedAllowlist(scanWorkingTree(root));
+  source(root, allowlistPath, JSON.stringify(document));
+  const base = commit();
+  const moved = 'src-tauri/crates/codeterm-leaf/src/runtime.rs';
+  mkdirSync(dirname(join(root, moved)), { recursive: true });
+  renameSync(join(root, file), join(root, moved));
+  source(root, file, 'fn codex_rpc() {}\n');
+  source(root, moved, 'const CODEX_HOME: &str = "";\nfn codex_rpc() {}\n');
+  const refresh = () => source(root, allowlistPath, JSON.stringify(seedAllowlist(scanWorkingTree(root))));
+  refresh();
+  git('add', '-A');
+  const result = check(base);
+  assert.equal(result.status, 0, result.stderr);
+  source(root, moved, original);
+  refresh();
+  assert.match(check(base).stderr, /increased baseline/);
+}));
 
 test('lowered source count requires a lowered entry and cannot rise later', () => {
   const original = detectOccurrences(file, 'codex\ncodex\n');

@@ -13,7 +13,7 @@
 // Rust membership comes from `cargo nextest list --message-format json` files named by CODETERM_CATALOGUE_NEXTEST_JSON
 // (path-delimiter separated) for every package they list, and from the static scan in rust-test-inventory.mjs otherwise.
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCargoToml, readInventoryFile, scanCrate, testKey, workspaceCrates } from "./rust-test-inventory.mjs";
@@ -128,6 +128,7 @@ function walkFiles(root, rel = "", out = []) {
 
 // Tracked plus untracked-but-not-ignored files; a tree outside git (fixtures) is walked instead.
 export function listRepoFiles(root) {
+  root = realpathSync.native(root);
   const top = spawnSync("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8" });
   const key = (p) => (process.platform === "win32" ? path.resolve(p).toLowerCase() : path.resolve(p));
   if (top.status !== 0 || key(top.stdout.trim()) !== key(root)) return walkFiles(root).sort();

@@ -8,11 +8,12 @@ import { archiveTargets, loadReleaseRust } from './ci-rust-archives.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
 const { runners: RELEASE_RUST } = loadReleaseRust(path.resolve(import.meta.dirname, '..'));
-const WORKSPACE = { lane: 'workspace', manifest: 'src-tauri/Cargo.toml', targets: archiveTargets('workspace', RELEASE_RUST) };
+const WORKSPACE = { lane: 'workspace', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', ...archiveTargets('workspace', RELEASE_RUST)] };
 const CLI = { lane: 'cli', manifest: 'cli/Cargo.toml', targets: archiveTargets('cli', RELEASE_RUST) };
-const INPUT = { lane: 'input', manifest: 'src-tauri/Cargo.toml', targets: ['--lib', '-p', 'codeterm-input-macos', '-p', 'codeterm-input-windows'], whole: true };
+const INPUT = { lane: 'input', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--lib', '-p', 'codeterm-input-macos', '-p', 'codeterm-input-windows'], whole: true };
+const EMBEDDINGS = { lane: 'embeddings', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--features', 'codeterm-service-core/embeddings,codeterm-mem/embeddings', '-p', 'codeterm-service-core', '-p', 'codeterm-mem', '--lib'] };
 // The full suite runs once on one runner; each OS runs only its cfg-gated tests and the native input crates.
-export const MODES = { full: [WORKSPACE, CLI], platform: [WORKSPACE, CLI, INPUT] };
+export const MODES = { full: [WORKSPACE, CLI], platform: [WORKSPACE, CLI, INPUT], embeddings: [EMBEDDINGS] };
 const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
 export function platformFilter(rows) {
@@ -148,6 +149,7 @@ export function requireTestSuccess(result, report, label, { warn = console.log, 
 
 export function verifyReceipts(receipts) {
   if (receipts.filter((r) => r.mode === 'full').length !== 1) throw new Error('Expected exactly one full-suite receipt');
+  if (receipts.filter((r) => r.mode === 'embeddings').length !== 1) throw new Error('Expected exactly one embeddings receipt');
   for (const os of ['macOS', 'Linux', 'Windows']) {
     if (receipts.filter((r) => r.mode === 'platform' && r.os === os).length !== 1) throw new Error(`Expected one ${os} platform receipt`);
   }
@@ -169,7 +171,7 @@ const tomlConfig = (filter, listener) => `[profile.default]\ndefault-filter = ${
 
 async function run(mode) {
   const lanes = MODES[mode];
-  if (!lanes) throw new Error('usage: node scripts/ci-rust-tests.mjs full|platform | verify DIR');
+  if (!lanes) throw new Error('usage: node scripts/ci-rust-tests.mjs full|platform|embeddings | verify DIR');
   for (const name of ['CODETERM_CONPTY_DIR', 'CODETERM_PLAN_ID', 'CODETERM_TASK_ID']) delete process.env[name];
   const env = { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' };
   const os = process.env.RUNNER_OS;
@@ -182,11 +184,12 @@ async function run(mode) {
     for (const lane of lanes) {
       const targetDir = laneTargetDir(lane.manifest, process.env.CI_TARGET_ROOT);
       if (targetDir) process.env.CARGO_TARGET_DIR = env.CARGO_TARGET_DIR = targetDir;
-      if (lane.lane === 'workspace') execFileSync('cargo', ['build', '--locked', '--manifest-path', lane.manifest, '--bin', 'codeterm-embed'], { stdio: 'inherit' });
+      if (lane.lane === 'workspace') execFileSync('cargo', ['build', '--locked', '--no-default-features', '--manifest-path', lane.manifest, '--bin', 'codeterm-embed'], { stdio: 'inherit' });
       const messages = compile(lane);
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));
-      let scope = 'all()';
+      let scope = mode === 'embeddings' ? 'package(=codeterm-mem) | (package(=codeterm-service-core) & test(/^mem::/))' : 'all()';
+      fs.writeFileSync(config, tomlConfig(scope, false));
       if (mode === 'platform' && !lane.whole) {
         const rows = classify(lane, messages, config);
         for (const row of rows.filter((r) => r.ignored)) console.log(`[explicit ignore on ${receipt.runner}] ${row.id}: ${row.reason}`);

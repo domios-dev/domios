@@ -47,14 +47,14 @@ fn dev_discovery_override() -> Option<(String, Option<String>, bool)> {
     None
 }
 
-pub(crate) fn navigation_index(bundles: Option<&FrontendBundles>) -> String {
+pub fn navigation_index(bundles: Option<&FrontendBundles>) -> String {
     bundles
         .and_then(FrontendBundles::active_index)
         .unwrap_or_else(|| BUNDLED_INDEX.into())
 }
 
 pub fn check(bundles: Arc<FrontendBundles>) {
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         match tokio::task::spawn_blocking(move || bundles.check()).await {
             Ok(Ok(_)) => {}
             Ok(Err(error)) => log::debug!("[frontend-bundle] check refused: {error}"),

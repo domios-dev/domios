@@ -2,6 +2,7 @@ pub mod agent;
 pub mod agent_commands;
 pub mod api_support;
 pub mod app_runtime;
+pub mod async_runtime;
 pub use codeterm_util::attachments;
 mod autostart;
 pub use autostart::{
@@ -18,6 +19,7 @@ pub mod crash;
 pub mod cron;
 pub mod delayed_send;
 pub mod dispatch;
+pub mod events;
 mod fdlimit;
 pub mod flow_trace;
 pub mod frontend_bundle_api_version;
@@ -110,3 +112,5 @@ pub use liveness::start_api_liveness_watchdog;
 pub use native_resize::install as install_native_resize;
 pub use webview2_reap::reap_orphaned_webview2;
 pub use webview_watchdog::spawn as spawn_webview_watchdog;
+
+pub use webview2_reap::clear_journal_for_exit as clear_webview_journal_for_exit;

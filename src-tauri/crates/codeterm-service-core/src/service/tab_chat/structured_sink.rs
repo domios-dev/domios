@@ -3,10 +3,9 @@
 //! the frontend merges them by id. Mirrored to the SSE bus so the web
 //! mirror's chat view streams too.
 
-use crate::app_runtime::AppHandle;
+use crate::ports::host::UiEvents;
+use crate::service::ServiceContext;
 use std::sync::Arc;
-
-use tauri::Manager;
 
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::commands::MuxState;
@@ -32,7 +31,7 @@ struct ChatMsgEvent<'a> {
 }
 
 pub fn emit_chat_msgs(
-    app: &AppHandle,
+    ui: &dyn UiEvents,
     tab_id: &str,
     messages: &[ChatMsg],
     cursor: Option<&str>,
@@ -54,8 +53,7 @@ pub fn emit_chat_msgs(
         source_session_id,
         session_binding_nonce,
     };
-    codeterm_events::emit_everywhere(
-        app,
+    ui.emit(
         &event,
         serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
     );
@@ -63,7 +61,8 @@ pub fn emit_chat_msgs(
 
 pub struct TauriStructuredSink {
     journal: Arc<TabLifecycleJournal>,
-    app: AppHandle,
+    ui: Arc<dyn UiEvents>,
+    service: std::sync::Weak<ServiceContext>,
     mux: MuxState,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
@@ -75,7 +74,7 @@ impl StructuredSink for TauriStructuredSink {
         if let (Some(session), Some(nonce), Some(svc)) = (
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
-            self.app.try_state::<crate::service::ServiceState>(),
+            self.service.upgrade(),
         ) {
             crate::service::provider_signals::apply_structured(&svc, tab, session, nonce, records);
         }
@@ -97,7 +96,7 @@ impl StructuredSink for TauriStructuredSink {
         }
         reconcile_current_session_turns(
             &self.journal,
-            &self.app,
+            self.ui.as_ref(),
             &self.mux,
             self.send_ledger.as_deref(),
             tab_id,
@@ -115,14 +114,14 @@ impl StructuredSink for TauriStructuredSink {
             crate::service::pty_io::submit_transaction::wake_submit_cycle(&pty_id);
         }
         emit_chat_msgs(
-            &self.app,
+            self.ui.as_ref(),
             tab_id,
             &messages,
             cursor.as_deref(),
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
         );
-        if let Some(service) = self.app.try_state::<crate::service::ServiceState>() {
+        if let Some(service) = self.service.upgrade() {
             service.run_watcher.check_pending_cron(&service, tab_id);
         }
     }
@@ -130,7 +129,7 @@ impl StructuredSink for TauriStructuredSink {
 
 pub fn make_sink(
     journal: Arc<TabLifecycleJournal>,
-    app: AppHandle,
+    svc: &ServiceContext,
     mux: MuxState,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
@@ -138,7 +137,8 @@ pub fn make_sink(
 ) -> Arc<dyn StructuredSink> {
     Arc::new(TauriStructuredSink {
         journal,
-        app,
+        ui: svc.ui.clone(),
+        service: svc.ext::<std::sync::Weak<ServiceContext>>().clone(),
         mux,
         source_session_id,
         session_binding_nonce,
@@ -221,7 +221,8 @@ fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
 /// codex) and sqlite providers (opencode) share one client rendering path.
 pub struct FlattenDeltaSink {
     journal: Arc<TabLifecycleJournal>,
-    app: AppHandle,
+    ui: Arc<dyn UiEvents>,
+    service: std::sync::Weak<ServiceContext>,
     mux: MuxState,
     source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
@@ -271,7 +272,7 @@ impl FlattenDeltaSink {
         if let (Some(session), Some(nonce), Some(svc)) = (
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
-            self.app.try_state::<crate::service::ServiceState>(),
+            self.service.upgrade(),
         ) {
             crate::service::provider_signals::apply(&svc, tab_id, session, nonce, &messages);
             crate::service::background_work::apply(&svc, tab_id, session, nonce, &messages);
@@ -320,7 +321,7 @@ impl FlattenDeltaSink {
         });
         reconcile_current_session_turns(
             &self.journal,
-            &self.app,
+            self.ui.as_ref(),
             &self.mux,
             self.send_ledger.as_deref(),
             tab_id,
@@ -339,8 +340,7 @@ impl FlattenDeltaSink {
             source_session_id: self.source_session_id.as_deref(),
             session_binding_nonce: self.session_binding_nonce.as_deref(),
         };
-        codeterm_events::emit_everywhere(
-            &self.app,
+        self.ui.emit(
             &event,
             serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
         );
@@ -349,7 +349,7 @@ impl FlattenDeltaSink {
 
 pub fn make_flatten_sink(
     journal: Arc<TabLifecycleJournal>,
-    app: AppHandle,
+    svc: &ServiceContext,
     mux: MuxState,
     base_start: usize,
     source_session_id: Option<String>,
@@ -358,7 +358,8 @@ pub fn make_flatten_sink(
 ) -> Arc<dyn super::tailer::DeltaSink> {
     Arc::new(FlattenDeltaSink {
         journal,
-        app,
+        ui: svc.ui.clone(),
+        service: svc.ext::<std::sync::Weak<ServiceContext>>().clone(),
         mux,
         source_session_id,
         session_binding_nonce,
@@ -369,7 +370,7 @@ pub fn make_flatten_sink(
 
 fn reconcile_current_session_turns(
     journal: &TabLifecycleJournal,
-    app: &AppHandle,
+    ui: &dyn UiEvents,
     mux: &MuxState,
     ledger: Option<&crate::service::chat_send_transaction::ChatSendLedger>,
     tab_id: &str,
@@ -396,7 +397,10 @@ fn reconcile_current_session_turns(
         messages,
         provenance,
     ) {
-        codeterm_events::emit_everywhere(app, "chat-send-status", &status);
+        ui.emit(
+            "chat-send-status",
+            serde_json::to_value(status).unwrap_or_default(),
+        );
     }
 }
 
@@ -488,7 +492,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
-    use tauri::{Listener, Manager};
 
     struct SourcedJsonlProvider {
         root: PathBuf,
@@ -628,8 +631,6 @@ mod tests {
             )
         }
         .expect("the exact PTY session must be attached before admission");
-        let service_state = Arc::new(fixture.service.clone()) as crate::service::ServiceState;
-        assert!(fixture._app.manage(service_state));
         fixture
             .service
             .agent_registry
@@ -754,21 +755,21 @@ mod tests {
         } else {
             binding_nonce
         };
+        let (event_tx, event_rx) = mpsc::sync_channel(1);
+        let listener = fixture
+            .ui
+            .listen(&format!("tab-chat-msg-{tab_id}"), move |payload| {
+                let _ = event_tx.try_send(payload.clone());
+            });
         let sink = make_flatten_sink(
             fixture.service.lifecycle_journal.clone(),
-            fixture.service.app_handle.clone(),
+            &fixture.service,
             fixture.service.mux.clone(),
             0,
             Some(session_id.into()),
             Some(sink_nonce.into()),
             Some(fixture.service.chat_send_ledger.clone()),
         );
-        let event_name = format!("tab-chat-msg-{tab_id}");
-        let (event_tx, event_rx) = mpsc::sync_channel(1);
-        let listener = fixture._app.listen(&event_name, move |event| {
-            let payload = serde_json::from_str::<serde_json::Value>(event.payload()).unwrap();
-            let _ = event_tx.try_send(payload);
-        });
         let tailer = spawn_sourced_tailer(
             TailConfig {
                 tab_id: tab_id.clone(),
@@ -785,7 +786,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(10))
             .expect("the sourced tailer must emit through FlattenDeltaSink");
         tailer.shutdown();
-        fixture._app.unlisten(listener);
+        fixture.ui.unlisten(listener);
         assert_eq!(event["messages"][0]["type"], "user");
         assert_eq!(event["messages"][0]["content"], PAYLOAD);
 

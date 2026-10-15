@@ -170,7 +170,7 @@ pub(super) fn emit_changes(
 ) {
     let changes = store.lock().take_changes();
     for change in changes {
-        codeterm_events::emit_everywhere(app, "automation-graph-changed", change);
+        codeterm_service_core::events::emit_everywhere(app, "automation-graph-changed", change);
     }
 }
 
@@ -205,6 +205,7 @@ pub fn start(
     wake::listen_any(svc.clone(), handle.clone());
     svc.app_handle.manage(handle.clone());
     let ports = super::ports_impl::ports(&handle);
+    assert!(svc.set_ext(ports.clone()).is_ok());
     svc.app_handle.manage(ports.clone());
     if let Err(error) = handle.store.lock().ensure_available() {
         log::error!("[blueprint] subsystem unavailable: {error}");

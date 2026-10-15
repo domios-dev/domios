@@ -1,5 +1,4 @@
 use codeterm_service_core::multiplexer::commands::MuxState;
-use codeterm_service_core::session::SessionState;
 use tauri::Manager;
 
 pub(crate) fn handle_window_event(
@@ -25,12 +24,13 @@ pub(crate) fn handle_window_event(
         }
 
         let app = window.app_handle();
-        if let (Some(mux), Some(_session)) =
-            (app.try_state::<MuxState>(), app.try_state::<SessionState>())
-        {
+        if let (Some(mux), Some(service)) = (
+            app.try_state::<MuxState>(),
+            app.try_state::<codeterm_service_core::service::ServiceState>(),
+        ) {
             if let Err(error) =
                 codeterm_service_core::service::session_persist::submit_session_snapshot_with_intent(
-                    app,
+                    service.inner(),
                     mux.inner(),
                     codeterm_service_core::session::store::SaveIntent::PreserveDesk,
                 )

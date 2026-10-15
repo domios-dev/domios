@@ -19,10 +19,10 @@ impl ServiceContext {
                 .as_ref()
                 .map(|_| codeterm_types::pty::PromptKind::Structured);
         }
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "prompt-state-changed",
-            serde_json::json!({ "tab_id": tab_id, "prompt": prompt }),
+            serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "prompt": prompt }))
+                .unwrap_or_default(),
         );
         self.emit_state_changed();
     }

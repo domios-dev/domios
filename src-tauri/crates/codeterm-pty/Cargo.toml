@@ -4,6 +4,7 @@ version = "1.6.2"
 edition = "2021"
 
 [dependencies]
+arc-swap = "1"
 codeterm-types = { path = "../codeterm-types" }
 codeterm-provider-signals = { path = "../codeterm-provider-signals" }
 codeterm-storage = { path = "../codeterm-storage" }

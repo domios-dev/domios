@@ -120,7 +120,7 @@ pub fn reap_orphaned_webview2() {
 }
 
 /// Clear the journal on a clean exit so the next launch has nothing to reap.
-pub(crate) fn clear_journal_for_exit() {
+pub fn clear_journal_for_exit() {
     clear_journal_at(&journal_path());
 }
 

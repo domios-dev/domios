@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::Manager;
 
 use crate::agent::model_catalog;
 use crate::agent::provider::ModelCatalogueAuthority;
@@ -24,7 +23,7 @@ struct Reconciler {
 pub fn start(service: ServiceState) {
     let mut changes = model_catalog::subscribe_changes();
     let reconciler = Arc::new(Reconciler::default());
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         run_blocking(&service, &reconciler, None).await;
         loop {
             match changes.recv().await {
@@ -56,8 +55,7 @@ async fn run_blocking(
 
 impl Reconciler {
     fn reconcile(&self, service: &ServiceState, providers: &[String]) {
-        let Some(config_state) = service.app_handle.try_state::<crate::config::ConfigState>()
-        else {
+        let Some(config_state) = service.try_ext::<crate::config::ConfigState>() else {
             return;
         };
         let config = config_state.lock().clone();
@@ -87,13 +85,14 @@ impl Reconciler {
             }
         }
         if config_changed {
-            if let Err(error) =
-                crate::config::save_config_and_apply(config_state.inner(), next.clone())
-            {
+            if let Err(error) = crate::config::save_config_and_apply(config_state, next.clone()) {
                 log::warn!("[model-defaults] could not save replaced defaults: {error}");
                 return;
             }
-            codeterm_events::emit_everywhere(&service.app_handle, "config-changed", &next);
+            service.ui.emit(
+                "config-changed",
+                serde_json::to_value(&next).unwrap_or_default(),
+            );
         }
         notify(service, &applied);
     }
@@ -140,8 +139,7 @@ impl Reconciler {
 
 fn cron_jobs(service: &ServiceState) -> Vec<crate::cron::store::CronJob> {
     service
-        .app_handle
-        .try_state::<crate::CronState>()
+        .try_ext::<crate::CronState>()
         .map(|cron| cron.lock().list().to_vec())
         .unwrap_or_default()
 }
@@ -151,8 +149,8 @@ fn update_cron_model(service: &ServiceState, change: &PlannedChange) -> bool {
         return false;
     };
     let (Some(cron), Some(wake)) = (
-        service.app_handle.try_state::<crate::CronState>(),
-        service.app_handle.try_state::<crate::CronWake>(),
+        service.try_ext::<crate::CronState>(),
+        service.try_ext::<crate::CronWake>(),
     ) else {
         return false;
     };
@@ -162,7 +160,7 @@ fn update_cron_model(service: &ServiceState, change: &PlannedChange) -> bool {
     let Ok(patch) = patch else {
         return false;
     };
-    match service.cron_update(cron.inner(), wake.inner(), id, patch) {
+    match service.cron_update(cron, wake, id, patch) {
         Ok(_) => true,
         Err(error) => {
             log::warn!("[model-defaults] could not update cron job {id}: {error}");

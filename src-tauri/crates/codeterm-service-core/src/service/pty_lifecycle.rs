@@ -180,6 +180,7 @@ async fn backend_read_loop(
 
                 if !first_byte_logged {
                     first_byte_logged = true;
+                    crate::startup::boot_timing::mark("-", Some(&pty_id), "first_output");
                     if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
                         log::info!(
                             "[pty-first-byte] pty={} elapsed={}ms bytes={}",
@@ -486,9 +487,8 @@ fn handle_pty_death_with_cause(
         let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
         svc.emit_tab_status_if_changed(pty_id, prev, crate::agent::status::TabStatus::Dead);
 
-        use tauri::Manager;
-        if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
-            crate::cron::pty_death_fallback::fail_run_on_pty_death(svc, &cron_state, pid, pty_id);
+        if let Some(cron_state) = svc.try_ext::<crate::CronState>() {
+            crate::cron::pty_death_fallback::fail_run_on_pty_death(svc, cron_state, pid, pty_id);
         }
 
         let watchdog = {

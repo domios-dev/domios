@@ -20,6 +20,7 @@ pub mod registry;
 pub(crate) mod restore_notice;
 pub use restore_notice::snapshot as restore_notice_snapshot;
 pub mod results;
+pub mod runtime_stored;
 pub mod session_window;
 pub mod snapshot_source;
 pub mod store_watch;

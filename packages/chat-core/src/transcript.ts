@@ -32,6 +32,10 @@ export interface TranscriptState {
   evictedOlder: number;
 }
 
+export function transcriptOffsetKind(state: TranscriptState): "bytes" | "items" {
+  return state.segments.some(segment => segment.range?.unit === "items") ? "items" : "bytes";
+}
+
 export interface TranscriptBatch {
   kind: TranscriptBatchKind;
   authority: TranscriptAuthority;

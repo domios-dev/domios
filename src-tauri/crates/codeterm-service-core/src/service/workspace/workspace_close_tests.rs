@@ -182,7 +182,6 @@ async fn workspace_close_handles_crons() {
     use crate::cron::store::{CronCreateParams, CronStore};
     use parking_lot::Mutex;
     use std::sync::Arc;
-    use tauri::Manager;
 
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.create_workspace("Cron workspace".into(), None).id;
@@ -224,8 +223,9 @@ async fn workspace_close_handles_crons() {
     cron.lock()
         .create(add_cron(retained_workspace_id.clone(), "Retained cron"))
         .unwrap();
-    fixture._app.manage(cron.clone());
-    fixture._app.manage(Arc::new(std::sync::Condvar::new()));
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
+    let wake: crate::CronWake = Arc::new(std::sync::Condvar::new());
+    assert!(fixture.service.set_ext(wake.clone()).is_ok());
 
     fixture
         .service
@@ -585,7 +585,7 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
         .import_snapshot(&stale_mux.to_session_snapshot(), Vec::new())
         .expect("seed a stale persisted tab for the rollback reduction");
     crate::service::session_persist::install_storage_desk_adapter(
-        fixture._app.handle(),
+        &fixture.service,
         StorageDeskAdapter::from_storage(storage.clone()),
     )
     .unwrap();
@@ -616,7 +616,7 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
         tabs_before,
         "provisional tab rolled back from the live desk"
     );
-    crate::service::session_persist::flush_session_persistence(fixture._app.handle()).unwrap();
+    crate::service::session_persist::flush_session_persistence(&fixture.service).unwrap();
     let after_state = adapter.state().unwrap();
     assert!(
         after_state.revision > before_revision,
@@ -634,7 +634,7 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
         "persisted desk holds exactly the pre-spawn tabs — no provisional tab, nothing lost"
     );
     assert!(!persisted_ids.contains(&stale_tab));
-    crate::service::session_persist::stop_worker(fixture._app.handle()).unwrap();
+    crate::service::session_persist::stop_worker(&fixture.service).unwrap();
     storage
         .shutdown()
         .wait(std::time::Duration::from_secs(30))

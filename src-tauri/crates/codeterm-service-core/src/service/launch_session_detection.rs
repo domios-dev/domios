@@ -836,7 +836,7 @@ impl ServiceContext {
         });
         let svc = self.clone();
         let tab_id = tab_id.to_string();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             let probe_svc = svc.clone();
             let probe_tab = tab_id.clone();
             let Ok(detected) =
@@ -901,7 +901,7 @@ impl ServiceContext {
 
     pub(crate) fn confirm_resumed_launch_session(&self, tab_id: &str) -> bool {
         if let Some(detected) = self.probe_resumed_launch_session(tab_id) {
-            tauri::async_runtime::block_on(self.commit_detected_launch_session(tab_id, detected));
+            crate::async_runtime::block_on(self.commit_detected_launch_session(tab_id, detected));
         }
         self.mux
             .read()

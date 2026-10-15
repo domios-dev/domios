@@ -1,8 +1,6 @@
 //! Writes scrollback sidecars at the existing snapshot cadence. Capture is
 //! read-only over `OutputBuffer`; restore never goes through this module.
 
-use tauri::Manager;
-
 use crate::multiplexer::commands::MuxState;
 use crate::pty::scrollback_capture::capture_scrollback_tails;
 use crate::session::scrollback::DEFAULT_SCROLLBACK_TAIL_BYTES;
@@ -14,35 +12,6 @@ use crate::OutputBufferState;
 pub(crate) struct SidecarSyncReport {
     pub written: Vec<(String, usize)>,
     pub skipped: Vec<(String, String)>,
-}
-
-fn sidecar_state(
-    app: &crate::app_runtime::AppHandle,
-) -> Option<(MuxState, OutputBufferState, SessionState)> {
-    let (Some(mux), Some(output_buf), Some(session)) = (
-        app.try_state::<MuxState>(),
-        app.try_state::<OutputBufferState>(),
-        app.try_state::<SessionState>(),
-    ) else {
-        return None;
-    };
-    Some((
-        mux.inner().clone(),
-        output_buf.inner().clone(),
-        session.inner().clone(),
-    ))
-}
-
-/// The single gate every post-save sidecar sync goes through: pruning keys off
-/// the LIVE tab set, which a refused reduction has just declared less
-/// trustworthy than the desk already on disk.
-pub(crate) fn sync_scrollback_sidecars_after_save(
-    app: &crate::app_runtime::AppHandle,
-    outcome: &SaveOutcome,
-) {
-    if let Some((mux, output_buf, session)) = sidecar_state(app) {
-        sync_scrollback_sidecars_after_save_with(outcome, &mux, &output_buf, &session);
-    }
 }
 
 pub(crate) fn sync_scrollback_sidecars_after_save_with(

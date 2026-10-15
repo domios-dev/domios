@@ -22,6 +22,7 @@
 #   ./build.sh e2e:llm   — run LLM E2E tests against dev (real provider tokens)
 #   source build.sh env  — load MSVC env vars into current shell (Windows only)
 
+codeterm_build_main() {
 set -e
 
 source scripts/dev-notify.sh
@@ -34,7 +35,7 @@ DEV_NOTIFY_TAB=""
 # Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
 # (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
 case "$CMD" in
-  qa-lock-storm|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  qa-lock-storm|feature-cycle|lane-check|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -344,7 +345,7 @@ run_workspace_lib_tests() {
   local package
   local test_cap_secs="${TEST_CAP_SECS:-3600}"
   for package in codeterm-service-core codeterm-account codeterm-billing codeterm-frontend-bundle codeterm-types codeterm-wire codeterm-sentinel codeterm-decision codeterm-provider-signals codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
-    TEST_CAP_SECS="$test_cap_secs" scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$package" --lib
+    TEST_CAP_SECS="$test_cap_secs" scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "$package" --lib
   done
 }
 
@@ -357,7 +358,7 @@ run_nextest_scope() {
   local filterset="${2:-}"
   local manifest="src-tauri/Cargo.toml"
   local package=""
-  local targets=()
+  local targets=(--no-default-features)
   local filter_args=()
 
   case "$scope" in
@@ -365,7 +366,7 @@ run_nextest_scope() {
       configure_app_test_cargo nextest
       manifest="$CT_APP_TEST_MANIFEST"
       package="$CT_APP_TEST_PACKAGE"
-      targets+=("${CT_APP_TEST_TARGET_ARGS[@]}")
+      targets=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
     shell) package="codeterm"; targets+=(--lib --test main) ;;
     mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets+=(--lib) ;;
@@ -639,6 +640,7 @@ fi
 source scripts/cache-policy.sh
 source scripts/build-gateway.sh
 source scripts/nextest-archive.sh
+source scripts/lane-check.sh
 source scripts/release-signing.sh
 
 if [ -n "${CODETERM_BUILD_GATEWAY_DIR:-}" ]; then
@@ -1545,7 +1547,7 @@ configure_app_test_cargo() {
   configure_dev_cargo || return $?
   CT_APP_TEST_MANIFEST=src-tauri/Cargo.toml
   CT_APP_TEST_PACKAGE=codeterm-service-core
-  CT_APP_TEST_TARGET_ARGS=(--lib)
+  CT_APP_TEST_TARGET_ARGS=(--lib --no-default-features)
   case "${1:?app test configuration requires a runner}" in
     nextest|test-one) ;;
     *) echo "Unknown app test runner: $1" >&2; return 2 ;;
@@ -1563,6 +1565,19 @@ configure_dev_cargo() {
     CT_DEV_TAURI_ARGS+=(--features "$CT_DEV_CARGO_FEATURES")
   fi
   CT_DEV_TAURI_ARGS+=(-- --profile "$CT_DEV_CARGO_PROFILE")
+}
+
+configure_product_cargo() {
+  local package feature features=()
+  CT_PRODUCT_CARGO_ARGS=(--no-default-features)
+  IFS=, read -r -a features <<< "$CT_DEV_CARGO_FEATURES"
+  for package in codeterm codeterm-service-core codeterm-mem; do
+    case " $* " in
+      *" --workspace "*|*" -p $package "*)
+        for feature in "${features[@]}"; do CT_PRODUCT_CARGO_ARGS+=(--features "$package/$feature"); done
+        ;;
+    esac
+  done
 }
 
 check_queue_worktree() {
@@ -1712,21 +1727,23 @@ check_queue_run() {
   if [ "$lane" = 1 ]; then
     while read -r package tests bins lib; do
       [ "$lib" = 1 ] || continue
-      if [ "$tests" = 1 ]; then test_packages+=("$package"); continue; fi
+      if [ "$tests" = 1 ]; then test_packages+=("$package"); fi
       lane_args+=(-p "$package")
     done < "$plan"
     if grep -q '^codeterm[[:space:]]0' "$plan"; then lane_args+=(--bins); fi
     if [ "${#lane_args[@]}" -gt 0 ]; then
-      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml "${lane_args[@]}" --lib --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
+      configure_product_cargo "${lane_args[@]}"
+      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml "${lane_args[@]}" "${CT_PRODUCT_CARGO_ARGS[@]}" --lib --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
     fi
     for package in "${test_packages[@]}"; do
       local test_args=(--lib --tests)
       [ "$package" != codeterm ] || test_args+=(--bins)
-      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml -p "$package" "${test_args[@]}" --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
+      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml -p "$package" "${test_args[@]}" --no-default-features --profile test --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
     done
   elif [ "${#pkg_args[@]}" -gt 0 ]; then
+    configure_product_cargo "${pkg_args[@]}"
     CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml \
-      "${pkg_args[@]}" --all-targets --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" || status=$?
+      "${pkg_args[@]}" "${CT_PRODUCT_CARGO_ARGS[@]}" --lib --bins --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" || status=$?
   fi
   if [ "$cli" = 1 ]; then
     local cli_targets=(--all-targets)
@@ -1735,12 +1752,6 @@ check_queue_run() {
       "${cli_targets[@]}" --no-deps --message-format=short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
   fi
   if [ "$lane" = 0 ]; then
-  configure_dev_cargo
-  local dev_status=0
-  CODETERM_DEV=1 CODETERM_WEB_DIST="$cw/dist" CARGO_TARGET_DIR="$cw/target/app" \
-    run_check_queue_cargo "$out" cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=short || dev_status=$?
-  [ "$dev_status" = 0 ] || status="$dev_status"
-  echo "check-queue: dev-lib args=${CT_DEV_CHECK_ARGS[*]} exit=$dev_status" | tee -a "$out"
   local test_runner test_status
   for test_runner in nextest; do
     configure_app_test_cargo "$test_runner"
@@ -2138,7 +2149,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2156,6 +2167,8 @@ CodeTerm build commands
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
+  lane-check <package> [--tests]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
+  feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
   check-queue <sha> --peer <name|auto> [--lane] [--os OS]  Same check in a mesh peer's gateway; result returns as one message
   nextest <scope> [filterset] --peer <name|auto> [--sha SHA]  Same nextest run in a mesh peer's gateway
@@ -2171,7 +2184,7 @@ CodeTerm build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   release-bundle              release-inputs, then the target-aware tauri build from the same path
-  ci-tests full|platform      Compile and run the full Rust suite, or this OS's cfg-gated subset, in place
+  ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
   worktree-check              Isolated lane-safe Rust compile check
@@ -2366,11 +2379,18 @@ EOF
       *) echo "Unknown check-queue probe: ${2:-}" >&2; exit 2 ;;
     esac
     ;;
+  lane-check)
+    lane_check "${@:2}"
+    ;;
+  feature-cycle)
+    source scripts/feature-cycle.sh
+    feature_cycle "${@:2}"
+    ;;
   check-tests)
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --no-run
+    cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --no-default-features --no-run
     cargo test --manifest-path cli/Cargo.toml --all-targets --no-run
     ;;
   frontend)
@@ -2382,7 +2402,7 @@ EOF
     bash scripts/clippy-gate.sh
     ;;
   ci-tests)
-    case "${2:-}" in full|platform) ;; *) echo "Usage: ./build.sh ci-tests full|platform" >&2; exit 2 ;; esac
+    case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings" >&2; exit 2 ;; esac
     node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
     ;;
   frontend-build)
@@ -2410,6 +2430,7 @@ EOF
     cargo fmt --manifest-path cli/Cargo.toml --all --check
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
+    bash scripts/check-tauri-reach.sh
     bash scripts/check-empty-array-expansion.sh
     node scripts/check-plugin-bundles.mjs
     node scripts/sync-plugin-versions.mjs --check
@@ -2466,70 +2487,70 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib --test main "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib --test main "$test_filter"
         ;;
-      mem-store) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
-      paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
+      mem-store) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
+      paths) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
       input-macos|input-windows)
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
       root)
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
         ;;
       api|socket|commands|sentinel-host|codeterm-api|codeterm-socket|codeterm-commands|codeterm-sentinel-host)
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-${test_scope#codeterm-}" --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "codeterm-${test_scope#codeterm-}" --lib "$test_filter"
         ;;
       frontend-bundle|codeterm-frontend-bundle)
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-frontend-bundle --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-frontend-bundle --lib "$test_filter"
         ;;
       agent-detect|codeterm-agent-detect)
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-agent-detect --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-agent-detect --lib "$test_filter"
         ;;
-      billing) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-billing/Cargo.toml -p codeterm-billing --lib "$test_filter" ;;
+      billing) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-billing/Cargo.toml -p codeterm-billing --lib "$test_filter" ;;
       usage)
-        scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-usage/Cargo.toml -p codeterm-usage --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-usage/Cargo.toml -p codeterm-usage --lib "$test_filter"
         ;;
-      account) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-account/Cargo.toml -p codeterm-account --lib "$test_filter" ;;
+      account) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-account/Cargo.toml -p codeterm-account --lib "$test_filter" ;;
       notification-core|codeterm-notification-core)
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-notification-core --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-notification-core --lib "$test_filter"
         ;;
-      analytics) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-analytics/Cargo.toml -p codeterm-analytics --lib "$test_filter" ;;
+      analytics) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-analytics/Cargo.toml -p codeterm-analytics --lib "$test_filter" ;;
       repowatch|codeterm-repowatch)
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-repowatch --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-repowatch --lib "$test_filter"
         ;;
-      plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
-      pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
+      plan) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
+      pty) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
       # pty-fork is excluded from the workspace (its own Cargo.lock) but owns
       # the conpty test-isolation boundary (win/psuedocon.rs). Kept as its own
       # scope rather than chained onto `pty` so a pre-existing standalone-build
       # issue in that vendored, previously-untested crate can't newly break
       # the working codeterm-pty test path.
-      pty-fork) scripts/test-capped.sh --manifest-path src-tauri/pty-fork/Cargo.toml "$test_filter" ;;
+      pty-fork) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/pty-fork/Cargo.toml "$test_filter" ;;
       util|codeterm-util)
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-util --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-util --lib "$test_filter"
         ;;
       browser|codeterm-browser)
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-browser --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-browser --lib "$test_filter"
         ;;
-      types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter" ;;
-      wire) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-wire/Cargo.toml -p codeterm-wire --all-targets "$test_filter" ;;
-      sentinel) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-sentinel/Cargo.toml -p codeterm-sentinel --all-targets "$test_filter" ;;
-      decision) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-decision/Cargo.toml -p codeterm-decision --all-targets "$test_filter" ;;
-      provider-signals) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-provider-signals/Cargo.toml -p codeterm-provider-signals --all-targets "$test_filter" ;;
-      storage) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-storage/Cargo.toml -p codeterm-storage --lib "$test_filter" ;;
-      mem) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
-      mesh) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mesh/Cargo.toml -p codeterm-mesh --lib "$test_filter" ;;
-      blueprint-types|codeterm-blueprint-types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-blueprint-types/Cargo.toml -p codeterm-blueprint-types --lib "$test_filter" ;;
-      local-recording|codeterm-local-recording) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-local-recording/Cargo.toml -p codeterm-local-recording --lib "$test_filter" ;;
-      plugin) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
+      types) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter" ;;
+      wire) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-wire/Cargo.toml -p codeterm-wire --all-targets "$test_filter" ;;
+      sentinel) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-sentinel/Cargo.toml -p codeterm-sentinel --all-targets "$test_filter" ;;
+      decision) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-decision/Cargo.toml -p codeterm-decision --all-targets "$test_filter" ;;
+      provider-signals) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-provider-signals/Cargo.toml -p codeterm-provider-signals --all-targets "$test_filter" ;;
+      storage) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-storage/Cargo.toml -p codeterm-storage --lib "$test_filter" ;;
+      mem) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
+      mesh) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-mesh/Cargo.toml -p codeterm-mesh --lib "$test_filter" ;;
+      blueprint-types|codeterm-blueprint-types) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-blueprint-types/Cargo.toml -p codeterm-blueprint-types --lib "$test_filter" ;;
+      local-recording|codeterm-local-recording) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-local-recording/Cargo.toml -p codeterm-local-recording --lib "$test_filter" ;;
+      plugin) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
-      plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
-      cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      codeterm-*) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$test_scope" --lib "$test_filter" ;;
+      plugins) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
+      cli) scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
+      codeterm-*) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "$test_scope" --lib "$test_filter" ;;
       *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package)" >&2; exit 2 ;;
     esac
     ;;
@@ -2545,11 +2566,12 @@ EOF
     ensure_deps
     cargo check --manifest-path src-tauri/Cargo.toml
     run_workspace_lib_tests
-    TEST_CAP_SECS="${TEST_CAP_SECS:-3600}" scripts/test-capped.sh --manifest-path cli/Cargo.toml
+    TEST_CAP_SECS="${TEST_CAP_SECS:-3600}" scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml
     node node_modules/typescript/bin/tsc --noEmit
     bash scripts/check-file-sizes.sh --fail
     bash scripts/check-service-core-boundary.sh
     node scripts/check-provider-boundary.mjs
+    bash scripts/check-tauri-reach.sh
     bash scripts/check-empty-array-expansion.sh
     ;;
   worktree-check)
@@ -2655,6 +2677,8 @@ EOF
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run node scripts/test-catalogue.mjs validate
+    sg_run bash scripts/check-crate-layering.sh
+    sg_run node --test scripts/tests/crate-layering.test.mjs
     sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
     sg_run node --test scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
     sg_run bash scripts/check-build-gateway-owner-reap.sh
@@ -3103,7 +3127,7 @@ LOCK_STORM_PY
       if "$@"; then ta_record "$name" PASS; else ta_record "$name" FAIL; fi
     }
 
-    ta_run "rust-unit"  scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
+    ta_run "rust-unit"  scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml --lib
     ta_run "api-effects" node scripts/check-api-effect-dependencies.mjs
     ta_run "ts-unit"    pnpm -s test:unit
     ta_run "ts-vitest"  node node_modules/vitest/vitest.mjs run
@@ -3138,3 +3162,6 @@ LOCK_STORM_PY
     exit 1
     ;;
 esac
+
+}
+codeterm_build_main "$@"

@@ -9,6 +9,7 @@ pub(super) fn handle_shell_restart(
     tab: Option<String>,
     cwd: Option<String>,
     cmd: Option<String>,
+    timeout: Option<String>,
 ) {
     let tab_id = resolve_tab(client, tab);
     let (base, _) = read_api_config();
@@ -22,6 +23,9 @@ pub(super) fn handle_shell_restart(
     let mut body = serde_json::json!({});
     if let Some(cwd) = cwd {
         body["cwd"] = cwd.into();
+    }
+    if let Some(timeout) = timeout {
+        body["timeout"] = timeout.into();
     }
     let result = post_json(&api, &format!("{base}/api/tabs/{tab_id}/restart"), &body);
     let result = match (result, cmd) {

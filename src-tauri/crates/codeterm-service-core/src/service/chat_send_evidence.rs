@@ -88,8 +88,10 @@ pub(crate) fn contains_exact_user_turn_since(
             };
             let from_offset = cursor.jsonl_offset.unwrap_or(*transcript_offset);
             let Some(delta) = registry.with_provider(&anchor.provider_id, |provider| {
-                provider.parse_session_delta(&path, from_offset)
-            }) else {
+                turn_window::bounded_jsonl_delta(&path, from_offset, |offset| {
+                    provider.parse_session_delta(&path, offset)
+                })
+            }).flatten() else {
                 return false;
             };
             cursor.jsonl_offset = Some(delta.new_offset.max(from_offset));
@@ -442,7 +444,10 @@ impl ServiceContext {
                     status.send_id,
                     status.tab_id
                 );
-                codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+                self.ui.emit(
+                    "chat-send-status",
+                    serde_json::to_value(&status).unwrap_or_default(),
+                );
             },
         );
         for (status, session_id) in deferred_first_turn::reconcile(self, tab_id) {
@@ -453,7 +458,10 @@ impl ServiceContext {
                 status.tab_id,
                 session_id
             );
-            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            self.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(&status).unwrap_or_default(),
+            );
         }
         self.settle_pending_delivery_receipt(tab_id);
     }

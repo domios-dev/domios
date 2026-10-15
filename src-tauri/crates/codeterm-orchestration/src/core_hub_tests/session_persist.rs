@@ -5,7 +5,6 @@ use codeterm_service_core::service::session_persist::{
     flush_session_persistence, install_storage_desk_adapter, stop_worker, PERSISTENCE_DEADLINE,
 };
 use codeterm_service_core::storage::{Storage, StorageConfig};
-use tauri::Listener;
 
 use crate::TeamExt;
 
@@ -26,20 +25,20 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
         .import_snapshot(&initial, Vec::new())
         .expect("import starting desk");
     install_storage_desk_adapter(
-        fixture._app.handle(),
+        &fixture.service,
         codeterm_service_core::session::store::StorageDeskAdapter::from_storage(storage.clone()),
     )
     .expect("install persistence backend");
 
     let (event_tx, event_rx) = mpsc::channel();
-    let listener = fixture._app.listen("mux-state-changed", move |_| {
+    let listener = fixture.ui.listen("mux-state-changed", move |_| {
         let _ = event_tx.send(());
     });
     let flush_mutation = || {
         event_rx
             .recv_timeout(Duration::from_secs(5))
             .expect("coalesced mux event follows the persistence submission");
-        flush_session_persistence(fixture._app.handle()).expect("flush desk worker");
+        flush_session_persistence(&fixture.service).expect("flush desk worker");
     };
     let workspace_id = fixture.service.mux.read().list_workspaces()[0].id.clone();
     let tab_id = fixture
@@ -230,9 +229,9 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
     event_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("second coalesced mux event");
-    flush_session_persistence(fixture._app.handle()).expect("flush unchanged desk");
+    flush_session_persistence(&fixture.service).expect("flush unchanged desk");
     assert_eq!(adapter.state().unwrap().revision, committed.revision);
-    stop_worker(fixture._app.handle()).expect("stop desk worker");
+    stop_worker(&fixture.service).expect("stop desk worker");
     storage
         .shutdown()
         .wait(PERSISTENCE_DEADLINE)
@@ -315,5 +314,5 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
         .shutdown()
         .wait(PERSISTENCE_DEADLINE)
         .expect("close fresh Storage owner");
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
 }

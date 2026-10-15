@@ -247,6 +247,9 @@ impl ItemCache {
     pub fn snapshot(&self) -> Vec<ChatMsg> {
         self.items.clone()
     }
+    pub fn tail(&self, limit: usize) -> Vec<ChatMsg> {
+        self.items[self.items.len().saturating_sub(limit)..].to_vec()
+    }
 }
 
 pub fn validate_operation_thread(

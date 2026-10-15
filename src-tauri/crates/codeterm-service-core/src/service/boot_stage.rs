@@ -383,17 +383,19 @@ impl ServiceContext {
         stage: BootStage,
         reason: Option<&str>,
     ) {
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        crate::startup::boot_timing::mark(tab_id, tab.pty_id.as_deref(), stage);
+        self.ui.emit(
             "tab-boot-stage",
-            boot_stage_event(tab_id, tab, stage, reason),
+            serde_json::to_value(boot_stage_event(tab_id, tab, stage, reason)).unwrap_or_default(),
         );
     }
 
     fn finish_boot_stage_transition(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+        crate::startup::boot_timing::mark(tab_id, None, "finish_stage_enter");
         super::boot_wait::notify_boot_changed();
         crate::service::general_agent::binding_wait::notify_binding_state_changed();
         self.emit_session_binding_state(tab_id);
+        crate::startup::boot_timing::mark(tab_id, None, "finish_binding_done");
         if stage.carries_reason() {
             self.wake_user_owner_on_state_change(tab_id);
         }
@@ -406,7 +408,7 @@ impl ServiceContext {
             if let Some(pty_id) = pty_id {
                 if let Some(key) = self.provider_tree_key_for_tab(tab_id, &pty_id) {
                     let service = self.clone();
-                    drop(tauri::async_runtime::spawn_blocking(move || {
+                    drop(crate::async_runtime::spawn_blocking(move || {
                         let tree = service.observe_provider_process_tree_for_key(&key);
                         log::info!(
                             "[provider-tree] observed source=provider-readiness tree_evidence={} tab={} pty={}",
@@ -418,9 +420,11 @@ impl ServiceContext {
                 }
             }
         }
+        crate::startup::boot_timing::mark(tab_id, None, "finish_tree_done");
         // A boot stage is the only moment a tab's agent liveness can change on
         // the launch side; the restore wave settles here rather than on a tick.
         self.settle_restore_report();
+        crate::startup::boot_timing::mark(tab_id, None, "finish_restore_done");
         if stage == BootStage::ShellReady {
             self.resume_exited_member_on_shell_ready(tab_id);
         }
@@ -428,16 +432,22 @@ impl ServiceContext {
             if let Ok(authority) = self.user_send_authority(tab_id) {
                 self.latch_user_authority_ready(&authority);
             }
+            crate::startup::boot_timing::mark(tab_id, None, "finish_authority_done");
             // Sealing transition: this is the only place an operation becomes
             // restorable, and only if provider + session already committed.
             self.record_lifecycle(
                 tab_id,
                 crate::session::lifecycle::LifecycleTransition::LaunchReady,
             );
+            crate::startup::boot_timing::mark(tab_id, None, "finish_journal_done");
             self.schedule_planner_replay(tab_id);
+            crate::startup::boot_timing::mark(tab_id, None, "finish_planner_done");
             self.schedule_parked_user_send(tab_id);
+            crate::startup::boot_timing::mark(tab_id, None, "finish_user_wake_done");
             self.heal_recovery_state_if_ready();
+            crate::startup::boot_timing::mark(tab_id, None, "finish_recovery_done");
             self.retire_superseded_process_conditions(tab_id);
+            crate::startup::boot_timing::mark(tab_id, None, "finish_conditions_done");
         }
         if stage == BootStage::SpawnFailed {
             self.wake_agent_deliveries_on_state_change(tab_id);
@@ -657,10 +667,9 @@ impl ServiceContext {
                 .collect::<Vec<_>>()
         };
         if crate::crash::lifecycle::heal_current_epoch(&healthy) {
-            codeterm_events::emit_everywhere(
-                &self.app_handle,
+            self.ui.emit(
                 "recovery-state-changed",
-                crate::crash::lifecycle::recovery_state(),
+                serde_json::to_value(crate::crash::lifecycle::recovery_state()).unwrap_or_default(),
             );
         }
     }

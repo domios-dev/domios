@@ -91,8 +91,10 @@ def collect(root, directory, dry_run=False):
 
 def trim(root, directory, paths, dry_run=False):
     root, directory = safe_path(root), safe_path(directory)
-    if directory.parent.parent != root or not re.fullmatch('[a-f0-9]{14}', directory.name) or not re.fullmatch('[a-f0-9]{2}', directory.parent.name):
-        raise ValueError('trim target is outside the two-level Cargo hash root')
+    hashed = directory.parent.parent == root and re.fullmatch('[a-f0-9]{14}', directory.name) and re.fullmatch('[a-f0-9]{2}', directory.parent.name)
+    shared = directory.parent == root and directory.name in ('lanes', 'codeterm-lanes') and (directory / 'CACHEDIR.TAG').is_file()
+    if not (hashed or shared):
+        raise ValueError('trim target is outside the Cargo cache layout')
     targets = [safe_path(value) for value in paths]
     for target in targets:
         if directory not in target.parents or target.name in ('.cargo-lock', 'CACHEDIR.TAG', '.rustc_info.json'):

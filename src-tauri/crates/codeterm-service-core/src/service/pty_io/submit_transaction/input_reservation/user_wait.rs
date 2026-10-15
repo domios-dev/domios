@@ -12,7 +12,10 @@ impl crate::service::ServiceContext {
             .chat_send_ledger
             .set_user_pending_reason(send_id, Some("awaiting_model_command"));
         if let Some(status) = &changed {
-            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", status);
+            self.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(status).unwrap_or_default(),
+            );
         }
         let status = changed.or_else(|| self.chat_send_ledger.status(send_id))?;
         if status.state != crate::service::chat_send_transaction::ChatSendState::Pending
@@ -23,14 +26,17 @@ impl crate::service::ServiceContext {
         let service = self.clone();
         let tab_id = tab_id.to_string();
         let send_id = send_id.to_string();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             if wait.completed().await {
                 service.wake_user_owner(&tab_id, UserWake::Readiness);
             } else if let Some(status) = service
                 .chat_send_ledger
                 .set_user_pending_reason(&send_id, Some("model_command_completion_unconfirmed"))
             {
-                codeterm_events::emit_everywhere(&service.app_handle, "chat-send-status", &status);
+                service.ui.emit(
+                    "chat-send-status",
+                    serde_json::to_value(&status).unwrap_or_default(),
+                );
             }
         });
         Some(status)

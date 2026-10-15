@@ -26,7 +26,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
     let mut ended = process.client.ended();
     let mut exited = process.ended.clone();
     let epoch = session.context.lock().epoch;
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         loop {
             if session.context.lock().epoch != epoch
                 || engine::validate_binding(&svc, &session).is_err()
@@ -120,7 +120,10 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     .chat_send_ledger
                     .rpc_uncertain_for_launch(&context.tab_id, Some(&context.binding_nonce))
                 {
-                    codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+                    svc.ui.emit(
+                        "chat-send-status",
+                        serde_json::to_value(status).unwrap_or_default(),
+                    );
                 }
                 engine::publish(&svc, &context.tab_id, &session);
                 svc.emit_state_changed();
@@ -174,7 +177,7 @@ fn publish_runtime_ended(
             .collect::<Vec<_>>()
     };
     crate::service::tab_chat::structured_sink::emit_chat_msgs(
-        &svc.app_handle,
+        svc.ui.as_ref(),
         &expired.tab_id,
         &rows,
         None,

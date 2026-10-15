@@ -5,6 +5,9 @@ pub(super) fn read(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
+    if let Some(snapshot) = super::runtime_stored::messages(svc, tab_id, since)? {
+        return Ok(snapshot);
+    }
     let (backing, provider, session, cwd) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(tab_id).ok_or("Tab not found")?;

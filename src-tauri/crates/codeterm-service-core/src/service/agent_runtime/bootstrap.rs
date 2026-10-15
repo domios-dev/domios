@@ -71,8 +71,7 @@ pub(super) async fn submit(
                 .map_err(|_| "Initial runtime claim already in flight")?;
             pending.mark_unconfirmed();
         }
-        let outcome =
-            crate::service::session_persist::write_session_snapshot(&owner.app_handle, &owner.mux)?;
+        let outcome = crate::service::session_persist::write_session_snapshot(&owner, &owner.mux)?;
         if !matches!(outcome, crate::session::store::SaveOutcome::Saved) {
             return Err("Initial runtime claim persistence refused".into());
         }
@@ -86,7 +85,10 @@ pub(super) async fn submit(
         .chat_send_ledger
         .status(&send_id)
         .ok_or(RuntimeFailure::Superseded)?;
-    codeterm_events::emit_everywhere(&svc.app_handle, "chat-send-status", status);
+    svc.ui.emit(
+        "chat-send-status",
+        serde_json::to_value(status).unwrap_or_default(),
+    );
     let binding = session.context.lock().clone();
     svc.run_watcher
         .arm_runtime(&binding.tab_id, &binding.binding_nonce);

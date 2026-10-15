@@ -1153,17 +1153,17 @@ impl ServiceContext {
             attempt.tab_id,
             attempt.pty_id
         );
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "agent-launch-failed",
-            serde_json::json!({
+            serde_json::to_value(serde_json::json!({
                 "kind": "exited_before_readiness",
                 "tab_id": attempt.tab_id,
                 "attempt_id": attempt.pty_id,
                 "launch_nonce": attempt.binding_nonce,
                 "exit_code": exit_code,
                 "reason": reason,
-            }),
+            }))
+            .unwrap_or_default(),
         );
         self.emit_boot_stage(&attempt.tab_id, BootStage::SpawnFailed, Some(reason));
     }

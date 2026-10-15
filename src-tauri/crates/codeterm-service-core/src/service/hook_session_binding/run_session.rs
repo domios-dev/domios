@@ -3,8 +3,6 @@ use crate::service::ServiceContext;
 use crate::CronState;
 
 pub(super) fn propagate(svc: &ServiceContext, tab_id: &str, sid: &str) {
-    use tauri::Manager;
-
     let (worker_id, cwd) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(tab_id);
@@ -18,13 +16,16 @@ pub(super) fn propagate(svc: &ServiceContext, tab_id: &str, sid: &str) {
         svc.workers
             .set_run_session(&worker_id, sid.to_string(), cwd.clone());
         if let Some(info) = svc.workers.get(&worker_id) {
-            codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-progress", &info);
+            svc.ui.emit(
+                "graph-worker-progress",
+                serde_json::to_value(&info).unwrap_or_default(),
+            );
         }
     }
 
-    if let Some(cron_state) = svc.app_handle.try_state::<CronState>() {
-        if commit_cron_run_session(cron_state.inner(), tab_id, sid, cwd.as_deref()) {
-            codeterm_events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+    if let Some(cron_state) = svc.try_ext::<CronState>() {
+        if commit_cron_run_session(cron_state, tab_id, sid, cwd.as_deref()) {
+            svc.ui.emit("cron-run-finished", serde_json::Value::Null);
         }
     }
 }

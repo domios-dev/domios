@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const allowlistPath = 'scripts/provider-boundary-allowlist.json';
+const migratedBaseline = '86b30145e90e9d2f31294ead517b82716fd44da8';
 const scopes = ['src-tauri/src', 'src-tauri/crates', 'crates'];
 const sourceExtension = /\.(rs|ts|tsx|js|mjs|cjs|py|swift|json|toml)$/;
 const providerName = /codex|claude|opencode|aider|goose/i;
@@ -134,6 +135,44 @@ export function readBaseline(root, revision) {
   return validateAllowlist(JSON.parse(git(root, ['show', `${resolved}:${allowlistPath}`])));
 }
 
+export function baselineRevision(root, forkPoint, anchor = migratedBaseline) {
+  try {
+    git(root, ['merge-base', '--is-ancestor', anchor, 'HEAD']);
+    git(root, ['merge-base', '--is-ancestor', forkPoint, anchor]);
+    return anchor;
+  } catch {
+    return forkPoint;
+  }
+}
+
+export function followRenames(root, revision, baseline, occurrences) {
+  const fields = git(root, ['diff', '--name-status', '-z', '--break-rewrites', '--find-renames', '--find-copies-harder', revision, '--', ...scopes]).split('\0');
+  const renamed = new Map();
+  for (let index = 0; index < fields.length;) {
+    const status = fields[index++];
+    if (!status) continue;
+    const from = fields[index++];
+    if (status.startsWith('R') || status.startsWith('C')) {
+      if (!renamed.has(from)) renamed.set(from, []);
+      renamed.get(from).push(fields[index++]);
+    }
+  }
+  const actual = new Map(countOccurrences(occurrences).map(entry => [key(entry), entry.count]));
+  return baseline.flatMap(entry => {
+    const destinations = renamed.get(entry.file);
+    if (!destinations) return [entry];
+    const retained = Math.min(entry.count, actual.get(key(entry)) ?? 0);
+    let remaining = entry.count - retained;
+    const allowances = retained ? [{ ...entry, count: retained }] : [];
+    for (const file of destinations) {
+      const count = Math.min(remaining, actual.get(key({ ...entry, file })) ?? 0);
+      if (count) allowances.push({ ...entry, file, count });
+      remaining -= count;
+    }
+    return allowances;
+  });
+}
+
 export function seedAllowlist(occurrences) {
   return {
     version: 1,
@@ -156,9 +195,10 @@ function main() {
   const document = JSON.parse(readFileSync(resolve(root, allowlistPath), 'utf8'));
   const occurrences = scanWorkingTree(root);
   const forkPoint = forkPointOf(root, base);
-  const errors = checkBoundary(occurrences, document, readBaseline(root, forkPoint));
+  const revision = baselineRevision(root, forkPoint);
+  const errors = checkBoundary(occurrences, document, followRenames(root, revision, readBaseline(root, revision), occurrences));
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log(`Provider boundary PASS: ${occurrences.length} occurrences in ${document.entries.length} exact file/token pairs; baseline ${base} at fork point ${forkPoint}.`);
+  console.log(`Provider boundary PASS: ${occurrences.length} occurrences in ${document.entries.length} exact file/token pairs; baseline ${base} at ${revision}; fork point ${forkPoint}.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -91,7 +91,9 @@ pub use prompt_resolution::tests as prompt_resolution_tests;
 pub(crate) mod protocol_recorder;
 pub use protocol_recorder::ProtocolRecorder;
 pub mod provider_cli;
+mod published_mux_state;
 pub use provider_cli::provider_cli_status as provider_cli_provider_cli_status;
+use published_mux_state::PublishedMuxState;
 pub mod provider_cli_actions;
 pub mod provider_hooks;
 pub(crate) mod provider_signals;
@@ -268,7 +270,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::Emitter;
 
 use crate::agent::registry::AgentRegistry;
 use crate::multiplexer::commands::MuxState;
@@ -340,6 +341,9 @@ pub struct ServiceContext {
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
     pub app_handle: crate::app_runtime::AppHandle,
+    pub ui: Arc<dyn crate::ports::host::UiEvents>,
+    pub shell: Arc<dyn crate::ports::host::Shell>,
+    pub rt: tokio::runtime::Handle,
     pub agent_tracker: AgentTrackerState,
     pub report_store: ReportStoreState,
     /// Orchestration-economics event writer. Disabled (and file-less) unless `kpi.enabled`.
@@ -394,6 +398,14 @@ pub type ServiceState = Arc<ServiceContext>;
 impl ServiceContext {
     pub fn ext<T: std::any::Any + Send + Sync>(&self) -> &T {
         self.extensions.get::<T>()
+    }
+
+    pub fn try_ext<T: std::any::Any + Send + Sync>(&self) -> Option<&T> {
+        self.extensions.try_get::<T>()
+    }
+
+    pub fn set_ext<T: std::any::Any + Send + Sync>(&self, value: T) -> Result<(), T> {
+        self.extensions.set(value)
     }
 }
 
@@ -650,8 +662,7 @@ impl ServiceContext {
     /// hook, inbound report) so the sidebar refreshes consistently.
     pub fn emit_remote_workers_changed(&self, orchestrator_tab: &str) {
         // SSE bus, so the web mirror updates live too — not only on next remount.
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "remote-workers-changed",
             serde_json::json!({
                 "orchestrator_tab_id": orchestrator_tab,
@@ -697,12 +708,15 @@ impl ServiceContext {
         self.ext::<Arc<crate::service::MuxEmitStats>>()
             .pending_since_ms
             .store(wall_now_ms(), Ordering::Relaxed);
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
+        let service = self.clone();
         let pending = self.ext::<crate::service::MuxEmitPending>().0.clone();
         let mux = self.mux.clone();
         let agent_tracker = self.agent_tracker.clone();
         let agent_registry = self.agent_registry.clone();
         let stats = self.ext::<Arc<crate::service::MuxEmitStats>>().clone();
+        let published = self.ext::<Arc<PublishedMuxState>>().clone();
+        let events = self.events.clone();
         let spawned = std::thread::Builder::new()
             .name("mux-emit".into())
             .spawn(move || {
@@ -713,9 +727,16 @@ impl ServiceContext {
                     &pending,
                     std::time::Duration::from_millis(50),
                 );
+                match published.publish(snapshot.generation, &snapshot) {
+                    Ok(true) => {
+                        events.publish_generic("mux-state-changed", serde_json::json!({}));
+                    }
+                    Ok(false) => {}
+                    Err(error) => log::error!("[mux-snapshot] publication failed: {error}"),
+                }
                 if let Err(error) =
                     crate::service::session_persist::submit_session_snapshot_with_intent(
-                        &handle,
+                        &service,
                         &mux,
                         crate::session::store::SaveIntent::PreserveDesk,
                     )
@@ -725,7 +746,10 @@ impl ServiceContext {
                 stats.pending_since_ms.store(0, Ordering::Relaxed);
                 if !stats.frozen.load(Ordering::Acquire) {
                     stats.fires.fetch_add(1, Ordering::Relaxed);
-                    let _ = handle.emit("mux-state-changed", &snapshot);
+                    ui.emit_native(
+                        "mux-state-changed",
+                        serde_json::to_value(&snapshot).unwrap_or_default(),
+                    );
                 }
             });
         // Evidence build: surface a spawn failure instead of silently latching.
@@ -735,32 +759,9 @@ impl ServiceContext {
         }
     }
 
-    /// Emit an empty-payload `mux-state-changed` (frontend does a full refetch).
-    /// The socket handlers use this so fault injection (`frozen`) covers EVERY
-    /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
+    /// Socket mutations use the same published view and coalescing as local mutations.
     pub fn emit_mux_state_changed_empty(&self) {
-        self.output_stream_mux_changed();
-        self.ext::<Arc<crate::service::MuxEmitStats>>()
-            .requests
-            .fetch_add(1, Ordering::Relaxed);
-        self.schedule_session_persist_debounced();
-        #[cfg(debug_assertions)]
-        if self
-            .ext::<Arc<crate::service::MuxEmitStats>>()
-            .frozen
-            .load(Ordering::Acquire)
-        {
-            self.ext::<Arc<crate::service::MuxEmitStats>>()
-                .suppressed
-                .fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        let handle = self.app_handle.clone();
-        let stats = self.ext::<Arc<crate::service::MuxEmitStats>>().clone();
-        std::thread::spawn(move || {
-            stats.fires.fetch_add(1, Ordering::Relaxed);
-            let _ = handle.emit("mux-state-changed", ());
-        });
+        self.emit_state_changed();
     }
 
     /// Sleep out the coalesce window, then read a fresh snapshot. The pending
@@ -792,10 +793,10 @@ impl ServiceContext {
                 tab_id: tab_id.to_string(),
                 title: title.to_string(),
             });
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
         let payload = serde_json::json!({"tab_id": tab_id, "title": title});
         std::thread::spawn(move || {
-            let _ = handle.emit("tab-title-pinned", payload);
+            ui.emit_native("tab-title-pinned", payload);
         });
     }
 
@@ -809,11 +810,11 @@ impl ServiceContext {
             .publish(codeterm_events::SystemEvent::TabFocused {
                 tab_id: tab_id.to_string(),
             });
-        let handle = self.app_handle.clone();
+        let ui = self.ui.clone();
         let payload = serde_json::json!({"tab_id": tab_id});
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(75));
-            let _ = handle.emit("tab-focused", payload);
+            ui.emit_native("tab-focused", payload);
         });
     }
 
@@ -857,7 +858,7 @@ impl ServiceContext {
                 &project_root,
                 self.plan_store.clone(),
                 std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
-                    self.app_handle.clone(),
+                    self.ui.clone(),
                 )),
             ) {
                 Ok(watcher) => {
@@ -886,7 +887,7 @@ impl ServiceContext {
     /// OS notifications are NOT sent here — use in-app toasts only.
     pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
         // 1. Native webview + SSE bus (web mirror) through the single seam.
-        codeterm_events::emit_everywhere(&self.app_handle, event_type, &payload);
+        self.ui.emit(event_type, payload.clone());
         // 2. External webhooks + websockets (Telegram, Discord, etc.)
         self.events.broadcast(event_type, payload);
     }

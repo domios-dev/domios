@@ -53,7 +53,7 @@ impl ServiceContext {
             )));
         }
         let auto_approve = crate::service::permission_policy::configured_permission_bypass_for(
-            &self.app_handle,
+            self,
             &self.agent_registry,
             provider,
         )

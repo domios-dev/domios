@@ -1,1 +1,1 @@
-pub use codeterm_cron::clock::*;
+pub use codeterm_agent_model::cron::clock::*;

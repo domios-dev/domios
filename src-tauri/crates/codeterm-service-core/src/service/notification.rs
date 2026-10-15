@@ -532,11 +532,7 @@ impl ServiceContext {
                     NotificationAdmission::Explicit,
                     &self.notif,
                     |title, body| {
-                        crate::notification::os_notify::_send_os_notification(
-                            &self.app_handle,
-                            title,
-                            body,
-                        )
+                        let _ = self.shell.os_notify(title, body);
                     },
                     title,
                     body,
@@ -655,10 +651,10 @@ impl ServiceContext {
         }
         use tauri::Manager;
         *self.app_handle.state::<crate::config::ConfigState>().lock() = cfg.clone();
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "config-changed",
-            serde_json::to_value(&cfg).unwrap_or_default(),
+            serde_json::to_value(serde_json::to_value(&cfg).unwrap_or_default())
+                .unwrap_or_default(),
         );
     }
 

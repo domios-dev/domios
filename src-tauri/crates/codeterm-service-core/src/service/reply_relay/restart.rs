@@ -55,10 +55,7 @@ fn restore_payload_candidates(payload: &str, typed_tail: bool) -> Vec<String> {
 }
 
 fn persist_restart_state(service: &ServiceContext) -> Result<(), String> {
-    match crate::service::session_persist::write_session_snapshot(
-        &service.app_handle,
-        &service.mux,
-    )? {
+    match crate::service::session_persist::write_session_snapshot(&service, &service.mux)? {
         crate::session::store::SaveOutcome::Saved => Ok(()),
         crate::session::store::SaveOutcome::RefusedReduction(_) => {
             Err("Worker restart state persistence refused".into())

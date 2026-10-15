@@ -3,6 +3,7 @@
 import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { runDevApp } from "./dev-app-process.mjs";
+import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
 import {
   accessSync,
   constants,
@@ -53,6 +54,7 @@ const inputPathspecs = [
   "src-tauri",
   "scripts/dev-prep.mjs",
   "scripts/dev-app-process.mjs",
+  "scripts/dev-runtime-environment.mjs",
   "scripts/windows-dev-app.ps1",
   "scripts/windows-dev-app.cs",
   "scripts/bundle-cli.js",
@@ -402,7 +404,7 @@ async function supervisePrebuilt(options) {
   let partial = "";
   let ready = false;
   try {
-    const { code, signal } = await runDevApp({ app, log, cwd: repo, env: process.env, onData: chunk => {
+    const { code, signal } = await runDevApp({ app, log, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
       const lines = `${partial}${decoder.write(chunk)}`.split(/\r?\n/);
       partial = lines.pop() ?? "";
       const signal = lines.find(line => readinessSignal(line, apiPort));
@@ -426,7 +428,7 @@ async function supervisePrebuilt(options) {
 async function runPrebuilt(options) {
   const { code, signal } = await runDevApp({
     app: resolve(option(options, "--app")), log: resolve(option(options, "--log")),
-    cwd: repo, env: process.env, onData: chunk => process.stdout.write(chunk),
+    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => process.stdout.write(chunk),
   });
   process.exitCode = code ?? (signal ? 1 : 0);
 }

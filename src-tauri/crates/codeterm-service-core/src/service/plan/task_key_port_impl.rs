@@ -7,12 +7,12 @@ use crate::service::plan::ports::{TaskKeyPort, TaskKeyScope};
 /// snapshot, so the advanced counter survives a restart.
 pub struct MuxTaskKeyPort {
     mux: MuxState,
-    app: crate::app_runtime::AppHandle,
+    service: std::sync::Weak<crate::service::ServiceContext>,
 }
 
 impl MuxTaskKeyPort {
-    pub fn new(mux: MuxState, app: crate::app_runtime::AppHandle) -> Self {
-        Self { mux, app }
+    pub fn new(mux: MuxState, service: std::sync::Weak<crate::service::ServiceContext>) -> Self {
+        Self { mux, service }
     }
 }
 
@@ -45,9 +45,9 @@ impl TaskKeyPort for MuxTaskKeyPort {
         high_water: &HashMap<String, u64>,
     ) -> Vec<String> {
         let keys = issue_from_mux(&self.mux, scope, count, high_water);
-        if !keys.is_empty() {
+        if let Some(service) = self.service.upgrade().filter(|_| !keys.is_empty()) {
             if let Err(error) =
-                crate::service::session_persist::write_session_snapshot(&self.app, &self.mux)
+                crate::service::session_persist::write_session_snapshot(&service, &self.mux)
             {
                 log::warn!("[task-key] session flush after key issue failed: {error}");
             }

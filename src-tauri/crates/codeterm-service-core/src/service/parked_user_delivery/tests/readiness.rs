@@ -138,7 +138,7 @@ fn readiness_latches_for_the_current_pty_generation() {
         receive_resolved_status(&settled).unwrap()["state"],
         "submit_unconfirmed"
     );
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
     await_owner_idle(&fixture, &tab);
     assert_eq!(
         fixture

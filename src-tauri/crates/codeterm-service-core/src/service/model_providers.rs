@@ -211,7 +211,7 @@ fn get_secret(
         .secret_name
         .as_deref()
         .ok_or(ModelProviderError::SecretOwnership)?;
-    let secret = tauri::async_runtime::block_on(async {
+    let secret = crate::async_runtime::block_on(async {
         tokio::time::timeout(Duration::from_secs(10), async {
             store.read().await.get(id).await
         })
@@ -227,7 +227,7 @@ fn get_secret(
 }
 
 fn delete_secret(store: &SecretStoreState, id: &str) -> Result<(), ModelProviderError> {
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         tokio::time::timeout(Duration::from_secs(10), async {
             store.read().await.delete(id).await
         })
@@ -244,7 +244,7 @@ fn read_secret_value(
     if name.trim().is_empty() {
         return Err(ModelProviderError::InvalidRequest);
     }
-    tauri::async_runtime::block_on(async {
+    crate::async_runtime::block_on(async {
         tokio::time::timeout(Duration::from_secs(10), async {
             store.read().await.get(name).await
         })
@@ -407,7 +407,7 @@ pub fn execute(
             if !preview.conflicts.is_empty() {
                 return Err(ModelProviderError::Conflict);
             }
-            let saved = tauri::async_runtime::block_on(async {
+            let saved = crate::async_runtime::block_on(async {
                 tokio::time::timeout(Duration::from_secs(10), async {
                     store
                         .read()
@@ -461,7 +461,7 @@ pub fn execute(
             providers[index] = next.clone();
             write_config(adapter, &path, &config, &providers)?;
             if let Some(value) = value {
-                let saved = tauri::async_runtime::block_on(async {
+                let saved = crate::async_runtime::block_on(async {
                     tokio::time::timeout(Duration::from_secs(10), async {
                         store
                             .read()
@@ -545,7 +545,7 @@ impl ServiceContext {
         }
         if changes {
             crate::agent::model_catalog::invalidate(owner.id());
-            tauri::async_runtime::spawn(async move {
+            crate::async_runtime::spawn(async move {
                 let _ = crate::agent::model_catalog::refresh_models(owner, true).await;
             });
         }

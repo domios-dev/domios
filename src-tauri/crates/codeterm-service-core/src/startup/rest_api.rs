@@ -180,7 +180,7 @@ impl RestApiControl {
         *self.health_proof_budget.lock() = Some(budget);
     }
 
-    pub(crate) fn port_released(&self) -> Result<(), String> {
+    pub fn port_released(&self) -> Result<(), String> {
         self.signal(RestApiCommand::PortReleased)
     }
 
@@ -383,7 +383,7 @@ impl RestApiControl {
         self.lifecycle.lock().listener_owned
     }
 
-    pub(crate) fn subscribe_status(&self) -> watch::Receiver<RestApiStatus> {
+    pub fn subscribe_status(&self) -> watch::Receiver<RestApiStatus> {
         self.status_events.subscribe()
     }
 

@@ -1,5 +1,3 @@
-use tauri::Manager;
-
 use crate::multiplexer::state::SnapshotMergeReport;
 use crate::session::store::SessionBackupInfo;
 use crate::session::SessionState;
@@ -7,10 +5,8 @@ use crate::session::SessionState;
 impl super::ServiceContext {
     fn session_store(&self) -> Result<SessionState, String> {
         Ok(self
-            .app_handle
-            .try_state::<SessionState>()
+            .try_ext::<SessionState>()
             .ok_or_else(|| "SessionState not registered".to_string())?
-            .inner()
             .clone())
     }
 

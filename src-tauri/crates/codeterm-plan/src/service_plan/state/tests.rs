@@ -482,7 +482,24 @@ fn parent_rolls_up_open_child_statuses_in_plan_state() {
     );
     assert_eq!(parent_lane.subtasks.len(), 1);
     assert_eq!(parent_lane.subtasks[0].status, TaskStatus::Pending);
-    assert!(task_projection(&plan, &plan.tasks[0]).needs_orchestrator_action());
+    assert!(!task_projection(&plan, &plan.tasks[0]).needs_orchestrator_action());
+}
+
+#[test]
+fn split_parent_with_open_children_needs_no_dispatch_until_children_close() {
+    let mut plan = fixture();
+    let parent = task("t_parent", TaskStatus::Pending, &[]);
+    let mut done_child = task("t_done", TaskStatus::Done, &[]);
+    done_child.parent_task_id = Some(parent.id.clone());
+    let mut open_child = task("t_open", TaskStatus::InProgress, &[]);
+    open_child.parent_task_id = Some(parent.id.clone());
+    plan.tasks = vec![parent, done_child, open_child];
+    assert!(!task_projection(&plan, &plan.tasks[0]).needs_orchestrator_action());
+
+    plan.tasks[2].status = TaskStatus::Done;
+    let projection = task_projection(&plan, &plan.tasks[0]);
+    assert_eq!(projection.presentation, TaskPresentation::ActionablePending);
+    assert!(projection.needs_orchestrator_action());
 }
 
 #[test]

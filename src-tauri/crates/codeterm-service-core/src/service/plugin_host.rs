@@ -1,7 +1,6 @@
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
-use tauri::Manager;
 
 use crate::mem::{workers, SearchQuery};
 use crate::multiplexer::types::TabCloseReason;
@@ -384,17 +383,17 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn event_sources_changed(&self) {
         self.contributions_changed("graph-nodes");
-        if let Some(ports) = self
-            .app_handle
-            .try_state::<crate::ports::sentinel::SentinelPorts>()
-        {
+        if let Some(ports) = self.try_ext::<crate::ports::sentinel::SentinelPorts>() {
             ports.wake.notify();
         }
     }
 
     fn emit_graph_worker_spawned_json(&self, info_json: &str) {
         if let Ok(info) = serde_json::from_str::<workers::GraphWorkerInfo>(info_json) {
-            codeterm_events::emit_everywhere(&self.app_handle, "graph-worker-spawned", &info);
+            self.ui.emit(
+                "graph-worker-spawned",
+                serde_json::to_value(&info).unwrap_or_default(),
+            );
         }
     }
 
@@ -444,10 +443,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
                     .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
                     .pipeline_id_for(subscription_id)
                 {
-                    if let Some(ports) = self
-                        .app_handle
-                        .try_state::<crate::ports::sentinel::SentinelPorts>()
-                    {
+                    if let Some(ports) = self.try_ext::<crate::ports::sentinel::SentinelPorts>() {
                         ports.wake.notify_event_subscription_changed(&pipeline_id);
                     }
                 }
@@ -458,10 +454,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
                     .ext::<codeterm_plugin::graph_events::SubscriptionTable>()
                     .pipeline_id_for(subscription_id)
                 {
-                    if let Some(ports) = self
-                        .app_handle
-                        .try_state::<crate::ports::sentinel::SentinelPorts>()
-                    {
+                    if let Some(ports) = self.try_ext::<crate::ports::sentinel::SentinelPorts>() {
                         ports.wake.notify_event_subscription_changed(&pipeline_id);
                     }
                 }
@@ -687,12 +680,15 @@ fn enqueue_agent_turn(
     }
     info.commands = commands;
     svc.workers.register(info.clone());
-    codeterm_events::emit_everywhere(&svc.app_handle, "graph-worker-spawned", &info);
+    svc.ui.emit(
+        "graph-worker-spawned",
+        serde_json::to_value(&info).unwrap_or_default(),
+    );
 
     let svc_task = svc.clone();
     let worker_id_task = worker_id.clone();
     let provider_acquire = provider.clone();
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let permit = svc_task
             .ext::<std::sync::Arc<crate::mem::worker_pool::WorkerPool>>()
             .acquire(&provider_acquire)

@@ -422,16 +422,16 @@ impl ServiceContext {
             "agent.report",
             json!({ "target_tab_id": supervisor_tab_id, "report": report.clone() }),
         );
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "agent-report",
-            json!({
+            serde_json::to_value(json!({
                 "target_tab_id": supervisor_tab_id,
                 "from_tab_id": agent_tab_id,
                 "from_title": agent_title,
                 "message": message,
                 "report": report.clone(),
-            }),
+            }))
+            .unwrap_or_default(),
         );
         self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
     }
@@ -865,16 +865,16 @@ impl ServiceContext {
                 "report": report.clone(),
             }),
         );
-        codeterm_events::emit_everywhere(
-            &self.app_handle,
+        self.ui.emit(
             "agent-report",
-            json!({
+            serde_json::to_value(json!({
                 "target_tab_id": parent_tab_id,
                 "from_tab_id": worker_tab_id,
                 "from_title": worker_title,
                 "message": message,
                 "report": report.clone(),
-            }),
+            }))
+            .unwrap_or_default(),
         );
         self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
     }

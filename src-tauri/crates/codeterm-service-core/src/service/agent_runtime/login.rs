@@ -205,7 +205,7 @@ pub fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, login: Ru
                 }
             }
         });
-    tauri::async_runtime::spawn(task);
+    crate::async_runtime::spawn(task);
 }
 async fn finish(
     svc: &ServiceContext,
