@@ -229,16 +229,17 @@ servers exit after ten idle minutes, so runners otherwise have none between jobs
 `CODETERM_SCCACHE_VERIFY_ONLY=1` in each CI build process so build setup follows
 that same verification path. Provision local-to-S3 storage separately while idle.
 
-BLACKSTAR-CI WSL builds are owned by a Windows runner. That Windows parent runs
-`codeterm mem secret sync`, resolves both vault entries into `AWS_ACCESS_KEY_ID`
-and `AWS_SECRET_ACCESS_KEY`, and sets `CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`.
-Forward these three names through `WSLENV` to the WSL process; append them to any
-existing `WSLENV` list. Values stay exclusively in process environment, never
-runner `.env`, command arguments, files or logs. This explicit source selects
-inherited runner credentials instead of querying an unavailable WSL vault CLI.
-Both values are required. No standalone WSL Worker builds are supported; keep
-Windows interop and mount settings unchanged. Select pinned Rust 1.95.0 only in
-the build process, preserving the machine's default toolchain.
+CI never reads the vault. Every workflow that builds Rust or verifies the cache
+sets workflow-level `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from the repo
+secrets `SCCACHE_AWS_ACCESS_KEY_ID` and `SCCACHE_AWS_SECRET_ACCESS_KEY`, plus
+`CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`, so cache-policy takes the keys from
+the job environment on every runner, including the BLACKSTAR WSL runners that
+have no `codeterm` CLI. Reusable workflows receive them through `secrets: inherit`;
+containerized builds forward the names with bare `-e NAME`. Values stay in process
+environment, never runner `.env`, command arguments, files or logs; both are
+required. The vault entries above remain the source on dev machines and peers.
+Select pinned Rust 1.95.0 only in the build process, preserving the machine's
+default toolchain.
 
 Post-release follow-up: establish a shared Linux user or an approved `/opt` path
 and compare cold/consumer hit and miss data at identical checkout, Cargo and
