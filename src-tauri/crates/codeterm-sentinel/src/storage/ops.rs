@@ -75,11 +75,7 @@ impl Store {
         )
     }
 
-    pub fn sqlite_insert(
-        &mut self,
-        job: Sentinel,
-        associate: &[String],
-    ) -> Staged<Sentinel> {
+    pub fn sqlite_insert(&mut self, job: Sentinel, associate: &[String]) -> Staged<Sentinel> {
         let create = match codec::create(&job, associate) {
             Ok(create) => create,
             Err(error) => return refused(error),

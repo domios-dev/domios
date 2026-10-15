@@ -34,8 +34,7 @@ const COLD_START_MEASUREMENT_METHOD: &str =
 pub const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
 pub const ATTEMPT_STATE_FINALIZED: &str = "finalized";
 pub const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
-pub const REMOTE_WORKER_ACK_DEADLINE: Duration =
-    Duration::from_secs(COLD_START_DEADLINE_SECS * 2);
+pub const REMOTE_WORKER_ACK_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS * 2);
 const WORKER_ACK_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
 const AGENT_STARTUP_NOTICE_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
@@ -93,10 +92,7 @@ pub enum WorkerAckWaitOutcome {
     Overdue,
 }
 
-pub fn await_remote_worker_ack(
-    receiver: &Receiver<WorkerAckSignal>,
-    timeout: Duration,
-) -> bool {
+pub fn await_remote_worker_ack(receiver: &Receiver<WorkerAckSignal>, timeout: Duration) -> bool {
     matches!(
         receiver.recv_timeout(timeout),
         Ok(WorkerAckSignal::Acknowledged | WorkerAckSignal::Superseded)

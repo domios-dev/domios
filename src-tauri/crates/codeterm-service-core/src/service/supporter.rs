@@ -29,11 +29,11 @@ pub use journal::Action;
 pub use journal::ActionRecord;
 pub use journal::VerdictKind;
 pub use narrative::sentinel as sentinel_questions;
+pub use narrative::ActivityContext;
+pub use narrative::QuestionAnswer;
 pub(crate) use narrative::{
     provider_update as update_questions, recovery as recovery_questions, tab_state as tab_questions,
 };
-pub use narrative::ActivityContext;
-pub use narrative::QuestionAnswer;
 use registry::SupporterRegistry;
 
 #[derive(Default)]

@@ -120,9 +120,7 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
                         .ok_or("command result has no declared handler")?;
                     let expected = match command.status {
                         crate::command::Status::Success => handlers::Status::Completed,
-                        crate::command::Status::Unconfirmed => {
-                            handlers::Status::Unconfirmed
-                        }
+                        crate::command::Status::Unconfirmed => handlers::Status::Unconfirmed,
                         _ => handlers::Status::Failed,
                     };
                     if !matches!(handler.action, Route::Command(_))
