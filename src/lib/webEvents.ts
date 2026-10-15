@@ -229,9 +229,12 @@ async function runStream(): Promise<void> {
           }
         }
         handleFrame(frame);
-        if (firstFrame || frame.event_type === "overflow") signalEventStreamReady();
+        if (!firstFrame && frame.event_type === "overflow") signalEventStreamReady();
       }, {
         signal: abort.signal, raw: true,
+        onReady() {
+          if (!abort.signal.aborted && generation === streamGeneration) signalEventStreamReady();
+        },
         onActivity() { lastFrameAt = Date.now(); armReceiveDeadline(abort); },
         onEnd(end) {
           if (streamRecoveryAction(end.reason, generation !== streamGeneration) === "reconnect") forceImmediateRetry = true;
