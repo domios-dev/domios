@@ -274,9 +274,21 @@ pub fn snapshot(
     svc: &ServiceContext,
     tab: &str,
 ) -> Result<(Arc<Session>, Vec<crate::agent::chat_types::ChatMsg>), String> {
-    let session = tauri::async_runtime::block_on(engine::ensure(svc, tab))
-        .map_err(|error| error.to_string())?;
+    let started = std::time::Instant::now();
+    let ensured = tauri::async_runtime::block_on(engine::ensure(svc, tab));
+    log::debug!(
+        "[chat-attach] tab={tab} phase=ensure elapsed_ms={} ok={}",
+        started.elapsed().as_millis(),
+        ensured.is_ok()
+    );
+    let session = ensured.map_err(|error| error.to_string())?;
+    let reading = std::time::Instant::now();
     let items = session.cache.lock().snapshot();
+    log::debug!(
+        "[chat-attach] tab={tab} phase=cache_read elapsed_ms={} rows={}",
+        reading.elapsed().as_millis(),
+        items.len()
+    );
     Ok((session, items))
 }
 
