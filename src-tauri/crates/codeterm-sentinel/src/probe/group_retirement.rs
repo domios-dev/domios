@@ -36,10 +36,7 @@ fn reconcile_signal(result: io::Result<bool>, snapshot: &[Member]) -> io::Result
     }
 }
 
-pub fn signal_owned_group(
-    ownership: LeaderOwnership,
-    child_id: u32,
-) -> Result<bool, String> {
+pub fn signal_owned_group(ownership: LeaderOwnership, child_id: u32) -> Result<bool, String> {
     let pgid = cancellation_target(ownership, child_id)?;
     checked_group_signal(pgid, libc::SIGKILL)
 }
@@ -92,11 +89,7 @@ fn registration_race_retired(member: &Member, snapshot: &[Member]) -> bool {
         .any(|current| current.pid == member.pid && current.born == member.born && !current.exited)
 }
 
-pub fn retire(
-    ownership: LeaderOwnership,
-    child_id: u32,
-    deadline: Instant,
-) -> Result<(), String> {
+pub fn retire(ownership: LeaderOwnership, child_id: u32, deadline: Instant) -> Result<(), String> {
     let pgid = cancellation_target(ownership, child_id)?;
     let mut exited = BTreeSet::new();
     loop {
@@ -249,16 +242,29 @@ fn members(pgid: i32) -> Result<Vec<Member>, String> {
         else {
             continue;
         };
-        let stat = match std::fs::read_to_string(entry.path().join("stat")) {
-            Ok(stat) => stat,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error.to_string()),
+        let Some(stat) = live_stat(std::fs::read_to_string(entry.path().join("stat")))? else {
+            continue;
         };
         if let Some(member) = member_from_stat(pid, &stat, pgid)? {
             members.push(member);
         }
     }
     Ok(members)
+}
+
+// procfs returns ESRCH, not ENOENT, when the task is reaped between readdir and read.
+#[cfg(any(target_os = "linux", test))]
+fn live_stat(read: io::Result<String>) -> Result<Option<String>, String> {
+    match read {
+        Ok(stat) => Ok(Some(stat)),
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -385,6 +391,18 @@ mod tests {
                 Some(errno)
             );
         }
+    }
+
+    #[test]
+    fn reaped_process_stat_is_absence_but_other_read_errors_fail() {
+        assert_eq!(live_stat(Ok("s".into())).unwrap().as_deref(), Some("s"));
+        for errno in [libc::ENOENT, libc::ESRCH] {
+            assert_eq!(
+                live_stat(Err(io::Error::from_raw_os_error(errno))),
+                Ok(None)
+            );
+        }
+        assert!(live_stat(Err(io::Error::from_raw_os_error(libc::EACCES))).is_err());
     }
 
     #[test]
