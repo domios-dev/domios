@@ -7,10 +7,10 @@ use std::sync::Arc;
 use tauri::Manager;
 
 pub fn run(
-    context: tauri::Context<codeterm_service_core::app_runtime::Runtime>,
+    context: tauri::Context<codeterm_host_runtime::app_runtime::Runtime>,
     register_commands: fn(
-        tauri::Builder<codeterm_service_core::app_runtime::Runtime>,
-    ) -> tauri::Builder<codeterm_service_core::app_runtime::Runtime>,
+        tauri::Builder<codeterm_host_runtime::app_runtime::Runtime>,
+    ) -> tauri::Builder<codeterm_host_runtime::app_runtime::Runtime>,
 ) {
     codeterm_service_core::async_runtime::install(tauri::async_runtime::handle().inner().clone());
     // Never automatic: only an explicit `repair-user-path` argv reaches it.
@@ -61,7 +61,7 @@ pub fn run(
     codeterm_service_core::service::seed_bundled_skills();
     codeterm_service_core::service::mirror_skills_to_providers();
 
-    let mut builder = codeterm_service_core::app_runtime::builder()
+    let mut builder = codeterm_host_runtime::app_runtime::builder()
         .plugin(tauri_plugin_shell::init())
         .plugin(startup::native_notification())
         .plugin(tauri_plugin_dialog::init())
@@ -478,8 +478,7 @@ pub fn run(
                 &cap_registries,
             );
             codeterm_service_core::service::supporter::runtime_with_notifications(&svc_ctx);
-            let service_state: ServiceState = Arc::new(svc_ctx);
-            assert!(service_state.set_ext(Arc::downgrade(&service_state)).is_ok());
+            let service_state: ServiceState = svc_ctx;
             codeterm_service_core::ports::orchestration::install(&service_state);
             repo_sink.bind_service(Arc::downgrade(&service_state));
             service_state.chat_send_ledger.bind_settlement_owner(&service_state);
@@ -711,7 +710,7 @@ pub fn run(
                             files.len(),
                             dir.display()
                         );
-                        codeterm_service_core::events::emit_everywhere(
+                        codeterm_host_runtime::events::emit_everywhere(
                             &app_handle,
                             "crash_report_available",
                             serde_json::json!({

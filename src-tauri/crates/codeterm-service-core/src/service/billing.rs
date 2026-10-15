@@ -1,7 +1,6 @@
 use super::ServiceContext;
 use codeterm_billing::{adapters, Billing, Entitlements, RefreshEvent, Snapshot};
 use std::{sync::Arc, time::Instant};
-use tauri::Manager;
 
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
 
@@ -11,11 +10,7 @@ impl ServiceContext {
             .ext::<crate::service::billing::BillingCell>()
             .0
             .get_or_try_init(|| async {
-                let state = self
-                    .app_handle
-                    .state::<crate::config::ConfigState>()
-                    .inner()
-                    .clone();
+                let state = self.ext::<crate::config::ConfigState>().clone();
                 let config = state.lock().billing.clone();
                 let provider = config
                     .get("provider")

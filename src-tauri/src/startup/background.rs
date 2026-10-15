@@ -9,7 +9,7 @@ use codeterm_service_core::startup::AppStates;
 
 /// Start the persistence worker and background monitoring threads.
 pub(crate) fn start_background_tasks(
-    app_handle: &codeterm_service_core::app_runtime::AppHandle,
+    app_handle: &codeterm_host_runtime::app_runtime::AppHandle,
     states: &AppStates,
 ) {
     if let Err(error) = codeterm_service_core::service::session_persist::start_worker(
@@ -151,7 +151,7 @@ pub(crate) fn start_background_tasks(
                         peers.iter().map(|p| p.instance_id.clone()).collect();
                     last_sync_secs.retain(|id, _| paired_ids.contains(id));
                     if changed {
-                        codeterm_service_core::events::emit_everywhere(
+                        codeterm_host_runtime::events::emit_everywhere(
                             &app_h,
                             "mesh-state-changed",
                             serde_json::Value::Null,
