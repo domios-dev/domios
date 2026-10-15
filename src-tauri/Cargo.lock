@@ -1418,6 +1418,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-crash"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "codeterm-build-info",
+ "codeterm-keepawake",
+ "codeterm-paths",
+ "codeterm-shutdown",
+ "codeterm-util",
+ "crash-context",
+ "crash-handler",
+ "hostname",
+ "libc",
+ "log",
+ "minidump-writer",
+ "objc2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "codeterm-cron"
 version = "0.1.0"
 dependencies = [
@@ -1973,6 +1999,7 @@ dependencies = [
  "codeterm-browser",
  "codeterm-build-info",
  "codeterm-config",
+ "codeterm-crash",
  "codeterm-cron",
  "codeterm-decision",
  "codeterm-events",
@@ -2008,8 +2035,6 @@ dependencies = [
  "codeterm-wire",
  "codeterm-worker-services",
  "conpty",
- "crash-context",
- "crash-handler",
  "cron",
  "dirs 6.0.0",
  "ed25519-dalek",
@@ -2030,7 +2055,6 @@ dependencies = [
  "log",
  "md-5",
  "mdns-sd",
- "minidump-writer",
  "mockito",
  "ndarray",
  "notify",
