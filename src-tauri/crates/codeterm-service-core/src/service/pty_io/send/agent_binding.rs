@@ -93,7 +93,7 @@ impl ServiceContext {
         log::debug!(
             "[agent-delivery] tab={tab_id} provider={provider_id} pty={pty_id} branch=resolved"
         );
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(result) =
             crate::service::agent_delivery_outbox::test_boundary::submit(tab_id, payload)
         {

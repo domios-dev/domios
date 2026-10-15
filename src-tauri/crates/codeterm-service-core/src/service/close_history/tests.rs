@@ -50,7 +50,7 @@ fn automation_inventory_round_trip_preserves_enabled_and_paused_states() {
         "id": "cron", "name": "Cron", "workspace_id": "workspace", "team_id": "team", "schedule": "0 * * * * *",
         "enabled": false, "agent": "fixture-provider", "task": "opaque-task", "created_at": 10
     })).unwrap();
-    let blueprint: crate::sentinel::store::Sentinel = serde_json::from_value(serde_json::json!({
+    let blueprint: codeterm_sentinel::store::Sentinel = serde_json::from_value(serde_json::json!({
         "id": "blueprint", "creator_tab_id": "orchestrator", "workspace_id": "workspace", "team_id": "team",
         "cwd": "/project", "probe": "opaque-probe", "question": "opaque-question", "buckets": ["ready"],
         "interval_ms": 1000, "routes": {}, "matches": {}, "next_run": 100,
@@ -65,7 +65,7 @@ fn automation_inventory_round_trip_preserves_enabled_and_paused_states() {
     let restored: Resources = serde_json::from_value(json.clone()).unwrap();
     assert_eq!(serde_json::to_value(&restored).unwrap(), json);
     assert!(!restored.crons[0].enabled);
-    let restored_blueprint: crate::sentinel::store::Sentinel =
+    let restored_blueprint: codeterm_sentinel::store::Sentinel =
         serde_json::from_value(restored.blueprints[0].clone()).unwrap();
     assert!(restored_blueprint.machine.paused);
     assert!(!restored_blueprint.machine.stopped);

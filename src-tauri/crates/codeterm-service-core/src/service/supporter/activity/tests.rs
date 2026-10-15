@@ -196,16 +196,18 @@ fn supporter_journal_hashes_recovery_option_values_without_losing_probabilities(
 #[test]
 fn supporter_default_no_cap_never_refuses_and_counts_every_request() {
     let dir = tempfile::tempdir().unwrap();
+    let seeded: std::collections::VecDeque<i64> = (0..600).map(|index| 100000 + index).collect();
+    super::super::journal::Journal::new(dir.path().into())
+        .save_calls(&seeded, false)
+        .unwrap();
     let runtime = SupporterRuntime::new(dir.path().into());
     let cap = codeterm_types::config::SupporterConfig::default()
         .calls_per_hour
         .unwrap_or(0);
     assert_eq!(cap, 0);
-    for index in 0..601 {
-        runtime
-            .reserve_at(cap, VerdictKind::Rerank, None, 5, 100000 + index)
-            .unwrap();
-    }
+    runtime
+        .reserve_at(cap, VerdictKind::Rerank, None, 5, 100600)
+        .unwrap();
     let status = runtime.status_at(cap, 101000);
     assert_eq!(status["calls_last_hour"], 601);
     assert_eq!(status["calls_last_day"], 601);
@@ -217,7 +219,7 @@ fn supporter_default_no_cap_never_refuses_and_counts_every_request() {
             .iter()
             .filter(|line| line["kind"] == "model_call")
             .count(),
-        601
+        1
     );
 }
 

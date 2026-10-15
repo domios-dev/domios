@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_sentinel_host::BlueprintPortableExt;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -44,7 +45,7 @@ pub async fn export(
     Json(body): Json<ExportBody>,
 ) -> Result<Json<codeterm_blueprint_types::blueprint_recipe::Recipe>, (StatusCode, String)> {
     host_access(&state, &headers)?;
-    let team = codeterm_service_core::service::sentinel::graph::explicit_team(&body.team_id)
+    let team = codeterm_sentinel_host::service_adapter::graph::explicit_team(&body.team_id)
         .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     tokio::task::spawn_blocking(move || {
         state

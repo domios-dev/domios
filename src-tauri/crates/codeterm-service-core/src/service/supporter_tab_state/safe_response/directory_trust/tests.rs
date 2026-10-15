@@ -664,7 +664,7 @@ fn sentinel_respond_prompt_preapproved_folder_trust_uses_declared_target() {
     assert!(matches!(
         fixture.service.request_safe_prompt_response(
             &tab_id,
-            &crate::sentinel::machine::SafeKind::DirectoryTrust,
+            &codeterm_sentinel::machine::SafeKind::DirectoryTrust,
             &expected,
             "sentinel_fixture",
         ),
@@ -694,7 +694,7 @@ fn owner_launched_sentinel_respond_prompt_is_refused_before_dispatch() {
     assert_eq!(
         fixture.service.request_safe_prompt_response(
             &tab_id,
-            &crate::sentinel::machine::SafeKind::Permission,
+            &codeterm_sentinel::machine::SafeKind::Permission,
             &expected,
             "sentinel_fixture",
         ),
@@ -732,7 +732,7 @@ fn sentinel_respond_prompt_login_is_refused_before_dispatch() {
     assert_eq!(
         fixture.service.request_safe_prompt_response(
             &tab_id,
-            &crate::sentinel::machine::SafeKind::Onboarding,
+            &codeterm_sentinel::machine::SafeKind::Onboarding,
             &expected,
             "sentinel_fixture",
         ),

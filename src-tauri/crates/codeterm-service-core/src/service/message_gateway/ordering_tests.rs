@@ -8,11 +8,13 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, Plan, Task, TaskStatus};
 use crate::service::messenger::MessageEnvelope;
 use crate::service::plan::NewTask;
-use crate::service::test_fixture::ServiceFixture;
+use crate::service::test_fixture::{RecordedAgentDeliveries, ServiceFixture};
 use crate::service::WorkerTurnSignal;
 
 struct BoundWorker {
     _pty: crate::service::test_fixture::TestPtyGuard,
+    _worker_deliveries: RecordedAgentDeliveries,
+    _orch_deliveries: RecordedAgentDeliveries,
     fx: ServiceFixture,
     worker: String,
     orch: String,
@@ -55,6 +57,8 @@ fn seed_bound_worker() -> BoundWorker {
         crate::agent::test_provider::MockProvider::new("claude"),
     ));
     let pty = fx.bind_test_pty_session(&worker, "worker-session", "worker-nonce");
+    let worker_deliveries = fx.record_agent_deliveries(&worker);
+    let orch_deliveries = fx.bind_recorded_agent_recipient(&orch, "orch-session", "orch-nonce");
     let mut plan = Plan::new(
         "rearm ordering".into(),
         fx.temp.path().display().to_string(),
@@ -82,6 +86,8 @@ fn seed_bound_worker() -> BoundWorker {
         .unwrap();
     BoundWorker {
         _pty: pty,
+        _worker_deliveries: worker_deliveries,
+        _orch_deliveries: orch_deliveries,
         fx,
         worker,
         orch,

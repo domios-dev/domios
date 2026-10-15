@@ -69,7 +69,7 @@ fn saved_blueprint(
 fn validate_saved_blueprints(resources: &Resources) -> Result<(), String> {
     for saved in &resources.blueprints {
         saved_blueprint(saved)?;
-        serde_json::from_value::<crate::sentinel::store::Sentinel>(saved.clone())
+        serde_json::from_value::<codeterm_sentinel::store::Sentinel>(saved.clone())
             .map_err(|error| format!("Saved blueprint is unreadable: {error}"))?;
     }
     Ok(())
