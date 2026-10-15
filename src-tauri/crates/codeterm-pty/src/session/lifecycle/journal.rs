@@ -9,6 +9,8 @@ mod read_index;
 use read_index::JournalReadIndex;
 
 #[cfg(test)]
+mod compaction_tests;
+#[cfg(test)]
 mod read_index_tests;
 
 use super::record::{
@@ -66,8 +68,7 @@ impl JournalLoad {
 struct WriteCursor {
     last_seq: JournalSeq,
     records: usize,
-    /// Record count at the last refused compaction; the next attempt waits for growth past it.
-    refused_at_records: Option<usize>,
+    compact_at_records: usize,
     last_epoch_by_tab: HashMap<String, LifecycleEpoch>,
 }
 
@@ -115,7 +116,7 @@ impl TabLifecycleJournal {
             cursor: Mutex::new(WriteCursor {
                 last_seq: load.last_seq(),
                 records: load.records.len(),
-                refused_at_records: None,
+                compact_at_records: load.records.len().saturating_add(COMPACT_AT_RECORDS),
                 last_epoch_by_tab,
             }),
         }
@@ -167,13 +168,10 @@ impl TabLifecycleJournal {
             .entry(tab_id)
             .and_modify(|last| *last = (*last).max(epoch))
             .or_insert(epoch);
-        let unbounded = cursor.records >= COMPACT_AT_RECORDS
-            && cursor.refused_at_records.map_or(true, |refused| {
-                cursor.records >= refused + COMPACT_AT_RECORDS
-            });
+        let unbounded = cursor.records >= cursor.compact_at_records;
         drop(cursor);
         if unbounded {
-            if let Err(error) = self.compact() {
+            if let Err(error) = self.compact_if_due() {
                 log::warn!("[tab-lifecycle] compaction failed: {error}");
             }
         }
@@ -238,10 +236,23 @@ impl TabLifecycleJournal {
     /// Rewrite as one checkpoint per tab plus the transitions no checkpoint
     /// covers. Replay reaches the same checkpoints as the full history.
     pub fn compact(&self) -> Result<usize, String> {
+        self.compact_inner(true)
+    }
+
+    fn compact_if_due(&self) -> Result<usize, String> {
+        self.compact_inner(false)
+    }
+
+    fn compact_inner(&self, force: bool) -> Result<usize, String> {
         let mut cursor = self
             .cursor
             .lock()
             .map_err(|_| "lifecycle journal lock poisoned".to_string())?;
+        if !force && cursor.records < cursor.compact_at_records {
+            return Ok(cursor.records);
+        }
+        // Retained history may exceed the budget; only new growth triggers another rewrite.
+        cursor.compact_at_records = cursor.records.saturating_add(COMPACT_AT_RECORDS);
         let load = read_journal(&self.path);
         quarantine_refused_tail(&self.path, &load)?;
         let compacted = super::reduce::compact_records(&load.records);
@@ -254,7 +265,7 @@ impl TabLifecycleJournal {
             );
         }
         cursor.records = written;
-        cursor.refused_at_records = None;
+        cursor.compact_at_records = written.saturating_add(COMPACT_AT_RECORDS);
         Ok(written)
     }
 }
