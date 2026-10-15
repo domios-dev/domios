@@ -7,6 +7,7 @@ import { formatAttachmentMarker } from "./attachmentMarker";
 
 const fixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as Array<{ name: string; raw: string; segments: MessageSegment[] }>;
 const expectedRows: Record<string, number> = {
+  "system header with trailing Windows path": 1,
   "owner merged screenshot": 2, "voice transcript echo": 1, paste: 1, attachment: 1,
   "two frames in one record": 2, "fenced example": 1, "unclosed tag": 1,
   "inline frame has no provenance": 1, "tool result is content": 1, "routed paste wrapper": 1,
