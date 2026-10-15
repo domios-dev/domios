@@ -298,6 +298,11 @@ async function runChatSessionHookTests(): Promise<void> {
       });
     }) as never);
     const session = await mountSession("sid-1");
+    await act(async () => fireResync("reconnected"));
+    await act(async () => fireResync("wake"));
+    await flush();
+    assert(starts === 1, "valid replay and idle wake preserve the existing chat lease");
+    assert(session.latest().messages[0]?.content === "before", "idle wake preserves the visible projection");
     await act(async () => fireResync());
     await flush();
     assert(starts === 2, "web event loss requests one fresh chat snapshot");
@@ -307,6 +312,27 @@ async function runChatSessionHookTests(): Promise<void> {
     );
     await act(async () => session.root.unmount());
     console.log("PASS web event loss refreshes the active chat snapshot");
+  }
+
+  {
+    let starts = 0;
+    __setListenForTest(async () => () => {});
+    __setInvokeForTest((async (command: string) => {
+      if (command !== "chat_start") return {};
+      starts += 1;
+      if (starts === 1) throw new Error("opaque-initial-attach-failure");
+      return chatStartResult("sid-1", {
+        text: "", offset: 1,
+        messages: [{ id: "recovered", type: "assistant", content: "recovered", timestamp: "1" }],
+      });
+    }) as never);
+    const session = await mountSession("sid-1");
+    await act(async () => fireResync("reconnected"));
+    await flush();
+    assert(starts === 2, "observed reconnect retries a failed first attachment once");
+    assert(session.latest().messages[0]?.id === "recovered", "failed attach recovery displays its own snapshot");
+    await act(async () => session.root.unmount());
+    console.log("PASS observed reconnect recovers a failed first attachment");
   }
 
   {

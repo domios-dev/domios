@@ -15,6 +15,7 @@ import type {
   TranscriptRange,
 } from "@codeterm/chat-core";
 import { onResync } from "../../lib/resync";
+import { resyncRequiresTranscriptRecovery } from "../../lib/resyncModel";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import {
   canAdoptTranscriptAuthority,
@@ -593,7 +594,11 @@ export function useChatSession({
 
   useEffect(() => {
     if (!active) return;
-    return onResync(requestRecoveryAttach);
+    return onResync(reason => {
+      if (resyncRequiresTranscriptRecovery(reason, attachmentStateRef.current === "failed")) {
+        requestRecoveryAttach();
+      }
+    });
   }, [active, requestRecoveryAttach]);
 
   useEffect(() => {

@@ -12,7 +12,7 @@ let sawHidden = false;
 function defaultWakeResync(): void {
   resetWebEvents();
   window.dispatchEvent(new Event(MUX_REFRESH));
-  fireResync();
+  fireResync("wake");
 }
 
 let wakeResync: () => void = defaultWakeResync;
