@@ -18,12 +18,12 @@ const DAY: i64 = 86_400_000;
 const COLD_ADAPTER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub struct DecisionEvidence<'a> {
-    pub(crate) decision_point: Option<&'a str>,
-    pub(crate) model_id: Option<String>,
-    pub(crate) criteria_version: &'a str,
-    pub(crate) state_hash: &'a str,
-    pub(crate) question_set_hash: &'a str,
-    pub(crate) asked: Option<Vec<super::QuestionAnswer>>,
+    pub decision_point: Option<&'a str>,
+    pub model_id: Option<String>,
+    pub criteria_version: &'a str,
+    pub state_hash: &'a str,
+    pub question_set_hash: &'a str,
+    pub asked: Option<Vec<super::QuestionAnswer>>,
 }
 
 #[derive(Default)]
@@ -76,7 +76,7 @@ impl SupporterRuntime {
         }
     }
 
-    pub(crate) fn attach_alert_sink(&self, sink: Arc<dyn Fn(SpendAlert) + Send + Sync>) {
+    pub fn attach_alert_sink(&self, sink: Arc<dyn Fn(SpendAlert) + Send + Sync>) {
         let _ = self.alert_sink.set(sink);
     }
 
@@ -85,7 +85,7 @@ impl SupporterRuntime {
         let _ = self.journal_sink.set(sink);
     }
 
-    pub(crate) fn attach_tab_titles(&self, resolver: TabFieldResolver) {
+    pub fn attach_tab_titles(&self, resolver: TabFieldResolver) {
         let _ = self.tab_title_resolver.set(resolver);
     }
 
@@ -108,7 +108,7 @@ impl SupporterRuntime {
         }
     }
 
-    pub(crate) fn adapter_available(&self, adapter: &str) -> bool {
+    pub fn adapter_available(&self, adapter: &str) -> bool {
         self.backoffs.lock().available(
             adapter,
             self.connection_epoch(),
@@ -116,7 +116,7 @@ impl SupporterRuntime {
         )
     }
 
-    pub(crate) fn admit_adapter(&self, adapter: &str) -> Result<(), DecisionError> {
+    pub fn admit_adapter(&self, adapter: &str) -> Result<(), DecisionError> {
         if !self.adapter_available(adapter) {
             return Err(DecisionError::Unavailable("adapter_backoff".into()));
         }
@@ -124,7 +124,7 @@ impl SupporterRuntime {
             .admit(adapter, chrono::Utc::now().timestamp_millis())
     }
 
-    pub(crate) fn decision_deadline(
+    pub fn decision_deadline(
         &self,
         adapter: &str,
         configured_ms: u64,
@@ -140,7 +140,7 @@ impl SupporterRuntime {
         }
     }
 
-    pub(crate) fn mark_adapter_ready(&self, adapter: &str) {
+    pub fn mark_adapter_ready(&self, adapter: &str) {
         self.backoffs.lock().recovered(adapter);
         self.activity
             .lock()
@@ -148,7 +148,7 @@ impl SupporterRuntime {
             .insert(adapter.to_owned());
     }
 
-    pub(crate) fn token_acl_state_changed(&self, adapter: &str, invalid: bool) {
+    pub fn token_acl_state_changed(&self, adapter: &str, invalid: bool) {
         let alert = {
             let mut activity = self.activity.lock();
             if invalid {
@@ -169,7 +169,7 @@ impl SupporterRuntime {
         }
     }
 
-    pub(crate) fn admit_request_budget(&self, cap: usize) -> Result<(), DecisionError> {
+    pub fn admit_request_budget(&self, cap: usize) -> Result<(), DecisionError> {
         if cap == 0 {
             return Ok(());
         }
@@ -188,11 +188,11 @@ impl SupporterRuntime {
         }
     }
 
-    pub(crate) fn decision(&self, decision: Value) -> std::io::Result<()> {
+    pub fn decision(&self, decision: Value) -> std::io::Result<()> {
         self.append(decision)
     }
 
-    pub(crate) fn reserve_request(
+    pub fn reserve_request(
         &self,
         cap: usize,
         kind: VerdictKind,
@@ -205,7 +205,7 @@ impl SupporterRuntime {
         self.reserve(cap, kind, tab, questions)
     }
 
-    pub(crate) fn failure_with_activity(
+    pub fn failure_with_activity(
         &self,
         adapter: Option<&str>,
         kind: VerdictKind,
@@ -276,7 +276,7 @@ impl SupporterRuntime {
         );
     }
 
-    pub(crate) fn connection_epoch(&self) -> u64 {
+    pub fn connection_epoch(&self) -> u64 {
         self.connection_epoch.load(Ordering::Acquire)
     }
 
@@ -285,7 +285,7 @@ impl SupporterRuntime {
             .status(adapter, chrono::Utc::now().timestamp_millis())
     }
 
-    pub(crate) fn response(
+    pub fn response(
         &self,
         kind: VerdictKind,
         tab: Option<&str>,
@@ -311,7 +311,7 @@ impl SupporterRuntime {
             "criteria_version": evidence.criteria_version, "state_hash": evidence.state_hash, "question_set_hash": evidence.question_set_hash,
             "question_count": response.answers.len(), "asked": evidence.asked });
         let value = if matches!(kind, VerdictKind::TabState) {
-            super::super::supporter_tab_state::redact_decision_diagnostic(&value)
+            crate::privacy::value(&value)
         } else {
             value
         };
@@ -322,7 +322,7 @@ impl SupporterRuntime {
         let _ = self.append(value);
     }
 
-    pub(crate) fn heartbeat_event(&self, event: Value) -> std::io::Result<()> {
+    pub fn heartbeat_event(&self, event: Value) -> std::io::Result<()> {
         self.append(event)
     }
 
@@ -456,7 +456,7 @@ impl SupporterRuntime {
         Ok(())
     }
 
-    pub(crate) fn provider_update_action(
+    pub fn provider_update_action(
         &self,
         provider: &str,
         target: Option<&str>,
@@ -479,7 +479,7 @@ impl SupporterRuntime {
         let _ = self.append(value);
     }
 
-    pub(crate) fn try_action(&self, record: ActionRecord<'_>) -> std::io::Result<()> {
+    pub fn try_action(&self, record: ActionRecord<'_>) -> std::io::Result<()> {
         let mut value = serde_json::to_value(record)?;
         let now = chrono::Utc::now().timestamp_millis();
         value["time"] = json!(now / 1000);
@@ -487,7 +487,7 @@ impl SupporterRuntime {
         self.append(value)
     }
 
-    pub(crate) fn claim_notification(&self, key: &str) -> std::io::Result<bool> {
+    pub fn claim_notification(&self, key: &str) -> std::io::Result<bool> {
         let result = self.journal.lock().claim_notification(key);
         if matches!(result, Ok(true)) {
             if let Some(sink) = self.journal_sink.get() {

@@ -1,13 +1,13 @@
-pub(crate) const MAX_CANDIDATES: usize = 10;
+pub const MAX_CANDIDATES: usize = 10;
 
-pub(crate) fn selection(scores: &[f64]) -> Vec<usize> {
+pub fn selection(scores: &[f64]) -> Vec<usize> {
     let mut order: Vec<_> = (0..scores.len()).collect();
     order.sort_by(|&a, &b| scores[a].total_cmp(&scores[b]).then(a.cmp(&b)));
     order.truncate(MAX_CANDIDATES);
     order
 }
 
-pub(crate) fn skip_reason(scores: &[f64]) -> Option<&'static str> {
+pub fn skip_reason(scores: &[f64]) -> Option<&'static str> {
     if scores.len() <= 3 {
         return Some("small_pool");
     }

@@ -198,3 +198,9 @@ Tests move with those implementations (132 leaf cases in the static inventory). 
 ## Service-core prompts split
 
 `codeterm-prompts` now owns the prompt templates, persona composition, role presets and skill mirroring, with their pure tests. Service-core retains re-export facades and the onboarding/worker-identity delivery parity tests. Canonical selectors: `./build.sh nextest codeterm-prompts` and `./build.sh nextest codeterm-service-core 'test(/^prompts::/) | test(/^service::persona::parity::/)'`.
+
+## Service-core supporter engine slice
+
+- `codeterm-supporter` (0.0.0) owns the Supporter runtime, budget/spend/journal/feed/connection engine, process-tree witnesses and their tests. Service-core retains its existing module paths through re-exports and keeps notification/status adapters.
+- Pure confidence policy, diagnostic redaction and correlation projection sit below the core. Capture and journal integration stay with tab lifecycle state; process-tree fixtures cross the boundary through `test-support`.
+- Recall registry/DecisionBackend and mem search, capability-probe orchestration and provider-update orchestration remain in service-core. Their port seams are deferred owner decisions, not part of this slice.

@@ -105,9 +105,9 @@ pub fn entry(value: &Value) -> Option<Value> {
     let confidence = value["confidence"]
         .as_f64()
         .filter(|p| (0.0..=1.0).contains(p));
-    let band = match confidence.map(crate::service::supporter_tab_state::confidence_band) {
-        Some(crate::service::supporter_tab_state::ConfidenceBand::Strong) => "strong",
-        Some(crate::service::supporter_tab_state::ConfidenceBand::Weak) => "weak",
+    let band = match confidence.map(crate::policy::confidence_band) {
+        Some(crate::policy::ConfidenceBand::Strong) => "strong",
+        Some(crate::policy::ConfidenceBand::Weak) => "weak",
         Some(_) => "low",
         None => "unknown",
     };
@@ -183,10 +183,10 @@ pub fn entry(value: &Value) -> Option<Value> {
                 entry["error_category"] = json!(category);
             }
         }
-        crate::service::supporter_tab_state::project_observation_diagnostics(value, &mut entry);
+        crate::diagnostics::project_diagnostics(value, &mut entry);
     }
     let asked = if value["kind"] == "tab_state" {
-        crate::service::supporter_tab_state::redact_decision_diagnostic(&value["asked"])
+        crate::privacy::value(&value["asked"])
     } else {
         value["asked"].clone()
     };

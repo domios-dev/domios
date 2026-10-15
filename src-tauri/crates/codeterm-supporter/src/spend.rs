@@ -12,10 +12,10 @@ use super::storage;
 const REPROBE_MS: i64 = 3_600_000;
 
 #[derive(Clone, Debug)]
-pub(crate) struct SpendAlert {
-    pub(crate) title: String,
-    pub(crate) level: NotifyLevel,
-    pub(crate) event_key: String,
+pub struct SpendAlert {
+    pub title: String,
+    pub level: NotifyLevel,
+    pub event_key: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

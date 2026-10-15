@@ -179,12 +179,12 @@ fn supporter_connections_model_persists_per_adapter_across_restart() {
             .unwrap();
     let restored = cfg.clone();
     let registry = SupporterRegistry::with_registration_hook(move |id, adapter| {
-        crate::service::supporter::restore_model(&restored, id, adapter);
+        crate::restore_model(&restored, id, adapter);
     });
     registry.register("a", Model::new("a", TokenMode::None));
     registry.register("b", Model::new("b", TokenMode::None));
     assert_eq!(
-        crate::service::supporter::configured_model(&cfg, &registry)
+        crate::configured_model(&cfg, &registry)
             .unwrap()
             .model_id()
             .as_deref(),
@@ -248,8 +248,8 @@ fn supporter_connections_disconnect_active_stops_supporter_no_silent_fallback() 
     f.service().disconnect("b").unwrap();
     assert_eq!(f.cfg.adapter, None);
     assert!(f.cfg.connections.contains_key("a"));
-    assert!(crate::service::supporter::configured_model(&f.cfg, &f.registry).is_none());
-    assert!(!crate::service::supporter::supporter_connected(
+    assert!(crate::configured_model(&f.cfg, &f.registry).is_none());
+    assert!(!crate::supporter_connected(
         &f.cfg,
         &f.registry,
         &super::super::TokenSnapshot {
@@ -299,12 +299,12 @@ fn supporter_connections_legacy_active_adapter_with_stored_token_is_connected_an
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["active"], true);
     assert_eq!(rows[0]["model"], "one");
-    assert!(crate::service::supporter::supporter_connected(
+    assert!(crate::supporter_connected(
         &f.cfg,
         &f.registry,
         &super::super::TokenSnapshot::read(&f.store, "typesafe-jev")
     ));
-    assert!(crate::service::supporter::configured_model(&f.cfg, &f.registry).is_some());
+    assert!(crate::configured_model(&f.cfg, &f.registry).is_some());
 }
 
 #[test]
@@ -434,24 +434,24 @@ fn supporter_connections_legacy_first_catalogue_model_is_verified_before_running
     f.cfg.adapter = Some("a".into());
     *f.a.selected.lock() = "two".into();
     f.a.unavailable.store(true, Ordering::SeqCst);
-    assert!(!crate::service::supporter::restore_model(
+    assert!(!crate::restore_model(
         &f.cfg,
         "a",
         &f.registry.get("a").unwrap()
     ));
-    assert!(crate::service::supporter::configured_model(&f.cfg, &f.registry).is_none());
+    assert!(crate::configured_model(&f.cfg, &f.registry).is_none());
     assert_eq!(
         list(&f.cfg, &f.registry, &f.store).unwrap()[0]["error"]["code"],
         "unavailable"
     );
     f.a.unavailable.store(false, Ordering::SeqCst);
-    assert!(crate::service::supporter::restore_model(
+    assert!(crate::restore_model(
         &f.cfg,
         "a",
         &f.registry.get("a").unwrap()
     ));
     assert_eq!(
-        crate::service::supporter::configured_model(&f.cfg, &f.registry)
+        crate::configured_model(&f.cfg, &f.registry)
             .unwrap()
             .model_id()
             .as_deref(),
