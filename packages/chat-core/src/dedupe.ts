@@ -42,12 +42,17 @@ function fileName(path: string): string {
 
 function markerEchoMatchesParsed(echoContent: string, parsedContent: string): boolean {
   const echo = parseMarker(echoContent);
-  const parsed = parseMarker(parsedContent);
+  const parsed = parseMarker(unwrapPastedEnvelope(parsedContent));
   if (!echo || !parsed || echo.kind !== parsed.kind) return false;
   const echoFile = echo.attrs.file;
   const parsedFile = parsed.attrs.file;
   if (!echoFile || !parsedFile) return false;
-  return echoFile === parsedFile || fileName(echoFile) === fileName(parsedFile);
+  return echoFile === parsedFile;
+}
+
+function unwrapPastedEnvelope(content: string): string {
+  const envelope = /^\s*<pasted_content id="([^"]+)">([\s\S]*)<\/pasted_content(?: id="\1")?>\s*(?:pasted by Domios)?\s*$/.exec(content);
+  return envelope?.[2].trim() ?? content;
 }
 
 function matchableContent(content: string): string {
