@@ -190,7 +190,7 @@ impl ActivityContext {
     }
 }
 
-pub(crate) fn sentinel(
+pub fn sentinel(
     job: &str,
     buckets: &[String],
     label: Option<&str>,
