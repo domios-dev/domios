@@ -1,5 +1,5 @@
-use crate::multiplexer::restore_policy::{restore_on_boot, RestoreDecision};
 use crate::service::ServiceContext;
+use codeterm_pty::multiplexer::restore_policy::{restore_on_boot, RestoreDecision};
 
 pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
     let now_ms = std::time::SystemTime::now()
