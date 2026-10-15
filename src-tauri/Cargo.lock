@@ -1439,7 +1439,6 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "tauri",
  "tokio",
  "uuid",
 ]
@@ -1483,14 +1482,12 @@ dependencies = [
 name = "codeterm-keepawake"
 version = "1.6.2"
 dependencies = [
- "codeterm-events",
  "codeterm-paths",
  "codeterm-util",
  "log",
  "parking_lot",
  "serde",
  "serde_json",
- "tauri",
  "tempfile",
 ]
 

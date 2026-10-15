@@ -147,7 +147,11 @@ pub fn publish(
         }
     };
     if changed {
-        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_service_core::events::emit_everywhere(
+            app,
+            "update-availability-changed",
+            snapshot,
+        );
     }
 }
 
@@ -175,7 +179,11 @@ pub fn publish_plugins(
         }
     };
     if let Some(snapshot) = next {
-        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_service_core::events::emit_everywhere(
+            app,
+            "update-availability-changed",
+            snapshot,
+        );
     }
 }
 
@@ -293,7 +301,11 @@ pub fn frontend_installed(app: &codeterm_service_core::app_runtime::AppHandle, i
         }
     };
     if let Some(snapshot) = next {
-        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_service_core::events::emit_everywhere(
+            app,
+            "update-availability-changed",
+            snapshot,
+        );
     }
 }
 
@@ -322,6 +334,10 @@ pub fn publish_frontend(
         }
     };
     if let Some(snapshot) = next {
-        codeterm_events::emit_everywhere(app, "update-availability-changed", snapshot);
+        codeterm_service_core::events::emit_everywhere(
+            app,
+            "update-availability-changed",
+            snapshot,
+        );
     }
 }

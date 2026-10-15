@@ -25,7 +25,7 @@ impl RawTextSink for TauriRawSink {
             tab_id,
             text: &text,
         };
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &self.app,
             &event,
             serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),

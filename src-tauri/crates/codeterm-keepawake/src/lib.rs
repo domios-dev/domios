@@ -4,11 +4,12 @@ use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Runtime};
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-const EVENT_CHANGED: &str = "keepawake-changed";
+pub trait StatusEmitter: Clone + Send + Sync + 'static {
+    fn emit_status(&self, status: &KeepAwakeStatus);
+}
 const SUPERVISOR_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
 const PERSIST_FILE: &str = "keepawake.json";
@@ -394,7 +395,19 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-fn clear_if_owner<RT: Runtime>(state: &KeepAwakeState, my_id: u64, app: &AppHandle<RT>) {
+fn clear_if_owner<E: StatusEmitter>(state: &KeepAwakeState, my_id: u64, emitter: &E) {
+    clear_if_owner_with(state, my_id, emitter, save_snapshot, || {
+        platform::diagnostic(false, false)
+    });
+}
+
+fn clear_if_owner_with<E: StatusEmitter>(
+    state: &KeepAwakeState,
+    my_id: u64,
+    emitter: &E,
+    persist: impl FnOnce(&KeepAwakeStatus),
+    diagnostic: impl FnOnce() -> Option<KeepAwakeDiagnostic>,
+) {
     let mut guard = state.lock();
     match guard.as_ref() {
         Some(s) if s.session_id == my_id => {
@@ -404,14 +417,14 @@ fn clear_if_owner<RT: Runtime>(state: &KeepAwakeState, my_id: u64, app: &AppHand
                 active: false,
                 display: false,
                 expires_at: None,
-                diagnostic: platform::diagnostic(false, false),
+                diagnostic: diagnostic(),
                 warnings: Vec::new(),
                 admin_commands: Vec::new(),
                 gnome_policy: false,
                 system_block: false,
             };
-            save_snapshot(&off);
-            codeterm_events::emit_everywhere(app, EVENT_CHANGED, &off);
+            persist(&off);
+            emitter.emit_status(&off);
         }
         _ => {
             // Another session took over — it owns the state now, don't touch.
@@ -419,9 +432,9 @@ fn clear_if_owner<RT: Runtime>(state: &KeepAwakeState, my_id: u64, app: &AppHand
     }
 }
 
-pub fn start<RT: Runtime>(
+pub fn start<E: StatusEmitter>(
     state: &KeepAwakeState,
-    app: &AppHandle<RT>,
+    emitter: &E,
     duration_secs: Option<u64>,
     display: Option<bool>,
     gnome_policy: Option<bool>,
@@ -446,7 +459,7 @@ pub fn start<RT: Runtime>(
         duration_secs,
         stop_rx,
         Arc::clone(state),
-        app.clone(),
+        emitter.clone(),
         session_id,
     )?;
 
@@ -470,7 +483,7 @@ pub fn start<RT: Runtime>(
     );
 
     save_snapshot(&status);
-    codeterm_events::emit_everywhere(app, EVENT_CHANGED, &status);
+    emitter.emit_status(&status);
     Ok(status)
 }
 
@@ -522,7 +535,7 @@ fn build_status(
     }
 }
 
-pub fn stop<RT: Runtime>(state: &KeepAwakeState, app: &AppHandle<RT>) -> Result<(), String> {
+pub fn stop<E: StatusEmitter>(state: &KeepAwakeState, emitter: &E) -> Result<(), String> {
     stop_inner(state);
     log::info!("[keepawake] stopped");
     let off = KeepAwakeStatus {
@@ -536,11 +549,11 @@ pub fn stop<RT: Runtime>(state: &KeepAwakeState, app: &AppHandle<RT>) -> Result<
         system_block: false,
     };
     save_snapshot(&off);
-    codeterm_events::emit_everywhere(app, EVENT_CHANGED, &off);
+    emitter.emit_status(&off);
     Ok(())
 }
 
-pub fn resume_from_disk<RT: Runtime>(state: &KeepAwakeState, app: &AppHandle<RT>) {
+pub fn resume_from_disk<E: StatusEmitter>(state: &KeepAwakeState, emitter: &E) {
     let Some(snap) = load_snapshot() else { return };
     if !snap.active {
         let _ = std::fs::remove_file(persist_path());
@@ -552,7 +565,7 @@ pub fn resume_from_disk<RT: Runtime>(state: &KeepAwakeState, app: &AppHandle<RT>
             log::info!("[keepawake] resuming indefinite session from snapshot");
             let _ = start(
                 state,
-                app,
+                emitter,
                 None,
                 Some(snap.display),
                 Some(snap.gnome_policy),
@@ -576,7 +589,7 @@ pub fn resume_from_disk<RT: Runtime>(state: &KeepAwakeState, app: &AppHandle<RT>
             );
             let _ = start(
                 state,
-                app,
+                emitter,
                 Some(remaining_secs),
                 Some(snap.display),
                 Some(snap.gnome_policy),
@@ -622,13 +635,13 @@ enum SupervisorTick {
     RepairFailed,
 }
 
-pub fn start_supervisor<RT: Runtime>(state: KeepAwakeState, app: AppHandle<RT>) {
+pub fn start_supervisor<E: StatusEmitter>(state: KeepAwakeState, emitter: E) {
     std::thread::Builder::new()
         .name("keepawake-supervisor".into())
         .spawn(move || loop {
             std::thread::sleep(SUPERVISOR_INTERVAL);
             let _ = supervisor_tick_with(&state, inspect_process, || {
-                restart_active_session(&state, &app)
+                restart_active_session(&state, &emitter)
             });
         })
         .expect("failed to spawn keepawake supervisor thread");
@@ -663,9 +676,9 @@ where
     }
 }
 
-fn restart_active_session<RT: Runtime>(
+fn restart_active_session<E: StatusEmitter>(
     state: &KeepAwakeState,
-    app: &AppHandle<RT>,
+    emitter: &E,
 ) -> Result<(), String> {
     let Some((display, expires_at, gnome_policy, system_block)) = state
         .lock()
@@ -679,7 +692,7 @@ fn restart_active_session<RT: Runtime>(
         Some(expires_at) => {
             let remaining_ms = expires_at - now_ms();
             if remaining_ms <= 0 {
-                return stop(state, app);
+                return stop(state, emitter);
             }
             Some(((remaining_ms + 999) / 1000) as u64)
         }
@@ -688,7 +701,7 @@ fn restart_active_session<RT: Runtime>(
 
     start(
         state,
-        app,
+        emitter,
         duration_secs,
         Some(display),
         Some(gnome_policy),
@@ -717,12 +730,12 @@ mod platform {
         safe fn SetThreadExecutionState(es_flags: u32) -> u32;
     }
 
-    pub fn start<RT: Runtime>(
+    pub fn start<E: StatusEmitter>(
         display: bool,
         duration_secs: Option<u64>,
         stop_rx: std::sync::mpsc::Receiver<()>,
         state: KeepAwakeState,
-        app: AppHandle<RT>,
+        emitter: E,
         session_id: u64,
     ) -> Result<(), String> {
         std::thread::Builder::new()
@@ -745,7 +758,7 @@ mod platform {
 
                 // On natural expiry, clear shared state only if still owned; a rapid restart may replace the owner.
                 if !stopped_early {
-                    clear_if_owner(&state, session_id, &app);
+                    clear_if_owner(&state, session_id, &emitter);
                 }
             })
             .map(|_| ())
@@ -771,12 +784,12 @@ mod platform {
 
     const WRAPPER_MARKER: &str = "codeterm-keepawake-wrapper";
 
-    pub fn start<RT: Runtime>(
+    pub fn start<E: StatusEmitter>(
         display: bool,
         duration_secs: Option<u64>,
         stop_rx: std::sync::mpsc::Receiver<()>,
         state: KeepAwakeState,
-        app: AppHandle<RT>,
+        emitter: E,
         session_id: u64,
     ) -> Result<(), String> {
         // terminates it if CodeTerm disappears and launchd reparents the wrapper to PID 1.
@@ -815,7 +828,7 @@ mod platform {
                 }
 
                 if !stopped_early {
-                    clear_if_owner(&state, session_id, &app);
+                    clear_if_owner(&state, session_id, &emitter);
                 }
             })
             .map(|_| ())
@@ -924,12 +937,12 @@ mod platform;
 mod platform {
     use super::*;
 
-    pub fn start<RT: Runtime>(
+    pub fn start<E: StatusEmitter>(
         _display: bool,
         _duration_secs: Option<u64>,
         _stop_rx: std::sync::mpsc::Receiver<()>,
         _state: KeepAwakeState,
-        _app: AppHandle<RT>,
+        _emitter: E,
         _session_id: u64,
     ) -> Result<(), String> {
         Err("keepawake is not supported on this platform".to_string())

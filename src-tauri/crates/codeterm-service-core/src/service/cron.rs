@@ -946,7 +946,7 @@ impl ServiceContext {
     pub fn emit_cron_changed(&self) {
         let handle = self.app_handle.clone();
         std::thread::spawn(move || {
-            codeterm_events::emit_everywhere(&handle, "cron-run-finished", ());
+            crate::events::emit_everywhere(&handle, "cron-run-finished", ());
         });
     }
 }

@@ -442,7 +442,7 @@ impl ServiceContext {
                     status.send_id,
                     status.tab_id
                 );
-                codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+                crate::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
             },
         );
         for (status, session_id) in deferred_first_turn::reconcile(self, tab_id) {
@@ -453,7 +453,7 @@ impl ServiceContext {
                 status.tab_id,
                 session_id
             );
-            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            crate::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         }
         self.settle_pending_delivery_receipt(tab_id);
     }

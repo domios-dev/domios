@@ -143,7 +143,7 @@ fn persist_authorized_plan_evidence_report(
         .add_plan_evidence_report(plan_id, message, from.clone(), now_ms)
         .map_err(crate::service::ReportSubmissionError::from)?;
     svc.plan_turn_counter.reset_activity(tab_id);
-    codeterm_events::emit_everywhere(
+    crate::events::emit_everywhere(
         &svc.app_handle,
         "plan-changed",
         serde_json::json!({ "plan_id": plan_id }),

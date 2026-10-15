@@ -279,7 +279,7 @@ pub async fn finish_session_binding(
         let _ = svc
             .plan_store
             .ack_handoff_resume(&resume.plan_id, &resume.handoff_id, epoch_ms());
-        codeterm_events::emit_everywhere(
+        crate::events::emit_everywhere(
             &svc.app_handle,
             "plan-changed",
             serde_json::json!({ "plan_id": resume.plan_id }),

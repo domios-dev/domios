@@ -1062,7 +1062,7 @@ impl ServiceContext {
                     return;
                 }
                 log::warn!("[send-async] delivery to Tab {tab} failed: {error}");
-                codeterm_events::emit_everywhere(
+                crate::events::emit_everywhere(
                     &svc.app_handle,
                     "chat-send-failed",
                     serde_json::json!({
