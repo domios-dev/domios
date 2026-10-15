@@ -94,7 +94,7 @@ pub fn update(
     true
 }
 
-pub(crate) fn apply_snapshot(
+pub fn apply_snapshot(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
     session_id: &str,

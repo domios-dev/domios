@@ -207,7 +207,7 @@ async fn capture_desk_before<T>(
 /// Saves the pre-teardown desk and refreshes live tab identities before committing.
 async fn persist_desk_off_runtime(
     app: &codeterm_service_core::app_runtime::AppHandle,
-    mux: &codeterm_service_core::MuxState,
+    mux: &codeterm_service_core::multiplexer::commands::MuxState,
     desk: codeterm_service_core::session::SessionSnapshot,
 ) -> Result<(), String> {
     let mux = mux.clone();

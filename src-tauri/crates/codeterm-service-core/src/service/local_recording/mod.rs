@@ -161,16 +161,13 @@ impl ServiceContext {
         codeterm_events::emit_everywhere(&self.app_handle, "local-recording-capture", event);
         Ok(())
     }
-    pub(crate) fn local_recording_status(
-        &self,
-        plugin_id: &str,
-    ) -> Result<RecordingStatus, String> {
+    pub fn local_recording_status(&self, plugin_id: &str) -> Result<RecordingStatus, String> {
         self.ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
             .status(plugin_id)
             .map_err(str::to_string)
     }
 
-    pub(crate) fn local_recording_set_enabled(
+    pub fn local_recording_set_enabled(
         &self,
         plugin_id: &str,
         enabled: bool,
@@ -203,7 +200,7 @@ impl ServiceContext {
         Ok((status, completion))
     }
 
-    pub(crate) fn local_recording_select_devices(
+    pub fn local_recording_select_devices(
         &self,
         plugin_id: &str,
         devices: SelectedDevices,

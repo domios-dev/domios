@@ -178,7 +178,7 @@ mod restored_fresh_launch_tests {
 
     #[test]
     fn restored_fresh_launch_passes_a_minted_marker_and_resume_passes_none() {
-        use codeterm_service_core::service::launch_session_detection::registered_launch_marker;
+        use codeterm_service_core::service::registered_launch_marker;
 
         let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
             codeterm_service_core::multiplexer::state::MultiplexerState::new().0,
@@ -348,13 +348,15 @@ mod spawn_pty_restore_tests {
             Some("xhigh")
         );
         assert!(!tab.auto_approve);
-        assert!(codeterm_service_core::service::launch_waits_for_first_turn_binding(
-            &fixture.service,
-            &tab_id,
-            PROVIDER,
-            true,
-            codeterm_service_core::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
-        ));
+        assert!(
+            codeterm_service_core::service::launch_waits_for_first_turn_binding(
+                &fixture.service,
+                &tab_id,
+                PROVIDER,
+                true,
+                codeterm_service_core::service::AgentLaunchOrigin::RestoredSnapshot,
+            )
+        );
 
         let mut pty = fixture.service.pty.lock();
         pty.kill(&pty_id).expect("test PTY cleanup");
@@ -535,7 +537,7 @@ mod spawn_pty_restore_tests {
 
     #[tokio::test]
     async fn frontend_attach_keeps_live_pty_when_restore_materialization_fails() {
-        use codeterm_service_core::service::pty_ownership::{LinkOutcome, PtyOwnership};
+        use codeterm_service_core::service::{LinkOutcome, PtyOwnership};
         let ownership = PtyOwnership::default();
         let claim = ownership
             .acquire_async("failed-restore-attach".into())
@@ -620,9 +622,7 @@ mod restored_scrollback_tests {
 
 #[tokio::test]
 async fn live_restored_reuse_transfers_its_claim_and_completes_on_materialization() {
-    use codeterm_service_core::service::pty_ownership::{
-        LinkOutcome, OwnershipEvent, PtyOwnership,
-    };
+    use codeterm_service_core::service::{LinkOutcome, OwnershipEvent, PtyOwnership};
     use std::sync::{Arc, Mutex};
 
     let ownership = PtyOwnership::default();

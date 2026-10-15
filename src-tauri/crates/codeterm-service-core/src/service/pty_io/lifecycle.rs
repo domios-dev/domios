@@ -388,7 +388,7 @@ where
 }
 
 impl ServiceContext {
-    pub(crate) fn recover_missing_restored_provider(&self, tab_id: &str) -> Result<(), String> {
+    pub fn recover_missing_restored_provider(&self, tab_id: &str) -> Result<(), String> {
         use crate::agent::provider_identity::{
             provider_for_restored_session, ProviderIdentityEvidence,
         };
@@ -597,7 +597,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn materialize_restored_agent_with_claim(
+    pub fn materialize_restored_agent_with_claim(
         &self,
         claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {

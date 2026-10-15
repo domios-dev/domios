@@ -1,7 +1,7 @@
-use codeterm_service_core::service::restored_launch::{
+use codeterm_service_core::service::{boot_stage::BootStage, ServiceState};
+use codeterm_service_core::service::{
     restored_fresh_launch_input, restored_resume_session_id, RestoredFreshLaunchInput,
 };
-use codeterm_service_core::service::{boot_stage::BootStage, ServiceState};
 use codeterm_service_core::{PtyState, ScreenStateHandle};
 
 /// Shared by the Tauri command and the web mirror's POST /api/pty/spawn.
@@ -16,7 +16,7 @@ pub async fn spawn_pty_core(
 ) -> Result<String, String> {
     if let Some(id) = tab_id.as_deref() {
         if codeterm_service_core::service::agent_runtime::requested_for_tab(svc, id) {
-            codeterm_service_core::service::agent_runtime::restore::tab(svc, id)?;
+            codeterm_service_core::service::agent_runtime::restore_tab(svc, id)?;
             return Err("This agent uses Chat; terminal launch is unavailable".into());
         }
     }
@@ -115,7 +115,7 @@ pub async fn spawn_pty_core(
     let build_ms = t0.elapsed().as_millis();
 
     let (mut pty_id, _session) = state.lock().register_session(predicted_id, built);
-    codeterm_service_core::service::pty_resize::resize(&svc.pty, &svc.screen_state, &pty_id, None)?;
+    codeterm_service_core::service::pty_resize_resize(&svc.pty, &svc.screen_state, &pty_id, None)?;
     log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
 
     let reader_pty_id = if let Some(ref pid) = tab_id {
@@ -227,9 +227,7 @@ pub async fn spawn_pty_core(
                 })
                 .flatten();
             let session_valid =
-                codeterm_service_core::service::restored_launch::restored_session_resumable(
-                    presence,
-                );
+                codeterm_service_core::service::restored_session_resumable(presence);
             log::debug!(
                 "[restore-session-probe] tab={} provider={} session={} cwd={:?} presence={:?}",
                 pid,
@@ -248,7 +246,7 @@ pub async fn spawn_pty_core(
             } else {
                 // Build the resume command from the persisted launch inputs.
                 let permission_bypass_authorization =
-                    codeterm_service_core::service::restored_launch::restore_permission_bypass_authorization(
+                    codeterm_service_core::service::restore_permission_bypass_authorization(
                         &svc.app_handle,
                         &svc.agent_registry,
                         pid,
@@ -290,7 +288,7 @@ pub async fn spawn_pty_core(
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh;
             let permission_bypass_authorization =
-                codeterm_service_core::service::restored_launch::restore_permission_bypass_authorization(
+                codeterm_service_core::service::restore_permission_bypass_authorization(
                     &svc.app_handle,
                     &svc.agent_registry,
                     pid,
@@ -337,14 +335,14 @@ pub async fn spawn_pty_core(
 }
 
 async fn reuse_live_pty_with_claim(
-    claim: codeterm_service_core::service::pty_ownership::TabPtyClaim,
+    claim: codeterm_service_core::service::TabPtyClaim,
     existing: String,
     restored: bool,
     link: impl FnOnce(
-        &codeterm_service_core::service::pty_ownership::TabPtyClaim,
+        &codeterm_service_core::service::TabPtyClaim,
         String,
-    ) -> codeterm_service_core::service::pty_ownership::PtySelection,
-    materialize: impl FnOnce(&codeterm_service_core::service::pty_ownership::TabPtyClaim) -> Result<(), String>
+    ) -> codeterm_service_core::service::PtySelection,
+    materialize: impl FnOnce(&codeterm_service_core::service::TabPtyClaim) -> Result<(), String>
         + Send
         + 'static,
 ) -> Result<String, String> {
@@ -368,8 +366,8 @@ async fn reuse_live_pty_with_claim(
 }
 
 async fn materialize_restored_pty_with_claim(
-    claim: codeterm_service_core::service::pty_ownership::TabPtyClaim,
-    materialize: impl FnOnce(&codeterm_service_core::service::pty_ownership::TabPtyClaim) -> Result<(), String>
+    claim: codeterm_service_core::service::TabPtyClaim,
+    materialize: impl FnOnce(&codeterm_service_core::service::TabPtyClaim) -> Result<(), String>
         + Send
         + 'static,
 ) -> Result<(), String> {
@@ -385,19 +383,19 @@ fn dispatch_restored_snapshot_launch(
     input: &RestoredFreshLaunchInput,
     launch_cmd: String,
 ) {
-    codeterm_service_core::service::restored_launch::persist_restored_launch_identity(
+    codeterm_service_core::service::persist_restored_launch_identity(
         &svc.mux,
         tab_id,
         provider_id,
         &input.params,
         &input.launch_parameters,
     );
-    codeterm_service_core::service::orchestrator::launch_agent_in_background_with_env(
+    codeterm_service_core::service::launch_agent_in_background_with_env(
         svc.clone(),
         tab_id.to_string(),
         launch_cmd,
         provider_id.to_string(),
-        codeterm_service_core::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+        codeterm_service_core::service::AgentLaunchOrigin::RestoredSnapshot,
         false,
         None,
         input.launch_task.clone(),
@@ -503,7 +501,7 @@ pub fn resize_pty_core(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    codeterm_service_core::service::pty_resize::resize(
+    codeterm_service_core::service::pty_resize_resize(
         state,
         screen_state,
         &pty_id,

@@ -1,6 +1,6 @@
 use codeterm_service_core::agent::chat_types::ChatMsg;
 use codeterm_service_core::multiplexer::types::ContextEpochArchive;
-use codeterm_service_core::ServiceState;
+use codeterm_service_core::service::ServiceState;
 
 pub(crate) const CONTEXT_EPOCH_BOUNDARY_TEXT: &str =
     "Context reset. Earlier turns are archived here and are not sent to the provider.";

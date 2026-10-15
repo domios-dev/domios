@@ -13,7 +13,7 @@ mod stream_ops;
 mod transport;
 
 pub(crate) use activity::{is_agent_method, sanitize_actor, SurfaceActivityGate};
-pub(crate) use exit::{begin_surface_shutdown, SurfaceShutdown};
+pub use exit::{begin_surface_shutdown, SurfaceShutdown};
 pub use model::SurfaceError;
 pub use model::SurfaceOpenRequest;
 pub(crate) use runtime::SurfaceRuntimeRegistry;

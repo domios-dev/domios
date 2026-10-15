@@ -64,7 +64,7 @@ pub(crate) use servers::FRONTEND_READINESS_DEADLINE_ELAPSED;
 pub(crate) use states::init_states;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use storage::open_instance_storage_at;
-pub(crate) use storage::shutdown_bounded;
+pub use storage::shutdown_bounded;
 pub use storage::StorageAuthority;
 pub use storage::STORAGE_UNAVAILABLE_MESSAGE;
 pub(crate) use user_path::run_user_path_repair_if_invoked;

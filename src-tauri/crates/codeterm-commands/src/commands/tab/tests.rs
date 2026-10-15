@@ -45,7 +45,7 @@ fn chat_start_replays_registered_sse_history_without_a_plugin_store() {
     let replay = super::chat_start_core(&service, tab_id.clone(), "remount".into()).unwrap();
     let snapshot =
         codeterm_service_core::service::tab_chat::tab_chat_snapshot(&service, &tab_id, 0).unwrap();
-    codeterm_service_core::service::structured_endpoint::remove(&tab_id);
+    codeterm_service_core::service::structured_endpoint_remove(&tab_id);
     server.join().unwrap();
     assert_eq!(first.messages, replay.messages);
     let rows = replay.messages.unwrap();

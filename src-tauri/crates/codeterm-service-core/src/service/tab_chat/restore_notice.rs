@@ -1,7 +1,7 @@
 use crate::agent::chat_types::ChatMsg;
 use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
 
-pub(crate) fn append_restore_notice(
+pub fn append_restore_notice(
     journal: &TabLifecycleJournal,
     tab_id: &str,
     messages: &mut Vec<ChatMsg>,

@@ -126,7 +126,7 @@ async fn refresh(
             let status = bundles.status();
             if codeterm_plugins::frontend_stage_needed(item, status["pending"]["version"].as_str())
             {
-                codeterm_service_core::startup::frontend_bundles::check(bundles);
+                codeterm_service_core::startup::frontend_bundles_check(bundles);
             }
         }
     }

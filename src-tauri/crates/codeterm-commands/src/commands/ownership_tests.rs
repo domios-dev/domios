@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 
 use codeterm_service_core::multiplexer::state::MultiplexerState;
-use codeterm_service_core::service::pty_ownership::OwnershipEvent;
 use codeterm_service_core::service::test_fixture::ServiceFixture;
+use codeterm_service_core::service::OwnershipEvent;
 
 // Failure bound only: the full Windows suite (~300 s of parallel PowerShell launches) has
 // delayed one frontend attach past 30 s while every step still completes (#620).

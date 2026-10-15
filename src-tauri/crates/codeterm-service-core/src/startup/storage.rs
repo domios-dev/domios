@@ -106,7 +106,7 @@ fn unavailable(storage: Option<Storage>, reason: String) -> StorageAuthority {
     StorageAuthority::Unavailable { storage, reason }
 }
 
-pub(crate) fn shutdown_bounded(authority: &StorageAuthority) -> Result<(), String> {
+pub fn shutdown_bounded(authority: &StorageAuthority) -> Result<(), String> {
     let Some(storage) = authority.shutdown_handle() else {
         return Ok(());
     };

@@ -804,3 +804,5 @@ pub fn session_chat_snapshot(
 
 #[cfg(test)]
 mod tests;
+
+pub use restore_notice::append_restore_notice;

@@ -1,4 +1,4 @@
-use codeterm_service_core::service::skill_mirror::extract_revision;
+use codeterm_service_core::service::extract_revision;
 use std::fs;
 
 // Mirror CLAUDE hook marker from integration tests to keep legacy `$`-escaping regression covered.
