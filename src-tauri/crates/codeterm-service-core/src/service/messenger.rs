@@ -448,6 +448,7 @@ impl Messenger {
             return Err(refusal);
         }
         if svc.tab_chat_backing(to_tab).is_some() {
+            svc.wake_frozen_tab(to_tab)?;
             svc.chatbackend_reopen_if_restored(to_tab)?;
             let (plugin_id, session_id) = svc
                 .tab_chat_backing(to_tab)
@@ -610,6 +611,7 @@ impl Messenger {
             )
         };
         if is_chatbackend {
+            svc.wake_frozen_tab(to_tab)?;
             svc.chatbackend_reopen_if_restored(to_tab)?;
         }
         let backing = {
