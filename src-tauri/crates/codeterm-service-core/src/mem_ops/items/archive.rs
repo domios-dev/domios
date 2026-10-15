@@ -13,7 +13,7 @@ pub struct ArchiveBody {
     pub changed_by: Option<String>,
 }
 
-pub(crate) fn archive_mem_item(
+pub fn archive_mem_item(
     svc: &ServiceState,
     id: &str,
     reason: &str,
@@ -23,7 +23,7 @@ pub(crate) fn archive_mem_item(
         .with_conn(|conn| archive_mem_item_conn(conn, id, reason, actor))
 }
 
-pub(crate) fn validate_archive_reason(reason: &str) -> Result<String, (StatusCode, String)> {
+pub fn validate_archive_reason(reason: &str) -> Result<String, (StatusCode, String)> {
     let reason = reason.trim();
     if reason.is_empty() || reason.len() > 500 || reason.chars().any(char::is_control) {
         return Err((
