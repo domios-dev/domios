@@ -169,7 +169,11 @@ pub fn anchor_rows(
     bytes: &[u8],
     from_offset: u64,
 ) {
-    let line_starts: Vec<u64> = std::iter::once(0)
+    anchor_rows_from_starts(rows, record_indexes, &record_starts(bytes), from_offset);
+}
+
+pub(crate) fn record_starts(bytes: &[u8]) -> Vec<u64> {
+    std::iter::once(0)
         .chain(
             bytes
                 .iter()
@@ -177,7 +181,15 @@ pub fn anchor_rows(
                 .filter(|(_, byte)| **byte == b'\n')
                 .map(|(i, _)| i as u64 + 1),
         )
-        .collect();
+        .collect()
+}
+
+pub(crate) fn anchor_rows_from_starts(
+    rows: &mut [RichMessage],
+    record_indexes: &[Option<usize>],
+    line_starts: &[u64],
+    from_offset: u64,
+) {
     let mut numbered: Option<(u64, u32)> = None;
     for (row, index) in rows.iter_mut().zip(record_indexes) {
         row.record_start = index
