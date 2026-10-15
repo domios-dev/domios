@@ -164,7 +164,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                         settings: super::model::settings_from_config(&config),
                         provider_settings: super::model::public_provider_settings(&config),
                         cwd: cwd.clone(),
-                        host_version: env!("CARGO_PKG_VERSION").into(),
+                        host_version: codeterm_build_info::version().into(),
                         claimed_sends: Vec::new(),
                         active_turns: Vec::new(),
                         thread_parents: Vec::new(),

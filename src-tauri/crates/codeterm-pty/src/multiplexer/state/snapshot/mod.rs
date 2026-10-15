@@ -277,7 +277,7 @@ impl MultiplexerState {
             .as_millis() as u64;
 
         SessionSnapshot {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: codeterm_build_info::version().to_string(),
             timestamp,
             workspaces,
             active_workspace_id: self.active_workspace_id.clone(),

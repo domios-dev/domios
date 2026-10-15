@@ -146,7 +146,7 @@ async fn check_and_apply_plugin(
     let endpoint = Url::parse(&endpoint_str)
         .map_err(|e| format!("invalid manifest URL '{}': {}", endpoint_str, e))?;
 
-    let local_version = env!("CARGO_PKG_VERSION");
+    let local_version = codeterm_build_info::version();
     let target_arch = std::env::consts::ARCH;
     let target_os = std::env::consts::OS;
     let platform_key = manifest::current_platform_key();
@@ -346,7 +346,7 @@ pub async fn check_stage_deb_update(
         .await
         .map_err(|e| format!("updater.check() error: {}", e))?
     else {
-        diagnose_no_update(&endpoint_str, env!("CARGO_PKG_VERSION")).await;
+        diagnose_no_update(&endpoint_str, codeterm_build_info::version()).await;
         return Ok(DebianUpdatePlan::NoUpdate);
     };
 
