@@ -85,3 +85,6 @@ mod capability_probe_routes;
 
 #[cfg(test)]
 mod core_contract_tests;
+
+#[cfg(test)]
+mod rest_liveness_tests;

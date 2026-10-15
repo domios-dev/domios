@@ -107,6 +107,8 @@ pub fn run(
         .manage(states.rest_api.clone());
     register_commands(builder)
         .setup(move |app| {
+            #[cfg(debug_assertions)]
+            tauri::async_runtime::spawn(codeterm_service_core::startup::runtime_diagnostics::watch("main"));
             {
                 let api_config = states.config.lock().api.clone();
                 let window = startup::frontend_shell_create_window(app, &api_config)?;

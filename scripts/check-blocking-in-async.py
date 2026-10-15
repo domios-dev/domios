@@ -39,11 +39,12 @@ LOCKING_HELPERS = {
     "drain_tab_output", "clear_tab_role", "chat_read_target",
 
     "set_and_lock_tab_agent_type_from", "rename_tab", "link_pty",
+    "identify_caller", "authorize_peer_request", "authorize_request",
 
 }
 
 
-def findings(source, check_locks=True):
+def findings(source, check_locks=True, check_auth_locks=False):
     tokens = [(m.group(), m.start()) for m in TOKEN.finditer(source)
               if not m.group().startswith(("//", "/*", '"'))
               and not re.match(r'^r\#*"', m.group())]
@@ -100,6 +101,9 @@ def findings(source, check_locks=True):
         elif (check_locks and words[i] in LOCKING_HELPERS and words[i + 1] == "("
               and words[i - 1] != "fn"):
             lock = f"{words[i]}()"
+        if (check_auth_locks and words[i] in ("config", "mesh")
+                and words[i + 1:i + 5] == [".", "lock", "(", ")"]):
+            lock = f".{words[i]}.lock()"
         rest = "".join(words[i:i + 12])
         for pattern in ("std::process::Command::new", "std::thread::sleep",
                         "reqwest::blocking::"):
@@ -142,7 +146,8 @@ def main(repo=None):
                 continue
             bad.extend(f"{path.relative_to(repo).as_posix()}:{line}:{lock}"
                        for line, lock in findings(path.read_text(encoding="utf-8"),
-                                                   check_locks=root.name != "service"))
+                                                   check_locks=root.name != "service",
+                                                   check_auth_locks=path.name == "auth.rs"))
     allowlist = repo / "scripts/blocking-in-async-allowlist.txt"
     allowed = {line.strip() for line in allowlist.read_text(encoding="utf-8").splitlines()
                if line.strip() and not line.lstrip().startswith("#")} if allowlist.exists() else set()

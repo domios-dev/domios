@@ -15,6 +15,15 @@ class AsyncBlockingGateTests(unittest.TestCase):
     def patterns(self, source):
         return [pattern for _, pattern in gate.findings(source)]
 
+    def test_auth_config_and_mesh_locks_require_blocking_boundary(self):
+        for field in ("config", "mesh"):
+            source = f"async fn auth() {{ state.{field}.lock(); }}"
+            self.assertEqual(gate.findings(source, check_auth_locks=True),
+                             [(1, f".{field}.lock()")])
+            self.assertEqual(gate.findings(
+                f"async fn auth() {{ spawn_blocking(move || state.{field}.lock()); }}",
+                check_auth_locks=True), [])
+
     def test_every_ordered_lock_is_rejected(self):
         for field, methods in gate.LOCKS.items():
             for method in methods:
