@@ -38,7 +38,6 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `comment-length` | guard | bash | pr | no | no | 60 | single | `bash scripts/check-comment-length.sh --fail --changed` | `.agents/skills/style/SKILL.md` |
 | `docs-source-of-truth` | guard | bash | pr | no | no | 60 | single | `bash scripts/check-api-docs.sh && bash scripts/check-prompts-doc.sh && bash scripts/check-evals-list.sh` | `essences/begin_here.md` |
 | `script-guards` | guard | bash | pr | no | no | 120 | single | `./build.sh script-guards` | `.agents/skills/build/SKILL.md` |
-| `script-catalog` | guard | bash | pr | no | no | 60 | script-catalog | `bash scripts/check-script-catalog.sh` | `scripts/README.md` |
 | `test-catalogue` | guard | js | pr | no | no | 60 | single | `node scripts/test-catalogue.mjs validate` | `tests/README.md` |
 | `rust-service-core` | unit | rust | release | no | no | 3600 | nextest-list (fallback static-scan) | `./build.sh nextest app` | `.agents/skills/gates/SKILL.md` |
 | `rust-app` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest shell` | `.agents/skills/gates/SKILL.md` |

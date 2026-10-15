@@ -425,6 +425,17 @@ Rust builds share the target dir — concurrent `tauri build` + `tauri dev` figh
 ./build.sh kill
 ```
 
+### 0.5. Documentation review (release agent, once per release)
+
+Documentation is reviewed here, once, by the release agent; no commit-time generator or gate maintains it. Before the version bump, diff the release branch against the last release tag and fix what the diff made stale:
+
+- `prod-docs/` pages whose commands, flags, outputs or behaviour changed (bump each changed page's `<!-- revision: N -->`);
+- `.agents/skills/` procedures that name changed `build.sh` verbs, workflows, scripts or paths;
+- `essences/` contracts the release changed;
+- scripts or workflows the diff left with no caller (`git grep` the name; delete what nothing uses).
+
+Commit the fixes as one `docs:` commit on the release branch.
+
 ### 1. Bump version on the release branch (one commit)
 
 ```bash
