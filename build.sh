@@ -2553,6 +2553,8 @@ EOF
     esac
     ;;
   nextest)
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
     run_nextest_scope "${@:2}"
     ;;
   nextest-archive)
