@@ -50,6 +50,7 @@ pub(crate) fn resolve_displaced_prompt(
 #[cfg(any(test, feature = "test-support"))]
 pub mod tests {
     use super::*;
+    #[cfg(test)]
     use crate::notification::store::{Ask, NotificationProvenance, NotificationSeverity};
     use codeterm_notification_core::contract::NotificationAction;
     use codeterm_types::pty::{PendingPrompt, PromptKind, PromptOption};

@@ -108,7 +108,7 @@ pub struct SurfaceTabRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct DeclaredSurfaceRow {
+pub struct DeclaredSurfaceRow {
     pub plugin_id: String,
     pub surface_id: String,
     pub title: String,
