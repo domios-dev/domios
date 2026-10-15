@@ -976,8 +976,6 @@ powershell.exe -NoProfile -Command "Get-Process codeterm -ErrorAction SilentlyCo
 # 2. Copy fresh binaries into the installed location
 cp C:/Developer/codeterm/src-tauri/target/release/codeterm.exe \
    "$USERPROFILE/AppData/Local/CodeTerm/codeterm.exe"
-cp C:/Developer/codeterm/src-tauri/target/release/codeterm-embed.exe \
-   "$USERPROFILE/AppData/Local/CodeTerm/codeterm-embed.exe"   # only if you touched the sidecar
 
 # 3. Restart
 powershell.exe -NoProfile -Command "Start-Process -FilePath 'C:\Users\dev\AppData\Local\CodeTerm\codeterm.exe'"
@@ -1004,7 +1002,7 @@ codeterm update install \
 ```
 
 `--continue-tab` defaults to `$CODETERM_TAB_ID`. Before detaching, the CLI saves the desk through `/api/session/save` with the continuation; the relaunched daemon delivers it once, after that tab's own resumed session is agent-ready (`codeterm docs TAB-LIFECYCLE`, "Resume after restart"). Every other agent that was mid-turn gets one default continue the same way. The helper:
-1. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
+1. `taskkill /F /IM codeterm.exe`.
 2. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
 3. Launches the freshly installed `codeterm.exe`. It never writes to a tab.
 4. Logs to `%LocalAppData%\codeterm\self-install.log`.
@@ -1043,8 +1041,8 @@ As of 2026-05-12 this skill is the canonical release procedure. No `.claude/agen
 ## Build timing and no-waste contract
 
 Release inputs and the Tauri build use the same `CARGO_TARGET_DIR`, target triple,
-`CARGO_INCREMENTAL=0`, and `embeddings` feature set. `release-inputs` prepares both the
-`codeterm` application and `codeterm-embed` bins in one Cargo invocation, so Tauri can reuse
+`CARGO_INCREMENTAL=0`, and `embeddings` feature set. `release-inputs` prepares the
+`codeterm` application bin so Tauri can reuse
 the dependency graph. The reusable platform jobs do not use Rust target caches; clean
 checkouts therefore remain explicit and reproducible.
 
@@ -1061,8 +1059,8 @@ and `35009190153` (Linux):
 
 The Windows logs show the same `CARGO_BUILD_TARGET` and `CARGO_INCREMENTAL=0` in both steps,
 but no Cargo fingerprint or feature diagnostics. The verified source-level cause is that
-`release-inputs` selected `--bin codeterm-embed` and Tauri selected the `codeterm` application
-target in a second Cargo invocation; the new input command selects both bins together.
+the input preparation and Tauri selected different Cargo targets. The input command now
+selects the application target with the same product features as Tauri.
 
 After the next real release, record the corresponding step durations and tag-to-publish time
 in this table. Read-only timing capture (run IDs are the three workflow runs) is:
