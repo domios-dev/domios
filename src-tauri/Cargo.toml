@@ -57,11 +57,15 @@ parking_lot = "0.12"
 png = "0.17"
 dirs = "6"
 url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry"] }
 
 [features]
 default = ["embeddings"]

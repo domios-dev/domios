@@ -112,3 +112,5 @@ pub use liveness::start_api_liveness_watchdog;
 pub use native_resize::install as install_native_resize;
 pub use webview2_reap::reap_orphaned_webview2;
 pub use webview_watchdog::spawn as spawn_webview_watchdog;
+
+pub use webview2_reap::clear_journal_for_exit as clear_webview_journal_for_exit;

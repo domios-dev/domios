@@ -31,10 +31,10 @@ mod no_inference {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    const SINK: &str = "_send_os_notification";
+    const SINK: &str = "shell.os_notify";
 
     /// System and automation events may not reach the desktop sink.
-    const SINK_CALLERS: [&str; 2] = ["notification/os_notify.rs", "service/notification.rs"];
+    const SINK_CALLERS: [&str; 1] = ["service/notification.rs"];
 
     const EXPLICIT_CREATORS: [&str; 1] = ["service/notification.rs"];
 

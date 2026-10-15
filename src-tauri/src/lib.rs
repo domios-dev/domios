@@ -16,3 +16,7 @@ pub fn run() {
         command_registration::register_commands,
     );
 }
+
+mod crash;
+mod keepawake;
+mod os_notify;
