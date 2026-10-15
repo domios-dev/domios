@@ -31,7 +31,7 @@ struct LaunchEnvironmentSummary {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AgentLaunchOrigin {
+pub enum AgentLaunchOrigin {
     AtomicSpawn,
     AutomaticExitRecovery,
     ExitRecovery,
