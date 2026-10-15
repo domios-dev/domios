@@ -13,7 +13,7 @@ codeterm tab new --purpose qa --timeout 30s --cmd "sleep 600"
 codeterm tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disables
 ```
 
-A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status giving shell lifetime and command elapsed separately. Deadlines survive shell and daemon restarts (`tab timeout` extends a restarted shell); `tab inspect` shows `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms) and the close journal records `utility_timeout`. An unrestorable shell is reported lost. REST: `POST /api/tabs` takes `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
+A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status giving shell lifetime and command elapsed separately. `tab restart` renews the previous lifetime from the restart; `--timeout` overrides it (or `none` disables it), for the owning agent only. Later commands share that lifetime. Daemon restarts preserve the absolute deadline; `tab inspect` shows `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms) and the close journal records `utility_timeout`. An unrestorable shell is reported lost. REST: `POST /api/tabs` and `POST /api/tabs/{id}/restart` take optional `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
 
 ## Storage authority and recovery
 
@@ -231,4 +231,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 52 -->
+<!-- revision: 53 -->

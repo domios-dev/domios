@@ -565,6 +565,7 @@ pub async fn release_remote_ownership(
 #[derive(Deserialize)]
 pub struct RestartShellTabBody {
     cwd: Option<String>,
+    timeout: Option<String>,
 }
 
 pub async fn rerun_restored_shell(
@@ -592,10 +593,19 @@ pub async fn restart_shell_tab(
         .await
         .map_err(|(status, message)| (status, message.to_string()))?;
     let svc = state.svc.clone();
-    let outcome = tokio::task::spawn_blocking(move || svc.restart_shell_tab(&tab_id, body.cwd))
-        .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    let caller = caller_tab_header(&headers);
+    let outcome = tokio::task::spawn_blocking(move || {
+        if let Some(timeout) = body.timeout {
+            let owner = caller
+                .as_deref()
+                .ok_or("timeout requires an owning agent")?;
+            svc.set_utility_timeout(&tab_id, owner, &timeout)?;
+        }
+        svc.restart_shell_tab(&tab_id, body.cwd)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     Ok(Json(serde_json::to_value(outcome).unwrap_or_default()))
 }
 

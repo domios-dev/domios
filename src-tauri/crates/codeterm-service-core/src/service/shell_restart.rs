@@ -36,6 +36,8 @@ impl ServiceContext {
             self.tab_chat_backing(tab_id).is_some(),
         )?;
 
+        self.renew_utility_timeout(tab_id)?;
+
         if let Some(ref old_pty_id) = old_pty_id {
             self.pty_ownership.release_pty(old_pty_id);
             {
@@ -65,6 +67,7 @@ impl ServiceContext {
             tab.cwd = resolved_cwd.clone();
             tab.restored_from_snapshot = false;
             tab.shell_command_state = Default::default();
+            tab.utility_command_pending = false;
         }
         self.ensure_tab_pty_for_send(tab_id)?;
         let new_pty_id = self.resolve_pty_id(tab_id)?;
