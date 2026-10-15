@@ -264,7 +264,7 @@ mod tests {
     use super::{method_allowed, sanitize_remote_context, ResponseCache, CACHE_CAPACITY};
 
     fn app_state(
-        fixture: &codeterm_service_core::service::test_fixture::ServiceFixture,
+        fixture: &codeterm_host_runtime::test_fixture::HostFixture,
         peer: Option<codeterm_service_core::mesh::types::PairedPeer>,
     ) -> crate::routes::AppState {
         let config = codeterm_service_core::config::schema::AppConfig::default();
@@ -273,6 +273,7 @@ mod tests {
             mesh.paired_peers.insert(peer.instance_id.clone(), peer);
         }
         crate::routes::AppState {
+            app: fixture.app.handle().clone(),
             svc: std::sync::Arc::new(fixture.service.clone()),
             cron: std::sync::Arc::new(parking_lot::Mutex::new(
                 codeterm_service_core::cron::store::CronStore::new_with_path(
@@ -335,7 +336,7 @@ mod tests {
     async fn mesh_rpc_remote_lifecycle_rejects_unauthenticated_unpaired_and_read_only_peers() {
         codeterm_service_core::ports::socket::register_test_stub();
         let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+        let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
         for method in ["plan.task.remote_ack", "plan.task.remote_report"] {
             for (case, paired_peer, authorization, expected) in [
                 (
@@ -404,7 +405,7 @@ mod tests {
     async fn relayed_remote_lifecycle_uses_the_verified_sender_access() {
         codeterm_service_core::ports::socket::register_test_stub();
         let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+        let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
         for (access, full) in [
             (codeterm_service_core::mesh::types::AccessLevel::Full, true),
             (

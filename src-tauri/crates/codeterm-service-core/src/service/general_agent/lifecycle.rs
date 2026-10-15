@@ -216,7 +216,6 @@ pub fn start_general_agent(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    _app: &crate::app_runtime::AppHandle,
 ) {
     let Some(_launch_guard) = launch_lock::LaunchGuard::acquire() else {
         log::info!("[general-agent] Start skipped; another launch owns the agent");
@@ -532,9 +531,8 @@ pub fn restart_general_agent(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &crate::app_runtime::AppHandle,
 ) {
-    restart_general_agent_with_force(svc, mux, pty, screen_state, config, app, false);
+    restart_general_agent_with_force(svc, mux, pty, screen_state, config, false);
 }
 
 pub(crate) fn restart_general_agent_with_force(
@@ -543,7 +541,6 @@ pub(crate) fn restart_general_agent_with_force(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &crate::app_runtime::AppHandle,
     force: bool,
 ) {
     log::info!("[general-agent] Manual restart requested");
@@ -552,7 +549,7 @@ pub(crate) fn restart_general_agent_with_force(
         return;
     }
 
-    restart_general_agent_inner(svc, mux, pty, screen_state, config, app, force);
+    restart_general_agent_inner(svc, mux, pty, screen_state, config, force);
 }
 
 pub(crate) fn restart_general_agent_fresh_after_exit(
@@ -561,10 +558,9 @@ pub(crate) fn restart_general_agent_fresh_after_exit(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &crate::app_runtime::AppHandle,
 ) -> Result<(), String> {
     state::require_fresh_session()?;
-    restart_general_agent_inner(svc, mux, pty, screen_state, config, app, false);
+    restart_general_agent_inner(svc, mux, pty, screen_state, config, false);
     Ok(())
 }
 
@@ -574,7 +570,6 @@ fn restart_general_agent_inner(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &crate::app_runtime::AppHandle,
     force: bool,
 ) {
     if !super::restart_guard::permit(svc, mux, force) {
@@ -588,7 +583,7 @@ fn restart_general_agent_inner(
         runtime_tab.filter(|tab| crate::service::agent_runtime::requested_for_tab(svc, tab))
     {
         crate::service::agent_runtime::engine::stop(&tab_id);
-        start_general_agent(svc, mux, pty, screen_state, config, app);
+        start_general_agent(svc, mux, pty, screen_state, config);
         return;
     }
     let mut stale_pty_id = None;
@@ -636,7 +631,7 @@ fn restart_general_agent_inner(
         });
     }
 
-    start_general_agent(svc, mux, pty, screen_state, config, app);
+    start_general_agent(svc, mux, pty, screen_state, config);
 }
 
 pub fn restart_general_agent_tab(
@@ -646,10 +641,9 @@ pub fn restart_general_agent_tab(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &crate::app_runtime::AppHandle,
 ) -> Result<(), String> {
     if validate_general_agent_tab_retry(tab_id, mux)? {
-        restart_general_agent(svc, mux, pty, screen_state, config, app);
+        restart_general_agent(svc, mux, pty, screen_state, config);
     }
     Ok(())
 }

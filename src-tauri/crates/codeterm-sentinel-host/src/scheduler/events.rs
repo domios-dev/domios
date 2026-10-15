@@ -10,9 +10,8 @@ impl Handle {
             .lock()
             .get(pipeline_id)
             .map(|job| (job.workspace_id.clone(), job.team_id.clone()));
-        if let (Some(app), Some((workspace_id, team_id))) = (&self.app, scope) {
-            codeterm_service_core::events::emit_everywhere(
-                app,
+        if let (Some(ui), Some((workspace_id, team_id))) = (&self.ui, scope) {
+            ui.emit(
                 "automation-graph-changed",
                 serde_json::json!({
                     "workspace_id":workspace_id,

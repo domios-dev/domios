@@ -7,10 +7,10 @@ use std::sync::Arc;
 use tauri::Manager;
 
 pub fn run(
-    context: tauri::Context<codeterm_service_core::app_runtime::Runtime>,
+    context: tauri::Context<codeterm_host_runtime::app_runtime::Runtime>,
     register_commands: fn(
-        tauri::Builder<codeterm_service_core::app_runtime::Runtime>,
-    ) -> tauri::Builder<codeterm_service_core::app_runtime::Runtime>,
+        tauri::Builder<codeterm_host_runtime::app_runtime::Runtime>,
+    ) -> tauri::Builder<codeterm_host_runtime::app_runtime::Runtime>,
 ) {
     codeterm_service_core::async_runtime::install(tauri::async_runtime::handle().inner().clone());
     // Never automatic: only an explicit `repair-user-path` argv reaches it.
@@ -61,7 +61,7 @@ pub fn run(
     codeterm_service_core::service::seed_bundled_skills();
     codeterm_service_core::service::mirror_skills_to_providers();
 
-    let mut builder = codeterm_service_core::app_runtime::builder()
+    let mut builder = codeterm_host_runtime::app_runtime::builder()
         .plugin(tauri_plugin_shell::init())
         .plugin(startup::native_notification())
         .plugin(tauri_plugin_dialog::init())
@@ -116,12 +116,13 @@ pub fn run(
                 let window = startup::frontend_shell_create_window(app, &api_config)?;
                 startup::setup_window_styling(&window);
                 #[cfg(windows)]
-                codeterm_service_core::install_native_resize(&window)?;
-                codeterm_service_core::spawn_webview_watchdog(window);
+                crate::native_resize::install(&window)?;
+                crate::webview_watchdog::spawn(window);
             }
 
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
+            codeterm_socket::register_socket(app_handle.clone());
 
             // remainder; timed + already expired → drop the snapshot.
             keepawake::reap_orphaned_children_on_startup();
@@ -213,7 +214,7 @@ pub fn run(
             plugin_manager.set_registrar(agent_registry.clone());
             plugin_manager.set_event_sink(states.event_broadcaster.clone());
 
-            startup::model_catalogue::forward_changes(&app_handle);
+            startup::model_catalogue::forward_changes(ui.clone());
 
             // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
             {
@@ -449,7 +450,6 @@ pub fn run(
             let startup_step = startup::StartupStep::logged("service state construction");
             let svc_ctx = codeterm_service_core::service::build_service_context(
                 &states,
-                &app_handle,
                 ui.clone(),
                 Arc::new(crate::host_ports::TauriShell(app_handle.clone())),
                 codeterm_service_core::async_runtime::handle().clone(),
@@ -478,8 +478,7 @@ pub fn run(
                 &cap_registries,
             );
             codeterm_service_core::service::supporter::runtime_with_notifications(&svc_ctx);
-            let service_state: ServiceState = Arc::new(svc_ctx);
-            assert!(service_state.set_ext(Arc::downgrade(&service_state)).is_ok());
+            let service_state: ServiceState = svc_ctx;
             codeterm_service_core::ports::orchestration::install(&service_state);
             repo_sink.bind_service(Arc::downgrade(&service_state));
             service_state.chat_send_ledger.bind_settlement_owner(&service_state);
@@ -538,7 +537,7 @@ pub fn run(
             codeterm_service_core::service::agent_runtime::restore_all(&service_state);
             codeterm_service_core::service::lazy_restore::initialize(&service_state, states.config.lock().restore.active_window_hours);
             app.manage(service_state.clone());
-            codeterm_service_core::service::account::register_deep_links(&app_handle, service_state.clone())?;
+            crate::deep_links::register_deep_links(&app_handle, service_state.clone())?;
             {
                 let service = service_state.clone();
                 tauri::async_runtime::spawn(async move {
@@ -639,7 +638,7 @@ pub fn run(
 
             let startup_step = startup::StartupStep::logged("platform and server initialization");
             startup::setup_conpty_host(app);
-            startup::install_bundled_cli(app);
+            startup::install_bundled_cli(service_state.shell.as_ref());
             drop(startup::restore_complete(&service_state));
             startup::start_servers(app, &states, &service_state);
             startup::frontend_shell_start(app_handle.clone(), states.rest_api.clone());
@@ -694,7 +693,7 @@ pub fn run(
 
             // the React side has time to attach the listener.
             {
-                let app_handle = app.handle().clone();
+                let ui = service_state.ui.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     let new_reports = codeterm_service_core::crash::check_previous_crashes();
@@ -711,8 +710,7 @@ pub fn run(
                             files.len(),
                             dir.display()
                         );
-                        codeterm_service_core::events::emit_everywhere(
-                            &app_handle,
+                        ui.emit(
                             "crash_report_available",
                             serde_json::json!({
                                 "dir": dir.to_string_lossy(),

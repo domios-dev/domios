@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 pub fn build_service_context(
     states: &crate::startup::AppStates,
-    app_handle: &crate::app_runtime::AppHandle,
     ui: Arc<dyn crate::ports::host::UiEvents>,
     shell: Arc<dyn crate::ports::host::Shell>,
     rt: tokio::runtime::Handle,
@@ -36,7 +35,7 @@ pub fn build_service_context(
     tab_menu_registry: &codeterm_plugin::tab_menu::TabMenuRegistryHandle,
     surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle,
     cap_registries: &crate::plugin::js_runtime::CapabilityRegistries,
-) -> ServiceContext {
+) -> Arc<ServiceContext> {
     let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
         crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
         mem.db_path().to_path_buf(),
@@ -280,7 +279,6 @@ pub fn build_service_context(
         screen_state: states.screen_state.clone(),
         notif: states.notif.clone(),
         events: states.event_broadcaster.clone(),
-        app_handle: app_handle.clone(),
         ui,
         shell,
         rt,
@@ -316,8 +314,11 @@ pub fn build_service_context(
         worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
         gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         extensions: Arc::new(extensions.finish()),
+        host_extensions: Default::default(),
     };
     assert!(service.set_ext(states.storage.clone()).is_ok());
     assert!(service.set_ext(states.session.clone()).is_ok());
+    let service = Arc::new(service);
+    assert!(service.set_ext(Arc::downgrade(&service)).is_ok());
     service
 }

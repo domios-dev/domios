@@ -69,12 +69,10 @@ fn owner_call(owner: &str, fields: Value) -> Option<Value> {
 fn task_key_contract_socket_add_returns_key_and_reads_accept_id_or_key() {
     let (fixture, plan_id, owner) = keyed_fixture();
     let service = Arc::new(fixture.service.clone());
-    let app = &fixture.service.app_handle;
 
     let created = dispatch(
         "plan.task.add",
         &owner_call(&owner, json!({ "plan_id": plan_id, "name": "Keyed task" })),
-        app,
         &service,
         2,
     )
@@ -100,7 +98,7 @@ fn task_key_contract_socket_add_returns_key_and_reads_accept_id_or_key() {
             if plan_scoped {
                 fields["plan_id"] = json!(plan_id);
             }
-            let detail = dispatch("task.show", &Some(fields), app, &service, 3)
+            let detail = dispatch("task.show", &Some(fields), &service, 3)
                 .unwrap_or_else(|error| panic!("show {reference}: {}", error.message));
             assert_eq!(detail["task"]["id"], task_id, "{reference}");
             assert_eq!(detail["task"]["key"], key, "{reference}");
@@ -111,7 +109,6 @@ fn task_key_contract_socket_add_returns_key_and_reads_accept_id_or_key() {
     let second = dispatch(
         "plan.task.add",
         &owner_call(&owner, json!({ "plan_id": plan_id, "name": "Second task" })),
-        app,
         &service,
         4,
     )

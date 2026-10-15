@@ -7,12 +7,12 @@ use parking_lot::Mutex;
 use tower::ServiceExt;
 
 use crate::routes::AppState;
+use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
 use codeterm_service_core::agent::chat_types::{ChatMsg, StructuredChat};
 use codeterm_service_core::agent::provider::{
     AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
 };
 use codeterm_service_core::multiplexer::state::MultiplexerState;
-use codeterm_service_core::service::test_fixture::ServiceFixture;
 
 struct TranscriptProvider(Arc<Mutex<HashMap<String, Vec<ChatMsg>>>>);
 
@@ -78,6 +78,7 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("local-preview-test".into(), 0);
     mesh.disk_persist = false;
     AppState {
+        app: fixture.app.handle().clone(),
         svc: Arc::new(fixture.service.clone()),
         cron: Arc::new(parking_lot::Mutex::new(
             codeterm_service_core::cron::store::CronStore::new_with_path(
