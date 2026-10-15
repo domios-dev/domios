@@ -155,10 +155,10 @@ expect_log 'enter_build_gateway "$@"' <<< "$cargo_entry_flow"
 expect_log 'ct_configure_sccache' <<< "$cargo_entry_flow"
 
 test_one_flow="$(sed -n '/^  test-one)/,/^  verify)/p' build.sh)"
-expect_log 'types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
+expect_log 'types) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
 expect_log 'configure_app_test_cargo test-one' <<< "$test_one_flow"
 expect_log 'scripts/test-capped.sh "${CT_APP_TEST_ARGS[@]}" "$test_filter"' <<< "$test_one_flow"
-expect_log 'cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter"' <<< "$test_one_flow"
+expect_log 'cli) scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --all-targets "$test_filter"' <<< "$test_one_flow"
 
 nextest_flow="$(sed -n '/^  nextest)/,/^  verify)/p' build.sh)"
 expect_log 'run_nextest_scope "${@:2}"' <<< "$nextest_flow"
@@ -173,7 +173,7 @@ verify_coverage_checks_typescript() {
   grep -q 'node node_modules/typescript/bin/tsc --noEmit' <<< "$verify_flow"
 }
 verify_coverage_runs_cli_tests() {
-  grep -q 'scripts/test-capped.sh --manifest-path cli/Cargo.toml' <<< "$verify_flow"
+  grep -q 'scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml' <<< "$verify_flow"
 }
 verify_coverage_checks_typescript
 verify_coverage_runs_cli_tests
