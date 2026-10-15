@@ -5,8 +5,9 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   LOCK_NAME, VERBS, findPeer, jobEvent, loadPeers, newJobId, outcomeOf, parseDispatchArgs, parseDuration,
-  parseJobLog, parseStatusOutput, pathPrefix, pickPeer, remoteCommand, STATUS_MARKER, summarizeGateway,
+  parseJobLog, parseSeriesSpec, parseStatusOutput, pathPrefix, seriesSummary, pickPeer, remoteCommand, STATUS_MARKER, summarizeGateway,
 } from './build-peer-lib.mjs';
+import { gatewayDirOf, otherGatewayJobs, runSeries } from './build-peer-series.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const PROBE_TIMEOUT_MS = 20000;
@@ -50,10 +51,11 @@ function parseJson(text, what) {
   }
 }
 
-function git(args) {
-  const result = spawnSync('git', args, { encoding: 'utf8', windowsHide: true });
-  if (result.status !== 0) throw new Refusal(`git ${args.join(' ')} failed: ${(result.stderr || '').trim()}`);
-  return result.stdout.trim();
+function git(args, { allowFail = false, status = false, env, input, raw = false } = {}) {
+  const result = spawnSync('git', args, { encoding: 'utf8', windowsHide: true, input, env: env ? { ...process.env, ...env } : undefined });
+  if (status) return result.status === 0;
+  if (result.status !== 0 && !allowFail) throw new Refusal(`git ${args.join(' ')} failed: ${(result.stderr || '').trim()}`);
+  return raw ? result.stdout ?? '' : (result.stdout ?? '').trim();
 }
 
 function peersConfig() {
@@ -159,6 +161,17 @@ async function dispatch(argv) {
   const opts = parseDispatchArgs(verb, argv);
   const config = peersConfig();
   const replyTab = requireReplyTab(opts);
+  if (verb === 'check-series') {
+    const spec = parseSeriesSpec(JSON.parse(fs.readFileSync(opts.spec, 'utf8')));
+    for (const base of spec.bases) resolveSha(base.sha);
+    // The job checks out this runner's SHA, so one build.sh drives every base; scratch commits never touch the checkout.
+    const runnerSha = resolveSha('HEAD');
+    const peer = opts.peer === 'auto' ? await route(config, opts.os) : findPeer(config.peers, opts.peer);
+    const specB64 = Buffer.from(JSON.stringify(spec)).toString('base64');
+    launch({ config, peer, verb, sha: runnerSha, deadlineSecs: parseDuration(opts.deadline), replyTab, clone: false, stateDir,
+      recordNames: [], runnerTail: { head: ['run-series'], rest: ['--spec-b64', specB64] } });
+    return;
+  }
   const sha = resolveSha(opts.sha ?? 'HEAD');
   const recordNames = [];
   if (verb === 'check-linux') {
@@ -230,33 +243,80 @@ function jobLogPath(id) {
   return path.join(dir, `${id}.log`);
 }
 
-function runJob(argv) {
+function spawnBuild(args, log, deadlineAt) {
+  return new Promise((resolve) => {
+    const child = spawn('bash', ['./build.sh', ...args, '--wait-build'], {
+      detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    });
+    let timedOut = false;
+    let output = '';
+    const deadline = setTimeout(() => { timedOut = true; killTree(child); }, Math.max(0, deadlineAt - Date.now()));
+    for (const stream of [child.stdout, child.stderr]) {
+      stream.on('data', (chunk) => { output += chunk; process.stdout.write(chunk); log.write(chunk); });
+    }
+    child.on('close', (code) => {
+      clearTimeout(deadline);
+      resolve({ code: code ?? 1, output, timedOut });
+    });
+  });
+}
+
+function finishJob(opts, log, started, verb, exitCode, timedOut, parsed, logPath) {
+  log.end(() => {
+    // The event is the caller's cue to dispatch again, and send --require-agent can block, so free the checkout first.
+    releaseLock();
+    sendEvent(opts, jobEvent({ jobId: opts.id, peer: opts['peer-name'], verb, sha: opts.sha,
+      outcome: outcomeOf(exitCode, timedOut), exitCode, wallSecs: Math.round((Date.now() - started) / 1000), parsed: parsed(), logPath }));
+    process.exitCode = exitCode;
+  });
+}
+
+async function runJob(argv) {
   const { opts, rest } = jobArgs(argv);
   const deadlineSecs = Number(opts['deadline-secs']);
   if (!rest.length || !(deadlineSecs > 0)) throw new Refusal('peer job requires --deadline-secs and a build verb after --');
   const logPath = jobLogPath(opts.id);
   const log = fs.createWriteStream(logPath);
   const started = Date.now();
-  const child = spawn('bash', ['./build.sh', ...rest, '--wait-build'], {
-    detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
-  });
-  let timedOut = false;
-  const deadline = setTimeout(() => { timedOut = true; killTree(child); }, deadlineSecs * 1000);
-  for (const stream of [child.stdout, child.stderr]) {
-    stream.on('data', (chunk) => { process.stdout.write(chunk); log.write(chunk); });
-  }
-  child.on('close', (code) => {
-    clearTimeout(deadline);
-    log.end(() => {
-      const parsed = parseJobLog(fs.readFileSync(logPath, 'utf8'));
-      const exitCode = code ?? 1;
-      // The event is the caller's cue to dispatch again, and send --require-agent can block, so free the checkout first.
-      releaseLock();
-      sendEvent(opts, jobEvent({ jobId: opts.id, peer: opts['peer-name'], verb: opts.verb, sha: opts.sha,
-        outcome: outcomeOf(exitCode, timedOut), exitCode, wallSecs: Math.round((Date.now() - started) / 1000), parsed, logPath }));
-      process.exitCode = exitCode;
+  const run = await spawnBuild(rest, log, started + deadlineSecs * 1000);
+  finishJob(opts, log, started, opts.verb, run.code, run.timedOut, () => parseJobLog(fs.readFileSync(logPath, 'utf8')), logPath);
+}
+
+async function runSeriesJob(argv) {
+  const { opts } = jobArgs(argv);
+  const deadlineSecs = Number(opts['deadline-secs']);
+  if (!opts['spec-b64'] || !(deadlineSecs > 0)) throw new Refusal('series job requires --spec-b64 and --deadline-secs');
+  const spec = parseSeriesSpec(JSON.parse(Buffer.from(opts['spec-b64'], 'base64').toString('utf8')));
+  const logPath = jobLogPath(opts.id);
+  const resultsPath = logPath.replace(/\.log$/, '.series.json');
+  const log = fs.createWriteStream(logPath);
+  const started = Date.now();
+  const results = [];
+  let outcome = { results, expected: 0, stopped: null };
+  let crashed = null;
+  try {
+    for (const base of spec.bases) {
+      if (!git(['cat-file', '-e', `${base.sha}^{commit}`], { allowFail: true, status: true })) {
+        git(['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=60', 'fetch', '--quiet', '--no-tags', 'origin', base.sha]);
+      }
+    }
+    outcome = await runSeries({
+      spec, git, results, runCheck: (sha) => spawnBuild(['check-queue', sha], log, started + deadlineSecs * 1000),
+      onRun: () => fs.writeFileSync(resultsPath, `${JSON.stringify({ partial: true, results }, null, 2)}\n`),
     });
-  });
+  } catch (error) {
+    crashed = error.message;
+  }
+  const own = new Set(outcome.results.flatMap((r) => Object.values(r.runs).map((run) => run.gatewayJob)).filter(Boolean));
+  const gatewayDir = gatewayDirOf(outcome.results);
+  const state = gatewayDir ? spawnSync(process.execPath, [path.join(ROOT, 'scripts/build-gateway-state.mjs'), 'status', '--dir', gatewayDir, '--limit', '200'],
+    { encoding: 'utf8', windowsHide: true }) : null;
+  const others = state?.status === 0 ? otherGatewayJobs(JSON.parse(state.stdout), own, started) : ['unknown'];
+  const stopped = crashed ? `error:${crashed.slice(0, 200)}` : outcome.stopped;
+  fs.writeFileSync(resultsPath, `${JSON.stringify({ ...outcome, stopped, other_gateway_jobs: others }, null, 2)}\n`);
+  const summary = seriesSummary(outcome.results, { expected: outcome.expected || spec.bases.reduce((n, b) => n + b.areas.length, 0), stopped, resultsPath, otherGatewayJobs: others });
+  const timedOut = Boolean(stopped?.startsWith('deadline:'));
+  finishJob(opts, log, started, 'check-series', stopped ? (timedOut ? 124 : 1) : 0, timedOut, () => ({ summary, details: [], gatewayLog: null }), logPath);
 }
 
 function ensureStatusTab(title, shell) {
@@ -304,13 +364,14 @@ async function main() {
   const [command, ...argv] = process.argv.slice(2);
   if (command === 'dispatch') await dispatch(argv);
   else if (command === 'setup') setup(argv);
-  else if (command === 'run-job') runJob(argv);
+  else if (command === 'run-job') await runJob(argv);
+  else if (command === 'run-series') await runSeriesJob(argv);
   else if (command === 'setup-local') setupLocal(argv);
   else if (command === 'status') status(argv);
   else if (command === 'route') {
     const os = takeOption(argv, '--os');
     await route(peersConfig(), os);
-  } else throw new Refusal('usage: build-peer.mjs dispatch|setup|run-job|setup-local|status|route');
+  } else throw new Refusal('usage: build-peer.mjs dispatch|setup|run-job|run-series|setup-local|status|route');
 }
 
 main().catch((error) => {

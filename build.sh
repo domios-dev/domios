@@ -2185,6 +2185,9 @@ case "$CMD" in
   check-linux)
     peer_dispatch dispatch check-linux "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
     ;;
+  check-series)
+    peer_dispatch dispatch check-series "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
+    ;;
   peer-setup)
     peer_dispatch setup "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
     ;;
@@ -2215,6 +2218,7 @@ CodeTerm build commands
   check-linux [sha] [--force]  Once per batch: cargo check --workspace --all-targets on a Linux peer
   check-workspace [sha]       Whole-workspace cargo check of a SHA in this machine's check worktree
   peer-setup <peer> [--sha R] [--install-toolchain]  Clone/refresh the peer fetch-only checkout, check (or user-install) its toolchain, open its status tab
+  check-series --spec F --peer P  Serial scratch-commit check-queue timings (seed, floor, edit per area) on a peer
   peer-route [--os OS]        Show which peer --peer auto would pick
   peer-status                 One PEER_STATUS line: this machine's gateway load (read by --peer auto)
   peer-toolchain [--install]   Check rustup/rustc pin, native toolchain, node, nextest, sccache; --install adds user-scope rustup + nextest
