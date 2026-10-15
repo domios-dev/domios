@@ -10,8 +10,6 @@ export const JOB_OUTPUTS = [
   'src-tauri/target',
   'cli/target',
   'scripts/ci-test-classifier/target',
-  'ci-rust-archives',
-  'ci-rust-builds',
   'ci-rust-receipts',
   'release-artifacts',
 ];

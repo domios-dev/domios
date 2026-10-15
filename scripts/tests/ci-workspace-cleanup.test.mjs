@@ -8,8 +8,8 @@ import { removeJobOutputs } from '../ci-workspace-cleanup.mjs';
 function workspace() {
   const root = mkdtempSync(join(tmpdir(), 'domios-ci-cleanup-'));
   const ws = join(root, 'ws');
-  for (const dir of ['.git', 'src-tauri/target/debug', 'cli/target', 'ci-rust-archives', 'src']) mkdirSync(join(ws, dir), { recursive: true });
-  writeFileSync(join(ws, 'ci-rust-archives/workspace.tar.zst'), 'archive');
+  for (const dir of ['.git', 'src-tauri/target/debug', 'cli/target', 'ci-rust-receipts', 'src']) mkdirSync(join(ws, dir), { recursive: true });
+  writeFileSync(join(ws, 'ci-rust-receipts/rust-tests-full-Linux.json'), '{}');
   writeFileSync(join(ws, 'src/main.rs'), 'fn main() {}');
   return { root, ws };
 }
@@ -18,8 +18,8 @@ test('removes job targets and archives and keeps the checkout', () => {
   const { root, ws } = workspace();
   try {
     const removed = removeJobOutputs(ws);
-    assert.deepEqual(removed, ['src-tauri/target', 'cli/target', 'ci-rust-archives']);
-    for (const gone of ['src-tauri/target', 'cli/target', 'ci-rust-archives']) assert.equal(existsSync(join(ws, gone)), false, gone);
+    assert.deepEqual(removed, ['src-tauri/target', 'cli/target', 'ci-rust-receipts']);
+    for (const gone of ['src-tauri/target', 'cli/target', 'ci-rust-receipts']) assert.equal(existsSync(join(ws, gone)), false, gone);
     for (const kept of ['.git', 'src/main.rs']) assert.ok(existsSync(join(ws, kept)), kept);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
