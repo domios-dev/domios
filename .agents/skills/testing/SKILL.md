@@ -687,3 +687,5 @@ same focused test with `JAVA_HOME` pointing to its JDK home and that JDK's `bin`
 prepended to `PATH`; no system Java registration or emulator bypass is needed.
 
 Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
+
+Worker pre-commit Rust feedback uses `CARGO_BUILD_JOBS=4 cargo check --manifest-path src-tauri/Cargo.toml -p <touched crate> --lib` (plus `--tests` when tests changed); Windows uses `./build.sh lane-check <crate> [--tests]`. Cargo serializes access to the per-machine `$CODETERM_RUST_CACHE_ROOT/lanes` build directory (fallback `{cargo-cache-home}/codeterm-lanes`), while targets remain per worktree. This check does not acquire the build gateway. Run integration Clippy through check-queue after committing; Rust execution tests remain in canonical.
