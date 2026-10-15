@@ -370,11 +370,27 @@ fn core_eligibility(
 }
 
 pub fn default_roots(workspace_root: Option<&Path>) -> Vec<PathBuf> {
-    ordered_roots(
+    let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
+    let workspace = selected_workspace_root(
         workspace_root,
+        std::env::var_os("CODETERM_DEV_WORKSPACE_ROOT").map(PathBuf::from),
+        dev,
+    );
+    ordered_roots(
+        workspace.as_deref(),
         codeterm_paths::data_dir().join("plugins"),
-        std::env::var("CODETERM_DEV").as_deref() == Ok("1"),
+        dev,
     )
+}
+
+fn selected_workspace_root(
+    compiled: Option<&Path>,
+    explicit: Option<PathBuf>,
+    dev: bool,
+) -> Option<PathBuf> {
+    explicit
+        .filter(|_| dev)
+        .or_else(|| compiled.map(Path::to_path_buf))
 }
 
 fn ordered_roots(
