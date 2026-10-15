@@ -397,7 +397,7 @@ impl ServiceContext {
         }
 
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let id = crate::service::spawn::resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
                 spec.parent_tab_id.as_deref(),

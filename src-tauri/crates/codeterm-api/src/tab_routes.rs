@@ -828,7 +828,7 @@ pub async fn get_tab_usage(
     let tab_id = resolve_tab(&state, &raw_tab_id)?;
 
     let (agent_type, session_id, cwd) = {
-        let mux = state.svc.mux.write();
+        let mux = state.svc.mux.read();
         let tab = mux
             .get_tab(&tab_id)
             .ok_or((StatusCode::NOT_FOUND, "Tab not found"))?;

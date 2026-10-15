@@ -128,7 +128,7 @@ impl ServiceContext {
     /// `(plugin_id, session_id)` if `tab_id` is a chatBackend tab, else `None` —
     /// the guard PTY entry methods use to short-circuit to the plugin transport.
     pub fn tab_chat_backing(&self, tab_id: &str) -> Option<(String, String)> {
-        let mux = self.mux.write();
+        let mux = self.mux.read();
         let resolved = mux.resolve_tab_id(tab_id)?;
         match mux.get_tab(&resolved)?.backing.clone() {
             TabBacking::ChatBackend {
@@ -142,7 +142,7 @@ impl ServiceContext {
     /// Whether `tab_id` is ready to consume agent input.
     /// Half-launched tabs may have `agent_type` before the provider TUI exists.
     pub fn tab_has_agent(&self, tab_id: &str) -> bool {
-        let mux = self.mux.write();
+        let mux = self.mux.read();
         mux.resolve_tab_id(tab_id)
             .and_then(|resolved| mux.get_tab(&resolved).map(tab_accepts_agent_input))
             .unwrap_or(false)
@@ -150,7 +150,7 @@ impl ServiceContext {
 
     /// Whether a tab is assigned to an agent, regardless of launch readiness.
     pub fn tab_has_agent_identity(&self, tab_id: &str) -> bool {
-        let mux = self.mux.write();
+        let mux = self.mux.read();
         mux.resolve_tab_id(tab_id)
             .and_then(|resolved| mux.get_tab(&resolved).map(tab_has_agent_identity))
             .unwrap_or(false)
@@ -187,7 +187,7 @@ impl ServiceContext {
     /// Resolve a tab to its [`TabTransport`] by reading its backing once. Errors if unknown.
     pub fn tab_transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String> {
         let (resolved, backing) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let resolved = mux
                 .resolve_tab_id(tab_id)
                 .ok_or_else(|| format!("Tab {} not found", tab_id))?;

@@ -561,7 +561,7 @@ pub async fn send_text(
                 }
                 // Local delivery: resolve the label/model from the local mux.
                 None => {
-                    let mux = state.svc.mux.write();
+                    let mux = state.svc.mux.read();
                     let resolved = mux.resolve_tab_id(src)?;
                     let from_label = mux.display_label_for_tab(&resolved);
                     let source_tab = mux.get_tab(&resolved);
