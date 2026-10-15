@@ -44,6 +44,7 @@ class AsyncBlockingGateTests(unittest.TestCase):
                     move || { svc.pty.lock(); }
                 }).await;
                 blocking_run(move || { svc.output_buf.lock(); Ok(()) }).await;
+                on_blocking_pool(move |svc| { svc.screen_state.lock(); }).await;
             }
         """), [])
 
@@ -118,6 +119,12 @@ class AsyncBlockingGateTests(unittest.TestCase):
             with contextlib.redirect_stdout(output):
                 self.assertEqual(gate.main(repo), 1)
             self.assertEqual(len(output.getvalue().splitlines()), 6)
+            (repo / "scripts").mkdir()
+            allowlist = repo / "scripts/blocking-in-async-allowlist.txt"
+            allowlist.write_text(output.getvalue())
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(gate.main(repo), 0)
+            allowlist.write_text("")
             for root in roots:
                 (root / "handler.rs").write_text(
                     "async fn f() { spawn_blocking(move || svc.mux.read()); }")
