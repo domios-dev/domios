@@ -326,3 +326,5 @@ pub mod diagnostics;
 pub mod policy;
 pub mod privacy;
 pub mod process_tree;
+
+pub mod provider_update;
