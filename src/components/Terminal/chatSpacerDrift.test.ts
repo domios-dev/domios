@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { chatScrollBookmark, chatScrollRestoreTarget } from "./chatScrollMemory";
 import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerDriftAfterShift, chatSpacerFold, chatSpacerHeight, shouldAbsorbChatShift,
   shouldFoldChatSpacerDrift } from "./chatSpacerDrift";
 
@@ -8,6 +9,15 @@ test("absorbs only a detached user scroll on an engine without scroll anchoring"
   assert.equal(shouldAbsorbChatShift({ nativeAnchoring: true, pinned: false, userScrolling: true }), false);
   assert.equal(shouldAbsorbChatShift({ nativeAnchoring: false, pinned: true, userScrolling: true }), false);
   assert.equal(shouldAbsorbChatShift({ nativeAnchoring: false, pinned: false, userScrolling: false }), false);
+});
+
+test("activation with stick-to-bottom ignores the drift hold", () => {
+  const bookmark = chatScrollBookmark({ mode: "pinned", scrollTop: 0 });
+  const pinned = bookmark.mode === "pinned";
+  assert.equal(shouldAbsorbChatShift({ nativeAnchoring: false, pinned, userScrolling: true }), false);
+  const restored = chatScrollRestoreTarget(bookmark, 0, 24000 - 800);
+  assert.deepEqual(restored, { mode: "pinned", top: 23200 });
+  assert.equal(24000 - restored.top - 800, 0);
 });
 
 test("drift cancels a shift above the anchor so the anchor keeps its content offset", () => {
