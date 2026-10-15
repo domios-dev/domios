@@ -32,7 +32,7 @@ pub struct SurfaceState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum NoticeTone {
+pub enum NoticeTone {
     Info,
     Error,
 }
@@ -40,7 +40,7 @@ pub(crate) enum NoticeTone {
 /// Lets the viewer render a recurring condition in place instead of as a notice bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum NoticeKind {
+pub enum NoticeKind {
     PreviewPaused,
 }
 
