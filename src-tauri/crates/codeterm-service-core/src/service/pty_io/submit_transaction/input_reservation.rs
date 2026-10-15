@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Instant;
 
+use crate::lock_hold::TimedMutex;
 use parking_lot::Mutex;
 use tokio::sync::watch;
 
@@ -137,9 +138,9 @@ impl Drop for InputReservation {
     }
 }
 
-fn owners() -> &'static Mutex<HashMap<String, Weak<InputOwner>>> {
-    static OWNERS: OnceLock<Mutex<HashMap<String, Weak<InputOwner>>>> = OnceLock::new();
-    OWNERS.get_or_init(Mutex::default)
+fn owners() -> &'static TimedMutex<HashMap<String, Weak<InputOwner>>> {
+    static OWNERS: OnceLock<TimedMutex<HashMap<String, Weak<InputOwner>>>> = OnceLock::new();
+    OWNERS.get_or_init(|| TimedMutex::new("pty_input_owners", HashMap::new()))
 }
 
 fn owner(pty_id: &str) -> Arc<InputOwner> {

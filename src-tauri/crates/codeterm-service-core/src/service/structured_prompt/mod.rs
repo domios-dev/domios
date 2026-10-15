@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
+use crate::lock_hold::TimedMutex;
 use parking_lot::Mutex;
 
 use opencode_sse::{
@@ -48,18 +49,18 @@ struct ChatBinding {
     binding_nonce: Option<String>,
 }
 
-static ACTIVE: LazyLock<Mutex<HashMap<String, Active>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static QUEUED: LazyLock<Mutex<HashMap<String, Vec<Active>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static ACTIVE: LazyLock<TimedMutex<HashMap<String, Active>>> =
+    LazyLock::new(|| TimedMutex::new("structured_prompt_active", HashMap::new()));
+static QUEUED: LazyLock<TimedMutex<HashMap<String, Vec<Active>>>> =
+    LazyLock::new(|| TimedMutex::new("structured_prompt_queued", HashMap::new()));
 struct Subscriber {
     binding: subscription::Binding,
     signal: tokio::sync::watch::Sender<subscriber::Wake>,
     live: Arc<Mutex<bool>>,
 }
 
-static SUBSCRIBED: LazyLock<Mutex<HashMap<String, Subscriber>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static SUBSCRIBED: LazyLock<TimedMutex<HashMap<String, Subscriber>>> =
+    LazyLock::new(|| TimedMutex::new("structured_prompt_subscribed", HashMap::new()));
 
 /// Allocate a free loopback port for a provider's structured-prompt server by
 /// binding `127.0.0.1:0`, reading the assigned port, then releasing it so the

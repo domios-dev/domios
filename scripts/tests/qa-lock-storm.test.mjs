@@ -23,8 +23,8 @@ class StormTests(unittest.TestCase):
     def test_log_window_and_histograms(self):
         line = '2026-10-15T12:00:00Z [DEBUG] [LOCK-HOLD] pty.lock() held 5961ms (waited 12ms) at service/spawn_shell.rs:243'
         start = 1792065600
-        result = scope['lock_histogram']([line, line.replace('12:00:00', '11:59:59'), line.replace('pty.lock()', 'mux.read()'), line.replace(' (waited 12ms)', '')], start + .1, start + .9)
-        self.assertEqual(result['per_lock'], {'pty': 1, 'mux': 1})
+        result = scope['lock_histogram']([line, line.replace('12:00:00', '11:59:59'), line.replace('pty.lock()', 'mux.read()'), line.replace('pty.lock()', 'launch_registry.lock()'), line.replace(' (waited 12ms)', '')], start + .1, start + .9)
+        self.assertEqual(result['per_lock'], {'pty': 1, 'mux': 1, 'launch_registry': 1})
         self.assertEqual(result['per_site']['pty at service/spawn_shell.rs:243'], 1)
         self.assertEqual(result['unmatched'], 1)
     def test_worker_http_and_transport_status(self):
