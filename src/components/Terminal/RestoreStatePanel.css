@@ -1,0 +1,53 @@
+.restore-progress-labels {
+  display: grid;
+}
+
+.restore-progress-labels > span {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.restore-progress-labels > span[data-current="true"] {
+  opacity: 1;
+}
+
+.restore-progress-segment {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ct-border);
+}
+
+.restore-progress-segment > span {
+  position: absolute;
+  inset: 0;
+  background: var(--ct-accent);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.restore-progress-segment[data-state="complete"] > span {
+  opacity: 1;
+}
+
+.restore-progress-segment[data-state="current"] > span {
+  opacity: 1;
+  background: linear-gradient(90deg, transparent, var(--ct-accent), transparent);
+  animation: restore-progress-flow 1.6s ease-in-out infinite;
+}
+
+@keyframes restore-progress-flow {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .restore-progress-labels > span,
+  .restore-progress-segment > span {
+    transition: none;
+    animation: none;
+  }
+}
