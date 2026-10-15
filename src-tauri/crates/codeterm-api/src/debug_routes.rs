@@ -73,14 +73,21 @@ pub async fn event_stats(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    Ok(Json(event_stats_snapshot(
+    let snapshot = event_stats_snapshot(
         state
             .svc
             .ext::<std::sync::Arc<codeterm_service_core::service::MuxEmitStats>>(),
         pending,
         now,
         &super::stream_census::STREAMS,
-    )))
+    );
+    #[cfg(debug_assertions)]
+    let snapshot = {
+        let mut snapshot = snapshot;
+        snapshot["requests"] = super::request_census::snapshot();
+        snapshot
+    };
+    Ok(Json(snapshot))
 }
 
 pub(crate) fn event_stats_snapshot(

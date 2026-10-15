@@ -105,6 +105,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
     const token = typeof options.token === "function" ? options.token() : options.token;
     if (!token) throw new Error("Daemon bearer token required");
     headers.set("Authorization", `Bearer ${token}`);
+    headers.set("X-CodeTerm-Client-Id", streamClientId);
     if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
     try {
       const response = await fetcher(target, { ...init, credentials: "omit", headers });
