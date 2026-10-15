@@ -77,7 +77,7 @@ impl ServiceContext {
         };
 
         let limit = super::utility_tabs::limit_for(
-            &super::utility_tabs::configured_limits(&self.app_handle),
+            &super::utility_tabs::configured_limits(self.ext::<crate::config::ConfigState>()),
             spec.purpose,
         );
         let reused = if let Some(attachment) = &team_membership {
@@ -239,9 +239,8 @@ impl ServiceContext {
 
         let env_vars = self.tab_env(&tab_id);
 
-        let gate = self.pty.lock().spawn_gate();
-        let pty_id = {
-            let built = crate::pty::manager::build_session_with_profile(
+        let pty_id = match self.link_hidden_shell_pty_with_builder(&tab_id, |gate| {
+            crate::pty::manager::build_session_with_profile(
                 gate,
                 None,
                 resolved_cwd,
@@ -249,22 +248,15 @@ impl ServiceContext {
                 40,
                 env_vars,
                 profile.as_ref(),
-            );
-            match built.map(|built| self.pty.lock().register_session(None, built)) {
-                Ok((id, _)) => id,
-                Err(error) => {
-                    let _ = self.revoke_agent_pad(&tab_id);
-                    self.rollback_provisional_tab(&ws_id, &tab_id);
-                    return Err(error);
-                }
+            )
+        }) {
+            Ok(id) => id,
+            Err(error) => {
+                let _ = self.revoke_agent_pad(&tab_id);
+                self.rollback_provisional_tab(&ws_id, &tab_id);
+                return Err(error);
             }
         };
-        let orphan = self.mux.write().link_pty(&tab_id, pty_id.clone());
-        if let Some(orphan) = orphan {
-            self.kill_ptys(&[orphan]);
-        }
-        crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
-        self.emit_state_changed();
 
         let svc_reader = std::sync::Arc::new(self.clone());
         let pty_reader = pty_id.clone();
@@ -300,4 +292,32 @@ impl ServiceContext {
             budget_notice,
         })
     }
+
+    fn link_hidden_shell_pty_with_builder(
+        &self,
+        tab_id: &str,
+        build: impl FnOnce(
+            crate::pty::manager::PtySpawnGate,
+        ) -> Result<crate::pty::manager::BuiltSession, String>,
+    ) -> Result<String, String> {
+        let claim = self.pty_ownership.acquire(tab_id);
+        if let Ok(pty_id) = self.resolve_pty_id(tab_id) {
+            return Ok(pty_id);
+        }
+        if self.mux.read().get_tab(tab_id).is_none() {
+            return Err(format!("Tab {tab_id} closed before PTY build"));
+        }
+        let gate = self.pty.lock().spawn_gate();
+        let built = build(gate)?;
+        let candidate = self.pty.lock().register_session(None, built).0;
+        let selection = self.link_pty_with_claim(&claim, tab_id, candidate, false);
+        if !selection.linked {
+            return Err(format!("Tab {tab_id} closed before PTY link"));
+        }
+        Ok(selection.pty_id)
+    }
 }
+
+#[cfg(test)]
+#[path = "spawn_shell/tests.rs"]
+mod tests;

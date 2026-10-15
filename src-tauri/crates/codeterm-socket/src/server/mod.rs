@@ -1,9 +1,4 @@
 //! JSON-RPC v2 server over named pipe (Windows) / Unix socket.
-//!
-//! Outer dispatch routes by method-prefix to per-domain submodules. Children
-//! own only the state they actually need (workspace + tab carry MuxState +
-//! AppHandle, notification gets NotifState, cron/agent/bridge get ServiceState
-//! + AppHandle).
 
 mod agent;
 mod agent_commands;
@@ -63,7 +58,7 @@ pub(crate) use dispatch::{dispatch_mesh_rpc, dispatch_service_rpc};
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde::{Deserialize, Serialize};
 
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
@@ -736,12 +731,11 @@ mod tests {
 
     #[test]
     fn cron_settle_cron_complete_closes_after_response_flush() {
+        use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
         use codeterm_service_core::cron::store::{
             CronCreateParams, CronRunInfo, CronRunStatus, CronStore,
         };
-        use codeterm_service_core::service::test_fixture::ServiceFixture;
         use std::sync::Arc;
-        use tauri::Manager;
 
         let (mut mux, initial_tab) =
             codeterm_service_core::multiplexer::state::MultiplexerState::new();
@@ -794,8 +788,11 @@ mod tests {
         store.register_tab(&tab_id, &job_id, "rpc-complete-run");
         let cron: codeterm_service_core::CronState = Arc::new(parking_lot::Mutex::new(store));
         let wake = Arc::new(std::sync::Condvar::new());
-        fixture._app.manage(cron.clone());
-        fixture._app.manage::<codeterm_service_core::CronWake>(wake);
+        assert!(fixture.service.set_ext(cron.clone()).is_ok());
+        assert!(fixture
+            .service
+            .set_ext::<codeterm_service_core::CronWake>(wake)
+            .is_ok());
 
         let request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -825,7 +822,7 @@ mod tests {
             &svc.mux,
             &svc.pty,
             &svc.notif,
-            &svc.app_handle,
+            fixture.app.handle(),
             &svc.output_buf,
             &svc,
         );

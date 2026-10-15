@@ -748,7 +748,7 @@ fn supporter_token_dir_is_under_data_dir() {
     let dir = supporter_token_dir();
     assert!(dir.starts_with(codeterm_paths::data_dir()));
     assert!(dir.ends_with("supporter"));
-    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let repo_root = crate::test_support::fixture_manifest_dir()
         .ancestors()
         .nth(3)
         .unwrap();

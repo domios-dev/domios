@@ -4,7 +4,7 @@ use codeterm_service_core::ports::host::{Shell, ShellError, UiEvents, WebviewReq
 use serde_json::Value;
 use tauri::{Emitter, Manager};
 
-type AppHandle = codeterm_service_core::app_runtime::AppHandle;
+type AppHandle = codeterm_host_runtime::app_runtime::AppHandle;
 
 pub struct TauriUiEvents(pub AppHandle);
 
@@ -32,6 +32,35 @@ impl UiEvents for TauriUiEvents {
 mod tests {
     use super::*;
     use tauri::Listener;
+
+    #[test]
+    fn ui_events_redact_web_payloads_and_preserve_desktop_payloads() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let events = std::sync::Arc::new(codeterm_events::EventBroadcaster::new());
+        let mut web = events.subscribe();
+        assert!(app.manage(events));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        app.listen("config-changed", move |event| {
+            sender.send(event.payload().to_owned()).unwrap();
+        });
+        let payload = serde_json::json!({ "api": { "token": "secret", "port": 1234 } });
+        TauriUiEvents(app.handle().clone()).emit("config-changed", payload.clone());
+        let desktop: serde_json::Value =
+            serde_json::from_str(&receiver.try_recv().unwrap()).unwrap();
+        assert_eq!(desktop, payload);
+        match web.try_recv().unwrap().event {
+            codeterm_events::SystemEvent::Generic { event_type, data } => {
+                assert_eq!(event_type, "config-changed");
+                assert_eq!(
+                    data,
+                    serde_json::json!({ "api": { "token": null, "port": 1234 } })
+                );
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
 
     #[test]
     fn ui_events_reach_desktop_and_web_subscribers() {
@@ -93,6 +122,10 @@ impl TauriShell {
 }
 
 impl Shell for TauriShell {
+    fn resource_dir(&self) -> Result<PathBuf, ShellError> {
+        self.0.path().resource_dir().map_err(failed)
+    }
+
     fn focus_window(&self, label: &str) -> Result<(), ShellError> {
         let label = label.to_owned();
         self.on_main(move |app| {

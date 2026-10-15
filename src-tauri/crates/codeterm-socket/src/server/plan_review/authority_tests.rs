@@ -168,7 +168,6 @@ fn a_worker_and_a_draft_planner_are_refused() {
 
 #[test]
 fn acceptance_removes_only_the_assigned_workers_completion_watches() {
-    use tauri::Manager;
     let (fixture, plan_id, owner) = fixture(Some(LIVE_SESSION), true);
     let workspace = fixture
         .service
@@ -193,14 +192,13 @@ fn acceptance_removes_only_the_assigned_workers_completion_watches() {
         mux.get_tab_mut(&owner).unwrap().cwd = Some(fixture.temp.path().display().to_string());
         worker
     };
-    let handle = codeterm_sentinel_host::scheduler::fixture_handle(
+    let handle = codeterm_sentinel_host::scheduler::fixture_handle_with_ui(
         codeterm_sentinel_host::store::Store::new(
             fixture.temp.path().join("sentinels.json"),
             codeterm_service_core::cron::clock::MockClock::starting_at(1000),
         ),
-        fixture.service.app_handle.clone(),
+        fixture.service.ui.clone(),
     );
-    fixture.service.app_handle.manage(handle.clone());
     codeterm_sentinel_host::manage_fixture_ports(&fixture.service, &handle);
     let creator = fixture.service.sentinel_caller(&worker, None).unwrap();
     let create = |until: Option<&str>| {
@@ -254,13 +252,7 @@ fn acceptance_removes_only_the_assigned_workers_completion_watches() {
         "caller_tab_id":owner,"session_id":LIVE_SESSION,"session_binding_nonce":NONCE}),
     );
     let svc = std::sync::Arc::new(fixture.service.clone());
-    super::dispatch(
-        "plan.review.accept",
-        &params,
-        &fixture.service.app_handle,
-        &svc,
-    )
-    .unwrap();
+    super::dispatch("plan.review.accept", &params, &svc).unwrap();
     assert_eq!(
         store.show_task(&task_id).unwrap().task.status,
         codeterm_service_core::plan::TaskStatus::Done

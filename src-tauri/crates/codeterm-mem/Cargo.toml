@@ -24,22 +24,24 @@ log = "0.4"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 sqlite-vec = { version = "0.1.9", optional = true }
-fastembed = { version = "5", optional = true }
+rayon = { version = "1", optional = true }
+candle-core = { version = "0.11", optional = true, default-features = false }
+candle-nn = { version = "0.11", optional = true, default-features = false }
+candle-transformers = { version = "0.11", optional = true, default-features = false }
+tokenizers = { version = "0.22", optional = true, default-features = false, features = ["onig"] }
+hf-hub = { version = "0.4", optional = true, default-features = false, features = ["ureq"] }
 ndarray = { version = "0.17", optional = true }
 hnsw_rs = { version = "0.3", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 annembed = { version = "0.1.6", optional = true, default-features = false, features = ["macos-accelerate"] }
 
-[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
-fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
-
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_System_SystemServices"] }
 
 [features]
 default = ["embeddings"]
-embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
+embeddings = ["dep:sqlite-vec", "dep:rayon", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:tokenizers", "dep:hf-hub", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 
 [dev-dependencies]
 tempfile = "3"

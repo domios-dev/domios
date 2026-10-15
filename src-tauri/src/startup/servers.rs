@@ -44,12 +44,21 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
         );
         let started = std::time::Instant::now();
         log::debug!(
-            "[startup-pty] wave started tabs={} concurrency=4",
-            queued.len()
+            "[startup-pty] wave started tabs={} pty_concurrency={} chat_concurrency={}",
+            queued.len(),
+            super::restored_backends::RESTORE_BUDGETS.pty,
+            super::restored_backends::RESTORE_BUDGETS.chat,
         );
-        let results = super::restored_backends::run_wave(
+        let results = super::restored_backends::run_transport_waves(
             &queued,
-            4,
+            super::restored_backends::RESTORE_BUDGETS,
+            |tab_id| {
+                if service_state.tab_chat_backing(tab_id).is_some() {
+                    super::restored_backends::RestoreTransport::Chat
+                } else {
+                    super::restored_backends::RestoreTransport::Pty
+                }
+            },
             || {
                 let focused = service_state
                     .mux
@@ -228,11 +237,11 @@ fn report_general_agent_frontend_deadline(
 
 /// Start socket server, REST API server, and cron scheduler.
 pub(crate) fn start_servers(
-    app: &codeterm_service_core::app_runtime::App,
+    app: &codeterm_host_runtime::app_runtime::App,
     states: &AppStates,
     service_state: &ServiceState,
 ) {
-    codeterm_commands::update::bind_status_emitter(app.handle().clone());
+    codeterm_commands::update::bind_status_emitter(service_state.ui.clone());
     let app_handle = app.handle().clone();
     super::state_incidents::install_notifier(service_state);
     if let Some(reason) = states.storage.unavailable_reason() {
@@ -389,7 +398,12 @@ pub(crate) fn start_servers(
         .map(|clock| clock as cron::clock::SharedClock)
         .unwrap_or_else(cron::clock::system_clock);
     if let Some(storage) = states.storage.storage() {
-        codeterm_sentinel_host::scheduler::start(service_state.clone(), sentinel_clock, storage);
+        codeterm_sentinel_host::scheduler::start(
+            service_state.clone(),
+            sentinel_clock,
+            storage,
+            app.handle(),
+        );
     }
 
     tauri::async_runtime::block_on(async {
@@ -431,6 +445,7 @@ pub(crate) fn start_servers(
             codeterm_service_core::startup::frontend_bundles_check(bundles.clone());
         }
         let rest_inputs = codeterm_api::routes::AppState {
+            app: app_handle.clone(),
             svc: service_state.clone(),
             cron: cron_state.clone(),
             cron_wake: cron_wake.clone(),
@@ -540,7 +555,6 @@ pub(crate) fn start_servers(
             let pty = states.pty.clone();
             let screen_state = states.screen_state.clone();
             let config_state = states.config.clone();
-            let app_h = app_handle.clone();
             let frontend_ready_deadline =
                 std::time::Instant::now() + std::time::Duration::from_secs(30);
 
@@ -559,7 +573,6 @@ pub(crate) fn start_servers(
                     &pty,
                     &screen_state,
                     &config_state,
-                    &app_h,
                 );
             });
         }

@@ -135,11 +135,10 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
 }
 
 fn emit_plan_changed(state: &AppState, plan_id: &str) {
-    crate::events::emit_everywhere(
-        &state.svc.app_handle,
-        "plan-changed",
-        serde_json::json!({ "plan_id": plan_id }),
-    );
+    state
+        .svc
+        .ui
+        .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
 }
 
 fn optional_string_field<'a>(body: &'a Value, key: &str) -> Option<Option<&'a str>> {

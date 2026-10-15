@@ -45,9 +45,8 @@ async fn frontend_bundle_routes_contract_bundled_index_and_relative_assets() {
 async fn frontend_bundle_routes_contract_central_bearer_registration() {
     use crate::routes::create_router_with_frontend;
     use codeterm_frontend_bundle::FrontendBundles;
-    use codeterm_service_core::{
-        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
-    };
+    use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
     use std::sync::Arc;
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

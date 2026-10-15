@@ -78,7 +78,7 @@ async fn availability_json_contract_failure_has_non_success_status_and_json_body
 #[tokio::test]
 async fn availability_json_contract_real_handler_rejects_invalid_query_as_json() {
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
     let app = crate::routes::create_router(crate::transport_tabs::fixture::app_state(&fixture));
     let response = app
         .oneshot(

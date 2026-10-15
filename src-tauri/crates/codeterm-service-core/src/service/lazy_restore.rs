@@ -20,6 +20,8 @@ fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
         || explicit
             && !tab.protected
             && (tab.boot_stage == Some(BootStage::SpawnFailed)
+                || tab.restored_from_snapshot
+                    && matches!(tab.backing, TabBacking::ChatBackend { .. })
                 || matches!(tab.backing, TabBacking::Pty)
                     && tab.pty_id.is_none()
                     && !tab
@@ -152,6 +154,26 @@ mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
+
+    #[test]
+    fn explicit_chat_wake_bypasses_pending_boot_restore() {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.protected = false;
+        tab.frozen = false;
+        tab.restored_from_snapshot = true;
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "fixture".into(),
+            session_id: "own-session".into(),
+        };
+        assert!(!wake_eligible(tab, false));
+        assert!(wake_eligible(tab, true));
+        tab.protected = true;
+        assert!(!wake_eligible(tab, true));
+        tab.protected = false;
+        tab.restored_from_snapshot = false;
+        assert!(!wake_eligible(tab, true));
+    }
 
     #[test]
     fn startup_keeps_general_awake_and_freezes_unknown_project_activity() {
