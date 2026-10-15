@@ -93,7 +93,7 @@ async function createWorkspace(api: ApiClient, name: string): Promise<{ id: stri
 }
 
 async function createTab(api: ApiClient, workspaceId: string, title: string): Promise<CreatedTab> {
-  const tabInfo = await api.post<{ tab_id: string; tab_id: string }>(`/workspaces/${workspaceId}/tabs`, { eager: true });
+  const tabInfo = await api.post<{ tab_id: string; }>(`/workspaces/${workspaceId}/tabs`, { eager: true });
   await api.post(`/workspaces/${workspaceId}/tabs/${tabInfo.tab_id}/rename`, { title });
   return { id: tabInfo.tab_id, tab_id: tabInfo.tab_id, workspace_id: workspaceId };
 }
@@ -241,8 +241,8 @@ test.describe("@golden web stability verification", () => {
   }) => {
     test.setTimeout(180_000);
     const ws = await createWorkspace(api, `pw-rt1-${Date.now()}`);
-    const tab = await createTab(api, ws.id, "pw-rt1-before");
-    tabCleanup.track(tab.id);
+    const createdTab = await createTab(api, ws.id, "pw-rt1-before");
+    tabCleanup.track(createdTab.id);
     const page = await newWebPage(webBrowser);
     const errors = installRuntimeErrorCollector(page);
     const disruption = networkDisruption(page);
@@ -251,25 +251,25 @@ test.describe("@golden web stability verification", () => {
 
     try {
       await openWeb(page, "?a11y=1");
-      await focusTab(page, tab.tab_id);
-      await expect(tab(page, tab.tab_id)).toContainText("pw-rt1-before", { timeout: 20_000 });
+      await focusTab(page, createdTab.tab_id);
+      await expect(tab(page, createdTab.tab_id)).toContainText("pw-rt1-before", { timeout: 20_000 });
       await disruption.sever("sse", { hard: true });
       await page.route("**/api/output/stream**", (route) => route.abort("failed"));
       const cast = await injectCast(api, {
-        tabId: tab.id,
+        tabId: createdTab.id,
         castText: minimalCast(marker),
         instant: true,
       });
-      await renameTab(api, tab, renamed);
-      await waitMuxTabTitle(api, tab.tab_id, renamed);
+      await renameTab(api, createdTab, renamed);
+      await waitMuxTabTitle(api, createdTab.tab_id, renamed);
 
       await disruption.restore("sse");
       await page.unroute("**/api/output/stream**");
       await page.evaluate(() => window.dispatchEvent(new Event("online")));
       await dispatchPageShow(page, true);
-      await expect(tab(page, tab.tab_id)).toContainText(renamed, { timeout: 5_000 });
-      await focusTab(page, tab.tab_id);
-      await waitDomMarker(page, marker, tab.id, 60_000);
+      await expect(tab(page, createdTab.tab_id)).toContainText(renamed, { timeout: 5_000 });
+      await focusTab(page, createdTab.tab_id);
+      await waitDomMarker(page, marker, createdTab.id, 60_000);
       expect(cast.endOffset).toBeGreaterThan(cast.startOffset);
       await expectNoRuntimeErrors(errors);
     } finally {
@@ -371,20 +371,20 @@ test.describe("@golden web stability verification", () => {
     webBrowser,
     tabCleanup,
   }) => {
-    const tab = await tabCleanup.createTab<CreatedTab>({ title: "pw-vis-before" });
+    const createdTab = await tabCleanup.createTab<CreatedTab>({ title: "pw-vis-before" });
     const page = await newWebPage(webBrowser);
     const first = `pw-vis-after-${Date.now()}`;
     const second = `pw-vis-live-${Date.now()}`;
     try {
       await openWeb(page);
       await setHidden(page, true);
-      await renameTab(api, tab, first);
-      await waitMuxTabTitle(api, tab.tab_id, first);
+      await renameTab(api, createdTab, first);
+      await waitMuxTabTitle(api, createdTab.tab_id, first);
       await setHidden(page, false);
       await dispatchPageShow(page, true);
-      await expect(tab(page, tab.tab_id)).toContainText(first, { timeout: 5_000 });
-      await renameTab(api, tab, second);
-      await expect(tab(page, tab.tab_id)).toContainText(second, { timeout: 1_000 });
+      await expect(tab(page, createdTab.tab_id)).toContainText(first, { timeout: 5_000 });
+      await renameTab(api, createdTab, second);
+      await expect(tab(page, createdTab.tab_id)).toContainText(second, { timeout: 1_000 });
     } finally {
       await page.context().close();
     }
@@ -466,11 +466,11 @@ test.describe("@golden web stability verification", () => {
     tabCleanup,
   }) => {
     test.setTimeout(120_000);
-    const tab = await tabCleanup.createTab<CreatedTab>({ title: "pw-cache-real" });
+    const createdTab = await tabCleanup.createTab<CreatedTab>({ title: "pw-cache-real" });
     const page = await newWebPage(webBrowser);
     try {
       await openWeb(page);
-      await expect(tab(page, tab.tab_id)).toContainText("pw-cache-real", { timeout: 20_000 });
+      await expect(tab(page, createdTab.tab_id)).toContainText("pw-cache-real", { timeout: 20_000 });
       await page.evaluate(() => {
         const keys = Object.keys(localStorage).filter((k) => k.includes("codeterm") && k.includes("cache"));
         for (const key of keys) {
@@ -486,7 +486,7 @@ test.describe("@golden web stability verification", () => {
       } finally {
         await delay.remove();
       }
-      await expect(tab(page, tab.tab_id)).toContainText("pw-cache-real", { timeout: 5_000 });
+      await expect(tab(page, createdTab.tab_id)).toContainText("pw-cache-real", { timeout: 5_000 });
     } finally {
       await page.context().close();
     }
@@ -537,21 +537,21 @@ test.describe("@golden web stability verification", () => {
     tabCleanup,
   }) => {
     const ws = await createWorkspace(api, `pw-name-ws-${Date.now()}`);
-    const tab = await createTab(api, ws.id, "pw-name-before");
-    tabCleanup.track(tab.id);
+    const createdTab = await createTab(api, ws.id, "pw-name-before");
+    tabCleanup.track(createdTab.id);
     const tabName = `pw-name-tab-${Date.now()}`;
     const wsName = `pw-name-workspace-${Date.now()}`;
     const page = await newWebPage(webBrowser);
     try {
       await openWeb(page);
-      await renameTab(api, tab, tabName);
+      await renameTab(api, createdTab, tabName);
       await renameWorkspace(api, ws.id, wsName);
-      await waitMuxTabTitle(api, tab.tab_id, tabName);
+      await waitMuxTabTitle(api, createdTab.tab_id, tabName);
       await waitMuxWorkspaceName(api, ws.id, wsName);
 
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]', { timeout: 30_000 });
-      await expect(tab(page, tab.tab_id)).toContainText(tabName, { timeout: 5_000 });
+      await expect(tab(page, createdTab.tab_id)).toContainText(tabName, { timeout: 5_000 });
       await expect(workspace(page, ws.id)).toContainText(wsName, { timeout: 20_000 });
     } finally {
       await page.context().close();
@@ -607,27 +607,27 @@ test.describe("@golden web stability verification", () => {
     webBrowser,
     tabCleanup,
   }) => {
-    const tab = await tabCleanup.createTab<CreatedTab>({ title: "pw-attention", eager: true });
+    const createdTab = await tabCleanup.createTab<CreatedTab>({ title: "pw-attention", eager: true });
     const page = await newWebPage(webBrowser);
     const question = `Allow pw attention ${Date.now()}?`;
     try {
       await openWeb(page);
-      await api.post(`/tabs/${tab.id}/hook/permission`, {
+      await api.post(`/tabs/${createdTab.id}/hook/permission`, {
         question,
         options: [
           { label: "Yes", value: "yes" },
           { label: "No", value: "no" },
         ],
       });
-      await waitMuxPendingPrompt(api, tab.id, question);
-      await focusTab(page, tab.tab_id);
-      await expect(tab(page, tab.tab_id).locator(`span.rounded-full[title="${question}"]`)).toHaveCount(1, {
+      await waitMuxPendingPrompt(api, createdTab.id, question);
+      await focusTab(page, createdTab.tab_id);
+      await expect(tab(page, createdTab.tab_id).locator(`span.rounded-full[title="${question}"]`)).toHaveCount(1, {
         timeout: 20_000,
       });
       // Status rail removed by owner decision — the prompt pill is the only tab-row indicator.
-      await expect(tab(page, tab.tab_id).locator('[data-testid="tab-status-rail"]')).toHaveCount(0);
-      await api.post(`/tabs/${tab.id}/prompt/clear`, {});
-      await expect(tab(page, tab.tab_id).locator(`span.rounded-full[title="${question}"]`)).toHaveCount(0, {
+      await expect(tab(page, createdTab.tab_id).locator('[data-testid="tab-status-rail"]')).toHaveCount(0);
+      await api.post(`/tabs/${createdTab.id}/prompt/clear`, {});
+      await expect(tab(page, createdTab.tab_id).locator(`span.rounded-full[title="${question}"]`)).toHaveCount(0, {
         timeout: 10_000,
       });
     } finally {

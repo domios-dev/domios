@@ -11,3 +11,9 @@ Measure event-driven agent startup for every registered PTY provider on dev:
 ```powershell
 node scripts/hand-tests/agent-spawn-latency.mjs
 ```
+
+Shell helpers for poking a running dev instance by hand (tabs, sends, screen reads):
+
+```bash
+source scripts/hand-tests/test_helpers.sh
+```
