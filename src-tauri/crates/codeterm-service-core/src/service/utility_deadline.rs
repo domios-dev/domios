@@ -48,7 +48,43 @@ fn path(service: &ServiceContext, tab_id: &str) -> std::path::PathBuf {
         .join(format!("{tab_id}.json"))
 }
 
+impl Deadline {
+    fn same_run(&self, other: &Self) -> bool {
+        self.started_ms == other.started_ms && self.deadline_ms == other.deadline_ms
+    }
+
+    fn command_started(&mut self, command: Option<&str>, started_ms: u64) {
+        self.command = command.map(str::to_string);
+        self.command_started_ms = Some(started_ms);
+    }
+
+    fn renewed(&self, started_ms: u64) -> Result<Self, String> {
+        let duration = self.deadline_ms.saturating_sub(self.started_ms);
+        Ok(Self {
+            started_ms,
+            deadline_ms: deadline_from_start(started_ms, duration)?,
+            command: None,
+            command_started_ms: None,
+            ..self.clone()
+        })
+    }
+}
+
 impl ServiceContext {
+    pub(crate) fn renew_utility_timeout(&self, tab_id: &str) -> Result<(), String> {
+        let mut armed = ARMED.lock();
+        if EXPIRING.lock().contains(tab_id) {
+            return Err("shell deadline already expired".into());
+        }
+        if let Some(previous) = armed.get(tab_id) {
+            let deadline = previous.deadline.renewed(now_ms())?;
+            persist(self, &deadline)?;
+            arm(self, deadline, &mut armed)?;
+        }
+        COMMANDS.lock().remove(tab_id);
+        Ok(())
+    }
+
     pub(crate) fn utility_deadline_snapshot(&self, tab_id: &str) -> Option<serde_json::Value> {
         ARMED
             .lock()
@@ -156,8 +192,7 @@ impl ServiceContext {
             .lock()
             .insert(tab_id.into(), (command.map(str::to_string), started));
         if let Some(entry) = armed.get_mut(tab_id) {
-            entry.deadline.command = command.map(str::to_string);
-            entry.deadline.command_started_ms = Some(started);
+            entry.deadline.command_started(command, started);
         }
     }
 
@@ -273,7 +308,7 @@ pub fn arm(
             let Some(entry) = armed.get(&waiting.tab_id) else {
                 return;
             };
-            if entry.deadline.deadline_ms != waiting.deadline_ms {
+            if !entry.deadline.same_run(&waiting) {
                 return;
             }
             let expired = entry.deadline.clone();

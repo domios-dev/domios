@@ -5,7 +5,7 @@ use crate::service::spawn::SpawnTabSpec;
 use crate::service::test_fixture::ServiceFixture;
 
 #[test]
-fn launched_shell_retains_requested_deadline_across_command_and_restart() {
+fn launched_shell_renews_requested_deadline_on_restart() {
     let (mut mux, owner) = MultiplexerState::new();
     mux.get_tab_mut(&owner).unwrap().agent_type = Some("fixture-provider".into());
     let fixture = ServiceFixture::new(mux);
@@ -30,6 +30,11 @@ fn launched_shell_retains_requested_deadline_across_command_and_restart() {
     fixture
         .service
         .prepare_utility_command(&shell.tab_id, "opaque-command");
+    let during_command = fixture
+        .service
+        .utility_deadline_snapshot(&shell.tab_id)
+        .unwrap();
+    assert_eq!(during_command["deadline_ms"], original["deadline_ms"]);
     fixture
         .service
         .restart_shell_tab(&shell.tab_id, None)
@@ -46,13 +51,11 @@ fn launched_shell_retains_requested_deadline_across_command_and_restart() {
     )
     .unwrap()
     .into_json();
+    let renewed = &inspected[0]["utility_deadline"];
+    assert!(renewed["started_ms"].as_u64().unwrap() >= original["started_ms"].as_u64().unwrap());
     assert_eq!(
-        inspected[0]["utility_deadline"]["started_ms"],
-        original["started_ms"]
-    );
-    assert_eq!(
-        inspected[0]["utility_deadline"]["deadline_ms"],
-        original["deadline_ms"]
+        renewed["deadline_ms"].as_u64().unwrap() - renewed["started_ms"].as_u64().unwrap(),
+        1_800_000
     );
     assert_eq!(
         inspected[0]["utility_deadline"]["command"],
@@ -61,7 +64,7 @@ fn launched_shell_retains_requested_deadline_across_command_and_restart() {
     let persisted: serde_json::Value =
         serde_json::from_slice(&std::fs::read(path(&fixture.service, &shell.tab_id)).unwrap())
             .unwrap();
-    assert_eq!(persisted["deadline_ms"], original["deadline_ms"]);
+    assert_eq!(persisted["deadline_ms"], renewed["deadline_ms"]);
     fixture.service.close_tab(&shell.tab_id).unwrap();
     assert!(fixture
         .service
@@ -101,4 +104,81 @@ fn expiry_journals_utility_timeout_instead_of_user_close() {
                         if reason == "utility_timeout"
                 )
         )));
+}
+
+#[test]
+fn restart_renews_lifetime_and_clears_previous_command_without_runtime() {
+    let previous = Deadline {
+        tab_id: "shell".into(),
+        owner: "owner".into(),
+        started_ms: 1_000,
+        deadline_ms: 601_000,
+        command: Some("old-command".into()),
+        command_started_ms: Some(580_000),
+    };
+    let renewed = previous.renewed(600_000).unwrap();
+    assert!(!renewed.same_run(&previous));
+    let same_end = Deadline {
+        started_ms: 500_000,
+        ..previous.clone()
+    };
+    assert!(!same_end.same_run(&previous));
+    assert!(renewed.same_run(&renewed.clone()));
+    assert_eq!(renewed.started_ms, 600_000);
+    assert_eq!(renewed.deadline_ms, 1_200_000);
+    assert_eq!(renewed.owner, previous.owner);
+    assert_eq!(renewed.command, None);
+    assert_eq!(renewed.command_started_ms, None);
+    let mut model = DeadlineModel::default();
+    model.reset(Some(renewed.deadline_ms));
+    assert_eq!(
+        model.expire(
+            previous.deadline_ms,
+            crate::multiplexer::types::ShellActivity::Running
+        ),
+        None
+    );
+    assert_eq!(
+        model.expire(
+            renewed.deadline_ms,
+            crate::multiplexer::types::ShellActivity::Running
+        ),
+        Some(DeadlineAction::TerminateAndNotice)
+    );
+    assert!(previous.renewed(u64::MAX).is_err());
+}
+
+#[test]
+fn later_commands_keep_the_creation_lifetime_without_a_command_default() {
+    let mut deadline = Deadline {
+        tab_id: "shell".into(),
+        owner: "owner".into(),
+        started_ms: 1_000,
+        deadline_ms: 1_801_000,
+        command: None,
+        command_started_ms: None,
+    };
+    deadline.command_started(Some("first"), 20_000);
+    deadline.command_started(Some("second"), 27_000);
+    assert_eq!(deadline.started_ms, 1_000);
+    assert_eq!(deadline.deadline_ms, 1_801_000);
+    assert_eq!(deadline.command_started_ms, Some(27_000));
+    let mut model = DeadlineModel::default();
+    model.reset(Some(deadline.deadline_ms));
+    for elapsed in [574_000, 600_000, 1_799_999] {
+        assert_eq!(
+            model.expire(
+                deadline.started_ms + elapsed,
+                crate::multiplexer::types::ShellActivity::Running
+            ),
+            None
+        );
+    }
+    assert_eq!(
+        model.expire(
+            deadline.deadline_ms,
+            crate::multiplexer::types::ShellActivity::Running
+        ),
+        Some(DeadlineAction::TerminateAndNotice)
+    );
 }

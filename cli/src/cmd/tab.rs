@@ -321,8 +321,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 });
             handle_result(json, result);
         }
-        TabAction::Restart { tab, cwd, cmd } => {
-            handle_shell_restart(client, json, tab, cwd, cmd);
+        TabAction::Restart {
+            tab,
+            cwd,
+            cmd,
+            timeout,
+        } => {
+            handle_shell_restart(client, json, tab, cwd, cmd, timeout);
         }
         TabAction::Rename { tab, title } => {
             if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
