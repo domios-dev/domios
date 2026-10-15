@@ -7,7 +7,7 @@ use super::model::{
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{SurfaceBacking, TabBacking};
-use crate::service::team::{
+use crate::service::team_membership::{
     apply_team_attachment_under, authorize_team_attachment, AttachmentParent,
 };
 use crate::service::ServiceContext;

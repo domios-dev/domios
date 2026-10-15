@@ -269,7 +269,7 @@ pub fn start_general_agent(
     // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
         let (tab_id_opt, current_agent, current_pty_id, current_auto_approve) = {
-            let m = mux.write();
+            let m = mux.read();
             match m.resolve_tab_id(GENERAL_ALIAS) {
                 Some(pid) => {
                     let tab = m.get_tab(&pid);
@@ -355,7 +355,7 @@ pub fn start_general_agent(
 
     // Find General tab (already created by ensure_general_workspace in init_states)
     let (tab_id, snapshot_session_id) = {
-        let m = mux.write();
+        let m = mux.read();
         let tab = m.resolve_tab_id(GENERAL_ALIAS).or_else(|| {
             m.list_workspaces()
                 .iter()
@@ -594,7 +594,7 @@ fn restart_general_agent_inner(
     let mut stale_pty_id = None;
     let mut general_tab_id = None;
     {
-        let m = mux.write();
+        let m = mux.read();
         if let Some(pid) = m.resolve_tab_id(GENERAL_ALIAS) {
             general_tab_id = Some(pid.clone());
             if let Some(tab) = m.get_tab(&pid) {

@@ -5,9 +5,8 @@
 use codeterm_service_core::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
-use codeterm_service_core::service::{
-    RefreshOutcome, RefreshRequest, RefreshTrigger, ServiceState,
-};
+use codeterm_orchestration::{RefreshOutcome, RefreshRequest, RefreshTrigger};
+use codeterm_service_core::service::ServiceState;
 
 use super::JsonRpcError;
 
@@ -36,7 +35,7 @@ pub(super) fn dispatch(
                 plan_id,
                 RefreshTrigger::Manual,
             );
-            let outcome = codeterm_service_core::service::orchestrator_refresh(svc, req);
+            let outcome = codeterm_orchestration::orchestrator_refresh(svc, req);
             let status = match outcome {
                 RefreshOutcome::Started => "started",
                 RefreshOutcome::Coalesced => "coalesced",

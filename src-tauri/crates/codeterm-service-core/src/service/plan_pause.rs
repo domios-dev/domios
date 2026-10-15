@@ -65,7 +65,7 @@ pub struct PlanLifecycleOutcome {
     pub(crate) kind: PlanLifecycleKind,
     pub(crate) plan_id: String,
     pub applied: bool,
-    pub(crate) mode: PlanMode,
+    pub mode: PlanMode,
     pub stride_id: Option<String>,
     pub operation: Option<PlanPauseOperation>,
 }
@@ -593,7 +593,10 @@ impl ServiceContext {
         plan_id: &str,
         now_ms: u64,
     ) -> Result<PlanLifecycleOutcome, TeamPlanError> {
-        crate::ports::orchestration::installed(&self.extensions).valid_live_plan_team(plan_id)?;
+        {
+            let mux = self.mux.read();
+            super::team_core::valid_live_plan_team(self, &mux, plan_id)?;
+        }
         let plan = self.lifecycle_plan(plan_id)?;
         let live = self.live_recorded_agents(&plan);
         let outcome = execute_plan_resume(

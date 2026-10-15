@@ -32,7 +32,7 @@ updateJsonVersion(path.join(repoRoot, "src-tauri", "tauri.conf.json"));
 
 updateTomlPackageVersion(path.join(repoRoot, "src-tauri", "Cargo.toml"));
 updateTomlPackageVersion(path.join(repoRoot, "cli", "Cargo.toml"));
-for (const crate of ["codeterm-service-core", "codeterm-api", "codeterm-socket", "codeterm-commands", "codeterm-sentinel-host"]) {
+for (const crate of ["codeterm-service-core", "codeterm-api", "codeterm-socket", "codeterm-commands", "codeterm-sentinel-host", "codeterm-orchestration"]) {
   updateTomlPackageVersion(path.join(repoRoot, "src-tauri", "crates", crate, "Cargo.toml"));
 }
 

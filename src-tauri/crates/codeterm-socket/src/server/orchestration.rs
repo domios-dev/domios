@@ -3,11 +3,12 @@
 //! endpoints. All three transports call the same
 //! `OrchestrationPairExt::create_orchestration_pair`.
 
+use codeterm_orchestration::OrchestrationPairExt;
 use codeterm_service_core::app_runtime::AppHandle;
-use codeterm_service_core::service::OrchestrationPairExt;
 use serde_json::Value;
 
-use codeterm_service_core::service::{OrchestrationPairParams, ServiceState};
+use codeterm_orchestration::OrchestrationPairParams;
+use codeterm_service_core::service::ServiceState;
 
 use super::JsonRpcError;
 

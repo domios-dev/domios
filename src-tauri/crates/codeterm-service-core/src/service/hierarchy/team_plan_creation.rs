@@ -100,9 +100,13 @@ impl ServiceContext {
             from_spec,
             now_ms,
         )?;
-        if crate::ports::orchestration::installed(&self.extensions)
-            .bind_pending_paired_planner(&outcome.plan.id, &outcome.plan.owner, now_ms)
-            .map_err(TeamPlanCreationError::Team)?
+        if crate::service::bind_pending_paired_planner(
+            self,
+            &outcome.plan.id,
+            &outcome.plan.owner,
+            now_ms,
+        )
+        .map_err(TeamPlanCreationError::Team)?
         {
             outcome.plan = self.plan_store.get(&outcome.plan.id).ok_or_else(|| {
                 TeamPlanCreationError::Team(
@@ -144,7 +148,7 @@ pub fn create_team_plan_for_caller(
             now_ms,
         );
     };
-    let state = mux.write();
+    let state = mux.read();
     let caller_tab = state
         .get_tab(caller_tab_id)
         .ok_or_else(|| TeamPlanCreationError::Team("the claimed Planner tab is not live".into()))?;

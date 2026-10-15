@@ -11,6 +11,7 @@ name = "codeterm_socket"
 
 [dependencies]
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-orchestration = { path = "../codeterm-orchestration" }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-bridge = { path = "../codeterm-bridge" }

@@ -66,7 +66,7 @@ pub(super) async fn close(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<Value>,
-) -> Result<Json<codeterm_service_core::service::TeamCloseResult>, RouteError> {
+) -> Result<Json<codeterm_orchestration::TeamCloseResult>, RouteError> {
     let (headers, body) = attributed_body_async(&state, headers, body).await?;
     super::super::team_routes::close_team(
         State(state),
@@ -82,7 +82,7 @@ pub(super) async fn member(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<Value>,
-) -> Result<Json<codeterm_service_core::service::AddTeamMemberResult>, RouteError> {
+) -> Result<Json<codeterm_orchestration::AddTeamMemberResult>, RouteError> {
     let (headers, body) = attributed_body_async(&state, headers, body).await?;
     super::super::team_routes::add_team_member(State(state), headers, Path(id), Json(body)).await
 }

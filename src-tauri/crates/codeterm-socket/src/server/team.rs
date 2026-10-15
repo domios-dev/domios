@@ -1,4 +1,4 @@
-use codeterm_service_core::service::TeamExt;
+use codeterm_orchestration::TeamExt;
 use serde_json::Value;
 
 use codeterm_service_core::multiplexer::commands::MuxState;
@@ -110,7 +110,7 @@ pub(super) fn dispatch(
             let team_id = get_string_param(params, "team_id")?;
             let plan_id = get_string_param(params, "plan_id")?;
             let caller_tab_id = adopt_plan_caller(params)?;
-            let plan = codeterm_service_core::service::adopt_plan_for_team(
+            let plan = codeterm_orchestration::adopt_plan_for_team(
                 svc,
                 &team_id,
                 &plan_id,
@@ -136,32 +136,31 @@ pub(super) fn dispatch(
             let caller_tab_id = opt_string_param(params, "caller_tab_id")
                 .filter(|tab_id| !tab_id.trim().is_empty());
             let svc_ref = &**svc;
-            let result =
-                tauri::async_runtime::block_on(codeterm_service_core::service::add_team_member(
-                    svc_ref,
-                    &team_id,
-                    caller_tab_id.as_deref(),
-                    codeterm_service_core::service::AddTeamMemberParams {
-                        provider,
-                        role,
-                        title: opt_string_param(params, "title"),
-                        task: codeterm_service_core::service::team_member_brief(
-                            opt_string_param(params, "task"),
-                            opt_string_param(params, "brief"),
-                        )
-                        .map_err(|message| JsonRpcError {
-                            code: -32602,
-                            message,
-                            data: None,
-                        })?,
-                        model,
-                    },
-                ))
-                .map_err(|message| JsonRpcError {
-                    code: -32602,
-                    message,
-                    data: None,
-                })?;
+            let result = tauri::async_runtime::block_on(codeterm_orchestration::add_team_member(
+                svc_ref,
+                &team_id,
+                caller_tab_id.as_deref(),
+                codeterm_orchestration::AddTeamMemberParams {
+                    provider,
+                    role,
+                    title: opt_string_param(params, "title"),
+                    task: codeterm_orchestration::team_member_brief(
+                        opt_string_param(params, "task"),
+                        opt_string_param(params, "brief"),
+                    )
+                    .map_err(|message| JsonRpcError {
+                        code: -32602,
+                        message,
+                        data: None,
+                    })?,
+                    model,
+                },
+            ))
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })?;
             serde_json::to_value(result).map_err(|error| JsonRpcError {
                 code: -32603,
                 message: error.to_string(),
@@ -172,7 +171,7 @@ pub(super) fn dispatch(
             let team_id = get_string_param(params, "team_id")?;
             let tab_id = get_string_param(params, "tab_id")?;
             let caller_tab_id = required_caller_tab(params, "Team agent adoption")?;
-            let team = codeterm_service_core::service::adopt_agent_for_team(
+            let team = codeterm_orchestration::adopt_agent_for_team(
                 svc,
                 &team_id,
                 &tab_id,

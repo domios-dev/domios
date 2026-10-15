@@ -93,7 +93,7 @@ impl DeferredSessionBindingRegistry {
             .map(|entry| entry.binding.clone())
     }
 
-    pub(crate) fn clear(&self, tab_id: &str) {
+    pub fn clear(&self, tab_id: &str) {
         self.entries.lock().remove(tab_id);
         self.refusals.lock().remove(tab_id);
     }
