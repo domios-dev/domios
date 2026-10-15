@@ -340,7 +340,7 @@ Dispatch returns at once with `peer-job: id=... peer=... remote-tab=... deadline
 
 `--peer auto` reads each OS-matching routable peer's load over mesh: `codeterm tab list --mesh <peer>` finds its `Buildpeer` tab and `codeterm tab exec --mesh <peer>` runs `./build.sh peer-status`, which prints one lock-free `PEER_STATUS {json}` line (gateway state, active job, queue length, last job end, peer job lock). The least-loaded idle peer wins, ties going to the peer idle longest; a peer that is unreachable, not set up or slower than the 20 s probe deadline is skipped, and when no peer is idle the dispatch exits 75 with each peer's state.
 
-Bounds: each job tab has `--timeout` = verb deadline + 10 min (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`); the peer runner kills the build tree at the deadline and still reports `outcome=deadline`; fetch aborts below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab, never `tab restart`, because a shell's timeout counts from its creation.
+Bounds: each job tab has `--timeout` = verb deadline + 10 min (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`); the peer runner kills the build tree at the deadline and still reports `outcome=deadline`; fetch aborts below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab for its own job identity; `tab restart` renews a shell's previous lifetime.
 
 Measurements (fill from the first real runs): ROG cold first populate of `check-queue --all` — not yet measured; ROG warm lane `check-queue --lane` — not yet measured.
 
@@ -1008,3 +1008,10 @@ One equivalent two-package cycle on Rust SHA `b6d0ef3e14b3787a9678ff436a6ce6739e
 Queued build invocations parse the entire driver inside `codeterm_build_main` before waiting for a gateway slot. Editing build.sh while an older shell waited previously changed the unread tail of that shell's script, producing an EOF syntax error after a successful Cargo check. The driver snapshot regression waits on an explicit input event, replaces only a temporary script, and requires its already-parsed dispatch to complete. App nextest configurations also replace the initial target arguments so `--no-default-features` appears once; nextest rejects duplicate occurrences.
 
 Lane-check prompt additions affect both the 5000-byte worker suffix and the 1450-byte worker charter. The charter includes testing_discipline without worker_suffix, so keep the raw check command in that shared fragment while compressing it. Preserve both ceilings and verify all composed surfaces with the focused core prompts selector.
+
+### CLI package absent from lane-check workspace
+
+`lane-check codeterm-cli --tests` exits 101 because the CLI has its own Cargo
+workspace, while this verb selects the app manifest. No CLI compilation ran.
+For a CLI contract change, `./build.sh cli` compiles the checkout CLI and
+regenerates its artifacts; committed check-queue includes CLI test targets.

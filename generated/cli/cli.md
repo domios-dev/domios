@@ -3539,6 +3539,7 @@ Replace a plain shell's process in the same tab, preserving tab identity and met
 - `--cmd` — Command to execute after the replacement shell is ready
 - `--cwd` — Working directory for the replacement shell
 - `--tab` — Tab ID to restart (default: current tab)
+- `--timeout` — Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration
 
 #### `codeterm tab search`
 
