@@ -7,13 +7,13 @@
 #   ./build.sh dev-prebuilt --wait — restart a provenance-validated dev build without Cargo
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh frontend  — production frontend typecheck + bundle
-#   ./build.sh release-inputs — build target-aware frontend/CLI/embed bundle inputs
+#   ./build.sh release-inputs — build target-aware frontend/CLI bundle inputs
 #   ./build.sh release-bundle — release-inputs plus tauri build in one gateway session
 #   ./build.sh release-preflight — run local PR checks and verify release inputs
 #   ./build.sh worktree-check — explicit isolated, nonincremental checkout check
 #   ./build.sh build     — production build
 #   ./build.sh install-local — incremental production build + self-install, then resume the calling tab
-#   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
+#   ./build.sh bootstrap — create/build bundled CLI for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to the active dev data directory
 #   ./build.sh clean     — clean build cache
@@ -1321,7 +1321,6 @@ write_dev_provenance() {
     --build-sha "$build_sha" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --embed "$CT_DEV_EMBED_BUNDLE" \
     --frontend "$(pwd -P)/dist" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
@@ -1463,7 +1462,6 @@ fi
 
 prepare_bundle_stubs() {
   node scripts/prepare-cli-stub.js
-  node scripts/prepare-embed-stub.js
 }
 
 prepare_dev_frontend_dist() {
@@ -1802,24 +1800,6 @@ build_and_launch_dev() {
   exec bash ./build.sh dev-prebuilt "$@"
 }
 
-ensure_real_embed_bundle() {
-  local host exe_ext embed_size
-  host=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
-  exe_ext=""
-  case "$OSTYPE" in msys*|cygwin*|win32) exe_ext=".exe" ;; esac
-  CT_DEV_EMBED_BUNDLE="src-tauri/bundled-embed/codeterm-embed-${host}${exe_ext}"
-  prepare_bundle_stubs
-  embed_size=0
-  if [ -f "$CT_DEV_EMBED_BUNDLE" ]; then
-    embed_size=$(stat -c %s "$CT_DEV_EMBED_BUNDLE" 2>/dev/null || stat -f %z "$CT_DEV_EMBED_BUNDLE" 2>/dev/null || echo 0)
-  fi
-  if [ "${REBUILD_EMBED:-0}" = "1" ] || [ "$embed_size" -lt 1048576 ]; then
-    echo "Building codeterm-embed before dev (size=${embed_size}, REBUILD_EMBED=${REBUILD_EMBED:-0})..."
-    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-    CODETERM_DEV=1 node scripts/bundle-embed.js
-  fi
-}
-
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
 # Watch-rebuild it so phone/browser mirrors pick up frontend edits on reload.
 web_watch_pidfile() {
@@ -2118,12 +2098,10 @@ prepare_release_bundle_inputs() {
   pnpm build
   cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
-  node scripts/prepare-embed-stub.js
   cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
     "${cargo_target_args[@]}" \
     --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
-    --bin codeterm --bin codeterm-embed
-  node scripts/bundle-embed.js
+    --bin codeterm
 }
 
 enter_cargo_gateway() {
@@ -2149,7 +2127,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2183,7 +2161,7 @@ CodeTerm build commands
   runner-resume MACHINE       Restore MACHINE-* runner labels and return lent labels
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
-  release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
+  release-inputs              Build target-aware frontend and CLI bundle inputs
   release-bundle              release-inputs, then the target-aware tauri build from the same path
   ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
@@ -2384,7 +2362,6 @@ EOF
     lane_check "${@:2}"
     ;;
   embedding-parity)
-    configure_lane_build_dir
     CARGO_BUILD_JOBS=4 cargo build --release --manifest-path src-tauri/Cargo.toml \
       -p codeterm-mem --example embedding_oracle
     oracle_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
@@ -2936,18 +2913,7 @@ LOCK_STORM_PY
     prepare_bundle_stubs
     cargo build --release --manifest-path cli/Cargo.toml
     CODETERM_DEV=1 node scripts/bundle-cli.js
-    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-    CODETERM_DEV=1 node scripts/bundle-embed.js
-    echo "Bootstrap complete: bundled CLI and codeterm-embed are present."
-    ;;
-  embed)
-    # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
-    # by default — use this when you change embed sources or pull new
-    # ONNX/embeddings deps.
-    prepare_bundle_stubs
-    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-    CODETERM_DEV=1 node scripts/bundle-embed.js
-    echo "codeterm-embed rebuilt"
+    echo "Bootstrap complete: bundled CLI is present."
     ;;
   cli)
     cargo build --release --manifest-path cli/Cargo.toml
@@ -3106,7 +3072,6 @@ LOCK_STORM_PY
     else
       export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm.exe"
     fi
-    ensure_real_embed_bundle
     build_and_launch_dev "${@:2}"
 
     ;;

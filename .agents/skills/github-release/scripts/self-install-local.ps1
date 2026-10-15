@@ -35,14 +35,6 @@ Get-Process codeterm -ErrorAction SilentlyContinue | ForEach-Object {
     $_.Kill()
     $_.WaitForExit(5000) | Out-Null
 }
-Get-Process codeterm-embed -ErrorAction SilentlyContinue | ForEach-Object {
-    Write-Host "[self-install] Stopping codeterm-embed PID $($_.Id) ..."
-    $_.Kill()
-}
-
-# Brief settle so NSIS sees no file locks.
-Start-Sleep -Milliseconds 500
-
 # 2. Run the installer silently. installMode=currentUser in tauri.conf.json
 #    means no UAC prompt — `/S` is fully unattended.
 Write-Host "[self-install] Running installer ..."

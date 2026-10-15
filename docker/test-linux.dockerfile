@@ -1,5 +1,4 @@
 # Unit-test image for the Linux lane of scripts/test-matrix.sh.
-# ubuntu:24.04 is required: pyke/ort prebuilt onnxruntime needs glibc >= 2.38.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive

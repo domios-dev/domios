@@ -21,7 +21,7 @@ function run(command, args, options = {}) {
 function fixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-provenance-'));
   const checkout = path.join(directory, 'checkout');
-  for (const dir of ['scripts', 'target/debug', 'data/bin', 'src-tauri/bundled-embed', 'dist']) {
+  for (const dir of ['scripts', 'target/debug', 'data/bin', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
   for (const name of ['dev-prep.mjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'build-identity.cjs']) {
@@ -29,7 +29,7 @@ function fixture() {
   }
   const exe = process.platform === 'win32' ? '.exe' : '';
   for (const file of [`target/debug/codeterm${exe}`, `data/bin/codeterm${exe}`,
-    'src-tauri/bundled-embed/codeterm-embed-fixture', 'dist/index.html']) {
+    'dist/index.html']) {
     fs.writeFileSync(path.join(checkout, file), `opaque artifact: ${file}`, { mode: 0o755 });
   }
   fs.writeFileSync(path.join(checkout, 'package.json'), '{"private":true}');
@@ -48,7 +48,6 @@ cd "$1"
 CT_DATA_DIR="$2/data"
 CARGO_TARGET_DIR="$3/target"
 CARGO_BUILD_TARGET=
-CT_DEV_EMBED_BUNDLE=src-tauri/bundled-embed/codeterm-embed-fixture
 CT_INSTANCE=fixture CT_PORT=7786 CT_VITE_PORT=1520 CT_CDP_PORT=9323 CT_IDENTIFIER=fixture.dev
 ${operation} "$4"
 `, '--', cwd, checkout, target, sha], { encoding: 'utf8' });

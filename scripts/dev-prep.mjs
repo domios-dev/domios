@@ -22,7 +22,7 @@ import {
 } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = realpathSync.native(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
@@ -32,7 +32,7 @@ const isWin = process.platform === "win32";
 const pnpm = isWin ? "pnpm.cmd" : "pnpm";
 const cargo = isWin ? "cargo.exe" : "cargo";
 const node = process.execPath;
-const provenanceSchema = 1;
+const provenanceSchema = 2;
 const childExitDeadlineMs = 10_000;
 const inputPathspecs = [
   "build.sh",
@@ -58,9 +58,7 @@ const inputPathspecs = [
   "scripts/windows-dev-app.ps1",
   "scripts/windows-dev-app.cs",
   "scripts/bundle-cli.js",
-  "scripts/bundle-embed.js",
   "scripts/prepare-cli-stub.js",
-  "scripts/prepare-embed-stub.js",
   "scripts/dev-resource-preflight.mjs",
   "scripts/dev-static-server.mjs",
   "scripts/convert-plan-storage.rs",
@@ -247,7 +245,6 @@ function buildProvenance(options) {
     artifacts: {
       app: hashPath(paths.app, "file", true),
       cli: hashPath(paths.cli, "file", true),
-      embed: hashPath(option(options, "--embed"), "file", true),
       frontend: hashPath(paths.frontend, "tree"),
     },
   };
@@ -282,22 +279,6 @@ function validateArtifact(recorded, expectedPath, expectedType, label, requireEx
   }
 }
 
-function validateEmbedArtifact(recorded) {
-  assertKeys(recorded, ["path", "type", "sha256", "bytes", "mode"], "embed artifact");
-  const expectedRoot = artifactPath(join(repo, "src-tauri", "bundled-embed"));
-  const path = artifactPath(recorded.path);
-  const withinRoot = path.startsWith(`${expectedRoot}${sep}`);
-  if (!withinRoot || dirname(path) !== expectedRoot) throw new Error("embed artifact path is outside bundled-embed");
-  if (!/^codeterm-embed-[a-zA-Z0-9_.-]+(?:\.exe)?$/.test(path.slice(expectedRoot.length + 1))) {
-    throw new Error("embed artifact name is invalid");
-  }
-  if (recorded.type !== "file") throw new Error("embed artifact type mismatch");
-  const current = hashPath(path, "file", true);
-  if (recorded.sha256 !== current.sha256 || recorded.bytes !== current.bytes || recorded.mode !== current.mode) {
-    throw new Error("embed artifact content mismatch");
-  }
-}
-
 function checkProvenance(options) {
   const record = resolve(option(options, "--record"));
   if (!existsSync(record)) throw new Error(`record is absent: ${record}`);
@@ -316,11 +297,10 @@ function checkProvenance(options) {
   const expectedInstance = instanceFrom(options);
   assertKeys(data.instance, ["name", "apiPort", "vitePort", "cdpPort", "identifier"], "instance");
   if (JSON.stringify(data.instance) !== JSON.stringify(expectedInstance)) throw new Error("recorded instance does not match this dev instance");
-  assertKeys(data.artifacts, ["app", "cli", "embed", "frontend"], "artifacts");
+  assertKeys(data.artifacts, ["app", "cli", "frontend"], "artifacts");
   const paths = artifactPaths(options);
   validateArtifact(data.artifacts.app, paths.app, "file", "app", true);
   validateArtifact(data.artifacts.cli, paths.cli, "file", "CLI", true);
-  validateEmbedArtifact(data.artifacts.embed);
   validateArtifact(data.artifacts.frontend, paths.frontend, "tree", "frontend");
   console.log(`[dev-provenance] matched ${record} at ${data.buildSha}`);
 }
@@ -482,32 +462,9 @@ async function launchPrebuilt(options) {
 
 function runRegularPrep() {
   const startServer = !process.argv.includes("--no-server");
-  const host = output(cargo, ["-vV"])
-    .split(/\r?\n/)
-    .find((line) => line.startsWith("host:"))
-    ?.split(":")[1]
-    ?.trim();
-
-  if (!host) {
-    console.error("[dev-prep] failed to detect cargo host triple");
-    process.exit(1);
-  }
-
-  const embedBundle = join(repo, "src-tauri", "bundled-embed", `codeterm-embed-${host}${isWin ? ".exe" : ""}`);
   run(cargo, ["build", "--release", "--manifest-path", "cli/Cargo.toml"]);
   process.env.CODETERM_DEV = "1";
   run(node, ["scripts/bundle-cli.js"]);
-  run(node, ["scripts/prepare-embed-stub.js"]);
-
-  const embedSize = existsSync(embedBundle) ? statSync(embedBundle).size : 0;
-  if (process.env.REBUILD_EMBED === "1" || embedSize < 1_048_576) {
-    console.log(`[dev-prep] building codeterm-embed (size=${embedSize}, REBUILD_EMBED=${process.env.REBUILD_EMBED ?? "0"})`);
-    run(cargo, ["build", "--release", "--manifest-path", "src-tauri/Cargo.toml", "--bin", "codeterm-embed"]);
-    run(node, ["scripts/bundle-embed.js"]);
-  } else {
-    console.log(`[dev-prep] skipping codeterm-embed rebuild (bundle exists, ${embedSize} bytes; set REBUILD_EMBED=1 to force)`);
-  }
-
   if (startServer) run(node, ["scripts/dev-static-server.mjs"]);
 }
 

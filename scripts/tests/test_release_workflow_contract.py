@@ -1,6 +1,7 @@
 """Structural contract for the single-run release workflow graph."""
 
 import re
+import json
 import unittest
 from pathlib import Path
 
@@ -237,11 +238,20 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertNotIn(RELEASE_NOTES_SYNC, read("release-macos-build.yml"))
         self.assertIn(RELEASE_NOTES_SYNC, read("release-manifest-validate.yml"))
 
-    def test_release_input_prebuilds_app_and_embed_bins_together(self):
+    def test_release_input_prebuilds_the_app_bin(self):
         build = (ROOT / "build.sh").read_text(encoding="utf-8")
         self.assertIn('cargo_target_args=(--target "$CARGO_BUILD_TARGET")', build)
         self.assertIn('--features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol"', build)
-        self.assertIn("--bin codeterm --bin codeterm-embed", build)
+        self.assertIn("--bin codeterm", build)
+
+    def test_embedding_runtime_has_no_sidecar_or_onnx_dependencies(self):
+        config = json.loads((ROOT / "src-tauri/tauri.conf.json").read_text())
+        self.assertEqual(config["bundle"].get("externalBin", []), [])
+        self.assertFalse((ROOT / "src-tauri/src/bin/codeterm_embed.rs").exists())
+        for relative in ["src-tauri/Cargo.toml", "src-tauri/crates/codeterm-service-core/Cargo.toml", "src-tauri/crates/codeterm-mem/Cargo.toml"]:
+            manifest = (ROOT / relative).read_text()
+            self.assertNotRegex(manifest, r"(?m)^\s*(?:fastembed|ort)\s*=")
+            self.assertNotIn("codeterm-embed", manifest)
 
     def test_linux_and_windows_keep_the_release_build_contract(self):
         for name in ("release-linux.yml", "release-windows.yml"):
