@@ -10,7 +10,7 @@ use crate::agent::registry::AgentRegistry;
 pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
 #[path = "spawn_warnings.rs"]
 mod spawn_warnings;
-pub(crate) use spawn_warnings::merge as merge_spawn_warnings;
+pub use spawn_warnings::merge as merge_spawn_warnings;
 
 pub use super::spawn_cli::{create_cleared_agent_tab, provider_launch_preflight};
 pub use super::spawn_params::chatbackend_spawn_config;
@@ -50,7 +50,7 @@ pub(crate) use spawn_identity::{
     now_unix_secs, params_caller_tab_id, roleless_spawner, spawn_caller_tab_id,
     task_binding_from_spawn,
 };
-pub(crate) use spawn_reasoning_effort::validate_agent_reasoning_effort;
+pub use spawn_reasoning_effort::validate_agent_reasoning_effort;
 
 #[path = "spawn_tab_identity.rs"]
 mod spawn_tab_identity;
@@ -190,26 +190,6 @@ pub struct AgentSpawnSpec {
     pub(crate) launch_purpose: super::unattended_launch::LaunchPurpose,
 }
 
-/// Explicit `workspace_id` wins, then the spawn lineage: declared parent, then
-/// the caller's own tab. The focused workspace is a last resort for callers with
-/// no tab identity (UI clicks, external API) — an agent must never land its
-/// children in whatever workspace the user happens to be looking at.
-pub fn resolve_spawn_workspace_id(
-    requested_workspace_id: Option<String>,
-    parent_tab_id: Option<&str>,
-    caller_tab_id: Option<&str>,
-    workspace_of_tab: impl Fn(&str) -> Option<String>,
-    active_workspace_id: Option<String>,
-    fallback_workspace_id: Option<String>,
-) -> Result<String, String> {
-    requested_workspace_id
-        .or_else(|| parent_tab_id.and_then(&workspace_of_tab))
-        .or_else(|| caller_tab_id.and_then(&workspace_of_tab))
-        .or(active_workspace_id)
-        .or(fallback_workspace_id)
-        .ok_or_else(|| "No workspace found".to_string())
-}
-
 pub(crate) fn should_default_agent_tab_to_chat(
     visibility: TabVisibility,
     provider_supports_chat_ui: bool,
@@ -278,7 +258,7 @@ impl ServiceContext {
             (TabVisibility::Visible, TabCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (TabVisibility::Hidden, TabCommand::Shell) => self.spawn_hidden_shell_impl(spec),
             (_, TabCommand::ChatBackend { .. }) => {
-                super::permission_policy::configured_full_access_for(&self.app_handle)?;
+                super::permission_policy::configured_full_access_for(self)?;
                 let result = self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change);
                 if let Some(ready_tx) = ready_tx {
                     let readiness = result.as_ref().map(|_| ()).map_err(Clone::clone);
@@ -316,7 +296,7 @@ impl ServiceContext {
         let requested_model = model_selection.model;
         let permission_bypass_authorization =
             super::permission_policy::configured_permission_bypass_for(
-                &self.app_handle,
+                self,
                 &self.agent_registry,
                 &agent_cmd,
             )?;
@@ -354,7 +334,7 @@ impl ServiceContext {
         }
 
         let (ws_id, ws_cwd, ws_provisioned_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let id = resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
                 spec.parent_tab_id.as_deref(),
@@ -371,7 +351,7 @@ impl ServiceContext {
 
         // Authorized before the tab exists: a non-member caller must never leave
         // an orphan agent behind.
-        let team_attachment = super::team::resolve_spawn_attachment(
+        let team_attachment = super::team_membership::resolve_spawn_attachment(
             &self.mux.read(),
             spec.team_id.as_deref(),
             spec.creator_tab_id.as_deref(),
@@ -469,7 +449,12 @@ impl ServiceContext {
             agent.spawned_by_tab_id.as_deref(),
         );
         let task_identity = super::worker_ack::startup_task_identity_from_env(&agent.extra_env);
-        let startup_supervised = !agent.remote_task_bound
+        let user_created = spec
+            .chatbackend_launch
+            .as_ref()
+            .is_some_and(|metadata| metadata.params.user_created);
+        let startup_supervised = !user_created
+            && !agent.remote_task_bound
             && self.prepare_agent_startup_supervision(
                 &tab_id,
                 spec.parent_tab_id
@@ -549,7 +534,7 @@ impl ServiceContext {
         if let Some(attachment) = &team_attachment {
             let applied = {
                 let mut mux = self.mux.write();
-                super::team::apply_team_attachment(&mut mux, attachment, &tab_id)
+                super::team_membership::apply_team_attachment(&mut mux, attachment, &tab_id)
             };
             if let Err(error) = applied {
                 if tab_created_by_spawn {
@@ -754,7 +739,7 @@ impl ServiceContext {
         self.require_agent_provider_ready(&agent.provider)?;
         let permission_bypass_authorization =
             super::permission_policy::configured_permission_bypass_for(
-                &self.app_handle,
+                self,
                 &self.agent_registry,
                 &agent.provider,
             )?;
@@ -799,7 +784,7 @@ impl ServiceContext {
         }
 
         let ws_id = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             spec.workspace_id
                 .clone()
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
@@ -807,7 +792,7 @@ impl ServiceContext {
                 .ok_or("No workspace for hidden spawn")?
         };
         let (ws_cwd, ws_provisioned_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let workspace = mux.get_workspace(&ws_id);
             (
                 workspace.and_then(|ws| ws.cwd.clone()),
@@ -1076,9 +1061,22 @@ impl ServiceContext {
         cwd: Option<String>,
         env_vars: HashMap<String, String>,
     ) -> Result<String, String> {
+        self.link_hidden_agent_pty_with_builder(tab_id, |gate| {
+            crate::pty::manager::build_session(gate, None, cwd, 120, 40, env_vars)
+        })
+    }
+
+    fn link_hidden_agent_pty_with_builder(
+        &self,
+        tab_id: &str,
+        build: impl FnOnce(
+            crate::pty::manager::PtySpawnGate,
+        ) -> Result<crate::pty::manager::BuiltSession, String>,
+    ) -> Result<String, String> {
         let pty_claim = self.pty_ownership.acquire(tab_id);
-        // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
-        let candidate = self.pty.lock().spawn(None, cwd, 120, 40, env_vars)?.0;
+        let gate = self.pty.lock().spawn_gate();
+        let built = build(gate)?;
+        let candidate = self.pty.lock().register_session(None, built).0;
         super::pty_resize::resize(&self.pty, &self.screen_state, &candidate, None)?;
         let selection = self.link_pty_with_claim(&pty_claim, tab_id, candidate, true);
         if !selection.linked {
@@ -1146,3 +1144,5 @@ mod launch_marker_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use spawn_tab_identity::prepare_tab_identity as prepare_tab_identity_for_test;
+
+pub use codeterm_lanes::spawn_identity::resolve_spawn_workspace_id;

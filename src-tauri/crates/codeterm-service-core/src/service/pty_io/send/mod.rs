@@ -599,6 +599,11 @@ impl ServiceContext {
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
+        self.wake_frozen_tab(tab_id)
+            .map_err(|detail| DeliveryError::PtyUnavailable {
+                tab: tab_id.into(),
+                detail,
+            })?;
         if self.tab_chat_backing(tab_id).is_some() {
             return self
                 .chatbackend_tab_send(tab_id, text)
@@ -610,11 +615,14 @@ impl ServiceContext {
                 detail,
             });
         }
-        self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
-            .map_err(|detail| DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail,
-            })?;
+        self.await_public_agent_input_ready_blocking(
+            tab_id,
+            readiness::public_input_ready_deadline(),
+        )
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab_id.to_string(),
+            detail,
+        })?;
         let pty_id = match self.resolve_pty_id(tab_id) {
             Ok(pty_id) => pty_id,
             Err(_) => self.prepare_tab_pty_delivery(tab_id)?,
@@ -626,6 +634,11 @@ impl ServiceContext {
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
+        self.wake_frozen_tab(tab_id)
+            .map_err(|detail| DeliveryError::PtyUnavailable {
+                tab: tab_id.into(),
+                detail,
+            })?;
         self.ensure_tab_pty_for_send(tab_id)
             .map_err(|detail| DeliveryError::PtyUnavailable {
                 tab: tab_id.to_string(),
@@ -998,6 +1011,7 @@ impl ServiceContext {
 
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
     pub fn write_raw(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
+        self.wake_frozen_tab(tab_id)?;
         let pty_id = self.resolve_pty_id(tab_id)?;
         let data = self
             .encode_provider_control_key(&pty_id, data)
@@ -1048,13 +1062,13 @@ impl ServiceContext {
                     return;
                 }
                 log::warn!("[send-async] delivery to Tab {tab} failed: {error}");
-                codeterm_events::emit_everywhere(
-                    &svc.app_handle,
+                svc.ui.emit(
                     "chat-send-failed",
-                    serde_json::json!({
+                    serde_json::to_value(serde_json::json!({
                         "tab_id": &tab,
                         "error": &error,
-                    }),
+                    }))
+                    .unwrap_or_default(),
                 );
             }
         });

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use tauri::Emitter;
 
 use crate::service::ServiceContext;
 use codeterm_events::{EventBroadcaster, SystemEvent};
@@ -132,7 +131,7 @@ pub(crate) fn activity_payload(tab_id: &str, activity: &Activity) -> serde_json:
 
 fn emit(
     events: &EventBroadcaster,
-    app: &crate::app_runtime::AppHandle,
+    ui: &dyn crate::ports::host::UiEvents,
     tab_id: &str,
     activity: &Activity,
 ) {
@@ -141,7 +140,7 @@ fn emit(
         verb: activity.verb.clone(),
         actor: activity.actor.clone(),
     });
-    let _ = app.emit(SURFACE_ACTIVITY_EVENT, activity_payload(tab_id, activity));
+    ui.emit_native(SURFACE_ACTIVITY_EVENT, activity_payload(tab_id, activity));
 }
 
 impl ServiceContext {
@@ -155,18 +154,18 @@ impl ServiceContext {
             .ext::<Arc<crate::service::surface::SurfaceActivityGate>>()
             .offer(tab_id, &activity, Instant::now())
         {
-            Gate::EmitNow => emit(&self.events, &self.app_handle, tab_id, &activity),
+            Gate::EmitNow => emit(&self.events, self.ui.as_ref(), tab_id, &activity),
             Gate::Coalesced => {}
             Gate::FlushAfter(delay) => {
                 let gate =
                     Arc::clone(self.ext::<Arc<crate::service::surface::SurfaceActivityGate>>());
                 let events = Arc::clone(&self.events);
-                let app = self.app_handle.clone();
+                let ui = self.ui.clone();
                 let tab_id = tab_id.to_string();
                 std::thread::spawn(move || {
                     std::thread::sleep(delay);
                     if let Some(activity) = gate.flush(&tab_id, Instant::now()) {
-                        emit(&events, &app, &tab_id, &activity);
+                        emit(&events, ui.as_ref(), &tab_id, &activity);
                     }
                 });
             }

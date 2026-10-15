@@ -260,7 +260,7 @@ it.each(["Unable to resolve preview file: os error 2", "Binary file: text previe
   await render(panel());
   await act(async () => button("Show changes for src/a.ts").click());
   await act(async () => changeView("file").click());
-  expect(host.querySelector('[role="alert"]')).toBeTruthy();
+  expect(host.querySelector('[role="status"] details pre')?.textContent).toContain(failure);
   expect(host.querySelector("code")).toBeNull();
   await act(async () => button("Show recorded diff").click());
   expect(host.querySelector('[role="region"][aria-label="Diff for src/a.ts"]')).toBeTruthy();

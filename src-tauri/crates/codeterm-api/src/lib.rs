@@ -1,5 +1,6 @@
 pub mod account_routes;
 pub mod analytics_routes;
+mod attachment_upload;
 pub mod auth;
 pub mod automation_graph_routes;
 pub mod blueprint_portable_routes;
@@ -83,7 +84,8 @@ pub mod workspace_routes;
 
 mod capability_probe_routes;
 
-pub use routes::register_rest_hooks;
-
 #[cfg(test)]
 mod core_contract_tests;
+
+#[cfg(test)]
+mod rest_liveness_tests;

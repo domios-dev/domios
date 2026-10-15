@@ -2072,6 +2072,9 @@ Remove one lane worktree and its branch, refusing while a live tab's shell sits 
 
 Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)
 
+- `--clean` — Preview cleanup of merged, clean, unoccupied terminal/review lanes
+- `--confirm` — Execute cleanup instead of previewing it
+- `--fetch` — Fetch remote refs before assessing lanes (otherwise dry run is offline)
 - `<plan_id>`
 - `--stale` — Only show stale lanes (dead tab / report-overdue / uncleaned)
 
@@ -3122,6 +3125,20 @@ Past agent sessions — search conversations across all providers
 
 Full-desk session backups (workspaces + tabs). List the rotated snapshots and recover a reduced/wiped desk from one without hand-editing JSON
 
+#### `codeterm sessions backups export`
+
+Export a read-only, sanitized desk snapshot with transcript size evidence
+
+- `<name>` — Unix backup timestamp, or latest for the live desk
+- `--out` — Destination JSON file. Nothing is written to the instance
+- `--sanitize` — Required: message bodies, paths and secrets become same-size filler
+
+#### `codeterm sessions backups import`
+
+Replace a disposable named DEV desk with a sanitized fixture
+
+- `--file`
+
 #### `codeterm sessions backups list`
 
 List desk snapshot backups, newest first, with workspace/tab counts
@@ -3522,6 +3539,7 @@ Replace a plain shell's process in the same tab, preserving tab identity and met
 - `--cmd` — Command to execute after the replacement shell is ready
 - `--cwd` — Working directory for the replacement shell
 - `--tab` — Tab ID to restart (default: current tab)
+- `--timeout` — Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration
 
 #### `codeterm tab search`
 

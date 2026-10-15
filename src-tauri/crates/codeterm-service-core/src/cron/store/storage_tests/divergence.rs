@@ -71,10 +71,7 @@ fn divergence_of(f: &Fixture, job_id: &str) -> Option<crate::storage::CronLastRu
 
 fn assert_same_as(legacy: &CronStore, f: &Fixture) {
     let cache = f.cron.lock();
-    assert_eq!(
-        legacy.file.jobs, cache.file.jobs,
-        "definitions and last runs"
-    );
+    assert_eq!(legacy.list(), cache.list(), "definitions and last runs");
     assert_eq!(histories(legacy), histories(&cache), "history rows");
     drop(cache);
     f.assert_cache_is_committed();
@@ -119,10 +116,7 @@ fn storage_cron_divergent_last_run_survives_import_and_reopen() {
     f.storage.shutdown().wait(DEADLINE).expect("shutdown");
     let reopened = Storage::open(instance(&f.temp), StorageConfig::default()).expect("reopen");
     let fresh = hydrate(&reopened, &f.temp, &f.clock);
-    assert_eq!(
-        fresh.file.jobs, legacy.file.jobs,
-        "both copies survive a reopen"
-    );
+    assert_eq!(fresh.list(), legacy.list(), "both copies survive a reopen");
     assert_eq!(histories(&fresh), histories(&legacy));
     reopened
         .shutdown()

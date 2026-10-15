@@ -91,6 +91,8 @@ pub struct RestApiControl {
     bind_error: Arc<AtomicBool>,
     #[cfg(test)]
     initial_listener: Arc<Mutex<Option<std::net::TcpListener>>>,
+    #[cfg(test)]
+    health_proof_budget: Arc<Mutex<Option<Duration>>>,
 }
 
 #[derive(Debug)]
@@ -160,10 +162,25 @@ impl RestApiControl {
             bind_error: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             initial_listener: Arc::new(Mutex::new(None)),
+            #[cfg(test)]
+            health_proof_budget: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub(crate) fn port_released(&self) -> Result<(), String> {
+    fn health_proof_budget(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(budget) = *self.health_proof_budget.lock() {
+            return budget;
+        }
+        listeners::HEALTH_PROOF_DEADLINE
+    }
+
+    #[cfg(test)]
+    fn set_health_proof_budget(&self, budget: Duration) {
+        *self.health_proof_budget.lock() = Some(budget);
+    }
+
+    pub fn port_released(&self) -> Result<(), String> {
         self.signal(RestApiCommand::PortReleased)
     }
 
@@ -232,7 +249,7 @@ impl RestApiControl {
         lifecycle.bound_addr.filter(|_| lifecycle.listener_owned)
     }
 
-    pub(crate) fn set_runtime_policy(&self, policy: RestApiRuntimePolicy) {
+    pub fn set_runtime_policy(&self, policy: RestApiRuntimePolicy) {
         self.lifecycle.lock().runtime_policy = policy;
     }
 
@@ -366,7 +383,7 @@ impl RestApiControl {
         self.lifecycle.lock().listener_owned
     }
 
-    pub(crate) fn subscribe_status(&self) -> watch::Receiver<RestApiStatus> {
+    pub fn subscribe_status(&self) -> watch::Receiver<RestApiStatus> {
         self.status_events.subscribe()
     }
 
@@ -752,6 +769,8 @@ pub fn spawn(
 }
 
 pub async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
+    #[cfg(debug_assertions)]
+    let _watchdog = super::runtime_diagnostics::Watchdog::spawn("rest");
     let (sender, mut commands) = mpsc::unbounded_channel();
     control.install(sender);
     #[cfg(test)]
@@ -885,7 +904,7 @@ pub async fn start(control: RestApiControlState, bind_addr: String, router: axum
             generation_router,
             control.listeners.clone(),
         ));
-        let health = listeners::prove_set(local_addr, remote_addr);
+        let health = listeners::prove_set(local_addr, remote_addr, control.health_proof_budget());
         tokio::pin!(health);
 
         let event = loop {

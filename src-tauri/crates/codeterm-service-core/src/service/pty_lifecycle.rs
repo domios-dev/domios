@@ -180,6 +180,7 @@ async fn backend_read_loop(
 
                 if !first_byte_logged {
                     first_byte_logged = true;
+                    crate::startup::boot_timing::mark("-", Some(&pty_id), "first_output");
                     if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
                         log::info!(
                             "[pty-first-byte] pty={} elapsed={}ms bytes={}",
@@ -486,9 +487,8 @@ fn handle_pty_death_with_cause(
         let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
         svc.emit_tab_status_if_changed(pty_id, prev, crate::agent::status::TabStatus::Dead);
 
-        use tauri::Manager;
-        if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
-            crate::cron::pty_death_fallback::fail_run_on_pty_death(svc, &cron_state, pid, pty_id);
+        if let Some(cron_state) = svc.try_ext::<crate::CronState>() {
+            crate::cron::pty_death_fallback::fail_run_on_pty_death(svc, cron_state, pid, pty_id);
         }
 
         let watchdog = {
@@ -680,10 +680,12 @@ mod tests {
     }
 
     fn spawn_generation(pty: &crate::PtyState, pty_id: &str) -> u64 {
-        let (_, session) = pty
-            .lock()
-            .spawn_with_id(Some(pty_id.to_string()), None, None, 80, 24, HashMap::new())
-            .expect("spawn test PTY");
+        let (_, session) = {
+            let gate = pty.lock().spawn_gate();
+            crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+                .map(|built| pty.lock().register_session(Some(pty_id.to_string()), built))
+        }
+        .expect("spawn test PTY");
         session.generation
     }
 
@@ -860,19 +862,19 @@ mod tests {
         assert_eq!(mux.tab_id_for_pty(ROLE_PTY), Some(tab.clone()));
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let generation = {
-            let (_, session) = fixture
-                .service
-                .pty
-                .lock()
-                .spawn_with_id(
-                    Some(ROLE_PTY.to_string()),
-                    None,
-                    None,
-                    80,
-                    24,
-                    HashMap::new(),
+            let (_, session) = {
+                let gate = fixture.service.pty.lock().spawn_gate();
+                crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new()).map(
+                    |built| {
+                        fixture
+                            .service
+                            .pty
+                            .lock()
+                            .register_session(Some(ROLE_PTY.to_string()), built)
+                    },
                 )
-                .expect("spawn test PTY");
+            }
+            .expect("spawn test PTY");
             session.generation
         };
         assert!(fixture
@@ -970,6 +972,15 @@ mod tests {
     fn in_session_agent_death_without_shutdown_still_prunes_role_tabs() {
         for role in [AgentRole::Worker, AgentRole::Manager] {
             let (fixture, tab, generation) = role_pty_fixture(role);
+            let parent = fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab)
+                .and_then(|tab| tab.parent_tab_id.clone())
+                .expect("role tab parent");
+            let _parent =
+                fixture.bind_recorded_agent_recipient(&parent, "parent-session", "parent-nonce");
             let outcome =
                 super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, None);
             assert_eq!(

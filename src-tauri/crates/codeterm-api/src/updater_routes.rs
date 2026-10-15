@@ -139,18 +139,26 @@ pub async fn install_update(
             StatusCode::BAD_REQUEST,
             codeterm_service_core::service::turn_resume::CALLER_TAB_REQUIRED,
         ))?;
-        let sender = {
-            let mux = state.svc.mux.read();
-            let tab = mux
-                .get_tab(&tab_id)
-                .ok_or((StatusCode::BAD_REQUEST, "caller_tab_not_found"))?;
-            codeterm_service_core::multiplexer::types::TurnResumeSender {
-                tab_id,
-                label: tab.title.clone(),
-                from_agent: Some(tab.agent_type.is_some()),
-                from_model: tab.agent_session_model.clone(),
+        let owner = state.clone();
+        let sender = tokio::task::spawn_blocking(move || {
+            let state = owner;
+            {
+                let mux = state.svc.mux.read();
+                let tab = mux
+                    .get_tab(&tab_id)
+                    .ok_or((StatusCode::BAD_REQUEST, "caller_tab_not_found"))?;
+                Ok::<_, (StatusCode, &'static str)>(
+                    codeterm_service_core::multiplexer::types::TurnResumeSender {
+                        tab_id,
+                        label: tab.title.clone(),
+                        from_agent: Some(tab.agent_type.is_some()),
+                        from_model: tab.agent_session_model.clone(),
+                    },
+                )
             }
-        };
+        })
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))??;
         if let Err(e) = codeterm_service_core::service::post_update::stash(text, Some(sender)) {
             log::warn!("[updater] failed to stash after_update message: {}", e);
         }

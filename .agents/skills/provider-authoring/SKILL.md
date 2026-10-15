@@ -5,6 +5,8 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`agentRuntime.storedHistory` declares that `runtimeStoredHistory(sessionId, records)` projects bounded native session records to the same item ids and row order as runtime history. It is pure: no process, filesystem or new sandbox host API. Reject foreign session metadata, ignore foreign-thread events, and test offline/runtime projection parity. The host keeps stored byte cursors separate from runtime item cursors.
+
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
 with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
 host requires a unique provider-parsed option, a delegated Worker/Planner role,
@@ -188,6 +190,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
 | `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, Domios preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
+| `workerLaneSettings` | `[{path: string, patch: object}]` | Project settings files merged into every Worker lane at provisioning, for example to keep the provider's own language-server plugin from building there. `path` is lane-relative and may not escape the lane; JSON files merge, `.toml` files merge as TOML. The files stay ignored and unstaged in the lane. Require the first host version supporting this declaration. |
 | `credentials` | `[{id, file, fileEnvironment?, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
 | `defaultModel` | string? | Default model id. |
 | `reasoningEfforts` | `[{id, displayName, description?}]` | Reasoning-effort levels. |

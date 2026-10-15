@@ -81,7 +81,7 @@ test(
 
     await ui.reconnect();
 
-    const spawned = await api.post<{ tab_id: string; tab_id?: string }>("/agents/spawn", {
+    const spawned = await api.post<{ tab_id: string; }>("/agents/spawn", {
       agent: "cursor",
       cwd: testCwd,
       title: `pw-cursor-new-${nowMs}`,

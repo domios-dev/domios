@@ -1,0 +1,313 @@
+[
+  {
+    "name": "owner merged screenshot",
+    "raw": "какой щас план?\npasted by Domios<domios from=\"tab\" label=\"Probe\" tab=\"41f7661c\" model=\"gpt-6.1-sol\">Harness preflight caught ... Product code untouched.\n\npasted by Domios <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab 41f7661c]</tip></domios>",
+    "segments": [
+      {
+        "type": "text",
+        "text": "какой щас план?\n"
+      },
+      {
+        "type": "frame",
+        "from": "tab",
+        "attrs": {
+          "from": "tab",
+          "label": "Probe",
+          "tab": "41f7661c",
+          "model": "gpt-6.1-sol"
+        },
+        "body": "Harness preflight caught ... Product code untouched.\n",
+        "tip": "[to reply, run: codeterm send \"YOUR REPLY\" --tab 41f7661c]"
+      }
+    ]
+  },
+  {
+    "name": "voice transcript echo",
+    "raw": "<domios type=\"attachment\" kind=\"voice\" path=\"/tmp/voice.webm\" label=\"voice\" />\n<transcript>привет &lt;opaque&gt; &amp; world</transcript>",
+    "segments": [
+      {
+        "type": "attachment",
+        "kind": "voice",
+        "path": "/tmp/voice.webm",
+        "label": "voice",
+        "body": "привет <opaque> & world",
+        "status": null
+      }
+    ]
+  },
+  {
+    "name": "paste",
+    "raw": "<pasted_content id=\"p1\">opaque\nbytes</pasted_content>\npasted by Domios",
+    "segments": [
+      {
+        "type": "paste",
+        "id": "p1",
+        "body": "opaque\nbytes"
+      },
+      {
+        "type": "text",
+        "text": "\n"
+      }
+    ]
+  },
+  {
+    "name": "attachment",
+    "raw": "look <domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" label=\"image1\" /> please",
+    "segments": [
+      {
+        "type": "text",
+        "text": "look "
+      },
+      {
+        "type": "attachment",
+        "kind": "image",
+        "path": "/tmp/image.png",
+        "label": "image1",
+        "body": null,
+        "status": null
+      },
+      {
+        "type": "text",
+        "text": " please"
+      }
+    ]
+  },
+  {
+    "name": "two frames in one record",
+    "raw": "<domios from=\"tab\" tab=\"a\">first</domios>\n<domios from=\"mesh\" peer=\"b\">second</domios>",
+    "segments": [
+      {
+        "type": "frame",
+        "from": "tab",
+        "attrs": {
+          "from": "tab",
+          "tab": "a"
+        },
+        "body": "first",
+        "tip": null
+      },
+      {
+        "type": "text",
+        "text": "\n"
+      },
+      {
+        "type": "frame",
+        "from": "mesh",
+        "attrs": {
+          "from": "mesh",
+          "peer": "b"
+        },
+        "body": "second",
+        "tip": null
+      }
+    ]
+  },
+  {
+    "name": "fenced example",
+    "raw": "```xml\n<domios from=\"tab\" tab=\"a\">example</domios>\npasted by Domios\n```\n",
+    "segments": [
+      {
+        "type": "text",
+        "text": "```xml\n<domios from=\"tab\" tab=\"a\">example</domios>\npasted by Domios\n```\n"
+      }
+    ]
+  },
+  {
+    "name": "unclosed tag",
+    "raw": "before\npasted by Domios<domios from=\"tab\" tab=\"a\">never closed",
+    "segments": [
+      {
+        "type": "text",
+        "text": "before\npasted by Domios<domios from=\"tab\" tab=\"a\">never closed"
+      }
+    ]
+  },
+  {
+    "name": "inline frame has no provenance",
+    "raw": "quoted <domios from=\"tab\" tab=\"a\">example</domios>",
+    "segments": [
+      {
+        "type": "text",
+        "text": "quoted <domios from=\"tab\" tab=\"a\">example</domios>"
+      }
+    ]
+  },
+  {
+    "name": "tool result is content",
+    "raw": "<tool_result>\n<domios from=\"tab\" tab=\"a\">example</domios>\n</tool_result>",
+    "segments": [
+      {
+        "type": "text",
+        "text": "<tool_result>\n<domios from=\"tab\" tab=\"a\">example</domios>\n</tool_result>"
+      }
+    ]
+  },
+  {
+    "name": "routed paste wrapper",
+    "raw": "<pasted_content id=\"p2\"><domios from=\"tab\" tab=\"a\">body</domios></pasted_content id=\"p2\">",
+    "segments": [
+      {
+        "type": "frame",
+        "from": "tab",
+        "attrs": {
+          "from": "tab",
+          "tab": "a"
+        },
+        "body": "body",
+        "tip": null
+      }
+    ]
+  },
+  {
+    "name": "inline code attachment is text",
+    "raw": "`<domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" />`",
+    "segments": [
+      {
+        "type": "text",
+        "text": "`<domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" />`"
+      }
+    ]
+  },
+  {
+    "name": "unicode and crlf markers",
+    "raw": "👋\r\npasted by Domios\r\n<domios from=\"tab\" tab=\"a\" label=\"A &amp; B\">текст</domios>\r\nend",
+    "segments": [
+      {
+        "type": "text",
+        "text": "👋\r\n"
+      },
+      {
+        "type": "frame",
+        "from": "tab",
+        "attrs": {
+          "from": "tab",
+          "tab": "a",
+          "label": "A & B"
+        },
+        "body": "текст",
+        "tip": null
+      },
+      {
+        "type": "text",
+        "text": "\r\nend"
+      }
+    ]
+  },
+  {
+    "name": "empty",
+    "raw": "",
+    "segments": []
+  },
+  {
+    "name": "indented tag is content",
+    "raw": "    <domios from=\"tab\" tab=\"a\">example</domios>",
+    "segments": [
+      {
+        "type": "text",
+        "text": "    <domios from=\"tab\" tab=\"a\">example</domios>"
+      }
+    ]
+  },
+  {
+    "name": "malformed attributes",
+    "raw": "<domios from=\"tab\" from=\"report\">example</domios>",
+    "segments": [
+      {
+        "type": "text",
+        "text": "<domios from=\"tab\" from=\"report\">example</domios>"
+      }
+    ]
+  },
+  {
+    "name": "routed attachment body",
+    "raw": "<domios from=\"tab\" tab=\"a\">note <domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" /> done</domios>",
+    "segments": [
+      {
+        "type": "frame",
+        "from": "tab",
+        "attrs": {
+          "from": "tab",
+          "tab": "a"
+        },
+        "body": "note <domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" /> done",
+        "tip": null,
+        "segments": [
+          {
+            "type": "text",
+            "text": "note "
+          },
+          {
+            "type": "attachment",
+            "kind": "image",
+            "path": "/tmp/image.png",
+            "label": null,
+            "body": null,
+            "status": null
+          },
+          {
+            "type": "text",
+            "text": " done"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "frame body quoted example",
+    "raw": "<domios from=\"tab\" tab=\"a\">```xml\n<domios from=\"tab\" tab=\"quoted\">example</domios>\n```</domios>",
+    "segments": [
+      {
+        "type": "frame",
+        "from": "tab",
+        "attrs": {
+          "from": "tab",
+          "tab": "a"
+        },
+        "body": "```xml\n<domios from=\"tab\" tab=\"quoted\">example</domios>\n```",
+        "tip": null
+      }
+    ]
+  },
+  {
+    "name": "glued routed then owner",
+    "raw": "<domios from=\"tab\" label=\"Sender\" tab=\"abc12345\">opaque routed body <tip>opaque hidden hint</tip></domios>opaque owner body",
+    "segments": [
+      {
+        "type": "frame",
+        "from": "tab",
+        "attrs": {
+          "from": "tab",
+          "label": "Sender",
+          "tab": "abc12345"
+        },
+        "body": "opaque routed body",
+        "tip": "opaque hidden hint"
+      },
+      {
+        "type": "text",
+        "text": "opaque owner body"
+      }
+    ]
+  },
+  {
+    "name": "owner newline routed",
+    "raw": "opaque owner body\n<domios from=\"tab\" label=\"Sender\" tab=\"abc12345\">opaque routed body <tip>opaque hidden hint</tip></domios>",
+    "segments": [
+      {
+        "type": "text",
+        "text": "opaque owner body\n"
+      },
+      {
+        "type": "frame",
+        "from": "tab",
+        "attrs": {
+          "from": "tab",
+          "label": "Sender",
+          "tab": "abc12345"
+        },
+        "body": "opaque routed body",
+        "tip": "opaque hidden hint"
+      }
+    ]
+  }
+]

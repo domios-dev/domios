@@ -18,76 +18,12 @@
       "measuredSeconds": 1.349
     },
     {
-      "key": "service::hierarchy::report_attribution::a_current_task_hint_delivers_and_attributes_exactly_as_today",
-      "measuredSeconds": 20.148
-    },
-    {
-      "key": "service::hierarchy::report_attribution::a_stale_task_hint_delivers_to_the_live_recipient_not_the_stale_plan_owner",
-      "measuredSeconds": 20.147
-    },
-    {
-      "key": "service::hierarchy::report_plan_ctx::tests::a_verification_worker_holds_no_task_and_can_transition_none",
-      "measuredSeconds": 40.115
-    },
-    {
-      "key": "service::hierarchy::report_plan_ctx::tests::blocked_worker_report_is_one_persisted_proposal_and_keeps_task_in_progress",
-      "measuredSeconds": 20.125
-    },
-    {
-      "key": "service::hierarchy::report_plan_ctx::tests::desktop_reports::authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without_task_mutation",
-      "measuredSeconds": 20.087
-    },
-    {
       "key": "service::hierarchy::report_plan_ctx::tests::plan_evidence_role_test::planned_team_taskless_worker_reports_to_parent_without_plan_write",
       "measuredSeconds": 20.095
     },
     {
-      "key": "service::hierarchy::report_plan_ctx::tests::plan_evidence_session_test::plan_evidence_resolves_absent_session_from_attested_nonce",
-      "measuredSeconds": 20.094
-    },
-    {
-      "key": "service::hierarchy::report_plan_ctx::tests::planner_report_with_live_matching_session_reaches_the_plan_owner",
-      "measuredSeconds": 20.091
-    },
-    {
-      "key": "service::hierarchy::report_plan_ctx::tests::stale_task_report_absent_hint_still_transitions_the_held_task",
-      "measuredSeconds": 20.142
-    },
-    {
-      "key": "service::hierarchy::report_plan_ctx::tests::stale_task_report_correct_binding_matches_the_absent_hint_shape",
-      "measuredSeconds": 40.17
-    },
-    {
-      "key": "service::hierarchy::report_plan_ctx::tests::stale_task_report_plan_owner_in_recovery_cannot_land_a_stale_binding",
-      "measuredSeconds": 20.12
-    },
-    {
-      "key": "service::hierarchy::report_plan_ctx::tests::stale_task_report_transitions_nothing_and_names_the_mismatch",
-      "measuredSeconds": 20.106
-    },
-    {
       "key": "service::hierarchy::team_plan_creation::tests::planner_plan_creation_waits_until_the_binding_deadline",
       "measuredSeconds": 1.05
-    },
-    {
-      "key": "service::message_gateway::ordering_tests::accepted_report_then_ack_then_provider_stop_fabricates_nothing",
-      "measuredSeconds": 30.356
-    },
-    {
-      "key": "service::message_gateway::ordering_tests::dispatched_brief_still_arms_and_provider_stop_still_fabricates_handoff",
-      "measuredSeconds": 20.334
-    },
-    {
-      "key": "service::message_gateway::ordering_tests::partial_report_then_followup_rearms_the_same_in_progress_attempt",
-      "measuredSeconds": 30.333
-    },
-    {
-      "key": "service::message_gateway::ordering_tests::task_gate_rejection_still_delivers_report_once",
-      "measuredSeconds": 20.334
-    },
-    {
-      "key": "service::message_gateway::ordering_tests::worker_done_policy_cannot_suppress_report_delivery",
-      "measuredSeconds": 20.325
     },
     {
       "key": "service::parked_user_delivery::tests::readiness::restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding",
@@ -106,28 +42,8 @@
       "measuredSeconds": 1.063
     },
     {
-      "key": "service::pty_lifecycle::tests::in_session_agent_death_without_shutdown_still_prunes_role_tabs",
-      "measuredSeconds": 40.591
-    },
-    {
-      "key": "service::session_model::tests::model_refresh_tests::stop_refreshes_known_session_model_after_in_tui_switch_without_fallback",
-      "measuredSeconds": 2.078
-    },
-    {
-      "key": "service::store::tests::health_history_is_capped_and_list_reads_latest_snapshot",
-      "measuredSeconds": 12.491
-    },
-    {
-      "key": "service::supporter::activity::tests::supporter_default_no_cap_never_refuses_and_counts_every_request",
-      "measuredSeconds": 6.531
-    },
-    {
       "key": "service::tab_chat::identity_tests::tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_backfill",
       "measuredSeconds": 1.888
-    },
-    {
-      "key": "service::tab_chat::tailer_tests::pending_store_watch_promotes_to_tailer_and_streams_initial_batch",
-      "measuredSeconds": 3.191
     },
     {
       "key": "service::tab_chat::tailer_tests::tailer_repopulates_when_session_file_appears_late",

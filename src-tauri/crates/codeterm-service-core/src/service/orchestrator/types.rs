@@ -157,6 +157,8 @@ pub struct SpawnAgentParams {
         Option<crate::service::permission_policy::PermissionBypassAuthorization>,
     /// CODETERM_TAB_ID of the caller — recorded for report routing fallback.
     pub spawned_by_tab_id: Option<String>,
+    #[serde(default, skip)]
+    pub user_created: bool,
     /// Team a roleless spawn attaches to (`agent spawn --team`). Requires
     /// `creator_tab_id`; membership is authorized, never assumed.
     pub team_id: Option<String>,
@@ -251,7 +253,7 @@ impl SpawnAgentParams {
 
     /// Role kind these params resolve to. Valid only after
     /// `normalize_role_profile` has folded the wire sugar.
-    pub(crate) fn role_kind(&self) -> Option<&str> {
+    pub fn role_kind(&self) -> Option<&str> {
         codeterm_types::agent::role_kind::kind_id(
             self.role
                 .as_deref()

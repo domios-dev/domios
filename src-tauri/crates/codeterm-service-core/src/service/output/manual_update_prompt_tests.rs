@@ -110,19 +110,19 @@ fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
     tab.auto_approve = true;
     tab.permission_auto_confirm = true;
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(
-            Some("pty-update".into()),
-            None,
-            None,
-            80,
-            24,
-            Default::default(),
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some("pty-update".into()), built)
+            },
         )
-        .expect("spawn live shell PTY for structured prompt response");
+    }
+    .expect("spawn live shell PTY for structured prompt response");
     fixture
         .service
         .agent_registry
@@ -552,7 +552,7 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
         .lock()
         .process("pty-user-dir-no-change", screen.as_bytes());
     let status_rows = crate::agent::classify_input::StatusBarRows::resolve(
-        &*fixture.service.agent_registry,
+        &**fixture.service.agent_registry,
         "codex",
     )
     .expect("Codex status rows");

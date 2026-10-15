@@ -17,6 +17,7 @@ function fixture(responses: unknown[] = [{}]) {
 }
 
 const simple = [
+  ["wake_tab", "POST", "/api/tabs/tab/wake"],
   ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],
   ["agent_runtime_login", "POST", "/api/tabs/tab/agent/runtime/login"],
   ["agent_runtime_retry", "POST", "/api/tabs/tab/agent/runtime/retry"],
@@ -107,6 +108,16 @@ describe("tab command HTTP contract", () => {
       { method: "POST", path: "/api/tabs/tab/chat-send", body: { text: "hello", client_token: "once" } },
       { method: "POST", path: "/api/tabs/tab/session/rebind", body: { session_id: "bound" } },
       { method: "POST", path: "/api/tabs/tab/resize-owner", body: { pty_id: "pty", client_id: "client", cols: 80, rows: 24, force: true } },
+    ]);
+  });
+
+  it("preserves byte and item cursor units on history backfill", async () => {
+    const { transport, calls } = fixture();
+    await transport.chat_backfill({ tabId:"tab", beforeOffset:4096, offsetKind:"bytes" });
+    await transport.chat_backfill({ tabId:"tab", beforeOffset:200, offsetKind:"items" });
+    expect(calls.map(call => call.body)).toEqual([
+      {before_offset:4096, offset_kind:"bytes"},
+      {before_offset:200, offset_kind:"items"},
     ]);
   });
 

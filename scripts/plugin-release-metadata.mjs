@@ -1,4 +1,4 @@
-// Caller: scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs
+// Caller: scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs, sync-plugin-versions.mjs
 import fs from "node:fs";
 import path from "node:path";
 

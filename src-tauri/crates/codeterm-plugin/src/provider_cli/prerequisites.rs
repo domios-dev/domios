@@ -134,7 +134,7 @@ pub(super) fn observe(command: Option<&str>) -> Vec<CommandPrerequisite> {
         if let Some(command) = command.filter(|command| powershell::runs_downloaded_script(command))
         {
             let values = codeterm_util::windows_powershell::read_execution_policy_values();
-            if let Some(prerequisite) = powershell::prerequisite(command, &values) {
+            if let Some(prerequisite) = powershell::prerequisite(command, values) {
                 prerequisites.push(prerequisite);
             }
         }

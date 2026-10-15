@@ -11,7 +11,7 @@ pub fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::St
     }
 }
 
-pub(crate) fn starter_prompt_for_creation(
+pub fn starter_prompt_for_creation(
     role: Option<&str>,
     task: Option<&str>,
 ) -> crate::agent::provider::StarterPrompt {
@@ -211,7 +211,7 @@ impl SpawnTabSpec {
         Ok(params)
     }
 
-    pub(crate) fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
+    pub fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
         let agent = match &self.command {
             TabCommand::Agent(a) => a,
             TabCommand::Shell => {
@@ -260,6 +260,10 @@ impl SpawnTabSpec {
             skip_permissions: None,
             permission_bypass_authorization: None,
             spawned_by_tab_id: agent.spawned_by_tab_id.clone(),
+            user_created: self
+                .chatbackend_launch
+                .as_ref()
+                .is_some_and(|metadata| metadata.params.user_created),
             team_id: self.team_id.clone(),
             creator_tab_id: self.creator_tab_id.clone(),
             ownership: None,
@@ -392,7 +396,7 @@ impl ServiceContext {
     /// the ChatBackend tab path (a spawnable shell), `Ok(false)` for an ordinary
     /// agent provider, and a clean `Err` for a registered-but-not-spawnable
     /// chatBackend (e.g. the NPC backend) or an unknown id.
-    pub(crate) fn classify_spawn_target_for_params(
+    pub fn classify_spawn_target_for_params(
         &self,
         agent_cmd: &str,
         params: &SpawnAgentParams,
@@ -682,6 +686,23 @@ mod tests {
             rest.starter_prompt,
             crate::agent::provider::StarterPrompt::NoStarter
         );
+    }
+
+    #[test]
+    fn bootstrap_user_creation_origin_survives_spawn_spec_roundtrip() {
+        for user_created in [false, true] {
+            let params = SpawnAgentParams {
+                role: Some("Manager".into()),
+                role_profile: Some("planner".into()),
+                parent_tab_id: Some("orchestrator".into()),
+                user_created,
+                ..Default::default()
+            };
+            let spec = SpawnTabSpec::from_agent_params(params);
+            let restored = spec.to_agent_launch_params(None).unwrap();
+            assert_eq!(restored.user_created, user_created);
+            assert_eq!(restored.parent_tab_id.as_deref(), Some("orchestrator"));
+        }
     }
 
     #[test]

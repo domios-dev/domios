@@ -746,15 +746,18 @@ export const TerminalTab = memo(function TerminalTab({
       </div>
 
       {/* Loading overlay */}
-      <TabBootOverlay
+      {terminalVisible && <TabBootOverlay
+        tabId={tabId}
         view={bootOverlay}
+        workspace={muxState.workspaces.find(workspace => workspace.tabs.includes(tabId))}
+        cwd={tab?.cwd}
         shellReady={shell.shellReady}
         overlayVisible={shell.overlayVisible}
         onRetry={retryAgent}
         onStartFreshAgent={startFreshAgent}
         {...newSessionAction}
         onKeepShell={keepShell}
-      />
+      />}
 
       {/* Context menu */}
       {contextMenu && (

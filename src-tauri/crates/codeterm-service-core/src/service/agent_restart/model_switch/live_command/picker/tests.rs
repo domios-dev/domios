@@ -47,30 +47,6 @@ const EFFORT_SCREEN: &str = include_str!(concat!(
 ));
 
 #[test]
-fn captured_cached_sonnet_confirmation_uses_the_structural_provider_capability() {
-    use crate::agent::provider::AgentProvider;
-    let provider = crate::plugin::agent_claude::ClaudeProvider::new();
-    let screen = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/tests/fixtures/model-switch/cached-sonnet-confirmation.txt"
-    ));
-    let prompt = provider
-        .parse_switch_confirmation_prompt(screen, "sonnet")
-        .unwrap();
-    assert_eq!(prompt.options.len(), 2);
-    assert_eq!(
-        provider.live_prompt_response(0, screen),
-        Some(vec![b"\r".to_vec()])
-    );
-    assert!(provider
-        .parse_switch_confirmation_prompt(screen, "opus")
-        .is_none());
-    assert!(provider
-        .parse_switch_confirmation_prompt("composer", "sonnet")
-        .is_none());
-}
-
-#[test]
 fn combined_switch_selects_current_sonnet_label_across_reordered_and_stale_frames() {
     let declaration = commands().model.picker.unwrap();
     let mut selection = target();

@@ -24,7 +24,6 @@ pub(crate) fn enabled() -> bool {
 }
 
 pub(crate) fn tab_flow(service: &crate::service::ServiceContext, tab: &str) -> Option<String> {
-    use tauri::Manager;
     if SENDER.get().is_none() {
         return None;
     }
@@ -39,8 +38,7 @@ pub(crate) fn tab_flow(service: &crate::service::ServiceContext, tab: &str) -> O
         }
     }
     service
-        .app_handle
-        .try_state::<crate::CronState>()
+        .try_ext::<crate::CronState>()
         .and_then(|state| state.lock().get_tab_owner(tab).map(|(_, run)| run.clone()))
 }
 
@@ -66,7 +64,7 @@ pub(crate) fn envelope_flow(
     }
 }
 
-pub(crate) fn init() {
+pub fn init() {
     if !crate::paths::is_dev_instance() {
         return;
     }
@@ -99,7 +97,7 @@ pub(crate) fn init() {
         });
 }
 
-pub(crate) fn record(
+pub fn record(
     id: &str,
     stage: &str,
     tab: &str,

@@ -258,7 +258,7 @@ fn spawn_bg<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    tauri::async_runtime::spawn(fut);
+    crate::async_runtime::spawn(fut);
 }
 
 fn stamp_chatbackend_launch_identity(
@@ -397,7 +397,7 @@ impl ServiceContext {
         }
 
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let id = crate::service::spawn::resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
                 spec.parent_tab_id.as_deref(),
@@ -414,7 +414,7 @@ impl ServiceContext {
             .clone()
             .or(ws_cwd)
             .map(|cwd| Self::normalize_resolved_agent_cwd(&cwd));
-        let team_attachment = crate::service::team::resolve_spawn_attachment(
+        let team_attachment = crate::service::team_membership::resolve_spawn_attachment(
             &self.mux.read(),
             spec.team_id.as_deref(),
             spec.creator_tab_id.as_deref(),
@@ -432,7 +432,9 @@ impl ServiceContext {
                 None => mux.create_tab(&ws_id)?,
             };
             if let Some(attachment) = &team_attachment {
-                crate::service::team::apply_team_attachment(&mut mux, attachment, &result)?;
+                crate::service::team_membership::apply_team_attachment(
+                    &mut mux, attachment, &result,
+                )?;
             }
             if let Some(ref title) = spec.title {
                 if let Err(e) = mux.rename_tab(&result, title) {
@@ -752,7 +754,6 @@ impl ServiceContext {
         history_meta: serde_json::Value,
     ) {
         let svc = self.clone();
-        let app = self.app_handle.clone();
         spawn_bg(async move {
             let (source_session_id, session_binding_nonce) = svc
                 .mux
@@ -767,7 +768,7 @@ impl ServiceContext {
                 .unwrap_or((None, None));
             let inner = crate::service::tab_chat::structured_sink::make_sink(
                 svc.lifecycle_journal.clone(),
-                app,
+                &svc,
                 svc.mux.clone(),
                 source_session_id,
                 session_binding_nonce,
@@ -1146,7 +1147,7 @@ impl ServiceContext {
             })
             .unwrap_or((None, None));
         crate::service::tab_chat::structured_sink::emit_chat_msgs(
-            &self.app_handle,
+            self.ui.as_ref(),
             tab_id,
             &[note],
             None,

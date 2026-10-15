@@ -528,7 +528,7 @@ fn official_channel_record_accepts_provider_and_core_paths_only_for_their_ids() 
         &record("opaque-q7", "provider-opaque-q7", "elsewhere-q7"),
         "core-q7"
     ));
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         assert!(official(sys_id, sys_id));
         assert!(!official(sys_id, "other-q7"));
     }
@@ -712,6 +712,23 @@ fn default_roots_includes_user_dir() {
 }
 
 #[test]
+fn runtime_workspace_root_outlives_the_build_mapping_and_is_dev_only() {
+    let physical = PathBuf::from("/physical/checkout");
+    let compiled = Path::new("X:/");
+    let selected = selected_workspace_root(Some(compiled), Some(physical.clone()), true);
+    assert_eq!(selected.as_deref(), Some(physical.as_path()));
+    assert_eq!(
+        ordered_roots(selected.as_deref(), PathBuf::from("/data/plugins"), true),
+        vec![PathBuf::from("/data/plugins"), physical.join("plugins")]
+    );
+    assert_eq!(
+        selected_workspace_root(Some(compiled), Some(physical), false),
+        Some(compiled.to_path_buf())
+    );
+    assert_eq!(selected_workspace_root(None, None, true), None);
+}
+
+#[test]
 fn dev_root_order_keeps_workspace_plugins_authoritative() {
     let user = PathBuf::from("/data/plugins");
     let roots = ordered_roots(Some(Path::new("/repo")), user.clone(), true);
@@ -767,7 +784,7 @@ fn trust_matrix() {
     }
 
     // Case 2: system id with custom content → Unverified. Skipped if the table is empty (cargo-publish edge case).
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(*sys_id);
         write(&dir.join("plugin.json"), &min_manifest(sys_id));
@@ -780,7 +797,7 @@ fn trust_matrix() {
     }
 
     // Case 3: system id with custom content from the official system channel stays trusted.
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(*sys_id);
         write(&dir.join("plugin.json"), &min_manifest(sys_id));
@@ -798,7 +815,7 @@ fn trust_matrix() {
 
     // Case 4: CODETERM_DEV=1 forces ThirdParty even for system id.
     env.set("CODETERM_DEV", "1");
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(*sys_id);
         write(&dir.join("plugin.json"), &min_manifest(sys_id));

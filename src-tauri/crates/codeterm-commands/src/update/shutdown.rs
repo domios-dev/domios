@@ -29,9 +29,14 @@ pub async fn graceful_shutdown(
         .clone();
 
     quiesce_pty_spawns(&svc).await?;
-    let surfaces = codeterm_service_core::service::surface::begin_surface_shutdown(&svc);
-
-    let swept = collect_owned_pty_tabs(&svc);
+    let owner = svc.clone();
+    let (surfaces, swept) = tokio::task::spawn_blocking(move || {
+        let surfaces = codeterm_service_core::service::surface::begin_surface_shutdown(&owner);
+        let swept = collect_owned_pty_tabs(&owner);
+        (surfaces, swept)
+    })
+    .await
+    .map_err(|error| format!("shutdown preflight task failed: {error}"))?;
     log::info!(
         "[updater] graceful_shutdown: preserving authority for {} owned PTY Tab(s)",
         swept.len()
@@ -39,7 +44,7 @@ pub async fn graceful_shutdown(
 
     let (desk, reaped) = capture_desk_before(&svc, reap_owned_ptys(&svc)).await?;
 
-    let persist_result = persist_desk_off_runtime(app, &svc.mux, desk).await;
+    let persist_result = persist_desk_off_runtime(&svc, &svc.mux, desk).await;
     let shutdown_result = shutdown_storage_off_runtime(app).await;
     persist_result?;
     shutdown_result?;
@@ -64,9 +69,10 @@ pub async fn graceful_shutdown(
 async fn shutdown_storage_off_runtime(
     app: &codeterm_service_core::app_runtime::AppHandle,
 ) -> Result<(), String> {
+    let svc = app.state::<ServiceState>().inner().clone();
     let app = app.clone();
     tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::session_persist::stop_worker(&app)?;
+        codeterm_service_core::service::session_persist::stop_worker(&svc)?;
         let storage = app
             .try_state::<codeterm_service_core::startup::StorageAuthority>()
             .ok_or_else(|| "StorageAuthority not registered".to_string())?;
@@ -94,9 +100,10 @@ fn select_owned_pty_tabs<'a>(
 }
 
 async fn quiesce_pty_spawns(svc: &ServiceState) -> Result<(), String> {
-    let spawn_gate = svc.pty.lock().spawn_gate();
-    spawn_gate.quiesce();
+    let svc = svc.clone();
     tokio::task::spawn_blocking(move || {
+        let spawn_gate = svc.pty.lock().spawn_gate();
+        spawn_gate.quiesce();
         spawn_gate.wait_for_idle(std::time::Instant::now() + SPAWN_QUIESCE_TIMEOUT)
     })
     .await
@@ -104,25 +111,32 @@ async fn quiesce_pty_spawns(svc: &ServiceState) -> Result<(), String> {
 }
 
 async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
-    let reapers = svc.pty.lock().begin_shutdown()?;
-    let pty_ids = reapers
-        .iter()
-        .map(|reaper| reaper.pty_id().to_string())
-        .collect::<Vec<_>>();
-    svc.pty_ownership.release_ptys(&pty_ids);
+    let owner = svc.clone();
+    let (reapers, blockers) = tokio::task::spawn_blocking(move || {
+        let svc = owner;
+        let reapers = svc.pty.lock().begin_shutdown()?;
+        let pty_ids = reapers
+            .iter()
+            .map(|reaper| reaper.pty_id().to_string())
+            .collect::<Vec<_>>();
+        svc.pty_ownership.release_ptys(&pty_ids);
 
-    let blockers = svc
-        .mux
-        .read()
-        .snapshot()
-        .tabs
-        .values()
-        .filter_map(|tab| {
-            tab.pty_id
-                .as_ref()
-                .map(|pty| (pty.clone(), format!("Tab {} ({})", tab.title, tab.id)))
-        })
-        .collect::<std::collections::HashMap<_, _>>();
+        let blockers = svc
+            .mux
+            .read()
+            .snapshot()
+            .tabs
+            .values()
+            .filter_map(|tab| {
+                tab.pty_id
+                    .as_ref()
+                    .map(|pty| (pty.clone(), format!("Tab {} ({})", tab.title, tab.id)))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        Ok::<_, String>((reapers, blockers))
+    })
+    .await
+    .map_err(|error| format!("PTY shutdown snapshot task failed: {error}"))??;
     let count = reapers.len();
     let mut set = JoinSet::new();
     for reaper in reapers {
@@ -155,12 +169,9 @@ fn pty_shutdown_disposition(count: usize, failures: Vec<String>) -> Result<usize
     }
 }
 
-pub fn persist_session(
-    app: &codeterm_service_core::app_runtime::AppHandle,
-    svc: &ServiceState,
-) -> Result<(), String> {
+pub fn persist_session(svc: &ServiceState) -> Result<(), String> {
     let result =
-        codeterm_service_core::service::session_persist::write_session_snapshot(app, &svc.mux);
+        codeterm_service_core::service::session_persist::write_session_snapshot(svc, &svc.mux);
     if matches!(
         result,
         Ok(codeterm_service_core::session::store::SaveOutcome::Saved)
@@ -199,22 +210,25 @@ async fn capture_desk_before<T>(
     svc: &codeterm_service_core::service::ServiceContext,
     teardown: impl std::future::Future<Output = Result<T, String>>,
 ) -> Result<(codeterm_service_core::session::SessionSnapshot, T), String> {
-    let desk = svc.mux.read().to_session_snapshot();
+    let mux = svc.mux.clone();
+    let desk = tokio::task::spawn_blocking(move || mux.read().to_session_snapshot())
+        .await
+        .map_err(|error| format!("desk snapshot task failed: {error}"))?;
     let result = teardown.await?;
     Ok((desk, result))
 }
 
 /// Saves the pre-teardown desk and refreshes live tab identities before committing.
 async fn persist_desk_off_runtime(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    svc: &codeterm_service_core::service::ServiceContext,
     mux: &codeterm_service_core::multiplexer::commands::MuxState,
     desk: codeterm_service_core::session::SessionSnapshot,
 ) -> Result<(), String> {
     let mux = mux.clone();
-    let app = app.clone();
+    let svc = svc.clone();
     tokio::task::spawn_blocking(move || {
         let result = codeterm_service_core::service::session_persist::write_captured_snapshot_with_live_identities(
-            &app,
+            &svc,
             &mux,
             &desk,
             codeterm_service_core::session::store::SaveIntent::PreserveDesk,
@@ -295,7 +309,7 @@ mod tests {
             .import_snapshot(&svc.mux.read().to_session_snapshot(), Vec::new())
             .expect("seed the Storage desk before teardown persistence");
         codeterm_service_core::service::session_persist::install_storage_desk_adapter(
-            fixture._app.handle(),
+            &fixture.service,
             StorageDeskAdapter::from_storage(storage.clone()),
         )
         .expect("install Storage desk adapter");
@@ -317,7 +331,7 @@ mod tests {
         );
 
         rt.block_on(persist_desk_off_runtime(
-            fixture._app.handle(),
+            &fixture.service,
             &fixture.service.mux,
             desk,
         ))
@@ -327,8 +341,7 @@ mod tests {
             snapshot_tab_ids(&recorded).contains(&worker),
             "recorded desk must keep the pre-teardown tab set"
         );
-        codeterm_service_core::service::session_persist::stop_worker(fixture._app.handle())
-            .unwrap();
+        codeterm_service_core::service::session_persist::stop_worker(&fixture.service).unwrap();
         storage
             .shutdown()
             .wait(std::time::Duration::from_secs(30))

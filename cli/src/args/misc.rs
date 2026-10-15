@@ -197,6 +197,9 @@ pub enum TabAction {
         /// Command to execute after the replacement shell is ready.
         #[arg(long, allow_hyphen_values = true)]
         cmd: Option<String>,
+        /// Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration.
+        #[arg(long)]
+        timeout: Option<String>,
     },
     /// Close a tab by ID
     Close {

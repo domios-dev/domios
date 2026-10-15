@@ -242,4 +242,3 @@ pub fn validate(job: &Sentinel) -> Result<(), String> {
     }
     Ok(())
 }
-

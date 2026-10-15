@@ -21,10 +21,24 @@ For assertion discipline and layer-specific recipes, see `the Writing Tests sect
 | API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
 | Behaviour bench | `evals/<name>/` | `bash run.sh` via `_lib/lib.sh` | yes | yes (dev-locked) | never | unbounded |
 
+Every runner, its tier (`pr`, `release`, `manual`) and the files or tests it owns
+are indexed in `tests/catalogue.json`, rendered as `tests/README.md`; the table
+above is the layer model, the catalogue is the index of runners. A new test file
+must land where some runner's discovery finds it, or
+`node scripts/test-catalogue.mjs validate` fails. `select --tier pr` lists what a
+pull request runs; `tests/catalogue.overlay.json` carries stale, flaky and
+platform-red markers, which never count as healthy (platform-red is red on the
+listed platforms only and is not safe to delete). Real LLM providers run only in
+curated tests and evals: validate refuses `needs_live_agent` on any runner that
+is not `e2e-curated` or `eval` at tier `manual`, so everything else uses stub or
+recorded providers.
+
 Playwright is suspended and is not part of the test plan, agent workflow, local
-aggregate, QA registry, or CI. Existing specs remain archived for a future
-explicit run requested by Andrey in the current conversation; do not run or
-modify them during normal development.
+aggregate, QA registry, or CI: its catalogue runner `playwright` is `suspended`
+at tier `manual`, and `tests/playwright/README.md`, `QUARANTINE.md` and the
+generated `COVERAGE_MAP.md` open with the same suspended banner. Existing specs
+remain archived for a future explicit run requested by Andrey in the current
+conversation; do not run or modify them during normal development.
 
 ### Which layer do I write?
 
@@ -74,9 +88,20 @@ cost. Non-Rust commands are grouped for parallel execution during Rust compile.
 the capped execution deadline, and `--no-tests=fail` rejects empty selections.
 TypeScript selections use the existing runner's related-file mode for tsx-runner
 tests and `pnpm exec vitest related <files>` for Vitest-owned tests. Plugin
-selections use `bash scripts/plugin-tests.sh <provider>`.
+selections use `bash scripts/plugin-tests.sh <plugin-dir>`, which runs the
+`plugin-tests` catalogue discovery under `plugins/<plugin-dir>/`. Node and Python
+script tests run through `node scripts/test-catalogue.mjs run --entry <id>`
+(`node-script-tests`, `python-script-tests`); a single file still runs with
+`node --test <file>`.
 
 Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
+
+A change that moves Rust tests between modules or crates proves no test was
+lost without compiling: `node scripts/rust-test-inventory.mjs gate --base <ref>`
+statically scans the merge-base and HEAD from git objects and exits 1 on a lost
+or renamed key; crate moves pass. A deliberate rename is listed in a reviewed map,
+`docs/architecture/test-renames/<task>.txt` (`old_key -> new_key` per line),
+passed with `--renames`; a map line that hides nothing fails too.
 
 Nextest keeps normal suite parallelism. A parallel timing above one second is a
 candidate when new or above its recorded alone allowance. The gate reruns only
@@ -86,10 +111,15 @@ fail; times over 1.0 through 1.25 seconds warn. Existing regressions fail only
 above baseline + max(20%, 0.25 seconds); smaller increases warn.
 `scripts/slow-unit-tests.json` records alone durations;
 its exact identities and recorded times may only shrink against the base ref.
+Release CI skips the serial reruns (they took ~10 minutes, longer than the suite):
+`--policy advisory` without `--alone` prints each candidate's parallel timing against
+its limit as a warning and fails only on baseline-file errors. PR, master and
+nightly runs keep enforcement with serial confirmation.
 
 ```bash
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --candidates CANDIDATES_JSON [--base REF]
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --alone ALONE_LOG [--base REF]
+node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --policy advisory   # parallel-only advice
 node --test scripts/check-slow-unit-tests.test.mjs
 ```
 
@@ -612,8 +642,9 @@ Example: `tests/e2e/test_inject_verify.py` and `tests/e2e/test_eager_tab.py`.
 The Playwright suite is suspended. Do not run, repair, migrate, or add Playwright
 tests unless Andrey explicitly requests that run in the current conversation.
 The archived suite command remains `pnpm test:pw:smoke`; keep existing specs and
-manual commands intact. Use focused unit or API coverage and manual dev
-inspection for UI changes.
+manual commands intact. The `tests/playwright` docs carry the same suspended
+banner, and specs known to be stale are markers in `tests/catalogue.overlay.json`.
+Use focused unit or API coverage and manual dev inspection for UI changes.
 ### Golden/LLM
 
 1. Mark real-token tests `@golden` or `pytest.mark.llm`.
@@ -654,3 +685,11 @@ If the emulator reports `Unable to locate a Java Runtime`, an installed Homebrew
 JDK may be absent from `PATH`. Discover its installed path before running the
 same focused test with `JAVA_HOME` pointing to its JDK home and that JDK's `bin`
 prepended to `PATH`; no system Java registration or emulator bypass is needed.
+
+Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
+
+Worker pre-commit Rust feedback uses `./build.sh lane-check <touched crate> [--tests]` on every platform; add `--tests` when tests changed. Its subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway. Run integration Clippy through check-queue after committing; Rust execution tests remain in canonical.
+
+Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
+
+<!-- revision: 1 -->

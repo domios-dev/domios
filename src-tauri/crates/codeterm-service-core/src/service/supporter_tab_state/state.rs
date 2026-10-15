@@ -16,25 +16,7 @@ pub(crate) enum ObservationEvent {
     TabExit,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ConfidenceBand {
-    Strong,
-    Weak,
-    Ignored,
-}
-
-pub(crate) fn confidence_band(confidence: f64) -> ConfidenceBand {
-    if !(0.0..=1.0).contains(&confidence) {
-        return ConfidenceBand::Ignored;
-    }
-    if confidence >= super::super::general_agent::recovery::OWNER_NOTIFICATION_CONFIDENCE {
-        ConfidenceBand::Strong
-    } else if confidence >= super::super::general_agent::recovery::IGNORE_CONFIDENCE_FLOOR {
-        ConfidenceBand::Weak
-    } else {
-        ConfidenceBand::Ignored
-    }
-}
+pub(crate) use codeterm_supporter::policy::{confidence_band, ConfidenceBand};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SignalAction {

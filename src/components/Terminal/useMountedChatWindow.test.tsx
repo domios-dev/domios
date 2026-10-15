@@ -116,6 +116,15 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); clearPersistedChatScrollState(SESSION); });
 
 describe("mounted chat wiring", () => {
+  it("pins retained rows immediately when reactivated during a refresh", async () => {
+    await render();
+    await render(false);
+    loading = true;
+    scroller().scrollTop = 0;
+    await render();
+    expect(followTail.current).toBe(true);
+    expect(scroller().scrollTop).toBe(scroller().scrollHeight - viewportHeight);
+  });
   it("coalesces native scroll events and skips renders within the same row window", async () => {
     await render();
     await move(scroller().scrollTop - 2990);

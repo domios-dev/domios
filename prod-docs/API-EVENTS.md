@@ -1,16 +1,16 @@
 # Event Stream and Snapshot Load
 
-Contracts the web mirror depends on under load: the full-state snapshot bound and its back-pressure answer. The event stream loss contract itself is in API-STATE (Web Mirror).
+Contracts the web mirror depends on under load: published state snapshots and event-driven refresh. The event stream loss contract itself is in API-STATE (Web Mirror).
 
-### Full-state snapshot overload
+### Published full-state snapshot
 
-`GET /api/mux/state` is bounded. A request over the bound, or one arriving while a lifecycle change is being written, is answered `503 Service Unavailable` with the body `state snapshot capacity reached`, at once: no queue, no wait. Traffic under the bound is unchanged.
+`GET /api/mux/state` returns the latest completed JSON snapshot. A snapshot exists before the first read. Lifecycle writers and snapshot rebuilds do not block requests: readers receive the previous snapshot until the next one is published. Reads do not rebuild or serialize state, and contention does not return `503`.
 
-**Clients must treat 503 from this endpoint as retryable-later, not fatal**, and must not tighten their refetch interval in response to it.
+Genuine storage unavailability still returns `503` with the preservation reason. Keep the current view and surface that reason; never replace it with an empty desk or poll faster.
 
 ### Snapshot refetch
 
-`mux-state-changed` is a bare signal, not a snapshot. Keep one snapshot fetch in flight; a request arriving mid-fetch waits for the next one, so a burst of any size costs at most two round trips. After a 503 the client stays not-yet-reconciled and the next `mux-state-changed` or `mesh-state-changed` event schedules one read. There is no timer or polling retry.
+`mux-state-changed` is a bare signal, not a snapshot. Publication sends a refresh signal after the new snapshot becomes readable. Keep one snapshot fetch in flight; a request arriving mid-fetch waits for the next one, so a burst of any size costs at most two round trips. There is no timer or polling retry.
 
 ### Known gap: event order under concurrent publishers
 
@@ -28,4 +28,4 @@ Authenticated `GET /api/debug/events/stats` includes `streams` alongside the mux
 
 `live` counts open response streams, including bodies that have not yet been polled. Completion, client disconnect, cancellation and panic unwind release the count. `opened` and `closed` are monotonic within the daemon process and reset on restart. A snapshot reads atomic counters independently; concurrent opens/closes can briefly make `opened - closed` differ from `live`. After stream owners finish, `live` returns to the baseline and opened/closed deltas balance. Finite JSON and asset responses are outside the SSE census.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

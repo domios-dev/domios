@@ -30,7 +30,7 @@ async function makeDiffFixture(t, changedPath) {
   await mkdir(path.join(directory, "packages"), { recursive: true });
 
   await writeFile(path.join(directory, "src-tauri", "Cargo.toml"), `[workspace]
-members = [".", "crates/codeterm-plugin", "crates/codeterm-frontend-bundle"]
+members = [".", "crates/codeterm-plugin", "crates/codeterm-frontend-bundle", "crates/codeterm-service-core", "crates/codeterm-prompts"]
 resolver = "2"
 
 [package]
@@ -43,6 +43,12 @@ path = "src/lib.rs"
 `);
   await writeFile(path.join(directory, "src-tauri", "src", "lib.rs"), "pub mod service;\n");
   await writeFile(path.join(directory, "src-tauri", "src", "service.rs"), "pub fn current() {}\n");
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "src"), { recursive: true });
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "Cargo.toml"), '[package]\nname = "codeterm-service-core"\nversion = "0.1.0"\nedition = "2021"\n');
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "src", "lib.rs"), 'pub fn core() {}\n');
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-prompts", "src"), { recursive: true });
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-prompts", "Cargo.toml"), '[package]\nname = "codeterm-prompts"\nversion = "0.0.0"\nedition = "2021"\n');
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-prompts", "src", "lib.rs"), 'pub fn prompts() {}\n');
   await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-plugin", "Cargo.toml"), `[package]
 name = "codeterm-plugin"
 version = "0.1.0"
@@ -94,8 +100,15 @@ function mapFixture(directory, base) {
 test("maps a Rust service diff to its module filter", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/src/service/handler.rs");
   const output = mapFixture(fixture.directory, fixture.base);
-  assert.match(output, /\.\/build\.sh nextest app 'test\(\/\^service::handler::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest shell 'test\(\/\^service::handler::\/\)'/);
   assert.match(output, /Cost: 1 codeterm compile \+ 1 filter/);
+});
+
+test("maps root startup changes to the shell test binary", async (t) => {
+  const fixture = await makeDiffFixture(t, "src-tauri/src/startup/servers.rs");
+  const output = mapFixture(fixture.directory, fixture.base);
+  assert.match(output, /\.\/build\.sh nextest shell 'test\(\/\^startup::servers::\/\)'/);
+  assert.doesNotMatch(output, /nextest app/);
 });
 
 test("maps a provider plugin diff to plugin and native parity coverage", async (t) => {
@@ -108,7 +121,8 @@ test("maps a provider plugin diff to plugin and native parity coverage", async (
 test("maps a prompt diff to the prompt contract suite", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/prompts/launch.md");
   const output = mapFixture(fixture.directory, fixture.base);
-  assert.match(output, /\.\/build\.sh nextest app 'test\(\/\^prompts::tests::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest codeterm-prompts 'test\(\/\^prompts::tests::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest codeterm-service-core 'test\(\/\^prompts::\/\)'/);
 });
 
 test("maps bundle crate changes to its supported scope and reverse dependents", async (t) => {
@@ -116,4 +130,10 @@ test("maps bundle crate changes to its supported scope and reverse dependents", 
   const output = mapFixture(fixture.directory, fixture.base);
   assert.match(output, /\.\/build\.sh nextest frontend-bundle 'rdeps\(codeterm-frontend-bundle\)'/);
   assert.match(output, /Cost: 1 codeterm-frontend-bundle compile/);
+});
+
+test("a Rust fixture under scripts/tests/fixtures selects no Rust compile", async (t) => {
+  const fixture = await makeDiffFixture(t, "scripts/tests/fixtures/rust-test-inventory/scan/src-tauri/src/lib.rs");
+  const output = mapFixture(fixture.directory, fixture.base);
+  assert.doesNotMatch(output, /check-tests|Rust compile fallback|build\.sh nextest/);
 });

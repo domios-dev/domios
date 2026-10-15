@@ -316,7 +316,7 @@ test("normal chat_backend Tab keeps composer and hides read-only bar", async () 
   await act(async () => root.unmount());
 });
 
-test("bound-session pending snapshot renders the provider loader instead of false empty", async () => {
+test("bound-session pending snapshot uses the shared loading door", async () => {
   const tabId = "recovering-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
@@ -326,7 +326,8 @@ test("bound-session pending snapshot renders the provider loader instead of fals
     state,
     () => ({ text: "", offset: 0, pending: true }),
   );
-  assert(host.querySelector('[data-testid="chat-setup-state"]'), "provider loader mounted");
+  assert(host.querySelector('[data-testid="chat-setup-state"] [role="progressbar"]'), "snapshot loading uses the shared progress panel");
+  assert(!host.querySelector('[data-chat-window-row]'), "unloaded rows cannot paint");
   assert(!host.querySelector('[data-testid="chat-recovering-state"]'), "duplicate recovery loader absent");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "false empty state absent");
   assert(host.querySelector('[data-testid="chat-composer"]'), "chat remains interactive");
@@ -357,7 +358,7 @@ test("a host that names no transcript source is reported, and a reported chat is
   await act(async () => root.unmount());
 });
 
-test("fresh unbound PTY launch failure remains neutral loading", async () => {
+test("fresh unbound PTY launch failure exposes recovery", async () => {
   const tabId = "fresh-unbound-chat";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, {
@@ -383,12 +384,12 @@ test("fresh unbound PTY launch failure remains neutral loading", async () => {
   assert(!host.querySelector('[data-testid="chat-recovering-state"]'), "fresh chat has no recovery placeholder");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "fresh chat has no empty-history placeholder");
   assert(composer, "usable fresh chat keeps its named composer");
-  assert(host.querySelector('[data-testid="chat-setup-state"]'), "unbound PTY authority keeps loading");
-  assert(!host.querySelector('[role="alert"]'), "no failure alert is rendered");
+  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "an observed failure ends loading");
+  assert(host.querySelector('[role="alert"]'), "the shared failure is announced");
   await act(async () => root.unmount());
 });
 
-test("an attached chat never regresses to a stale launch failure", async () => {
+test("a failed boot exposes recovery even when a saved transcript attaches", async () => {
   const tabId = "attached-stale-failure";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, {
@@ -400,7 +401,7 @@ test("an attached chat never regresses to a stale launch failure", async () => {
   });
   const { host, root } = await renderTabSessionChat(tabId, state);
   assert(host.querySelector('[data-testid="chat-composer"]'), "attached chat remains usable");
-  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "stale failure cannot cover attached chat");
+  assert(host.querySelector('[data-testid="chat-launch-failed"]'), "saved transcript does not hide failed startup");
   await act(async () => root.unmount());
 });
 
@@ -426,8 +427,7 @@ test("the durable session rejects stale launch nonces and attaches to current au
       backing: { kind: "pty" },
       agent_session_id: "bound-session",
       session_binding_nonce: "current-epoch",
-      boot_stage: "spawn_failed",
-      boot_failure_reason: "late stale failure",
+      boot_stage: "agent_launching",
       protected: true,
     }),
   });
@@ -474,7 +474,7 @@ test("the durable session rejects stale launch nonces and attaches to current au
   await act(async () => root.unmount());
 });
 
-test("launch failure has no inline failure or retry state", async () => {
+test("launch failure uses the shared failure surface without an automatic retry", async () => {
   const tabId = "generic-retry-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, {
@@ -489,9 +489,9 @@ test("launch failure has no inline failure or retry state", async () => {
     state,
     () => ({ text: "", offset: 0, pending: true }),
   );
-  assert(host.querySelector('[data-testid="chat-setup-state"]'), "neutral loader remains visible");
+  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "boot failure ends the loader");
   assert(!host.querySelector('[data-testid="chat-launch-retry"]'), "inline retry is absent");
-  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "failure card is absent");
+  assert(host.querySelector('[data-testid="chat-launch-failed"]'), "shared failure card is present");
   assert(!commands.includes("restart_agent_tab"), "loading UI does not mutate agent lifecycle");
   await act(async () => root.unmount());
 });
@@ -525,7 +525,7 @@ test("T7 awaiting-store keeps the composer identity, draft, and focus", async ()
   await act(async () => root.unmount());
 });
 
-test("snapshot failure stays on the neutral provider loader", async () => {
+test("snapshot failure stays on the chat loading row", async () => {
   const tabId = "failed-tab";
   const state = muxStateFor({
     [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
@@ -533,7 +533,7 @@ test("snapshot failure stays on the neutral provider loader", async () => {
   const { host, root } = await renderTabSessionChat(tabId, state, () => {
     throw new Error("snapshot unavailable");
   });
-  assert(host.querySelector('[data-testid="chat-setup-state"]'), "provider loader remains mounted");
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "unloaded snapshot keeps the shared door");
   assert(!host.querySelector('[data-testid="chat-recovery-error"]'), "error state is not rendered");
   assert(!host.querySelector('[data-testid="chat-retry"]'), "inline retry is not rendered");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "failure is not shown as empty");
@@ -555,7 +555,7 @@ test("mount failure remains loading without releasing a shared tailer", async ()
       messages: [{ id: "history-1", type: "assistant", content: "restored history" }],
     };
   });
-  assert(host.querySelector('[data-testid="chat-setup-state"]'), "mount failure remains neutral loading");
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "unloaded snapshot keeps the shared door");
   assert(!host.querySelector('[data-testid="chat-retry"]'), "no inline reconnect surface remains");
   assert(commands.filter((command) => command === "chat_stop").length === 0, "manual reconnect never releases another view lease");
   assert(commands.filter((command) => command === "chat_start").length === 1, "mount performs one attach attempt");

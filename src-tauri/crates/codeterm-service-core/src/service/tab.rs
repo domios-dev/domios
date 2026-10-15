@@ -7,7 +7,6 @@ use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::worker_loss::{busy_worker_close_warnings, BUSY_WORKER_CLOSE_REFUSAL_PREFIX};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::Manager;
 
 #[path = "tab/lifecycle_exit.rs"]
 mod lifecycle_exit;
@@ -100,7 +99,7 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
-    pub(crate) fn release_tab_launch_artifacts(&self, tab_id: &str, provider_id: &str) {
+    pub fn release_tab_launch_artifacts(&self, tab_id: &str, provider_id: &str) {
         let closed_tab = [(tab_id.to_string(), provider_id.to_string())];
         super::launch_artifacts::release_closed_tabs(&self.agent_registry, &closed_tab);
     }
@@ -153,10 +152,7 @@ impl ServiceContext {
         self.release_managed_tabs(tab_id);
         self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
             .close(tab_id);
-        if let Some(ports) = self
-            .app_handle
-            .try_state::<crate::ports::sentinel::SentinelPorts>()
-        {
+        if let Some(ports) = self.try_ext::<crate::ports::sentinel::SentinelPorts>() {
             ports.cleanup.cancel_tab_owned_runs(tab_id);
         }
         super::task_files::release_tab(self, tab_id);
@@ -651,7 +647,7 @@ impl ServiceContext {
         let service = self.clone();
         let tab_id = tab_id.to_string();
         let new_type = new_type.to_string();
-        tauri::async_runtime::spawn_blocking(move || {
+        crate::async_runtime::spawn_blocking(move || {
             log::debug!(
                 "[bridge] admitting {} buffered messages tab={} provider={}",
                 queued.len(),

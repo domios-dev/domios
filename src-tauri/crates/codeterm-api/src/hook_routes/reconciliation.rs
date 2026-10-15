@@ -104,15 +104,23 @@ pub(super) fn after_response(
         )
     });
     after_response_work(response, tab_id.clone(), async move {
-        let current = svc.mux.read().get_tab(&tab_id).map(|tab| {
-            (
-                tab.agent_type.clone(),
-                tab.agent_session_id.clone(),
-                tab.pty_id.clone(),
-                tab.session_binding_nonce.clone(),
-                tab.reported_session_binding_nonce.clone(),
-            )
-        });
+        let owner = svc.clone();
+        let target = tab_id.clone();
+        let current = tokio::task::spawn_blocking(move || {
+            let current = owner.mux.read().get_tab(&target).map(|tab| {
+                (
+                    tab.agent_type.clone(),
+                    tab.agent_session_id.clone(),
+                    tab.pty_id.clone(),
+                    tab.session_binding_nonce.clone(),
+                    tab.reported_session_binding_nonce.clone(),
+                )
+            });
+            current
+        })
+        .await
+        .ok()
+        .flatten();
         if binding.is_none() || current != binding {
             log::info!("[hook/timing] tab={tab_id} route={route} phase=reconciliation_skipped reason=binding_changed");
             return;

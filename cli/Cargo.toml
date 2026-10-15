@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-cli"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 edition = "2021"
 
 [[bin]]
@@ -11,6 +11,7 @@ path = "src/main.rs"
 warnings = "deny"
 
 [dependencies]
+include_dir = "0.7"
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -38,6 +39,7 @@ codeterm-plugins = { path = "../src-tauri/crates/codeterm-plugins" }
 # In-process reuse of the daemon's strict PluginManifest + QuickJS loader for
 # `plugin validate` — the CLI never grows its own manifest interpretation.
 codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin" }
+codeterm-build-info = { path = "../src-tauri/crates/codeterm-build-info" }
 codeterm-paths = { path = "../crates/codeterm-paths" }
 # The notification level set is defined once in the daemon-shared crate; the CLI
 # derives its flag values from it instead of mirroring the enum.
@@ -47,7 +49,11 @@ codeterm-blueprint-types = { path = "../src-tauri/crates/codeterm-blueprint-type
 codeterm-mesh = { path = "../src-tauri/crates/codeterm-mesh" }
 codeterm-wire = { path = "../src-tauri/crates/codeterm-wire" }
 
+[build-dependencies]
+sha2 = "0.10"
+
 [dev-dependencies]
+codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin", features = ["test-support"] }
 tempfile = "3"
 
 # CLI ships release (agents exec it constantly — startup latency matters),

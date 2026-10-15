@@ -18,9 +18,9 @@ description: >-
 | `release/X.Y.Z` | cut from `develop`; release fixes go straight onto it | every push by `rollacode` is the release run |
 | `master` | only released code: the release PR, merged by the release run after publication | `master accepts only release branches` is red for any other source |
 
-1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). The nightly schedule runs the full matrix on `develop`.
+1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). Release CI through `workflow_call` and manual dispatch run the full matrix.
 2. **Cut the release.** Create `release/X.Y.Z` from `develop`, run `npm run sync:versions` for X.Y.Z plus the offline lockfile refresh (step 1 below), push, and open the release PR `release/X.Y.Z` → `master`. Its description is the release notes.
-3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. Parallel fast checks (`tests.yml`, `phase: fast`) gate every bundle build; Rust archives queue independently at preparation completion, then builds queue after the fast gate and overlap Rust tests from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
+3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. Parallel fast checks (`tests.yml`, `phase: fast`) gate the Rust tests and every bundle build, which then run in parallel from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
 4. **Red** publishes nothing: fix on the release branch and push again. **Green**: `release-manifest` stamps `vX.Y.Z`, publishes both releases and the signed `latest.json`; `promote` then merges the release PR into `master`, merges `master` back into `develop`, and deletes the branch.
 5. **One branch, one version.** After publication a further change needs `release/X.Y.(Z+1)`.
 
@@ -89,15 +89,15 @@ bound, SizeLimit and missing attempt identity, alongside post-fix passes. A
 capture/import success is not startup proof. Worker lanes defer live replay to
 the Orchestrator; frontend-only and plugin-only releases are outside this gate.
 
-**Required before `git push origin release/X.Y.Z` and before any owner hotfix build** (a build handed to the owner to install, such as `X.Y.Z-bs.N`): a green [core-journeys](../../../evals/core-journeys/README.md) run on the exact SHA being pushed or built. In canonical, with DEV running that build and its window open, run `bash evals/core-journeys/run.sh all` in a Team-bound QA shell; for an app release also run `CODETERM_INSTANCE=<disposable> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh upgrade --from-checkout <previous-release-checkout> --all-tabs`. Push or hand over only after exit 0 and `Verdict: PASS` in each `results.md`; put the wall times and `results.json` in the release evidence. Any failed journey blocks the push. The gates skill places this step.
+**Required before `git push origin release/X.Y.Z` and before any owner hotfix build** (a build handed to the owner to install, such as `X.Y.Z-bs.N`): a green [core-journeys](../../../evals/core-journeys/README.md) run on the exact SHA being pushed or built. In canonical, with a named isolated instance running that build and its window open, run `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh all --out <run-dir>` in a Team-bound QA shell, then `node evals/core-journeys/lib/evidence-contract.mjs <run-dir>` (`run.sh` refuses ports 7685 and 7686 and an unnamed instance); for an app release also run `CODETERM_INSTANCE=<disposable> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh upgrade --from-checkout <previous-release-checkout> --all-tabs`. Push or hand over only after exit 0 and `Verdict: PASS` in each `results.md`; put the wall times and `results.json` in the release evidence. Any failed journey blocks the push. The gates skill places this step.
 
 ---
 
 ## ⚡ Default release path: a push to release/X.Y.Z (automated, self-hosted CI)
 
 Each push of `release/X.Y.Z` by `rollacode` starts one `.github/workflows/release.yml` run. It prepares draft
-releases, then queues Rust archives and parallel quick checks together; after the fast gate it queues four reusable platform callers: macOS builds on configurable per-architecture labels (default `codeterm-builder`), Linux arm64 builds in a separate Docker job (default `codeterm-builder`), Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
-builds x86_64 Linux. Builds depend only on fast checks and take any matching free runner while Rust tests continue. A final `release-manifest` job needs all four callers and both test stages, merges their updater
+releases, then runs the parallel quick checks; after the fast gate it queues the Rust tests and four reusable platform callers: macOS builds on configurable per-architecture labels (default `codeterm-builder`), Linux arm64 builds in a separate Docker job (default `codeterm-builder`), Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
+builds x86_64 Linux. Builds depend only on fast checks and take any matching free runner while the Rust tests run. A final `release-manifest` job needs all four callers and both test stages, merges their updater
 fragments, publishes the signed public manifests, marks the releases, verifies served bytes, and
 closes eligible public issues. The platform workflows are reusable pieces and do not start their
 own tag runs. Each platform job clears incomplete upload slots before building, so a failed platform
@@ -127,9 +127,18 @@ gh run watch --repo rollacode/codeterm --exit-status "$(gh run list --repo rolla
 ```
 
 It runs `scripts/check-release-credentials-mac.sh` on the Mac builder (Developer ID, minisign key,
-`gh`, Apple notary) and checks the updater signing key and repository write tokens on the Linux and
-Windows runners. The release builder runs the same Mac script, so a green check here is what the
-release run will see. 1.12.2 was tagged before anyone looked and the Mac job died on
+`TAURI_SIGNING_PRIVATE_KEY` exported as the job key path for the Tauri bundler, `gh`, Apple notary)
+and checks the updater signing key and repository write tokens on the Linux and Windows runners.
+The release builder runs the same Mac script, so a green check here is what the release run will see.
+The same workflow (named *Release preflight*) also checks the infrastructure before anything builds:
+
+| Job | Proves |
+|---|---|
+| `runners` | `scripts/check-release-runners.sh`: every release label plus the test labels `rust-tests`, `rust-shard`, `linux-ci`, `windows-ci`, `light` has an online runner (`GH_RELEASE_TOKEN` needs Administration read) |
+| `shared-cache` | `build.sh cache-verify` (`build.ps1` on Windows) with `CODETERM_SCCACHE_VERIFY_ONLY=1` on each release builder label and `windows-ci`: shared S3 reachable and selected |
+| `linux-arm64-image` | `scripts/check-linux-arm64-builder.sh` on the Mac: `codeterm-build-linux-arm64` exists, is arm64 and runs `sccache` |
+
+A label job proves one machine carrying that label, not every machine with it. 1.12.2 was tagged before anyone looked and the Mac job died on
 `403 A required agreement is missing or has expired`: the Account Holder must accept the new Apple
 Developer agreement at https://developer.apple.com/account; the password is not the problem, and
 Apple may take a minute or two to honour a fresh acceptance. The weekly schedule surfaces an
@@ -189,7 +198,7 @@ git push origin --delete "release/$VER"
 
 A fix found after publication is a new patch release through the normal flow.
 
-A push to `release/X.Y.Z` creates one Actions run. After source preparation, Rust archives queue alongside parallel fast checks. Platform builds queue after the fast gate and overlap ongoing Rust archives, shards and native tests. The Mac job signs and notarizes macOS
+A push to `release/X.Y.Z` creates one Actions run. After source preparation, the fast checks run. When they pass, the Rust tests and the platform builds queue together and run in parallel. The Mac job signs and notarizes macOS
 artifacts; Linux jobs package AppImage and Debian assets; Windows builds the NSIS installers. The
 final `release-manifest` job runs only after all platform jobs succeed. It merges every updater
 fragment, uploads `latest.json` and the Debian manifest to both repositories, publishes the
@@ -223,7 +232,8 @@ fingerprint for Tauri/codesign. A stale selector, missing private key, or invali
 before the build with a distinct diagnostic. `APPLE_ID`, `APPLE_TEAM_ID` and `APPLE_PASSWORD` provision and validate
 a notary profile in that same keychain through interactive stdin; secret values never enter
 process arguments or logs. `TAURI_SIGNING_PRIVATE_KEY` is written to a mode-0600 temporary
-file exposed as `TAURI_SIGNING_PRIVATE_KEY_PATH`, and `TAURI_KEY_PASSWORD` reaches Tauri through `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+file exposed as `TAURI_SIGNING_PRIVATE_KEY_PATH`; later steps also get `TAURI_SIGNING_PRIVATE_KEY`
+set to that path, because the Tauri bundler reads only that name (key text or file path), and `TAURI_KEY_PASSWORD` reaches Tauri through `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 Every job cleans up in `always()`, removing only its own keychain search entry and files.
 No login-keychain identity, local notary env file or persistent updater key is required.
 The Mac-hosted Linux arm64 job uses the same isolated material and verifies its updater
@@ -241,23 +251,42 @@ intentionally, cut the correction as a new patch version through the normal flow
 `prepare` starts `quick-checks` (`tests.yml`, `phase: fast`): tree freshness, fmt, clippy,
 TS unit/Vitest/static/generated-type checks, release/plugin contracts and plugin bundles/tests.
 Every check depends only on tree/scope discovery; clippy does not wait for fmt.
-No Rust archive, shard, native test or coverage job belongs to this gate.
+No Rust test or receipt job belongs to this gate.
 
-`tests` (`tests.yml`, `phase: long`) needs only `prepare` and queues Rust archives
-at preparation completion, independently of `quick-checks`. Shards and native tests
-queue when the archives finish; the coverage summary requires their receipts.
-Every platform build needs only `prepare` and `quick-checks`: it queues after the fast
-gate and takes any matching idle runner, without waiting for an archive to finish.
-The test jobs get an earlier queue position on shared runners. GitHub queue order is
-best effort, not strict priority; the live overlap map lives in the build-machine README.
+`tests` (`tests.yml`, `phase: long`) needs `prepare` and `quick-checks`, so it queues
+with the builds once the fast gate is green. Nothing ships a nextest archive between
+runners; every job compiles and runs in place (`./build.sh ci-tests full|platform`):
+
+- `rust-tests` runs the whole suite (app workspace libraries and the CLI) once, on any
+  free runner labelled `rust-tests` (eight, ROG, ubunta).
+- `rust-platform` runs on macOS (`rust-shard`), Linux (`linux-ci`) and Windows
+  (`windows-ci`) in parallel: only that OS's cfg(target_os)-gated tests, classified by
+  `scripts/ci-test-classifier`, plus the native input crates.
+- `rust test receipts` needs one passing full-suite receipt and one passing platform
+  receipt per OS, each with a non-zero executed test count.
+
+Coverage trade-off: the full suite exercises only the pool runner's OS; tests gated to
+another OS run only in that OS's platform subset. The nightly develop run repeats the
+same graph daily. Slow-unit timings are advisory in release runs (parallel timings only,
+no serial reruns); non-release macOS runs enforce with serial confirmation.
+
+Test code resolves fixture and binary paths at runtime through its crate's
+`test_support::fixture_manifest_dir()` or `cli/tests/support/codeterm_bin.rs`
+(`NEXTEST_BIN_EXE_codeterm`), so a nextest archive (`./build.sh nextest-archive`) still
+runs from another checkout; `scripts/check-archive-portable-test-paths.mjs` enforces
+this in the fast `release contract tests` job.
+Every platform build needs only `prepare` and `quick-checks` and takes any matching idle
+runner. GitHub queue order is best effort, not strict priority; the live overlap map
+lives in the build-machine README.
 Workflow concurrency includes phase so the fast and long calls cannot supersede each other.
 
-A failing test/gate job requests cancellation of this caller run through the Actions API
-using `GITHUB_TOKEN` with `actions: write`. Rust cancellation runs before receipt uploads,
-so a failed archive or test stops queued and running builds without waiting for sibling
-jobs or the coverage summary. Cancellation also stops remaining tests. The switch is
-explicitly enabled only by release callers; standalone PR/nightly tests retain their
-existing execution. Setup and receipt failures also trigger cancellation.
+No Rust test, platform, receipt or warning job cancels the run on failure: every
+test finishes, so one red run reports every failing test instead of hiding the rest
+behind the first (whole-run cancellation once cost ~10 serial 40-60 minute rounds).
+Only a failed fast check cancels the run (`fast-checks-failed`), since bundles on
+eight, air and ROG start alongside the fast checks; the Linux x64 bundle and the Rust
+tests wait for them. `RELEASE_OVERLAP_FAST_CHECKS=false` makes every build wait instead.
+Bundle builds running alongside a failing Rust test stage finish, but cannot publish.
 `release-manifest` needs every build, `quick-checks` and `tests`; frontend publication
 needs both test stages. Failure, cancellation or a skipped required gate cannot publish.
 Dry runs with tests use the same graph; `dry_run_tests: false` explicitly skips both
@@ -269,6 +298,13 @@ once. Each reusable workflow contains only its own `build` job, with no platform
 skipped placeholder. The graph reads `macOS / build (arm64)`, `macOS / build (x86_64)` and
 `Linux arm64 / build`. The hosted manual fallback remains `release-macos.yml`.
 Runner variables and their existing-label defaults live in the build-machine README.
+Every heavy Rust or bundle job (full suite, per-OS platform tests,
+clippy, generated types, each platform build) ends with an `always()`,
+`continue-on-error` step running `scripts/ci-workspace-cleanup.mjs`. It removes only that
+job's workspace-relative outputs (`target`, `src-tauri/target`, `cli/target`,
+`scripts/ci-test-classifier/target`, `ci-rust-receipts`, `release-artifacts`), unlinks a symlinked target without following
+it, refuses anything resolving outside the workspace or into `.git`, and keeps the
+checkout. CI compiles with `CARGO_INCREMENTAL=0`, so sccache S3 carries compile reuse.
 
 For an environmental failure in the same immutable source run, list failed job IDs and rerun
 one selected job (the numeric Actions job ID, not a matrix index):
@@ -388,6 +424,17 @@ Rust builds share the target dir — concurrent `tauri build` + `tauri dev` figh
 ```bash
 ./build.sh kill
 ```
+
+### 0.5. Documentation review (release agent, once per release)
+
+Documentation is reviewed here, once, by the release agent; no commit-time generator or gate maintains it. Before the version bump, diff the release branch against the last release tag and fix what the diff made stale:
+
+- `prod-docs/` pages whose commands, flags, outputs or behaviour changed (bump each changed page's `<!-- revision: N -->`);
+- `.agents/skills/` procedures that name changed `build.sh` verbs, workflows, scripts or paths;
+- `essences/` contracts the release changed;
+- scripts or workflows the diff left with no caller (`git grep` the name; delete what nothing uses).
+
+Commit the fixes as one `docs:` commit on the release branch.
 
 ### 1. Bump version on the release branch (one commit)
 
@@ -793,7 +840,8 @@ git checkout -b fix/<description> && git push origin fix/<description>
 git checkout master && git pull origin master --no-rebase
 
 # 2. Run the core-journeys gate on the merged SHA (see "Application release"); green only:
-bash evals/core-journeys/run.sh all
+CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash evals/core-journeys/run.sh all --out <run-dir>
+node evals/core-journeys/lib/evidence-contract.mjs <run-dir>
 
 # 3. Move the release trigger tag:
 git tag -f "release-$VER"
@@ -824,7 +872,10 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
+| Both Windows bundles fail in `Build release bundle inputs` with tsc `TS2451: Cannot redeclare block-scoped variable` in a workspace package | The bundle builds from the gateway's `X:\` subst drive; a pnpm workspace symlink resolves to the real `C:\` path, so one file is included twice | Map the package in root `tsconfig.json` `paths`; the `frontend (Windows, stable path)` fast check (`build.sh frontend-build`) reproduces it in about two minutes |
+| Linux arm64 bundle fails at `[cache-policy] ERROR: shared S3 cache is not configured` while `shared endpoint health: 200` | The Docker image carried Debian's `sccache`, built without S3, which silently starts a local-disk server | Rebuild `codeterm-build-linux-arm64` from `.codeterm/build-machine/docker/Dockerfile.linux-arm64` (pinned upstream sccache); verify `Cache location s3` inside the container |
 | CI `rust (linux)` fails at `cargo fmt --check` after local `check` + frontend + file-size all passed | `release-preflight` was skipped; `check` does not run fmt or the test/lint matrix | run `./build.sh release-preflight` at the exact PR head, fix what it reports, push the fix as a new commit and let fresh CI run. Never blind-rerun the job |
+| macOS bundle fails after "Finished 2 bundles" with `A public key has been found, but no private key` | The job exported only `TAURI_SIGNING_PRIVATE_KEY_PATH`; `pnpm tauri build` reads only `TAURI_SIGNING_PRIVATE_KEY` | `release-signing-material.py` exports `TAURI_SIGNING_PRIVATE_KEY=<key file path>` too; push the fix as a new release commit |
 | `tauri build` ends with no DMG, no error | `build.sh dev` still running, Cargo target dir contention | `./build.sh kill` first |
 | DMG `spctl` → "rejected, Unnotarized Developer ID" | tauri signed the `.app` but left the DMG wrapper unsigned | Run `xcrun notarytool submit … --wait && xcrun stapler staple …` manually |
 | `notarytool store-credentials` → HTTP 401 | keychain creds expired OR used `APPLE_PASSWORD` instead of `APPLE_APP_SPECIFIC_PASSWORD` | source the env file, use correct var name |
@@ -1201,7 +1252,7 @@ Moved out of the embedded `codeterm docs` pages because they describe Domios's o
 
 ## Rust warning inventory and cleanup
 
-Every release target and test archive/clippy build uploads a `rust-warnings-<lane>-<target>.json`
+Every release target, Rust test job and clippy build uploads a `rust-warnings-<lane>-<target>.json`
 artifact. The always-running warning summary publishes per-target, per-lint and per-file tables
 in its job summary. Download `rust-warnings-release-report` (or `rust-warnings-tests-report`)
 for `rust-warnings-report.md` and `rust-warnings-report.json`; the release summary also comments
@@ -1246,4 +1297,4 @@ without sccache refuses before Rust compilation.
 |---|---|---|
 | Release compiles hundreds of crates with no sccache output | Wrapper setup was omitted from release inputs or the later Tauri environment | Use the shared release-input policy, job-scoped wrapper, preflight verification and final stats. Repeat one SHA with a clean owned target and require nonzero hits. |
 | S3 stats show zero requests although no cache server is running | `sccache --show-stats` manufactures configured zero counters on connection failure | Require the configured endpoint to be live through `cache-verify` and `cache-stats`; preserve before/after counters and logs rather than treating a configured S3 label as proof. |
-| Windows archive refuses before compiling because bash is absent from PATH | The Actions step requested `shell: bash` instead of the Windows forwarder | Use the pwsh `build.ps1 ci-archives` step; its owning build implementation still lives in `build.sh`. |
+| Windows Rust tests refuse before compiling because bash is absent from PATH | The Actions step requested `shell: bash` instead of the Windows forwarder | Use the pwsh `build.ps1 ci-tests` step; its owning build implementation still lives in `build.sh`. |

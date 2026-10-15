@@ -35,50 +35,59 @@ pub async fn create_notification(
     headers: HeaderMap,
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
-    let title = vet_title(&body.title).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    // A relayed peer's jump target names a tab on its own machine and is dropped, so it is not vetted here.
-    if body.source_peer.is_none() {
-        vet_target_tab(body.target_tab_id.as_deref(), |tab| {
-            state.svc.mux.read().resolve_tab_id(tab).is_some()
-        })
-        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    }
-    let origin = codeterm_service_core::service::notification::NotificationOrigin {
-        caller_tab_id: crate::tab_routes::caller_tab_header(&headers),
-        claimed_tab_id: body.tab_id,
-        peer_name: body.source_peer,
-        target: codeterm_service_core::notification::deep_link::NotificationTarget::from_hints(
-            body.target_tab_id.as_deref(),
-            body.chat_message_id.as_deref(),
-        ),
-    };
-    let intent = parse_push_intent(body.level.as_deref(), body.event_key)
-        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    let actions =
-        vet_actions(body.actions).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    let offer = vet_offer(
-        &state.svc,
-        body.offer,
-        body.offer_accept,
-        actions.as_deref(),
-        intent.level,
-    )
-    .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    let (id, unseen) = state
-        .svc
-        .create_agent_notification_reported(
-            title,
-            body.body,
-            body.severity.as_deref(),
-            actions,
-            body.sticky,
-            origin,
-            intent,
-            offer,
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
+        let title = vet_title(&body.title).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        // A relayed peer's jump target names a tab on its own machine and is dropped, so it is not vetted here.
+        if body.source_peer.is_none() {
+            vet_target_tab(body.target_tab_id.as_deref(), |tab| {
+                state.svc.mux.read().resolve_tab_id(tab).is_some()
+            })
+            .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        }
+        let origin = codeterm_service_core::service::notification::NotificationOrigin {
+            caller_tab_id: crate::tab_routes::caller_tab_header(&headers),
+            claimed_tab_id: body.tab_id,
+            peer_name: body.source_peer,
+            target: codeterm_service_core::notification::deep_link::NotificationTarget::from_hints(
+                body.target_tab_id.as_deref(),
+                body.chat_message_id.as_deref(),
+            ),
+        };
+        let intent = parse_push_intent(body.level.as_deref(), body.event_key)
+            .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        let actions =
+            vet_actions(body.actions).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        let offer = vet_offer(
+            &state.svc,
+            body.offer,
+            body.offer_accept,
+            actions.as_deref(),
+            intent.level,
         )
         .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    Ok(Json(created_result(&id, unseen)))
+        let (id, unseen) = state
+            .svc
+            .create_agent_notification_reported(
+                title,
+                body.body,
+                body.severity.as_deref(),
+                actions,
+                body.sticky,
+                origin,
+                intent,
+                offer,
+            )
+            .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        Ok(Json(created_result(&id, unseen)))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
 }
 
 /// One row per registered push channel: its service id, its column caption,
@@ -156,9 +165,33 @@ pub async fn answer_notification(
     Json(body): Json<AnswerNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
-    state
-        .svc
-        .answer_notification(&id, &body.label)
+    blocking_answer(move || {
+        let started = std::time::Instant::now();
+        log::debug!("[notify-answer] {id} delivery started off runtime");
+        let result = state.svc.answer_notification(&id, &body.label);
+        log::debug!(
+            "[notify-answer] {id} delivery finished in {}ms success={}",
+            started.elapsed().as_millis(),
+            result.is_ok()
+        );
+        result
+    })
+    .await
+}
+
+async fn blocking_answer(
+    answer: impl FnOnce() -> Result<serde_json::Value, String> + Send + 'static,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(answer)
+        .await
+        .map_err(|error| {
+            log::error!("[notify-answer] blocking delivery task failed: {error}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "The notification answer could not finish. Check its delivery status before retrying."
+                    .to_string(),
+            )
+        })?
         .map(Json)
         .map_err(|message| (StatusCode::CONFLICT, message))
 }
@@ -226,6 +259,35 @@ pub async fn serve_file(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test(flavor = "current_thread")]
+    async fn notification_answer_allows_blocking_runtime_delivery_once() {
+        let caller = std::thread::current().id();
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = calls.clone();
+        let result = super::blocking_answer(move || {
+            assert_ne!(std::thread::current().id(), caller);
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(tokio::runtime::Handle::current()
+                .block_on(async { serde_json::json!({ "delivered": true }) }))
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.0["delivered"], true);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn notification_answer_preserves_delivery_refusal() {
+        let result = super::blocking_answer(|| Err("opaque refusal".to_string())).await;
+        assert_eq!(
+            result.unwrap_err(),
+            (
+                axum::http::StatusCode::CONFLICT,
+                "opaque refusal".to_string()
+            )
+        );
+    }
+
     #[test]
     fn serve_file_path_guard_rejects_outside_data_dir() {
         let allowed = codeterm_service_core::paths::data_dir();

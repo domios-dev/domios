@@ -88,7 +88,7 @@ pub(super) fn dispatch(
         "plan.resume" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
             authorize_plan_mutation(svc, &id, params)?;
-            let mode = codeterm_service_core::service::resume_team_plan(svc, &id, epoch_ms())
+            let mode = codeterm_orchestration::resume_team_plan(svc, &id, epoch_ms())
                 .map_err(super::team::team_plan_rpc_err)?;
             Ok(json!({ "ok": true, "mode": mode }))
         }
@@ -224,7 +224,11 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 }
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+    codeterm_service_core::events::emit_everywhere(
+        app,
+        "plan-changed",
+        json!({ "plan_id": plan_id }),
+    );
 }
 
 #[cfg(test)]

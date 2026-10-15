@@ -49,17 +49,18 @@ node --import tsx --import ./scripts/ts-test-asset-hook.mjs <file>.test.tsx
 bash scripts/check-file-sizes.sh --fail
 node scripts/check-provider-boundary.mjs
 node --test scripts/tests/check-provider-boundary.test.mjs
+node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a moved nextest archive
 ```
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
-In a Worker lane only the isolated non-Rust checks run: `tsc`, a single node test file,
-rustfmt, the file-size and service-core-boundary scripts, then one
-`./build.sh check-queue --lane <sha>`. `check`, `check-tests` and Rust tests compile the
-app crate in the lane, a full rebuild; report them as deferred selectors for the
-Orchestrator's canonical wave batch.
+In a Worker lane, type-check each touched Rust library before committing with `./build.sh lane-check <crate> [--tests]` on every platform; add `--tests` for changed tests. The helper loads the toolchain, stages resources and selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. Run affected non-Rust checks, rustfmt and boundary guards, then commit and run one `./build.sh check-queue --lane <sha>` for integration Clippy. Defer Rust execution tests, app builds and broad gates to the Orchestrator's canonical batch.
 
 ## Check before tests
+
+If a focused startup selector reports zero tests in `app`, use `shell` for
+`src-tauri/src/` modules. `app` selects service-core; `shell` selects the Tauri
+root library and main test target. The affected-tests mapper enforces this split.
 
 Canonical QA always starts with `./build.sh check`; tests (`check-tests`,
 `test-one`) run only after it is green, so a name or type error costs seconds
@@ -79,7 +80,7 @@ count=N` line per warned crate and `warnings=N shown=M failing=<crates>`.
 Warnings count as errors: any rustc or clippy warning in a touched crate fails
 the run, and a Worker reports only with `errors=0` and `warnings=0`.
 check-queue, check-tests and clippy --all-targets type-check the bin against MockRuntime.
-The Wry world is checked by clippy --workspace in the full gate, by check-queue's dev-lib check and by every dev and production build.
+The Wry world is checked by product library Clippy in check-queue and by every dev and production build.
 `--all` lints the whole app workspace and the CLI and fails on any warning.
 `./build.sh check` ends with one `warnings crate=` line per warned crate and a
 `check: warnings=N` total; canonical expects `warnings=0`. Every workspace crate
@@ -92,9 +93,26 @@ The provider boundary guard compares exact exceptions with `origin/develop`; CI 
 ## Broad, delegate
 
 The broad gate is `.\build.ps1 release-preflight`: fmt, size, bundles,
-versions, cargo check, clippy, every workspace test, the CLI crate, tsc, knip,
+versions, cargo check, clippy, the release Rust set, tsc, knip,
 489 TS test files, biome. It runs **once, on the release SHA, immediately
 before cutting** — never per merge.
+
+The release Rust set is every `release`-tier Rust runner in
+`tests/catalogue.json` (`node scripts/test-catalogue.mjs select --tier release`):
+every src-tauri workspace member, the shell package as its lib plus
+`src-tauri/tests/main.rs`, `crates/mem-store`,
+`crates/codeterm-paths` and the CLI. `pty-fork` stays `manual`. Preflight runs it
+through `./build.sh release-rust [runner-id...]`, which runs each runner's
+`./build.sh nextest <scope>` with its `budget_secs` as the cap, keeps going past
+a red runner, prints `release-rust: RED <ids>` per failure and one closing
+summary, and skips only the `stale` and this platform's `platform_red` markers of
+`tests/catalogue.overlay.json`. A red is fixed or recorded there as
+`platform_red` with platforms, reason and owner; never `#[ignore]` it or narrow
+a filter. A runner whose catalogue inventory holds no test passes nextest's
+no-tests check; every other runner fails it. The CI archive
+(`scripts/ci-rust-archives.mjs`) archives the same runners placed on
+`tests.yml:rust-shards`; the input crates keep their own
+`tests.yml:rust-input-platform` job.
 
 Delegate it:
 
@@ -108,6 +126,7 @@ The brief must say: run `.\build.ps1 release-preflight` with **no**
 report back with `codeterm agent report`:
 
 - the exit code,
+- every `release-rust: RED` line and the closing `release-rust:` summary,
 - the count of `test result: FAILED` lines (not the last result line),
 - every `✗ FAILED:` TS file,
 - the first real error for each distinct failure, with its file and line,
@@ -178,21 +197,24 @@ app startup gate.
 The [core-journeys suite](../../../evals/core-journeys/README.md) is a required
 pre-push gate for every app release and every owner hotfix build (any build
 handed to the owner to install, such as `X.Y.Z-bs.N`). On that exact SHA, in
-canonical, with DEV running that build and its window open, run
-`bash evals/core-journeys/run.sh all` once in a Team-bound QA shell. Only a zero
-exit with `Verdict: PASS` in `results.md` clears the push; record its wall time
-and keep `results.json` with the release evidence. A failed journey blocks the
+canonical, with a named isolated instance running that build and its window
+open, run `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> bash
+evals/core-journeys/run.sh all --out <run-dir>` once in a Team-bound QA shell,
+then `node evals/core-journeys/lib/evidence-contract.mjs <run-dir>`. `run.sh`
+refuses ports 7685 and 7686 and an unnamed instance. Only exit 0 from both, with
+`Verdict: PASS` in `results.md`, clears the push; record its wall time and keep
+the run directory with the release evidence. A failed journey blocks the
 push until it is fixed and the suite rerun green on the new SHA. An app release
 also runs `run.sh upgrade` from the previous release on a disposable named
 instance. Offline node tests do not replace the live run. Frontend-only and
 plugin-only releases are outside this gate.
 
 
-<!-- revision: 7 -->
+<!-- revision: 10 -->
 
 ## Rust warning inventory and cleanup
 
-Every release target and test archive/clippy build uploads a `rust-warnings-<lane>-<target>.json`
+Every release target, Rust test job and clippy build uploads a `rust-warnings-<lane>-<target>.json`
 artifact. The always-running warning summary publishes per-target, per-lint and per-file tables
 in its job summary. Download `rust-warnings-release-report` (or `rust-warnings-tests-report`)
 for `rust-warnings-report.md` and `rust-warnings-report.json`; the release summary also comments
@@ -215,4 +237,6 @@ Focused collector verification: `node --test scripts/tests/collect-rust-warnings
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
 
-Lane verification runs touched libraries with Clippy, root bins only when touched, and touched leaf test targets; service-core tests stay at the batch. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` with default embeddings. Root dev/default, core default and app test features must agree; divergence refuses compilation. A batch failure in a lane's files is a bounce naming the integration SHA.
+Lane verification runs touched libraries with Clippy, root bins only when touched, and touched leaf test targets; service-core tests stay at the batch. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` without default features. Root dev/default and core defaults remain aligned for the product; ordinary tests explicitly disable defaults. A batch failure in a lane's files is a bounce naming the integration SHA.
+
+Product DEV and check-queue library Clippy retain embeddings. Ordinary test profiles disable default features, including archives and CI. The required `rust-embeddings` CI job alone runs memory tests with embeddings enabled (`./build.sh ci-tests embeddings`). Full check-queue checks the ordinary service-core test profile and no longer repeats a dev-lib cargo check.

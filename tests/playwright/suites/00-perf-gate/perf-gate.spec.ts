@@ -64,13 +64,13 @@ async function focusTerminal(page: Page, api: ApiClient, tabId: string): Promise
   if (tab?.workspace_id) await api.focusWorkspace(tab.workspace_id);
   if (tab?.tab_id) {
     const tabItem = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).first();
-    const tab = tab.title
+    const tabButton = tab.title
       ? tabItem.getByRole("button", { name: `Open tab ${tab.title}`, exact: true })
       : tabItem.getByRole("button");
-    await tab.scrollIntoViewIfNeeded().catch(() => {});
-    if (await tab.isVisible().catch(() => false)) {
-      await tab.click();
-      await expect(tab).toHaveAttribute("aria-current", "page", { timeout: READY_CAP_MS });
+    await tabButton.scrollIntoViewIfNeeded().catch(() => {});
+    if (await tabButton.isVisible().catch(() => false)) {
+      await tabButton.click();
+      await expect(tabButton).toHaveAttribute("aria-current", "page", { timeout: READY_CAP_MS });
       await api.focusTab(tabId);
     }
     else {

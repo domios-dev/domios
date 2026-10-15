@@ -361,7 +361,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 let query = if *force { "?force=true" } else { "" };
                 ("POST".into(), format!("/api/tabs/{}/close{query}", id), None)
             }
-            crate::TabAction::Restart { tab, cwd, cmd } => {
+            crate::TabAction::Restart { tab, cwd, cmd, timeout } => {
+                if timeout.is_some() {
+                    return unsupported("remote tab restart does not support --timeout");
+                }
                 if cmd.is_some() {
                     return unsupported("remote tab restart does not support --cmd; restart then use codeterm tab exec");
                 }

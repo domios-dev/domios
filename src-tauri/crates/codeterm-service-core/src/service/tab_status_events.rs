@@ -51,7 +51,8 @@ impl ServiceContext {
             &mut published,
             &statuses,
             |event, payload| {
-                codeterm_events::emit_everywhere(&self.app_handle, event, payload);
+                self.ui
+                    .emit(event, serde_json::to_value(payload).unwrap_or_default());
             },
             |tab_id| {
                 self.pending_delivery_payloads

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import QRCode from "qrcode";
@@ -53,6 +54,7 @@ function WebUiModal({
   const [serve, setServe] = useState<ServeStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [setupMsg, setSetupMsg] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<unknown>(null);
   const [showInfo, setShowInfo] = useState(false);
   const configKey = JSON.stringify(config);
 
@@ -81,6 +83,7 @@ function WebUiModal({
   const runEnable = useCallback(async () => {
     setBusy(true);
     setSetupMsg(null);
+    setSetupError(null);
     try {
       const res = await invoke<ServeResult>("enable_web_access", {});
       if (res.ok) {
@@ -92,10 +95,10 @@ function WebUiModal({
         setTarget(buildWebUiTarget(config, network, status));
         setSetupMsg(res.warning ?? "HTTPS enabled via Tailscale.");
       } else {
-        setSetupMsg(`Couldn't enable automatically (${res.code}). Try "Set up with AI".`);
+        setSetupError(res.code);
       }
     } catch (e) {
-      setSetupMsg(`Enable failed: ${String(e)}. Try "Set up with AI".`);
+      setSetupError(e);
     } finally {
       setBusy(false);
     }
@@ -106,7 +109,7 @@ function WebUiModal({
       await startWebAccessSetupHelper(serve, target.port, config.api);
       onExitMesh();
     } catch (e) {
-      setSetupMsg(`Couldn't open setup chat: ${e instanceof Error ? e.message : String(e)}`);
+      setSetupError(e);
     }
   }, [serve, target.port, config.api, onExitMesh]);
 
@@ -281,6 +284,7 @@ function WebUiModal({
                 </button>
               )}
 
+              {setupError != null && <div data-testid="web-ui-setup-msg"><InlineErrorNotice error={setupError} operation="setting up web access" blocking /></div>}
               {setupMsg && (
                 <p data-testid="web-ui-setup-msg" className={`${UI_TEXT.metaMuted} leading-snug`}>
                   {setupMsg}
@@ -492,11 +496,11 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
       >
         <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
-          <span className={`${UI_TEXT.meta} opacity-70`}>
+          <div className={`${UI_TEXT.meta} opacity-70`}>
             {data.error
-              ? `error: ${data.error}`
+              ? <InlineErrorNotice error={data.error} operation="loading the mesh" />
               : `${headerPeerCount} peer${headerPeerCount === 1 ? "" : "s"} · ${headerServiceCount} service${headerServiceCount === 1 ? "" : "s"}`}
-          </span>
+          </div>
           <button
             onClick={() => setRefreshKey((k) => k + 1)}
             className={`flex ${touchUi ? "h-9 w-9" : "h-7 w-7"} shrink-0 items-center justify-center p-0 text-[var(--ct-muted-fg)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] active:scale-95`}

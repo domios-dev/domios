@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
+import { transcriptOffsetKind } from "@codeterm/chat-core";
 import type {
   NormalizedChatMessage as ChatMessage,
   TranscriptBatch,
@@ -37,6 +38,7 @@ import {
 import {
   commitTranscriptBatch,
   readTranscriptWindow,
+  markTranscriptSnapshotReady,
   reconcileTranscriptWindow,
   resetTranscriptWindow,
   stampConfirmedTranscriptRow,
@@ -104,7 +106,7 @@ export function useChatSession({
   followTailRef?: MutableRefObject<boolean>;
 }) {
   const windowKey = transcriptWindowKey(tabId, agentSessionId);
-  const { transcript, anchorKey } = useTranscriptWindow(windowKey);
+  const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [listenerReady, setListenerReady] = useState(false);
@@ -234,6 +236,7 @@ export function useChatSession({
   }, [requestAttach]);
 
   const markAttached = useCallback(() => {
+    markTranscriptSnapshotReady(windowKeyRef.current, sessionBindingNonceRef.current);
     attachmentStateRef.current = "attached";
     setAttachmentState("attached");
     setTranscriptUnavailable(null);
@@ -287,7 +290,8 @@ export function useChatSession({
   const loadOlderPage = useCallback(async (beforeOffset: number) => {
     const generationAtRequest = attachmentRef.current.generation;
     try {
-      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset });
+      const offsetKind = transcriptOffsetKind(readTranscriptWindow(windowKeyRef.current).transcript);
+      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset, offsetKind });
       if (
         !attachmentRef.current.isCurrent(generationAtRequest)
         || !canAdoptTranscriptAuthority(
@@ -621,6 +625,7 @@ export function useChatSession({
     ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current, agentSessionId != null),
     error,
     attachmentState,
+    snapshotReady: snapshotBinding === `${windowKey}|${sessionBindingNonce ?? ""}`,
     /** Set = the wait is over and it failed; the view reports it rather than
      *  spinning. Cleared by a fresh attach or an observed delta, never by time. */
     transcriptUnavailable,

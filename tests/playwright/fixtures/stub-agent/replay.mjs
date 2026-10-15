@@ -21,6 +21,14 @@ import { styleFor } from "./replay-style.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, "..", "..", "..", "..");
 
+const argvSep = process.argv.indexOf("--", 2);
+if (process.argv.slice(2, argvSep === -1 ? undefined : argvSep).includes("--health")) {
+  const { stubHealth } = await import("./replay-health.mjs");
+  const receipt = stubHealth({ repo: REPO });
+  process.stdout.write(`${JSON.stringify(receipt)}\n`);
+  process.exit(receipt.ok ? 0 : 1);
+}
+
 function parseArgv(argv) {
   const sep = argv.indexOf("--");
   const own = sep === -1 ? argv : argv.slice(0, sep);

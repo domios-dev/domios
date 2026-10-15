@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { client, dcJson, target } from "./lib/env.mjs";
 import { runId } from "./lib/fixtures.mjs";
+import { planFromEnv, renderPlan } from "./lib/plan.mjs";
+import { captureScreenshot } from "./lib/screenshots.mjs";
 import { REQUIRED_PROVIDERS } from "./lib/oracle.mjs";
 import { loadResults, recorder, saveResults, verdict } from "./lib/results.mjs";
 import { JourneyFailure } from "./lib/wait.mjs";
@@ -16,7 +18,7 @@ import { apiNoContext, uiContext } from "./journeys/team.mjs";
 export function parseArgs(argv) {
   const [mode, ...rest] = argv;
   if (!["setup", "verify", "cleanup"].includes(mode)) throw new Error(`unknown driver mode ${mode}`);
-  const options = { mode, out: null, providers: null, allTabs: false, historyBytes: 320 * 1024, deadlineSecs: 240, keep: false, expectBuildChange: false };
+  const options = { mode, out: null, providers: null, allTabs: false, historyBytes: 320 * 1024, deadlineSecs: 240, keep: false, expectBuildChange: false, plan: false };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index], value = rest[index + 1];
     if (flag === "--out") { options.out = resolve(value); index += 1; }
@@ -26,6 +28,7 @@ export function parseArgs(argv) {
     else if (flag === "--all-tabs") options.allTabs = true;
     else if (flag === "--keep") options.keep = true;
     else if (flag === "--expect-build-change") options.expectBuildChange = true;
+    else if (flag === "--plan") options.plan = true;
     else throw new Error(`unknown driver flag ${flag}`);
   }
   if (!options.out) throw new Error("--out DIR is required");
@@ -87,6 +90,7 @@ async function setup(ctx) {
     await snapshotBeforeRestart(ctx);
     return `${ctx.state.before_restart.tabs.length} agent tabs recorded`;
   });
+  await captureScreenshot(ctx, "setup");
 }
 
 async function verify(ctx) {
@@ -94,10 +98,17 @@ async function verify(ctx) {
   await restartCheck(ctx);
   await restoredTabsReady(ctx);
   await Promise.all([restoredSends(ctx), journeyThreeAfterRestart(ctx)]);
+  await captureScreenshot(ctx, "verify");
 }
 
 export async function main(argv) {
   const options = parseArgs(argv);
+  if (options.plan) {
+    process.stdout.write(renderPlan(planFromEnv({
+      mode: options.mode, out: options.out, instance: process.env.CODETERM_INSTANCE ?? "", port: process.env.CODETERM_API_PORT,
+    })));
+    return 0;
+  }
   mkdirSync(options.out, { recursive: true });
   const dev = target();
   const { api } = client(dev);

@@ -18,6 +18,7 @@ mod tab_adopt;
 mod tab_purpose;
 mod tab_release_ownership;
 mod tab_repair;
+mod tab_restart;
 mod transport;
 mod workspace;
 
@@ -852,29 +853,6 @@ fn cron_create_requires_an_explicit_escape_to_leave_the_callers_team() {
             action: CronAction::Create { no_team, .. },
         } => assert!(no_team),
         _ => panic!("expected cron create"),
-    }
-}
-
-#[test]
-fn tab_restart_parses_replacement_shell_parameters() {
-    let parsed = TabOnly::try_parse_from([
-        "tab",
-        "restart",
-        "--tab",
-        "tab-1",
-        "--cwd",
-        "D:/repo",
-        "--cmd",
-        ".\\build.ps1 dev",
-    ])
-    .expect("tab restart parses");
-    match parsed.action {
-        TabAction::Restart { tab, cwd, cmd } => {
-            assert_eq!(tab.as_deref(), Some("tab-1"));
-            assert_eq!(cwd.as_deref(), Some("D:/repo"));
-            assert_eq!(cmd.as_deref(), Some(".\\build.ps1 dev"));
-        }
-        _ => panic!("expected tab restart"),
     }
 }
 

@@ -846,19 +846,19 @@ fn launch_readiness_shell_exit_marker_emits_the_bounded_failure() {
         .service
         .agent_registry
         .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-    harness
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(
-            Some("pty-launch-readiness".into()),
-            None,
-            None,
-            80,
-            24,
-            Default::default(),
+    {
+        let gate = harness.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                harness
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some("pty-launch-readiness".into()), built)
+            },
         )
-        .expect("spawn live backing PTY");
+    }
+    .expect("spawn live backing PTY");
     let attempt = LaunchAttempt {
         tab_id: tab_id.clone(),
         pty_id: "pty-launch-readiness".into(),
@@ -917,12 +917,19 @@ fn unbound_resume_with_live_pty_is_not_spawn_failed_at_deadline() {
         tab.boot_stage = Some(BootStage::AgentReady);
     }
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
-    harness
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("spawn live backing PTY");
+    {
+        let gate = harness.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                harness
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("spawn live backing PTY");
     let attempt = LaunchAttempt {
         tab_id: tab_id.clone(),
         pty_id: pty_id.into(),
@@ -1015,19 +1022,19 @@ fn post_readiness_shell_exit_retains_status_without_a_bell_entry() {
         .service
         .agent_registry
         .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-    harness
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(
-            Some("pty-ready-exit-notification".into()),
-            None,
-            None,
-            80,
-            24,
-            Default::default(),
+    {
+        let gate = harness.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                harness
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some("pty-ready-exit-notification".into()), built)
+            },
         )
-        .expect("spawn live backing PTY");
+    }
+    .expect("spawn live backing PTY");
     let attempt = LaunchAttempt {
         tab_id: tab_id.clone(),
         pty_id: "pty-ready-exit-notification".into(),

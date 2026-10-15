@@ -336,7 +336,7 @@ impl ServiceContext {
             return;
         };
         crate::service::tab_chat::structured_sink::emit_chat_msgs(
-            &self.app_handle,
+            self.ui.as_ref(),
             tab_id,
             &notices,
             None,

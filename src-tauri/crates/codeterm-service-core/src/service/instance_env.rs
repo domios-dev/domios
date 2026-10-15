@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-pub(crate) struct InstanceEnv {
+pub struct InstanceEnv {
     pub socket_path: String,
     pub api_url: String,
     pub api_port: String,
@@ -9,7 +9,7 @@ pub(crate) struct InstanceEnv {
 }
 
 impl InstanceEnv {
-    pub(crate) fn from_api_config(api: crate::config::schema::ApiConfig) -> Self {
+    pub fn from_api_config(api: crate::config::schema::ApiConfig) -> Self {
         let (api_url, api_port) = crate::config::api_callback_url(&api);
         Self {
             socket_path: crate::paths::socket_display_path(),
@@ -21,7 +21,7 @@ impl InstanceEnv {
     }
 }
 
-pub(crate) fn instance_cli_binary_path() -> Option<PathBuf> {
+pub fn instance_cli_binary_path() -> Option<PathBuf> {
     let local_cli = crate::paths::data_dir()
         .join("bin")
         .join(format!("codeterm{}", std::env::consts::EXE_SUFFIX));

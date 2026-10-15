@@ -1,11 +1,12 @@
 [package]
 name = "codeterm"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = ["crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-socket", "crates/codeterm-build-info"]
+members = ["crates/codeterm-worker-services", "crates/codeterm-local-preview", "crates/codeterm-lanes", "crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core",
+    "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
@@ -16,10 +17,13 @@ warnings = "deny"
 workspace = true
 
 [dependencies]
+include_dir = "0.7"
 codeterm-commands = { path = "crates/codeterm-commands" }
 codeterm-api = { path = "crates/codeterm-api" }
 codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false }
+codeterm-sentinel-host = { path = "crates/codeterm-sentinel-host" }
 codeterm-socket = { path = "crates/codeterm-socket" }
+codeterm-orchestration = { path = "crates/codeterm-orchestration" }
 codeterm-build-info = { path = "crates/codeterm-build-info" }
 tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 # tauri-build reads plugin ACL manifests only from direct dependencies.
@@ -40,6 +44,28 @@ axum = { version = "0.8", features = ["multipart"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 fastembed = { version = "5", optional = true }
+
+codeterm-billing = { path = "crates/codeterm-billing" }
+codeterm-plan = { path = "crates/codeterm-plan" }
+codeterm-plugin = { path = "crates/codeterm-plugin" }
+codeterm-util = { path = "crates/codeterm-util" }
+codeterm-events = { path = "crates/codeterm-events" }
+codeterm-frontend-bundle = { path = "crates/codeterm-frontend-bundle" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+fern = "0.7"
+parking_lot = "0.12"
+png = "0.17"
+dirs = "6"
+url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry"] }
 
 [features]
 default = ["embeddings"]
@@ -68,6 +94,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[test]]
 name = "main"
 path = "tests/main.rs"
+
+[[test]]
+name = "bridge_migrate_test"
+path = "tests/bridge_migrate_test.rs"
+test = false
+
+[[test]]
+name = "chatpipeline_seams_test"
+path = "tests/chatpipeline_seams_test.rs"
+test = false
 
 # Deterministic mem-recall bench runner. Reuses the `mem` module from the
 # lib crate directly. Default and stub modes run offline without an LLM

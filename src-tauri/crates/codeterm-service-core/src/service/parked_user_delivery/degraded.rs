@@ -34,6 +34,14 @@ impl crate::service::ServiceContext {
             let Some(tab) = mux.get_tab(&record.authority.tab_id) else {
                 return Ok(false);
             };
+            if tab.boot_stage == Some(BootStage::LaunchBindingUnconfirmed)
+                && tab
+                    .provisional_launch
+                    .as_ref()
+                    .is_some_and(|launch| launch.awaiting_binding_ack)
+            {
+                return Ok(false);
+            }
             if !self.user_authority_matches_launch(tab, &record.authority)
                 && !(record.authority.prelaunch
                     && tab.agent_type.as_deref() == Some(record.authority.provider_id.as_str())
@@ -81,7 +89,10 @@ impl crate::service::ServiceContext {
             .chat_send_ledger
             .expire_owned_before_write(&record.send_id, "launch_degraded_before_write")
         {
-            codeterm_events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+            self.ui.emit(
+                "chat-send-status",
+                serde_json::to_value(&status).unwrap_or_default(),
+            );
         }
         self.local_recordings.retire_write_ticket(&record.send_id);
         Ok(true)

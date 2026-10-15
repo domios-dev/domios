@@ -310,13 +310,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-build-info"
+version = "0.1.0"
+
+[[package]]
 name = "codeterm-cli"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 dependencies = [
  "base64",
  "chrono",
  "clap",
  "codeterm-blueprint-types",
+ "codeterm-build-info",
  "codeterm-mem-store",
  "codeterm-mesh",
  "codeterm-notification-core",
@@ -328,6 +333,7 @@ dependencies = [
  "deunicode",
  "dirs 5.0.1",
  "ed25519-dalek",
+ "include_dir",
  "interprocess",
  "regex",
  "reqwest",
@@ -432,6 +438,7 @@ dependencies = [
  "base64",
  "chrono",
  "codeterm-blueprint-types",
+ "codeterm-build-info",
  "codeterm-decision",
  "codeterm-local-recording",
  "codeterm-paths",
@@ -494,6 +501,7 @@ version = "1.6.2"
 dependencies = [
  "codeterm-notify-types",
  "codeterm-provider-signals",
+ "codeterm-wire",
  "serde",
  "serde_json",
  "toml",
@@ -536,6 +544,10 @@ dependencies = [
 [[package]]
 name = "codeterm-wire"
 version = "1.6.2"
+dependencies = [
+ "serde",
+ "ts-rs",
+]
 
 [[package]]
 name = "colorchoice"

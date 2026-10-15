@@ -4,7 +4,7 @@ pub(crate) fn deadline<F: Future>(
     duration: Duration,
     future: F,
 ) -> Result<F::Output, tokio::time::error::Elapsed> {
-    tauri::async_runtime::block_on(async { tokio::time::timeout(duration, future).await })
+    crate::async_runtime::block_on(async { tokio::time::timeout(duration, future).await })
 }
 
 #[cfg(test)]

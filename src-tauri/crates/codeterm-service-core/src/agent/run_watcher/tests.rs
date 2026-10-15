@@ -534,7 +534,6 @@ fn idle_poll_stores_provider_prompt_without_notification() {
 
 #[test]
 fn dead_cron_run_is_reaped_on_process_exit() {
-    use tauri::{Listener as _, Manager as _};
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
     let pty_id = "cron-process-exit-pty".to_string();
@@ -555,10 +554,11 @@ fn dead_cron_run_is_reaped_on_process_exit() {
     let cron = std::sync::Arc::new(parking_lot::Mutex::new(
         crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("crons.json")),
     ));
-    fixture._app.manage(cron.clone());
-    fixture
-        ._app
-        .manage::<crate::CronWake>(std::sync::Arc::new(std::sync::Condvar::new()));
+    assert!(fixture.service.set_ext(cron.clone()).is_ok());
+    assert!(fixture
+        .service
+        .set_ext::<crate::CronWake>(std::sync::Arc::new(std::sync::Condvar::new()))
+        .is_ok());
     let run_id = "process-exit-run";
     let job_id = {
         let mut store = cron.lock();
@@ -633,7 +633,7 @@ fn dead_cron_run_is_reaped_on_process_exit() {
         .insert(pty_id.clone(), run.clone());
 
     let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-    let listener = fixture._app.listen("cron-run-finished", move |_| {
+    let listener = fixture.ui.listen("cron-run-finished", move |_| {
         let _ = finished_tx.send(());
     });
     assert!(fixture.service.run_watcher.fail_cron_on_process_exit(
@@ -644,7 +644,7 @@ fn dead_cron_run_is_reaped_on_process_exit() {
     finished_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("process-exit settlement publishes the finished event");
-    fixture._app.unlisten(listener);
+    fixture.ui.unlisten(listener);
 
     assert!(run.completed.load(Ordering::Acquire));
     assert!(!fixture
@@ -810,7 +810,7 @@ fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
         .insert(pty_id.clone(), run.clone());
 
     // The timer must be created inside the runtime, so it lives in the async block.
-    let completed = tauri::async_runtime::block_on(async {
+    let completed = crate::async_runtime::block_on(async {
         tokio::time::timeout(
             Duration::from_secs(3),
             watchdog_loop(svc.clone(), run.clone(), 3600),
@@ -990,7 +990,7 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
         .lock()
         .insert(pty_id.clone(), state.clone());
 
-    let completed = tauri::async_runtime::block_on(async {
+    let completed = crate::async_runtime::block_on(async {
         tokio::time::timeout(
             Duration::from_secs(3),
             watchdog_loop(svc.clone(), state.clone(), 0),

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
@@ -511,10 +512,10 @@ export function SecretsTab({
         )}
 
         {status?.status?.status === "unavailable" && (
-          <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-3 text-[var(--ct-red)] space-y-2">
+          <div className="text-[11px] rounded border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 text-[var(--ct-red)] space-y-2">
             <div>
               <div className="font-medium mb-1">Backend unavailable</div>
-              <div className="text-[var(--ct-fg)]">{status.status.reason}</div>
+              <InlineErrorNotice error={status.status.reason} operation="opening the secret store" />
             </div>
             {backend === "bitwarden" && (
               <div className="flex items-center gap-2 pt-1">
@@ -534,9 +535,7 @@ export function SecretsTab({
         )}
 
         {error && (
-          <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-2 text-[var(--ct-red)]" data-testid="settings-secrets-error" role="alert">
-            {error}
-          </div>
+          <div data-testid="settings-secrets-error"><InlineErrorNotice error={error} operation="opening the secret store" blocking /></div>
         )}
       </SettingsCard>
 

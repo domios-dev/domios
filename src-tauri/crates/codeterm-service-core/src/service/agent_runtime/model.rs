@@ -233,6 +233,7 @@ impl ItemCache {
         self.reconcile(item)
     }
     pub fn reconcile(&mut self, mut item: ChatMsg) -> ChatMsg {
+        item.refresh_segments();
         if let Some(index) = self.positions.get(&item.id).copied() {
             item.seq = self.items[index].seq;
             self.items[index] = item.clone();
@@ -245,6 +246,9 @@ impl ItemCache {
     }
     pub fn snapshot(&self) -> Vec<ChatMsg> {
         self.items.clone()
+    }
+    pub fn tail(&self, limit: usize) -> Vec<ChatMsg> {
+        self.items[self.items.len().saturating_sub(limit)..].to_vec()
     }
 }
 

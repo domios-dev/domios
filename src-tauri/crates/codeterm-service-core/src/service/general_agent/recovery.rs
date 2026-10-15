@@ -5,8 +5,8 @@ pub(crate) use execute::recover;
 
 use codeterm_types::pty::PromptKind;
 
-pub(crate) const IGNORE_CONFIDENCE_FLOOR: f64 = 0.60;
-pub(crate) const OWNER_NOTIFICATION_CONFIDENCE: f64 = 0.80;
+pub(crate) use codeterm_supporter::policy::IGNORE_CONFIDENCE_FLOOR;
+pub(crate) use codeterm_supporter::policy::OWNER_NOTIFICATION_CONFIDENCE;
 pub(crate) const AUTOMATIC_ACTION_CONFIDENCE: f64 = 0.90;
 pub(crate) const MAX_AUTOMATIC_RESTARTS: u32 = 2;
 pub(crate) const HELDOUT_PRECISION_REQUIRED: f64 = 0.95;

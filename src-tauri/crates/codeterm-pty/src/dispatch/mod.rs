@@ -328,7 +328,7 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
             serde_json::to_value(&*crate::pty::shell_profiles::catalog().load_blocking(*refresh))
                 .map_err(|error| error.to_string())?,
         )),
-        Command::Health => cmd_health(),
+        Command::Health => health_result(),
         Command::TabList => cmd_tab_list(ctx),
         Command::TabSummary {
             workspace_id,
@@ -424,10 +424,10 @@ fn is_mutating_user_command(cmd: &Command) -> bool {
     )
 }
 
-fn cmd_health() -> Result<CommandResult, String> {
+pub fn health_result() -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::json!({
         "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": codeterm_build_info::version(),
         "build": codeterm_build_info::hash(),
         "name": "CodeTerm",
         "platform": std::env::consts::OS,

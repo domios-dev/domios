@@ -1,5 +1,4 @@
-//! Rename-proof assignment identity and roleless-spawn attribution helpers.
-//! Pure functions, factored out of `spawn.rs` to keep it under the size gate.
+use codeterm_lanes::spawn_identity::first_live_tab_id;
 
 use super::{AgentSpawnSpec, SpawnTabSpec};
 use crate::multiplexer::types::TaskBinding;
@@ -43,14 +42,6 @@ pub(crate) fn params_caller_tab_id(params: &crate::service::SpawnAgentParams) ->
         params.spawned_by_tab_id.as_deref(),
         params.creator_tab_id.as_deref(),
     )
-}
-
-fn first_live_tab_id<'a>(spawner: Option<&'a str>, creator: Option<&'a str>) -> Option<&'a str> {
-    [spawner, creator]
-        .into_iter()
-        .flatten()
-        .map(str::trim)
-        .find(|id| !id.is_empty())
 }
 
 /// A stable, one-line digest of the `--task` handle for ad-hoc lanes.

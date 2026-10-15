@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronUp, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
 import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
@@ -192,8 +193,8 @@ export function MeshInventoryList({
       <div className="min-h-0 flex-1 overflow-auto pb-24" ref={listRef} data-testid="mesh-inventory-scroll-region" style={{ scrollPaddingBottom: "6rem" }}>
         <InventoryStatus model={model} error={error} onClearFilters={clearFilters} />
         {model.peerIssues.map((issue) => (
-          <div key={issue.machineId} role="alert" className="px-4 py-2 text-xs text-[var(--ct-yellow)]">
-            {issue.machineName}: inventory {issue.freshness === "offline" ? "offline" : "partially unavailable"}{issue.partialError ? ` — ${issue.partialError}` : ""}. Cached resources remain visible when available.
+          <div key={issue.machineId} className="px-4 py-2 text-xs text-[var(--ct-muted-fg)]">
+            {issue.machineName}: inventory {issue.freshness === "offline" ? "offline" : "partially unavailable"}{issue.partialError && <InlineErrorNotice error={issue.partialError} operation={`reading inventory on ${issue.machineName}`} />}. Cached resources remain visible when available.
           </div>
         ))}
         {model.rows.length > 0 && (
@@ -297,7 +298,7 @@ function InventoryRowButton({ row, selected, onFocus, onKeyDown, onClick }: { ro
 
 function InventoryStatus({ model, error, onClearFilters }: { model: InventoryModel; error: string | null; onClearFilters: () => void }) {
   if (model.state === "loading") return <div className="p-8 text-center text-sm text-[var(--ct-muted-fg)]" role="status" data-testid="mesh-inventory-loading">Loading inventory…</div>;
-  if (model.state === "error") return <div className="p-8 text-center text-sm text-[var(--ct-red)]" role="alert" data-testid="mesh-inventory-error">Inventory unavailable{error ? `: ${error}` : "."}</div>;
+  if (model.state === "error") return <div data-testid="mesh-inventory-error"><InlineErrorNotice error={error} operation="reading mesh inventory" /></div>;
   if (model.state === "empty") return <div className="p-8 text-center text-sm text-[var(--ct-muted-fg)]" data-testid="mesh-inventory-empty">No resources registered.</div>;
   if (model.state === "partial-error") return model.total === 0 ? <div className="p-8 text-center text-sm text-[var(--ct-yellow)]" data-testid="mesh-inventory-partial-empty">No resources are available from the current mesh.</div> : <InventoryBanner model={model} error={error} />;
   if (model.state === "filtered-empty") return <div className="p-8 text-center text-sm text-[var(--ct-muted-fg)]" data-testid="mesh-inventory-filtered-empty">No resources match the current filters.<br /><button type="button" className={`${UI_BUTTON.ghost} ${UI_BUTTON.sm} mt-3`} onClick={onClearFilters}>Clear filters</button></div>;
@@ -307,9 +308,8 @@ function InventoryStatus({ model, error, onClearFilters }: { model: InventoryMod
 }
 
 function InventoryBanner({ model, error }: { model: InventoryModel; error?: string | null }) {
-  const text = error
-    ? `Inventory refresh failed: ${error}. Showing the last known rows.`
-    : model.state === "loading-cached"
+  if (error) return <div data-testid="mesh-inventory-status"><InlineErrorNotice error={{ code: "mesh_partial_failure", raw: error }} /></div>;
+  const text = model.state === "loading-cached"
     ? "Refreshing inventory… showing cached rows."
     : model.state === "partial-error"
       ? "Some peers failed to report. Live rows and cached rows remain available."

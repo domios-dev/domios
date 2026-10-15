@@ -33,8 +33,8 @@ mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{
     claim_command_submit_cycle, claim_exit_submit_cycle, claim_submit_cycle,
-    notify_submit_cycle_provider_exit, notify_submit_cycle_status_transition, wake_submit_cycle,
-    wake_submit_cycle_output, SubmitCycleClaim,
+    notify_submit_cycle_provider_exit, wake_submit_cycle, wake_submit_cycle_output,
+    SubmitCycleClaim,
 };
 use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;
@@ -1081,3 +1081,5 @@ mod contention_tests;
 
 #[cfg(test)]
 mod modal_tests;
+
+pub use cycle::notify_submit_cycle_status_transition;

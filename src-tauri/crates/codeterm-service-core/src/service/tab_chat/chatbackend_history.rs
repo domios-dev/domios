@@ -70,7 +70,9 @@ fn parse_messages(content: &str) -> Vec<ChatMsg> {
             if line.is_empty() || is_meta_line(line) {
                 return None;
             }
-            serde_json::from_str::<ChatMsg>(line).ok()
+            serde_json::from_str::<ChatMsg>(line)
+                .ok()
+                .map(ChatMsg::with_segments)
         })
         .collect()
 }

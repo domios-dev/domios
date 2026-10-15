@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { blueprintSharingApi, type BlueprintSharingApi } from "./blueprintSharing";
 import { AUTOMATION_TOOL } from "./styles";
@@ -16,6 +17,6 @@ export function BlueprintExportButton({ workspaceId, teamId, id, api = blueprint
   };
   return <>
     <button type="button" className={AUTOMATION_TOOL} disabled={busy} onClick={() => void run()}>Export Blueprint</button>
-    {error && <p role="alert">{error}</p>}
+    {error && <InlineErrorNotice error={error} operation="exporting this Blueprint" blocking />}
   </>;
 }

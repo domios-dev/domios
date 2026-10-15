@@ -21,45 +21,46 @@ fn recorded_fixtures_map_onto_one_declared_class() {
             continue;
         }
         let expected: ApiErrorKind = serde_json::from_value(fixture["expected"].clone()).unwrap();
-        if fixture["claude"]["isApiErrorMessage"] == true {
-            assert_eq!(class_of(&fixture["claude"]), expected);
-            checked += 1;
-        }
-        if fixture["codex"]["payload"]["type"] == "error" {
-            assert_eq!(class_of(&fixture["codex"]), expected);
-            checked += 1;
+        for (key, sample) in fixture.as_object().unwrap() {
+            if ["expected", "absent", "clears"].contains(&key.as_str()) {
+                continue;
+            }
+            if sample["isApiErrorMessage"] == true || sample["payload"]["type"] == "error" {
+                assert_eq!(class_of(sample), expected);
+                checked += 1;
+            }
         }
     }
     assert!(checked > 0);
 }
 
 #[test]
-fn codex_runtime_codes_use_the_declared_classes() {
+fn structured_error_info_codes_use_the_declared_classes() {
     for (error, class) in [
         (
-            json!({"codexErrorInfo":"usageLimitExceeded"}),
+            json!({"fixtureErrorInfo":"usageLimitExceeded"}),
             ApiErrorKind::UsageLimit,
         ),
         (
-            json!({"codexErrorInfo":"rateLimitExceeded"}),
+            json!({"fixtureErrorInfo":"rateLimitExceeded"}),
             ApiErrorKind::RateLimit,
         ),
         (
-            json!({"codexErrorInfo":"serverOverloaded"}),
+            json!({"fixtureErrorInfo":"serverOverloaded"}),
             ApiErrorKind::ServerOverloaded,
         ),
         (
-            json!({"codexErrorInfo":"internalServerError"}),
+            json!({"fixtureErrorInfo":"internalServerError"}),
             ApiErrorKind::ServerOverloaded,
         ),
         (
-            json!({"status":503,"codexErrorInfo":{"httpConnectionFailed":{"httpStatusCode":503}}}),
+            json!({"status":503,"fixtureErrorInfo":{"httpConnectionFailed":{"httpStatusCode":503}}}),
             ApiErrorKind::ServerOverloaded,
         ),
         (json!("token_expired"), ApiErrorKind::AuthExpiry),
         (json!({"status":429}), ApiErrorKind::RateLimit),
         (
-            json!({"codexErrorInfo":{"usageLimitExceeded":null},"status":403}),
+            json!({"fixtureErrorInfo":{"usageLimitExceeded":null},"status":403}),
             ApiErrorKind::Authentication,
         ),
     ] {
@@ -79,14 +80,14 @@ fn one_failed_turn_admits_one_incident_and_the_same_key_adds_none() {
     let incident = ProviderTurnIncident::from_observation(
         "worker",
         Some("task"),
-        "claude",
+        "fixture-provider",
         &observation,
         None,
     )
     .unwrap();
     assert_eq!(incident.worker, "worker");
     assert_eq!(incident.task.as_deref(), Some("task"));
-    assert_eq!(incident.provider, "claude");
+    assert_eq!(incident.provider, "fixture-provider");
     assert_eq!(incident.class, ApiErrorKind::RateLimit);
     assert_eq!(incident.retry_after, Some(12));
     assert!(incident.turn_stopped);
@@ -101,7 +102,7 @@ fn one_failed_turn_admits_one_incident_and_the_same_key_adds_none() {
     let again = ProviderTurnIncident::from_observation(
         "worker",
         Some("task"),
-        "claude",
+        "fixture-provider",
         &observation,
         None,
     )
@@ -115,7 +116,7 @@ fn usage_limit_pauses_for_exhaustion_and_auth_loss_stays_on_its_own_path() {
     let usage = ProviderTurnIncident::from_observation(
         "worker",
         Some("task"),
-        "codex",
+        "fixture-provider",
         &SessionObservations {
             api_error: Some(ApiErrorKind::UsageLimit),
             turn_id: Some("turn-usage".into()),
@@ -129,7 +130,7 @@ fn usage_limit_pauses_for_exhaustion_and_auth_loss_stays_on_its_own_path() {
     assert!(ProviderTurnIncident::from_observation(
         "worker",
         Some("task"),
-        "codex",
+        "fixture-provider",
         &SessionObservations {
             api_error: Some(ApiErrorKind::Authentication),
             turn_id: Some("turn-auth".into()),
@@ -141,7 +142,7 @@ fn usage_limit_pauses_for_exhaustion_and_auth_loss_stays_on_its_own_path() {
     assert!(ProviderTurnIncident::from_observation(
         "worker",
         Some("task"),
-        "codex",
+        "fixture-provider",
         &SessionObservations {
             api_error: Some(ApiErrorKind::RateLimit),
             turn_id: Some("turn-retry".into()),

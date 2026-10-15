@@ -38,10 +38,24 @@ pub(super) fn snapshot_with_reconciled_status(
     tracker: &AgentTrackerState,
     registry: &AgentRegistry,
 ) -> crate::multiplexer::state::MultiplexerSnapshot {
+    let reconciliation_providers = registry
+        .all_provider_arcs()
+        .into_iter()
+        .filter(|provider| provider.supports_agent_state_status_reconciliation())
+        .map(|provider| provider.id().to_string())
+        .collect::<std::collections::HashSet<_>>();
     let mux = mux.read();
     let tracker = tracker.lock();
     mux.snapshot_with_status_resolver(&tracker, |tab, raw| {
-        reconcile_tab_status(registry, tab, raw)
+        codeterm_types::pty::reconcile_status(
+            raw,
+            tab.boot_stage,
+            tab.agent_state.as_ref().map(|state| state.state),
+            tab.agent_type
+                .as_ref()
+                .is_some_and(|provider| reconciliation_providers.contains(provider)),
+            tab.pending_prompt.is_some(),
+        )
     })
 }
 
@@ -133,7 +147,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn reconciled_tab_status_for_id(&self, tab_id: &str, raw: TabStatus) -> TabStatus {
+    pub fn reconciled_tab_status_for_id(&self, tab_id: &str, raw: TabStatus) -> TabStatus {
         self.mux
             .read()
             .get_tab(tab_id)

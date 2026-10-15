@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { memo, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SpawnWorkerReq } from "../../lib/types";
@@ -121,9 +122,7 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
           <input className={fieldClass} value="user:memory-panel" readOnly disabled data-testid="memory-worker-parent-input" />
         </div>
         {error && (
-          <div className="mb-3 px-2.5 py-1.5 bg-[var(--ct-red)] text-white rounded text-[11px]" data-testid="memory-worker-dialog-error" role="alert">
-            {error}
-          </div>
+          <div data-testid="memory-worker-dialog-error"><InlineErrorNotice error={error} operation="starting this memory worker" blocking /></div>
         )}
         <div className="flex justify-end gap-2">
           <button className={btnClass} onClick={onClose} disabled={submitting} data-testid="memory-worker-cancel">

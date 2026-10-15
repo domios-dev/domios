@@ -74,7 +74,7 @@ pub(crate) fn send_startup(
         super::super::model::turn_overrides(tab),
     );
     let result =
-        tauri::async_runtime::block_on(submit(Origin::Agent, None, params, |method, params| {
+        crate::async_runtime::block_on(submit(Origin::Agent, None, params, |method, params| {
             sidecar.client.request(method, params)
         }));
     finish_handoff(svc, tab, &thread, send_id, result)

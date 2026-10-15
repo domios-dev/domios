@@ -33,6 +33,14 @@ impl GenerationStreams {
                     if *closed.borrow() {
                         return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
                     }
+                    #[cfg(debug_assertions)]
+                    let _timing = crate::startup::runtime_diagnostics::RequestTiming::start(
+                        request.method().as_str(),
+                        request
+                            .extensions()
+                            .get::<axum::extract::MatchedPath>()
+                            .map_or(request.uri().path(), |path| path.as_str()),
+                    );
                     let context = diagnostics.accept(&request);
                     let response = next.run(request).await;
                     if response

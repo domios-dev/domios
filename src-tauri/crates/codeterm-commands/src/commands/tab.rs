@@ -55,7 +55,13 @@ pub fn chat_start_core(
     tab_id: String,
     subscription_id: String,
 ) -> Result<ChatStartResult, String> {
+    let started = std::time::Instant::now();
     let mut result = chat_start_inner(svc, tab_id.clone(), subscription_id)?;
+    log::debug!(
+        "[chat-attach] tab={tab_id} phase=inner_result elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    let evidence_at = std::time::Instant::now();
     if let Some(session_id) = result.source_session_id.as_deref() {
         if result
             .messages
@@ -65,10 +71,20 @@ pub fn chat_start_core(
             svc.note_session_conversation(&tab_id, session_id);
         }
     }
+    log::debug!(
+        "[chat-attach] tab={tab_id} phase=conversation_evidence elapsed_ms={}",
+        evidence_at.elapsed().as_millis()
+    );
+    let notice_at = std::time::Instant::now();
     codeterm_service_core::service::tab_chat::append_restore_notice(
         &svc.lifecycle_journal,
         &tab_id,
         result.messages.get_or_insert_default(),
+    );
+    log::debug!(
+        "[chat-attach] tab={tab_id} phase=restore_notice elapsed_ms={} total_ms={}",
+        notice_at.elapsed().as_millis(),
+        started.elapsed().as_millis()
     );
     Ok(result)
 }
@@ -78,12 +94,30 @@ fn chat_start_inner(
     tab_id: String,
     subscription_id: String,
 ) -> Result<ChatStartResult, String> {
-    if codeterm_service_core::service::agent_runtime::requested_for_tab(svc, &tab_id) {
+    let attached_at = std::time::Instant::now();
+    let runtime_requested =
+        codeterm_service_core::service::agent_runtime::requested_for_tab(svc, &tab_id);
+    log::debug!(
+        "[chat-attach] tab={tab_id} phase=capability elapsed_ms={} runtime={runtime_requested}",
+        attached_at.elapsed().as_millis()
+    );
+    if runtime_requested {
+        if let Some(snapshot) = codeterm_service_core::service::tab_chat::runtime_stored::start(
+            svc,
+            &tab_id,
+            &subscription_id,
+        )? {
+            return Ok(snapshot);
+        }
         let (session, messages) =
             codeterm_service_core::service::agent_runtime::transport::snapshot(svc, &tab_id)?;
         let context = session.context.lock().clone();
         let total = messages.len();
         let start = total.saturating_sub(200);
+        log::debug!(
+            "[chat-attach] tab={tab_id} phase=runtime_snapshot elapsed_ms={} rows={total}",
+            attached_at.elapsed().as_millis()
+        );
         return Ok(ChatStartResult {
             text: String::new(),
             offset_kind: ChatOffsetKind::Items,
@@ -169,7 +203,7 @@ fn chat_start_inner(
     }
     let (provider_id, cwd, session_id, context_epoch_archives, mux_ms) = {
         let t = std::time::Instant::now();
-        let m = svc.mux.write();
+        let m = svc.mux.read();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;
         let Some(provider) = tab.agent_type.clone() else {
             if tab.agent_booting || tab.boot_stage.is_some() {
@@ -274,7 +308,7 @@ fn chat_start_inner(
         ) {
             let sink = codeterm_service_core::service::tab_chat::structured_sink::make_sink(
                 svc.lifecycle_journal.clone(),
-                svc.app_handle.clone(),
+                &svc,
                 svc.mux.clone(),
                 Some(session_id.clone()),
                 session_binding_nonce.clone(),
@@ -338,7 +372,7 @@ fn chat_start_inner(
         ) {
             let sink = codeterm_service_core::service::tab_chat::structured_sink::make_flatten_sink(
                 svc.lifecycle_journal.clone(),
-                svc.app_handle.clone(),
+                &svc,
                 svc.mux.clone(),
                 0,
                 Some(session_id.clone()),
@@ -436,7 +470,7 @@ fn chat_start_inner(
     ) {
         let sink = codeterm_service_core::service::tab_chat::structured_sink::make_flatten_sink(
             svc.lifecycle_journal.clone(),
-            svc.app_handle.clone(),
+            &svc,
             svc.mux.clone(),
             msg_count,
             Some(session_id.clone()),
@@ -504,7 +538,17 @@ pub fn chat_backfill_core(
     svc: &ServiceState,
     tab_id: String,
     before_offset: u64,
+    offset_kind: Option<ChatOffsetKind>,
 ) -> Result<ChatBackfillResult, String> {
+    if matches!(offset_kind, Some(ChatOffsetKind::Bytes)) {
+        if let Some(page) = codeterm_service_core::service::tab_chat::runtime_stored::backfill(
+            svc,
+            &tab_id,
+            before_offset,
+        )? {
+            return Ok(page);
+        }
+    }
     if codeterm_service_core::service::agent_runtime::requested_for_tab(svc, &tab_id) {
         let (session, messages) =
             codeterm_service_core::service::agent_runtime::transport::snapshot(svc, &tab_id)?;
@@ -531,7 +575,7 @@ pub fn chat_backfill_core(
         );
     }
     let (provider_id, cwd, session_id, session_binding_nonce) = {
-        let m = svc.mux.write();
+        let m = svc.mux.read();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;
         (
             tab.agent_type.clone().ok_or("no agent_type")?,

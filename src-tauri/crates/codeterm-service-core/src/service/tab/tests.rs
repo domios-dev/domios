@@ -98,12 +98,19 @@ fn restored_opencode_fixture_with_launch(
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("opencode").with_launch_binary("opencode"),
     ));
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.clone()), None, None, 80, 24, Default::default())
-        .expect("spawn the tab's PTY shell");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.clone()), built)
+            },
+        )
+    }
+    .expect("spawn the tab's PTY shell");
     let attempt = LaunchAttempt {
         tab_id: tab_id.clone(),
         pty_id: pty_id.clone(),
@@ -181,7 +188,6 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
         .ownership
         .is_some());
 
-    let app = fixture._app.handle().clone();
     let storage = crate::storage::Storage::open(
         fixture.temp.path().join("ownership-release-storage"),
         crate::storage::StorageConfig::default(),
@@ -192,7 +198,8 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
     adapter
         .import_snapshot(&snapshot, Vec::new())
         .expect("seed the Storage desk before persistence starts");
-    crate::service::session_persist::install_storage_desk_adapter(&app, adapter).unwrap();
+    crate::service::session_persist::install_storage_desk_adapter(&fixture.service, adapter)
+        .unwrap();
     let released = fixture
         .service
         .release_remote_ownership(&tab_id, Some(&orchestrator))
@@ -208,7 +215,7 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
         .ownership
         .is_none());
 
-    crate::service::session_persist::write_session_snapshot(&app, &fixture.service.mux)
+    crate::service::session_persist::write_session_snapshot(&fixture.service, &fixture.service.mux)
         .expect("flush the queued desk snapshot");
     let persisted = crate::session::store::StorageDeskAdapter::from_storage(storage.clone())
         .snapshot()
@@ -248,7 +255,7 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
                         )
             )
         }));
-    crate::service::session_persist::stop_worker(&app).unwrap();
+    crate::service::session_persist::stop_worker(&fixture.service).unwrap();
     storage
         .shutdown()
         .wait(std::time::Duration::from_secs(30))
@@ -564,8 +571,18 @@ fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
         b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D\x07",
     );
 
-    assert!(launch_readiness::take_published_failure(&attempt)
-        .is_some_and(|reason| reason.contains("exit_code=unknown")));
+    // A marker without an exit code cannot tell this launch from an earlier shell cycle.
+    assert!(launch_readiness::take_published_failure(&attempt).is_none());
+    let settlement = fixture
+        .service
+        .observe_launch_readiness(attempt, std::time::Duration::ZERO, false)
+        .recv()
+        .expect("the startup deadline settles the deferred exit");
+    assert!(matches!(
+        settlement,
+        launch_readiness::LaunchSettlement::Failed { ref reason, exit_code: None }
+            if reason.contains("exit_code=unknown")
+    ));
     assert!(fixture
         .service
         .mux
@@ -670,12 +687,19 @@ fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
         tab.pty_id = Some(pty_id.into());
     }
     let fixture = ServiceFixture::new(mux);
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("spawn the tab's surviving shell PTY");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("spawn the tab's surviving shell PTY");
     fixture
         .service
         .screen_state

@@ -85,7 +85,7 @@ fn apply_startup_handshake(
     carries_startup_attempt: bool,
 ) {
     if let Some(prompt) = crate::service::launch_delivery::startup_starter_prompt_for_class(
-        supervised,
+        supervised && !params.user_created,
         params.task_launch_authority.is_some(),
         false,
         carries_startup_attempt,
@@ -289,7 +289,7 @@ impl ServiceContext {
         .await
     }
 
-    pub(crate) async fn spawn_agent_with_state_change(
+    pub async fn spawn_agent_with_state_change(
         &self,
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
@@ -448,7 +448,7 @@ impl ServiceContext {
         )?;
         // 1. Find workspace — explicit workspace_id wins over the parent's workspace.
         let (ws_id, ws_cwd, ws_provisioned_cwd) = {
-            let mux = self.mux.write();
+            let mux = self.mux.read();
             let id = crate::service::spawn::resolve_spawn_workspace_id(
                 params.workspace_id.clone(),
                 params.parent_tab_id.as_deref(),
@@ -620,7 +620,7 @@ impl ServiceContext {
 
         let permission_bypass_authorization =
             crate::service::permission_policy::configured_permission_bypass_for(
-                &self.app_handle,
+                self,
                 &self.agent_registry,
                 &agent_cmd,
             )?;
@@ -664,7 +664,8 @@ impl ServiceContext {
             params.remote_task_binding.as_ref(),
             task_identity.as_ref(),
         );
-        let startup_supervised = !remote_task_bound
+        let startup_supervised = !params.user_created
+            && !remote_task_bound
             && self.prepare_agent_startup_supervision(
                 &tab_id,
                 params
@@ -1059,10 +1060,9 @@ impl ServiceContext {
             }),
             now_ms,
         ) {
-            Ok(()) => codeterm_events::emit_everywhere(
-                &self.app_handle,
+            Ok(()) => self.ui.emit(
                 "plan-changed",
-                serde_json::json!({ "plan_id": plan_id }),
+                serde_json::to_value(serde_json::json!({ "plan_id": plan_id })).unwrap_or_default(),
             ),
             Err(e) => log::warn!("[spawn] failed to bind planner ref for plan {plan_id}: {e}"),
         }

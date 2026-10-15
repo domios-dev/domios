@@ -240,9 +240,7 @@ impl ServiceContext {
                     }
                     return;
                 }
-                use tauri::Manager;
-                let Some(config) = service.app_handle.try_state::<crate::config::ConfigState>()
-                else {
+                let Some(config) = service.try_ext::<crate::config::ConfigState>() else {
                     return;
                 };
                 if crate::crash::shutdown::is_shutting_down() {
@@ -263,7 +261,7 @@ impl ServiceContext {
                     &service.mux,
                     &service.pty,
                     &service.screen_state,
-                    &config,
+                    config,
                     &service.app_handle,
                 );
             }

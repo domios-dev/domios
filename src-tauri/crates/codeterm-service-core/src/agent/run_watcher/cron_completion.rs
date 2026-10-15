@@ -188,7 +188,7 @@ impl RunWatcherRegistry {
             )
         };
         let service = svc.clone();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             let messages = if let Some(sidecar) =
                 crate::service::codex_rpc::lifecycle::for_tab(&state.tab_id)
             {
@@ -212,7 +212,7 @@ impl RunWatcherRegistry {
             } else {
                 let reader = service.clone();
                 let (provider, cwd, session) = (scope.0.clone(), scope.1.clone(), scope.2.clone());
-                match tauri::async_runtime::spawn_blocking(move || {
+                match crate::async_runtime::spawn_blocking(move || {
                     crate::service::tab_chat::session_chat_snapshot(
                         &reader, &provider, &cwd, &session, 0,
                     )
@@ -268,7 +268,7 @@ impl RunWatcherRegistry {
             );
             let finisher = service.clone();
             let ending = state.clone();
-            let _ = tauri::async_runtime::spawn_blocking(move || {
+            let _ = crate::async_runtime::spawn_blocking(move || {
                 finish_run(&finisher, &ending, true, summary)
             })
             .await;

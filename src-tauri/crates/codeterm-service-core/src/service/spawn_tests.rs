@@ -4,84 +4,15 @@ use crate::service::{ServiceContext, SpawnAgentParams};
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[path = "spawn_tests/session_build.rs"]
+mod session_build;
+
 #[path = "spawn_tests/launch_command.rs"]
 mod launch_command;
 #[path = "spawn_tests/model_catalogue.rs"]
 mod model_catalogue;
 #[path = "spawn_tests/task_ack.rs"]
 mod task_ack;
-
-#[test]
-fn resolve_spawn_workspace_prefers_explicit_workspace_over_parent() {
-    let workspace_of = |tab: &str| match tab {
-        "parent-tab" => Some("ws-parent".to_string()),
-        "caller-tab" => Some("ws-caller".to_string()),
-        _ => None,
-    };
-    let resolved = resolve_spawn_workspace_id(
-        Some("ws-explicit".into()),
-        Some("parent-tab"),
-        Some("caller-tab"),
-        workspace_of,
-        Some("ws-active".into()),
-        Some("ws-fallback".into()),
-    )
-    .unwrap();
-    assert_eq!(resolved, "ws-explicit");
-
-    let from_parent = resolve_spawn_workspace_id(
-        None,
-        Some("parent-tab"),
-        Some("caller-tab"),
-        workspace_of,
-        Some("ws-active".into()),
-        Some("ws-fallback".into()),
-    )
-    .unwrap();
-    assert_eq!(from_parent, "ws-parent");
-}
-
-/// The focused workspace is what agents kept landing in: without a parent, the
-/// spawn belongs to the caller's own workspace, not to the user's UI selection.
-#[test]
-fn resolve_spawn_workspace_prefers_caller_tab_over_focused_workspace() {
-    let workspace_of = |tab: &str| match tab {
-        "caller-tab" => Some("ws-caller".to_string()),
-        _ => None,
-    };
-    let from_caller = resolve_spawn_workspace_id(
-        None,
-        None,
-        Some("caller-tab"),
-        workspace_of,
-        Some("ws-active".into()),
-        Some("ws-fallback".into()),
-    )
-    .unwrap();
-    assert_eq!(from_caller, "ws-caller");
-
-    let unknown_caller = resolve_spawn_workspace_id(
-        None,
-        None,
-        Some("ghost-tab"),
-        workspace_of,
-        Some("ws-active".into()),
-        Some("ws-fallback".into()),
-    )
-    .unwrap();
-    assert_eq!(unknown_caller, "ws-active");
-
-    let no_identity = resolve_spawn_workspace_id(
-        None,
-        None,
-        None,
-        workspace_of,
-        None,
-        Some("ws-fallback".into()),
-    )
-    .unwrap();
-    assert_eq!(no_identity, "ws-fallback");
-}
 
 #[test]
 fn spawn_caller_tab_id_prefers_cli_spawner_then_team_creator() {
@@ -819,6 +750,7 @@ fn from_agent_params_carries_model_into_spec() {
         activate: None,
         audience: Default::default(),
         manager_bootstrap: None,
+        user_created: false,
         structured_prompt_server: None,
         remote_task_binding: None,
     };
@@ -978,6 +910,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         activate: None,
         audience: Default::default(),
         manager_bootstrap: None,
+        user_created: false,
         structured_prompt_server: None,
         remote_task_binding: None,
     };
@@ -1051,6 +984,7 @@ fn from_agent_params_carries_activate_into_spec() {
         activate: Some(true),
         audience: Default::default(),
         manager_bootstrap: None,
+        user_created: false,
         structured_prompt_server: None,
         remote_task_binding: None,
     };

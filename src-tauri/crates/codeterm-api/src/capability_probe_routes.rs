@@ -1,4 +1,4 @@
-use super::routes::{check_auth, resolve_tab, AppState};
+use super::routes::{check_auth, AppState};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -13,7 +13,7 @@ pub async fn refresh(
     if let Err((status, message)) = check_auth(&state, &headers) {
         return (status, message).into_response();
     }
-    let tab = match resolve_tab(&state, &tab) {
+    let tab = match crate::routes::resolve_tab_async(&state, &tab).await {
         Ok(tab) => tab,
         Err((status, message)) => return (status, message).into_response(),
     };

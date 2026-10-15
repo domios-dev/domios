@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
 import type { HelpSectionId } from "../../help/types";
@@ -169,11 +170,11 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
           {announcement}
         </p>
         {controls.statusFailed && (
-          <p role="alert">Status is unavailable. Saved rows may be stale; refresh before making changes.</p>
+          <InlineErrorNotice error={{ code: "supporter_status_unavailable", raw: "" }} />
         )}
-        {controls.catalogFailed && <p role="alert">The model catalogue is unavailable. Refresh to choose a model.</p>}
+        {controls.catalogFailed && <InlineErrorNotice error={{ code: "supporter_catalogue_unavailable", raw: "" }} />}
         {status?.adapter && !selected ? (
-          <p role="alert">The selected connection could not be verified. Refresh status before making changes.</p>
+          <InlineErrorNotice error={{ code: "supporter_connection_unverified", raw: "" }} />
         ) : null}
         {!selected && status && !status.adapter && (
           <p className="text-xs text-[var(--ct-muted-fg)]">
@@ -250,9 +251,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
         {Object.entries(controls.errors)
           .filter(([adapter]) => !rows.some((row) => row.adapter === adapter))
           .map(([adapter, error]) => (
-            <p key={adapter} role="alert">
-              {error.message}
-            </p>
+            <div key={adapter}><InlineErrorNotice error={error.message} operation="connecting the Supporter" blocking /></div>
           ))}
         <InlineLinkButton
           label="How it works"

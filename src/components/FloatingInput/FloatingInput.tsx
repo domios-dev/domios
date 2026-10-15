@@ -1,3 +1,4 @@
+import { storeBlob } from "../Terminal/voice/audio";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "../../lib/bridge";
 import { X, MessageSquare } from "lucide-react";
@@ -68,18 +69,9 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
       for (const item of fileItems) {
         const blob = item.getAsFile();
         if (!blob) continue;
-        const reader = new FileReader();
-        reader.onload = async () => {
-          const base64 = (reader.result as string).split(",")[1];
-          if (base64) {
-            try {
-              const ext = item.type.split("/")[1] || "bin";
-              const path = await invoke<string>("save_temp_file", { data: base64, extension: ext, name: blob.name });
-              await invoke("write_pty_string", { ptyId, data: path + "\r", raw: false });
-            } catch { /* skip */ }
-          }
-        };
-        reader.readAsDataURL(blob);
+        void storeBlob(blob, blob.name || "pasted-file.bin").then(path =>
+          invoke("write_pty_string", { ptyId, data: path + "\r", raw: false }),
+        ).catch(() => {});
       }
       return;
     }

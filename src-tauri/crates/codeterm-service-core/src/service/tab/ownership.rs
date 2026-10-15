@@ -32,7 +32,7 @@ impl ServiceContext {
             (tab_id, ownership)
         };
 
-        let persistence = session_persist::write_session_snapshot(&self.app_handle, &self.mux);
+        let persistence = session_persist::write_session_snapshot(self, &self.mux);
         let persist_error = match persistence {
             Ok(crate::session::store::SaveOutcome::Saved) => None,
             Ok(crate::session::store::SaveOutcome::RefusedReduction(refusal)) => {

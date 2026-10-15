@@ -591,7 +591,7 @@ pub fn build_session_with_profile(
     cmd.env("COLORTERM", "truecolor");
     cmd.env("CLICOLOR", "1");
     cmd.env("TERM_PROGRAM", "CodeTerm");
-    cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+    cmd.env("TERM_PROGRAM_VERSION", codeterm_build_info::version());
 
     #[cfg(not(target_os = "windows"))]
     {
@@ -677,30 +677,6 @@ impl PtyManager {
 
     pub fn spawn_gate(&self) -> PtySpawnGate {
         self.spawn_gate.clone()
-    }
-
-    pub fn spawn(
-        &mut self,
-        command: Option<String>,
-        cwd: Option<String>,
-        cols: u16,
-        rows: u16,
-        env_vars: HashMap<String, String>,
-    ) -> Result<(String, Arc<PtySession>), String> {
-        self.spawn_with_id(None, command, cwd, cols, rows, env_vars)
-    }
-
-    pub fn spawn_with_id(
-        &mut self,
-        custom_id: Option<String>,
-        command: Option<String>,
-        cwd: Option<String>,
-        cols: u16,
-        rows: u16,
-        env_vars: HashMap<String, String>,
-    ) -> Result<(String, Arc<PtySession>), String> {
-        let built = build_session(self.spawn_gate.clone(), command, cwd, cols, rows, env_vars)?;
-        Ok(self.register_session(custom_id, built))
     }
 
     /// Insert a pre-built session into the manager. Holds the manager lock only

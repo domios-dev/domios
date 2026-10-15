@@ -99,6 +99,7 @@ export type AgentEvent =
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
+  storedHistory?:boolean;
   usage?:boolean;
   runtime:AgentRuntimeTransport;
   command:{binary:string; args:readonly string[]};
@@ -108,6 +109,7 @@ export interface StdioAgentRuntimeCapability {
   notificationMethods:readonly string[];
 }
 export interface AgentRuntime {
+  runtimeStoredHistory?(sessionId:string, records:string): readonly ChatMsg[];
   runtimePlan(ctx:RuntimeContext, op:Operation): RuntimePlan;
   runtimeResponse(ctx:RuntimeContext, op:Operation, state:JsonValue, reply:RpcReply): RuntimeStep;
   runtimeReduce(ctx:RuntimeContext, state:JsonValue, frames:readonly RuntimeFrame[]): RuntimeReduction;

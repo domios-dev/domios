@@ -53,7 +53,7 @@ function exactOutcomeNumber(value: unknown, nonnegative: boolean): number | unde
   return value;
 }
 
-function durationMilliseconds(item: ActivityItem): number | undefined {
+export function durationMilliseconds(item: ActivityItem): number | undefined {
   const numericDuration = exactOutcomeNumber(item.duration_ms, true);
   if (numericDuration !== undefined) return numericDuration;
   if (!item.duration || typeof item.duration !== "object" || Array.isArray(item.duration)) return undefined;

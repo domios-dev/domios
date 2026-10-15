@@ -59,6 +59,19 @@ test("replyVerdict fails when the tab changes session or the runtime degrades", 
   assert.match(replyVerdict({ messages: [], baselineIds: new Set(), marker: "M", record: degraded }).fail, /PipeEof/);
 });
 
+test("mux snapshots confirm exact replies and stop through their owned agent state", () => {
+  const messages = [{ id: "reply", type: "assistant", content: "probe-answer" }];
+  const probe = { messages, baselineIds: new Set(), marker: "probe-answer", boundSession: "owned" };
+  const working = { agent_session_id: "owned", agent_state: { state: "working" } };
+  assert.ok(replyVerdict({ ...probe, record: working }).pending);
+  const idle = { ...working, agent_state: { state: "idle" } };
+  assert.deepEqual(replyVerdict({ ...probe, record: idle }).done, { answer: "probe-answer", session: "owned" });
+  assert.ok(replyVerdict({ ...probe, record: { ...idle, agent_session_id: "foreign" } }).fail);
+  assert.ok(replyVerdict({ ...probe, record: { agent_session_id: "owned" } }).pending);
+  assert.deepEqual(stopVerdict({ stopped: true }, idle).done, { session: "owned" });
+  assert.ok(readiness({ ...working, agent_state: { state: "error" } }).fail);
+});
+
 test("normalizeAnswer strips quoting and a trailing period only", () => {
   assert.equal(normalizeAnswer(" **CJ1**. "), "CJ1");
   assert.notEqual(normalizeAnswer("CJ1 done"), "CJ1");

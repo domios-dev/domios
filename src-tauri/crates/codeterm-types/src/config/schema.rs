@@ -18,6 +18,7 @@ pub use super::supporter::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
+    pub restore: RestoreConfig,
     pub account: serde_json::Value,
     pub billing: serde_json::Value,
     pub theme: ThemeConfig,
@@ -71,6 +72,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            restore: RestoreConfig::default(),
             account: serde_json::json!({}),
             billing: serde_json::json!({"provider": "cloud"}),
             theme: ThemeConfig::default(),
@@ -1114,3 +1116,17 @@ impl Default for RunawayConfig {
 mod tests;
 
 pub use super::utility_tabs::{UtilityTabLimits, UtilityTabsConfig};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RestoreConfig {
+    pub active_window_hours: u64,
+}
+
+impl Default for RestoreConfig {
+    fn default() -> Self {
+        Self {
+            active_window_hours: 48,
+        }
+    }
+}

@@ -134,7 +134,7 @@ Executed on this branch: `src-tauri/crates/codeterm-wire` holds `domios` and `me
 Done: `codeterm-decision` holds `decision` (git renames; app dev-dependency now enables its `decision-fixture-clock`). `codeterm-provider-signals` holds `AuthStatus`, `ApiErrorKind`, `PermissionMode`, `SessionObservations`, `ProviderTurnIncident`, `admit_key`; `ProviderSignals` stays in `codeterm-types` because it embeds `ProbeSnapshot`, `BackgroundRoster` and `pty` types and moving it would cycle. `config/decision_rerank` does not exist in `codeterm-types` (rerank lives in `codeterm-mem`), so nothing moved for it. Selectors: `./build.sh test-one decision NAME`, `./build.sh test-one provider-signals NAME`.
 R2b done (blueprint_*/sentinel_input/automation_name -> `codeterm-blueprint-types`, `mesh/*` -> `codeterm_mesh::contract`, `usage` -> `codeterm_usage::contract`, `local_recording` -> `codeterm-local-recording`); `notification` -> `codeterm_notification_core::contract`. Correction to the R2 table: this row was not cycle-free, because `config/schema.rs` (stays in `codeterm-types`) uses `NotifyLevel`/`NotifyDestination`; those two enums moved to the leaf crate `codeterm-notify-types`, which both `codeterm-types` and `codeterm-notification-core` depend on (the latter re-exports them from `contract`).
 ## R3 status
-Executed: `codeterm-events` (`EventBroadcaster`, `SystemEvent`, generic `emit_everywhere`), `codeterm-config`, `codeterm-secrets` (REST handlers stay in the app as `secrets/api.rs`) and `codeterm-keepawake` (generic over the tauri runtime). `lock_hold` and `process_util` were already thin shims over `codeterm-util`. The app modules are `pub use` facades, so inbound paths are unchanged.
+Executed: `codeterm-events` (`EventBroadcaster`, `SystemEvent`), `codeterm-config`, `codeterm-secrets` (REST handlers stay in the app as `secrets/api.rs`) and `codeterm-keepawake` (framework-free `StatusEmitter` port). `lock_hold` and `process_util` were already thin shims over `codeterm-util`. The Tauri event fan-out and keepawake adapters live in `codeterm-service-core`; the leaf crates have no Tauri dependency.
 
 ## R4 status
 
@@ -188,3 +188,23 @@ Source facts; check-queue errors=0 on lane `375953736` (all targets, so tests co
 ## Wave C prefix status
 
 Entry points now in place, without changing any delivery logic: `codeterm_pty::pty::ansi::sanitize_agent_prompt_input`; `ports::transport::{Selection, SendBatchItem, Input}` (data only; `codex_rpc::launch::spawn_from` keeps the `Selection` body); `service::ordered_actions`; `ServiceContext::deliver(tab, Input)`, which `message_gateway` uses for all five of its PTY writes; and `ServiceContext::attach_system_send` for the turn-resume ledger entry. Core->transport sites C1 still has to port (re-verified at the P5 tip): messenger.rs:528/556/640/947/949/956, messenger/turn_resume.rs:42/50, tab.rs:153/662/825/893, tab/lifecycle_exit.rs:218/329/427/486, tab/scrollback.rs:126, spawn_shell.rs:148/159/240, spawn.rs:613/889/936/1043, agent/run_watcher.rs:790, agent/state_reactor.rs:690, message_gateway.rs:408.
+
+## Service-core lane D: lane, preview and worker service leaves
+
+`codeterm-lanes` owns worker worktree provisioning/removal, bounded checkpoint Git I/O and pure spawn workspace/lineage resolution. `codeterm-local-preview` owns preview file access, path policy and reference extraction. `codeterm-worker-services` owns watcher observations/verdicts, service registry persistence, remote worker state and launch diagnostics. Each crate is version 0.0.0 and depends only on lower crates; service-core preserves existing paths through re-exports and host adapters.
+
+Tests move with those implementations (132 leaf cases in the static inventory). Context methods, cron-store projection, launch notifications and runtime scheduling remain in service-core. `NewTask` already belongs to `codeterm-plan`. Canonical selectors: `./build.sh nextest codeterm-lanes`, `./build.sh nextest codeterm-local-preview`, `./build.sh nextest codeterm-worker-services`, plus the retained service-core `service::store::cron_view`, `service::lane_stats` and spawn caller wiring selectors. Self-checks and timings are recorded in the task report; this entry makes no runtime or performance claim.
+
+## Service-core prompts split
+
+`codeterm-prompts` now owns the prompt templates, persona composition, role presets and skill mirroring, with their pure tests. Service-core retains re-export facades and the onboarding/worker-identity delivery parity tests. Canonical selectors: `./build.sh nextest codeterm-prompts` and `./build.sh nextest codeterm-service-core 'test(/^prompts::/) | test(/^service::persona::parity::/)'`.
+
+## Service-core supporter engine slice
+
+- `codeterm-supporter` (0.0.0) owns the Supporter runtime, budget/spend/journal/feed/connection engine, process-tree witnesses and their tests. Service-core retains its existing module paths through re-exports and keeps notification/status adapters.
+- Pure confidence policy, diagnostic redaction and correlation projection sit below the core. Capture and journal integration stay with tab lifecycle state; process-tree fixtures cross the boundary through `test-support`.
+- Recall registry/DecisionBackend and mem search, capability-probe orchestration and provider-update orchestration remain in service-core. Their port seams are deferred owner decisions, not part of this slice.
+
+## Service-core capability-probe host port
+
+`codeterm-provider-ops::capability_probe` owns the cache, executor, initialization protocol, process capture and their tests. `CapabilityProbeHost` supplies request validation, capability-selected binary lookup, matching tabs and snapshot publication; service-core implements it and preserves existing callers through its facade. Canonical selector: `./build.sh nextest codeterm-provider-ops 'test(/^capability_probe::/)'`.

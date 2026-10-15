@@ -1,7 +1,6 @@
 use super::ServiceContext;
 use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Worker};
 use std::sync::Arc;
-use tauri::Manager;
 
 pub(crate) mod update_confirm;
 
@@ -84,19 +83,18 @@ impl ServiceContext {
             .get_or_try_init(|| async {
                 let secrets = self.secrets.clone();
                 let mesh_machines = self
-                    .app_handle
-                    .try_state::<crate::mesh::MeshState>()
+                    .try_ext::<crate::mesh::MeshState>()
                     .map_or(1, |mesh| mesh.lock().machine_count());
                 let workspaces = self.mux.read().workspace_count();
                 let startup = app_started(
-                    env!("CARGO_PKG_VERSION"),
+                    codeterm_build_info::version(),
                     std::env::consts::OS,
                     mesh_machines,
                     workspaces,
                 );
                 let worker = tokio::task::spawn_blocking(move || {
                     let reader = Arc::new(move |name: &str| {
-                        tauri::async_runtime::block_on(async {
+                        crate::async_runtime::block_on(async {
                             let store = secrets.read().await;
                             store
                                 .get(name)
@@ -117,7 +115,7 @@ impl ServiceContext {
                     let _ = worker.record_activity_nowait(|| workspaces);
                     if crate::service::analytics::update_confirm::confirm(
                         &crate::paths::data_dir().join("analytics-update.json"),
-                        env!("CARGO_PKG_VERSION"),
+                        codeterm_build_info::version(),
                         &worker,
                     )
                     .is_err()
@@ -132,7 +130,7 @@ impl ServiceContext {
                 self.plan_store.bind_product_observer(Arc::new(move || {
                     let _ = observer.record_nowait(Event::PlanCreated {});
                 }));
-                if let Some(mesh) = self.app_handle.try_state::<crate::mesh::MeshState>() {
+                if let Some(mesh) = self.try_ext::<crate::mesh::MeshState>() {
                     let counts = worker.clone();
                     mesh.lock().bind_pairing_observers(
                         mesh_observer(worker.clone()),

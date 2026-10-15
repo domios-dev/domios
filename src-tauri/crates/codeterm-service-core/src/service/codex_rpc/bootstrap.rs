@@ -72,7 +72,7 @@ pub(crate) fn consume(
                 return Err(error.to_string());
             }
         }
-        tauri::async_runtime::block_on(async {
+        crate::async_runtime::block_on(async {
             tokio::time::timeout(std::time::Duration::from_secs(30), async {
                 loop {
                     let frame = events

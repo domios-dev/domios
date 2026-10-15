@@ -10,8 +10,8 @@ use super::machine::{self, Machine, Route};
 use super::probe::cancellation::Cancellation;
 use super::source::{self, RunBinding, TabBinding};
 use super::storage::{Backend, LoadFailure, Staged};
-use codeterm_cron::clock::SharedClock;
 use codeterm_blueprint_types::sentinel_input::InputSpec;
+use codeterm_cron::clock::SharedClock;
 
 pub const MAX_SENTINELS: usize = 256;
 pub const MAX_ACTIVE: usize = 64;
@@ -521,11 +521,7 @@ impl Store {
         self.stage_finish_with(job, None)
     }
 
-    pub fn stage_resolve_escalation(
-        &mut self,
-        id: &str,
-        transition_id: &str,
-    ) -> Staged<bool> {
+    pub fn stage_resolve_escalation(&mut self, id: &str, transition_id: &str) -> Staged<bool> {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
         }

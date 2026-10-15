@@ -18,7 +18,7 @@ pub fn begin_surface_shutdown(svc: &ServiceState) -> SurfaceShutdown {
         .ext::<std::sync::Arc<crate::service::surface::SurfaceRuntimeRegistry>>()
         .take_all();
     let (done, wait) = mpsc::channel();
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let _ = done.send(shutdown_all(runtimes, EXIT_GRACEFUL, EXIT_LIMIT).await);
     });
     SurfaceShutdown(wait)

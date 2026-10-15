@@ -71,7 +71,7 @@ pub fn decode(text: &str) -> Result<Frame, String> {
 
 pub fn initialize_params() -> Value {
     serde_json::json!({
-        "clientInfo": {"name": "domios", "version": env!("CARGO_PKG_VERSION")},
+        "clientInfo": {"name": "domios", "version": codeterm_build_info::version()},
         "capabilities": {"experimentalApi": true, "optOutNotificationMethods": ["turn/diff/updated"]}
     })
 }

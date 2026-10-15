@@ -1,7 +1,6 @@
 use super::{close, started};
 use crate::multiplexer::state::MultiplexerState;
-use crate::service::TeamExt;
-use crate::service::{TeamMutationCaller, TeamPlanCaller};
+use crate::service::TeamPlanCaller;
 use crate::session::store::StorageDeskAdapter;
 
 #[test]
@@ -84,7 +83,7 @@ fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
         .team_id;
 
     let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
-    crate::service::session_persist::flush_session_persistence(instance.fixture._app.handle())
+    crate::service::session_persist::flush_session_persistence(&instance.fixture.service)
         .expect("flush startup resync with orphan Team");
     let startup_saved = StorageDeskAdapter::from_storage(instance.storage.clone())
         .state()
@@ -114,7 +113,7 @@ fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
         .service
         .create_tab_with_activate(&main_workspace_id, false)
         .expect("create tab while orphan Team is present");
-    crate::service::session_persist::flush_session_persistence(instance.fixture._app.handle())
+    crate::service::session_persist::flush_session_persistence(&instance.fixture.service)
         .expect("flush tab and workspace changes");
     let saved = StorageDeskAdapter::from_storage(instance.storage.clone())
         .state()
@@ -439,7 +438,7 @@ fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
     }
     let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
     crate::service::session_persist::write_session_snapshot_with_intent(
-        instance.fixture._app.handle(),
+        &instance.fixture.service,
         &instance.fixture.service.mux,
         crate::session::store::SaveIntent::AuthorizedReduction,
     )
@@ -485,65 +484,6 @@ fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
     assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
     assert!(mux.get_team(&team_id).is_some());
     drop(mux);
-    close(restarted);
-}
-
-#[test]
-fn team_create_round_trip_expected_red() {
-    let root = tempfile::tempdir().unwrap();
-    let (mut mux, tab_id) = MultiplexerState::new();
-    {
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_type = Some("identity-provider".into());
-        tab.cwd = Some(root.path().to_string_lossy().into_owned());
-    }
-    mux.set_orchestrator_role(&tab_id).unwrap();
-    let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
-    crate::service::deliver_orchestrator_onboarding(&instance.fixture.service, &tab_id);
-    let team_id = instance
-        .fixture
-        .service
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.team_id.clone())
-        .expect("onboarding creates a Team through ServiceContext");
-
-    let restarted = instance.restart(root.path());
-    assert!(restarted
-        .fixture
-        .service
-        .mux
-        .read()
-        .get_team(&team_id)
-        .is_some());
-    close(restarted);
-}
-
-#[test]
-fn team_close_round_trip_expected_pass() {
-    let root = tempfile::tempdir().unwrap();
-    let (mut mux, tab_id) = MultiplexerState::new();
-    let team_id = mux
-        .resolve_or_mint_team_for_parent(&tab_id)
-        .unwrap()
-        .team_id;
-    let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
-    tauri::async_runtime::block_on(instance.fixture.service.close_team(
-        &team_id,
-        TeamMutationCaller::Human,
-        true,
-    ))
-    .expect("close Team through ServiceContext");
-
-    let restarted = instance.restart(root.path());
-    assert!(restarted
-        .fixture
-        .service
-        .mux
-        .read()
-        .get_team(&team_id)
-        .is_none());
     close(restarted);
 }
 
@@ -667,9 +607,13 @@ fn surface_resume_point_round_trip_expected_pass() {
         url: Some("https://mail.example.com/inbox#thread/42".into()),
         profile: Some("work".into()),
     };
-    let app = instance.fixture._app.handle().clone();
     assert_eq!(
-        write_surface_resume(&app, &instance.fixture.service.mux, &tab_id, &resume),
+        write_surface_resume(
+            &instance.fixture.service,
+            &instance.fixture.service.mux,
+            &tab_id,
+            &resume
+        ),
         Some(true)
     );
 

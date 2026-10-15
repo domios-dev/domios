@@ -34,7 +34,9 @@ for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as co
   assert.equal(row.querySelector('[data-testid="tab-working-activity"]'), null);
   const rail = parsed(<SidebarCompactRail groups={[{ workspaceId: "ws", label: "group-token", tabs: [starting], activeTabId: null }]} tabStatuses={{ [tab.id]: "Working" }} attentionByTab={{ [tab.id]: attention }} onActivate={() => {}} />);
   assertLoading(rail, mark.label, "img");
-  assertLoading(parsed(<ChatSetupState tab={starting} view={chatSetupView(starting)} providerName="provider-token" />), mark.label);
+  const chat = parsed(<ChatSetupState tab={starting} view={chatSetupView(starting)} providerName="provider-token" />);
+  assert.ok(chat.querySelector('[role="progressbar"][aria-valuetext]'));
+  assert.ok(chat.querySelector('[role="status"][aria-label]'));
   assertLoading(parsed(<TabBootOverlay view={tabBootOverlayView(starting)} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />), mark.label);
   assertLoading(parsed(<AgentStateIndicator tab={starting} activity={tabActivity(starting, "Working")} />), mark.label);
 }

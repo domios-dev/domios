@@ -178,9 +178,10 @@ pub fn launch_with_dispatch(
     let service = svc.clone();
     let monitor_tab = tab_id.clone();
     let provider = provider.to_owned();
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let completion = waiter.wait(std::time::Duration::from_secs(1800)).await;
         let _ = tokio::task::spawn_blocking(move || {
+            crate::agent::model_catalog::invalidate(&provider);
             let status = super::provider_cli::provider_cli_status(&service.provider_registry, &provider, platform).ok();
             let summary = completion_summary(&provider, operation, completion, status.as_ref());
             let _ = service
@@ -188,10 +189,10 @@ pub fn launch_with_dispatch(
                 .write()
                 .set_tab_description(&monitor_tab, Some(fit_tab_description(&summary)));
             service.emit_state_changed();
-            codeterm_events::emit_everywhere(&service.app_handle, "provider-cli-completed", serde_json::json!({
+            service.ui.emit("provider-cli-completed", serde_json::to_value(serde_json::json!({
                 "provider": provider, "operation": operation, "tab_id": monitor_tab,
                 "exit_code": completion.and_then(ExecCompletion::exit_code), "status": status, "summary": summary,
-            }));
+            })).unwrap_or_default());
             if let Some(caller) = caller {
                 report_completion(&service, &caller, &monitor_tab, &summary);
             }

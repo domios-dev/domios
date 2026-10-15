@@ -148,12 +148,19 @@ fn restore_live_planner_fixture(
     let pty_id = "pty-restored-live-planner";
     restored.link_pty(tab_id, pty_id.into());
     let fixture = ServiceFixture::new(restored);
-    fixture
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-        .expect("restored live PTY");
+    {
+        let gate = fixture.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            },
+        )
+    }
+    .expect("restored live PTY");
     fixture
         .service
         .reconcile_boot_stage_with_session_binding(tab_id);
@@ -305,19 +312,19 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
     harness.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("codex").with_launch_binary("codex"),
     ));
-    harness
-        .service
-        .pty
-        .lock()
-        .spawn_with_id(
-            Some("pty-planner".into()),
-            None,
-            None,
-            80,
-            24,
-            Default::default(),
+    {
+        let gate = harness.service.pty.lock().spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, Default::default()).map(
+            |built| {
+                harness
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some("pty-planner".into()), built)
+            },
         )
-        .expect("spawn live backing PTY");
+    }
+    .expect("spawn live backing PTY");
     let key = harness
         .service
         .provider_tree_key_for_tab(&tab_id, "pty-planner")

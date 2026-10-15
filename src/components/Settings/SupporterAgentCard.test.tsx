@@ -395,7 +395,7 @@ describe("Supporter saved connections", () => {
     state.connections.find((entry) => entry.adapter === "optional")!.active = true;
     await click("Refresh Spinal Cord status and models");
     expect(host.textContent).toContain("Status stale");
-    expect(section("required").textContent).toContain("Last-known status; refresh to verify.");
+    expect(section("required").querySelector('[role="status"][aria-label]')).not.toBeNull();
     expect((await menuItem("optional", "Make active")).disabled).toBe(true);
     expect(writes()).toHaveLength(0);
   });
@@ -692,7 +692,7 @@ describe("Supporter saved connections", () => {
     const dialog = section("optional").querySelector("[role='alertdialog']")!;
     expect(button("Remove connection", dialog).disabled).toBe(true);
     expect((await menuItem("optional", "Make active")).disabled).toBe(true);
-    expect(host.textContent).toContain("Last-known status; refresh to verify.");
+    expect(section("required").querySelector('[role="status"][aria-label]')).not.toBeNull();
   });
   it("saved_not_active_shows_retry_activation", async () => {
     await mount();

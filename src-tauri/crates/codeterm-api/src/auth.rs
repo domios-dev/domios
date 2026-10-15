@@ -266,11 +266,70 @@ pub(crate) fn caller_access_level(
     }
 }
 
+enum AuthOutcome {
+    Allowed(Request, bool),
+    Rejected(Response),
+}
+
+impl From<Response> for AuthOutcome {
+    fn from(response: Response) -> Self {
+        Self::Rejected(response)
+    }
+}
+
 pub async fn auth_middleware(
     AxumState(state): AxumState<AppState>,
-    mut req: Request,
+    req: Request,
     next: Next,
 ) -> Response {
+    let local_liveness = matches!(req.uri().path(), "/api/health" | "/api/mesh/ping")
+        && req
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .is_some_and(|peer| peer.0.ip().is_loopback());
+    if local_liveness {
+        return next.run(req).await;
+    }
+    #[cfg(debug_assertions)]
+    let queued = std::time::Instant::now();
+    let outcome = tokio::task::spawn_blocking(move || {
+        #[cfg(debug_assertions)]
+        let (started, route, queue_ms) = (
+            std::time::Instant::now(),
+            req.uri().path().to_owned(),
+            queued.elapsed().as_millis(),
+        );
+        let result = authorize_request(state, req);
+        #[cfg(debug_assertions)]
+        if queue_ms > 100 || started.elapsed().as_millis() > 100 {
+            log::debug!(
+                "[REST-AUTH] {} queue={}ms execution={}ms",
+                route,
+                queue_ms,
+                started.elapsed().as_millis()
+            );
+        }
+        result
+    })
+    .await;
+    match outcome {
+        Ok(AuthOutcome::Allowed(req, false)) => next.run(req).await,
+        Ok(AuthOutcome::Allowed(req, true)) => {
+            super::peer_redaction::redact_peer_response(next.run(req).await).await
+        }
+        Ok(AuthOutcome::Rejected(response)) => response,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
+    #[cfg(test)]
+    if let Some(entered) = req
+        .extensions()
+        .get::<std::sync::Arc<tokio::sync::Notify>>()
+    {
+        entered.notify_one();
+    }
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
@@ -288,7 +347,8 @@ pub async fn auth_middleware(
             StatusCode::SERVICE_UNAVAILABLE,
             "Mesh networking is disabled",
         )
-            .into_response();
+            .into_response()
+            .into();
     }
 
     // /api/mesh/enabled (the local on/off switch — it MUST stay reachable to turn mesh back on; still token-gated, peers rejected below).
@@ -304,12 +364,13 @@ pub async fn auth_middleware(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Mesh networking is disabled",
             )
-                .into_response();
+                .into_response()
+                .into();
         }
     }
 
     if bearer_exempt(&method, &path) {
-        return next.run(req).await;
+        return AuthOutcome::Allowed(req, false);
     }
 
     let auth = req
@@ -324,10 +385,10 @@ pub async fn auth_middleware(
         req.extensions_mut().insert(identity.clone());
     }
     match caller {
-        Ok(CallerIdentity::Local) => next.run(req).await,
+        Ok(CallerIdentity::Local) => AuthOutcome::Allowed(req, false),
         Ok(CallerIdentity::ServicePush { ref service_id }) => {
             if is_service_push_allowed(method.as_str(), &path) {
-                next.run(req).await
+                AuthOutcome::Allowed(req, false)
             } else {
                 log::warn!(
                     "[auth] Service push token {} denied on {} {} — push tokens are scoped to POST /api/tabs/<id>/send only",
@@ -338,6 +399,7 @@ pub async fn auth_middleware(
                     "Service push tokens are scoped to POST /api/tabs/<id>/send",
                 )
                     .into_response()
+                    .into()
             }
         }
         Ok(CallerIdentity::Peer {
@@ -356,7 +418,8 @@ pub async fn auth_middleware(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Mesh networking is disabled",
                 )
-                    .into_response();
+                    .into_response()
+                    .into();
             }
             if !peer_protocol_allowed(relay_protocol_version, &path) {
                 log::warn!(
@@ -370,10 +433,11 @@ pub async fn auth_middleware(
                     StatusCode::UPGRADE_REQUIRED,
                     "Incompatible Mesh relay protocol; update Domios",
                 )
-                    .into_response();
+                    .into_response()
+                    .into();
             }
             if authorize_peer_request(&state, access_level, instance_id, &method, &path) {
-                super::peer_redaction::redact_peer_response(next.run(req).await).await
+                AuthOutcome::Allowed(req, true)
             } else {
                 log::warn!(
                     "[auth] Access denied for peer {} ({:?}) on {} {}",
@@ -387,6 +451,7 @@ pub async fn auth_middleware(
                     "Access denied by access level policy",
                 )
                     .into_response()
+                    .into()
             }
         }
         Err(()) => {
@@ -419,7 +484,9 @@ pub async fn auth_middleware(
                     _ => "NONE".to_string(),
                 }
             );
-            (StatusCode::UNAUTHORIZED, "Invalid or missing token").into_response()
+            (StatusCode::UNAUTHORIZED, "Invalid or missing token")
+                .into_response()
+                .into()
         }
     }
 }

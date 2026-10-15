@@ -138,7 +138,7 @@ impl ServiceContext {
             .ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
             .clone();
         let tab_id = tab_id.to_string();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             for outcome in threads.close_tab(&tab_id).await {
                 log::info!("[bridge-threads] tab {tab_id} released: {outcome:?}");
             }

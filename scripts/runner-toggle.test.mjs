@@ -1,4 +1,4 @@
-// Caller: build.sh script-guards (node --test)
+// Caller: CI tests.yml release-contracts via tests/catalogue.json node-script-tests
 import assert from "node:assert/strict";
 import test from "node:test";
 import { planPause } from "./runner-toggle.mjs";
