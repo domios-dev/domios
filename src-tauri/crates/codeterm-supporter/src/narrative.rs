@@ -2,11 +2,11 @@ use codeterm_decision::{DecisionAnswer, DecisionAnswers};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const MAX_QUERY_CHARS: usize = 80;
-pub(crate) const MAX_QUESTION_CHARS: usize = 160;
-pub(crate) const MAX_ANSWER_CHARS: usize = 160;
-pub(crate) const MAX_NAME_CHARS: usize = 64;
-pub(crate) const MAX_QUESTIONS: usize = 64;
+pub const MAX_QUERY_CHARS: usize = 80;
+pub const MAX_QUESTION_CHARS: usize = 160;
+pub const MAX_ANSWER_CHARS: usize = 160;
+pub const MAX_NAME_CHARS: usize = 64;
+pub const MAX_QUESTIONS: usize = 64;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct QuestionAnswer {
@@ -25,13 +25,13 @@ impl QuestionAnswer {
     }
 }
 
-pub(crate) fn scrub(text: &str, cap: usize) -> String {
+pub fn scrub(text: &str, cap: usize) -> String {
     static TOKENS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let tokens = TOKENS.get_or_init(|| {
         regex::Regex::new(r"\b(?:sk-|ghp_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]+")
             .expect("credential prefix pattern is valid")
     });
-    let redacted = crate::service::launch_diagnostics::redact_secrets(text);
+    let redacted = codeterm_worker_services::launch_diagnostics::redact_secrets(text);
     let redacted = tokens.replace_all(&redacted, "<redacted>");
     let printable: String = redacted
         .chars()
@@ -81,7 +81,7 @@ pub enum ActivityContext {
 }
 
 impl ActivityContext {
-    pub(crate) fn decision_point(&self) -> &str {
+    pub fn decision_point(&self) -> &str {
         match self {
             Self::Rerank { .. } => "memory_rerank",
             Self::TabState { decision_point, .. } => decision_point,
@@ -89,7 +89,7 @@ impl ActivityContext {
         }
     }
 
-    pub(crate) fn failure(&self, reason: &str) -> Vec<QuestionAnswer> {
+    pub fn failure(&self, reason: &str) -> Vec<QuestionAnswer> {
         let question = match self {
             Self::Rerank { query, .. } => {
                 format!("Which memories answer: {}?", scrub(query, MAX_QUERY_CHARS))
@@ -118,7 +118,7 @@ impl ActivityContext {
         vec![QuestionAnswer::new("decision", &question, answer)]
     }
 
-    pub(crate) fn answers(&self, answers: &DecisionAnswers) -> Vec<QuestionAnswer> {
+    pub fn answers(&self, answers: &DecisionAnswers) -> Vec<QuestionAnswer> {
         answers
             .iter()
             .take(MAX_QUESTIONS)
@@ -232,7 +232,7 @@ fn probability(answer: &DecisionAnswer) -> String {
     }
 }
 
-pub(crate) fn bucket(label: &str) -> &'static str {
+pub fn bucket(label: &str) -> &'static str {
     match label {
         "ready_idle" => "Ready and idle",
         "working_normally" => "Working normally",
@@ -248,7 +248,7 @@ pub(crate) fn bucket(label: &str) -> &'static str {
     }
 }
 
-pub(crate) fn tab_state(title: &str, label: &str) -> Vec<QuestionAnswer> {
+pub fn tab_state(title: &str, label: &str) -> Vec<QuestionAnswer> {
     vec![QuestionAnswer::new(
         "label",
         &format!("What state is tab {} in?", scrub(title, MAX_QUERY_CHARS)),
@@ -257,7 +257,7 @@ pub(crate) fn tab_state(title: &str, label: &str) -> Vec<QuestionAnswer> {
 }
 
 #[cfg(test)]
-pub(crate) fn rerank(query: &str, title: Option<&str>, count: usize) -> Vec<QuestionAnswer> {
+pub fn rerank(query: &str, title: Option<&str>, count: usize) -> Vec<QuestionAnswer> {
     let answer = title.map_or_else(
         || "No memories ranked".into(),
         |title| {
@@ -275,7 +275,7 @@ pub(crate) fn rerank(query: &str, title: Option<&str>, count: usize) -> Vec<Ques
     )]
 }
 
-pub(crate) fn recovery(title: &str, reason: &str) -> Vec<QuestionAnswer> {
+pub fn recovery(title: &str, reason: &str) -> Vec<QuestionAnswer> {
     let answer = match reason {
         "provider_declared_safe_choice" => "Provider-declared safe response authorized",
         "deterministic_directory_trust" => "Folder trust response authorized",
@@ -290,7 +290,7 @@ pub(crate) fn recovery(title: &str, reason: &str) -> Vec<QuestionAnswer> {
     )]
 }
 
-pub(crate) fn provider_update(label: &str) -> Vec<QuestionAnswer> {
+pub fn provider_update(label: &str) -> Vec<QuestionAnswer> {
     let answer = match label {
         "update_started" => "Started the declared update",
         "update_succeeded" => "Update succeeded",

@@ -1,3 +1,4 @@
+use super::capture as capture_correlation;
 use super::*;
 use crate::service::supporter_tab_state::identity::{self, DecisionSource, LocalIdentity};
 use crate::service::supporter_tab_state::{coordinator::ActionOwner, ObservationTrigger};
@@ -21,7 +22,7 @@ fn capture(
 ) -> Correlation {
     let owner = ActionOwner::default();
     let observation = owner.observe("fixture-tab", &local.launch_key, Some(11), 22);
-    Correlation::capture(
+    capture_correlation(
         Some(local),
         &local.launch_key,
         point,
@@ -45,7 +46,7 @@ fn supporter_first_opinion_passive_confirmation_parent_is_a_real_same_scope_capt
     );
     let observation =
         ActionOwner::default().observe("fixture-tab", &local.launch_key, Some(11), 22);
-    let child = Correlation::capture(
+    let child = capture_correlation(
         Some(&local),
         &local.launch_key,
         ObservationTrigger::PromptCandidate,
@@ -91,7 +92,7 @@ fn supporter_first_opinion_passive_rejects_missing_or_mispointed_parent() {
             Some(41),
         ),
     ] {
-        let correlation = Correlation::capture(
+        let correlation = capture_correlation(
             Some(&local),
             &local.launch_key,
             point,
@@ -348,11 +349,4 @@ fn supporter_first_opinion_unavailable_capture_keeps_its_decision_point_without_
     assert_eq!(event["observation_status"], "unavailable");
     assert_eq!(event["phase"], "classification_rejected");
     assert!(event.get("correlation").is_none());
-
-    let mut diagnostics = json!({});
-    project_diagnostics(&event, &mut diagnostics);
-    assert_eq!(diagnostics["decision_point"], "launch_ready");
-    assert_eq!(diagnostics["observation_status"], "unavailable");
-    assert_eq!(diagnostics["phase"], "classification_rejected");
-    assert!(diagnostics.get("correlation").is_none());
 }

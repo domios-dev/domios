@@ -6,8 +6,8 @@ use codeterm_types::config::{SupporterConfig, SupporterConnection};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::mem::decision::token_store::TokenStore;
-use crate::service::supporter::registry::SupporterRegistry;
+use crate::SupporterRegistry;
+use codeterm_mem::decision::token_store::TokenStore;
 
 pub static TRANSACTION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
@@ -31,7 +31,7 @@ impl ConnectionError {
 
 type Result<T> = std::result::Result<T, ConnectionError>;
 
-pub(crate) fn members(
+pub fn members(
     cfg: &SupporterConfig,
     registry: &SupporterRegistry,
     store: &TokenStore,

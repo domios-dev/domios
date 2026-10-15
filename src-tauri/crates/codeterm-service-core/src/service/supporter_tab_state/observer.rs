@@ -851,7 +851,7 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
         .map(|prompt| super::frame_hash(&format!("{prompt}:{}", ledgers.prompt)));
     let observation =
         coordinator::global().observe(tab_id, &metadata.session_key, prompt, frame_hash);
-    let correlation = identity::correlation::Correlation::capture(
+    let correlation = identity::correlation::capture(
         local.as_ref(),
         &metadata.session_key,
         trigger,
