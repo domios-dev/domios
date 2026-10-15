@@ -30,12 +30,15 @@ pub fn open_folder(path: String) -> Result<(), String> {
 
 /// What the OS says about desktop toasts right now, without raising a prompt.
 #[tauri::command]
-pub async fn notify_permission_state(app: codeterm_service_core::app_runtime::AppHandle) -> String {
-    tokio::task::spawn_blocking(move || {
-        codeterm_service_core::notification::os_notify::toast_permission(&app).to_string()
-    })
-    .await
-    .unwrap_or_else(|_| "unknown".to_string())
+pub async fn notify_permission_state(
+    svc: tauri::State<'_, codeterm_service_core::service::ServiceState>,
+) -> Result<String, String> {
+    let shell = svc.shell.clone();
+    Ok(
+        tokio::task::spawn_blocking(move || shell.toast_permission(None))
+            .await
+            .unwrap_or_else(|_| "unknown".to_string()),
+    )
 }
 
 /// The enabling gesture: switching the surface on asks the OS, switching it off
@@ -43,15 +46,15 @@ pub async fn notify_permission_state(app: codeterm_service_core::app_runtime::Ap
 /// a real OS prompt waits on the user and would otherwise starve every tab.
 #[tauri::command]
 pub async fn establish_notify_permission(
-    app: codeterm_service_core::app_runtime::AppHandle,
+    svc: tauri::State<'_, codeterm_service_core::service::ServiceState>,
     enabling: bool,
-) -> String {
-    tokio::task::spawn_blocking(move || {
-        codeterm_service_core::notification::os_notify::establish_toast_permission(&app, enabling)
-            .to_string()
-    })
-    .await
-    .unwrap_or_else(|_| "unknown".to_string())
+) -> Result<String, String> {
+    let shell = svc.shell.clone();
+    Ok(
+        tokio::task::spawn_blocking(move || shell.toast_permission(Some(enabling)))
+            .await
+            .unwrap_or_else(|_| "unknown".to_string()),
+    )
 }
 
 #[tauri::command]
