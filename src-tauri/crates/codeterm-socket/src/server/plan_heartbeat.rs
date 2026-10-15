@@ -78,7 +78,7 @@ pub(super) fn dispatch(
                 .map_err(learning_error)?;
             emit_plan_changed(app, &result.plan_id);
             if let Some(tab_id) = body.get("tab_id").and_then(|v| v.as_str()) {
-                codeterm_service_core::service::maybe_refresh_after_reflection(
+                codeterm_orchestration::maybe_refresh_after_reflection(
                     svc,
                     tab_id,
                     &result.plan_id,

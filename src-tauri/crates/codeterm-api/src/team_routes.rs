@@ -1,9 +1,9 @@
-use codeterm_service_core::service::TeamExt;
 use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_orchestration::TeamExt;
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
@@ -148,7 +148,7 @@ pub async fn close_team(
     codeterm_service_core::api_support::OptionalJson(body): codeterm_service_core::api_support::OptionalJson<
         CloseTeamBody,
     >,
-) -> Result<Json<codeterm_service_core::service::TeamCloseResult>, (StatusCode, String)> {
+) -> Result<Json<codeterm_orchestration::TeamCloseResult>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let service = state.svc.clone();
     let body = body.unwrap_or_default();
@@ -186,7 +186,7 @@ pub async fn add_team_member(
     headers: HeaderMap,
     Path(team_id): Path<String>,
     Json(body): Json<AddTeamMemberBody>,
-) -> Result<Json<codeterm_service_core::service::AddTeamMemberResult>, (StatusCode, String)> {
+) -> Result<Json<codeterm_orchestration::AddTeamMemberResult>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let result = add_team_member_adapter(
         &headers,
@@ -301,7 +301,7 @@ mod tests {
                 name: "Renamed".into(),
             },
             |team_id, caller_tab_id, name| {
-                codeterm_service_core::service::rename_team_with_state_change(
+                codeterm_orchestration::team::rename_team_with_state_change(
                     &mut mux,
                     &events,
                     &team_id,
@@ -332,7 +332,7 @@ mod tests {
                     name: "Denied worker".into(),
                 },
                 |team_id, caller_tab_id, name| {
-                    codeterm_service_core::service::rename_team_with_state_change(
+                    codeterm_orchestration::team::rename_team_with_state_change(
                         &mut mux,
                         &events,
                         &team_id,
@@ -357,7 +357,7 @@ mod tests {
                     name: "Denied foreign".into(),
                 },
                 |team_id, caller_tab_id, name| {
-                    codeterm_service_core::service::rename_team_with_state_change(
+                    codeterm_orchestration::team::rename_team_with_state_change(
                         &mut mux,
                         &events,
                         &team_id,
@@ -404,7 +404,7 @@ mod tests {
                     name: "Missing team".into(),
                 },
                 |team_id, caller_tab_id, name| {
-                    codeterm_service_core::service::rename_team_with_state_change(
+                    codeterm_orchestration::team::rename_team_with_state_change(
                         &mut mux,
                         &events,
                         &team_id,
@@ -435,7 +435,7 @@ mod tests {
                 team_id.clone(),
                 CloseTeamBody::default(),
                 async |team_id, caller| {
-                    codeterm_service_core::service::close_team_with_state_change(
+                    codeterm_orchestration::close_team_with_state_change(
                         &mut mux,
                         &events,
                         &plan_store,
@@ -459,7 +459,7 @@ mod tests {
                 team_id.clone(),
                 CloseTeamBody::default(),
                 async |team_id: String, caller| {
-                    codeterm_service_core::service::close_team_with_state_change(
+                    codeterm_orchestration::close_team_with_state_change(
                         &mut mux,
                         &events,
                         &plan_store,
@@ -485,7 +485,7 @@ mod tests {
                 team_id.clone(),
                 CloseTeamBody::default(),
                 async |team_id: String, caller| {
-                    codeterm_service_core::service::close_team_with_state_change(
+                    codeterm_orchestration::close_team_with_state_change(
                         &mut mux,
                         &events,
                         &plan_store,
@@ -509,7 +509,7 @@ mod tests {
                 team_id.clone(),
                 CloseTeamBody::default(),
                 async |team_id: String, caller| {
-                    codeterm_service_core::service::close_team_with_state_change(
+                    codeterm_orchestration::close_team_with_state_change(
                         &mut mux,
                         &events,
                         &plan_store,

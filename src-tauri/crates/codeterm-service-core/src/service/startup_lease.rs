@@ -123,12 +123,7 @@ impl StartupHoldRefusal {
         }
     }
 
-    pub fn message(
-        &self,
-        caller_tab_id: &str,
-        child_tab_id: &str,
-        attempt_id: &str,
-    ) -> String {
+    pub fn message(&self, caller_tab_id: &str, child_tab_id: &str, attempt_id: &str) -> String {
         let detail = match self {
             Self::UnknownChild => format!("Tab {child_tab_id} does not exist"),
             Self::NoSupervisedAttempt => {
@@ -291,5 +286,7 @@ pub(crate) fn reap_orphaned_leases<'a>(
         .collect()
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod pair_fixture;
 #[cfg(test)]
 mod tests;

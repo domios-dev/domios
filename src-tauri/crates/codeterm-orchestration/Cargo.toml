@@ -1,0 +1,30 @@
+[package]
+name = "codeterm-orchestration"
+version = "1.14.9-dev.6"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "codeterm_orchestration"
+
+[features]
+test-support = ["codeterm-service-core/test-support"]
+
+[dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-analytics = { path = "../codeterm-analytics" }
+codeterm-events = { path = "../codeterm-events" }
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-types = { path = "../codeterm-types" }
+tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
+tokio = { version = "1", features = ["full", "test-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+tempfile = "3"
+
+[dev-dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }

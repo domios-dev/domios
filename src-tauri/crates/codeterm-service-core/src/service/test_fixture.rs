@@ -272,8 +272,7 @@ impl ServiceFixture {
         extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(
             Mutex::new(HashMap::new()),
         )));
-        extensions.insert(crate::service::CartographerAttachLocks(Default::default()));
-        extensions.insert(crate::service::OrchestratorAttachLocks(Default::default()));
+        crate::ports::orchestration::register_fixture_extensions(&mut extensions);
         extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
         extensions.insert::<crate::ShellCapabilityState>(Arc::new(Mutex::new(Default::default())));
         extensions.insert::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(Arc::new(
@@ -516,8 +515,7 @@ impl ServiceFixture {
         };
         assert!(app.manage(Arc::clone(&service.mux)));
         let owner = Arc::new(service.clone());
-        crate::service::register_orchestration();
-        crate::ports::orchestration::install(&owner);
+        crate::ports::orchestration::install_fixture(&owner);
         Self {
             service,
             _owner: owner,

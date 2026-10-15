@@ -93,10 +93,6 @@ pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;
 
-pub fn register_orchestration() {
-    service::register_orchestration();
-}
-
 pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
 pub fn run(
@@ -619,8 +615,7 @@ pub fn run(
             extensions.insert(crate::service::billing::BillingCell(Arc::new(tokio::sync::OnceCell::new())));
             extensions.insert(crate::service::analytics::AnalyticsCell(Arc::new(tokio::sync::OnceCell::new())));
             extensions.insert(crate::service::task_files::LaunchTaskFiles(Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new()))));
-            extensions.insert(crate::service::CartographerAttachLocks(Default::default()));
-            extensions.insert(crate::service::OrchestratorAttachLocks(Default::default()));
+            crate::ports::orchestration::register_extensions(&mut extensions);
             extensions.insert(crate::ports::orchestration::InstalledOrchestration::default());
             extensions.insert::<crate::ShellCapabilityState>(Arc::new(parking_lot::Mutex::new(Default::default())));
             extensions.insert::<Arc<crate::service::protocol_recorder::ProtocolRecorder>>(Arc::new(crate::service::protocol_recorder::ProtocolRecorder::new(

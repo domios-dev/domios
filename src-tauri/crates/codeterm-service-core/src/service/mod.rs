@@ -55,7 +55,6 @@ pub mod input_transport;
 pub(crate) mod instance_env;
 pub mod integration_silence;
 pub mod kpi_hooks;
-pub mod lane_clean;
 pub mod lane_removal;
 pub mod lane_stats;
 pub mod launch_artifacts;
@@ -78,9 +77,8 @@ mod notification_desktop;
 pub(crate) mod notification_push;
 pub(crate) mod open_url;
 pub use open_url::open_url as open_url_open_url;
-pub mod orchestration_pair;
-mod orchestration_port;
-pub(crate) use orchestration_port::register_orchestration;
+mod paired_planner;
+pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
 pub(crate) mod orchestrator;
 pub mod ordered_actions;
 pub mod parked_user_delivery;
@@ -115,7 +113,6 @@ mod directory_pre_trust;
 pub(crate) mod directory_trust;
 mod folder_trust_carryover;
 pub mod orchestrator_digests;
-mod orchestrator_onboard;
 mod output;
 mod output_feed;
 pub mod output_stream_activity;
@@ -220,16 +217,9 @@ pub mod tab_repair;
 pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
-pub mod team;
-mod team_core;
-#[cfg(any(test, feature = "test-support"))]
-pub use team::close_team_with_state_change;
-#[cfg(any(test, feature = "test-support"))]
-pub use team::rename_team_core;
-#[cfg(any(test, feature = "test-support"))]
-pub use team::rename_team_with_state_change;
-pub use team::TeamCloseResult;
 pub mod task_lane_guard;
+pub mod team_core;
+pub mod team_membership;
 pub use task_lane_guard::{
     canonical_path_of, classify_mutating_lane, live_canonical_writer, recorded_lane_matches,
     UnsafeMutatingLane,
@@ -292,37 +282,25 @@ use codeterm_events::EventBroadcaster;
 // Re-export public types used by callers.
 pub use agent_transition::AgentPlacement;
 pub use agent_transition::AgentTransitionRequest;
+#[cfg(any(test, feature = "test-support"))]
+pub use agent_transition::{execute_transition_at, TransitionFailurePoint};
 pub use hierarchy::TabStatusInfo;
 pub use hierarchy::{TeamPlanCaller, TeamPlanCreationError, WorkerTurnSignal};
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
 };
-pub use orchestration_pair::{
-    bind_pending_paired_planner, tab_has_pending_paired_planner, OrchestrationPairExt,
-};
-pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::arm_provider_session_for_test;
-pub use orchestrator::batch;
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::launch_waits_for_first_turn_binding;
-pub use orchestrator::refresh::{maybe_refresh_after_reflection, orchestrator_refresh};
 #[cfg(any(test, feature = "test-support"))]
 pub use orchestrator::spawn_onboarding_task;
 pub use orchestrator::{
     move_chatbackend_task_to_system_prompt, record_provider_session, LaunchGeneration,
     ProviderSessionBinding, RemoteTaskBinding, TaskLaunchAuthority,
 };
-pub use orchestrator::{
-    BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
-    SpawnIdentityProvenance, SpawnResult,
-};
-#[cfg(test)]
-pub(crate) use orchestrator_onboard::deliver_orchestrator_onboarding;
-pub use orchestrator_onboard::{
-    make_orchestrator, maybe_deliver_orchestrator_promotion_onboarding,
-};
+pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult};
 pub use plan_authority::{
     ensure_planner_task_fields_are_structural, launch_binding_is_pending,
     planner_forbidden_task_field, AuthenticatedPlanCaller, OrchestratorLearningError,
@@ -332,16 +310,9 @@ pub use session_binding_state::SessionBindingState;
 pub use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
-pub use team::{
-    add_team_member, adopt_agent_for_team, adopt_plan_for_team, resume_team_plan,
-    transfer_team_plan, unarchive_team_plan, validate_active_team_plan_bindings,
-    validate_plan_team_binding, TeamExt,
-};
-pub(crate) use team::{live_team_ids, reconcile_dangling_team_plan_bindings_and_emit};
-pub use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
-pub use team::{CartographerAttachLocks, OrchestratorAttachLocks};
 pub use team_core::TeamMutationCaller;
 pub use team_core::TeamPlanError;
+pub(crate) use team_core::{live_team_ids, reconcile_dangling_team_plan_bindings_and_emit};
 pub use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
     respawn_title_provenance, restore_attempt_binding_for_caller, restore_attempt_binding_for_mux,
@@ -353,6 +324,7 @@ pub(crate) use worker_persona::{WorkerIdentityAllocator, WorkerPersonaReservatio
 mod configuration;
 pub(crate) mod extensions;
 pub(crate) use extensions::Extensions;
+pub use extensions::ExtensionsBuilder;
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
@@ -869,9 +841,9 @@ impl ServiceContext {
                 .0
                 .lock()
                 .insert(project_root.clone());
-            let orchestration = crate::ports::orchestration::installed(&self.extensions);
-            let live_team_ids = orchestration.live_team_ids();
-            orchestration.reconcile_dangling_team_plan_bindings(
+            let live_team_ids = team_core::live_team_ids(self);
+            team_core::reconcile_dangling_team_plan_bindings_and_emit(
+                self,
                 &live_team_ids,
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
