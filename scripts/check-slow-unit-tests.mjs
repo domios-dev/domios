@@ -154,7 +154,9 @@ function main() {
   if (!['enforce', 'advisory'].includes(options.policy)) throw new Error('Invalid timing policy');
   if (options.candidates && options.alone) throw new Error('--candidates and --alone are mutually exclusive');
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-  const resolved = execFileSync('git', ['rev-parse', '--verify', `${options.base}^{commit}`], { cwd: root, encoding: 'utf8' }).trim();
+  const base = execFileSync('git', ['rev-parse', '--verify', `${options.base}^{commit}`], { cwd: root, encoding: 'utf8' }).trim();
+  // The baseline is where this branch left `base`; later moves on `base` (even schema changes) must not apply here.
+  const resolved = execFileSync('git', ['merge-base', 'HEAD', base], { cwd: root, encoding: 'utf8' }).trim();
   const load = (path, optional = false) => {
     let current;
     try { current = JSON.parse(readFileSync(resolve(root, path), 'utf8')); }
@@ -204,7 +206,7 @@ function main() {
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${warning}\n`);
     return;
   }
-  console.log(`Slow unit ratchet PASS: ${timings.length} measured tests, ${candidates.length} serial confirmations, ${document.entries.length} existing slow units; baseline ${options.base}.`);
+  console.log(`Slow unit ratchet PASS: ${timings.length} measured tests, ${candidates.length} serial confirmations, ${document.entries.length} existing slow units; baseline ${options.base} at fork point ${resolved}.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
