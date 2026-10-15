@@ -114,8 +114,8 @@ impl KpiLedger {
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn analytics_reads(&self) -> u64 {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn analytics_reads(&self) -> u64 {
         self.analytics_cache.lock().reads
     }
 }

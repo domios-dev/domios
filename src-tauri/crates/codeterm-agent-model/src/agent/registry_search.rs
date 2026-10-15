@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::provider::{session_content_hint_term, AgentProvider, SessionMessage, SessionMetadata};
 use super::registry::AgentRegistry;
-use crate::mem::is_stop_word;
+use codeterm_mem::search::is_stop_word;
 
 mod scan;
 
@@ -109,9 +109,9 @@ pub(super) struct ProviderScan {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct SessionSearchStats {
-    pub(crate) matched: usize,
-    pub(crate) scanned: usize,
+pub struct SessionSearchStats {
+    pub matched: usize,
+    pub scanned: usize,
 }
 
 impl AgentRegistry {
@@ -124,7 +124,7 @@ impl AgentRegistry {
         self.search_sessions_inner(opts).map(|(result, _)| result)
     }
 
-    pub(crate) fn search_sessions_with_stats(
+    pub fn search_sessions_with_stats(
         &self,
         opts: &SessionSearchOpts,
     ) -> Result<(SessionSearchResult, SessionSearchStats), SessionSearchError> {
@@ -425,7 +425,7 @@ pub(super) fn match_messages(
 /// Largest char boundary index ≤ `index`. Shim for the still-unstable
 /// `str::floor_char_boundary`; needed to slice UTF-8 safely inside the
 /// snippet window.
-pub(crate) fn floor_char_boundary(s: &str, index: usize) -> usize {
+pub fn floor_char_boundary(s: &str, index: usize) -> usize {
     let mut i = index.min(s.len());
     while i > 0 && !s.is_char_boundary(i) {
         i -= 1;
