@@ -28,7 +28,7 @@ function shell(directory, body, id = 'fixture') {
   child.stderr.on('data', c => errors += c);
   const lines = readline.createInterface({ input: child.stdout });
   const ready = new Promise(resolve => lines.once('line', resolve));
-  const exited = once(child, 'exit').then(([code]) => ({ code, output, errors }));
+  const exited = once(child, 'close').then(([code]) => ({ code, output, errors }));
   return { child, ready, exited, id, snapshot: () => ({ output, errors }) };
 }
 async function cleanup(directory, clients) {
@@ -215,7 +215,9 @@ test('mixed build verbs share one cache startup and persist four completed histo
     cargo() {
       [ "$CT_GATEWAY_ACTIVE" = 1 ] && [ -f "$fixture_dir/live" ] || return 98
       echo "$CT_BUILD_JOB_ID $*" >> "$fixture_dir/cargo"
-      echo '{}'
+      if [ "$1" = metadata ]; then
+        command node -e 'const path=require("node:path"); const names=["codeterm","codeterm-service-core","codeterm-plan"]; console.log(JSON.stringify({workspace_members:names,packages:names.map(name=>({id:name,name,manifest_path:path.join(process.cwd(),"src-tauri",...(name==="codeterm"?[]:["crates",name]),"Cargo.toml"),targets:[{kind:["lib"]}]}))}))'
+      else echo '{}'; fi
     }
     scripts/test-capped.sh() { cargo test "$@"; }
     node() {
@@ -306,6 +308,8 @@ test('every cargo dispatch is covered by the common entry', () => {
     }
   }
   assert.equal((source.match(/^\s*ct_configure_sccache$/gm) ?? []).length, 1);
+  const archives = fs.readFileSync(path.join(root, 'scripts/nextest-archive.sh'), 'utf8');
+  assert.match(archives, /enter_cargo_gateway "nextest-archive \$sha"[\s\S]*cargo nextest archive/);
 });
 
 test('fixture and foreign jobs cannot map or release the production stable drive', { timeout: 15000 }, async () => {

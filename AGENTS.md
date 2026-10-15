@@ -87,7 +87,7 @@ codeterm update install --from-file "/path/to/CodeTerm.app" \
 The implementation lives in `cli/src/cmd/install.rs`. It replaces the app,
 relaunches Domios, and resumes the calling tab. Never replace the bundle by hand.
 
-`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers never compile Rust in their lane: every lane has its own cold target directory, and parallel cold builds overload the machine. In a lane, run only checks that need no Rust build: `rustfmt` on touched files, `tsc`, the TypeScript/JS and plugin tests of what you touched, and `./build.sh check-queue` after committing Rust (the shared warm check worktree, never the lane target), fixing every returned error; then push, and list the exact Rust `test-one` selectors in the report. The Orchestrator compiles and runs them in a warm checkout, one build per machine; dev runs, broad suites and release gates run there too. Which machines and checkouts serve warm builds and QA is machine-specific and lives in `codeterm mem` (search "warm build and QA machines"), never in this file; an Orchestrator that finds no such entry records its own setup there before dispatching.
+`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers never compile Rust in their lane: every lane has its own cold target directory, and parallel cold builds overload the machine. In a lane, run only checks that need no Rust build: `rustfmt` on touched files, `tsc`, the TypeScript/JS and plugin tests of what you touched, and `./build.sh check-queue --lane <sha>` after committing Rust (the shared warm check worktree, never the lane target), fixing every returned error; then push, and list the exact Rust `test-one` selectors in the report. The Orchestrator compiles and runs them in a warm checkout, one build per machine; dev runs, broad suites and release gates run there too. Which machines and checkouts serve warm builds and QA is machine-specific and lives in `codeterm mem` (search "warm build and QA machines"), never in this file; an Orchestrator that finds no such entry records its own setup there before dispatching.
 
 Parallel writers use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time, so `git add -A` is safe inside a lane.
 
@@ -110,7 +110,7 @@ On gateway acquisition, at most hourly, cache retention removes exceptional targ
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
 - Worktrees share cargo intermediates only through the stable gateway path (`X:`, mapped and released inside a gateway job); never point two unserialized builds at one build-dir. `scripts/check-build-check-queue.sh` fails when the mapping is used outside the gateway.
 - Do not remove the tuned Cargo profiles.
-- Run Rust tests through `scripts/test-capped.sh`: focused `test-one` invocations default to 600 seconds; each Cargo invocation in `test` and `verify` defaults to 3600 seconds. Cargo compiles targets with `--no-run` before the deadline starts.
+- Canonical runs Rust tests through `scripts/test-capped.sh`: focused `test-one` invocations default to 600 seconds; each Cargo invocation in `test` and `verify` defaults to 3600 seconds. Cargo compiles targets with `--no-run` before the deadline starts. Workers run one `./build.sh check-queue --lane <sha>` after local rustfmt, size and service-core boundary guards; require errors=0 and warnings=0, list test-one selectors, and never poll a busy gateway. Batch failures bounce with the integration SHA.
 - `TEST_CAP_SECS` overrides the execution deadline; set it to `0` to disable. A cap kills the process group, exits 124, and reports any named libtest cases still running.
 
 ## Lane integration preserves ancestry
@@ -425,4 +425,4 @@ Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N
 - `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/TAB-LIFECYCLE.md`. Its audience is a production agent using Domios; a doc about Domios's own source (prompt sources, detection internals, file layout) is useless there because that agent cannot edit the binary, so it lives in `.agents/skills/` or `essences/`.
 - `.agents/skills/` — step-by-step procedures (dev run, dev testing, gates, release, prompt evaluation, lane cleanup); not a docs area.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->

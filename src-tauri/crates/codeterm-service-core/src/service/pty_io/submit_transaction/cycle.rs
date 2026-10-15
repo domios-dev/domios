@@ -231,7 +231,7 @@ impl Drop for ClaimLease {
 }
 
 #[derive(Clone)]
-pub(crate) struct SubmitCycleClaim {
+pub struct SubmitCycleClaim {
     pty_id: String,
     pub(super) trace_id: Option<String>,
     pub(super) cycle: Arc<SubmitCycle>,
@@ -365,7 +365,7 @@ pub(crate) fn wake_submit_cycle_status(pty_id: &str) {
     wake_submit_cycle_with(pty_id, SubmitCycleSignal::TurnStatus);
 }
 
-pub(crate) fn notify_submit_cycle_status_transition(
+pub fn notify_submit_cycle_status_transition(
     pty_id: &str,
     previous: crate::agent::status::TabStatus,
     current: crate::agent::status::TabStatus,

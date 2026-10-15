@@ -15,13 +15,13 @@ pub(crate) struct DismissedBubble {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct UserSendDismissal {
+pub struct UserSendDismissal {
     pub(crate) send_id: String,
     pub(crate) send: DismissedBubble,
 }
 
 impl UserSendStore {
-    pub(crate) fn dismissals(&self, tab_id: &str) -> Result<Vec<UserSendDismissal>, String> {
+    pub fn dismissals(&self, tab_id: &str) -> Result<Vec<UserSendDismissal>, String> {
         let tab = self.tab(tab_id);
         let mut data = tab.data.lock();
         Ok(self.load(&tab, &mut data)?.index.dismissals.clone())

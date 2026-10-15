@@ -47,8 +47,50 @@ ct_gateway_owned_by_caller() {
     [ -n "${CT_GATEWAY_PROCESS_START:-}" ] || return 1
   lock="$(ct_gateway_dir)/lock"
   [ "$(cat "$lock/job_id" 2>/dev/null)" = "$CT_BUILD_JOB_ID" ] &&
-    [ "$(cat "$lock/pid" 2>/dev/null)" = "$$" ] &&
+    [ "$(cat "$lock/pid" 2>/dev/null)" = "${CT_GATEWAY_OWNER_PID:-$$}" ] &&
     [ "$(cat "$lock/start_token" 2>/dev/null)" = "$CT_GATEWAY_PROCESS_START" ]
+}
+
+ct_gateway_native_pid() {
+  local pid="$1"
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]] && [ "$(ct_gateway_pid_namespace)" = proc ]; then
+    cat "/proc/$pid/winpid" 2>/dev/null
+  else
+    printf '%s\n' "$pid"
+  fi
+}
+
+ct_gateway_capture_owner() {
+  CT_GATEWAY_OWNER_PID="${BASHPID:-$$}"
+  CT_GATEWAY_PROCESS_START="$(ct_gateway_process_start_token "$CT_GATEWAY_OWNER_PID")" || return 2
+  CT_GATEWAY_OWNER_NAMESPACE="$(ct_gateway_pid_namespace)"
+  CT_GATEWAY_OWNER_NATIVE_PID="$(ct_gateway_native_pid "$CT_GATEWAY_OWNER_PID")" || return 2
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    CT_GATEWAY_OWNER_NAMESPACE=msys
+    CT_GATEWAY_OWNER_NATIVE_START="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-owner.mjs" token "$CT_GATEWAY_OWNER_NATIVE_PID")" || return 2
+  else
+    CT_GATEWAY_OWNER_NATIVE_START="$CT_GATEWAY_PROCESS_START"
+  fi
+  [ -n "$CT_GATEWAY_PROCESS_START" ] && [ -n "$CT_GATEWAY_OWNER_NATIVE_PID" ] && [ -n "$CT_GATEWAY_OWNER_NATIVE_START" ] || return 2
+  export CT_GATEWAY_OWNER_PID CT_GATEWAY_PROCESS_START CT_GATEWAY_OWNER_NAMESPACE CT_GATEWAY_OWNER_NATIVE_PID CT_GATEWAY_OWNER_NATIVE_START
+}
+
+ct_gateway_write_owner() {
+  local directory="$1"
+  printf '%s\n' "$CT_GATEWAY_OWNER_PID" > "$directory/pid" &&
+  printf '%s\n' "$CT_GATEWAY_PROCESS_START" > "$directory/start_token" &&
+  printf '%s\n' "$CT_GATEWAY_OWNER_NAMESPACE" > "$directory/pid_namespace" &&
+  printf '%s\n' "$CT_GATEWAY_OWNER_NATIVE_PID" > "$directory/native_pid" &&
+  printf '%s\n' "$CT_GATEWAY_OWNER_NATIVE_START" > "$directory/native_start_token"
+}
+
+ct_gateway_recorded_owner_gone() {
+  local directory="$1"
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    [ "$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-owner.mjs" state "$directory")" = gone ]
+  else
+    ct_gateway_owner_gone "$(cat "$directory/pid" 2>/dev/null || true)" "$(cat "$directory/start_token" 2>/dev/null || true)"
+  fi
 }
 
 ct_gateway_now() {
@@ -186,9 +228,11 @@ ct_gateway_mutex_timeout() {
 }
 
 ct_gateway_mutex_acquire() {
-  local dir="$1" self_pid="${CT_GATEWAY_MUTEX_PID:-$$}" rc=0 timeout=30000
+  local dir="$1" self_pid="${CT_GATEWAY_MUTEX_PID:-${BASHPID:-$$}}" rc=0 timeout=180000
+  CT_GATEWAY_MUTEX_OWNER_PID="$self_pid"
   CT_GATEWAY_MUTEX_START="$(ct_gateway_process_start_token "$self_pid")"
   [ -n "$CT_GATEWAY_MUTEX_START" ] || return 2
+  # Metadata holders probe owner liveness with subprocesses; under many queued lanes 30 s was too short a failure bound.
   if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ]; then
     timeout="${CT_GATEWAY_MUTEX_TIMEOUT_MS:-30000}"
   fi
@@ -197,7 +241,7 @@ ct_gateway_mutex_acquire() {
 }
 
 ct_gateway_mutex_release() {
-  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-mutex.mjs" release "$1" "${CT_GATEWAY_MUTEX_PID:-$$}" "${CT_GATEWAY_MUTEX_START:-}"
+  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-mutex.mjs" release "$1" "${CT_GATEWAY_MUTEX_OWNER_PID:-${CT_GATEWAY_MUTEX_PID:-$$}}" "${CT_GATEWAY_MUTEX_START:-}"
 }
 
 ct_gateway_status() {
@@ -262,7 +306,7 @@ ct_gateway_reap_stale_owner_locked() {
   [ -d "$lock" ] || return 0
   pid="$(cat "$lock/pid" 2>/dev/null || true)"
   start_token="$(cat "$lock/start_token" 2>/dev/null || true)"
-  if ct_gateway_owner_gone "$pid" "$start_token"; then
+  if ct_gateway_recorded_owner_gone "$lock"; then
     job="$(cat "$lock/job_id" 2>/dev/null || true)"
     ct_gateway_record_owner_lost "$dir" "$job" "$pid" running || return $?
     rm -rf "$lock"
@@ -275,7 +319,7 @@ ct_gateway_reap_stale_queue_locked() {
     [ -d "$ticket" ] || continue
     pid="$(cat "$ticket/pid" 2>/dev/null || true)"
     start_token="$(cat "$ticket/start_token" 2>/dev/null || true)"
-    ct_gateway_owner_gone "$pid" "$start_token" || continue
+    ct_gateway_recorded_owner_gone "$ticket" || continue
     job="$(cat "$ticket/job_id" 2>/dev/null || true)"
     ct_gateway_record_owner_lost "$dir" "$job" "$pid" queued || return $?
     rm -rf "$ticket"
@@ -298,6 +342,7 @@ ct_gateway_finish() {
     rc="$failure"
   elif [ -n "$outcome_override" ]; then
     state=failed
+      if [ "$outcome_override" = logging_degraded ] && [ "$rc" -eq 0 ]; then state=completed; fi
     outcome="$outcome_override"
   elif [ "${CT_GATEWAY_CANCELLED:-0}" = "1" ] || [ "$rc" -eq 130 ] || [ "$rc" -eq 143 ]; then
     state=cancelled
@@ -353,25 +398,25 @@ ct_gateway_acquire() {
   wait_mode="${CODETERM_BUILD_GATEWAY_MODE:-queue}"
   deadline=$(( $(date +%s) + ${CODETERM_BUILD_GATEWAY_WAIT_SECS:-1800} ))
   mkdir -p "$dir/jobs" "$dir/queue" || { echo "[build-gateway] metadata write failed before compilation: state directories" >&2; return 74; }
-  CT_GATEWAY_PROCESS_START="$(ct_gateway_process_start_token "$$")"
+  ct_gateway_capture_owner || { echo "Cannot determine gateway waiting process identity" >&2; return 2; }
   [ -n "$CT_GATEWAY_PROCESS_START" ] || { echo "Cannot determine gateway owner process start identity" >&2; return 2; }
   if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = "fixture" ]; then
-    CT_BUILD_JOB_ID="${CT_BUILD_JOB_ID:-$(date -u +%Y%m%dT%H%M%S)-$$-${RANDOM:-0}}"
+    CT_BUILD_JOB_ID="${CT_BUILD_JOB_ID:-$(date -u +%Y%m%dT%H%M%S)-$CT_GATEWAY_OWNER_PID-${RANDOM:-0}}"
   else
-    CT_BUILD_JOB_ID="$(date -u +%Y%m%dT%H%M%S)-$$-${RANDOM:-0}"
+    CT_BUILD_JOB_ID="$(date -u +%Y%m%dT%H%M%S)-$CT_GATEWAY_OWNER_PID-${RANDOM:-0}"
   fi
-  CT_BUILD_QUEUE_KEY="$(node -p 'Date.now()')-$(printf '%010d' "$$")-$CT_BUILD_JOB_ID"
+  CT_BUILD_QUEUE_KEY="$(node -p 'Date.now()')-$(printf '%010d' "$CT_GATEWAY_OWNER_PID")-$CT_BUILD_JOB_ID"
   log="$dir/jobs/$CT_BUILD_JOB_ID.log"
   if [ -e "$dir/jobs/$CT_BUILD_JOB_ID.json" ]; then
     echo "Build gateway job id already exists: $CT_BUILD_JOB_ID" >&2
     return 2
   fi
-  owner="${CODETERM_BUILD_OWNER_ID:-${CODETERM_TAB_ID:-pid-$$}}"
+  owner="${CODETERM_BUILD_OWNER_ID:-${CODETERM_TAB_ID:-pid-$CT_GATEWAY_OWNER_PID}}"
   job="${command%% *}"
   queued_at="$(ct_gateway_now)"
   source_sha="${CT_BUILD_SOURCE_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
   worktree="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
-  owner_command="$(ct_gateway_process_command "$$" 2>/dev/null || true)"
+  owner_command="$(ct_gateway_process_command "$CT_GATEWAY_OWNER_PID" 2>/dev/null || true)"
   export CT_BUILD_JOB_ID CT_BUILD_QUEUE_KEY CT_GATEWAY_PROCESS_START
   trap 'ct_gateway_on_exit' EXIT
   trap 'ct_gateway_on_signal' INT TERM
@@ -386,15 +431,15 @@ ct_gateway_acquire() {
   : > "$log" &&
   mkdir "$dir/queue/$CT_BUILD_QUEUE_KEY" &&
   CT_GATEWAY_QUEUE_CREATED=1 &&
-  printf '%s\n' "$$" > "$dir/queue/$CT_BUILD_QUEUE_KEY/pid" &&
-  printf '%s\n' "$CT_GATEWAY_PROCESS_START" > "$dir/queue/$CT_BUILD_QUEUE_KEY/start_token" &&
+  ct_gateway_write_owner "$dir/queue/$CT_BUILD_QUEUE_KEY" &&
   printf '%s\n' "$CT_BUILD_JOB_ID" > "$dir/queue/$CT_BUILD_QUEUE_KEY/job_id" || { ct_gateway_metadata_abort "$dir" "queue ticket"; return $?; }
   local recorded_worktree="$worktree"
   if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = "fixture" ] && [ -n "${CODETERM_BUILD_WORKTREE_ID:-}" ]; then
     recorded_worktree="$CODETERM_BUILD_WORKTREE_ID"
   fi
   ct_gateway_state_tool create --dir "$dir" --job-id "$CT_BUILD_JOB_ID" --job "$job" \
-    --command "$command" --owner "$owner" --owner-pid "$$" --owner-start-token "$CT_GATEWAY_PROCESS_START" \
+    --command "$command" --owner "$owner" --owner-pid "$CT_GATEWAY_OWNER_PID" --owner-start-token "$CT_GATEWAY_PROCESS_START" \
+    --owner-pid-namespace "$CT_GATEWAY_OWNER_NAMESPACE" --owner-native-pid "$CT_GATEWAY_OWNER_NATIVE_PID" --owner-native-start-token "$CT_GATEWAY_OWNER_NATIVE_START" \
     --owner-process-command "$owner_command" \
     --worktree "$recorded_worktree" \
     --source-sha "$source_sha" --queue-key "$CT_BUILD_QUEUE_KEY" --queued-at "$queued_at" \
@@ -412,8 +457,7 @@ ct_gateway_acquire() {
     ct_gateway_reap_stale_owner_locked "$dir" && ct_gateway_reap_stale_queue_locked "$dir" || { ct_gateway_metadata_abort "$dir" "stale-owner records"; return $?; }
     first="$(ct_gateway_first_ticket "$dir")"
     if [ "$first" = "$CT_BUILD_QUEUE_KEY" ] && mkdir "$lock" 2>/dev/null; then
-      printf '%s\n' "$$" > "$lock/pid" &&
-      printf '%s\n' "$CT_GATEWAY_PROCESS_START" > "$lock/start_token" &&
+      ct_gateway_write_owner "$lock" &&
       printf '%s\n' "$CT_BUILD_JOB_ID" > "$lock/job_id" &&
       printf '%s\n' "$CT_BUILD_QUEUE_KEY" > "$lock/queue_key" &&
       printf '%s\n' "$command" > "$lock/command" &&
@@ -423,7 +467,9 @@ ct_gateway_acquire() {
       rm -rf "$dir/queue/$CT_BUILD_QUEUE_KEY"
       ct_gateway_mutex_release "$dir" || return $?
       ct_gateway_state_tool evidence-start --dir "$dir" --job-id "$CT_BUILD_JOB_ID" --scope "${CT_BUILD_GATEWAY_SCOPE:-production}" || { echo "[build-gateway] metadata write failed before compilation: start evidence (job=$CT_BUILD_JOB_ID)" >&2; CT_GATEWAY_ACTIVE=0; return 74; }
-      export CARGO_LOG="${CARGO_LOG:+$CARGO_LOG,}cargo::core::compiler::fingerprint=info"
+      local fingerprint_level=off
+      [ "${CODETERM_BUILD_FINGERPRINTS:-0}" != 1 ] || fingerprint_level=info
+      export CARGO_LOG="${CARGO_LOG:+$CARGO_LOG,}cargo::core::compiler::fingerprint=$fingerprint_level"
       return 0
     fi
     if [ "$wait_mode" = "fail-fast" ]; then

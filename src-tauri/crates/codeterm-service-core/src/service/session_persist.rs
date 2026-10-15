@@ -136,20 +136,20 @@ enum PersistenceBackend {
         revision: codeterm_storage::Revision,
     },
     Unavailable(String),
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Test(Box<dyn FnMut(u64) -> Result<SaveOutcome, String> + Send>),
 }
 
 /// `Ok(RefusedReduction)` is the guard succeeding (fuller desk kept on disk,
 /// already logged at error by the store); `Err` is a genuine persist failure.
-pub(crate) fn write_session_snapshot(
+pub fn write_session_snapshot(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
 ) -> Result<SaveOutcome, String> {
     write_session_snapshot_with_intent(app, mux, SaveIntent::PreserveDesk)
 }
 
-pub(crate) fn write_session_snapshot_with_intent(
+pub fn write_session_snapshot_with_intent(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     intent: SaveIntent,
@@ -160,7 +160,7 @@ pub(crate) fn write_session_snapshot_with_intent(
         .ok_or_else(|| "desk persistence barrier returned no outcome".to_string())
 }
 
-pub(crate) fn submit_session_snapshot_with_intent(
+pub fn submit_session_snapshot_with_intent(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     intent: SaveIntent,
@@ -169,7 +169,7 @@ pub(crate) fn submit_session_snapshot_with_intent(
     worker.submit_current(mux, intent, false).map(|_| ())
 }
 
-pub(crate) fn write_captured_snapshot_with_live_identities(
+pub fn write_captured_snapshot_with_live_identities(
     app: &crate::app_runtime::AppHandle,
     mux: &MuxState,
     captured: &crate::session::SessionSnapshot,
@@ -184,7 +184,7 @@ pub(crate) fn write_captured_snapshot_with_live_identities(
         .ok_or_else(|| "desk persistence barrier returned no outcome".to_string())
 }
 
-pub(crate) fn install_storage_desk_adapter(
+pub fn install_storage_desk_adapter(
     app: &crate::app_runtime::AppHandle,
     adapter: crate::session::store::StorageDeskAdapter,
 ) -> Result<(), String> {
@@ -192,7 +192,7 @@ pub(crate) fn install_storage_desk_adapter(
     worker.configure(WorkerMessage::InstallStorage(adapter))
 }
 
-pub(crate) fn set_storage_unavailable(
+pub fn set_storage_unavailable(
     app: &crate::app_runtime::AppHandle,
     reason: String,
 ) -> Result<(), String> {
@@ -200,11 +200,11 @@ pub(crate) fn set_storage_unavailable(
     worker.configure(WorkerMessage::Unavailable(reason))
 }
 
-pub(crate) fn start_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
+pub fn start_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     ensure_worker(app).map(|_| ())
 }
 
-pub(crate) fn stop_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
+pub fn stop_worker(app: &crate::app_runtime::AppHandle) -> Result<(), String> {
     let worker = ensure_worker(app)?;
     let (response, completion) = mpsc::channel();
     worker.configure(WorkerMessage::Stop(response))?;
@@ -520,7 +520,7 @@ fn commit_request(
         }
         PersistenceBackend::Pending => Err("Storage desk backend is not initialized".to_string()),
         PersistenceBackend::Unavailable(reason) => Err(reason.clone()),
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         PersistenceBackend::Test(writer) => writer(request.revision),
     }
 }
@@ -710,3 +710,6 @@ impl super::ServiceContext {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod persistence_test_support;

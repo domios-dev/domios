@@ -69,3 +69,18 @@ pub async fn disable(
 ) -> Result<mesh::ServeResult, String> {
     mutate(app, mesh_state, api_port, Mutation::Disable).await
 }
+
+pub fn local_ip_address() -> Option<String> {
+    use std::net::UdpSocket;
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    socket.local_addr().ok().map(|a| a.ip().to_string())
+}
+
+pub fn uploads_dir() -> std::path::PathBuf {
+    crate::paths::data_dir().join("uploads")
+}
+
+pub const PEBBLE_WEBHOOK_PATH: &str = "/api/plugins/pebble/webhook";
+
+pub const PEBBLE_WEBHOOK_SECRET: &str = "pebble_webhook_secret";

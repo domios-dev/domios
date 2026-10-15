@@ -13,6 +13,8 @@ Open build shells with `--purpose build` and foreground servers with `--purpose 
 
 Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `codeterm tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Normal command completion adds no message.
 
+Shell restart preserves the original deadline. Reset it before another build if that build needs a fresh lifetime. `codeterm tab inspect --tab <ID>` shows `utility_deadline.started_ms` and `deadline_ms` in epoch milliseconds; their difference is the requested lifetime. Timeout notices distinguish shell lifetime from the latest command elapsed time.
+
 With `QA_NOTIFY_TAB`, QA streams each step to its log and sends one early
 failure receipt on the first Cargo compile error, nextest/Vitest failure,
 Node `not ok`, or non-zero exit (including gateway refusal 75 and cap 124).
@@ -53,7 +55,7 @@ QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'
 
 ## Launcher recipes (copy-paste)
 
-`check`, `check-tests`, `test-one`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
+`check`, `check-queue`, `check-tests`, `test-one`, `nextest`, `nextest-archive`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
 `--notify-tab <tab>` (or `BUILD_NOTIFY_TAB`, or `-NotifyTab` through `build.ps1`): one `OK` receipt on success, or one
 early-failure receipt naming the step, first error line and log path (gateway refusal 75 included), sent
 through the captured parent context. `install-local` runs rustfmt, the file-size gate and the clean-checkout check
@@ -67,6 +69,7 @@ PowerShell `$env:CODETERM_TAB_ID`, inside double quotes).
 |---|---|---|
 | install-local | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".uild.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"` | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.sh install-local --notify-tab $CODETERM_TAB_ID"` |
 | check | `... --cmd ".uild.ps1 check -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh check --notify-tab $CODETERM_TAB_ID"` |
+| check-queue | `... --purpose qa --cmd ".\build.ps1 check-queue <sha> -NotifyTab $env:CODETERM_TAB_ID"` | `... --purpose qa --cmd "./build.sh check-queue <sha> --notify-tab $CODETERM_TAB_ID"` |
 | test-one | `... --cmd ".uild.ps1 test-one app NAME -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh test-one app NAME --notify-tab $CODETERM_TAB_ID"` |
 | release-preflight | `... --cmd ".uild.ps1 release-preflight -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh release-preflight --notify-tab $CODETERM_TAB_ID"` |
 | QA batch (`check` first) | `... --purpose qa --cmd ".uild.ps1 qa-batch smoke -NotifyTab $env:CODETERM_TAB_ID 'node --test scripts/tests/dev-wait.test.mjs'"` | `... --purpose qa --cmd "./build.sh qa-batch smoke --notify-tab $CODETERM_TAB_ID 'node --test scripts/tests/dev-wait.test.mjs'"` |
@@ -104,6 +107,14 @@ codeterm tab restart --tab <qa-tab-id> --cmd "QA_NOTIFY_TAB=<agent-tab-id> scrip
 
 The send uses `codeterm send --tab <agent-tab-id> --from-file <body-file>`.
 Every report body is written to a file before it is sent.
+
+## Shared Git config lock before Bash
+
+If a PowerShell utility shell stops at `git config core.hooksPath` with a config
+lock error, the launcher still contains the old redundant setup write. The
+PowerShell wrapper now forwards directly; build.sh owns best-effort hook setup.
+Use the updated wrapper and retain the original failed shell receipt. No Cargo
+or gateway job ran when the old wrapper stopped before forwarding.
 
 ## Parent environment trap
 
@@ -153,4 +164,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 7 -->
+<!-- revision: 10 -->

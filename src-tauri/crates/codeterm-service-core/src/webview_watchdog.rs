@@ -15,7 +15,7 @@ const BACKOFF_MAX: Duration = Duration::from_secs(30);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Start the renderer watchdog for the main window. No-op on non-macOS.
-pub(crate) fn spawn(window: crate::app_runtime::WebviewWindow) {
+pub fn spawn(window: crate::app_runtime::WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
         let _ = std::thread::Builder::new()

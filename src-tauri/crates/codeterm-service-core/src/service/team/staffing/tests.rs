@@ -215,12 +215,18 @@ async fn repeated_service_cartographer_attachment_returns_the_existing_tab() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
 
     let (first, repeated) = tokio::join!(
-        fixture
-            .service
-            .add_team_member(&team_id, Some(&orchestrator), cartographer_params(),),
-        fixture
-            .service
-            .add_team_member(&team_id, Some(&orchestrator), cartographer_params(),),
+        crate::service::add_team_member(
+            &fixture.service,
+            &team_id,
+            Some(&orchestrator),
+            cartographer_params(),
+        ),
+        crate::service::add_team_member(
+            &fixture.service,
+            &team_id,
+            Some(&orchestrator),
+            cartographer_params(),
+        ),
     );
     let first = first.expect("first attachment reuses the existing role instance");
     let repeated = repeated.expect("repeated attachment reuses the same role instance");

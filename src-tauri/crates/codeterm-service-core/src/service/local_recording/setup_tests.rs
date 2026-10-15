@@ -253,10 +253,12 @@ async fn lark_recording_contract_production_enable_uses_injected_readiness_bound
     let state: crate::service::ServiceState = Arc::new(fixture.service.clone());
     assert!(fixture._app.manage(state));
     let service = &fixture.service;
-    let registry = service.local_recording_registry.clone();
+    let registry = service
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+        .clone();
     registry.register("trigger", declaration(), true);
     service
-        .local_recording_registry
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
         .select_devices("trigger", devices())
         .unwrap();
     let (adapter, entered, release, teardown) = fake_adapter(registry.clone(), false);
@@ -285,7 +287,9 @@ async fn lark_recording_contract_production_enable_uses_injected_readiness_bound
 fn lark_recording_contract_enable_without_devices_emits_setup_status() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let registry = &fixture.service.local_recording_registry;
+    let registry = fixture
+        .service
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>();
     registry.register("trigger", declaration(), true);
     let (event_tx, event_rx) = std::sync::mpsc::channel();
     let listener = fixture
@@ -356,7 +360,8 @@ async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_ca
         Invalidation::AccessLost,
         Invalidation::Unavailable,
     ] {
-        let registry = &service.local_recording_registry;
+        let registry =
+            service.ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>();
         registry.register("trigger", declaration(), true);
         registry.select_devices("trigger", devices()).unwrap();
         registry.set_enabled("trigger", true).unwrap();
@@ -478,7 +483,7 @@ async fn lark_recording_contract_host_invalidation_retires_only_exact_pending_ca
             .unwrap();
     }
 
-    let registry = &service.local_recording_registry;
+    let registry = service.ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>();
     registry.register("trigger", declaration(), true);
     registry.select_devices("trigger", devices()).unwrap();
     registry.set_enabled("trigger", true).unwrap();

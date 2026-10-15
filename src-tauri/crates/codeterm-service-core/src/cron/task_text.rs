@@ -2,7 +2,7 @@
 //! automatic fire and the manual `cron_trigger` path so they can't drift
 //! apart (they did: `cron_trigger` silently dropped the skill block).
 
-/// `skill_block` is pre-resolved by the caller (`commands::cron_skill_block`)
+/// `skill_block` is pre-resolved by the caller (`cron::skill_block::cron_skill_block`)
 /// so this stays pure — no filesystem access, fully deterministic to test.
 pub fn build_cron_task_text(
     task: &str,
@@ -24,7 +24,7 @@ pub fn build_cron_task_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::cron_skill_block;
+    use crate::cron::skill_block::cron_skill_block;
     use crate::service::spawn::AgentSpawnSpec;
 
     #[test]

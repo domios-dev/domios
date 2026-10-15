@@ -18,9 +18,12 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
     let token = bridge::telegram::read_token(attachments.as_ref())
         .ok_or_else(|| "telegram: no token at secrets_dir/telegram.token".to_string())?;
 
-    if svc.bridge_supervisor.is_active() {
+    if svc
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .is_active()
+    {
         log::info!("[bridge] hot-restart: stopping previous supervisor");
-        svc.bridge_supervisor
+        svc.ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
             .stop(Duration::from_secs(30))
             .await
             .map_err(|e| format!("previous bridge stop failed: {}", e))?;
@@ -28,7 +31,7 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     *svc.bridge_outbound.lock() = Some(tx);
-    *svc.bridge_outbound_rx.lock() = None;
+    *svc.ext::<crate::service::BridgeOutboundRx>().0.lock() = None;
 
     {
         let mut mux = svc.mux.write();
@@ -41,12 +44,13 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
         }
     }
 
-    svc.bridge_threads.attach(
-        std::sync::Arc::new(
-            codeterm_bridge::bridge::threads::TelegramTopicTransport::new(token.clone()),
-        ),
-        codeterm_bridge::bridge::threads::transport::bot_id_from_token(&token),
-    );
+    svc.ext::<std::sync::Arc<codeterm_bridge::bridge::threads::ThreadService>>()
+        .attach(
+            std::sync::Arc::new(
+                codeterm_bridge::bridge::threads::TelegramTopicTransport::new(token.clone()),
+            ),
+            codeterm_bridge::bridge::threads::transport::bot_id_from_token(&token),
+        );
 
     let cfg = config::load_config();
     let telegram = bridge::telegram::TelegramService::new(
@@ -57,8 +61,12 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
     let tab: std::sync::Arc<dyn codeterm_bridge::ports::BridgeTabPort> =
         std::sync::Arc::new(ServiceBridgeTabPort((**svc).clone()));
     let manager = bridge::BridgeManager::new(tab);
-    let cancel = svc.bridge_supervisor.cancel_token();
-    let status = svc.bridge_supervisor.as_status_sink();
+    let cancel = svc
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .cancel_token();
+    let status = svc
+        .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .as_status_sink();
 
     let handle = tokio::spawn(async move {
         log::info!("[bridge] manager spawned");
@@ -68,7 +76,8 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
         log::info!("[bridge] manager exited");
     });
 
-    svc.bridge_supervisor.set_task(handle, Utc::now());
+    svc.ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+        .set_task(handle, Utc::now());
     log::info!("[bridge] Telegram bridge started");
     Ok(())
 }
@@ -98,7 +107,10 @@ pub fn unmark_tab_connected_service(svc: &ServiceState, service: &str) {
 /// tauri runtime and logs failures. Callers must NOT block on completion.
 pub fn spawn_telegram_bridge(svc: ServiceState) {
     tauri::async_runtime::spawn(async move {
-        let _op = svc.bridge_supervisor.op_guard().await;
+        let _op = svc
+            .ext::<std::sync::Arc<crate::bridge::supervisor::BridgeSupervisor>>()
+            .op_guard()
+            .await;
         if let Err(e) = start_telegram_bridge(&svc).await {
             log::warn!("[bridge] start failed: {}", e);
         }

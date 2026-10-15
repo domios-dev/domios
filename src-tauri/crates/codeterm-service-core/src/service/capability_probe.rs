@@ -73,7 +73,7 @@ fn request(svc: &ServiceContext, tab: &str) -> Result<Request, ProbeFailure> {
 fn unavailable(reason: ProbeFailure) -> ProbeSnapshot {
     ProbeSnapshot::Unavailable { reason }
 }
-pub(crate) fn refresh(svc: &ServiceContext, tab: &str, force: bool) -> ProbeSnapshot {
+pub fn refresh(svc: &ServiceContext, tab: &str, force: bool) -> ProbeSnapshot {
     let request = match request(svc, tab) {
         Ok(request) => request,
         Err(reason) => return unavailable(reason),

@@ -16,8 +16,14 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `build-gateway-evidence.mjs` | scripts/build-gateway-state.mjs; scripts/build-gateway-evidence.test.mjs |
 | `build-gateway-evidence.test.mjs` | node --test scripts/build-gateway-evidence.test.mjs |
 | `build-gateway-guard.mjs` | scripts build-gateway-mutex.mjs, build-gateway-mutex.test.mjs |
+| `build-gateway-mutex-evidence.mjs` | scripts/build-gateway-mutex.mjs; scripts/build-gateway-mutex-evidence.test.mjs |
+| `build-gateway-mutex-evidence.test.mjs` | skill build; build.sh script-guards |
 | `build-gateway-mutex.mjs` | scripts build-gateway-mutex.test.mjs, build-gateway.sh |
 | `build-gateway-mutex.test.mjs` | skill build |
+| `build-gateway-output.mjs` | build.sh; scripts/build-gateway-output.test.mjs |
+| `build-gateway-output.test.mjs` | build.sh script-guards |
+| `build-gateway-owner.mjs` | scripts/build-gateway.sh; scripts/build-gateway-owner.test.mjs |
+| `build-gateway-owner.test.mjs` | build.sh script-guards; skill build |
 | `build-gateway-reader-deadline.mjs` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe |
 | `build-gateway-record.mjs` | scripts/build-gateway-state.mjs, scripts/build-history.mjs |
 | `build-gateway-record.test.mjs` | skill build |
@@ -28,6 +34,9 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `build-history.mjs` | build.sh build-history; scripts/build-history.test.mjs |
 | `build-history.test.mjs` | node --test scripts/build-history.test.mjs |
 | `build-identity.cjs` | scripts check-plugin-bundles.mjs, dev-prep.mjs, tests/build_identity_required.test.mjs |
+| `build-peer-lib.mjs` | scripts build-peer.mjs, build-peer.test.mjs; skill build |
+| `build-peer.mjs` | build.sh check-queue|nextest --peer, check-linux, peer-setup, peer-status, peer-route; scripts build-peer.test.mjs; skill build |
+| `build-peer.test.mjs` | skill build |
 | `build-plugin-ui.mjs` | package.json script; scripts ci-scope.mjs |
 | `build-plugin.mjs` | package.json script; scripts check-plugin-bundles.mjs, check-plugin.mjs, ci-scope.mjs; skill build |
 | `bundle-cli.js` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/install-local/bootstrap/cli; CI release-windows.yml; scripts dev-prep.mjs, prepare-cli-stub.js, qa-prep.sh |
@@ -37,7 +46,11 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `cache-retention.mjs` | scripts cache-policy.sh, cache-retention.test.mjs |
 | `cache-retention.test.mjs` | scripts check-build-gateway-policy.sh |
 | `capture-upgrade-desk.mjs` | skill gates |
+| `cargo-build-gc.mjs` | scripts/cache-retention.mjs, scripts/cargo-build-gc.test.mjs |
+| `cargo-build-gc.py` | scripts/cargo-build-gc.mjs, scripts/cargo-build-gc.test.mjs |
+| `cargo-build-gc.test.mjs` | scripts/check-build-gateway-policy.sh |
 | `certificates` | scripts release-signing-material.py, tests/release_signing_material_test.py |
+| `chat-scroll-trace` | build.sh chat-scroll-trace; skill dev-testing |
 | `check-analytics-catalog.mjs` | scripts check-analytics-catalog.test.mjs |
 | `check-analytics-catalog.test.mjs` | build.sh script-guards |
 | `check-api-docs.sh` | CI docs-source-of-truth.yml; skill build |
@@ -52,6 +65,7 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-build-isolated-dev-policy.sh` | build.sh script-guards |
 | `check-build-kill-safety.sh` | scripts qa-gates.lib.sh |
 | `check-build-pdb-retention.sh` | build.sh retain-pdb; scripts qa-gates.lib.sh |
+| `check-build-script-head.sh` | build.sh script-guards |
 | `check-cache-provenance.sh` | build.sh script-guards |
 | `check-comment-length.sh` | CI comment-length.yml; scripts qa-gates.lib.sh; skill build |
 | `check-dev-instance-isolation.ps1` | manual: PowerShell dev-instance isolation check (Windows) |
@@ -71,6 +85,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `check-plugin.mjs` | CI plugin-release.yml, tests.yml; scripts ci-scope.mjs; skill github-release |
 | `check-prompts-doc.sh` | CI docs-source-of-truth.yml; skill build, prompts |
 | `check-provider-boundary.mjs` | build.sh release-preflight/verify; CI file-sizes.yml; scripts qa-gates.lib.sh, tests/check-provider-boundary.test.mjs; skill gates |
+| `check-queue-plan.mjs` | build.sh check-queue; scripts/check-queue-plan.test.mjs |
+| `check-queue-plan.test.mjs` | build.sh script-guards |
 | `check-release-closure.mjs` | CI release-manifest-validate.yml; scripts tests/release-closure-authority.test.mjs, tests/test_release_workflow_contract.py; skill github-release |
 | `check-release-credentials-mac.sh` | CI release-credentials.yml, release-macos-build.yml; scripts tests/release-job-graph.test.mjs; skill github-release |
 | `check-release-locks.mjs` | build.sh release-preflight/build/install-local; CI release.yml; package.json script; skill github-release |
@@ -120,6 +136,8 @@ The gate `scripts/check-script-catalog.sh` fails on a script with no header or e
 | `merge-latest-json.js` | CI release-macos.yml, release-manifest-validate.yml; scripts tests/updater-manifest.test.mjs |
 | `merge-stack-audit.sh` | scripts test-merge-stack-audit.sh; skill github-release |
 | `module-graph.py` | docs architecture module-graph.md and split-roadmap.md (manual generation) |
+| `nextest-archive.sh` | build.sh nextest-archive|nextest|test-one; scripts/nextest-archive.test.mjs |
+| `nextest-archive.test.mjs` | build.sh script-guards |
 | `pdb_identity.py` | build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-build-pdb-retention.sh, tests/test_pdb_identity.py, symbolicate-minidump.py; skill build |
 | `playwright-coverage-map.mjs` | package.json script |
 | `plugin-release-metadata.mjs` | scripts check-plugin.mjs, ci-scope.mjs, release-plugin.mjs |

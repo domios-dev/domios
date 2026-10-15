@@ -9,14 +9,14 @@ pub(crate) const MAX_NAME_CHARS: usize = 64;
 pub(crate) const MAX_QUESTIONS: usize = 64;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct QuestionAnswer {
-    pub(crate) name: String,
-    pub(crate) question: String,
-    pub(crate) answer: String,
+pub struct QuestionAnswer {
+    pub name: String,
+    pub question: String,
+    pub answer: String,
 }
 
 impl QuestionAnswer {
-    pub(crate) fn new(name: &str, question: &str, answer: &str) -> Self {
+    pub fn new(name: &str, question: &str, answer: &str) -> Self {
         Self {
             name: scrub(name, MAX_NAME_CHARS),
             question: scrub(question, MAX_QUESTION_CHARS),
@@ -64,7 +64,7 @@ pub(super) fn project(value: &Value) -> Option<Vec<QuestionAnswer>> {
     (!questions.is_empty()).then_some(questions)
 }
 
-pub(crate) enum ActivityContext {
+pub enum ActivityContext {
     Rerank {
         query: String,
         titles: Vec<String>,
@@ -190,7 +190,7 @@ impl ActivityContext {
     }
 }
 
-pub(crate) fn sentinel(
+pub fn sentinel(
     job: &str,
     buckets: &[String],
     label: Option<&str>,

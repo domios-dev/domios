@@ -16,7 +16,7 @@ impl MuxTaskKeyPort {
     }
 }
 
-pub(crate) fn issue_from_mux(
+pub fn issue_from_mux(
     mux: &MuxState,
     scope: &TaskKeyScope,
     count: usize,

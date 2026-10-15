@@ -3,7 +3,7 @@ use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::SpawnAgentParams;
 
-pub(crate) fn restored_resume_session_id(
+pub fn restored_resume_session_id(
     resume_sessions_enabled: bool,
     session_id: Option<&str>,
 ) -> Option<&str> {
@@ -16,7 +16,7 @@ pub(crate) fn restored_session_target(tab: &crate::multiplexer::types::Tab) -> O
     })
 }
 
-pub(crate) fn restored_session_resumable(presence: Option<bool>) -> bool {
+pub fn restored_session_resumable(presence: Option<bool>) -> bool {
     presence != Some(false)
 }
 
@@ -127,7 +127,7 @@ pub(crate) fn restored_launch_task(
     (prompt_capable, task)
 }
 
-pub(crate) fn restore_permission_bypass_authorization(
+pub fn restore_permission_bypass_authorization(
     app: &crate::app_runtime::AppHandle,
     registry: &AgentRegistry,
     tab_id: &str,
@@ -150,7 +150,7 @@ pub(crate) fn restore_permission_bypass_authorization(
     Ok(authorization)
 }
 
-pub(crate) fn persist_restored_launch_identity(
+pub fn persist_restored_launch_identity(
     mux: &MuxState,
     tab_id: &str,
     provider_id: &str,
@@ -181,13 +181,13 @@ pub(crate) fn persist_restored_launch_identity(
     tab.restorable_launch.failed_provider = None;
 }
 
-pub(crate) struct RestoredFreshLaunchInput {
+pub struct RestoredFreshLaunchInput {
     pub params: crate::service::SpawnAgentParams,
     pub launch_parameters: crate::multiplexer::types::RestorableLaunchParameters,
     pub launch_task: Option<String>,
 }
 
-pub(crate) fn restored_fresh_launch_input(
+pub fn restored_fresh_launch_input(
     registry: &crate::agent::registry::AgentRegistry,
     mut params: crate::service::SpawnAgentParams,
     mut launch_parameters: crate::multiplexer::types::RestorableLaunchParameters,
@@ -243,7 +243,7 @@ pub(crate) fn restored_fresh_launch_input(
 impl RestoredFreshLaunchInput {
     /// `None` falls back to fresh launch when the provider cannot resume.
     /// Fresh launches carry a marker; resumes use the existing session id.
-    pub(crate) fn command(
+    pub fn command(
         &self,
         service: &crate::service::ServiceContext,
         tab_id: &str,

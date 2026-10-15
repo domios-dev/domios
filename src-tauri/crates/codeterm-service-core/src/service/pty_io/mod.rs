@@ -1,27 +1,25 @@
 //! PTY I/O helpers: send text, batch send, resize, wait-for-pty.
-use serde::Deserialize;
 
 pub(crate) const SHELL_BACKEND_COLS: u16 = 120;
 pub(crate) const SEND_AGENT_BACKEND_COLS: u16 = 240;
 #[cfg(windows)]
 pub(crate) const PASTE_RENDER_WINDOW: std::time::Duration = std::time::Duration::from_millis(600);
 
-mod actions;
 mod batch;
 mod control_key;
+mod deliver;
 mod inject;
 mod lifecycle;
 mod send;
 pub(crate) mod submit_transaction;
 pub(crate) mod tab_env;
 
-pub(crate) use actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
+pub(crate) use crate::service::ordered_actions::*;
 #[cfg(test)]
 pub(crate) use lifecycle::claim_restored_launch;
-pub(crate) use lifecycle::claim_restored_pty_boot;
+pub use lifecycle::claim_restored_pty_boot;
 pub(crate) use send::build_spawn_dispatch;
 pub(crate) use send::delivery_is_unknown;
-pub(crate) use send::sanitize_agent_prompt_input;
 pub use send::{await_bare_shell_prompt, await_shell_prompt};
 pub use send::{
     await_bare_shell_prompt as poll_bare_shell_prompt, await_shell_prompt as poll_shell_prompt,
@@ -52,11 +50,7 @@ pub(crate) fn restored_agent_materialization(
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct SendBatchItem {
-    pub text: String,
-    pub delay_ms: Option<u64>,
-}
+pub use crate::ports::transport::SendBatchItem;
 
 #[cfg(test)]
 mod restore_replay_tests;
@@ -64,3 +58,5 @@ mod restore_replay_tests;
 pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;
+
+pub use submit_transaction::notify_submit_cycle_status_transition;

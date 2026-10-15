@@ -4,14 +4,15 @@ import { isChatViewportAtBottom, type ChatViewportGeometry } from "./chatViewpor
 import { chatScrollGestureAfterEvent, idleChatScrollGesture, isChatUserScrolling, type ChatScrollGestureEvent } from "./chatScrollGesture";
 
 export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>, active: boolean, sessionKey: string,
-  onEnd: MutableRefObject<() => void>, onStart: MutableRefObject<() => void>) {
+  onEnd: MutableRefObject<() => void>, onStart: MutableRefObject<() => void>, sharedUserScrolling?: MutableRefObject<boolean>) {
   const gesture = useRef(idleChatScrollGesture());
-  const userScrolling = useRef(false);
+  const ownUserScrolling = useRef(false);
+  const userScrolling = sharedUserScrolling ?? ownUserScrolling;
   const supportsScrollEnd = useRef(true);
   const reset = useCallback(() => {
     gesture.current = idleChatScrollGesture();
     userScrolling.current = false;
-  }, []);
+  }, [userScrolling]);
 
   const recordScroll = useCallback((before: ChatViewportGeometry, viewport: ChatViewportGeometry) => {
     gesture.current = chatScrollGestureAfterEvent(gesture.current, "scroll", {
@@ -19,7 +20,7 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
       positionChanged: chatUserScrollChanged(before, viewport),
     });
     userScrolling.current = isChatUserScrolling(gesture.current);
-  }, []);
+  }, [userScrolling]);
 
   useLayoutEffect(() => {
     reset();
@@ -69,7 +70,7 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
       el.removeEventListener("scrollend", scrollEnd);
       reset();
     };
-  }, [active, onEnd, onStart, reset, scrollRef, sessionKey]);
+  }, [active, onEnd, onStart, reset, scrollRef, sessionKey, userScrolling]);
 
   return { userScrolling, reset, recordScroll };
 }

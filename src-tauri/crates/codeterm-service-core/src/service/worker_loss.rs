@@ -12,7 +12,7 @@ use crate::service::ServiceContext;
 
 pub(crate) const WORKER_LOST_EVENT: &str = "worker-lost";
 pub(crate) const WORKER_LOST_CONTEXT: &str = "worker-lost";
-pub(crate) const BUSY_WORKER_CLOSE_REFUSAL_PREFIX: &str = "busy worker close refused";
+pub const BUSY_WORKER_CLOSE_REFUSAL_PREFIX: &str = "busy worker close refused";
 
 mod pending;
 #[cfg(test)]

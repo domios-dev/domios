@@ -217,7 +217,7 @@ impl ServiceContext {
 
     /// Frontend/REST spawn, including the post-update auto-resume path. A
     /// `None` tab id is a PTY with no tab record yet: instance vars only.
-    pub(crate) fn frontend_pty_env(&self, tab_id: Option<&str>) -> HashMap<String, String> {
+    pub fn frontend_pty_env(&self, tab_id: Option<&str>) -> HashMap<String, String> {
         let tab = tab_id.map(|tab_id| self.tab_launch_env(tab_id));
         let mut env = compose_launch_env(
             &InstanceEnv::from_api_config(self.configuration().api),

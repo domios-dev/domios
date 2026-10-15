@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/rollacode/codeterm.git",
+  "status_tab_title": "Buildpeer",
+  "peers": {
+    "ROG": { "os": "windows", "checkout": "/c/Developer/codeterm-peer", "shell": "git-bash", "routable": true },
+    "ubunta": { "os": "linux", "checkout": "$HOME/Developer/codeterm-peer", "routable": true },
+    "eight": {
+      "os": "macos",
+      "checkout": "$HOME/Developer/codeterm-peer",
+      "routable": false,
+      "note": "release builder; enable with CODETERM_PEERS_ENABLE=eight only after the release owner frees it"
+    }
+  }
+}

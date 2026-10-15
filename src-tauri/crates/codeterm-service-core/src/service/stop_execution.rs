@@ -64,7 +64,7 @@ fn stop_sequence_steps(keys: &[String], wait_for_output: bool) -> Vec<StopSequen
     steps
 }
 
-pub(crate) async fn stop_agent_turn(
+pub async fn stop_agent_turn(
     svc: ServiceContext,
     tab_id: String,
 ) -> Result<serde_json::Value, String> {

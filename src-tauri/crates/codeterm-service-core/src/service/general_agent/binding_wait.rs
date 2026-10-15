@@ -21,7 +21,7 @@ fn signal() -> &'static BindingSignal {
     })
 }
 
-pub(crate) fn notify_binding_state_changed() {
+pub fn notify_binding_state_changed() {
     let signal = signal();
     let generation = {
         let mut generation = signal.generation.lock();
@@ -32,7 +32,7 @@ pub(crate) fn notify_binding_state_changed() {
     signal.async_changed.send_replace(generation);
 }
 
-pub(crate) fn wait_for_session_binding<T>(
+pub fn wait_for_session_binding<T>(
     deadline: Instant,
     mut ready: impl FnMut() -> Option<T>,
 ) -> Option<T> {

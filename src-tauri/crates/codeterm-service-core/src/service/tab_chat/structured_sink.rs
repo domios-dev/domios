@@ -122,7 +122,7 @@ impl StructuredSink for TauriStructuredSink {
     }
 }
 
-pub(crate) fn make_sink(
+pub fn make_sink(
     journal: Arc<TabLifecycleJournal>,
     app: AppHandle,
     mux: MuxState,
@@ -274,7 +274,7 @@ impl FlattenDeltaSink {
                 .rev()
                 .find_map(|message| message.context_usage.clone())
             {
-                crate::api::hook_routes::context_feed::apply(&svc, tab_id, session, nonce, context);
+                crate::service::context_feed::apply(&svc, tab_id, session, nonce, context);
             }
         }
         let mut out: Vec<ChatMsg> = Vec::new();
@@ -341,7 +341,7 @@ impl FlattenDeltaSink {
     }
 }
 
-pub(crate) fn make_flatten_sink(
+pub fn make_flatten_sink(
     journal: Arc<TabLifecycleJournal>,
     app: AppHandle,
     mux: MuxState,

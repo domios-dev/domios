@@ -1,5 +1,3 @@
-pub mod api;
-
 pub use codeterm_secrets::*;
 
 #[cfg(test)]

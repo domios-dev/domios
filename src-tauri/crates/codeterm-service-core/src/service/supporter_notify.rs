@@ -42,7 +42,7 @@ pub(crate) fn record_ui_origin(tab_id: &str) {
     update_launch(tab_id, true, false);
 }
 
-pub(crate) fn record_launch(tab_id: &str, restored: bool) {
+pub fn record_launch(tab_id: &str, restored: bool) {
     update_launch(tab_id, false, restored);
 }
 

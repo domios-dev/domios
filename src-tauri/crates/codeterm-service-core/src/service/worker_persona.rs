@@ -54,6 +54,10 @@ pub(crate) struct WorkerPersonaReservations {
     entries: BTreeMap<u64, ReservationEntry>,
 }
 
+pub(crate) struct WorkerIdentityAllocator(
+    pub(crate) Arc<parking_lot::Mutex<WorkerPersonaReservations>>,
+);
+
 pub(crate) struct WorkerPersonaReservationGuard {
     reservations: Arc<Mutex<WorkerPersonaReservations>>,
     reservation_id: Option<u64>,
@@ -147,7 +151,10 @@ impl ServiceContext {
         };
         let scope = self.worker_persona_scope(params)?;
         let seed = seed_for_worker_persona(params, &scope, intent.suggested_title.as_deref());
-        let mut reservations = self.worker_identity_allocator.lock();
+        let mut reservations = self
+            .ext::<crate::service::WorkerIdentityAllocator>()
+            .0
+            .lock();
         let mut used = self.used_worker_persona_names_locked(params, &scope);
         // Global, not workspace-scoped: a Worker spawning in any workspace must
         // never claim a persona another in-flight Worker already holds.
@@ -167,14 +174,18 @@ impl ServiceContext {
         params.title = Some(allocation.title);
         params.title_provenance = Some(SpawnIdentityProvenance::Suggested);
         Ok(Some(WorkerPersonaReservationGuard {
-            reservations: self.worker_identity_allocator.clone(),
+            reservations: self
+                .ext::<crate::service::WorkerIdentityAllocator>()
+                .0
+                .clone(),
             reservation_id: Some(token.0),
         }))
     }
 
     /// Release the persona held by a closing tab, returning it to the pool.
     pub(crate) fn release_worker_persona_for_tab(&self, tab_id: &str) {
-        self.worker_identity_allocator
+        self.ext::<crate::service::WorkerIdentityAllocator>()
+            .0
             .lock()
             .release_for_tab(tab_id);
     }

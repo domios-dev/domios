@@ -9,5 +9,6 @@ mod machine;
 mod signature;
 mod template;
 
+pub use driver::{maybe_refresh_after_reflection, orchestrator_refresh};
 pub use driver::{RefreshOutcome, RefreshRequest, RefreshTrigger};
 pub use machine::RefreshTuning;

@@ -66,7 +66,7 @@ pub(crate) fn envelope_flow(
     }
 }
 
-pub(crate) fn init() {
+pub fn init() {
     if !crate::paths::is_dev_instance() {
         return;
     }
@@ -99,7 +99,7 @@ pub(crate) fn init() {
         });
 }
 
-pub(crate) fn record(
+pub fn record(
     id: &str,
     stage: &str,
     tab: &str,

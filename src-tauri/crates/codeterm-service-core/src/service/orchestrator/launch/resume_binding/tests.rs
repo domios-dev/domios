@@ -258,7 +258,7 @@ fn restored_unknown_store_resumes_own_target_and_hook_binds_without_user_turn() 
         crate::agent::test_provider::MockProvider::new("lazy-fixture")
             .with_session_starts_on_first_user_turn(),
     ));
-    let confirmation = crate::api::hook_routes::bind_reported_session(
+    let confirmation = crate::service::hook_session_binding::bind_reported_session(
         &mux,
         &registry,
         &tab_id,
@@ -293,7 +293,7 @@ fn restored_target_without_current_provider_confirmation_stays_unbound() {
         "lazy-fixture",
     )));
     for (session, nonce) in [("foreign", Some("foreign-launch")), ("unconfirmed", None)] {
-        assert!(crate::api::hook_routes::bind_reported_session(
+        assert!(crate::service::hook_session_binding::bind_reported_session(
             &mux,
             &registry,
             &tab_id,

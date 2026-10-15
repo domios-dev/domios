@@ -8,7 +8,7 @@ use crate::multiplexer::types::AgentRole;
 /// Where one guidance fragment came from. Rendered as provenance by the
 /// inspection surface and used by occasions to select the fragments they carry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum FragmentSource {
+pub enum FragmentSource {
     /// Bundled text compiled into the binary for a builtin kind.
     Builtin,
     /// The Worker base a leaf kind inherits when it ships no bundled text.
@@ -26,14 +26,14 @@ impl FragmentSource {
         !matches!(self, Self::Task)
     }
 
-    pub(crate) fn disk_path(&self) -> Option<&str> {
+    pub fn disk_path(&self) -> Option<&str> {
         match self {
             Self::Disk(path) => Some(path),
             _ => None,
         }
     }
 
-    pub(crate) fn label(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self {
             Self::Builtin => "builtin",
             Self::InheritedBase => "inherited_base",
@@ -44,13 +44,13 @@ impl FragmentSource {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PresetFragment {
+pub struct PresetFragment {
     pub source: FragmentSource,
     pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RolePreset {
+pub struct RolePreset {
     /// Structural role the kind resolved under. Occasions select rows by this
     /// and by kind id, never by a wire literal.
     pub role: AgentRole,
@@ -62,7 +62,7 @@ pub(crate) struct RolePreset {
 impl RolePreset {
     /// The kind's full guidance: bundled or inherited base, then any disk
     /// overlay, then the task persona. Empty fragments never add a separator.
-    pub(crate) fn guidance(&self) -> String {
+    pub fn guidance(&self) -> String {
         self.join(|_| true)
     }
 
@@ -96,7 +96,7 @@ pub(crate) trait PresetOverlays {
 }
 
 /// The catalog used when no overlay source is installed.
-pub(crate) struct NoOverlays;
+pub struct NoOverlays;
 
 impl PresetOverlays for NoOverlays {
     fn label_for(&self, _kind_id: &str) -> Option<&str> {
