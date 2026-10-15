@@ -236,6 +236,10 @@ pub(crate) fn start_background_tasks(
 
     {
         let update_st = states.update.clone();
+        let update_ui = app_handle
+            .state::<codeterm_service_core::service::ServiceState>()
+            .ui
+            .clone();
         let app_h = app_handle.clone();
         use tauri::Manager;
         let bundles = app_h
@@ -243,7 +247,8 @@ pub(crate) fn start_background_tasks(
             .map(|bundles| bundles.inner().clone());
         tauri::async_runtime::spawn(async move {
             if let Err(error) =
-                codeterm_commands::update::discovery::check(&app_h, &update_st, bundles, true).await
+                codeterm_commands::update::discovery::check(&update_ui, &update_st, bundles, true)
+                    .await
             {
                 log::warn!("[update-discovery] startup check failed: {error}");
             }
