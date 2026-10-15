@@ -51,3 +51,47 @@ for (const name of ["codeterm-events", "codeterm-keepawake"]) {
     assert.match(result.stderr, /leaf crate names tauri/);
   });
 }
+
+test("allows same and lower leaf tiers, including supporter consumers", (t) => {
+  const { write, run } = fixture(t);
+  for (const [name, dependency] of [
+    ["codeterm-agent-model", "codeterm-config"],
+    ["codeterm-supporter", "codeterm-agent-model"],
+    ["codeterm-recall", "codeterm-supporter"],
+    ["codeterm-provider-ops", "codeterm-supporter"],
+    ["codeterm-events", "codeterm-config"],
+  ]) {
+    write(name, "Cargo.toml", `[package]\nname = "${name}"\n[dependencies]\n${dependency} = { path = "../${dependency}" }\n`);
+  }
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+});
+
+for (const declaration of [
+  '[dependencies]\ncodeterm-supporter = "0.0.0"',
+  '[dev-dependencies]\nrenamed = { package = "codeterm-supporter", path = "../codeterm-supporter" }',
+  '[build-dependencies.renamed]\npackage = "codeterm-supporter"\npath = "../codeterm-supporter"',
+  '[target.\'cfg(windows)\'.dependencies]\nrenamed = {\npackage = "codeterm-supporter",\npath = "../codeterm-supporter"\n}',
+]) {
+  test(`rejects reversed agent-model edge: ${declaration}`, (t) => {
+    const { write, run } = fixture(t);
+    write("codeterm-agent-model", "Cargo.toml", `[package]\nname = "codeterm-agent-model"\n${declaration}\n`);
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /leaf tier inversion: codeterm-agent-model .* -> codeterm-supporter/);
+  });
+}
+
+for (const [name, dependency] of [
+  ["codeterm-supporter", "codeterm-recall"],
+  ["codeterm-supporter", "codeterm-provider-ops"],
+  ["codeterm-types", "codeterm-agent-model"],
+]) {
+  test(`rejects reversed ${name} -> ${dependency} edge`, (t) => {
+    const { write, run } = fixture(t);
+    write(name, "Cargo.toml", `[package]\nname = "${name}"\n[dependencies]\n${dependency} = { path = "../${dependency}" }\n`);
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /leaf tier inversion/);
+  });
+}
