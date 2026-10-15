@@ -1924,7 +1924,7 @@
         "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
         "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
         "state": "working",
-        "statusLine": "Running printf 'capture' > capture-proof.txt"
+        "statusLine": "printf 'capture' > capture-proof.txt"
       },
       {
         "kind": "prompt",

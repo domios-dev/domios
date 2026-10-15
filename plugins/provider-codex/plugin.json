@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.10",
+  "version": "1.14.11",
   "minCodeterm": "1.14.8",
   "hostApi": 2,
   "displayName": "Codex",

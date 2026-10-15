@@ -147,7 +147,7 @@
         "threadId": "thread-fixture",
         "turnId": "turn-stalled",
         "state": "working",
-        "statusLine": "Running inspect state"
+        "statusLine": "inspect state"
       },
       {
         "kind": "controlsConfirmed",
@@ -161,7 +161,7 @@
         "threadId": "thread-fixture",
         "turnId": "turn-stalled",
         "state": "working",
-        "statusLine": "Running inspect state"
+        "statusLine": "inspect state"
       },
       {
         "kind": "chatItem",

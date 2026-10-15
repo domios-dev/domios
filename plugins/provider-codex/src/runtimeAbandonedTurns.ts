@@ -1,4 +1,5 @@
 import type { AgentEvent, ChatMsg } from "@codeterm/plugin-sdk";
+import { activityLabel } from "@codeterm/plugin-sdk";
 
 export interface ToolLifecycle {
   toolStatus?: "running" | "completed" | "failed" | "interrupted" | "abandoned" | null;
@@ -20,7 +21,7 @@ export function pendingCall(state: TurnLifecycleState): RuntimeItem | undefined 
 
 export function runningCallStatus(state: TurnLifecycleState): string | undefined {
   const row = pendingCall(state);
-  return row ? Array.from(`Running ${row.toolTitle || row.toolSummary || row.toolName || "tool call"}`).slice(0,160).join("") : undefined;
+  return row ? activityLabel(row) : undefined;
 }
 
 export function abandonOpenTurn(state: TurnLifecycleState, threadId: string, nextTurnId: string): AgentEvent[] {
