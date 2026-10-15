@@ -40,13 +40,13 @@ mod reader_readiness;
 mod resume_binding;
 mod startup_readiness;
 mod user_input;
-pub(crate) use command::{
+pub use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service,
 };
 use reader_readiness::{BackendPty, ReaderReadiness};
-#[cfg(test)]
-pub(crate) use startup_readiness::launch_waits_for_first_turn_binding;
+#[cfg(any(test, feature = "test-support"))]
+pub use startup_readiness::launch_waits_for_first_turn_binding;
 #[cfg(test)]
 #[path = "launch/tests.rs"]
 mod tests;
@@ -67,7 +67,7 @@ struct ProviderAck {
 static LAUNCH_REGISTRY: std::sync::LazyLock<parking_lot::Mutex<LaunchRegistry>> =
     std::sync::LazyLock::new(|| parking_lot::Mutex::new(LaunchRegistry::default()));
 #[derive(Debug, Clone)]
-pub(crate) struct LaunchGeneration {
+pub struct LaunchGeneration {
     tab_id: String,
     pty_id: String,
     generation: u64,
@@ -78,12 +78,12 @@ pub(crate) struct LaunchGeneration {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderSessionBinding {
+pub struct ProviderSessionBinding {
     pub(crate) pty_id: String,
     pub(crate) binding_nonce: String,
 }
 
-pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
+pub fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
     let recorded = LAUNCH_REGISTRY
         .lock()
         .record_provider_session(tab_id, binding);
@@ -92,8 +92,8 @@ pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBin
     }
     recorded
 }
-#[cfg(test)]
-pub(crate) fn arm_provider_session_for_test(
+#[cfg(any(test, feature = "test-support"))]
+pub fn arm_provider_session_for_test(
     tab_id: &str,
     pty_id: &str,
     nonce: &str,
@@ -104,7 +104,7 @@ pub(crate) fn arm_provider_session_for_test(
         .bind_provider_session(&launch, nonce.to_string());
     launch
 }
-pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
+pub fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
     take_reader_termination(pty_id, |launch| {
         svc.void_launch_session_proof(&launch.tab_id);
         let reason = LaunchFailure::PtyEof.reason();
@@ -123,7 +123,7 @@ fn take_reader_termination(pty_id: &str, commit: impl FnOnce(LaunchGeneration)) 
     }
 }
 
-pub(crate) fn supersede_tab_launch(tab_id: &str) {
+pub fn supersede_tab_launch(tab_id: &str) {
     LAUNCH_REGISTRY.lock().supersede(tab_id);
     log::debug!("[launch] tab={tab_id} superseded before restart teardown");
 }
@@ -243,7 +243,7 @@ fn await_replacement_pty(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn launch_agent_in_background(
+pub fn launch_agent_in_background(
     svc: ServiceContext,
     tab_id: String,
     launch_cmd: String,
@@ -303,7 +303,7 @@ pub(crate) fn launch_agent_in_background_with_task_turn(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn launch_agent_in_background_with_env(
+pub fn launch_agent_in_background_with_env(
     svc: ServiceContext,
     tab_id: String,
     launch_cmd: String,
@@ -1088,7 +1088,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     });
 }
 
-pub(crate) fn mark_tab_agent_launch_started(
+pub fn mark_tab_agent_launch_started(
     mux: &crate::multiplexer::commands::MuxState,
     tab_id: &str,
 ) {

@@ -311,13 +311,17 @@ fn runtime_memory_report_succeeds_and_idle_cleanup_keeps_reported_status() {
     for intent in ["extract:item", "dreaming:rem"] {
         let scene = Scene::new();
         let (worker, tab) = scene.worker(intent);
-        let response = crate::socket::server::dispatch_service_rpc(
-            "mem.worker.report",
-            Some(json!({"id":worker,"summary":"opaque report"})),
-            &Arc::new(scene.fixture.service.clone()),
-        )
-        .unwrap();
-        assert_eq!(response["ok"], true);
+        let info = scene
+            .fixture
+            .service
+            .workers
+            .complete(&worker, "opaque report".into())
+            .unwrap();
+        assert!(scene
+            .fixture
+            .service
+            .run_watcher
+            .runtime_worker_reported(&info.tab_id, &worker));
         assert!(scene.fixture.service.mux.read().get_tab(&tab).is_some());
         let ended = scene.ended("graph-worker-done");
         scene.idle(&tab, true, false);

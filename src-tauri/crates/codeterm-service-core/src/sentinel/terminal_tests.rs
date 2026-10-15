@@ -1,5 +1,4 @@
 use super::terminal::*;
-use codeterm_blueprint_types::blueprint_terminal::MAX_PAYLOAD_BYTES;
 use crate::sentinel::store::Sentinel;
 use crate::sentinel::{
     machine::Route,
@@ -7,6 +6,7 @@ use crate::sentinel::{
     store::{Owner, Store},
 };
 use codeterm_blueprint_types::blueprint_terminal::Config;
+use codeterm_blueprint_types::blueprint_terminal::MAX_PAYLOAD_BYTES;
 use serde_json::json;
 
 fn fixture() -> (tempfile::TempDir, Store, Sentinel) {

@@ -30,7 +30,7 @@ const MAX_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_DIRECTORY_ENTRIES: usize = (MAX_UNSETTLED + MAX_BODY_LEASES) * 3 + 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct UserSendAuthority {
+pub struct UserSendAuthority {
     pub(crate) tab_id: String,
     pub(crate) pty_id: Option<String>,
     pub(crate) binding_nonce: String,

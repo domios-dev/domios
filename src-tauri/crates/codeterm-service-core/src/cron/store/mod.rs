@@ -21,7 +21,7 @@ mod tabs;
 mod tests;
 
 use std::collections::HashMap;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -42,10 +42,10 @@ pub use storage::{
 };
 pub use tabs::write_log;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::cron::clock::system_clock;
 use crate::cron::clock::SharedClock;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::persisted_state::{Loaded, StateFile};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -171,14 +171,14 @@ pub struct CronStore {
 }
 
 impl CronStore {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new() -> Self {
         Self::new_with_clock(system_clock())
     }
 
     /// Production path + an injected clock — the daemon uses this with a
     /// MockClock when CODETERM_TEST_CLOCK=1 (e2e time travel).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new_with_clock(clock: SharedClock) -> Self {
         let dir = crate::paths::data_dir();
         Self::load(
@@ -190,7 +190,7 @@ impl CronStore {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new_with_path(path: PathBuf) -> Self {
         Self::load(
             path,
@@ -201,7 +201,7 @@ impl CronStore {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new_with_path_and_clock(path: PathBuf, clock: SharedClock) -> Self {
         Self::load(
             path,
@@ -215,7 +215,7 @@ impl CronStore {
     /// A crons.json that fails to load is preserved and recovered from backup;
     /// without one the store runs on an empty in-memory file and every save is
     /// refused, so built-in jobs are merged in memory only.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn load(file_path: PathBuf, clock: SharedClock, default_agent_provider: String) -> Self {
         let file = match state_file(&file_path).load(parse_cron_file) {
             Loaded::Parsed(file) | Loaded::Recovered { value: file, .. } => file,
@@ -242,7 +242,7 @@ impl CronStore {
     }
 
     /// Legacy JSON save; a Storage-backed store refuses it.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn save(&self) -> Result<(), String> {
         let path = self.backend.legacy_path()?;
         let json = serde_json::to_string_pretty(&self.file).map_err(|e| e.to_string())?;
@@ -250,17 +250,17 @@ impl CronStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn state_file(path: &Path) -> StateFile {
     StateFile::new(path).with_validator(validate_cron_file)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn parse_cron_file(text: &str) -> Result<CronFile, String> {
     serde_json::from_str(text).map_err(|error| error.to_string())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn validate_cron_file(text: &str) -> Result<(), String> {
     parse_cron_file(text).map(|_| ())
 }

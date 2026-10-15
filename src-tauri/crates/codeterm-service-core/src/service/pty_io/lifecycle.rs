@@ -495,7 +495,7 @@ impl ServiceContext {
         None
     }
 
-    pub(crate) fn ensure_tab_pty_for_send(&self, tab_id: &str) -> Result<(), String> {
+    pub fn ensure_tab_pty_for_send(&self, tab_id: &str) -> Result<(), String> {
         let resolved = self
             .mux
             .read()

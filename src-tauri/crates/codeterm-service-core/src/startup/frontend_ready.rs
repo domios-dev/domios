@@ -16,7 +16,7 @@ struct FrontendReadyState {
 }
 
 impl FrontendReadySignal {
-    fn arm(&self) -> u64 {
+    pub fn arm(&self) -> u64 {
         let mut state = self.state.lock();
         state.generation = state.generation.wrapping_add(1);
         state.ready_generation = None;

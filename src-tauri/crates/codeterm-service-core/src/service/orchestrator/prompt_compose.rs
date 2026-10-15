@@ -185,8 +185,8 @@ pub(crate) fn restorable_identity_task(
     }
 }
 
-#[cfg(test)]
-pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String> {
+#[cfg(any(test, feature = "test-support"))]
+pub fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String> {
     role_onboarding_task(
         params.task.as_deref(),
         params.role.as_deref(),

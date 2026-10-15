@@ -262,7 +262,6 @@ fn sanitize_remote_context(params: &mut Option<serde_json::Value>) {
 #[cfg(test)]
 mod tests {
     use super::{method_allowed, sanitize_remote_context, ResponseCache, CACHE_CAPACITY};
-    use crate::socket::server::protocol;
 
     fn app_state(
         fixture: &crate::service::test_fixture::ServiceFixture,
@@ -335,6 +334,7 @@ mod tests {
 
     #[tokio::test]
     async fn mesh_rpc_remote_lifecycle_rejects_unauthenticated_unpaired_and_read_only_peers() {
+        crate::ports::socket::register_test_stub();
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         for method in ["plan.task.remote_ack", "plan.task.remote_report"] {
@@ -399,6 +399,7 @@ mod tests {
 
     #[tokio::test]
     async fn relayed_remote_lifecycle_uses_the_verified_sender_access() {
+        crate::ports::socket::register_test_stub();
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         for (access, full) in [
@@ -449,46 +450,6 @@ mod tests {
         ] {
             assert!(!method_allowed(method), "{method}");
         }
-    }
-
-    #[test]
-    fn version_skew_error_serializes_untranslated_over_mesh_rpc() {
-        let error = protocol::version_skew_gate(2, 6, "recover --here")
-            .expect("older mesh client is refused");
-        let response = super::MeshRpcResponse {
-            result: None,
-            error: Some(error),
-        };
-
-        let wire = serde_json::to_value(&response).expect("mesh RPC response serializes");
-        assert_eq!(wire["error"]["code"], protocol::VERSION_SKEW);
-        assert_eq!(wire["error"]["data"]["type"], "version_skew");
-        assert_eq!(wire["error"]["data"]["client_protocol"], 2);
-        assert_eq!(wire["error"]["data"]["server_protocol"], 6);
-        assert_eq!(wire["error"]["data"]["recovery"], "recover --here");
-    }
-
-    #[test]
-    fn version_skew_mesh_request_parses_with_and_without_the_version_field() {
-        let versioned: super::MeshRpcRequest = serde_json::from_str(&format!(
-            r#"{{"method":"plan.get","params":null,"request_id":"r1","protocol_version":{}}}"#,
-            protocol::PROTOCOL_VERSION
-        ))
-        .unwrap();
-        assert!(protocol::version_skew_gate(
-            protocol::client_protocol_version(versioned.protocol_version.as_ref()),
-            protocol::PROTOCOL_VERSION,
-            protocol::RECOVERY_COMMAND,
-        )
-        .is_none());
-
-        let legacy: super::MeshRpcRequest =
-            serde_json::from_str(r#"{"method":"plan.get","params":null,"request_id":"r2"}"#)
-                .expect("a peer without the version field must not fail parsing");
-        assert_eq!(
-            protocol::client_protocol_version(legacy.protocol_version.as_ref()),
-            0
-        );
     }
 
     #[test]

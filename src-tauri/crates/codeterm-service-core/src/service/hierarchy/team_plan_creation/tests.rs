@@ -345,8 +345,8 @@ fn existing_team_second_plan_preserves_hard_refuse() {
 fn plan_entrypoints_use_shared_team_service_and_response() {
     let sources = [
         include_str!("../../../api/plan_routes/plans.rs"),
-        include_str!("../../../socket/server/plan.rs"),
-        include_str!("../../../socket/server/plan_goal.rs"),
+        include_str!("../../../../../codeterm-socket/src/server/plan.rs"),
+        include_str!("../../../../../codeterm-socket/src/server/plan_goal.rs"),
     ];
     for source in sources {
         assert!(source.contains("create_team_plan_for_"));

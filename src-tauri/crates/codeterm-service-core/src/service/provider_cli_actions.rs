@@ -5,7 +5,7 @@ use codeterm_plugin::provider_cli::ProviderCliStatus;
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum CliOperation {
+pub enum CliOperation {
     Install,
     Update,
 }
@@ -88,7 +88,7 @@ fn report_completion(svc: &ServiceContext, caller: &str, utility_tab: &str, summ
     }
 }
 
-pub(crate) fn launch(
+pub fn launch(
     svc: &ServiceContext,
     provider: &str,
     operation: CliOperation,

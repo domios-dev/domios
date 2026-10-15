@@ -18,7 +18,7 @@ pub(crate) use native_notification::native_notification;
 pub(crate) mod model_catalogue;
 mod plan_restore;
 mod progress;
-mod rest_api;
+pub mod rest_api;
 pub(crate) mod restart_stdio;
 mod restore_complete;
 mod servers;
@@ -45,8 +45,8 @@ pub(crate) use frontend_ready::{
 pub(crate) use logging::setup_logging;
 pub(crate) use plan_restore::restore as restore_plans;
 pub(crate) use progress::StartupStep;
-pub(crate) use rest_api::RestApiDiagnostic;
-pub(crate) use rest_api::{
+pub use rest_api::RestApiDiagnostic;
+pub use rest_api::{
     RestApiControl, RestApiControlState, RestApiPhase, RestApiRecovery, RestApiRuntimePolicy,
     RestApiStatus,
 };

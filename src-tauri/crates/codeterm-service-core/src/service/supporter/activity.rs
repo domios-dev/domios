@@ -17,7 +17,7 @@ const HOUR: i64 = 3_600_000;
 const DAY: i64 = 86_400_000;
 const COLD_ADAPTER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
-pub(crate) struct DecisionEvidence<'a> {
+pub struct DecisionEvidence<'a> {
     pub(crate) decision_point: Option<&'a str>,
     pub(crate) model_id: Option<String>,
     pub(crate) criteria_version: &'a str,
@@ -27,7 +27,7 @@ pub(crate) struct DecisionEvidence<'a> {
 }
 
 #[derive(Default)]
-struct Activity {
+pub struct Activity {
     calls: VecDeque<i64>,
     last_activity: Option<i64>,
     last_verdict: BTreeMap<String, Value>,
@@ -37,7 +37,7 @@ struct Activity {
     token_acl_notices: HashSet<String>,
 }
 
-pub(crate) struct SupporterRuntime {
+pub struct SupporterRuntime {
     activity: Mutex<Activity>,
     backoffs: Mutex<super::backoff::Backoffs>,
     journal: Mutex<Journal>,

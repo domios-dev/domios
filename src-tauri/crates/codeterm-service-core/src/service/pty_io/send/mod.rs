@@ -572,7 +572,7 @@ impl ServiceContext {
             .map_err(|error| error.ledger_message())
     }
 
-    pub(crate) fn send_text_input_delivery(
+    pub fn send_text_input_delivery(
         &self,
         tab_id: &str,
         text: &str,
@@ -1032,7 +1032,7 @@ impl ServiceContext {
         self.deliver_text_detached(tab_id, text, true);
     }
 
-    pub(crate) fn insert_text_detached(&self, tab_id: &str, text: &str) {
+    pub fn insert_text_detached(&self, tab_id: &str, text: &str) {
         self.deliver_text_detached(tab_id, text, false);
     }
 

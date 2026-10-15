@@ -27,7 +27,7 @@ fn is_canonical_checkout(cwd: &str, workspace_cwd: Option<&str>) -> bool {
 /// `/var/...` and the same directory resolved to `/private/var/...` name one
 /// place and differ as strings. Falls back to the textual compare only when a
 /// side cannot be resolved, so a not-yet-existing path still behaves.
-pub(crate) fn same_path(a: &str, b: &str) -> bool {
+pub fn same_path(a: &str, b: &str) -> bool {
     match (std::fs::canonicalize(a).ok(), std::fs::canonicalize(b).ok()) {
         (Some(a), Some(b)) => a == b,
         _ => ServiceContext::paths_equal(a, b),
@@ -38,7 +38,7 @@ fn git_is_primary_checkout(cwd: &Path) -> bool {
     git_checkout_paths(cwd).is_some_and(|(git_dir, common_dir)| git_dir == common_dir)
 }
 
-pub(crate) fn is_linked_worktree(cwd: &Path) -> bool {
+pub fn is_linked_worktree(cwd: &Path) -> bool {
     git_checkout_paths(cwd).is_some_and(|(git_dir, common_dir)| git_dir != common_dir)
 }
 
@@ -87,13 +87,13 @@ fn normalize_path(path: &str) -> PathBuf {
 /// check. Constructible only from the dispatch-time intent, so the task-level
 /// `TaskExecutionIntent` cannot be selected at these call sites by mistake.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LaneProtection {
+pub enum LaneProtection {
     Enforced,
     Waived,
 }
 
 impl LaneProtection {
-    pub(crate) fn for_dispatch_intent(intent: &crate::plan::ExecutionIntent) -> Self {
+    pub fn for_dispatch_intent(intent: &crate::plan::ExecutionIntent) -> Self {
         match intent {
             crate::plan::ExecutionIntent::ReadOnly => Self::Waived,
             crate::plan::ExecutionIntent::Mutating | crate::plan::ExecutionIntent::Unspecified => {
@@ -102,26 +102,26 @@ impl LaneProtection {
         }
     }
 
-    pub(crate) fn is_waived(self) -> bool {
+    pub fn is_waived(self) -> bool {
         matches!(self, Self::Waived)
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct ProvisionedWorkerLane {
+pub struct ProvisionedWorkerLane {
     canonical_cwd: String,
-    pub(crate) cwd: String,
-    pub(crate) branch: String,
+    pub cwd: String,
+    pub branch: String,
     base: String,
 }
 
 impl ProvisionedWorkerLane {
     #[cfg(test)]
-    pub(crate) fn base(&self) -> &str {
+    pub fn base(&self) -> &str {
         &self.base
     }
 
-    pub(crate) fn verify(&self) -> Result<WorkerLaneProvenance, String> {
+    pub fn verify(&self) -> Result<WorkerLaneProvenance, String> {
         verify_worker_lane(
             &self.canonical_cwd,
             &self.cwd,
@@ -131,7 +131,7 @@ impl ProvisionedWorkerLane {
         )
     }
 
-    pub(crate) fn cleanup(self) -> Result<(), String> {
+    pub fn cleanup(self) -> Result<(), String> {
         let worktree =
             super::lane_removal::remove_lane_worktree(&self.canonical_cwd, &self.cwd, true);
         let branch = run_git(&self.canonical_cwd, ["branch", "-D", &self.branch]);
@@ -145,17 +145,17 @@ impl ProvisionedWorkerLane {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkerLaneProvenance {
-    pub(crate) canonical_cwd: String,
-    pub(crate) worktree_path: String,
-    pub(crate) branch: String,
-    pub(crate) base: String,
+pub struct WorkerLaneProvenance {
+    pub canonical_cwd: String,
+    pub worktree_path: String,
+    pub branch: String,
+    pub base: String,
     /// The canonical branch the lane integrates into; None for a detached canonical HEAD.
-    pub(crate) destination: Option<String>,
+    pub destination: Option<String>,
 }
 
 impl ServiceContext {
-    pub(crate) fn provision_worker_lane_for_spawn(
+    pub fn provision_worker_lane_for_spawn(
         &self,
         params: &mut SpawnAgentParams,
         lane_label: &str,
@@ -178,7 +178,7 @@ impl ServiceContext {
         Ok(Some(lane))
     }
 
-    pub(crate) fn resolve_spawn_workspace_identity(
+    pub fn resolve_spawn_workspace_identity(
         &self,
         params: &SpawnAgentParams,
     ) -> Option<(String, String)> {
@@ -206,7 +206,7 @@ impl ServiceContext {
     /// Dispatcher-owned provisioning. Unlike `provision_worker_lane_for_spawn`
     /// it never no-ops: the dispatcher has already decided this checkout is the
     /// base to branch from, so inferring that again could only disagree.
-    pub(crate) fn provision_dispatch_worker_lane(
+    pub fn provision_dispatch_worker_lane(
         &self,
         params: &mut SpawnAgentParams,
         base_checkout: &str,
@@ -239,7 +239,7 @@ impl ServiceContext {
 
 /// Unconditional sibling-lane provisioning from canonical. Unlike
 /// `provision_worker_lane_for_spawn` it never no-ops on an already-shared cwd.
-pub(crate) fn provision_isolated_lane(
+pub fn provision_isolated_lane(
     canonical_cwd: &str,
     lane_label: &str,
 ) -> Result<ProvisionedWorkerLane, String> {
@@ -254,7 +254,7 @@ pub(crate) fn provision_isolated_lane_at_base(
     provision_lane_at_base(canonical_cwd, lane_label, base)
 }
 
-pub(crate) fn legacy_repository_identity(cwd: &str) -> Result<String, String> {
+pub fn legacy_repository_identity(cwd: &str) -> Result<String, String> {
     let remotes = git_value(cwd, ["remote"])?;
     let mut identities = Vec::new();
     for remote in remotes
@@ -277,7 +277,7 @@ pub(crate) fn legacy_repository_identity(cwd: &str) -> Result<String, String> {
     ))
 }
 
-pub(crate) fn repository_identities(cwd: &str) -> Result<Vec<String>, String> {
+pub fn repository_identities(cwd: &str) -> Result<Vec<String>, String> {
     let remotes = git_value(cwd, ["remote"])?;
     let mut identities = Vec::new();
     for remote in remotes
@@ -403,12 +403,12 @@ pub(crate) fn is_ancestor(cwd: &str, ancestor: &str, descendant: &str) -> bool {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RemoteLaneMerge {
-    pub(crate) lane_tip: String,
-    pub(crate) target_tip: String,
+pub struct RemoteLaneMerge {
+    pub lane_tip: String,
+    pub target_tip: String,
 }
 
-pub(crate) fn integrate_remote_lane_bundle(
+pub fn integrate_remote_lane_bundle(
     canonical_cwd: &str,
     bundle: &[u8],
     branch: &str,
@@ -505,7 +505,7 @@ pub(crate) fn integrate_remote_lane_bundle(
     })
 }
 
-struct RemoteLaneRefCleanup {
+pub struct RemoteLaneRefCleanup {
     cwd: String,
     reference: String,
 }
@@ -684,7 +684,7 @@ fn provision_lane_at_base(
     Ok(lane)
 }
 
-pub(crate) fn verify_worker_lane(
+pub fn verify_worker_lane(
     canonical_cwd: &str,
     worktree_path: &str,
     expected_branch: Option<&str>,
@@ -773,8 +773,8 @@ pub(crate) fn verify_worker_lane(
     })
 }
 
-#[cfg(test)]
-pub(crate) fn provision_lane_for_test(
+#[cfg(any(test, feature = "test-support"))]
+pub fn provision_lane_for_test(
     project_cwd: &str,
     lane_label: &str,
 ) -> Result<ProvisionedWorkerLane, String> {
@@ -830,7 +830,7 @@ fn git_success(project_cwd: &str, args: &[&str]) -> bool {
 
 // `git branch --show-current` needs git 2.22, and a GUI-launched daemon inherits
 // the launchd PATH, where Apple's bundled git can still be 2.21.
-pub(crate) fn current_branch(worktree_path: &str) -> Result<String, String> {
+pub fn current_branch(worktree_path: &str) -> Result<String, String> {
     let output = git_output(
         worktree_path,
         ["symbolic-ref", "--quiet", "--short", "HEAD"],
