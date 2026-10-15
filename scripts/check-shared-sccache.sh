@@ -224,6 +224,21 @@ printf 'PASS runner process credentials require both keys and never query vault\
 printf 'PASS a machine pinned to local storage ignores S3 credentials and restarts an S3 server\n'
 
 (
+  repo="$(ct_abs_path "$WORK/repo")"
+  alias_target="$(ct_abs_path "$WORK/drive-alias/target-check")"
+  outside="$(ct_abs_path "$WORK/outside")"
+  ct_repo_root() { printf '%s\n' "$repo"; }
+  git() {
+    [ "$1 $3 $4" = "-C rev-parse --show-toplevel" ] || return 128
+    case "$2" in "$alias_target") printf '%s\n' "$repo" ;; *) return 128 ;; esac
+  }
+  cygpath() { printf '%s\n' "$2"; }
+  CARGO_TARGET_DIR="$alias_target" ct_verify_target_dir
+  ! CARGO_TARGET_DIR="$outside" ct_verify_target_dir
+) > "$WORK/alias-target.log" 2>&1
+printf 'PASS a target reached through the stable drive alias belongs to the worktree; outside targets stay rejected\n'
+
+(
   printf 's3, name: sccache, prefix: /' > "$WORK/location"
   curl() { printf 200; }
   FIXTURE_SERVER_LIVE=0
