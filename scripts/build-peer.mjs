@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   LOCK_NAME, VERBS, findPeer, jobEvent, loadPeers, newJobId, outcomeOf, parseDispatchArgs, parseDuration,
-  parseJobLog, parseStatusOutput, pickPeer, remoteCommand, STATUS_MARKER, summarizeGateway,
+  parseJobLog, parseStatusOutput, pathPrefix, pickPeer, remoteCommand, STATUS_MARKER, summarizeGateway,
 } from './build-peer-lib.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -81,7 +81,7 @@ async function probePeer(peer, statusTabTitle) {
   }
   if (!tab) return { peer, status: null, error: 'not_setup' };
   const exec = await cliAsync(['tab', 'exec', '--mesh', peer.name, '--tab', tab.id, '--json',
-    '--timeout', String(PROBE_TIMEOUT_MS), './build.sh peer-status'], PROBE_TIMEOUT_MS + 10000);
+    '--timeout', String(PROBE_TIMEOUT_MS), `${pathPrefix(peer)}./build.sh peer-status`], PROBE_TIMEOUT_MS + 10000);
   let data;
   try {
     const body = parseJson(exec.stdout, 'tab exec');
