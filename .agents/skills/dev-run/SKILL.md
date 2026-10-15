@@ -236,6 +236,8 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 ## Troubleshooting log (grow this as things break)
 
+- **2026-10-15: DEV loads stale installed providers after a successful build.** The gateway releases its temporary build drive before launch; compiled workspace paths on that drive no longer exist. `dev-prep.mjs` passes the physical checkout as `CODETERM_DEV_WORKSPACE_ROOT` and resets `CODETERM_WEB_DIST` from that same root. Rebuild with `dev`, then verify the startup plugin paths name the physical checkout and the expected manifest version. Never repair this by copying installed plugins or keeping the build drive mapped.
+
 - **`dev-prebuilt` refuses a recorded build commit that differs from HEAD** —
   saved provenance belongs to another source revision. Run the normal `dev`
   operation with `--notify-tab`; require its fresh build/health receipt before
