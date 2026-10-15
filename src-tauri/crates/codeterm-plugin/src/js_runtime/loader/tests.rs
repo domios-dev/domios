@@ -712,6 +712,23 @@ fn default_roots_includes_user_dir() {
 }
 
 #[test]
+fn runtime_workspace_root_outlives_the_build_mapping_and_is_dev_only() {
+    let physical = PathBuf::from("/physical/checkout");
+    let compiled = Path::new("X:/");
+    let selected = selected_workspace_root(Some(compiled), Some(physical.clone()), true);
+    assert_eq!(selected.as_deref(), Some(physical.as_path()));
+    assert_eq!(
+        ordered_roots(selected.as_deref(), PathBuf::from("/data/plugins"), true),
+        vec![PathBuf::from("/data/plugins"), physical.join("plugins")]
+    );
+    assert_eq!(
+        selected_workspace_root(Some(compiled), Some(physical), false),
+        Some(compiled.to_path_buf())
+    );
+    assert_eq!(selected_workspace_root(None, None, true), None);
+}
+
+#[test]
 fn dev_root_order_keeps_workspace_plugins_authoritative() {
     let user = PathBuf::from("/data/plugins");
     let roots = ordered_roots(Some(Path::new("/repo")), user.clone(), true);

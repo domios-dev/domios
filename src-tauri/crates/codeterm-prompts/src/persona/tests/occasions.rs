@@ -2,12 +2,10 @@
 
 use codeterm_types::agent::role_kind::builtins;
 
-use crate::multiplexer::types::AgentRole;
-use crate::service::persona::occasion::{
-    compose, declared_fallback, guidance, Emission, Occasion, ALL,
-};
-use crate::service::persona::overlay::OverlayCatalog;
-use crate::service::role_preset;
+use crate::persona::occasion::{compose, declared_fallback, guidance, Emission, Occasion, ALL};
+use crate::persona::overlay::OverlayCatalog;
+use crate::role_preset;
+use codeterm_types::agent::AgentRole;
 
 const UNMATCHED_KIND: &str = "field-marshal";
 

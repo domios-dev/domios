@@ -55,7 +55,13 @@ pub fn chat_start_core(
     tab_id: String,
     subscription_id: String,
 ) -> Result<ChatStartResult, String> {
+    let started = std::time::Instant::now();
     let mut result = chat_start_inner(svc, tab_id.clone(), subscription_id)?;
+    log::debug!(
+        "[chat-attach] tab={tab_id} phase=inner_result elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    let evidence_at = std::time::Instant::now();
     if let Some(session_id) = result.source_session_id.as_deref() {
         if result
             .messages
@@ -65,10 +71,20 @@ pub fn chat_start_core(
             svc.note_session_conversation(&tab_id, session_id);
         }
     }
+    log::debug!(
+        "[chat-attach] tab={tab_id} phase=conversation_evidence elapsed_ms={}",
+        evidence_at.elapsed().as_millis()
+    );
+    let notice_at = std::time::Instant::now();
     codeterm_service_core::service::tab_chat::append_restore_notice(
         &svc.lifecycle_journal,
         &tab_id,
         result.messages.get_or_insert_default(),
+    );
+    log::debug!(
+        "[chat-attach] tab={tab_id} phase=restore_notice elapsed_ms={} total_ms={}",
+        notice_at.elapsed().as_millis(),
+        started.elapsed().as_millis()
     );
     Ok(result)
 }
