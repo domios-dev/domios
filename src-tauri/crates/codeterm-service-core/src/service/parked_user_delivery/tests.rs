@@ -99,8 +99,8 @@ use crate::service::delivery_error::{DeliveryError, SendOrigin};
 use crate::service::pending_delivery_payloads::user_sends::UserSendStore;
 use crate::service::test_fixture::ServiceFixture;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
-use tauri::{Listener, Manager};
+use std::time::Instant;
+use tauri::Listener;
 
 const FIRST_PAYLOAD: &str = " \topaque-a-41c9\r\n\u{03bb}\t ";
 const SECOND_PAYLOAD: &str = "\topaque-b-8d27\n\u{754c}  ";
