@@ -29,9 +29,9 @@ pub enum PlanReminderTarget {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct TimedPlanReminderTarget {
-    pub(crate) tab_id: String,
-    pub(crate) target: PlanReminderTarget,
+pub struct TimedPlanReminderTarget {
+    pub tab_id: String,
+    pub target: PlanReminderTarget,
 }
 
 #[derive(Clone, Debug, PartialEq)]
