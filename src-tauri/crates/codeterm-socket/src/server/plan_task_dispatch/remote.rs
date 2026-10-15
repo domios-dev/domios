@@ -68,7 +68,7 @@ fn remote_model_selection(
 
 pub(super) fn dispatch(
     params: &Option<Value>,
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -388,7 +388,7 @@ pub(super) fn dispatch(
 
 pub(crate) fn merge_lane(
     params: &Option<Value>,
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
@@ -626,7 +626,7 @@ enum PeerState {
 }
 
 fn select_peer(
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     target: &str,
 ) -> Result<
     (

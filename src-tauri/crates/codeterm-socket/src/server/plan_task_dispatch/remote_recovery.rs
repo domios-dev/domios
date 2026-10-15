@@ -117,7 +117,7 @@ pub(crate) fn recover_remote_attempts(
 
 pub(crate) fn respawn_remote(
     params: &Option<Value>,
-    app: &codeterm_service_core::app_runtime::AppHandle,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
     svc: &ServiceState,
     plan: &str,
     task: &str,

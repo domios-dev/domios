@@ -75,7 +75,7 @@ fn render_abort(abort: &UpdateAbort) -> String {
 
 /// Retains abort evidence and runtime status without raising a notification.
 pub struct AppFailureSink {
-    pub app: codeterm_service_core::app_runtime::AppHandle,
+    pub app: codeterm_host_runtime::app_runtime::AppHandle,
     pub update_state: codeterm_service_core::UpdateStateHandle,
 }
 
@@ -86,7 +86,7 @@ impl UpdateFailureSink for AppFailureSink {
 
         self.update_state.lock().set_error(abort.cause.clone());
 
-        codeterm_service_core::events::emit_everywhere(
+        codeterm_host_runtime::events::emit_everywhere(
             &self.app,
             "update-failed",
             serde_json::json!({

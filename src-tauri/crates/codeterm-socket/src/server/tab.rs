@@ -1,6 +1,6 @@
 //! `tab.*` and `agents.list_providers` JSON-RPC handlers.
 
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::Value;
 
 use codeterm_service_core::multiplexer::commands::MuxState;

@@ -222,7 +222,7 @@ fn report_general_agent_frontend_deadline(
 
 /// Start socket server, REST API server, and cron scheduler.
 pub(crate) fn start_servers(
-    app: &codeterm_service_core::app_runtime::App,
+    app: &codeterm_host_runtime::app_runtime::App,
     states: &AppStates,
     service_state: &ServiceState,
 ) {

@@ -4,19 +4,13 @@ use codeterm_service_core::ports::host::{Shell, ShellError, UiEvents, WebviewReq
 use serde_json::Value;
 use tauri::{Emitter, Manager};
 
-type AppHandle = codeterm_service_core::app_runtime::AppHandle;
+type AppHandle = codeterm_host_runtime::app_runtime::AppHandle;
 
 pub struct TauriUiEvents(pub AppHandle);
 
 impl UiEvents for TauriUiEvents {
     fn emit(&self, event: &str, payload: Value) {
-        let _ = self.0.emit(event, &payload);
-        if let Some(events) = self.0.try_state::<codeterm_events::EventBroadcasterState>() {
-            events.publish_generic(
-                event,
-                codeterm_events::web_safe_event_payload(event, payload),
-            );
-        }
+        codeterm_host_runtime::events::emit_everywhere(&self.0, event, payload);
     }
 
     fn emit_native(&self, event: &str, payload: Value) {

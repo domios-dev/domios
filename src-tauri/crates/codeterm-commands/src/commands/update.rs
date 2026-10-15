@@ -1,4 +1,4 @@
-use codeterm_service_core::app_runtime::AppHandle;
+use codeterm_host_runtime::app_runtime::AppHandle;
 
 use codeterm_service_core::UpdateStateHandle;
 
@@ -39,7 +39,7 @@ pub async fn check_for_update(
     };
 
     if info.update_available {
-        codeterm_service_core::events::emit_everywhere(&app, "update-available", &info);
+        codeterm_host_runtime::events::emit_everywhere(&app, "update-available", &info);
     }
 
     let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;
