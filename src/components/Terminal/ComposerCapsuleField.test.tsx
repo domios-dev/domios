@@ -12,7 +12,7 @@ test("a failed upload's Remove control is reachable without hover and fires once
   const root = createRoot(host);
   const onRemove = vi.fn();
   const upload: ComposerUpload = { id: 1, name: "bad.mp4", label: "video1", blob: new Blob(["x"]), state: "failed", failure: { message: "Unsupported video format", retryable: false } };
-  const registry = { video1: { kind: "video" as const, path: "", uploadId: 1 } };
+  const registry = { video1: { label: "video1", kind: "video" as const, path: "", uploadId: 1 } };
   try {
     await act(async () => root.render(
       <ComposerCapsuleField tabId="t" value={"\u2068\u2007\u2007\u00a0video1\u00a0\u2069"} registry={registry} active textareaRef={{ current: null }} marginPx={0} onRemove={onRemove} uploads={[upload]}>
