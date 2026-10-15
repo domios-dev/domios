@@ -423,7 +423,7 @@ impl ServiceContext {
         crate::startup::boot_timing::mark(tab_id, None, "finish_tree_done");
         // A boot stage is the only moment a tab's agent liveness can change on
         // the launch side; the restore wave settles here rather than on a tick.
-        self.settle_restore_report();
+        self.schedule_restore_report();
         crate::startup::boot_timing::mark(tab_id, None, "finish_restore_done");
         if stage == BootStage::ShellReady {
             self.resume_exited_member_on_shell_ready(tab_id);
