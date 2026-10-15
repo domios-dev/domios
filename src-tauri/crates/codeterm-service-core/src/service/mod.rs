@@ -12,6 +12,8 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
+mod construct;
+pub use construct::build_service_context;
 pub mod account;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;

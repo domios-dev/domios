@@ -219,7 +219,7 @@ impl UserPathStore for SystemUserPathStore {
     fn read(&self) -> Option<String> {
         let mut query = std::process::Command::new("reg");
         query.args(["query", "HKCU\\Environment", "/v", "Path"]);
-        crate::process_util::no_window_std(&mut query);
+        codeterm_service_core::process_util::no_window_std(&mut query);
         let raw = match query.output() {
             Ok(output) => String::from_utf8_lossy(&output.stdout).into_owned(),
             Err(_) => String::new(),
@@ -246,7 +246,7 @@ impl UserPathStore for SystemUserPathStore {
             value,
             "/f",
         ]);
-        crate::process_util::no_window_std(&mut add);
+        codeterm_service_core::process_util::no_window_std(&mut add);
         let output = add.output()?;
         if output.status.success() {
             return Ok(());
