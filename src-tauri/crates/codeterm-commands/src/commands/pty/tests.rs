@@ -6,11 +6,19 @@ async fn protected_frontend_attach_reuses_the_backend_launch_claim() {
     mux.get_tab_mut(&tab_id).unwrap().protected = true;
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
     let svc = std::sync::Arc::new(fixture.service.clone());
-    let (backend, _) = svc
-        .pty
-        .lock()
-        .spawn(None, None, 80, 24, Default::default())
-        .unwrap();
+    let (backend, _) = {
+        let gate = svc.pty.lock().spawn_gate();
+        codeterm_service_core::pty::manager::build_session(
+            gate,
+            None,
+            None,
+            80,
+            24,
+            Default::default(),
+        )
+        .map(|built| svc.pty.lock().register_session(None, built))
+    }
+    .unwrap();
     let claim = svc.pty_ownership.acquire(&tab_id);
     let selected = svc.link_pty_with_claim(&claim, &tab_id, backend.clone(), true);
     assert!(selected.linked);
@@ -432,19 +440,25 @@ mod spawn_pty_restore_tests {
     async fn restored_agent_relaunches_once_when_frontend_attaches_first() {
         let (fixture, tab_id, resume_context) = restored_fixture();
         let backend_pty_id = "backend-materialized-restored-pty";
-        fixture
-            .service
-            .pty
-            .lock()
-            .spawn_with_id(
-                Some(backend_pty_id.into()),
+        {
+            let gate = fixture.service.pty.lock().spawn_gate();
+            codeterm_service_core::pty::manager::build_session(
+                gate,
                 None,
                 None,
                 80,
                 24,
                 Default::default(),
             )
-            .expect("backend materialization creates a live PTY");
+            .map(|built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(backend_pty_id.into()), built)
+            })
+        }
+        .expect("backend materialization creates a live PTY");
         {
             let mut mux = fixture.service.mux.write();
             mux.link_pty(&tab_id, backend_pty_id.into());
@@ -499,12 +513,25 @@ mod spawn_pty_restore_tests {
     async fn manual_restart_claim_prevents_frontend_remount_restore_launch() {
         let (fixture, tab_id, resume_context) = restored_fixture();
         let pty_id = "manual-restart-restored-pty";
-        fixture
-            .service
-            .pty
-            .lock()
-            .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
-            .expect("manual restart owns a live PTY");
+        {
+            let gate = fixture.service.pty.lock().spawn_gate();
+            codeterm_service_core::pty::manager::build_session(
+                gate,
+                None,
+                None,
+                80,
+                24,
+                Default::default(),
+            )
+            .map(|built| {
+                fixture
+                    .service
+                    .pty
+                    .lock()
+                    .register_session(Some(pty_id.into()), built)
+            })
+        }
+        .expect("manual restart owns a live PTY");
         {
             let mut mux = fixture.service.mux.write();
             mux.link_pty(&tab_id, pty_id.into());
