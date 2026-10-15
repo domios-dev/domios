@@ -78,7 +78,10 @@ function makeHarness() {
   const parentCli = path.join(parentBin, "codeterm");
   const devCli = path.join(devBin, "codeterm");
   const fixtureBuild = path.join(dir, "build.sh");
-  writeFileSync(fixtureBuild, readFileSync(buildPath, "utf8").replace('\ncase "$CMD" in\n  fmt-check|', '\nenter_cargo_gateway() { :; }\ncase "$CMD" in\n  fmt-check|'));
+  const buildSource = readFileSync(buildPath, "utf8").replaceAll("\r\n", "\n");
+  const gateway = 'enter_cargo_gateway() {\n  enter_build_gateway "$@"\n  ct_configure_sccache\n}';
+  assert.ok(buildSource.includes(gateway), "build fixture must stub the Cargo gateway");
+  writeFileSync(fixtureBuild, buildSource.replace(gateway, 'enter_cargo_gateway() { :; }'));
   writeFakeCli(parentCli, parentRecord);
   writeFakeCli(devCli, devRecord);
   return {
@@ -203,6 +206,33 @@ test("qa_report_counts_executed_cargo_targets_without_promoting_empty_runs", () 
       const result = runQa(h, label, ["printf '%s\\n' " + shellQuote(output)]);
       assert.equal(result.status, expected, label + "\n" + result.stdout + result.stderr);
       assert.equal(result.stdout.includes("ZERO TESTS RAN"), expected === 1, label);
+    }
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("qa_report_uses_runner_summaries_instead_of_incidental_zero_tests", () => {
+  const h = makeHarness();
+  const cases = [
+    ["cronfail", "running 5 tests\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\nrunning 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out", 0],
+    ["catalogue", "scripts/example.test.mjs: 0 tests\nTest catalogue validation passed", 0],
+    ["libtest_inventory", "inventory: 0 tests\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out", 0],
+    ["nextest", "inventory: 0 tests\n     Summary [ 0.052s] 5 tests run: 5 passed, 0 skipped", 0],
+    ["node", "# inventory: 0 tests\n# tests 5\n# pass 5\n# fail 0", 0],
+    ["nextest_empty", "     Summary [ 0.052s] 0 tests run: 0 passed, 5 skipped", 1],
+    ["node_empty", "# tests 0\n# pass 0\n# fail 0", 1],
+    ["libtest_empty", "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out", 1],
+  ];
+  try {
+    for (const [label, output, expected] of cases) {
+      const result = runQa(h, label, ["printf '%s\\n' " + shellQuote(output)]);
+      assert.equal(result.status, expected, label + "\n" + result.stdout + result.stderr);
+      const reportRoot = path.join(h.dir, "reports");
+      const runDir = readdirSync(reportRoot).find((name) => name.startsWith(label + "-"));
+      const summary = readFileSync(path.join(reportRoot, runDir, "summary.txt"), "utf8");
+      assert.equal(summary.includes("ZERO TESTS RAN"), expected === 1, label);
+      assert.ok(summary.includes(`QA ${label}: ${expected === 0 ? "PASS (1/1 ok)" : "FAIL (0/1 ok)"}`), summary);
     }
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
