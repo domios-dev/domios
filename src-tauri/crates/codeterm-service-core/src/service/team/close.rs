@@ -67,7 +67,7 @@ pub fn close_team_with_state_change(
     )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(super) fn close_team_with_state_change_using<F>(
     mux: &mut MultiplexerState,
     events: &codeterm_events::EventBroadcaster,
