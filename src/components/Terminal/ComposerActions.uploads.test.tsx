@@ -1,3 +1,5 @@
+import { ComposerIssuesProvider } from "./ComposerIssuesContext";
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
@@ -15,11 +17,12 @@ it("keeps a failed picker attachment local and retries it into the attachment si
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<ComposerActions onAttach={attach} onError={error} onSend={() => {}} onSendWithAttachments={() => {}} sendDisabled={false} hasText><textarea /></ComposerActions>));
+    await act(async () => root.render(<ComposerIssuesProvider><AgentRuntimeBanner state={null} onRetry={() => {}} /><ComposerActions onAttach={attach} onError={error} onSend={() => {}} onSendWithAttachments={() => {}} sendDisabled={false} hasText><textarea /></ComposerActions></ComposerIssuesProvider>));
     const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
     Object.defineProperty(input, "files", { value: [new File(["photo"], "photo.png", { type: "image/png" })] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
     expect(error).not.toHaveBeenCalled(); expect(attach).not.toHaveBeenCalled();
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="1 attachment failed"]')!.click());
     const retry = host.querySelector<HTMLButtonElement>('[aria-label="Retry attachment photo.png"]')!;
     expect(retry).toBeTruthy();
     await act(async () => retry.click());
@@ -35,9 +38,10 @@ it("a failed voice upload retries through the voice send handler once", async ()
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<ComposerActions onAttach={() => {}} onError={error} onSend={() => {}} onSendWithAttachments={send} sendDisabled={false} hasText={false}><textarea /></ComposerActions>));
+    await act(async () => root.render(<ComposerIssuesProvider><AgentRuntimeBanner state={null} onRetry={() => {}} /><ComposerActions onAttach={() => {}} onError={error} onSend={() => {}} onSendWithAttachments={send} sendDisabled={false} hasText={false}><textarea /></ComposerActions></ComposerIssuesProvider>));
     await act(async () => { expect(await voiceConfig.persistBlob!(new Blob(["voice"], { type: "audio/webm" }), "voice.webm")).toBe(""); });
     expect(error).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled();
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="1 attachment failed"]')!.click());
     const retry = host.querySelector<HTMLButtonElement>('[aria-label="Retry attachment voice.webm"]')!;
     await act(async () => retry.click());
     expect(send).toHaveBeenCalledExactlyOnceWith(["/uploads/voice.webm"]);

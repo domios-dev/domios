@@ -1,6 +1,9 @@
+import { MAX_TEMP_FILE_DECODED_BYTES } from "../../../generated/config/attachmentLimits";
+
 export interface UploadFailure {
   message: string;
   retryable: boolean;
+  status?: number;
 }
 
 export function classifyUploadFailure(error: unknown): UploadFailure {
@@ -8,7 +11,7 @@ export function classifyUploadFailure(error: unknown): UploadFailure {
   const status = typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
   const interrupted = error instanceof TypeError || (error instanceof Error && ["AbortError", "NotReadableError"].includes(error.name));
   const multipart = status === 400 && /multipart\/form-data/i.test(message);
-  return { message, retryable: interrupted || multipart || status === 408 || status === 429 || (typeof status === "number" && status >= 500) };
+  return { message, status: typeof status === "number" ? status : undefined, retryable: interrupted || multipart || status === 408 || status === 429 || (typeof status === "number" && status >= 500) };
 }
 
 export interface AttachmentUpload {
@@ -23,11 +26,10 @@ export function canRetryUpload(upload: AttachmentUpload): boolean {
   return upload.state === "failed" && upload.failure?.retryable === true;
 }
 
-export type UploadCardPresence = "persistent" | "hover" | "announce";
+export type UploadCardPresence = "hidden" | "hover" | "announce";
 
-/** A failed upload always shows its card so touch users can read it and tap Remove; otherwise only hover reveals it. */
 export function uploadCardPresence(upload: Pick<AttachmentUpload, "state">, hovered: boolean): UploadCardPresence {
-  if (upload.state === "failed") return "persistent";
+  if (upload.state === "failed") return "hidden";
   return hovered ? "hover" : "announce";
 }
 
@@ -43,6 +45,7 @@ export function createAttachmentUploads(dependencies: {
   const publish = () => { if (active) dependencies.publish([...uploads]); };
   async function run(upload: AttachmentUpload, attach = true) {
     try {
+      if (upload.blob.size > MAX_TEMP_FILE_DECODED_BYTES) throw Object.assign(new Error("Attachment exceeds the upload size limit"), { status: 413 });
       const bytes = await upload.blob.arrayBuffer();
       if (bytes.byteLength !== upload.blob.size) throw new TypeError("Attachment bytes are unavailable; retry the upload");
       const snapshot = new Blob([bytes], { type: upload.blob.type });

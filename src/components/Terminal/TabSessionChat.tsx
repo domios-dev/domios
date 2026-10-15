@@ -1,5 +1,6 @@
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
@@ -179,7 +180,11 @@ function OriginPluginAvatar({ pluginId, iconSvg }: { pluginId: string; iconSvg?:
   );
 }
 
-export function TabSessionChat({
+export function TabSessionChat(props: Props) {
+  return <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
+}
+
+function TabSessionChatBody({
   inputStatus,
   tabId,
   api,
@@ -317,8 +322,8 @@ export function TabSessionChat({
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
   const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null;
-  const runtimeReplacement = runtimeUnavailable
-    ? <AgentRuntimeBanner tabId={tabId} state={runtime.state} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} /> : undefined;
+  const runtimeBadge = <AgentRuntimeBanner tabId={tabId} state={runtime.state} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} />;
+  const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
@@ -1027,7 +1032,7 @@ export function TabSessionChat({
         currentPtyId={currentPtyId}
         chatBackend={effectiveChatBackend}
         isActive={isActive}
-        promptDock={runtimeReplacement}
+        promptDock={runtimeBadge}
         pendingPrompt={pendingPrompt}
         attachments={attachments}
         addAttachments={addAttachments}
