@@ -1,4 +1,4 @@
-//! File + stderr logging setup with rotation.
+//! Bounded file and stderr logging with independent writer threads.
 
 use codeterm_service_core::paths;
 
@@ -21,22 +21,6 @@ fn rotate(log_dir: &std::path::Path) {
         );
     }
     let _ = fs::rename(&file, log_dir.join("codeterm.log.1"));
-}
-
-/// Stderr that never fails: an app restart inherits its launcher's stderr pipe, and
-/// once that closes fern's fallback write panics and aborts the whole process.
-struct LossyStderr;
-
-impl std::io::Write for LossyStderr {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let _ = std::io::stderr().write_all(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        let _ = std::io::stderr().flush();
-        Ok(())
-    }
 }
 
 /// A log sink that rotates itself. `fern::log_file` hands back a plain handle
@@ -82,7 +66,7 @@ impl std::io::Write for RotatingLog {
     }
 }
 
-/// Initialize file + stderr logging with rotation.
+/// Initialize independent bounded file and stderr sinks.
 pub(crate) fn setup_logging() {
     codeterm_service_core::flow_trace::init();
     use std::fs;
@@ -98,28 +82,34 @@ pub(crate) fn setup_logging() {
         log::LevelFilter::Info
     };
 
-    let mut dispatch = fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{} {} {}] {}",
-                chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
-                record.level(),
-                record.target(),
-                message
-            ))
-        })
-        .level(level)
-        .level_for("codeterm::update", log::LevelFilter::Info)
-        .level_for("codeterm::api::updater_routes", log::LevelFilter::Info)
-        .chain(Box::new(LossyStderr) as Box<dyn std::io::Write + Send>);
+    let stderr = codeterm_util::nonblocking_log::NonBlockingLog::spawn(
+        "stderr",
+        std::io::stderr(),
+        64,
+        Vec::new(),
+    )
+    .ok();
+    let mut file_open_err = None;
+    let file = match RotatingLog::open(&log_dir).and_then(|writer| {
+        codeterm_util::nonblocking_log::NonBlockingLog::spawn(
+            "file",
+            writer,
+            1024,
+            stderr
+                .as_ref()
+                .map(|sink| vec![("stderr", sink.drops())])
+                .unwrap_or_default(),
+        )
+    }) {
+        Ok(sink) => Some(sink),
+        Err(error) => {
+            file_open_err = Some(error.to_string());
+            None
+        }
+    };
+    let mut dispatch = logging_dispatch(stderr, file).level(level);
     for target in THIRD_PARTY_WARN_TARGETS {
         dispatch = dispatch.level_for(*target, log::LevelFilter::Warn);
-    }
-
-    let mut file_open_err: Option<String> = None;
-    match RotatingLog::open(&log_dir) {
-        Ok(f) => dispatch = dispatch.chain(Box::new(f) as Box<dyn std::io::Write + Send>),
-        Err(e) => file_open_err = Some(format!("{}", e)),
     }
 
     if let Err(e) = dispatch.apply() {
@@ -141,6 +131,36 @@ pub(crate) fn setup_logging() {
         );
     }
 }
+
+fn logging_dispatch(
+    stderr: Option<codeterm_util::nonblocking_log::NonBlockingLog>,
+    file: Option<codeterm_util::nonblocking_log::NonBlockingLog>,
+) -> fern::Dispatch {
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
+                record.level(),
+                record.target(),
+                message,
+            ))
+        })
+        .level_for("codeterm::update", log::LevelFilter::Info)
+        .level_for("codeterm::api::updater_routes", log::LevelFilter::Info)
+        .chain(fern::Output::call(move |record| {
+            let bytes: std::sync::Arc<[u8]> = format!("{}\n", record.args()).into_bytes().into();
+            if let Some(sink) = &stderr {
+                sink.submit(bytes.clone());
+            }
+            if let Some(sink) = &file {
+                sink.submit(bytes);
+            }
+        }))
+}
+
+#[cfg(test)]
+mod sink_tests;
 
 #[cfg(test)]
 mod tests {
