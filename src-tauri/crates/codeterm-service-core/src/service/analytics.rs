@@ -96,7 +96,7 @@ impl ServiceContext {
                 );
                 let worker = tokio::task::spawn_blocking(move || {
                     let reader = Arc::new(move |name: &str| {
-                        tauri::async_runtime::block_on(async {
+                        crate::async_runtime::block_on(async {
                             let store = secrets.read().await;
                             store
                                 .get(name)

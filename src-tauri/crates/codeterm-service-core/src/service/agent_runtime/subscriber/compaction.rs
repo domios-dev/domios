@@ -63,7 +63,7 @@ pub(super) fn schedule(
     epoch: u64,
     thread: &str,
     item: &str,
-) -> Option<tauri::async_runtime::JoinHandle<()>> {
+) -> Option<crate::async_runtime::JoinHandle<()>> {
     let expected = session.context.lock().clone();
     if expected.epoch != epoch
         || expected.thread_id.as_deref() != Some(thread)
@@ -96,7 +96,7 @@ pub(super) fn schedule(
                 );
             }
         });
-    Some(tauri::async_runtime::spawn(task))
+    Some(crate::async_runtime::spawn(task))
 }
 
 async fn restore(

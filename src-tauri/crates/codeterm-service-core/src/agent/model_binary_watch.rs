@@ -150,7 +150,7 @@ pub fn on_catalogue_input_changed(provider: Arc<dyn AgentProvider>) {
 
 pub fn refresh_agent_provider(provider: Arc<dyn AgentProvider>, force: bool) {
     install(provider.clone());
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         let _ = if force {
             model_catalog::refresh_after_catalogue_input_change(provider.clone()).await
         } else {

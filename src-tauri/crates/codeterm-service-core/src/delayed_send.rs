@@ -839,7 +839,7 @@ pub async fn send_message_now(svc: ServiceState, id: String) -> Result<(), Strin
 }
 
 pub fn start_scheduler(svc: ServiceState) {
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
             let due = match svc

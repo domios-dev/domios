@@ -23,7 +23,7 @@ impl crate::service::ServiceContext {
         let service = self.clone();
         let tab_id = tab_id.to_string();
         let send_id = send_id.to_string();
-        tauri::async_runtime::spawn(async move {
+        crate::async_runtime::spawn(async move {
             if wait.completed().await {
                 service.wake_user_owner(&tab_id, UserWake::Readiness);
             } else if let Some(status) = service

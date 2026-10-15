@@ -66,7 +66,7 @@ module.exports = {
         .agent_registry
         .provider_arc(PROVIDER)
         .unwrap();
-    let (process, peer) = tauri::async_runtime::block_on(async {
+    let (process, peer) = crate::async_runtime::block_on(async {
         let (host, peer) = tokio::io::duplex(65536);
         let (reader, writer) = tokio::io::split(host);
         (
@@ -245,7 +245,7 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
         .try_start(&tab_id, PAYLOAD, None)
         .unwrap();
     let expected_send = pending.send_id.clone();
-    let peer = tauri::async_runtime::spawn(async move {
+    let peer = crate::async_runtime::spawn(async move {
         let mut peer = BufReader::new(peer);
         let mut line = String::new();
         tokio::time::timeout(Duration::from_secs(2), peer.read_line(&mut line))
@@ -279,7 +279,7 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
             .unwrap()
     })
     .unwrap();
-    let _peer = tauri::async_runtime::block_on(peer).unwrap();
+    let _peer = crate::async_runtime::block_on(peer).unwrap();
     assert_eq!(
         fixture
             .service
@@ -310,7 +310,7 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
     let expected_text = crate::service::messenger::Messenger::from(envelope.clone())
         .routed_frame(PAYLOAD)
         .to_message();
-    let peer = tauri::async_runtime::spawn(async move {
+    let peer = crate::async_runtime::spawn(async move {
         let mut peer = BufReader::new(peer);
         let mut line = String::new();
         tokio::time::timeout(Duration::from_secs(2), peer.read_line(&mut line))
@@ -340,7 +340,7 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
         )
         .unwrap()
         .0;
-    let (mut peer, send_id) = tauri::async_runtime::block_on(peer).unwrap();
+    let (mut peer, send_id) = crate::async_runtime::block_on(peer).unwrap();
     assert!(matches!(delivery, Delivery::ChatBackend { message_id } if message_id == send_id));
     assert_eq!(
         fixture

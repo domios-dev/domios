@@ -13,7 +13,7 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
     sidecar.client.release_thread(&sidecar.thread.lock());
     let (discovery_tx, mut discovery_rx) = tokio::sync::mpsc::channel::<Frame>(128);
     let (discovery_svc, discovery_tab, discovery_weak) = (svc.clone(), tab.clone(), weak.clone());
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         while let Some(frame) = discovery_rx.recv().await {
             let Some(sidecar) = discovery_weak.upgrade() else {
                 break;
@@ -25,7 +25,7 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
             discover(&discovery_svc, &discovery_tab, &sidecar, &current, &frame).await;
         }
     });
-    tauri::async_runtime::spawn(async move {
+    crate::async_runtime::spawn(async move {
         loop {
             let (frame, discovery) = tokio::select! {
                 _ = death.changed() => {
