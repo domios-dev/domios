@@ -209,7 +209,7 @@ impl CronStore {
         }
     }
 
-    pub(crate) fn unavailable_reason(&self) -> Option<&str> {
+    pub fn unavailable_reason(&self) -> Option<&str> {
         match &self.backend {
             Backend::Unavailable(reason) => Some(reason),
             Backend::Storage(storage) => storage.unavailable.as_deref(),
@@ -289,7 +289,7 @@ impl CronStore {
         })
     }
 
-    pub(crate) fn mark_scheduler_unavailable(&mut self, reason: String) {
+    pub fn mark_scheduler_unavailable(&mut self, reason: String) {
         match &mut self.backend {
             Backend::Storage(storage) => {
                 storage.unavailable.get_or_insert(reason);

@@ -16,9 +16,8 @@ use codeterm_service_core::session::store::SessionStore;
 use codeterm_service_core::session::SessionState;
 use codeterm_service_core::startup::StorageAuthority;
 use codeterm_service_core::{
-    agent, keepawake, mesh, service, AgentTrackerState, KeepAwakeStateHandle, MeshStateHandle,
-    OutputBufferState, PtyState, ReportStoreState, ResizeOwnerState, ScreenStateHandle,
-    UpdateStateHandle,
+    agent, keepawake, mesh, service, AgentTrackerState, MeshStateHandle, OutputBufferState,
+    PtyState, ReportStoreState, ResizeOwnerState, ScreenStateHandle, UpdateStateHandle,
 };
 
 use codeterm_service_core::startup::AppStates;
@@ -396,7 +395,7 @@ pub(crate) fn init_states() -> AppStates {
             .all_tabs()
             .filter(|tab| tab.restored_from_snapshot)
         {
-            service::supporter_notify::record_launch(&tab.id, true);
+            codeterm_service_core::service::supporter_record_launch(&tab.id, true);
         }
     }
     let restored_bindings = restored_role_bindings(&mux_state_inner);
