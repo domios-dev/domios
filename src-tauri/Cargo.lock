@@ -1463,6 +1463,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-lanes"
+version = "0.0.0"
+dependencies = [
+ "codeterm-paths",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-repowatch",
+ "codeterm-util",
+ "log",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.2",
+ "url",
+ "uuid",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "codeterm-local-preview"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "codeterm-types",
+ "dirs 6.0.0",
+ "libc",
+ "log",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "url",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "codeterm-local-recording"
 version = "1.6.2"
 dependencies = [
@@ -1833,6 +1870,8 @@ dependencies = [
  "codeterm-input-macos",
  "codeterm-input-windows",
  "codeterm-keepawake",
+ "codeterm-lanes",
+ "codeterm-local-preview",
  "codeterm-local-recording",
  "codeterm-mem",
  "codeterm-mem-store",
@@ -1853,6 +1892,7 @@ dependencies = [
  "codeterm-usage",
  "codeterm-util",
  "codeterm-wire",
+ "codeterm-worker-services",
  "conpty",
  "crash-context",
  "crash-handler",
@@ -2035,6 +2075,24 @@ dependencies = [
  "serde",
  "serde_json",
  "ts-rs",
+]
+
+[[package]]
+name = "codeterm-worker-services"
+version = "0.0.0"
+dependencies = [
+ "codeterm-pty",
+ "codeterm-types",
+ "log",
+ "parking_lot",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "url",
+ "uuid",
 ]
 
 [[package]]

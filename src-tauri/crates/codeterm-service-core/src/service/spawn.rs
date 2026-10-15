@@ -190,26 +190,6 @@ pub struct AgentSpawnSpec {
     pub(crate) launch_purpose: super::unattended_launch::LaunchPurpose,
 }
 
-/// Explicit `workspace_id` wins, then the spawn lineage: declared parent, then
-/// the caller's own tab. The focused workspace is a last resort for callers with
-/// no tab identity (UI clicks, external API) — an agent must never land its
-/// children in whatever workspace the user happens to be looking at.
-pub fn resolve_spawn_workspace_id(
-    requested_workspace_id: Option<String>,
-    parent_tab_id: Option<&str>,
-    caller_tab_id: Option<&str>,
-    workspace_of_tab: impl Fn(&str) -> Option<String>,
-    active_workspace_id: Option<String>,
-    fallback_workspace_id: Option<String>,
-) -> Result<String, String> {
-    requested_workspace_id
-        .or_else(|| parent_tab_id.and_then(&workspace_of_tab))
-        .or_else(|| caller_tab_id.and_then(&workspace_of_tab))
-        .or(active_workspace_id)
-        .or(fallback_workspace_id)
-        .ok_or_else(|| "No workspace found".to_string())
-}
-
 pub(crate) fn should_default_agent_tab_to_chat(
     visibility: TabVisibility,
     provider_supports_chat_ui: bool,
@@ -1164,3 +1144,5 @@ mod launch_marker_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use spawn_tab_identity::prepare_tab_identity as prepare_tab_identity_for_test;
+
+pub use codeterm_lanes::spawn_identity::resolve_spawn_workspace_id;

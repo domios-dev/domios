@@ -5,10 +5,8 @@ use crate::service::local_preview::html_preview::{
     LocalPreviewFiles,
 };
 
-pub mod html_preview;
-mod policy;
-mod references;
-use policy::PreviewPolicy;
+use codeterm_local_preview::PreviewPolicy;
+pub use codeterm_local_preview::{html_preview, references};
 
 #[derive(PartialEq)]
 struct TabAuthority {
@@ -81,6 +79,3 @@ pub fn check(
         |path, canonical| policy.authorize(path, canonical),
     ))
 }
-
-#[cfg(test)]
-mod tests;

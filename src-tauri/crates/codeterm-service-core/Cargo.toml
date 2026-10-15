@@ -10,6 +10,9 @@ workspace = true
 name = "codeterm_service_core"
 
 [dependencies]
+codeterm-worker-services = { path = "../codeterm-worker-services" }
+codeterm-local-preview = { path = "../codeterm-local-preview" }
+codeterm-lanes = { path = "../codeterm-lanes" }
 codeterm-agent-detect = { path = "../codeterm-agent-detect" }
 codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-repowatch = { path = "../codeterm-repowatch" }
@@ -128,7 +131,7 @@ default = ["embeddings"]
 # link time. Declared in the macOS target section below.
 embeddings = ["codeterm-mem/embeddings", "dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 dev-updater-allowlocal = []
-test-support = ["codeterm-plugin/test-support", "codeterm-plan/test-support", "codeterm-storage/test-support", "codeterm-sentinel/test-support", "codeterm-decision/decision-fixture-clock"]
+test-support = ["codeterm-worker-services/test-support","codeterm-lanes/test-support","codeterm-plugin/test-support", "codeterm-plan/test-support", "codeterm-storage/test-support", "codeterm-sentinel/test-support", "codeterm-decision/decision-fixture-clock"]
 
 # Low-level syscalls (e.g. fd-limit raise in fdlimit.rs) on all Unix incl Linux.
 [target.'cfg(unix)'.dependencies]
@@ -156,6 +159,8 @@ clipboard-win = "5"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
+codeterm-worker-services = { path = "../codeterm-worker-services", features = ["test-support"] }
+codeterm-lanes = { path = "../codeterm-lanes", features = ["test-support"] }
 codeterm-plugin = { path = "../codeterm-plugin", features = ["test-support"] }
 codeterm-sentinel = { path = "../codeterm-sentinel", features = ["test-support"] }
 codeterm-decision = { path = "../codeterm-decision", features = ["decision-fixture-clock"] }
