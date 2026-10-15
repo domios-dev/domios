@@ -233,6 +233,11 @@ test('auto routing reads each peer status over mesh and refuses with 75 when non
   const refused = busy.dispatch('check-queue', busy.sha, '--peer', 'auto');
   assert.equal(refused.status, 75);
   assert.match(refused.stderr, /busy; ROG=unknown\(exec_timeout\) ubunta=unknown\(not_setup\)/);
+
+  const late = dispatchFixture(t, { ROG: 'exec_timeout', ubunta: { late: idle() } });
+  const routed = late.dispatch('check-linux', late.sha);
+  assert.equal(routed.status, 0, routed.stderr);
+  assert.match(routed.stdout, /peer=ubunta verb=check-linux/);
 });
 
 test('check-linux routes to the Linux peer once per SHA unless forced', (t) => {

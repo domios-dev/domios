@@ -89,9 +89,10 @@ async function probePeer(peer, statusTabTitle) {
   } catch {
     return { peer, status: null, error: 'exec_failed' };
   }
-  if (data.completion !== 'command_finished') return { peer, status: null, error: `exec_${data.completion ?? 'failed'}` };
+  // Some peer shells lack the prompt marks tab exec needs, so a printed status line counts even when completion reads timeout.
   const status = parseStatusOutput(data.output);
-  return status ? { peer, status, error: null } : { peer, status: null, error: 'no_status_line' };
+  if (status) return { peer, status, error: null };
+  return { peer, status: null, error: data.completion === 'command_finished' ? 'no_status_line' : `exec_${data.completion ?? 'failed'}` };
 }
 
 async function route(config, os) {
