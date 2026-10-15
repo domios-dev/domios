@@ -418,7 +418,9 @@ run_nextest_scope() {
   if [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then timing_dir="$(mktemp -d "$CT_BUILD_ARTIFACT_DIR/nextest.XXXXXX")"; else timing_dir="$(mktemp -d)"; fi
   if [ "$package" = codeterm-service-core ] && [[ "$filterset" != *'rdeps('* ]] && find_app_test_archive; then
     archive="$CT_APP_TEST_ARCHIVE"
-    reuse_args=(--archive-file "$archive" --workspace-remap "$(pwd -P)" -p "$package" --lib)
+    configure_app_archive_run "$filterset"
+    reuse_args=("${CT_APP_ARCHIVE_RUN_ARGS[@]}")
+    filter_args=()
     confirmation_args=(--archive-file "$archive")
   else
   if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
