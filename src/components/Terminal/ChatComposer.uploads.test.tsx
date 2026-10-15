@@ -1,3 +1,5 @@
+import { ComposerIssuesProvider } from "./ComposerIssuesContext";
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -62,12 +64,12 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
     const [bubble, setBubble] = useState("");
     return <MuxStateStoreContext.Provider value={store}><LocalArtifactScope tabId="picker">
       {bubble && <div role="region" aria-label="Sent message"><MessageBubble message={{ id: "sent", type: "user", content: bubble }} /></div>}
-      <ChatComposer tabId="picker" tabProvider={null} currentPtyId={null} pendingPrompt={null}
+      <ComposerIssuesProvider><AgentRuntimeBanner state={null} onRetry={() => {}} /><ChatComposer tabId="picker" tabProvider={null} currentPtyId={null} pendingPrompt={null}
         attachments={attachments} addAttachments={(paths) => setAttachments((current) => [...current, ...paths])}
         removeAttachment={(path) => setAttachments((current) => current.filter((item) => item !== path))}
         clearAttachments={() => setAttachments([])} handlePasteEvent={() => {}} onWillSendMessage={() => {}}
         addOptimistic={(content) => { setBubble(content); return "sent"; }} updateOptimistic={(_id, content) => setBubble(content)}
-        observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} />
+        observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} /></ComposerIssuesProvider>
     </LocalArtifactScope></MuxStateStoreContext.Provider>;
   }
   try {
@@ -90,6 +92,7 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
     expect(fetch.mock.calls.length, host.textContent ?? "").toBe(failure === "NotReadableError" ? 0 : 1);
     if (failure !== "success") {
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="1 attachment failed"]')!.click());
       const retry = host.querySelector<HTMLButtonElement>('[aria-label="Retry attachment photo.png"]');
       expect(retry, host.textContent ?? "").not.toBeNull();
       await act(async () => retry!.click());
