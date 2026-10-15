@@ -80,6 +80,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-sentinel-host` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-sentinel-host` | `.agents/skills/gates/SKILL.md` |
 | `rust-orchestration` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-orchestration` | `.agents/skills/gates/SKILL.md` |
 | `rust-agent-detect` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest agent-detect` | `.agents/skills/gates/SKILL.md` |
+| `rust-notifications` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-notifications` | `.agents/skills/gates/SKILL.md` |
 | `rust-notification-core` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest notification-core` | `.agents/skills/gates/SKILL.md` |
 | `rust-repowatch` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest repowatch` | `.agents/skills/gates/SKILL.md` |
 | `rust-usage` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest usage` | `.agents/skills/gates/SKILL.md` |

@@ -4,12 +4,13 @@
 use std::path::PathBuf;
 
 use codeterm_bridge::bridge::threads::{
-    authorize_open, CloseOutcome, OpenedThread, SenderIdentity, SenderRole, ThreadCaller,
-    ThreadError, ThreadMenuState, ThreadTabs,
+    authorize_open, CloseOutcome, OpenedThread, SenderIdentity, ThreadCaller, ThreadError,
+    ThreadMenuState, ThreadTabs,
 };
 
 use super::general_agent::GENERAL_ALIAS;
 use super::ServiceContext;
+pub use codeterm_notifications::bridge_threads::{sender_identity, TabIdentity};
 
 pub fn registry_path() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -38,13 +39,15 @@ impl ServiceContext {
             .find_workspace_for_tab(tab_id)
             .and_then(|id| mux.get_workspace(&id).map(|w| w.name.clone()))
             .unwrap_or_default();
-        Some(SenderIdentity {
-            tab_id: tab_id.to_string(),
+        let identity = TabIdentity {
+            id: tab_id.to_string(),
             title: tab.title.clone(),
-            role: SenderRole::classify(is_general, tab.role_profile.as_deref()),
+            role: tab.role_profile.clone(),
             workspace,
-            machine,
-        })
+            is_general,
+        };
+        drop(mux);
+        Some(sender_identity(identity, machine))
     }
 
     pub(crate) fn bridge_live_tab_titles(&self) -> Vec<(String, String)> {

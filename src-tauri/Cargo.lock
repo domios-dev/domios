@@ -1637,6 +1637,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-notifications"
+version = "0.0.0"
+dependencies = [
+ "codeterm-agent-model",
+ "codeterm-bridge",
+ "codeterm-config",
+ "codeterm-notification-core",
+ "codeterm-paths",
+ "codeterm-plugin",
+ "codeterm-pty",
+ "codeterm-types",
+ "codeterm-util",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.2",
+ "uuid",
+]
+
+[[package]]
 name = "codeterm-notify-types"
 version = "1.6.2"
 dependencies = [
@@ -1987,6 +2009,7 @@ dependencies = [
  "codeterm-mem-store",
  "codeterm-mesh",
  "codeterm-notification-core",
+ "codeterm-notifications",
  "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",

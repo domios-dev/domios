@@ -14,6 +14,7 @@ const leafTiers = [
   ["agent-model"],
   ["supporter"],
   ["provider-ops", "recall"],
+  ["notifications"],
 ];
 const tierByCrate = new Map(leafTiers.flatMap((names, tier) => names.map((name) => [`codeterm-${name}`, tier])));
 // Unlisted foundation crates are tier zero; extracted leaves must never become their dependencies.
@@ -85,6 +86,7 @@ for (const base of ["src-tauri/crates", "crates"]) {
         const core = isManifest ? /\bcodeterm[-_]service[-_]core\b/ : /\bcodeterm_service_core\b/;
         const tauri = isManifest ? /\btauri(?:[-_]\w+)?\b/ : /\btauri(?:_\w+)?\s*::|\b(?:use|extern\s+crate)\s+tauri\b/;
         const location = `${path.relative(root, file).replaceAll("\\", "/")}:${index + 1}`;
+        if (!isManifest && /\bServiceContext\b/.test(line)) violations.push(`${location}: leaf crate names ServiceContext`);
         if (core.test(line)) violations.push(`${location}: leaf crate names codeterm-service-core`);
         if (tauri.test(line)) {
           seenTauri.add(entry.name);
