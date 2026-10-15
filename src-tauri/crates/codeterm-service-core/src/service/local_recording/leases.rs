@@ -92,7 +92,7 @@ impl RecordingLeases {
         Ok(())
     }
 
-    pub fn start(
+    pub(crate) fn start(
         &self,
         plugin_id: &str,
         devices: &SelectedDevices,
