@@ -131,7 +131,7 @@ jobs:
       - name: Sign Linux updater bundles
         run: |
           for bundle in "$ART"/out/*.AppImage "$ART"/out/*.deb; do
-            pnpm tauri signer sign "$bundle"
+            env -u TAURI_SIGNING_PRIVATE_KEY pnpm tauri signer sign "$bundle"
           done
 
       - name: Verify updater signatures (including dry run)
