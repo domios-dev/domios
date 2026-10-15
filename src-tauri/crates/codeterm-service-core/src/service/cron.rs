@@ -626,7 +626,7 @@ impl ServiceContext {
         if !runtime_cron_owner_needs_registration(&cron.lock(), tab_id, job_id, run_id)? {
             return Ok(());
         }
-        commit(&cron, |store| {
+        commit(cron, |store| {
             Ok(store.prepare_set_run_tab(job_id, run_id, tab_id))
         })
         .map_err(|error| error.to_string())?;

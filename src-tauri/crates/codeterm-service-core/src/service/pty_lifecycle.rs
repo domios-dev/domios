@@ -487,7 +487,7 @@ fn handle_pty_death_with_cause(
         svc.emit_tab_status_if_changed(pty_id, prev, crate::agent::status::TabStatus::Dead);
 
         if let Some(cron_state) = svc.try_ext::<crate::CronState>() {
-            crate::cron::pty_death_fallback::fail_run_on_pty_death(svc, &cron_state, pid, pty_id);
+            crate::cron::pty_death_fallback::fail_run_on_pty_death(svc, cron_state, pid, pty_id);
         }
 
         let watchdog = {

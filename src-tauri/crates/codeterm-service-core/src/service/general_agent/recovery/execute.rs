@@ -314,18 +314,16 @@ pub(crate) fn recover(
                         &format!("Verified-session recovery failed: {error:?}"),
                     );
                 }
-            } else {
-                if let Some(config) = service.try_ext::<crate::config::ConfigState>() {
-                    let svc = std::sync::Arc::new(service.clone());
-                    super::super::lifecycle::start_general_agent(
-                        &svc,
-                        &service.mux,
-                        &service.pty,
-                        &service.screen_state,
-                        &config,
-                        &service.app_handle,
-                    );
-                }
+            } else if let Some(config) = service.try_ext::<crate::config::ConfigState>() {
+                let svc = std::sync::Arc::new(service.clone());
+                super::super::lifecycle::start_general_agent(
+                    &svc,
+                    &service.mux,
+                    &service.pty,
+                    &service.screen_state,
+                    config,
+                    &service.app_handle,
+                );
             }
             true
         }
