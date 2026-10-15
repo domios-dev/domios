@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-pub(crate) struct InstanceEnv {
+pub struct InstanceEnv {
     pub socket_path: String,
     pub api_url: String,
     pub api_port: String,
