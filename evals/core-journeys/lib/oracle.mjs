@@ -5,6 +5,10 @@ const TERMINAL_STAGES = new Set(["spawn_failed", "launch_deadline_elapsed", "lau
 const READY_STAGES = new Set(["agent_ready", "pty_reattached"]);
 const FAILED_RUNTIME = new Set(["degraded", "failed"]);
 
+function tabStatus(record) {
+  return record?.agent_state?.state ?? record?.status;
+}
+
 export function installed(descriptor) {
   return descriptor?.availability === "available" &&
     (descriptor.cli_status == null || descriptor.cli_status.installed === true);
@@ -45,7 +49,8 @@ export function readiness(record, { requireSession = false } = {}) {
   const runtime = runtimeFailure(record);
   if (runtime) return { fail: runtime };
   if (record.pending_prompt) return { fail: `owner prompt pending: ${JSON.stringify(record.pending_prompt).slice(0, 300)}` };
-  if (record.status === "exited" || record.status === "error") return { fail: `tab status ${record.status}` };
+  const status = tabStatus(record);
+  if (status === "exited" || status === "error") return { fail: `tab status ${status}` };
   const staged = record.agent_type && READY_STAGES.has(record.boot_stage);
   if (staged && (record.agent_session_id || (!requireSession && record.session_binding_nonce))) return { done: record };
   return { pending: `ready: boot_stage=${record.boot_stage ?? "none"} session=${record.agent_session_id ?? "none"}` };
@@ -69,7 +74,7 @@ export function replyVerdict({ messages, baselineIds, marker, record, boundSessi
     return { fail: `session changed during probe: ${boundSession} -> ${record.agent_session_id}` };
   }
   const exact = texts.some((text) => normalizeAnswer(text) === marker || normalizeAnswer(text.split("\n").at(-1)) === marker);
-  if (exact && record?.status === "idle") return { done: { answer: marker, session: record.agent_session_id } };
+  if (exact && tabStatus(record) === "idle") return { done: { answer: marker, session: record.agent_session_id } };
   return { pending: exact ? "reply observed; waiting for idle" : `exact reply ${marker} (new assistant items: ${texts.length})` };
 }
 
@@ -132,6 +137,6 @@ export function pairTabs(result) {
 export function stopVerdict(response, record) {
   const value = response?.data ?? response;
   if (value?.stopped !== true) return { fail: `stop refused: ${JSON.stringify(value).slice(0, 300)}` };
-  if (record?.status === "idle") return { done: { session: record.agent_session_id } };
-  return { pending: `idle after stop (status=${record?.status ?? "unknown"})` };
+  if (tabStatus(record) === "idle") return { done: { session: record.agent_session_id } };
+  return { pending: `idle after stop (status=${tabStatus(record) ?? "unknown"})` };
 }

@@ -148,6 +148,17 @@ native window and screenshot-viewing rules as the checklist above. Reuse
 the standalone core-journeys runner requires a named disposable instance and
 must not have its default-DEV refusal bypassed.
 
+- [ ] After **every** DEV restart, complete a provider sweep before drawing
+  conclusions from one provider: Claude, Grok, Aider, OpenCode, Codex Chat and
+  plain shells, with at least one fresh and one used fixture of each. Inventory
+  missing fixtures/providers explicitly; never substitute a Codex result for PTY
+  proof. Preserve existing unresolved inputs and do not resend a prior probe.
+  Add a per-provider table to the report with both fixture IDs, restored/fresh
+  session provenance, boot-to-ready, immediate input acceptance, own-session
+  reply evidence and cold/warm history results. Shells use unique-token echoes
+  and real shell readiness/output. A missing start, slow ready, blocked input,
+  absent own-session reply or lost used history fails that provider's row.
+
 - [ ] Before measuring, require a successful focused repair gate when applicable,
   the exact committed build in health, and startup beyond service state
   construction without panic. A failed startup is a finding, not latency evidence.
