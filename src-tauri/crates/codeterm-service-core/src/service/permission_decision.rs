@@ -41,12 +41,12 @@ pub enum Answer {
 }
 
 pub struct Request {
-    pub(crate) id: String,
-    pub(crate) session_id: String,
-    pub(crate) nonce: String,
-    pub(crate) prompt: PendingPrompt,
-    pub(crate) answers: Vec<Answer>,
-    pub(crate) sender: Option<oneshot::Sender<Answer>>,
+    pub id: String,
+    pub session_id: String,
+    pub nonce: String,
+    pub prompt: PendingPrompt,
+    pub answers: Vec<Answer>,
+    pub sender: Option<oneshot::Sender<Answer>>,
 }
 
 #[derive(Default)]
@@ -212,10 +212,10 @@ pub fn notify(
 }
 
 pub struct PendingGuard {
-    pub(crate) svc: ServiceState,
-    pub(crate) tab_id: String,
-    pub(crate) id: String,
-    pub(crate) identity: PromptIdentity,
+    pub svc: ServiceState,
+    pub tab_id: String,
+    pub id: String,
+    pub identity: PromptIdentity,
 }
 
 fn hook_identity(identity: &PromptIdentity) -> bool {

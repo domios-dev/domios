@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use crate::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]
-pub(crate) struct ListDirQuery {
+pub struct ListDirQuery {
     path: Option<String>,
     #[serde(default)]
     show_hidden: bool,
@@ -22,7 +22,7 @@ pub(crate) struct DirEntry {
 }
 
 #[derive(Serialize)]
-pub(crate) struct ListDirResponse {
+pub struct ListDirResponse {
     path: String,
     parent: Option<String>,
     home: Option<String>,
@@ -76,7 +76,7 @@ fn root_entries() -> Vec<DirEntry> {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct MkdirBody {
+pub struct MkdirBody {
     parent: String,
     name: String,
 }

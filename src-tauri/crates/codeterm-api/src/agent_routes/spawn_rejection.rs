@@ -6,7 +6,7 @@ use axum::{
 
 /// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
 /// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
-pub(crate) struct SpawnRejection {
+pub struct SpawnRejection {
     pub(crate) status: StatusCode,
     pub(crate) body: serde_json::Value,
 }

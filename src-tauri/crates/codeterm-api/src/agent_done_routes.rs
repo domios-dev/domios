@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]
-pub(crate) struct DoneQuery {
+pub struct DoneQuery {
     limit: Option<usize>,
 }
 

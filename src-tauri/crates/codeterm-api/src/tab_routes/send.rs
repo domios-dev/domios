@@ -273,7 +273,7 @@ pub(crate) fn prefixes_return_address(body: &str, prefix_source: bool) -> bool {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct SendTextBody {
+pub struct SendTextBody {
     pub(crate) text: Option<String>,
     /// Terminal key/action sequence. Enter submits optional text through the
     /// acknowledged transaction; navigation keys and delays remain ordered.

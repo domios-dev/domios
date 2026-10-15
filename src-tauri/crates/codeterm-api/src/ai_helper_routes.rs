@@ -12,7 +12,7 @@ use codeterm_service_core::service::AiHelperRequest;
 /// Provider, workspace and cwd are daemon-owned, so a helper names only its work.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct AiHelperSpawnBody {
+pub struct AiHelperSpawnBody {
     title: String,
     description: String,
     task: String,

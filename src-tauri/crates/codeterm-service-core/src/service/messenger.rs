@@ -49,7 +49,7 @@ pub struct MessageEnvelope {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum DeliveryWriteObserver {
+pub enum DeliveryWriteObserver {
     Report {
         report_id: String,
         plan_id: Option<String>,
@@ -85,17 +85,17 @@ pub enum QueuedAgentPayload {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentDeliveryPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) trace_id: Option<String>,
-    pub(crate) transport: QueuedAgentPayload,
-    pub(crate) observer: Option<DeliveryWriteObserver>,
+    pub trace_id: Option<String>,
+    pub transport: QueuedAgentPayload,
+    pub observer: Option<DeliveryWriteObserver>,
     #[serde(default)]
-    pub(crate) idempotency_key: Option<String>,
+    pub idempotency_key: Option<String>,
     #[serde(default)]
-    pub(crate) expected_pty_id: Option<String>,
+    pub expected_pty_id: Option<String>,
     #[serde(default)]
-    pub(crate) expected_session_id: Option<String>,
+    pub expected_session_id: Option<String>,
     #[serde(default)]
-    pub(crate) expected_binding_nonce: Option<String>,
+    pub expected_binding_nonce: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]

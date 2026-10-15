@@ -15,7 +15,7 @@ use codeterm_service_core::notification::vet::{
 const NOTIFICATION_FILE_READ_LIMIT: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize)]
-pub(crate) struct ListNotifQuery {
+pub struct ListNotifQuery {
     unread: Option<bool>,
 }
 
@@ -143,7 +143,7 @@ pub async fn delete_notification(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct AnswerNotifBody {
+pub struct AnswerNotifBody {
     label: String,
 }
 
@@ -164,7 +164,7 @@ pub async fn answer_notification(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ServeFileQuery {
+pub struct ServeFileQuery {
     path: String,
 }
 

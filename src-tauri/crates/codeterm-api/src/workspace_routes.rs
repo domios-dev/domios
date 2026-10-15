@@ -34,7 +34,7 @@ pub async fn list_workspaces(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct CreateWorkspaceBody {
+pub struct CreateWorkspaceBody {
     name: String,
     #[serde(default)]
     cwd: Option<String>,
@@ -93,7 +93,7 @@ pub async fn focus_workspace(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct SetWorkspaceCwdBody {
+pub struct SetWorkspaceCwdBody {
     cwd: String,
 }
 
@@ -119,7 +119,7 @@ pub async fn set_workspace_cwd(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct RenameWorkspaceBody {
+pub struct RenameWorkspaceBody {
     name: String,
 }
 
@@ -134,7 +134,7 @@ fn map_rename_error(e: String) -> (StatusCode, String) {
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct CloseWorkspaceBody {
+pub struct CloseWorkspaceBody {
     #[serde(default)]
     force: bool,
     #[serde(default)]
@@ -235,7 +235,7 @@ pub async fn list_recently_closed(
 }
 
 #[derive(Deserialize, Default)]
-pub(crate) struct ReopenClosedBody {
+pub struct ReopenClosedBody {
     #[serde(default)]
     index: Option<usize>,
 }
@@ -275,7 +275,7 @@ pub async fn reopen_closed_group(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct MoveTabBody {
+pub struct MoveTabBody {
     to_workspace_id: String,
 }
 
@@ -301,7 +301,7 @@ pub async fn move_tab(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ReorderTabsBody {
+pub struct ReorderTabsBody {
     ordered_tab_ids: Vec<String>,
 }
 
@@ -348,7 +348,7 @@ pub async fn reorder_display(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ReorderWorkspacesBody {
+pub struct ReorderWorkspacesBody {
     ordered_workspace_ids: Vec<String>,
 }
 
@@ -366,7 +366,7 @@ pub async fn reorder_workspaces(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct RenameTabBody {
+pub struct RenameTabBody {
     title: String,
 }
 
