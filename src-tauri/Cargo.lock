@@ -1552,7 +1552,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-orchestration"
-version = "1.14.9-dev.6"
+version = "1.14.9"
 dependencies = [
  "codeterm-analytics",
  "codeterm-events",
