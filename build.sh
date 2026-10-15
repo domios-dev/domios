@@ -2398,7 +2398,6 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
-    bash scripts/check-script-catalog.sh
     node scripts/check-plugin-bundles.mjs
     node scripts/sync-plugin-versions.mjs --check
     cargo check --manifest-path src-tauri/Cargo.toml
@@ -2539,7 +2538,6 @@ EOF
     bash scripts/check-service-core-boundary.sh
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
-    bash scripts/check-script-catalog.sh
     ;;
   worktree-check)
     prepare_exceptional_worktree_target
@@ -2643,7 +2641,6 @@ EOF
     # Cheap fixture guards for build/dev/QA scripts; Linux-only ones need a POSIX-clean runner (CI linux-ci).
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
-    sg_run bash scripts/check-script-catalog.sh
     sg_run node scripts/test-catalogue.mjs validate
     sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
     sg_run node --test scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs

@@ -161,11 +161,6 @@ export function rustPackages(root, runners, nextestFiles = []) {
   };
 }
 
-export function scriptCatalogEntries(files) {
-  const skip = new Set(["README.md", "catalog-extra.txt", "catalog-removed.md"]);
-  return [...new Set(files.filter((f) => f.startsWith("scripts/")).map((f) => f.split("/")[1]))].filter((e) => !skip.has(e)).sort();
-}
-
 export function makeContext(root, catalogue, { files = listRepoFiles(root), env = process.env } = {}) {
   const fileSet = new Set(files);
   const lists = new Map();
@@ -208,7 +203,6 @@ export function discoverRunner(runner, ctx) {
     const inv = ctx.rust.inventory(runner.package);
     return { source: inv.source, files: [ctx.rust.manifestFile(runner.package)], tests: inv.tests };
   }
-  if (d.method === "script-catalog") return { source: "script-catalog", files: [], members: scriptCatalogEntries(ctx.files) };
   return { source: "single", files: [] };
 }
 

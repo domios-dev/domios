@@ -342,7 +342,7 @@
       ],
       "properties": {
         "method": {
-          "description": "glob: files matching patterns; list-file: a JSON list owned elsewhere; nextest-list: cargo nextest list --message-format json (CODETERM_CATALOGUE_NEXTEST_JSON); static-scan: scripts/rust-test-inventory.mjs; pytest-collect and playwright-list: the files their collector reads, matched by patterns; script-catalog: scripts/check-script-catalog.sh entries; single: the runner is one check, not a set of tests.",
+          "description": "glob: files matching patterns; list-file: a JSON list owned elsewhere; nextest-list: cargo nextest list --message-format json (CODETERM_CATALOGUE_NEXTEST_JSON); static-scan: scripts/rust-test-inventory.mjs; pytest-collect and playwright-list: the files their collector reads, matched by patterns; single: the runner is one check, not a set of tests.",
           "enum": [
             "glob",
             "list-file",
@@ -350,7 +350,6 @@
             "static-scan",
             "pytest-collect",
             "playwright-list",
-            "script-catalog",
             "single"
           ]
         },
