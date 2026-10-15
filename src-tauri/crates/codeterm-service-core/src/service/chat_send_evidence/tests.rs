@@ -5,6 +5,7 @@ use crate::service::chat_send_transaction::ChatSendState;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+mod bounded_window_tests;
 mod status_tests;
 mod structured_sequential_tests;
 mod trace_tests;
