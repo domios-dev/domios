@@ -34,6 +34,14 @@ impl crate::service::ServiceContext {
             let Some(tab) = mux.get_tab(&record.authority.tab_id) else {
                 return Ok(false);
             };
+            if tab.boot_stage == Some(BootStage::LaunchBindingUnconfirmed)
+                && tab
+                    .provisional_launch
+                    .as_ref()
+                    .is_some_and(|launch| launch.awaiting_binding_ack)
+            {
+                return Ok(false);
+            }
             if !self.user_authority_matches_launch(tab, &record.authority)
                 && !(record.authority.prelaunch
                     && tab.agent_type.as_deref() == Some(record.authority.provider_id.as_str())
