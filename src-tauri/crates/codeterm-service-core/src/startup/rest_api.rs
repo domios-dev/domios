@@ -232,7 +232,7 @@ impl RestApiControl {
         lifecycle.bound_addr.filter(|_| lifecycle.listener_owned)
     }
 
-    pub(crate) fn set_runtime_policy(&self, policy: RestApiRuntimePolicy) {
+    pub fn set_runtime_policy(&self, policy: RestApiRuntimePolicy) {
         self.lifecycle.lock().runtime_policy = policy;
     }
 

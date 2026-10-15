@@ -316,10 +316,10 @@ pub(crate) fn start_servers(
     {
         let api_config = states.config.lock().api.clone();
         let bundles =
-            codeterm_service_core::startup::frontend_bundles::open(&states.event_broadcaster);
+            codeterm_service_core::startup::frontend_bundles_open(&states.event_broadcaster);
         if let Some(bundles) = &bundles {
             app.manage(bundles.clone());
-            codeterm_service_core::startup::frontend_bundles::check(bundles.clone());
+            codeterm_service_core::startup::frontend_bundles_check(bundles.clone());
         }
         let rest_inputs = codeterm_api::routes::AppState {
             svc: service_state.clone(),
@@ -351,7 +351,7 @@ pub(crate) fn start_servers(
         ) {
             log::error!("Failed to start socket server: {}", e);
         }
-        let remote_bind = codeterm_service_core::startup::rest_api::listeners::additional_bind(
+        let remote_bind = codeterm_service_core::startup::rest_api_additional_bind(
             &api_config,
             cfg!(debug_assertions),
         );

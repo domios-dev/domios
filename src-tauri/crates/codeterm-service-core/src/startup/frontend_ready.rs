@@ -93,7 +93,7 @@ pub fn mark_frontend_ready(generation: u64) -> bool {
     frontend_ready_signal().mark_ready(generation)
 }
 
-pub(crate) fn wait_for_frontend_ready_until(generation: u64, deadline: Instant) -> bool {
+pub fn wait_for_frontend_ready_until(generation: u64, deadline: Instant) -> bool {
     frontend_ready_signal().wait_until(generation, deadline)
 }
 

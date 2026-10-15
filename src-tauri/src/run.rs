@@ -651,7 +651,7 @@ pub fn run(
                 allow_non_prod_updates,
             );
             if states.config.lock().api.enabled {
-                codeterm_service_core::liveness::start_api_liveness_watchdog(
+                codeterm_service_core::start_api_liveness_watchdog(
                     app_handle.clone(),
                     states.mesh.clone(),
                     states.rest_api.clone(),
