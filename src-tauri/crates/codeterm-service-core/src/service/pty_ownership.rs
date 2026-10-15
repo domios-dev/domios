@@ -195,7 +195,7 @@ impl TabPtyClaim {
         }
     }
 
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(test)]
     fn coordinate(
         &self,
         launch_owned: bool,

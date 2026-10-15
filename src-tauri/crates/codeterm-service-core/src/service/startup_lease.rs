@@ -19,7 +19,7 @@ pub(crate) struct StartupTeamLease {
 
 /// Recorded ownership of one supervised startup attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct StartupTaskIdentity {
+pub struct StartupTaskIdentity {
     pub plan_id: String,
     pub task_id: String,
     pub attempt_id: String,
