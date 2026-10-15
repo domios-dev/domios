@@ -44,12 +44,21 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
         );
         let started = std::time::Instant::now();
         log::debug!(
-            "[startup-pty] wave started tabs={} concurrency=4",
-            queued.len()
+            "[startup-pty] wave started tabs={} pty_concurrency={} chat_concurrency={}",
+            queued.len(),
+            super::restored_backends::RESTORE_BUDGETS.pty,
+            super::restored_backends::RESTORE_BUDGETS.chat,
         );
-        let results = super::restored_backends::run_wave(
+        let results = super::restored_backends::run_transport_waves(
             &queued,
-            4,
+            super::restored_backends::RESTORE_BUDGETS,
+            |tab_id| {
+                if service_state.tab_chat_backing(tab_id).is_some() {
+                    super::restored_backends::RestoreTransport::Chat
+                } else {
+                    super::restored_backends::RestoreTransport::Pty
+                }
+            },
             || {
                 let focused = service_state
                     .mux

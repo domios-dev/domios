@@ -745,6 +745,7 @@ mod tests {
         assert_eq!(r.rerank("q", hits, 5).len(), 1);
     }
 
+    #[cfg(feature = "embeddings")]
     #[test]
     fn auto_default_uses_lazy_local_backend() {
         let cfg = RerankConfig {
@@ -770,6 +771,7 @@ mod tests {
         assert_eq!(r.rerank("q", hits, 5).len(), 1);
     }
 
+    #[cfg(feature = "embeddings")]
     #[test]
     fn explicit_local_model_is_selected_without_loading_weights() {
         let cfg = RerankConfig {
