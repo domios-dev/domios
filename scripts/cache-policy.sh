@@ -116,6 +116,13 @@ ct_sccache_secret() (
 ct_sccache_storage() {
   local trace_enabled=0 access_key secret_key
   case "$-" in *x*) trace_enabled=1; set +x ;; esac
+  # A machine pinned to its local disk cache never flips to S3 because credentials happen to exist.
+  if [ "${CODETERM_SCCACHE_STORAGE:-}" = local ]; then
+    unset SCCACHE_ENDPOINT SCCACHE_BUCKET SCCACHE_REGION SCCACHE_S3_USE_SSL
+    export CT_SCCACHE_STORAGE=local CT_SCCACHE_REASON="pinned by CODETERM_SCCACHE_STORAGE"
+    [ "$trace_enabled" = 0 ] || set -x
+    return 0
+  fi
   if [ "${CODETERM_SCCACHE_CREDENTIAL_SOURCE:-vault}" = runner ]; then
     access_key="${AWS_ACCESS_KEY_ID:-}"
     secret_key="${AWS_SECRET_ACCESS_KEY:-}"
@@ -222,6 +229,11 @@ ct_sccache_storage_matches() {
       "s3, name: $SCCACHE_BUCKET, prefix: "*) return 0 ;;
       *) return 1 ;;
     esac
+  elif [ "${CODETERM_SCCACHE_STORAGE:-}" = local ]; then
+    case "$1" in
+      'Local disk:'*) return 0 ;;
+      *) return 1 ;;
+    esac
   else
     case "$1" in
       'Local disk:'*|'s3, name: '*) return 0 ;;
@@ -313,7 +325,7 @@ ct_configure_sccache_locked() {
   if ct_sccache_server_live; then stats="$(sccache --show-stats 2>/dev/null)" || stats=""; fi
   location="$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"
   ct_sccache_storage
-  if [ "$CT_SCCACHE_STORAGE" = local ] && [[ "$location" == 's3, name: '* ]]; then
+  if [ "$CT_SCCACHE_STORAGE" = local ] && [ "${CODETERM_SCCACHE_STORAGE:-}" != local ] && [[ "$location" == 's3, name: '* ]]; then
     local running_bucket="${location#s3, name: }"
     running_bucket="${running_bucket%%, prefix:*}"
     printf 'sccache: shared S3 cache at http://100.88.47.88:9000/%s (using running server credentials)\n' "$running_bucket"
