@@ -7,8 +7,6 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-codeterm-plan = { path = "../codeterm-plan" }
-codeterm-config = { path = "../codeterm-config" }
 codeterm-decision = { path = "../codeterm-decision" }
 codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-plugin = { path = "../codeterm-plugin" }

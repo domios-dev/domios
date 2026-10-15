@@ -42,7 +42,7 @@ struct SeededBackend {
     plans: Vec<PlanSearchHit>,
     graph_calls: AtomicUsize,
     sessions: Vec<SessionCandidate>,
-    runtime: Arc<crate::SupporterRuntime>,
+    runtime: Arc<codeterm_supporter::SupporterRuntime>,
     _journal_dir: tempfile::TempDir,
 }
 
@@ -69,7 +69,7 @@ impl RecallBackend for SeededBackend {
 }
 
 impl DecisionBackend for SeededBackend {
-    fn supporter_runtime(&self) -> Arc<crate::SupporterRuntime> {
+    fn supporter_runtime(&self) -> Arc<codeterm_supporter::SupporterRuntime> {
         self.runtime.clone()
     }
     fn recall_untouched(
@@ -139,7 +139,9 @@ fn seeded() -> SeededBackend {
     }
     let journal_dir = tempfile::tempdir().unwrap();
     SeededBackend {
-        runtime: Arc::new(crate::SupporterRuntime::new(journal_dir.path().into())),
+        runtime: Arc::new(codeterm_supporter::SupporterRuntime::new(
+            journal_dir.path().into(),
+        )),
         _journal_dir: journal_dir,
         mem,
         ids,
