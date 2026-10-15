@@ -262,3 +262,9 @@ test("platform tests expand to one job per OS", () => {
   assert.deepEqual(include.map(row => [row.suite, row.os]), [["platform", "Linux"], ["platform", "macOS"], ["platform", "Windows"]]);
   for (const row of include) assert.ok(row.label, row.os);
 });
+
+test("CI jobs queue for a shared builder's gateway slot instead of failing busy", () => {
+  for (const name of ["tests", "release-windows", "release-macos-build", "release-linux"]) {
+    assert.equal(workflow(name).env.CODETERM_BUILD_GATEWAY_MODE, "queue", name);
+  }
+});
