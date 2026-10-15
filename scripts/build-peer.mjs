@@ -130,8 +130,8 @@ function launch({ config, peer, verb, sha, runnerTail, deadlineSecs, replyTab, c
   const runner = [...runnerTail.head, '--id', jobId, '--peer-name', peer.name, '--verb', verb, '--sha', sha,
     '--reply-peer', reply.peer, '--reply-tab', reply.tab, '--deadline-secs', String(deadlineSecs), ...runnerTail.rest];
   const command = remoteCommand({ peer, repository: config.repository, jobId, verb, sha, clone, runner, reply });
-  const tabArgs = ['tab', 'new', '--mesh', peer.name, '--json', '--no-team', '--purpose', 'build',
-    '--timeout', `${Math.ceil(deadlineSecs / 60) + 10}m`, '--title', 'Peerjob',
+  // A mesh tab cannot carry --timeout (it needs a local owning agent); the runner and git low-speed aborts bound the job.
+  const tabArgs = ['tab', 'new', '--mesh', peer.name, '--json', '--no-team', '--eager', '--purpose', 'build', '--title', 'Peerjob',
     '--description', `${verb} ${sha.slice(0, 9)} for ${origin.name}`];
   if (peer.shell) tabArgs.push('--shell', peer.shell);
   tabArgs.push('--cmd', command);

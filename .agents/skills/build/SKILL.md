@@ -320,12 +320,12 @@ Dispatch returns at once with `peer-job: id=... peer=... remote-tab=... deadline
 
 `--peer auto` reads each OS-matching routable peer's load over mesh: `codeterm tab list --mesh <peer>` finds its `Buildpeer` tab and `codeterm tab exec --mesh <peer>` runs `./build.sh peer-status`, which prints one lock-free `PEER_STATUS {json}` line (gateway state, active job, queue length, last job end, peer job lock). The least-loaded idle peer wins, ties going to the peer idle longest; a peer that is unreachable, not set up or slower than the 20 s probe deadline is skipped, and when no peer is idle the dispatch exits 75 with each peer's state.
 
-Bounds: each job tab has `--timeout` = verb deadline + 10 min (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`); the peer runner kills the build tree at the deadline and still reports `outcome=deadline`; fetch aborts below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab, never `tab restart`, because a shell's timeout counts from its creation.
+Bounds: a mesh tab cannot carry `--timeout` (only a local owning agent can), so each job tab is `--eager` and closes itself with `exit`; the verb deadline (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`) is enforced by the peer runner, which kills the build tree at the deadline and still reports `outcome=deadline`; clone and fetch abort below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab, never `tab restart`.
 
 Measurements (fill from the first real runs): ROG cold first populate of `check-queue --all` — not yet measured; ROG warm lane `check-queue --lane` — not yet measured.
 
 Troubleshooting:
-- No completion message arrives and the remote tab is gone: the tab timeout fired before the runner started (the shell never ran the command, for example a Windows peer without the `git-bash` profile). Check `codeterm tab list --mesh <peer>` and the peer's `peers.json` `shell`.
+- No completion message arrives and the remote tab is gone: the shell exited before the runner started (for example a Windows peer without the `git-bash` profile). Check `codeterm tab list --mesh <peer>` and the peer's `peers.json` `shell`.
 - `outcome=not_setup stage=checkout_dir`: run `./build.sh peer-setup <peer>` first.
 - `outcome=bootstrap_failed stage=runner_missing`: the SHA predates the peer runner; dispatch a SHA that contains `scripts/build-peer.mjs`.
 - `outcome=bootstrap_failed stage=checkout`: the peer checkout has local changes; it is fetch-only and must stay clean.
