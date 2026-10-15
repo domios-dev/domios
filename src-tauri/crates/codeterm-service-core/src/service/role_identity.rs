@@ -23,7 +23,7 @@ pub struct ManagerBootstrapInputs {
 }
 
 impl ManagerBootstrapInputs {
-    pub(crate) fn compose(&self) -> String {
+    pub fn compose(&self) -> String {
         let role_guidance = crate::service::persona::guidance_for(
             crate::service::persona::Occasion::ManagerBootstrap,
             Some(crate::multiplexer::types::AgentRole::Manager),

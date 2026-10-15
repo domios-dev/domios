@@ -386,7 +386,7 @@ fn comparable_path(path: &str) -> String {
 /// A tab holds the lane when its shell cwd is the worktree root or anything
 /// under it. Compared component-wise so a sibling lane whose name merely starts
 /// with the target's cannot read as inside it.
-pub(crate) fn find_lane_holder<'a>(
+pub fn find_lane_holder<'a>(
     worktree_path: &str,
     live_tabs: &'a [LiveTabCwd],
 ) -> Option<&'a LiveTabCwd> {
@@ -411,7 +411,7 @@ close that tab first, then run the removal again:\n  codeterm tab close --tab {i
     )
 }
 
-pub(crate) fn remove_lane(
+pub fn remove_lane(
     request: &LaneRemovalRequest,
     live_tabs: &[LiveTabCwd],
 ) -> Result<LaneRemovalOutcome, String> {

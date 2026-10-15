@@ -166,7 +166,7 @@ fn startup_provider_sweep(service: &ServiceContext, provider_id: &str) -> Result
     Ok(())
 }
 
-pub(crate) fn release_closed_tabs(registry: &AgentRegistry, agent_providers: &[(String, String)]) {
+pub fn release_closed_tabs(registry: &AgentRegistry, agent_providers: &[(String, String)]) {
     if authorize_profile_cleanup(
         true,
         codeterm_plugin::global_writes::machine_global_write_allowed(),

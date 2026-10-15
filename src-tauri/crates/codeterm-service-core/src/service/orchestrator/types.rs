@@ -251,7 +251,7 @@ impl SpawnAgentParams {
 
     /// Role kind these params resolve to. Valid only after
     /// `normalize_role_profile` has folded the wire sugar.
-    pub(crate) fn role_kind(&self) -> Option<&str> {
+    pub fn role_kind(&self) -> Option<&str> {
         codeterm_types::agent::role_kind::kind_id(
             self.role
                 .as_deref()

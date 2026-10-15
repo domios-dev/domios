@@ -12,7 +12,7 @@ use crate::session::store::{SaveIntent, SaveOutcome};
 pub const PERSISTENCE_DEADLINE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SessionPersistUrgency {
+pub enum SessionPersistUrgency {
     Prompt,
     Debounced,
 }
@@ -674,7 +674,7 @@ fn desk_agent_session_identities(
     identities.into_values().collect()
 }
 
-pub(crate) fn persist_session_after_close(svc: &super::ServiceContext) {
+pub fn persist_session_after_close(svc: &super::ServiceContext) {
     if let Err(error) = submit_session_snapshot_with_intent(
         &svc.app_handle,
         &svc.mux,
@@ -684,7 +684,7 @@ pub(crate) fn persist_session_after_close(svc: &super::ServiceContext) {
     }
 }
 
-pub(crate) fn persist_session_after_mutation(
+pub fn persist_session_after_mutation(
     svc: &super::ServiceContext,
     urgency: SessionPersistUrgency,
 ) -> Result<(), String> {

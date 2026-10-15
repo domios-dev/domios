@@ -23,7 +23,7 @@ use approval::{Emission, Recipient, ReminderHost, ReminderRequest, Transport};
 const MAX_PLAN_REMINDER_POLL_SECS: u64 = 60;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum PlanReminderTarget {
+pub enum PlanReminderTarget {
     Owner { plan_id: String },
     Worker,
 }
@@ -906,7 +906,7 @@ fn worker_reminder_eligible(plan: &Plan, task: &Task) -> bool {
     )
 }
 
-pub(crate) fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
+pub fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
     let mut targets = BTreeMap::<(String, String), PlanReminderTarget>::new();
     for plan in plans.iter().filter(|plan| owner_reminder_eligible(plan)) {
         if let Some(tab_id) = non_empty(plan.owner.tab_id.as_deref()) {
