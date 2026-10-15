@@ -199,7 +199,10 @@ test('release advisory records a warning and summary while invalid timing report
     assert.match(advisory.stdout, /::warning::Slow unit ratchet ADVISORY/);
     assert.match(readFileSync(summary, 'utf8'), /::warning::.*advisory_fixture_token/);
     assert.equal(run(false).status, 1);
-    assert.equal(run(true, '').status, 1, 'missing serial confirmation fails');
+    const parallelOnly = run(true, '');
+    assert.equal(parallelOnly.status, 0, 'release reports parallel timings without serial confirmation');
+    assert.match(parallelOnly.stdout, /::warning::Unit timing \(parallel only\): 5\.000s.*advisory_fixture_token/);
+    assert.equal(run(false, '').status, 1, 'enforce still requires serial confirmation');
     writeFileSync(alone, 'PASS [ 5.0s] codeterm_lib advisory_fixture_token\n');
     assert.equal(run(true).status, 1, 'incomplete timing log fails');
   } finally {

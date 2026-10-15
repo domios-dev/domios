@@ -166,9 +166,11 @@ async function run(mode, shard, total) {
         const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', 'nextest', 'run', ...archiveRunArgs(archive, workspace, extract, config, partition)], log, { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' });
         requireTestSuccess(result, fs.readFileSync(log, 'utf8'), `Tests failed on ${receipt.runner}, ${mode} ${shard}/${total}`);
         const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
+        const release = process.env.CI_RELEASE_TESTS === 'true';
         const candidatePath = log.replace(/\.log$/, '.candidates');
-        execFileSync(process.execPath, [...guard, '--candidates', candidatePath], { stdio: 'inherit' });
-        const candidates = JSON.parse(fs.readFileSync(candidatePath, 'utf8'));
+        // Serial confirmation outlasts the suite; release policy is advisory, so it reports parallel timings only.
+        if (!release) execFileSync(process.execPath, [...guard, '--candidates', candidatePath], { stdio: 'inherit' });
+        const candidates = release ? { entries: [] } : JSON.parse(fs.readFileSync(candidatePath, 'utf8'));
         const exactFilter = candidateFilter(candidates, groupTests);
         let aloneLog;
         if (exactFilter) {
@@ -178,7 +180,7 @@ async function run(mode, shard, total) {
           requireTestSuccess(alone, fs.readFileSync(aloneLog, 'utf8'), `Candidate rerun failed on ${receipt.runner}`);
         }
         const auditLog = log.replace(/\.log$/, '.audit.log');
-        const audit = await captureCommand(process.execPath, timingAuditArgs(guard, aloneLog, process.env.CI_RELEASE_TESTS === 'true'), auditLog);
+        const audit = await captureCommand(process.execPath, timingAuditArgs(guard, aloneLog, release), auditLog);
         receipt.timingAudits.push({ parallelLog: path.basename(log), aloneLog: aloneLog && path.basename(aloneLog), candidates: candidates.entries, report: fs.readFileSync(auditLog, 'utf8') });
         if (audit.error || audit.status !== 0) throw new Error(`Alone-measured timing ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }
