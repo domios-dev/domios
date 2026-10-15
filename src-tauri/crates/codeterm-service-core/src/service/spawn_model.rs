@@ -108,7 +108,7 @@ pub(crate) struct FreshAgentModelResolution {
     pub warning: Option<String>,
 }
 
-pub(crate) fn attach_planned_model(
+pub fn attach_planned_model(
     resolution: &mut FreshAgentModelResolution,
     planned_model: Option<&str>,
 ) {
@@ -121,7 +121,7 @@ pub(crate) fn attach_planned_model(
     }
 }
 
-pub(crate) fn persist_model_launch_identity(
+pub fn persist_model_launch_identity(
     tab: &mut crate::multiplexer::types::Tab,
     planned_model: Option<&str>,
     resolution: &FreshAgentModelResolution,
@@ -149,7 +149,7 @@ pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> Strin
 /// this crate owns — the seam that lets `codeterm-mem`'s shared worker-agent
 /// resolver (used by every memory background-worker call site) reach
 /// provider-model compatibility checking without a reverse crate dependency.
-pub(crate) struct CatalogBackgroundModelPort;
+pub struct CatalogBackgroundModelPort;
 
 impl codeterm_mem::worker_agent::BackgroundModelPort for CatalogBackgroundModelPort {
     fn resolve(&self, provider_id: &str, configured: &str) -> (String, bool) {
@@ -168,7 +168,7 @@ impl codeterm_mem::worker_agent::BackgroundModelPort for CatalogBackgroundModelP
     }
 }
 
-pub(crate) fn resolve_fresh_agent_model(
+pub fn resolve_fresh_agent_model(
     config: &crate::config::schema::AppConfig,
     registry: &AgentRegistry,
     provider_id: &str,
@@ -185,7 +185,7 @@ pub(crate) fn resolve_fresh_agent_model(
     .model
 }
 
-pub(crate) fn resolve_fresh_agent_model_with_notice(
+pub fn resolve_fresh_agent_model_with_notice(
     config: &crate::config::schema::AppConfig,
     registry: &AgentRegistry,
     provider_id: &str,
@@ -524,7 +524,7 @@ const CANONICAL_SHORT_LABELS: [&str; 4] = ["opus", "sonnet", "haiku", "fable"];
 /// hands over catalog ids (`opus`, `claude-fable-5-1`) and the runtime detector
 /// hands over the provider's display name (`Fable`); without this fold the two
 /// disagree on the same tab and every label reader inherits the disagreement.
-pub(crate) fn normalize_session_model(model: &str) -> String {
+pub fn normalize_session_model(model: &str) -> String {
     let trimmed = model.trim();
     let context_suffix = trimmed.to_ascii_lowercase().ends_with("[1m]");
     let base = if context_suffix {

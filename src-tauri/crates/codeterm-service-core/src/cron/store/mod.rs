@@ -42,7 +42,7 @@ pub use storage::{
 };
 pub use tabs::write_log;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::cron::clock::system_clock;
 use crate::cron::clock::SharedClock;
 #[cfg(test)]
@@ -215,7 +215,7 @@ impl CronStore {
     /// A crons.json that fails to load is preserved and recovered from backup;
     /// without one the store runs on an empty in-memory file and every save is
     /// refused, so built-in jobs are merged in memory only.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn load(file_path: PathBuf, clock: SharedClock, default_agent_provider: String) -> Self {
         let file = match state_file(&file_path).load(parse_cron_file) {
             Loaded::Parsed(file) | Loaded::Recovered { value: file, .. } => file,
