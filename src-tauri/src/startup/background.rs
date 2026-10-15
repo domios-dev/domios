@@ -2,7 +2,8 @@
 
 use tauri::Manager;
 
-use codeterm_service_core::{keepawake, mesh};
+use crate::keepawake;
+use codeterm_service_core::mesh;
 
 use codeterm_service_core::startup::AppStates;
 
