@@ -922,7 +922,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 36 -->
+<!-- revision: 37 -->
 
 ### Lane and batch scopes
 
@@ -982,3 +982,5 @@ In a temporary worktree on one fixed Rust SHA, run `./build.sh feature-cycle bef
 Each job retains phase logs, wall times and `units.json` under its artifact directory. The collector counts distinct completed service-core artifact hashes, including fresh reused units, separately from distinct feature sets; never infer that two feature sets means two Cargo unit hashes. Compare actual full check-queue runs separately, loading the old/new build driver against the same committed source SHA in a temporary worktree. Do not clean shared caches for a measurement or include queue wait in a reported Cargo/check-queue wall time.
 
 Queued build invocations parse the entire driver inside `codeterm_build_main` before waiting for a gateway slot. Editing build.sh while an older shell waited previously changed the unread tail of that shell's script, producing an EOF syntax error after a successful Cargo check. The driver snapshot regression waits on an explicit input event, replaces only a temporary script, and requires its already-parsed dispatch to complete. App nextest configurations also replace the initial target arguments so `--no-default-features` appears once; nextest rejects duplicate occurrences.
+
+If lane-check prompt additions exceed the composed worker suffix's 5000-byte ceiling, compress repeated instructions across worker_suffix and testing_discipline; keep the commands and existing ceiling. Verify with the focused core prompts selector.
