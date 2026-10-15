@@ -23,6 +23,7 @@ pub mod agent_restart;
 pub mod agent_runtime;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
+pub mod lazy_restore;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
 mod analytics_host;

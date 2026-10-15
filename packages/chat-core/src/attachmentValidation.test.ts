@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { attachmentKindForUpload, MAX_VIDEO_BYTES, sniffVideoContainer, validateAttachment } from "./attachmentValidation";
 import { attachmentKindForPath, formatAttachmentMarker, parseAttachmentMarkers } from "./attachmentMarker";
-import { labelVideos, userMessageAttachments } from "./userAttachments";
+import { labelVideos, placedAttachmentSegments, userMessageAttachments } from "./userAttachments";
 
 const ftyp = (brand: string) => new Uint8Array([0, 0, 0, 0x18, ...Buffer.from(`ftyp${brand}`)]);
 
@@ -36,4 +36,16 @@ test("unlabeled video markers are numbered in order and the agent marker keeps t
   assert.deepEqual(labelVideos(files).map((file) => file.label), ["video1", "video2", undefined]);
   assert.match(formatAttachmentMarker("/u/a.mp4", "video", "video1"), /kind="video".*label="video1"/);
   assert.deepEqual(userMessageAttachments(formatAttachmentMarker("/u/a.mp4")).files.map((file) => file.label), ["video1"]);
+});
+
+test("unlabeled inline videos read videoN without colliding with labelled ones", () => {
+  const content = [
+    formatAttachmentMarker("C:/a/one.mp4", "video"),
+    formatAttachmentMarker("C:/a/two.mov", "video", "video1"),
+    formatAttachmentMarker("C:/a/three.webm", "video"),
+    formatAttachmentMarker("C:/a/shot.png", "image"),
+  ].join(" ");
+  const labels = placedAttachmentSegments(content).flatMap((segment) => "attachment" in segment ? [segment.attachment.label] : []);
+  assert.deepEqual(labels, ["video2", "video1", "video3", undefined]);
+  assert.deepEqual(labelVideos([{ kind: "video", path: "x.mp4" }, { kind: "video", path: "y.mp4", label: "video1" }]).map((file) => file.label), ["video2", "video1"]);
 });

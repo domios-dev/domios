@@ -10,7 +10,11 @@ fn test_pty_spawn() {
     #[cfg(not(target_os = "windows"))]
     let cmd = Some("/bin/sh".to_string());
 
-    let result = manager.spawn(cmd, None, 80, 24, HashMap::new());
+    let result = {
+        let gate = manager.spawn_gate();
+        codeterm_service_core::pty::manager::build_session(gate, cmd, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    };
     assert!(result.is_ok(), "Failed to spawn PTY: {:?}", result.err());
 
     let (pty_id, _reader) = result.unwrap();
@@ -28,7 +32,12 @@ fn test_pty_write() {
     #[cfg(not(target_os = "windows"))]
     let cmd = Some("/bin/sh".to_string());
 
-    let (pty_id, _reader) = manager.spawn(cmd, None, 80, 24, HashMap::new()).unwrap();
+    let (pty_id, _reader) = {
+        let gate = manager.spawn_gate();
+        codeterm_service_core::pty::manager::build_session(gate, cmd, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    }
+    .unwrap();
 
     let result = manager.write(&pty_id, b"echo hello\r\n");
     assert!(result.is_ok(), "Failed to write to PTY: {:?}", result.err());
@@ -45,7 +54,12 @@ fn test_pty_resize() {
     #[cfg(not(target_os = "windows"))]
     let cmd = Some("/bin/sh".to_string());
 
-    let (pty_id, _reader) = manager.spawn(cmd, None, 80, 24, HashMap::new()).unwrap();
+    let (pty_id, _reader) = {
+        let gate = manager.spawn_gate();
+        codeterm_service_core::pty::manager::build_session(gate, cmd, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    }
+    .unwrap();
 
     let result = manager.resize(&pty_id, 120, 40);
     assert!(result.is_ok(), "Failed to resize PTY: {:?}", result.err());
@@ -62,7 +76,12 @@ fn test_pty_kill() {
     #[cfg(not(target_os = "windows"))]
     let cmd = Some("/bin/sh".to_string());
 
-    let (pty_id, _reader) = manager.spawn(cmd, None, 80, 24, HashMap::new()).unwrap();
+    let (pty_id, _reader) = {
+        let gate = manager.spawn_gate();
+        codeterm_service_core::pty::manager::build_session(gate, cmd, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    }
+    .unwrap();
 
     let result = manager.kill(&pty_id);
     assert!(result.is_ok(), "Failed to kill PTY: {:?}", result.err());
@@ -97,7 +116,11 @@ fn test_pty_spawn_with_env_vars() {
     #[cfg(not(target_os = "windows"))]
     let cmd = Some("/bin/sh".to_string());
 
-    let result = manager.spawn(cmd, None, 80, 24, env_vars);
+    let result = {
+        let gate = manager.spawn_gate();
+        codeterm_service_core::pty::manager::build_session(gate, cmd, None, 80, 24, env_vars)
+            .map(|built| manager.register_session(None, built))
+    };
     assert!(result.is_ok());
 
     let (pty_id, _reader) = result.unwrap();
@@ -113,10 +136,25 @@ fn test_pty_multiple_instances() {
     #[cfg(not(target_os = "windows"))]
     let cmd = Some("/bin/sh".to_string());
 
-    let (id1, _r1) = manager
-        .spawn(cmd.clone(), None, 80, 24, HashMap::new())
-        .unwrap();
-    let (id2, _r2) = manager.spawn(cmd, None, 80, 24, HashMap::new()).unwrap();
+    let (id1, _r1) = {
+        let gate = manager.spawn_gate();
+        codeterm_service_core::pty::manager::build_session(
+            gate,
+            cmd.clone(),
+            None,
+            80,
+            24,
+            HashMap::new(),
+        )
+        .map(|built| manager.register_session(None, built))
+    }
+    .unwrap();
+    let (id2, _r2) = {
+        let gate = manager.spawn_gate();
+        codeterm_service_core::pty::manager::build_session(gate, cmd, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    }
+    .unwrap();
 
     assert_ne!(id1, id2);
 

@@ -66,6 +66,7 @@ fn backup(specs: &[(&str, Option<&str>, &[&str])]) -> SessionSnapshot {
                 tabs: tab_ids
                     .iter()
                     .map(|tab_id| TabSnapshot {
+                        last_active_at_ms: None,
                         id: (*tab_id).into(),
                         title: (*tab_id).into(),
                         description: None,
@@ -117,6 +118,7 @@ fn merge_never_touches_existing_tabs_and_reports_them_as_present() {
         protected: false,
         sort_order: 0,
         tabs: vec![TabSnapshot {
+            last_active_at_ms: None,
             id: existing_tab.clone(),
             title: "stale title from backup".into(),
             description: None,
@@ -161,6 +163,7 @@ fn merge_drops_parent_links_pointing_at_tabs_that_no_longer_exist() {
     };
     *role = Some("Worker".into());
     snapshot.workspaces[0].tabs.push(TabSnapshot {
+        last_active_at_ms: None,
         id: "child".into(),
         title: "child".into(),
         description: None,

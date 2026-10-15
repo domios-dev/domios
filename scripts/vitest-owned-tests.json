@@ -115,6 +115,7 @@
   "src/components/FrontendUpdateNotice.test.tsx",
   "src/lib/generalSession.adapter.test.ts",
   "src/components/Terminal/ComposerActions.uploads.test.tsx",
+  "src/components/Terminal/ComposerCapsuleField.test.tsx",
   "src/components/Terminal/ChatComposer.uploads.test.tsx",
   "src/hooks/terminal/terminalScroll.test.ts",
   "src/components/Notifications/attentionSurfaceModel.test.ts",

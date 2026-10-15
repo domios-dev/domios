@@ -139,6 +139,8 @@ export function tabBootStageEventAction(payload: TabBootStageEvent): Action {
     tabId: payload.tab_id,
     stage: payload.stage,
     reason: payload.reason,
+    agent_booting: payload.agent_booting,
+    session_bound: payload.session_bound,
   };
 }
 

@@ -33,3 +33,31 @@ fn saved_typed_settings_and_empty_arguments_remain_eligible_for_runtime_use() {
 
 #[path = "tests/sync_send.rs"]
 mod sync_send;
+
+#[test]
+fn bind_commit_emits_one_ready_event_with_booting_and_session_bound() {
+    let (mut state, _root) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = state.list_workspaces()[0].id.clone();
+    let id = state.create_tab(&workspace).unwrap();
+    let tab = state.get_tab_mut(&id).unwrap();
+    tab.agent_booting = true;
+    tab.session_binding_nonce = Some("nonce".into());
+    let mut events = Vec::new();
+    commit_runtime_binding(tab, "nonce", "thread", |bound| {
+        events.push(crate::service::boot_stage::boot_stage_event(
+            &id,
+            bound,
+            codeterm_types::pty::BootStage::AgentReady,
+            None,
+        ));
+    })
+    .unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["stage"], "agent_ready");
+    assert_eq!(events[0]["agent_booting"], false);
+    assert_eq!(events[0]["session_bound"], true);
+    assert_eq!(tab.agent_session_id.as_deref(), Some("thread"));
+    let mut rejected_events = 0;
+    assert!(commit_runtime_binding(tab, "stale", "thread", |_| rejected_events += 1).is_err());
+    assert_eq!(rejected_events, 0);
+}
