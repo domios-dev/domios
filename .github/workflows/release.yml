@@ -35,9 +35,10 @@ permissions:
   issues: write
   pull-requests: write
 
+# Until publication is enabled a newer push supersedes the older validation run; publishing runs queue.
 concurrency:
   group: ${{ inputs.dry_run == true && format('release-dry-run-{0}', inputs.tag || github.ref_name) || 'release-publication' }}
-  cancel-in-progress: ${{ inputs.dry_run == true }}
+  cancel-in-progress: ${{ inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true' }}
 
 jobs:
   prepare:
