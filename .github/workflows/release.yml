@@ -175,10 +175,12 @@ jobs:
             node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
           fi
 
+  # Builds on machines no fast check uses start at once; a fast-check failure cancels the run.
+  # RELEASE_OVERLAP_FAST_CHECKS=false makes every build wait for the fast checks instead.
   quick-checks:
     name: Fast checks
     needs: prepare
-    if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
+    if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true' && vars.RELEASE_OVERLAP_FAST_CHECKS != 'false'
     uses: ./.github/workflows/tests.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
@@ -190,10 +192,41 @@ jobs:
       pull-requests: write
     secrets: inherit
 
+  fast-checks-failed:
+    name: cancel the run on a fast-check failure
+    needs: quick-checks
+    if: ${{ always() && needs.quick-checks.result == 'failure' }}
+    runs-on: [self-hosted, light]
+    permissions:
+      actions: write
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
+
+  fast-gate:
+    name: Fast checks (gating)
+    needs: prepare
+    if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true' && vars.RELEASE_OVERLAP_FAST_CHECKS == 'false'
+    uses: ./.github/workflows/tests.yml
+    with:
+      source_ref: ${{ needs.prepare.outputs.source_sha }}
+      scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
+      phase: fast
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: write
+    secrets: inherit
+
+  # The full suite shares ubunta and WSL-ci with clippy, so it never starts ahead of the fast checks.
   tests:
     name: Rust tests
-    needs: [prepare, quick-checks]
-    if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
+    needs: [prepare, quick-checks, fast-gate]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' && (needs.quick-checks.result == 'success' || needs.fast-gate.result == 'success')
+      && (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
@@ -207,11 +240,10 @@ jobs:
 
   macos-arm64:
     name: macOS arm64
-    needs: [prepare, quick-checks]
+    needs: [prepare, fast-gate]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && (needs.quick-checks.result == 'success'
-      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && (needs.fast-gate.result == 'success' || needs.fast-gate.result == 'skipped')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-macos-build.yml
     with:
@@ -224,11 +256,10 @@ jobs:
 
   macos-x64:
     name: macOS x64
-    needs: [prepare, quick-checks]
+    needs: [prepare, fast-gate]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && (needs.quick-checks.result == 'success'
-      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && (needs.fast-gate.result == 'success' || needs.fast-gate.result == 'skipped')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-macos-build.yml
     with:
@@ -241,11 +272,10 @@ jobs:
 
   linux-arm64:
     name: Linux arm64
-    needs: [prepare, quick-checks]
+    needs: [prepare, fast-gate]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && (needs.quick-checks.result == 'success'
-      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && (needs.fast-gate.result == 'success' || needs.fast-gate.result == 'skipped')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-linux-arm64.yml
     with:
@@ -255,13 +285,13 @@ jobs:
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
     secrets: inherit
 
+  # Linux x64 builds on the linux-ci machines the fast checks use, so it waits for them.
   linux-x86_64:
     name: Linux x64
-    needs: [prepare, quick-checks]
+    needs: [prepare, quick-checks, fast-gate]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && (needs.quick-checks.result == 'success'
-      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && ((needs.quick-checks.result == 'success' || needs.fast-gate.result == 'success') || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-linux.yml
     with:
@@ -273,11 +303,10 @@ jobs:
 
   windows-x64:
     name: Windows x64
-    needs: [prepare, quick-checks]
+    needs: [prepare, fast-gate]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && (needs.quick-checks.result == 'success'
-      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && (needs.fast-gate.result == 'success' || needs.fast-gate.result == 'skipped')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-windows.yml
     with:
@@ -290,11 +319,10 @@ jobs:
 
   windows-arm64:
     name: Windows arm64
-    needs: [prepare, quick-checks]
+    needs: [prepare, fast-gate]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && (needs.quick-checks.result == 'success'
-      || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && (needs.fast-gate.result == 'success' || needs.fast-gate.result == 'skipped')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-windows.yml
     with:
@@ -307,8 +335,11 @@ jobs:
 
   release-manifest:
     name: release manifest, mirror, and verification
-    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]
-    if: vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, fast-gate, tests]
+    if: >-
+      !cancelled() && needs.macos-arm64.result == 'success' && needs.macos-x64.result == 'success' && needs.linux-arm64.result == 'success' && needs.linux-x86_64.result == 'success' && needs.windows-x64.result == 'success' && needs.windows-arm64.result == 'success' && needs.tests.result == 'success'
+      && (needs.quick-checks.result == 'success' || needs.fast-gate.result == 'success')
+      && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -319,8 +350,10 @@ jobs:
 
   frontend:
     name: frontend release
-    needs: [prepare, quick-checks, tests]
-    if: vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'
+    needs: [prepare, quick-checks, fast-gate, tests]
+    if: >-
+      !cancelled() && needs.tests.result == 'success' && (needs.quick-checks.result == 'success' || needs.fast-gate.result == 'success')
+      && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'
     uses: ./.github/workflows/frontend-release.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -391,7 +424,7 @@ jobs:
       contents: read
       actions: write
       pull-requests: write
-    needs: [prepare, quick-checks, tests, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
+    needs: [prepare, quick-checks, fast-gate, tests, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
     if: always()
     uses: ./.github/workflows/rust-warnings-summary.yml
     with:

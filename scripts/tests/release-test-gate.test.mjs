@@ -19,38 +19,66 @@ const dependencies = job => [job.needs].flat();
 const fastJobs = ["file-sizes", "plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
 const longJobs = ["rust-tests", "rust-platform", "rust-receipts"];
 
-test("fast checks gate the Rust tests and every build, which then run in parallel", () => {
-  const gate = release.jobs["quick-checks"];
-  assert.equal(gate.uses, "./.github/workflows/tests.yml");
-  assert.equal(gate.with.phase, "fast");
-  assert.deepEqual(dependencies(gate), ["prepare"]);
-  assert.equal(gate.with.source_ref, "${{ needs.prepare.outputs.source_sha }}");
-  for (const id of [...builds, "tests", "quick-checks"]) assert.notEqual(release.jobs[id]["continue-on-error"], true);
-  for (const id of builds) {
+const overlapped = ["macos-arm64", "macos-x64", "linux-arm64", "windows-x64", "windows-arm64"];
+const afterFast = ["linux-x86_64", "tests"];
+const app = { result: "success", outputs: { kind: "app", published: "false", dry_run: "false" } };
+const results = ["success", "failure", "cancelled", "skipped"];
+
+test("one fast-check caller runs per mode, and the overlapping one cancels the run when it fails", () => {
+  for (const id of ["quick-checks", "fast-gate"]) {
     const job = release.jobs[id];
-    assert.deepEqual(dependencies(job), ["prepare", "quick-checks"]);
-    for (const gateResult of ["success", "failure", "cancelled", "skipped"]) {
-      const needs = { prepare: { result: "success", outputs: { kind: "app", published: "false", dry_run: "false" } }, "quick-checks": { result: gateResult } };
-      assert.equal(condition(job.if, { needs }), gateResult === "success", `${id}: ${gateResult}`);
+    assert.equal(job.uses, "./.github/workflows/tests.yml");
+    assert.equal(job.with.phase, "fast");
+    assert.deepEqual(dependencies(job), ["prepare"]);
+    assert.equal(job.with.source_ref, "${{ needs.prepare.outputs.source_sha }}");
+  }
+  for (const overlap of [undefined, "true", "false"]) {
+    const vars = { RELEASE_OVERLAP_FAST_CHECKS: overlap };
+    const running = ["quick-checks", "fast-gate"].filter(id => condition(release.jobs[id].if, { needs: { prepare: app }, inputs: {}, vars }));
+    assert.deepEqual(running, [overlap === "false" ? "fast-gate" : "quick-checks"], String(overlap));
+  }
+  const abort = release.jobs["fast-checks-failed"];
+  assert.deepEqual(dependencies(abort), ["quick-checks"]);
+  for (const result of results) assert.equal(condition(abort.if, { needs: { "quick-checks": { result } } }), result === "failure", result);
+  assert.match(abort.steps.map(step => step.run).join("\n"), /gh run cancel \$\{\{ github\.run_id \}\}/);
+  for (const id of [...builds, "tests", "quick-checks", "fast-gate"]) assert.notEqual(release.jobs[id]["continue-on-error"], true);
+});
+
+test("builds on machines no fast check uses start at once; the rest wait for the fast checks", () => {
+  for (const id of overlapped) {
+    const job = release.jobs[id];
+    assert.deepEqual(dependencies(job), ["prepare", "fast-gate"]);
+    for (const gate of results) {
+      const needs = { prepare: app, "fast-gate": { result: gate } };
+      assert.equal(condition(job.if, { needs }), ["success", "skipped"].includes(gate), `${id}: ${gate}`);
       assert.equal(condition(job.if, { needs, cancelled: true }), false);
     }
     assert.equal(dependencies(job).includes("tests"), false, "builds overlap the Rust tests");
   }
-  assert.deepEqual(dependencies(release.jobs.tests), ["prepare", "quick-checks"]);
-  assert.doesNotMatch(release.jobs.tests.if, /always\(\)|failure\(\)|cancelled\(\)/, "tests keep the implicit success() over the fast gate");
+  for (const id of afterFast) {
+    const job = release.jobs[id];
+    assert.deepEqual(dependencies(job), ["prepare", "quick-checks", "fast-gate"]);
+    for (const fast of results) {
+      for (const [overlapping, gating] of [[fast, "skipped"], ["skipped", fast]]) {
+        const needs = { prepare: app, "quick-checks": { result: overlapping }, "fast-gate": { result: gating } };
+        assert.equal(condition(job.if, { needs, inputs: {} }), fast === "success", `${id}: ${overlapping}/${gating}`);
+      }
+    }
+  }
   assert.equal(release.jobs.tests.with.phase, "long");
-  assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "quick-checks", "tests", ...builds]));
-  assert.equal(release.jobs["release-manifest"].if, "vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'");
+  assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "quick-checks", "fast-gate", "tests", ...builds]));
 });
 
 test("dry runs use both test stages by default; bundle-only diagnostics explicitly bypass them", () => {
   assert.equal(release.on.workflow_dispatch.inputs.dry_run_tests.default, true);
-  assert.equal(release.jobs["quick-checks"].if, "(needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'");
+  const base = "(needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'";
+  assert.equal(release.jobs["quick-checks"].if, `${base} && vars.RELEASE_OVERLAP_FAST_CHECKS != 'false'`);
+  assert.equal(release.jobs["fast-gate"].if, `${base} && vars.RELEASE_OVERLAP_FAST_CHECKS == 'false'`);
+  const dry = { result: "success", outputs: { kind: "app", published: "false", dry_run: "true" } };
   for (const id of builds) {
     assert.equal(release.jobs[id].with.dry_run, "${{ needs.prepare.outputs.dry_run == 'true' }}");
-    const needs = { prepare: { result: "success", outputs: { kind: "app", published: "false", dry_run: "true" } }, "quick-checks": { result: "skipped" } };
-    assert.equal(condition(release.jobs[id].if, { needs, inputs: { dry_run_tests: false } }), true);
-    assert.equal(condition(release.jobs[id].if, { needs, inputs: { dry_run_tests: true } }), false);
+    const needs = { prepare: dry, "quick-checks": { result: "skipped" }, "fast-gate": { result: "skipped" } };
+    assert.equal(condition(release.jobs[id].if, { needs, inputs: { dry_run_tests: false } }), true, id);
   }
   const draft = release.jobs.prepare.steps.find(step => step.name === "Create draft releases before parallel uploads");
   assert.equal(draft.if, "steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'");
@@ -71,17 +99,31 @@ test("file sizes gate every other fast check, and test phases partition every ch
   assert.match(tests.concurrency.group, /inputs.phase/);
 });
 
-test("a failing test never cancels the run, so every failure is reported, and publication still needs both test stages", () => {
-  const cancelsRun = /actions\/runs\/[^\s"]*\/cancel/;
+test("only a fast-check failure cancels the run; publication needs every stage to succeed", () => {
+  const cancelsRun = /actions\/runs\/[^\s"]*\/cancel|gh run cancel/;
   for (const name of ["tests", "release", "rust-warnings-summary"]) {
     for (const [id, job] of Object.entries(workflow(name).jobs)) {
+      if (name === "release" && id === "fast-checks-failed") continue;
       for (const step of job.steps || []) assert.doesNotMatch(step.run ?? "", cancelsRun, `${name}/${id}`);
     }
   }
+  const vars = { RELEASE_PUBLISH_ENABLED: "true" };
+  const ok = Object.fromEntries([...builds, "tests"].map(id => [id, { result: "success" }]));
+  const manifest = release.jobs["release-manifest"];
+  for (const [overlapping, gating] of [["success", "skipped"], ["skipped", "success"]]) {
+    const needs = { ...ok, prepare: app, "quick-checks": { result: overlapping }, "fast-gate": { result: gating } };
+    assert.equal(condition(manifest.if, { needs, vars }), true);
+    assert.equal(condition(manifest.if, { needs, vars: {} }), false, "publication stays off without the variable");
+    for (const id of [...builds, "tests"]) {
+      for (const result of ["failure", "cancelled", "skipped"]) {
+        assert.equal(condition(manifest.if, { needs: { ...needs, [id]: { result } }, vars }), false, `${id}: ${result}`);
+      }
+    }
+  }
+  const failed = { ...ok, prepare: app, "quick-checks": { result: "failure" }, "fast-gate": { result: "skipped" } };
+  assert.equal(condition(manifest.if, { needs: failed, vars }), false);
   for (const id of ["release-manifest", "frontend"]) {
-    const job = release.jobs[id];
-    assert.ok(dependencies(job).includes("tests") && dependencies(job).includes("quick-checks"), id);
-    assert.doesNotMatch(job.if, /always\(\)|failure\(\)|cancelled\(\)/, `${id} keeps the implicit success() over every need`);
+    assert.ok(["tests", "quick-checks", "fast-gate"].every(need => dependencies(release.jobs[id]).includes(need)), id);
   }
 });
 
@@ -165,8 +207,13 @@ test("platform builders do not push release tags before the test gate", () => {
 test("a frontend-only release builds and publishes only the frontend after the frontend tests", () => {
   const frontend = release.jobs.frontend;
   assert.equal(frontend.uses, "./.github/workflows/frontend-release.yml");
-  assert.deepEqual(new Set(dependencies(frontend)), new Set(["prepare", "quick-checks", "tests"]));
-  assert.equal(frontend.if, "vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.kind == 'frontend' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.dry_run != 'true'");
+  assert.deepEqual(new Set(dependencies(frontend)), new Set(["prepare", "quick-checks", "fast-gate", "tests"]));
+  const frontendRelease = { result: "success", outputs: { kind: "frontend", published: "false", dry_run: "false" } };
+  const needs = { prepare: frontendRelease, tests: { result: "success" }, "quick-checks": { result: "success" }, "fast-gate": { result: "skipped" } };
+  const vars = { RELEASE_PUBLISH_ENABLED: "true" };
+  assert.equal(condition(frontend.if, { needs, vars }), true);
+  assert.equal(condition(frontend.if, { needs: { ...needs, tests: { result: "failure" } }, vars }), false);
+  assert.equal(condition(frontend.if, { needs, vars: {} }), false);
   assert.deepEqual(frontend.with, { tag: "${{ needs.prepare.outputs.tag }}", source_sha: "${{ needs.prepare.outputs.source_sha }}" });
   const resolve = release.jobs.prepare.steps.find(step => step.id === "release").run;
   assert.match(resolve, /kind=\$\(node scripts\/ci-scope\.mjs --release-kind "\$previous" "\$sha"\)/);

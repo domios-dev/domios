@@ -110,11 +110,11 @@ test('Mac jobs provision secret material before building and always clean up', (
   assert.match(read('scripts/release-macos-x86_64.sh'), /--keychain "\$RELEASE_KEYCHAIN" --sign "\$SIGN_ID"/);
 });
 
-test('platform builds and the Rust tests both wait only for fast checks', () => {
-  for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']) {
-    assert.deepEqual(release.jobs[build].needs, ['prepare', 'quick-checks']);
+test('builds on machines no fast check uses overlap the fast checks; the rest wait for them', () => {
+  for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'windows-x64', 'windows-arm64']) {
+    assert.deepEqual(release.jobs[build].needs, ['prepare', 'fast-gate']);
   }
-  assert.deepEqual(release.jobs.tests.needs, ['prepare', 'quick-checks']);
+  for (const id of ['linux-x86_64', 'tests']) assert.deepEqual(release.jobs[id].needs, ['prepare', 'quick-checks', 'fast-gate']);
   assert.equal(release.jobs.tests.with.phase, 'long');
   assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
 });

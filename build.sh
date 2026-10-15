@@ -2123,10 +2123,6 @@ ensure_deps() {
   fi
 }
 
-build_release_frontend() {
-  pnpm build
-}
-
 prepare_release_bundle_inputs() {
   local minimum_macos_version
   minimum_macos_version=$(node -p "require('./src-tauri/tauri.conf.json').bundle?.macOS?.minimumSystemVersion || ''")
@@ -2137,7 +2133,7 @@ prepare_release_bundle_inputs() {
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     cargo_target_args=(--target "$CARGO_BUILD_TARGET")
   fi
-  build_release_frontend
+  pnpm build
   cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
   node scripts/prepare-embed-stub.js
@@ -2417,7 +2413,7 @@ EOF
     ;;
   frontend-build)
     ensure_deps
-    build_release_frontend
+    pnpm build
     ;;
   release-inputs)
     ensure_deps
