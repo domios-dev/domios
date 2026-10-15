@@ -36,6 +36,7 @@ test('ordinary package changes select only their library, with root bins only on
 
 test('lane dispatch uses Clippy libraries, touched root bins and isolated leaf tests without all-targets', () => {
   const source = fs.readFileSync(path.resolve(import.meta.dirname, '../build.sh'), 'utf8');
+  const configureProduct = source.match(/^configure_product_cargo\(\) \{[\s\S]*?^\}/m)[0];
   const start = source.indexOf('  if [ "$lane" = 1 ]; then');
   const fragment = source.slice(start, source.indexOf('  elif [ "${#pkg_args[@]}" -gt 0 ]; then', start)) + '\nfi';
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lane-clippy-'));
@@ -46,6 +47,8 @@ test('lane dispatch uses Clippy libraries, touched root bins and isolated leaf t
         set -euo pipefail
         lane=1; plan=plan; cw="$PWD"; out=pass.log; status=0
         lane_args=(); test_packages=(); CLIPPY_ALLOW=(-Aclippy::opaque)
+        CT_DEV_CARGO_FEATURES=embeddings
+        ${configureProduct}
         run_check_queue_cargo() { shift; "$@"; }
         cargo() { printf '%s\\n' "$*" >> calls.log; }
         : > calls.log
@@ -63,6 +66,9 @@ test('lane dispatch uses Clippy libraries, touched root bins and isolated leaf t
       }
       assert.equal(calls[0].includes('--bins'), rootTouched);
       assert.ok(calls[0].includes('-p codeterm-service-core'));
+      assert.ok(calls[0].includes('--no-default-features'));
+      assert.ok(calls[0].includes('--features codeterm-service-core/embeddings'));
+      assert.equal(calls[0].includes('--features codeterm/embeddings'), rootTouched);
       assert.doesNotMatch(calls[0], /--tests/);
       assert.match(calls[1], /-p codeterm-opaque --lib --tests/);
     }
