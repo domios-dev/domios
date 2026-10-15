@@ -62,7 +62,6 @@ pub async fn task_respawn(
         return tokio::task::spawn_blocking(move || {
             (codeterm_service_core::ports::socket::bridge().respawn_remote)(
                 &Some(params),
-                &service.app_handle,
                 &service,
                 &id,
                 &tid,
@@ -223,7 +222,6 @@ pub async fn task_respawn(
         .unwrap_or(&parent_tab_id)
         .to_string();
     let startup = codeterm_service_core::ports::socket::DispatchStartup {
-        app: state.svc.app_handle.clone(),
         svc: state.svc.clone(),
         plan_id: id.clone(),
         task_id: tid.clone(),

@@ -106,8 +106,8 @@ async fn transport_tabs_contract_cwd_persistence_envelopes_and_status() {
         http::Request,
         middleware,
     };
+    use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
-    use codeterm_service_core::service::test_fixture::ServiceFixture;
     use tower::ServiceExt;
 
     let (mux, tab) = MultiplexerState::new();

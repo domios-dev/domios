@@ -113,9 +113,13 @@ pub(super) async fn check_and_apply(
 async fn refresh_bundled_cli_off_runtime(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), String> {
-    let handle = app.clone();
+    use tauri::Manager;
+    let shell = app
+        .state::<codeterm_service_core::service::ServiceState>()
+        .shell
+        .clone();
     tokio::task::spawn_blocking(move || {
-        codeterm_service_core::startup::refresh_bundled_cli(&handle)
+        codeterm_service_core::startup::refresh_bundled_cli(shell.as_ref())
     })
     .await
     .map_err(|e| format!("bundled CLI refresh task failed: {e}"))

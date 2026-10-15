@@ -1,6 +1,5 @@
 //! `tab.*` and `agents.list_providers` JSON-RPC handlers.
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::Value;
 
 use codeterm_service_core::multiplexer::commands::MuxState;
@@ -20,7 +19,6 @@ pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
     mux: &MuxState,
-    _app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
@@ -775,7 +773,6 @@ mod tests {
             "tab.send_text",
             &params,
             &fixture.service.mux,
-            fixture._app.handle(),
             &std::sync::Arc::new(fixture.service.clone()),
         )
         .unwrap();

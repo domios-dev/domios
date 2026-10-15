@@ -2,7 +2,6 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::{json, Value};
 
 use codeterm_service_core::service::plan::handoff::{HandoffCreateRequest, HandoffReseedRequest};
@@ -26,12 +25,8 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
-    codeterm_host_runtime::events::emit_everywhere(
-        app,
-        "plan-changed",
-        json!({ "plan_id": plan_id }),
-    );
+fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
+    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
 }
 
 fn provider_command_for_reseed(
@@ -69,7 +64,6 @@ fn provider_command_for_reseed(
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let p = params.as_ref();
@@ -93,7 +87,7 @@ pub(super) fn dispatch(
             let result = store
                 .create_handoff(&id, request, now)
                 .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
+            emit_plan_changed(svc, &id);
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -156,7 +150,7 @@ pub(super) fn dispatch(
                         svc.insert_text_detached(&result.tab_id, &send.text);
                     }
                 }
-                emit_plan_changed(app, &id);
+                emit_plan_changed(svc, &id);
             }
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,

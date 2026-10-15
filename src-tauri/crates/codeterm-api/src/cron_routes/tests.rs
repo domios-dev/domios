@@ -6,8 +6,8 @@ use axum::http::HeaderMap;
 
 use super::off_runtime_gate::StorageCron;
 use crate::routes::AppState;
+use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
-use codeterm_service_core::service::test_fixture::ServiceFixture;
 
 fn app_state(fixture: &ServiceFixture, cron: &StorageCron) -> AppState {
     let config = codeterm_service_core::config::schema::AppConfig::default();
@@ -15,6 +15,7 @@ fn app_state(fixture: &ServiceFixture, cron: &StorageCron) -> AppState {
         codeterm_service_core::mesh::MeshManager::new("cron-entry-off-runtime".into(), 0);
     mesh.disk_persist = false;
     AppState {
+        app: fixture.app.handle().clone(),
         svc: Arc::new(fixture.service.clone()),
         cron: cron.cron.clone(),
         cron_wake: cron.wake.clone(),
@@ -54,13 +55,15 @@ fn storage_cutover_cron_unavailable_read_maps_to_service_unavailable() {
 #[tokio::test]
 async fn storage_cutover_unavailable_desk_rest_reads_return_503_with_the_preservation_message() {
     use codeterm_service_core::startup::{StorageAuthority, STORAGE_UNAVAILABLE_MESSAGE};
-    use tauri::Manager;
 
     let fixture = ServiceFixture::new(MultiplexerState::empty());
-    assert!(fixture._app.manage(StorageAuthority::Unavailable {
-        storage: None,
-        reason: "test storage failure".into(),
-    }));
+    assert!(fixture
+        .service
+        .set_ext(StorageAuthority::Unavailable {
+            storage: None,
+            reason: "test storage failure".into(),
+        })
+        .is_ok());
     let storage_cron = StorageCron::open();
     let state = app_state(&fixture, &storage_cron);
 

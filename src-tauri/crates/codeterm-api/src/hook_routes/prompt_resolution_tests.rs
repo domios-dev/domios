@@ -5,9 +5,10 @@ use codeterm_service_core::service::prompt_resolution_tests::{
     assert_resolved_and_new_prompt_notifies, pending_prompt_fixture,
 };
 
-fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixture) -> AppState {
+fn app_state(fixture: &codeterm_host_runtime::test_fixture::HostFixture) -> AppState {
     let config = codeterm_service_core::config::schema::AppConfig::default();
     AppState {
+        app: fixture.app.handle().clone(),
         svc: Arc::new(fixture.service.clone()),
         cron: Arc::new(parking_lot::Mutex::new(
             codeterm_service_core::cron::store::CronStore::new_with_path(
@@ -47,6 +48,7 @@ fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixt
 #[tokio::test]
 async fn stop_transition_resolves_the_prompt_through_hook() {
     let (fixture, tab_id, previous_id) = pending_prompt_fixture();
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::from_core(fixture);
     let state = app_state(&fixture);
 
     let _ = crate::hook_routes::hook_stop(

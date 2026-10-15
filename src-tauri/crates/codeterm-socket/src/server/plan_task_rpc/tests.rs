@@ -112,6 +112,7 @@ fn local_rpc_cannot_claim_authenticated_mesh_peer_for_remote_ack() {
         "plan.task.remote_ack",
         params,
         &std::sync::Arc::new(fixture.service.clone()),
+        None,
     )
     .expect_err("local RPC must not impersonate signed mesh transport");
     assert!(
@@ -139,13 +140,7 @@ fn socket_update_rejects_unknown_keys_without_mutating_the_task() {
         params[key] = json!("ignored");
         let params = Some(params);
 
-        let result = dispatch(
-            "plan.task.update",
-            &params,
-            &fixture.service.app_handle,
-            &service,
-            99,
-        );
+        let result = dispatch("plan.task.update", &params, &service, 99);
         let after = full_task_record(&fixture, &plan_id, &task_id);
         assert!(
             result.is_err(),
@@ -184,7 +179,6 @@ fn socket_every_supported_update_key_reaches_the_real_handler() {
         let result = dispatch(
             "plan.task.update",
             &Some(params),
-            &fixture.service.app_handle,
             &service,
             100 + index as u64,
         );
@@ -210,14 +204,7 @@ fn socket_update_external_refs_round_trips_non_null() {
     params["external_refs"] = json!(["rollacode/codeterm-releases#17"]);
     let params = Some(params);
 
-    dispatch(
-        "plan.task.update",
-        &params,
-        &fixture.service.app_handle,
-        &service,
-        99,
-    )
-    .unwrap();
+    dispatch("plan.task.update", &params, &service, 99).unwrap();
 
     let plan = fixture.service.plan_store.get(&plan_id).unwrap();
     let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
@@ -256,14 +243,7 @@ fn socket_update_acceptance_criteria_defaults_to_append() {
     params["task_id"] = json!(task_id.clone());
     params["acceptance_criteria"] = json!(["new one"]);
 
-    let response = dispatch(
-        "plan.task.update",
-        &Some(params),
-        &fixture.service.app_handle,
-        &service,
-        99,
-    )
-    .unwrap();
+    let response = dispatch("plan.task.update", &Some(params), &service, 99).unwrap();
 
     assert!(
         response.get("acceptance_criteria_counts").is_none(),
@@ -306,14 +286,7 @@ fn socket_update_acceptance_criteria_replace_reports_before_after_counts() {
     params["acceptance_criteria"] = json!(["replacement"]);
     params["acceptance_criteria_replace"] = json!(true);
 
-    let response = dispatch(
-        "plan.task.update",
-        &Some(params),
-        &fixture.service.app_handle,
-        &service,
-        99,
-    )
-    .unwrap();
+    let response = dispatch("plan.task.update", &Some(params), &service, 99).unwrap();
 
     assert_eq!(
         response["acceptance_criteria_counts"],
@@ -531,14 +504,8 @@ fn destination_update_during_startup_keeps_attempt_tab_and_lane() {
     let params = Some(serde_json::Value::Object(params));
     let service = Arc::new(fixture.service.clone());
 
-    dispatch(
-        "plan.task.update",
-        &params,
-        &fixture.service.app_handle,
-        &service,
-        6,
-    )
-    .expect("integration metadata update should preserve a live startup attempt");
+    dispatch("plan.task.update", &params, &service, 6)
+        .expect("integration metadata update should preserve a live startup attempt");
 
     let starting = fixture.service.plan_store.show_task(&task_id).unwrap().task;
     assert_eq!(
@@ -616,13 +583,8 @@ fn dispatch_refuses_live_startup_owner_before_spawning_another_worker() {
     }));
     let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
 
-    let refusal = super::super::plan_task_dispatch::dispatch(
-        &params,
-        &fixture.service.app_handle,
-        &service,
-        6,
-    )
-    .expect_err("a second dispatch must be refused before spawning");
+    let refusal = super::super::plan_task_dispatch::dispatch(&params, &service, 6)
+        .expect_err("a second dispatch must be refused before spawning");
 
     assert_eq!(
         refusal.code,
@@ -687,7 +649,6 @@ fn dispatch_spawn_failure_closes_attempt_and_reserved_tab() {
 
     let error = dispatch_with_spawn(
         &params,
-        &fixture.service.app_handle,
         &service,
         7,
         |_, _, _| Err("provider rejected launch".into()),
@@ -749,7 +710,7 @@ fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
     })));
     let starts = [0, 1].map(|_| {
         let service = service.clone();
-        let app = fixture.service.app_handle.clone();
+
         let params = params.clone();
         let spawned_tabs = spawned_tabs.clone();
         let ready_senders = ready_senders.clone();
@@ -757,7 +718,6 @@ fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
         std::thread::spawn(move || {
             dispatch_with_spawn(
                 params.as_ref(),
-                &app,
                 &service,
                 7,
                 move |svc, spawn_params, ready_tx| {
@@ -1083,13 +1043,7 @@ fn bound_orchestrator_closes_a_live_worker_task_without_matching_its_epoch() {
     let params = Some(serde_json::Value::Object(params));
 
     verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).unwrap();
-    super::super::plan_lifecycle::dispatch(
-        "plan.task.close",
-        &params,
-        &fixture.service.app_handle,
-        &service,
-    )
-    .unwrap();
+    super::super::plan_lifecycle::dispatch("plan.task.close", &params, &service).unwrap();
 
     let task = recovered_task(&fixture, &plan_id, &task_id);
     assert_eq!(task.status, TaskStatus::Done);
