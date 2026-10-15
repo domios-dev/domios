@@ -201,11 +201,11 @@ test('named peer dispatch opens one bounded build tab on that peer and records t
   const flag = (name) => args[args.indexOf(name) + 1];
   assert.equal(flag('--mesh'), 'ROG');
   assert.equal(flag('--shell'), 'git-bash');
-  assert.equal(flag('--timeout'), '55m');
+  assert.ok(args.includes('--eager') && !args.includes('--timeout'));
   assert.equal(flag('--purpose'), 'build');
   assert.match(flag('--cmd'), new RegExp(`'run-job' .*'--reply-peer' 'a35724e2-c7e3-486b-95d1-5edaa7f8d749' '--reply-tab' 'tab01' .*'--' 'check-queue' '${fx.sha}'`));
   assert.doesNotMatch(flag('--cmd'), /'--peer'/);
-  assert.match(flag('--cmd'), /'check-queue' '[0-9a-f]{40}' '--lane'; fi$/);
+  assert.match(flag('--cmd'), /'check-queue' '[0-9a-f]{40}' '--lane'; fi; exit$/);
   const records = fs.readdirSync(fx.state);
   assert.equal(records.length, 1);
   assert.equal(JSON.parse(fs.readFileSync(path.join(fx.state, records[0]), 'utf8')).remote_tab, 'remote01');
@@ -227,7 +227,7 @@ test('auto routing reads each peer status over mesh and refuses with 75 when non
   assert.match(result.stdout, /peer-route: chose ROG; ROG=idle\/load0 ubunta=running\/load1/);
   const execs = calls(fx.log).filter((c) => c.args[1] === 'exec');
   assert.deepEqual(execs.map((c) => c.args[c.args.indexOf('--tab') + 1]).sort(), ['status-ROG', 'status-ubunta']);
-  assert.match(calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1), /'--' 'nextest' 'plan'; fi$/);
+  assert.match(calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1), /'--' 'nextest' 'plan'; fi; exit$/);
 
   const busy = dispatchFixture(t, { ROG: 'exec_timeout', ubunta: 'not_setup' });
   const refused = busy.dispatch('check-queue', busy.sha, '--peer', 'auto');
@@ -240,7 +240,7 @@ test('check-linux routes to the Linux peer once per SHA unless forced', (t) => {
   const first = fx.dispatch('check-linux', fx.sha);
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /peer=ubunta verb=check-linux/);
-  assert.match(calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1), new RegExp(`'--' 'check-workspace' '${fx.sha}'; fi$`));
+  assert.match(calls(fx.log).find((c) => c.args[1] === 'new').args.at(-1), new RegExp(`'--' 'check-workspace' '${fx.sha}'; fi; exit$`));
   const again = fx.dispatch('check-linux', fx.sha);
   assert.equal(again.status, 0);
   assert.match(again.stdout, /already dispatched/);
