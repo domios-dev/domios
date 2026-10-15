@@ -391,9 +391,11 @@ impl ServiceContext {
     }
 
     fn finish_boot_stage_transition(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+        crate::startup::boot_timing::mark(tab_id, None, "finish_stage_enter");
         super::boot_wait::notify_boot_changed();
         crate::service::general_agent::binding_wait::notify_binding_state_changed();
         self.emit_session_binding_state(tab_id);
+        crate::startup::boot_timing::mark(tab_id, None, "finish_binding_done");
         if stage.carries_reason() {
             self.wake_user_owner_on_state_change(tab_id);
         }
@@ -418,9 +420,11 @@ impl ServiceContext {
                 }
             }
         }
+        crate::startup::boot_timing::mark(tab_id, None, "finish_tree_done");
         // A boot stage is the only moment a tab's agent liveness can change on
         // the launch side; the restore wave settles here rather than on a tick.
         self.settle_restore_report();
+        crate::startup::boot_timing::mark(tab_id, None, "finish_restore_done");
         if stage == BootStage::ShellReady {
             self.resume_exited_member_on_shell_ready(tab_id);
         }
@@ -428,16 +432,22 @@ impl ServiceContext {
             if let Ok(authority) = self.user_send_authority(tab_id) {
                 self.latch_user_authority_ready(&authority);
             }
+            crate::startup::boot_timing::mark(tab_id, None, "finish_authority_done");
             // Sealing transition: this is the only place an operation becomes
             // restorable, and only if provider + session already committed.
             self.record_lifecycle(
                 tab_id,
                 crate::session::lifecycle::LifecycleTransition::LaunchReady,
             );
+            crate::startup::boot_timing::mark(tab_id, None, "finish_journal_done");
             self.schedule_planner_replay(tab_id);
+            crate::startup::boot_timing::mark(tab_id, None, "finish_planner_done");
             self.schedule_parked_user_send(tab_id);
+            crate::startup::boot_timing::mark(tab_id, None, "finish_user_wake_done");
             self.heal_recovery_state_if_ready();
+            crate::startup::boot_timing::mark(tab_id, None, "finish_recovery_done");
             self.retire_superseded_process_conditions(tab_id);
+            crate::startup::boot_timing::mark(tab_id, None, "finish_conditions_done");
         }
         if stage == BootStage::SpawnFailed {
             self.wake_agent_deliveries_on_state_change(tab_id);
