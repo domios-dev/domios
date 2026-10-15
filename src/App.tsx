@@ -292,7 +292,6 @@ function AppInner() {
     () => buildTeamActions({
       invoke,
       callerNonce: (tabId) => stateRef.current.tabs[tabId]?.session_binding_nonce ?? undefined,
-      selectedTab: () => stateRef.current.focused_tab_id,
     }),
     [],
   );

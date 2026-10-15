@@ -451,6 +451,7 @@ export interface TeamUnitProps {
   addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
+  closing?: boolean;
 }
 
 export interface TeamEffortTarget {
@@ -481,6 +482,7 @@ export function TeamUnit({
   onOpenEffort,
   onAddMember,
   onCloseTeam,
+  closing = false,
 }: TeamUnitProps) {
   const initialDisclosure = useMemo(() => loadTeamDisclosureState(team.id), [team.id]);
   const [expanded, setExpanded] = useState(initialDisclosure.expanded);
@@ -623,6 +625,7 @@ export function TeamUnit({
               @{team.remote_peer_name}
             </span>
           )}
+          {closing && <span role="status" aria-label={`Closing ${displayTitle}`} aria-busy="true">Closing…</span>}
           {workingWorkerCount > 0 && (
             <span
               data-testid="team-working-indicator"
@@ -750,7 +753,8 @@ export function TeamUnit({
               ) : (
                 <div data-testid="workers-collapse-summary" className="sidebar-team-workers-summary">
                   {summarizeWorkers(workerCount, workingWorkerCount)}
-                  {workingWorkerCount > 0 && (
+                  {closing && <span role="status" aria-label={`Closing ${displayTitle}`} aria-busy="true">Closing…</span>}
+          {workingWorkerCount > 0 && (
                     <ActivityDots size="small" tone="muted" active />
                   )}
                   <span className="sidebar-team-summary-kebab"><KebabGlyph /></span>

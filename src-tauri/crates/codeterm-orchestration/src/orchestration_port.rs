@@ -44,6 +44,24 @@ impl OrchestrationPort for OrchestrationPortImpl {
         force: bool,
     ) -> TeamCloseFuture {
         let svc = self.svc();
-        Box::pin(async move { svc.close_team(&team_id, caller, force).await.map(|_| ()) })
+        Box::pin(async move {
+            let result = svc.close_team(&team_id, caller, force).await?;
+            let preserved: Vec<_> = result
+                .inventory
+                .kept
+                .iter()
+                .filter_map(|lane| lane.path.as_deref().or(lane.branch.as_deref()))
+                .collect();
+            if !preserved.is_empty() {
+                svc.notify_event(
+                    "close-lanes-preserved",
+                    serde_json::json!({
+                        "paths": preserved,
+                        "workspace_id": result.team.workspace_id,
+                    }),
+                );
+            }
+            Ok(())
+        })
     }
 }
