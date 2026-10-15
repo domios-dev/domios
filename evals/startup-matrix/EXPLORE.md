@@ -298,6 +298,9 @@ external CLI's startup or prove native UI wiring.
 | Chat restores consumed the PTY admission budget | locked by test bounded_transports_progress_independently_without_starving_queued_tabs |
 | Opening a pending restored chat did not bypass boot admission | locked by test explicit_chat_wake_bypasses_pending_boot_restore |
 | A live delta overlapping a snapshot caused repeated chat restarts | locked by test record-aligned overlap merges new rows and incoming revisions without restarting, overlap beginning below the loaded window keeps incoming revision precedence, repeated overlapping tails remain bounded and keep the latest shared revisions, and evicting the oldest overlap advances paging to the retained segment |
+| Valid event replay and idle wake restarted an attached chat | locked by test valid reconnect and idle wake preserve the transcript projection and useChatSession existing-lease replay/wake wiring assertion; event loss and daemon epoch changes still require transcript recovery remains paired |
+| Reconnect discarded the memory replay cursor when storage was unavailable | locked by test same-target reconnect retains an in-memory cursor when storage is unavailable and peer switches use only the destination cursor and cold pages use saved replay |
+| Reconnect failed to retry an initial attachment error | locked by test an observed reconnect can retry a failed initial attachment and useChatSession failed-first-attachment recovery wiring assertion |
 
 Run the existing tests in each changed area alongside its regression test.
 A new defect adds its fast oracle here and in the run report; retain any executed
