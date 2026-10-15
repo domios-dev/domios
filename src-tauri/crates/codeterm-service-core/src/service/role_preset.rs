@@ -44,7 +44,7 @@ impl FragmentSource {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PresetFragment {
+pub struct PresetFragment {
     pub source: FragmentSource,
     pub text: String,
 }

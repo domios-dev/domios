@@ -16,7 +16,7 @@ pub(crate) use restart::RestartAcceptance;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum RestApiPhase {
+pub enum RestApiPhase {
     Starting,
     Listening,
     Failed,
@@ -24,22 +24,22 @@ pub(crate) enum RestApiPhase {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum RestApiDiagnostic {
+pub enum RestApiDiagnostic {
     ListenerExited,
     BindOwnershipFailed,
     WorkersBlocked,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct RestApiStatus {
-    pub(crate) generation: u64,
-    pub(crate) phase: RestApiPhase,
-    pub(crate) diagnostic: Option<RestApiDiagnostic>,
-    pub(crate) message: Option<String>,
+pub struct RestApiStatus {
+    pub generation: u64,
+    pub phase: RestApiPhase,
+    pub diagnostic: Option<RestApiDiagnostic>,
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RestApiRecovery {
+pub struct RestApiRecovery {
     pub(crate) transition_id: u64,
     pub(crate) status: RestApiStatus,
 }
@@ -53,7 +53,7 @@ pub(crate) struct PendingBind {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-pub(crate) struct RestApiRuntimePolicy {
+pub struct RestApiRuntimePolicy {
     pub(crate) enabled: bool,
     pub(crate) cors: bool,
     pub(crate) cors_allow_origins: Vec<String>,
@@ -70,7 +70,7 @@ struct RestApiLifecycle {
 }
 
 #[derive(Clone)]
-pub(crate) struct RestApiControl {
+pub struct RestApiControl {
     pub(crate) listeners: listeners::ListenerPublication,
     transition: Arc<Mutex<()>>,
     sender: Arc<Mutex<Option<mpsc::UnboundedSender<RestApiCommand>>>>,
@@ -488,7 +488,7 @@ impl RestApiControl {
     }
 }
 
-pub(crate) type RestApiControlState = Arc<RestApiControl>;
+pub type RestApiControlState = Arc<RestApiControl>;
 
 fn probe_address(address: SocketAddr) -> SocketAddr {
     match address.ip() {
