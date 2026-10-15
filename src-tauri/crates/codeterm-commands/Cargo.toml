@@ -1,0 +1,58 @@
+[package]
+name = "codeterm-commands"
+version = "1.14.9-dev.6"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "codeterm_commands"
+
+[features]
+# Enables file:// and loopback HTTP manifest sources in update::manifest.
+dev-updater-allowlocal = []
+
+[dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-analytics = { path = "../codeterm-analytics" }
+codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
+tempfile = "3"
+tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+tokio = { version = "1", features = ["full", "test-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-events = { path = "../codeterm-events" }
+codeterm-util = { path = "../codeterm-util" }
+codeterm-mesh = { path = "../codeterm-mesh" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+base64 = "0.22"
+dirs = "6"
+axum = { version = "0.8", features = ["multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
+semver = "1"
+url = "2"
+async-trait = "0.1"
+which = "7"
+codeterm-plugins = { path = "../codeterm-plugins" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
+objc2-foundation = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+clipboard-win = "5"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }

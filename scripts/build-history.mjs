@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { readJobJson } from './build-gateway-record.mjs';
 
 export function median(values) {
   if (!values.length) return null;
@@ -108,8 +109,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const options = parseHistoryArgs(process.argv.slice(2));
     const directory = path.join(options.dir, 'jobs');
     const records = fs.existsSync(directory) ? fs.readdirSync(directory).filter(name => name.endsWith('.json')).flatMap(name => {
-      try { return [JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'))]; }
-      catch { console.error(`build-history: skipped unreadable record ${name}`); return []; }
+      const record = readJobJson(path.join(directory, name));
+      if (record) return [record];
+      console.error(`build-history: skipped unreadable record ${name}`);
+      return [];
     }) : [];
     const history = summarizeHistory(records, { ...options, now: Date.now() });
     process.stdout.write(options.json ? `${JSON.stringify(history, null, 2)}\n` : formatHistory(history));

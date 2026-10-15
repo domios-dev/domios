@@ -15,7 +15,6 @@
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to the active dev data directory
-#                          without waiting for the app/dev build gateway
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
 #   ./build.sh e2e       — run non-LLM E2E tests against dev (port 7686)
@@ -34,7 +33,7 @@ DEV_NOTIFY_TAB=""
 # Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
 # (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
 case "$CMD" in
-  check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check)
+  check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -343,7 +342,7 @@ CMD="${1:-dev}"
 run_workspace_lib_tests() {
   local package
   local test_cap_secs="${TEST_CAP_SECS:-3600}"
-  for package in codeterm codeterm-account codeterm-billing codeterm-frontend-bundle codeterm-types codeterm-wire codeterm-sentinel codeterm-decision codeterm-provider-signals codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
+  for package in codeterm-service-core codeterm-account codeterm-billing codeterm-frontend-bundle codeterm-types codeterm-wire codeterm-sentinel codeterm-decision codeterm-provider-signals codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
     TEST_CAP_SECS="$test_cap_secs" scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$package" --lib
   done
 }
@@ -361,7 +360,12 @@ run_nextest_scope() {
   local filter_args=()
 
   case "$scope" in
-    app|codeterm) package="codeterm"; targets+=(--lib --no-default-features) ;;
+    app|codeterm|service-core|codeterm-service-core)
+      configure_app_test_cargo nextest
+      manifest="$CT_APP_TEST_MANIFEST"
+      package="$CT_APP_TEST_PACKAGE"
+      targets+=("${CT_APP_TEST_TARGET_ARGS[@]}")
+      ;;
     input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
@@ -393,8 +397,7 @@ run_nextest_scope() {
       ;;
   esac
 
-  enter_build_gateway "$CMD $scope${filterset:+ $filterset}"
-  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ]; then
+  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ]; then
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     prepare_exceptional_worktree_target
@@ -411,8 +414,15 @@ run_nextest_scope() {
     fi
   fi
 
-  local timing_dir run_exit=0 guard_exit=0 alone_exit=0
-  timing_dir="$(mktemp -d)"
+  local timing_dir run_exit=0 guard_exit=0 alone_exit=0 reuse_args=() confirmation_args=() archive=""
+  if [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then timing_dir="$(mktemp -d "$CT_BUILD_ARTIFACT_DIR/nextest.XXXXXX")"; else timing_dir="$(mktemp -d)"; fi
+  if [ "$package" = codeterm-service-core ] && [[ "$filterset" != *'rdeps('* ]] && find_app_test_archive; then
+    archive="$CT_APP_TEST_ARCHIVE"
+    configure_app_archive_run "$filterset" || return $?
+    reuse_args=("${CT_APP_ARCHIVE_RUN_ARGS[@]}")
+    filter_args=()
+    confirmation_args=(--archive-file "$archive")
+  else
   if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
     --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
     :
@@ -428,14 +438,18 @@ run_nextest_scope() {
     rm -rf "$timing_dir"
     return "$run_exit"
   fi
-  if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass \
-    scripts/test-capped.sh \
-    --binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json" \
-    "${filter_args[@]}" --no-fail-fast --no-tests=fail 2>&1 | tee "$timing_dir/parallel.log"; then
-    run_exit=${PIPESTATUS[0]}
-  else
-    run_exit=${PIPESTATUS[0]}
+  reuse_args=(--binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json")
+  confirmation_args=("$timing_dir/binaries.json" "$timing_dir/cargo.json")
   fi
+  if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass TEST_RAW_OUTPUT=1 \
+    scripts/test-capped.sh \
+    "${reuse_args[@]}" \
+    "${filter_args[@]}" --no-fail-fast --no-tests=fail > "$timing_dir/parallel.log" 2>&1; then
+    run_exit=0
+  else
+    run_exit=$?
+  fi
+  node "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/build-gateway-output.mjs" test-summary "$timing_dir/parallel.log" "$run_exit"
   if [ "${SLOW_UNIT_TESTS_MEASUREMENT:-}" = "alone" ]; then
     if [ "${NEXTEST_TEST_THREADS:-}" != "1" ]; then
       echo "alone measurement requires NEXTEST_TEST_THREADS=1" >&2
@@ -448,7 +462,7 @@ run_nextest_scope() {
   elif node scripts/check-slow-unit-tests.mjs "$timing_dir/parallel.log" --candidates "$timing_dir/candidates.json"; then
     if [ "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1])).entries.length))' "$timing_dir/candidates.json")" != "0" ]; then
       if node scripts/confirm-slow-unit-tests.mjs "$timing_dir/candidates.json" \
-        "$timing_dir/binaries.json" "$timing_dir/cargo.json" "$timing_dir/alone.log"; then
+        "${confirmation_args[@]}" "$timing_dir/alone.log"; then
         :
       else
         alone_exit=$?
@@ -466,7 +480,7 @@ run_nextest_scope() {
   else
     guard_exit=$?
   fi
-  rm -rf "$timing_dir"
+  [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ] || rm -rf "$timing_dir"
   [ "$run_exit" -eq 0 ] || return "$run_exit"
   [ "$alone_exit" -eq 0 ] || return "$alone_exit"
   return "$guard_exit"
@@ -534,10 +548,7 @@ if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
 else
   BUILD_ARGS=()
   for arg in "${@:2}"; do
-    if [ "$arg" = "--wait-build" ] && [ "$CMD" = "check-tests" ]; then
-      echo "ERROR: check-tests does not use the build gateway, so --wait-build has no effect; run ./build.sh check-tests without it" >&2
-      exit 2
-    elif [ "$arg" = "--wait-build" ]; then
+    if [ "$arg" = "--wait-build" ]; then
       export CODETERM_BUILD_GATEWAY_MODE=queue
     else
       BUILD_ARGS+=("$arg")
@@ -581,7 +592,7 @@ fi
 
 if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
   if named_dev_wait_isolated; then
-    printf 'mode=isolated-named-wait\ntarget=%s\nbuild_gateway=skipped\n' "$(named_dev_target_dir)"
+    printf 'mode=isolated-named-wait\ntarget=%s\nbuild_gateway=required\n' "$(named_dev_target_dir)"
   else
     printf 'mode=shared\nbuild_gateway=required\n'
   fi
@@ -596,6 +607,7 @@ fi
 
 source scripts/cache-policy.sh
 source scripts/build-gateway.sh
+source scripts/nextest-archive.sh
 source scripts/release-signing.sh
 
 if [ -n "${CODETERM_BUILD_GATEWAY_DIR:-}" ]; then
@@ -620,41 +632,53 @@ esac
 
 CT_BUILD_GATEWAY_LOGGING_FAILURE=74
 
+wait_build_gateway_reader() {
+  local pid="$1" artifact="$2" deadline="$3" token watchdog status=0
+  token="$(ct_gateway_process_start_token "$pid" 2>/dev/null || true)"
+  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-reader-deadline.mjs" "$pid" "$token" "$deadline" "$artifact" &
+  watchdog=$!
+  wait "$pid" || status=$?
+  kill "$watchdog" 2>/dev/null || true
+  wait "$watchdog" 2>/dev/null || true
+  return "$status"
+}
+
 finish_build_gateway_logging() {
-  local reader_status=0 watchdog_pid reader_start deadline=10000
-  exec 1>&3 2>&4
+  local reader_status=0 trace_status="${CT_BUILD_GATEWAY_TRACE_DEGRADED:-0}" deadline=10000
+  if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ]; then
+    deadline="${CT_BUILD_GATEWAY_READER_TIMEOUT_MS:-10000}"
+  fi
+  exec 2>&4
+  if [ -n "${CT_BUILD_GATEWAY_TRACE_READER_PID:-}" ]; then
+    wait_build_gateway_reader "$CT_BUILD_GATEWAY_TRACE_READER_PID" "$CT_BUILD_GATEWAY_TRACE_PATH" "$deadline" || trace_status=$?
+    node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-output.mjs" fingerprint-summary "$CT_BUILD_GATEWAY_TRACE_PATH"
+  fi
+  exec 1>&3
   if [ -n "${CT_BUILD_GATEWAY_LOG_READER_STATUS:-}" ]; then
     reader_status="$CT_BUILD_GATEWAY_LOG_READER_STATUS"
   else
-    if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = fixture ]; then
-      deadline="${CT_BUILD_GATEWAY_READER_TIMEOUT_MS:-10000}"
-    fi
-    reader_start="$(ct_gateway_process_start_token "$CT_BUILD_GATEWAY_LOG_READER_PID" 2>/dev/null || true)"
-    node scripts/build-gateway-reader-deadline.mjs "$CT_BUILD_GATEWAY_LOG_READER_PID" "$reader_start" "$deadline" &
-    watchdog_pid=$!
-    if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then reader_status=0; else reader_status=$?; fi
-    kill "$watchdog_pid" 2>/dev/null || true
-    wait "$watchdog_pid" 2>/dev/null || true
+    wait_build_gateway_reader "$CT_BUILD_GATEWAY_LOG_READER_PID" "$CT_BUILD_GATEWAY_LOG_PATH" "$deadline" || reader_status=$?
   fi
   rm -f -- "${CT_BUILD_GATEWAY_LOG_FIFO:-}"
+  [ -z "${CT_BUILD_GATEWAY_TRACE_FIFO:-}" ] || rm -f -- "$CT_BUILD_GATEWAY_TRACE_FIFO"
   exec 3>&- 4>&-
+  [ "$trace_status" = 0 ] || return "$trace_status"
   return "$reader_status"
 }
 
 complete_build_gateway_before_install_handoff() {
-  local reader_status=0 finish_status=0
+  local reader_status=0 finish_status=0 outcome=""
   trap - EXIT INT TERM
   if [ -n "${CT_BUILD_GATEWAY_LOG_PATH:-}" ]; then
     printf 'Build gateway job %s build exit: 0\n' "$CT_BUILD_JOB_ID"
     finish_build_gateway_logging || reader_status=$?
     if [ "$reader_status" -ne 0 ]; then
-      printf 'ERROR: build gateway logging path broke before installer handoff (exit %s); log: %s\n' \
-        "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
-      ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "0" logging_failed
-      return "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+      printf 'WARNING: build gateway logging path broke before installer handoff (reader exit %s); build exit remains 0; log: %s\n' \
+        "$reader_status" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
+      outcome=logging_degraded
     fi
   fi
-  ct_gateway_finish 0 0 || finish_status=$?
+  ct_gateway_finish 0 0 "$outcome" || finish_status=$?
   return "$finish_status"
 }
 
@@ -663,6 +687,7 @@ build_gateway_logging_on_exit() {
   local summary_status reader_status finish_status
   trap - EXIT INT TERM
   set +e
+  release_stable_build_path
   if [ "${CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN:-0}" = "1" ] && [ "${CT_GATEWAY_CANCELLED:-0}" != "1" ]; then
     command_status="$captured_status"
     command_status_text="$captured_status"
@@ -672,6 +697,14 @@ build_gateway_logging_on_exit() {
   finish_build_gateway_logging
   reader_status=$?
   if [ "$summary_status" -ne 0 ] || [ "$reader_status" -ne 0 ]; then
+    if [ -n "$command_status" ]; then
+      printf 'WARNING: build gateway logging path broke (reader exit %s); command exit was %s and is preserved; log: %s\n' \
+        "$reader_status" "$command_status" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
+      ct_gateway_finish "$command_status" "$command_status" logging_degraded
+      finish_status=$?
+      [ "$finish_status" -eq 0 ] || exit "$finish_status"
+      exit "$command_status"
+    fi
     printf 'ERROR: build gateway logging path broke (exit %s); command exit was %s; log: %s\n' \
       "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status_text" "$CT_BUILD_GATEWAY_LOG_PATH" >&2
     ct_gateway_finish "$CT_BUILD_GATEWAY_LOGGING_FAILURE" "$command_status" logging_failed
@@ -707,15 +740,54 @@ run_build_gateway_log_reader() {
   exec tee -a "$1"
 }
 
+# Rust cache keys hash the absolute cwd, so each worktree misses another's entries.
+# Windows-only: Unix getcwd resolves symlinks, so no fixed alias can give rustc a stable cwd.
+enter_stable_build_path() {
+  CT_REAL_WORKTREE="$(cd "${1:-.}" && pwd -P)"
+  export CT_REAL_WORKTREE
+  [ "${CODETERM_STABLE_BUILD_PATH:-1}" = 1 ] || return 0
+  [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = production ] || return 0
+  case "$OSTYPE" in msys*|cygwin*|win32) ;; *) return 0 ;; esac
+  local drive="${CODETERM_STABLE_BUILD_DRIVE:-X}" lower
+  if ! ct_gateway_owned_by_caller; then
+    echo "ERROR: stable build mapping requires the exact production gateway owner" >&2
+    return 75
+  fi
+  lower="$(printf '%s' "$drive" | tr 'A-Z' 'a-z')"
+  MSYS2_ARG_CONV_EXCL='*' subst "$drive:" /D >/dev/null 2>&1 || true
+  if ! MSYS2_ARG_CONV_EXCL='*' subst "$drive:" "$(cygpath -w "$CT_REAL_WORKTREE")" >/dev/null 2>&1; then
+    echo "[cache-policy] stable build path unavailable; building from $CT_REAL_WORKTREE" >&2
+    return 0
+  fi
+  CT_STABLE_BUILD_DRIVE_MAPPED="$drive"
+  CT_STABLE_BUILD_JOB_ID="$CT_BUILD_JOB_ID"
+  cd "/$lower"
+  echo "[cache-policy] stable build path $drive:\ -> $CT_REAL_WORKTREE"
+}
+
+release_stable_build_path() {
+  [ -n "${CT_STABLE_BUILD_DRIVE_MAPPED:-}" ] || return 0
+  [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = production ] || return 0
+  [ -n "${CT_STABLE_BUILD_JOB_ID:-}" ] || return 0
+  [ "$(cat "$(ct_gateway_dir)/lock/job_id" 2>/dev/null)" = "${CT_STABLE_BUILD_JOB_ID:-}" ] || return 0
+  cd "${CT_REAL_WORKTREE:-/}" 2>/dev/null || cd /
+  MSYS2_ARG_CONV_EXCL='*' subst "$CT_STABLE_BUILD_DRIVE_MAPPED:" /D >/dev/null 2>&1 || true
+  CT_STABLE_BUILD_DRIVE_MAPPED=""
+}
+
 enter_build_gateway() {
   ct_gateway_acquire "$*"
   if [ "$CMD" != gc ]; then
     ct_cache_retention auto || echo "[cache-policy] retention refused; build continues" >&2
   fi
   local gateway_log
+  CT_BUILD_ARTIFACT_DIR="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.artifacts"
+  mkdir -p "$CT_BUILD_ARTIFACT_DIR"
+  export CT_BUILD_ARTIFACT_DIR
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
-  if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ]; then
+  [ "$CMD" = check-queue ] || [ "$CMD" = check-workspace ] || enter_stable_build_path
+  if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ] && [ "${CODETERM_BUILD_FINGERPRINTS:-0}" != 1 ]; then
     echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
     return
   fi
@@ -736,6 +808,14 @@ enter_build_gateway() {
   CT_BUILD_GATEWAY_LOG_PATH="$gateway_log"
   CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN=0
   trap 'build_gateway_logging_on_exit' EXIT
+  if [ "${CODETERM_BUILD_FINGERPRINTS:-0}" = 1 ]; then
+    CT_BUILD_GATEWAY_TRACE_PATH="${gateway_log%.log}.fingerprint.log"
+    CT_BUILD_GATEWAY_TRACE_FIFO="${gateway_log}.trace.fifo.$$"
+    mkfifo "$CT_BUILD_GATEWAY_TRACE_FIFO" || exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
+    node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-output.mjs" filter "$CT_BUILD_GATEWAY_TRACE_PATH" < "$CT_BUILD_GATEWAY_TRACE_FIFO" &
+    CT_BUILD_GATEWAY_TRACE_READER_PID=$!
+    exec 2> "$CT_BUILD_GATEWAY_TRACE_FIFO"
+  fi
   if [ "${CT_BUILD_GATEWAY_FAIL_LOG_OPEN:-0}" = "1" ]; then
     if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
       CT_BUILD_GATEWAY_LOG_READER_STATUS=0
@@ -796,7 +876,7 @@ check_build_gateway_logging() {
   else
     reader_success_status=$?
   fi
-  [ "$reader_success_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
+  [ "$reader_success_status" -eq 0 ] || {
     echo "build gateway logging regression: reader failure after success exited $reader_success_status" >&2
     return 1
   }
@@ -810,7 +890,7 @@ check_build_gateway_logging() {
   else
     reader_failure_status=$?
   fi
-  [ "$reader_failure_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
+  [ "$reader_failure_status" -eq 101 ] || {
     echo "build gateway logging regression: reader failure after command failure exited $reader_failure_status" >&2
     return 1
   }
@@ -818,7 +898,7 @@ check_build_gateway_logging() {
     echo "build gateway logging regression: failed command status was not reported" >&2
     return 1
   }
-  echo "reader failures: exit 74 preserved command exits 0 and 101"
+  echo "reader failures: command exits 0 and 101 preserved with logging degradation"
   if CT_BUILD_JOB_ID=open-failure CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
       ./build.sh gateway-log-probe open-failure \
       > "$root/open.console" 2>&1; then
@@ -857,7 +937,7 @@ check_build_gateway_logging() {
     if CT_BUILD_JOB_ID="stuck-$stuck_mode" CT_BUILD_GATEWAY_READER_TIMEOUT_MS=250 \
         CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-log-probe "stuck-reader-$stuck_mode" \
         > "$root/stuck-$stuck_mode.console" 2>&1; then stuck_status=0; else stuck_status=$?; fi
-    [ "$stuck_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || return 1
+    if [ "$stuck_mode" = success ]; then [ "$stuck_status" -eq 0 ]; else [ "$stuck_status" -eq 101 ]; fi || return 1
     grep -q 'log reader did not reach EOF' "$root/stuck-$stuck_mode.console" || return 1
   done
   echo "stuck readers: EOF deadline released finished jobs with logging failure"
@@ -869,17 +949,20 @@ const expected = {
   healthy: ["success", 0, 0],
   piped: ["success", 0, 0],
   "handoff-success": ["success", 0, 0],
-  "reader-success": ["logging_failed", 74, 0],
-  "reader-failure": ["logging_failed", 74, 101],
+  "reader-success": ["logging_degraded", 0, 0],
+  "reader-failure": ["logging_degraded", 101, 101],
   "open-failure": ["logging_failed", 74, null],
   "command-killed": ["cancelled", 130, null],
-  "stuck-success": ["logging_failed", 74, 0],
-  "stuck-command-fail": ["logging_failed", 74, 101],
+  "stuck-success": ["logging_degraded", 0, 0],
+  "stuck-command-fail": ["logging_degraded", 101, 101],
 };
 for (const [id, values] of Object.entries(expected)) {
   const job = jobs[id];
   if (!job) throw new Error(`gateway status omitted ${id}`);
   const actual = [job.outcome, job.exit_code, job.command_exit_code];
+  if (job.outcome === 'logging_degraded' && job.state !== (job.exit_code === 0 ? 'completed' : 'failed')) {
+    throw new Error(`${id} logging degradation changed the command state`);
+  }
   if (JSON.stringify(actual) !== JSON.stringify(values)) {
     throw new Error(`${id} recorded ${JSON.stringify(actual)}, expected ${JSON.stringify(values)}`);
   }
@@ -895,8 +978,8 @@ JS
 prepare_exceptional_worktree_target() {
   local dir identity
   dir="$(ct_gateway_dir)"
-  identity="$(printf '%s' "$(pwd -P)" | git hash-object --stdin)"
-  export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "$(pwd -P)" "$dir" "$identity")"
+  identity="$(printf '%s' "${CT_REAL_WORKTREE:-$(pwd -P)}" | git hash-object --stdin)"
+  export CARGO_TARGET_DIR="$(ct_exceptional_target_dir "${CT_REAL_WORKTREE:-$(pwd -P)}" "$dir" "$identity")"
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
@@ -1365,82 +1448,283 @@ check_queue_targets() {
 
 # Reads cargo --message-format=short output on stdin; prints at most $1 diagnostics.
 check_queue_errors() {
-  awk -v max="$1" '
-    /^[^ ].*:[0-9]+:[0-9]+: error(\[E[0-9]+\])?:/ || /^error(\[E[0-9]+\])?:/ && !/could not compile/ {
+  awk -v max="$1" -v status="${2:-0}" '
+    /^[^ ].*:[0-9]+:[0-9]+: error(\[E[0-9]+\])?:/ || /^(sccache: )?error(\[E[0-9]+\])?:/ && !/could not compile/ {
       total++
       if (total <= max) print
     }
-    END { printf "errors=%d shown=%d\n", total, (total < max ? total : max) }
+    END {
+      if (status != 0 && total == 0) {
+        total=1
+        if (max > 0) printf "error: cargo check failed (exit %d); see full log\n", status
+      }
+      printf "errors=%d shown=%d\n", total, (total < max ? total : max)
+    }
   '
 }
 
-check_queue_worktree() {
-  local dir
-  dir="$(ct_gateway_dir)/check-worktree"
-  if [ ! -e "$dir/.git" ]; then
-    git worktree add -q --detach "$dir" "$1" >&2
+# Reads cargo --message-format=short output on stdin; prints at most $1 unique
+# warnings, one "warnings crate=<name> count=<n>" line per warned crate and a
+# summary. Exits 1 when a crate named in $2 (space-separated; "*" = any) warned.
+check_queue_warnings() {
+  awk -v max="$1" -v touched=" $2 " '
+    function add(name, n) {
+      if (!(name in counts)) order[++crates] = name
+      counts[name] += n
+    }
+    /^[^ ].*:[0-9]+:[0-9]+: warning:/ {
+      if (!($0 in seen)) {
+        seen[$0] = 1
+        total++
+        if (total <= max) print
+      }
+      next
+    }
+    /^(warning|error): (could not compile )?`[^`]+`.*([0-9]+ warnings? emitted|generated [0-9]+ warnings?)/ {
+      match($0, /`[^`]+`/)
+      name = substr($0, RSTART + 1, RLENGTH - 2)
+      if (match($0, /generated [0-9]+/)) n = substr($0, RSTART + 10, RLENGTH - 10) + 0
+      else { match($0, /[0-9]+ warnings? emitted/); n = substr($0, RSTART, RLENGTH) + 0 }
+      if (match($0, /\([0-9]+ duplicates?\)/)) n -= substr($0, RSTART + 1, RLENGTH - 1) + 0
+      add(name, n)
+    }
+    END {
+      failing = ""
+      for (i = 1; i <= crates; i++) {
+        name = order[i]
+        if (counts[name] <= 0) continue
+        printf "warnings crate=%s count=%d\n", name, counts[name]
+        if (touched == " * " || index(touched, " " name " ")) failing = failing (failing ? "," : "") name
+      }
+      printf "warnings=%d shown=%d failing=%s\n", total, (total < max ? total : max), (failing ? failing : "none")
+      exit (failing ? 1 : 0)
+    }
+  '
+}
+
+# Reads cargo output in any format; prints one count line per warned crate and a total.
+check_warning_summary() {
+  check_queue_warnings 0 "" | awk '
+    /^warnings crate=/ { print; split($3, kv, "="); total += kv[2]; crates++ }
+    END { printf "check: warnings=%d crates_with_warnings=%d\n", total, crates }
+  '
+}
+
+configure_app_test_cargo() {
+  configure_dev_cargo || return $?
+  CT_APP_TEST_MANIFEST=src-tauri/Cargo.toml
+  CT_APP_TEST_PACKAGE=codeterm-service-core
+  CT_APP_TEST_TARGET_ARGS=(--lib)
+  case "${1:?app test configuration requires a runner}" in
+    nextest|test-one) ;;
+    *) echo "Unknown app test runner: $1" >&2; return 2 ;;
+  esac
+  CT_APP_TEST_ARGS=(--manifest-path "$CT_APP_TEST_MANIFEST" -p "$CT_APP_TEST_PACKAGE" "${CT_APP_TEST_TARGET_ARGS[@]}")
+}
+
+configure_dev_cargo() {
+  CT_DEV_CARGO_PROFILE=dev
+  CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" --guard src-tauri/Cargo.toml src-tauri/crates/codeterm-service-core/Cargo.toml)" || return $?
+  CT_DEV_CHECK_ARGS=(--manifest-path src-tauri/Cargo.toml -p codeterm --lib --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
+  CT_DEV_TAURI_ARGS=()
+  if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
+    CT_DEV_CHECK_ARGS+=(--features "$CT_DEV_CARGO_FEATURES")
+    CT_DEV_TAURI_ARGS+=(--features "$CT_DEV_CARGO_FEATURES")
   fi
-  printf '%s\n' "$dir"
+  CT_DEV_TAURI_ARGS+=(-- --profile "$CT_DEV_CARGO_PROFILE")
+}
+
+check_queue_worktree() {
+  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/check-worktree.mjs" \
+    "$CT_GATEWAY_SCRIPT_ROOT" "$(ct_gateway_dir)" "$1" "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START"
+}
+
+enter_check_worktree() {
+  enter_cargo_gateway "$CMD $1"
+  CT_CHECK_WORKTREE="$(check_queue_worktree "$1")"
+  cd "$CT_CHECK_WORKTREE"
+  enter_stable_build_path "$CT_CHECK_WORKTREE"
+  prepare_dev_frontend_dist "$CT_CHECK_WORKTREE"
+  prepare_bundle_stubs
+  unset CARGO_INCREMENTAL
+  export CODETERM_ALLOW_EXTERNAL_TARGET=1
+}
+
+# Whole-workspace cargo check of one SHA; a Linux peer runs it so cfg(unix) paths compile once per batch.
+check_workspace_run() {
+  [ "$#" -le 1 ] || { echo "Usage: ./build.sh check-workspace [<sha>]" >&2; exit 2; }
+  local sha started status=0 out
+  sha="$(git rev-parse --verify "${1:-HEAD}^{commit}")"
+  CT_BUILD_SOURCE_SHA="$sha"
+  CT_BUILD_CRATES="workspace codeterm-cli"
+  enter_check_worktree "$sha"
+  started="$(date +%s)"
+  out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check-workspace.log"
+  : > "$out"
+  CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
+    --workspace --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+  CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/cli" cargo check --manifest-path cli/Cargo.toml \
+    --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+  check_queue_errors 20 "$status" < "$out"
+  check_queue_warnings 40 "*" < "$out" || [ "$status" != 0 ] || status=1
+  echo "check-workspace: sha=$sha os=$OSTYPE exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
+  return "$status"
+}
+
+peer_toolchain() {
+  local want rustc_v rustup_v native ok=1 tool
+  want="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+  rustup_v="$(rustup --version 2>/dev/null | awk 'NR==1{print $2}')"
+  rustc_v="$(rustc --version 2>/dev/null | awk '{print $2}')"
+  [ -n "$rustup_v" ] && [ "$rustc_v" = "$want" ] || ok=0
+  case "$OSTYPE" in
+    darwin*) native="xcode-clt=$(xcode-select -p >/dev/null 2>&1 && echo ok || echo missing)" ;;
+    linux*) native="cc=$(command -v cc >/dev/null 2>&1 && echo ok || echo missing)" ;;
+    *) native="msvc=$( (setup_env) >/dev/null 2>&1 && echo ok || echo missing)" ;;
+  esac
+  [ "${native#*=}" = ok ] || ok=0
+  for tool in node cargo-nextest sccache; do
+    command -v "$tool" >/dev/null 2>&1 || { native="$native $tool=missing"; ok=0; }
+  done
+  echo "peer-toolchain: ok=$ok rustup=${rustup_v:-missing} rustc=${rustc_v:-missing} want=$want $native"
+  [ "$ok" = 1 ]
+}
+
+peer_dispatch() {
+  exec node scripts/build-peer.mjs "$@"
+}
+
+run_check_queue_cargo() {
+  local output="$1" status=0 pipeline
+  shift
+  if [ "${CODETERM_BUILD_FINGERPRINTS:-0}" = 1 ]; then
+    if "$@" 2>&1 | node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-output.mjs" filter "$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.fingerprint.log" >> "$output"; then
+      return 0
+    else
+      pipeline=("${PIPESTATUS[@]}")
+      status="${pipeline[0]}"
+      [ "${pipeline[1]}" = 0 ] || { CT_BUILD_GATEWAY_TRACE_DEGRADED=1; echo 'WARNING: check-queue trace collection degraded; command exit preserved' >&2; }
+      return "$status"
+    fi
+  fi
+  "$@" >> "$output" 2>&1
 }
 
 check_queue_run() {
-  local sha="" max_errors=20 touched_only=0 arg base cw files targets pkg_args=() cli=0 started status=0 out
+  local sha="" max_errors=20 max_warnings=40 touched_only=0 all=0 lane=0 arg base cw files targets pkg_args=() cli=0 started status=0 out touched="" changes
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --max-errors) max_errors="${2:?--max-errors requires a count}"; shift ;;
+      --max-warnings) max_warnings="${2:?--max-warnings requires a count}"; shift ;;
       --touched-only) touched_only=1 ;;
-      -*) echo "Usage: ./build.sh check-queue [<sha>] [--max-errors N] [--touched-only]" >&2; exit 2 ;;
+      --all) all=1 ;;
+      --lane) lane=1; touched_only=1 ;;
+      -*) echo "Usage: ./build.sh check-queue [<sha>] [--max-errors N] [--max-warnings N] [--touched-only] [--all] [--lane]" >&2; exit 2 ;;
       *) sha="$arg" ;;
     esac
     shift
   done
   sha="$(git rev-parse --verify "${sha:-HEAD}^{commit}")"
+  [ "$lane:$all" != 1:1 ] || { echo 'ERROR: --lane and --all select different verification scopes' >&2; return 2; }
   base="$(git merge-base "$sha" develop 2>/dev/null || git merge-base "$sha" origin/develop 2>/dev/null || true)"
-  if [ -n "$base" ]; then
+  if [ "$all" = 1 ]; then
+    files=""
+    targets="all"
+  elif [ -n "$base" ]; then
     files="$(git diff --name-only "$base" "$sha")"
+    targets="$(printf '%s\n' "$files" | check_queue_targets)"
   else
     files="src-tauri/src/"
+    targets="$(printf '%s\n' "$files" | check_queue_targets)"
   fi
-  targets="$(printf '%s\n' "$files" | check_queue_targets)"
   if [ -z "$targets" ]; then
     echo "check-queue: no Rust changes between ${base:-?} and $sha; nothing to check"
     return 0
   fi
-  while read -r kind pkg; do
-    if [ "$kind" = cli ]; then cli=1; else pkg_args+=(-p "$pkg"); fi
-  done <<< "$targets"
-  if [ "${#pkg_args[@]}" -gt 0 ] && [ "$touched_only" = 0 ] && ! printf '%s\n' "${pkg_args[@]}" | grep -qx codeterm; then
-    pkg_args+=(-p codeterm)
+  if [ "$all" = 1 ]; then
+    pkg_args=(--workspace)
+    cli=1
+    touched="*"
+  else
+    while read -r kind pkg; do
+      if [ "$kind" = cli ]; then cli=1; touched="${touched:-} codeterm-cli"; else pkg_args+=(-p "$pkg"); touched="${touched:-} $pkg"; fi
+    done <<< "$targets"
   fi
+  if [ "${#pkg_args[@]}" -gt 0 ] && [ "$all" = 0 ] && [ "$touched_only" = 0 ] && ! printf '%s\n' "${pkg_args[@]}" | grep -qx codeterm; then
+    pkg_args+=(-p codeterm)
+    targets="$(printf '%s\napp codeterm' "$targets")"
+  fi
+  source scripts/clippy-allow.sh
 
   CT_BUILD_SOURCE_SHA="$sha"
   CT_BUILD_CRATES="$(printf '%s\n' "${pkg_args[@]}" | sed '/^-p$/d')"
   [ "$cli" != 1 ] || CT_BUILD_CRATES="${CT_BUILD_CRATES}${CT_BUILD_CRATES:+ }codeterm-cli"
   CT_BUILD_TOUCHED_FILES_COUNT="$(printf '%s\n' "$files" | sed '/^$/d' | wc -l | tr -d ' ')"
-  enter_build_gateway "$CMD $sha"
-  cw="$(check_queue_worktree "$sha")"
-  git -C "$cw" checkout -q --detach --force "$sha" >&2
-  cd "$cw"
-  prepare_dev_frontend_dist "$cw"
-  prepare_bundle_stubs
-  ct_configure_sccache
-  unset CARGO_INCREMENTAL
-  export CODETERM_ALLOW_EXTERNAL_TARGET=1
+  enter_check_worktree "$sha"
+  cw="$CT_CHECK_WORKTREE"
   started="$(date +%s)"
   out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check.log"
   : > "$out"
-  if [ "${#pkg_args[@]}" -gt 0 ]; then
-    CARGO_TARGET_DIR="$cw/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
-      "${pkg_args[@]}" --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+  local plan="$out.plan" metadata="$out.metadata" package tests bins lib lane_args=() test_packages=()
+  printf '%s\n' "$targets" > "$out.targets"
+  if [ -n "$base" ]; then git diff --name-status --find-renames "$base" "$sha" > "$out.changes"; else : > "$out.changes"; fi
+  cargo metadata --manifest-path src-tauri/Cargo.toml --no-deps --format-version 1 > "$metadata"
+  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/check-queue-plan.mjs" "$metadata" "$out.targets" "$out.changes" > "$plan"
+  if [ "$all" = 0 ]; then
+    pkg_args=()
+    touched=""
+    while read -r package tests bins lib; do pkg_args+=(-p "$package"); touched="$touched $package"; done < "$plan"
+    [ "$cli" != 1 ] || touched="$touched codeterm-cli"
+  fi
+  configure_dev_cargo
+  if [ "$lane" = 1 ]; then
+    while read -r package tests bins lib; do
+      [ "$lib" = 1 ] || continue
+      if [ "$tests" = 1 ]; then test_packages+=("$package"); continue; fi
+      lane_args+=(-p "$package")
+    done < "$plan"
+    if grep -q '^codeterm[[:space:]]0' "$plan"; then lane_args+=(--bins); fi
+    if [ "${#lane_args[@]}" -gt 0 ]; then
+      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml "${lane_args[@]}" --lib --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
+    fi
+    for package in "${test_packages[@]}"; do
+      local test_args=(--lib --tests)
+      [ "$package" != codeterm ] || test_args+=(--bins)
+      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml -p "$package" "${test_args[@]}" --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
+    done
+  elif [ "${#pkg_args[@]}" -gt 0 ]; then
+    CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml \
+      "${pkg_args[@]}" --all-targets --no-deps --message-format=short -- "${CLIPPY_ALLOW[@]}" || status=$?
   fi
   if [ "$cli" = 1 ]; then
-    CARGO_TARGET_DIR="$cw/target/cli" cargo check --manifest-path cli/Cargo.toml \
-      --all-targets --message-format=short >> "$out" 2>&1 || status=$?
+    local cli_targets=(--all-targets)
+    [ "$lane" != 1 ] || cli_targets=(-p codeterm-cli --bins)
+    CARGO_TARGET_DIR="$cw/target/cli" run_check_queue_cargo "$out" cargo clippy --manifest-path cli/Cargo.toml \
+      "${cli_targets[@]}" --no-deps --message-format=short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
   fi
-  grep 'cargo::core::compiler::fingerprint' "$out" || true
-  check_queue_errors "$max_errors" < "$out"
-  echo "check-queue: sha=$sha packages=${pkg_args[*]:-} cli=$cli exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
+  if [ "$lane" = 0 ]; then
+  configure_dev_cargo
+  local dev_status=0
+  CODETERM_DEV=1 CODETERM_WEB_DIST="$cw/dist" CARGO_TARGET_DIR="$cw/target/app" \
+    run_check_queue_cargo "$out" cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=short || dev_status=$?
+  [ "$dev_status" = 0 ] || status="$dev_status"
+  echo "check-queue: dev-lib args=${CT_DEV_CHECK_ARGS[*]} exit=$dev_status" | tee -a "$out"
+  local test_runner test_status
+  for test_runner in nextest; do
+    configure_app_test_cargo "$test_runner"
+    test_status=0
+    CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo check "${CT_APP_TEST_ARGS[@]}" --profile test --tests --message-format=short || test_status=$?
+    [ "$test_status" = 0 ] || status="$test_status"
+    echo "check-queue: app-test scope=$test_runner,test-one args=${CT_APP_TEST_ARGS[*]} --profile test --tests exit=$test_status" | tee -a "$out"
+  done
+  fi
+  if [ "${CODETERM_BUILD_FINGERPRINTS:-0}" = 1 ]; then
+    node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-output.mjs" fingerprint-summary "$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.fingerprint.log"
+  fi
+  check_queue_errors "$max_errors" "$status" < "$out"
+  check_queue_warnings "$max_warnings" "$touched" < "$out" || [ "$status" != 0 ] || status=1
+  echo "check-queue: sha=$sha lane=$lane packages=${pkg_args[*]:-} cli=$cli exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
   return "$status"
 }
 
@@ -1475,14 +1759,16 @@ start_dev_wait_process() {
   local log="$1"
   local conf
   conf="$(dev_conf_path)"
-  local cmd=(pnpm tauri dev --no-watch --config "$conf")
+  configure_dev_cargo
+  local cmd=(pnpm tauri dev --no-watch --config "$conf" "${CT_DEV_TAURI_ARGS[@]}")
   if [[ "$OSTYPE" == darwin* ]] && command -v screen >/dev/null 2>&1; then
     local session="codeterm-dev${CT_SUFFIX}-$$"
-    local root_q log_q conf_q
+    local root_q log_q conf_q args_q
     printf -v root_q "%q" "$(pwd)"
     printf -v log_q "%q" "$log"
     printf -v conf_q "%q" "$conf"
-    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config $conf_q >> $log_q 2>&1"
+    printf -v args_q "%q " "${CT_DEV_TAURI_ARGS[@]}"
+    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config $conf_q $args_q >> $log_q 2>&1"
     echo "screen:$session"
     return
   fi
@@ -1858,6 +2144,34 @@ prepare_release_bundle_inputs() {
   node scripts/bundle-embed.js
 }
 
+enter_cargo_gateway() {
+  enter_build_gateway "$@"
+  ct_configure_sccache
+}
+
+case "$CMD" in
+  check-queue|nextest)
+    for arg in "${@:2}"; do
+      [ "$arg" != --peer ] || peer_dispatch dispatch "$CMD" "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
+    done
+    ;;
+  check-linux)
+    peer_dispatch dispatch check-linux "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
+    ;;
+  peer-setup)
+    peer_dispatch setup "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
+    ;;
+  peer-route)
+    peer_dispatch route "${@:2}"
+    ;;
+esac
+
+case "$CMD" in
+  fmt-check|check|check-tests|ci-archives|release-inputs|release-preflight|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+    enter_cargo_gateway "$CMD ${*:2}"
+    ;;
+esac
+
 case "$CMD" in
   help)
     cat <<'EOF'
@@ -1868,7 +2182,15 @@ CodeTerm build commands
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
-  check-queue [sha]           Warm incremental cargo check (all targets) of a lane SHA in the per-machine check worktree
+  check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
+  check-queue <sha> --peer <name|auto> [--lane] [--os OS]  Same check in a mesh peer's gateway; result returns as one message
+  nextest <scope> [filterset] --peer <name|auto> [--sha SHA]  Same nextest run in a mesh peer's gateway
+  check-linux [sha] [--force]  Once per batch: cargo check --workspace --all-targets on a Linux peer
+  check-workspace [sha]       Whole-workspace cargo check of a SHA in this machine's check worktree
+  peer-setup <peer>           Clone/refresh the peer's fetch-only checkout, check its toolchain, open its status tab
+  peer-route [--os OS]        Show which peer --peer auto would pick
+  peer-status                 One PEER_STATUS line: this machine's gateway load (read by --peer auto)
+  peer-toolchain              Check rustup/rustc pin, native toolchain, node, nextest and sccache
   runner-pause MACHINE        Park MACHINE-* GitHub runners (labels -> paused; unique labels lent to a same-OS runner)
   runner-resume MACHINE       Restore MACHINE-* runner labels and return lent labels
   runner-status               List runners with labels and paused machines
@@ -1876,12 +2198,15 @@ CodeTerm build commands
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   ci-archives                 Compile and archive test profiles with the shared cache
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <input-macos|input-windows|billing|account|analytics|app|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
+  test-one <input-macos|input-windows|billing|account|analytics|app|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage> NAME
                               Run one focused Rust test
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
+  nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
+  chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--out DIR] [--cdp WS]
+                              Scripted iPhone touch scroll over the mounted Chat window; fails on any visual jump
   install-local               Build and install locally (cheap fmt/size/clean gates first)
   script-guards               Run the script catalogue gate and uncalled fixture guards
   qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
@@ -2009,7 +2334,7 @@ EOF
         ;;
       qa-child)
         enter_build_gateway "qa-prep"
-        bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "qa-prep" --probe-only
+        bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START" "qa-prep" --probe-only
         ;;
       dev-resources)
         enter_build_gateway "dev-resource-preflight"
@@ -2024,14 +2349,25 @@ EOF
     retain_dev_pdb "${2:-}" "${3:-$(dev_pdb_source)}" "${4:-}"
     ;;
   check)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    ct_configure_sccache
-    cargo check --manifest-path src-tauri/Cargo.toml
+    check_log="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.cargo-check.log"
+    cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee "$check_log"
+    check_status="${PIPESTATUS[0]}"
+    check_warning_summary < "$check_log"
+    exit "$check_status"
     ;;
   check-queue)
     check_queue_run "${@:2}"
+    ;;
+  check-workspace)
+    check_workspace_run "${@:2}"
+    ;;
+  peer-status)
+    node scripts/build-peer.mjs status --gateway-dir "$(ct_gateway_dir)"
+    ;;
+  peer-toolchain)
+    peer_toolchain
     ;;
   runner-pause)
     node scripts/runner-toggle.mjs pause "${2:?runner-pause requires a machine, e.g. BLACKSTAR}"
@@ -2045,12 +2381,13 @@ EOF
   check-queue-probe)
     case "${2:-}" in
       targets) check_queue_targets ;;
-      errors) check_queue_errors "${3:?errors requires a max}" ;;
+      errors) check_queue_errors "${3:?errors requires a max}" "${4:-0}" ;;
+      warnings) check_queue_warnings "${3:?warnings requires a max}" "${4:-}" ;;
+      summary) check_warning_summary ;;
       *) echo "Unknown check-queue probe: ${2:-}" >&2; exit 2 ;;
     esac
     ;;
   check-tests)
-    ct_configure_sccache
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
@@ -2063,20 +2400,16 @@ EOF
     pnpm build
     ;;
   ci-archives)
-    ct_configure_sccache
     node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-archives.mjs
     ;;
   release-inputs)
-    ct_configure_sccache
     ensure_deps
     prepare_release_bundle_inputs
     ;;
   release-preflight)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ensure_deps
-    ct_configure_sccache
     cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
     cargo fmt --manifest-path cli/Cargo.toml --all --check
     bash scripts/check-file-sizes.sh --fail
@@ -2107,18 +2440,15 @@ EOF
     node node_modules/@biomejs/biome/bin/biome check .
     ;;
   test)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    ct_configure_sccache
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli}"
+    test_scope="${2:?test-one requires billing, account, analytics, app, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
-        enter_build_gateway "$CMD ${*:2}"
         if [ "$test_filter" = "build_identity_required" ]; then
           scripts/test-capped.sh --exec node --test scripts/tests/build_identity_required.test.mjs
           exit $?
@@ -2126,33 +2456,42 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        if find_app_test_archive; then
+          run_archived_app_test "$test_filter"
+        else
+          configure_app_test_cargo test-one
+          scripts/test-capped.sh "${CT_APP_TEST_ARGS[@]}" "$test_filter"
+        fi
         ;;
       input-macos|input-windows)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
+      root)
+        prepare_dev_frontend_dist "$(pwd -P)"
+        prepare_bundle_stubs
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        ;;
+      api|socket|commands|sentinel-host|codeterm-api|codeterm-socket|codeterm-commands|codeterm-sentinel-host)
+        prepare_dev_frontend_dist "$(pwd -P)"
+        prepare_bundle_stubs
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "codeterm-${test_scope#codeterm-}" --lib "$test_filter"
+        ;;
       frontend-bundle|codeterm-frontend-bundle)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-frontend-bundle --lib "$test_filter"
         ;;
       agent-detect|codeterm-agent-detect)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-agent-detect --lib "$test_filter"
         ;;
       billing) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-billing/Cargo.toml -p codeterm-billing --lib "$test_filter" ;;
       usage)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-usage/Cargo.toml -p codeterm-usage --lib "$test_filter"
         ;;
       account) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-account/Cargo.toml -p codeterm-account --lib "$test_filter" ;;
       notification-core|codeterm-notification-core)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-notification-core --lib "$test_filter"
         ;;
       analytics) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-analytics/Cargo.toml -p codeterm-analytics --lib "$test_filter" ;;
       repowatch|codeterm-repowatch)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-repowatch --lib "$test_filter"
         ;;
       plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
@@ -2164,11 +2503,9 @@ EOF
       # the working codeterm-pty test path.
       pty-fork) scripts/test-capped.sh --manifest-path src-tauri/pty-fork/Cargo.toml "$test_filter" ;;
       util|codeterm-util)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-util --lib "$test_filter"
         ;;
       browser|codeterm-browser)
-        enter_build_gateway "$CMD ${*:2}"
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-browser --lib "$test_filter"
         ;;
       types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter" ;;
@@ -2185,23 +2522,25 @@ EOF
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, or cli)" >&2; exit 2 ;;
     esac
     ;;
   nextest)
     run_nextest_scope "${@:2}"
     ;;
+  nextest-archive)
+    build_app_test_archive "${@:2}"
+    ;;
   verify)
-    enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ensure_deps
-    ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
     run_workspace_lib_tests
     TEST_CAP_SECS="${TEST_CAP_SECS:-3600}" scripts/test-capped.sh --manifest-path cli/Cargo.toml
     node node_modules/typescript/bin/tsc --noEmit
     bash scripts/check-file-sizes.sh --fail
+    bash scripts/check-service-core-boundary.sh
     node scripts/check-provider-boundary.mjs
     bash scripts/check-empty-array-expansion.sh
     bash scripts/check-script-catalog.sh
@@ -2213,13 +2552,11 @@ EOF
     cargo check --manifest-path src-tauri/Cargo.toml --all-targets "${@:2}"
     ;;
   build)
-    enter_build_gateway "$CMD ${*:2}"
     node scripts/check-release-locks.mjs
     require_release_source
     ct_load_release_signing_key
     prepare_release_target
     ensure_deps
-    ct_configure_sccache
     prepare_release_bundle_inputs
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
@@ -2252,16 +2589,15 @@ EOF
         exit 2
         ;;
     esac
+    enter_cargo_gateway "$CMD ${*:2}"
     cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
     cargo fmt --manifest-path cli/Cargo.toml --all --check
     bash scripts/check-file-sizes.sh --fail
     require_release_source
-    enter_build_gateway "$CMD ${*:2}"
     node scripts/check-release-locks.mjs
     ct_load_release_signing_key
     prepare_local_install_target
     ensure_deps
-    ct_configure_sccache
     prepare_release_bundle_inputs
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
@@ -2312,6 +2648,13 @@ EOF
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run bash scripts/check-script-catalog.sh
+    sg_run node --test --test-concurrency=1 scripts/build-gateway-mutex.test.mjs scripts/build-gateway-slot.test.mjs scripts/build-gateway-record.test.mjs scripts/build-gateway-cache.test.mjs scripts/check-worktree.test.mjs scripts/dev-build-configuration.test.mjs scripts/build-history.test.mjs scripts/build-gateway-evidence.test.mjs
+    sg_run node --test scripts/build-gateway-owner.test.mjs scripts/build-gateway-mutex-evidence.test.mjs scripts/build-gateway-output.test.mjs scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
+    sg_run bash scripts/check-build-gateway-owner-reap.sh
+    sg_run bash scripts/check-build-check-queue.sh
+    sg_run bash scripts/check-build-script-head.sh
+    sg_run bash scripts/check-shared-sccache.sh
+    sg_run node --test scripts/runner-toggle.test.mjs
     for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
     done
@@ -2360,15 +2703,53 @@ EOF
       *) echo "ERROR: lane-recover mode must be keep or merge" >&2; exit 2 ;;
     esac
     ;;
+  chat-scroll-trace)
+    cst_webkit=0
+    cst_fix=1
+    cst_strokes=14
+    cst_out=""
+    cst_cdp="${CHAT_SCROLL_TRACE_CDP:-}"
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --webkit) cst_webkit=1 ;;
+        --fix) cst_fix="${2:-}"; shift ;;
+        --strokes) cst_strokes="${2:-}"; shift ;;
+        --out) cst_out="${2:-}"; shift ;;
+        --cdp) cst_cdp="${2:-}"; shift ;;
+        *) echo "ERROR: usage: chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--out DIR] [--cdp WS]" >&2; exit 2 ;;
+      esac
+      shift
+    done
+    case "$cst_fix" in 0|1) ;; *) echo "ERROR: --fix must be 0 or 1" >&2; exit 2 ;; esac
+    ensure_deps
+    if [ -z "$cst_cdp" ]; then
+      codeterm plugin browser status 2>/dev/null | grep -q "no browser open" && codeterm plugin browser open >/dev/null
+      cst_cdp="$(codeterm plugin browser endpoint | tail -n 1)"
+    fi
+    case "$cst_cdp" in ws://*) ;; *) echo "ERROR: no browser CDP endpoint; pass --cdp ws://..." >&2; exit 2 ;; esac
+    [ -n "$cst_out" ] || cst_out="$(mktemp -d "${TMPDIR:-/tmp}/chat-scroll-trace.XXXXXX")"
+    exec {cst_fd}< <(exec node scripts/chat-scroll-trace/serve.mjs)
+    cst_server=$!
+    trap 'kill "$cst_server" 2>/dev/null || true' EXIT
+    cst_url=""
+    # The deadline bounds a failed start; readiness is the server's own "ready" line.
+    while IFS= read -r -t 120 -u "$cst_fd" cst_line; do
+      case "$cst_line" in "ready "*) cst_url="${cst_line#ready }"; break ;; esac
+    done
+    [ -n "$cst_url" ] || { echo "ERROR: chat-scroll-trace harness server did not report ready" >&2; exit 1; }
+    cst_status=0
+    node scripts/chat-scroll-trace/trace.mjs --cdp "$cst_cdp" --url "${cst_url}?fix=${cst_fix}&webkit=${cst_webkit}" \
+      --strokes "$cst_strokes" --out "$cst_out" || cst_status=$?
+    echo "chat-scroll-trace: trace.json and screenshots in $cst_out"
+    exit "$cst_status"
+    ;;
   qa-prep)
-    enter_build_gateway "$CMD ${*:2}"
-    bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
+    bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "${CT_GATEWAY_OWNER_PID:-$$}" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
     ;;
   bootstrap)
-    enter_build_gateway "$CMD ${*:2}"
     ensure_deps
     prepare_bundle_stubs
-    ct_configure_sccache
     cargo build --release --manifest-path cli/Cargo.toml
     CODETERM_DEV=1 node scripts/bundle-cli.js
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
@@ -2376,19 +2757,15 @@ EOF
     echo "Bootstrap complete: bundled CLI and codeterm-embed are present."
     ;;
   embed)
-    enter_build_gateway "$CMD ${*:2}"
     # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
     # by default — use this when you change embed sources or pull new
     # ONNX/embeddings deps.
     prepare_bundle_stubs
-    ct_configure_sccache
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
     CODETERM_DEV=1 node scripts/bundle-embed.js
     echo "codeterm-embed rebuilt"
     ;;
   cli)
-    echo "[build] CLI uses Cargo's cli/target lock; app/dev gateway is independent."
-    ct_configure_sccache
     cargo build --release --manifest-path cli/Cargo.toml
     built_cli_artifact="$(cli_release_binary)"
     built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
@@ -2397,7 +2774,6 @@ EOF
     install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
     ;;
   clean)
-    enter_build_gateway "$CMD ${*:2}"
     cargo clean --manifest-path src-tauri/Cargo.toml
     ;;
   kill)
@@ -2436,6 +2812,7 @@ EOF
     export PATH="$CT_DATA_DIR/bin:$PATH"
     export CODETERM_CLI_PATH="$(dev_cli_path)"
     export CODETERM_DEV=1
+    configure_dev_cargo
     export CODETERM_WEB_DIST="$(pwd -P)/dist"
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
     node scripts/dev-prep.mjs --no-server
@@ -2528,14 +2905,12 @@ EOF
     DEV_NOTIFY_STAGE=build
     if named_dev_wait_isolated; then
       prepare_named_dev_target
-      echo "[isolated-dev] named --wait startup bypasses the canonical dev gateway"
     else
       kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
-      enter_build_gateway "$CMD ${*:2}"
     fi
+    enter_cargo_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist
     ensure_deps
-    ct_configure_sccache
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
     built_cli_artifact="$(cli_release_binary)"
@@ -2556,6 +2931,7 @@ EOF
     # first-launch embedded extract is skipped so ~/.codeterm/plugins/
     # doesn't shadow the workspace.
     export CODETERM_DEV=1
+    configure_dev_cargo
     export CODETERM_WEB_DIST="$(pwd -P)/dist"
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
     start_web_watch
@@ -2659,7 +3035,7 @@ EOF
         EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
         DEV_NOTIFY_STAGE=launch
         DEV_NOTIFY_WAITER_PID=
-        if pnpm tauri dev --no-watch --config "$(dev_conf_path)" 2>&1 | tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev; then
+        if pnpm tauri dev --no-watch --config "$(dev_conf_path)" "${CT_DEV_TAURI_ARGS[@]}" 2>&1 | tee -a "$INTERACTIVE_LOG" | report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev; then
           DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
         else
           DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
@@ -2679,7 +3055,7 @@ EOF
         DEV_NOTIFY_WAITER_PID=
         DEV_NOTIFY_STAGE=exited
       else
-        pnpm tauri dev --no-watch --config "$(dev_conf_path)" || dev_status=$?
+        pnpm tauri dev --no-watch --config "$(dev_conf_path)" "${CT_DEV_TAURI_ARGS[@]}" || dev_status=$?
       fi
       retain_dev_pdb "$(git rev-parse HEAD 2>/dev/null || true)"
       exit "$dev_status"
@@ -2700,7 +3076,6 @@ EOF
     "$PYTHON_BIN" -m pytest -m llm -v --tb=short "${@:2}"
     ;;
   test:all)
-    enter_build_gateway "$CMD ${*:2}"
     # Aggregate runner for every enabled NON-LLM test layer. Unit layers always run;
     # dev-dependent API integration tests run only
     # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff

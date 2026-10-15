@@ -55,6 +55,11 @@ seed_owned_job() {
   mkdir -p "$STATE/lock"
   printf '%s\n' "$pid" > "$STATE/lock/pid"
   printf '%s\n' "$token" > "$STATE/lock/start_token"
+  local native_pid native_token
+  native_pid="$(ct_gateway_native_pid "$pid" 2>/dev/null || echo "$pid")"
+  native_token="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-owner.mjs" token "$native_pid" 2>/dev/null || echo "$token")"
+  printf '%s\n' "$native_pid" > "$STATE/lock/native_pid"
+  printf '%s\n' "$native_token" > "$STATE/lock/native_start_token"
   printf '%s\n' "$job" > "$STATE/lock/job_id"
   printf '%s\n' "$queue_key" > "$STATE/lock/queue_key"
   printf '%s\n' "probe $job" > "$STATE/lock/command"
@@ -199,16 +204,21 @@ if [ -n "$FOREIGN_PID" ]; then
   fi
   [ -z "$(start_token_or_empty "$FOREIGN_PID")" ] ||
     note_fail "a start token for pid $FOREIGN_PID resolved outside the /proc namespace"
-  echo "   the same disagreement must not hold the machine: seed it as the running owner"
+  echo "   incomplete cross-namespace evidence must stay unknown"
   rm -rf "$STATE/lock"
   seed_owned_job foreign-namespace-owner "$FOREIGN_PID" "$FOREIGN_TOKEN"
+  rm "$STATE/lock/native_pid" "$STATE/lock/native_start_token"
   run_acquire "$TEST_ROOT/acquire-foreign.log"
-  if [ "$ACQUIRE_RC" -ne 0 ]; then
-    sed 's/^/   | /' "$TEST_ROOT/acquire-foreign.log" >&2
-    note_fail "an owner dead in the gateway's own pid namespace was reported as the blocker (exit $ACQUIRE_RC)"
-  fi
-  [ "$(record_field foreign-namespace-owner outcome)" = owner_lost ] ||
-    note_fail "the cross-namespace owner never reached owner_lost"
+  [ "$ACQUIRE_RC" -eq 75 ] || note_fail "unknown native ownership was reclaimed (exit $ACQUIRE_RC)"
+  [ "$(record_field foreign-namespace-owner state)" = running ] ||
+    note_fail "incomplete cross-namespace ownership was reaped"
+  echo "   captured native ownership survives even without a matching MSYS entry"
+  printf '%s\n' "$FOREIGN_PID" > "$STATE/lock/native_pid"
+  printf '%s\n' "$FOREIGN_TOKEN" > "$STATE/lock/native_start_token"
+  run_acquire "$TEST_ROOT/acquire-native.log"
+  [ "$ACQUIRE_RC" -eq 75 ] || note_fail "live captured native ownership was reclaimed (exit $ACQUIRE_RC)"
+  [ "$(record_field foreign-namespace-owner state)" = running ] ||
+    note_fail "live captured native ownership was reaped"
   echo "   and the namespace rule must not reap a live owner"
   rm -rf "$STATE/lock"
   seed_owned_job live-owner-again "$HOLDER_PID" "$HOLDER_TOKEN"
@@ -297,4 +307,4 @@ if [ "$FAILURES" -ne 0 ]; then
   echo "FAILED: $FAILURES assertion(s) across sections 1-5" >&2
   exit 1
 fi
-echo "PASS build gateway owner reap, live-owner blocking, single pid namespace, trap-less terminal state"
+echo "PASS build gateway owner reap, live-owner blocking, captured native identity, unknown-owner retention, trap-less terminal state"

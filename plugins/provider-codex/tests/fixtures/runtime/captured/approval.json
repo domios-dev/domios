@@ -1887,7 +1887,7 @@
           "type": "tool_call",
           "content": "",
           "toolKind": "command",
-          "toolSummary": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "toolSummary": "printf 'capture' > capture-proof.txt",
           "toolDetail": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
           "toolId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
           "toolName": "commandExecution",
@@ -1924,7 +1924,7 @@
         "threadId": "01a135b7-35e5-7871-9d38-269c27817cc8",
         "turnId": "01a135b7-379a-7b01-8492-552ce17f2cea",
         "state": "working",
-        "statusLine": "Running /bin/zsh -lc \"printf 'capture' > capture-proof.txt\""
+        "statusLine": "Running printf 'capture' > capture-proof.txt"
       },
       {
         "kind": "prompt",
@@ -1973,7 +1973,7 @@
           "type": "tool_call",
           "content": "",
           "toolKind": "command",
-          "toolSummary": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
+          "toolSummary": "printf 'capture' > capture-proof.txt",
           "toolDetail": "/bin/zsh -lc \"printf 'capture' > capture-proof.txt\"",
           "toolId": "exec-3dd0e90b-5f3c-4070-b297-669af2303322",
           "toolName": "commandExecution",

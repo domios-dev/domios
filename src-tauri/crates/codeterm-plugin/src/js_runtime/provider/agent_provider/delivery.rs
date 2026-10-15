@@ -1,5 +1,4 @@
 use super::JsProvider;
-use crate::provider::AgentProvider;
 
 pub(super) fn supports_unbound_submit_recovery(provider: &JsProvider) -> bool {
     provider

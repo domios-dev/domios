@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { startEvidence, finishEvidence } from './build-gateway-evidence.mjs';
+import { readJobJson as readJson, writeJobJson as atomicWrite } from './build-gateway-record.mjs';
 
 function parseArgs(argv) {
   const opts = {};
@@ -10,21 +11,6 @@ function parseArgs(argv) {
     opts[argv[index].replace(/^--/, "").replaceAll("-", "_")] = argv[index + 1];
   }
   return opts;
-}
-
-function readJson(file) {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function atomicWrite(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`);
-  fs.renameSync(temp, file);
 }
 
 function jobFile(dir, jobId) {
@@ -40,6 +26,9 @@ function createJob(opts) {
     owner: opts.owner,
     owner_pid: Number(opts.owner_pid),
     owner_start_token: opts.owner_start_token,
+    owner_pid_namespace: opts.owner_pid_namespace ?? null,
+    owner_native_pid: opts.owner_native_pid ? Number(opts.owner_native_pid) : null,
+    owner_native_start_token: opts.owner_native_start_token ?? null,
     owner_process_command: opts.owner_process_command,
     worktree: opts.worktree,
     source_sha: opts.source_sha,

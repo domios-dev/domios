@@ -1,0 +1,482 @@
+//! Install bundled CLI binary to the active data-dir bin/ + prod PATH integration.
+
+/// Compute hex-encoded sha256 of a file. Returns `None` on I/O error.
+pub(crate) fn file_sha256(path: &std::path::Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).ok()?;
+    let bytes = hasher.finalize();
+    Some(bytes.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
+fn cli_bin_name() -> &'static str {
+    if cfg!(windows) {
+        "codeterm.exe"
+    } else {
+        "codeterm"
+    }
+}
+
+fn bundled_cli_resource_names() -> Vec<String> {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    let target_name = Some("cli/codeterm-x86_64-pc-windows-msvc.exe");
+    #[cfg(all(windows, target_arch = "aarch64"))]
+    let target_name = Some("cli/codeterm-aarch64-pc-windows-msvc.exe");
+    #[cfg(all(windows, target_arch = "x86"))]
+    let target_name = Some("cli/codeterm-i686-pc-windows-msvc.exe");
+    #[cfg(not(windows))]
+    let target_name: Option<&str> = None;
+
+    target_name
+        .into_iter()
+        .map(str::to_string)
+        .chain(std::iter::once(format!("cli/{}", cli_bin_name())))
+        .collect()
+}
+
+#[cfg(windows)]
+fn windows_pe_machine(path: &std::path::Path) -> std::io::Result<u16> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = std::fs::File::open(path)?;
+    let mut dos = [0u8; 64];
+    file.read_exact(&mut dos)?;
+    if &dos[..2] != b"MZ" {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "missing DOS header",
+        ));
+    }
+    let pe_offset = u32::from_le_bytes(dos[60..64].try_into().unwrap()) as u64;
+    file.seek(SeekFrom::Start(pe_offset))?;
+    let mut header = [0u8; 6];
+    file.read_exact(&mut header)?;
+    if &header[..4] != b"PE\0\0" {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "missing PE header",
+        ));
+    }
+    Ok(u16::from_le_bytes([header[4], header[5]]))
+}
+
+#[cfg(windows)]
+fn bundled_cli_matches_host(path: &std::path::Path) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    const EXPECTED: u16 = 0x8664;
+    #[cfg(target_arch = "aarch64")]
+    const EXPECTED: u16 = 0xaa64;
+    #[cfg(target_arch = "x86")]
+    const EXPECTED: u16 = 0x014c;
+
+    match windows_pe_machine(path) {
+        Ok(machine) if machine == EXPECTED => true,
+        Ok(machine) => {
+            log::error!(
+                "[cli-install] refusing incompatible bundled CLI {} (PE machine=0x{:04x}, expected=0x{:04x})",
+                path.display(),
+                machine,
+                EXPECTED
+            );
+            false
+        }
+        Err(error) => {
+            log::error!(
+                "[cli-install] refusing invalid bundled CLI {}: {}",
+                path.display(),
+                error
+            );
+            false
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn bundled_cli_matches_host(_path: &std::path::Path) -> bool {
+    true
+}
+
+fn should_install_bundled_cli(is_dev: bool) -> bool {
+    !is_dev
+}
+
+/// Resolve the bundled CLI inside the app's Resources. None in dev (no bundle).
+fn resolve_bundled_cli_src(
+    app: &impl tauri::Manager<crate::app_runtime::Runtime>,
+) -> Option<std::path::PathBuf> {
+    bundled_cli_resource_names().into_iter().find_map(|name| {
+        app.path()
+            .resolve(name, tauri::path::BaseDirectory::Resource)
+            .ok()
+            .filter(|path| path.exists() && bundled_cli_matches_host(path))
+    })
+}
+
+/// The boundary every persistent user-PATH addition crosses. `refresh_installed_cli`
+/// only ever hands a directory to this, so a test that supplies its own
+/// implementation cannot reach `HKCU\Environment` at all.
+pub(crate) trait UserPathWriter {
+    fn add_dir(&self, dir: &std::path::Path);
+}
+
+struct SystemUserPath;
+
+impl UserPathWriter for SystemUserPath {
+    fn add_dir(&self, dir: &std::path::Path) {
+        super::user_path::add_to_user_path(dir);
+    }
+}
+
+/// Copy the bundled CLI (`src`) to the active data-dir `bin/` iff it differs by content
+/// (sha256, not size — same-size builds can differ, e.g. the v1.1.5→1.1.6
+/// incident that broke mesh signing). Repairs the `~/.local/bin` symlink on
+/// unix for prod installs only. Returns `Ok(true)` when it (re)installed, `Ok(false)` when already
+/// up-to-date. Pure filesystem logic so it is unit-testable without Tauri.
+pub(crate) fn refresh_installed_cli(
+    src: &std::path::Path,
+    home: &std::path::Path,
+    data_dir: &std::path::Path,
+) -> std::io::Result<bool> {
+    refresh_installed_cli_with(src, home, data_dir, &SystemUserPath)
+}
+
+pub(crate) fn refresh_installed_cli_with(
+    src: &std::path::Path,
+    home: &std::path::Path,
+    data_dir: &std::path::Path,
+    user_path: &dyn UserPathWriter,
+) -> std::io::Result<bool> {
+    let bin_name = cli_bin_name();
+    let dest_dir = data_dir.join("bin");
+    let dest = dest_dir.join(bin_name);
+    let prod_dest_dir = home.join(".codeterm").join("bin");
+    let is_prod_dest = dest_dir == prod_dest_dir;
+    let mut needs_copy = true;
+
+    if dest.exists() {
+        match (file_sha256(src), file_sha256(&dest)) {
+            (Some(src_hash), Some(dest_hash)) if src_hash == dest_hash => {
+                log::debug!(
+                    "[cli-install] CLI already up-to-date (sha256={}), skipping",
+                    &src_hash[..12.min(src_hash.len())]
+                );
+                needs_copy = false;
+            }
+            (Some(src_hash), Some(dest_hash)) => {
+                log::info!(
+                    "[cli-install] CLI hash mismatch — overwriting (src={}, dest={})",
+                    &src_hash[..12.min(src_hash.len())],
+                    &dest_hash[..12.min(dest_hash.len())]
+                );
+            }
+            _ => {
+                log::warn!("[cli-install] Could not hash existing CLI — proceeding with copy");
+            }
+        }
+    }
+
+    std::fs::create_dir_all(&dest_dir)?;
+    if needs_copy {
+        let bytes = std::fs::copy(src, &dest)?;
+        let hash_short = file_sha256(&dest)
+            .map(|h| h[..12.min(h.len())].to_string())
+            .unwrap_or_else(|| "?".into());
+        log::info!(
+            "[cli-install] Installed CLI ({} bytes, sha256={}) to {}",
+            bytes,
+            hash_short,
+            dest.display()
+        );
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if needs_copy {
+            let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
+        }
+        if is_prod_dest {
+            // Repair stale ~/.local/bin symlinks (e.g. old launcher) so PATH calls hit this install.
+            // Otherwise PATH dispatch can no-op by re-entering the daemon launcher.
+            let local_bin = home.join(".local").join("bin");
+            let _ = std::fs::create_dir_all(&local_bin);
+            let link = local_bin.join("codeterm");
+            let needs_create = match std::fs::symlink_metadata(&link) {
+                Ok(meta) if meta.file_type().is_symlink() => match std::fs::read_link(&link) {
+                    Ok(target) if target == dest => false,
+                    Ok(stale) => {
+                        log::warn!(
+                            "[cli-install] Replacing stale symlink {} -> {}",
+                            link.display(),
+                            stale.display()
+                        );
+                        let _ = std::fs::remove_file(&link);
+                        true
+                    }
+                    Err(_) => {
+                        let _ = std::fs::remove_file(&link);
+                        true
+                    }
+                },
+                Ok(_) => {
+                    // Regular file or directory — user/installer placed a real binary here. Don't clobber; log and skip.
+                    log::warn!(
+                        "[cli-install] {} exists and is not a symlink; refusing to replace",
+                        link.display()
+                    );
+                    false
+                }
+                Err(_) => true,
+            };
+            if needs_create {
+                if let Err(e) = std::os::unix::fs::symlink(&dest, &link) {
+                    log::debug!("[cli-install] Symlink to ~/.local/bin failed: {}", e);
+                }
+            }
+        }
+    }
+    if is_prod_dest {
+        user_path.add_dir(&dest_dir);
+    }
+
+    Ok(needs_copy)
+}
+
+/// Install bundled CLI binary to the active data-dir bin/ on startup (runs in background).
+pub fn install_bundled_cli(app: &crate::app_runtime::App) {
+    if !should_install_bundled_cli(std::env::var("CODETERM_DEV").as_deref() == Ok("1")) {
+        log::debug!("[cli-install] Dev CLI is owned by build.sh, skipping bundled refresh");
+        return;
+    }
+    let Some(src) = resolve_bundled_cli_src(app) else {
+        log::debug!("[cli-install] No bundled CLI found (dev mode?), skipping");
+        return;
+    };
+    let Some(home) = dirs::home_dir() else {
+        log::error!("[cli-install] Cannot determine home directory");
+        return;
+    };
+    let data_dir = crate::paths::data_dir();
+    // Run in background to not block app startup.
+    std::thread::spawn(move || {
+        if let Err(e) = refresh_installed_cli(&src, &home, &data_dir) {
+            log::error!("[cli-install] Failed to copy CLI: {}", e);
+        }
+    });
+}
+
+/// Refresh the installed CLI right after an in-app update applies the new
+/// bundle, so `~/.codeterm/bin/codeterm` matches the freshly-installed app's
+/// resource CLI without waiting for (or depending on) the next cold startup.
+/// Synchronous: the caller is already off the UI hot path (update apply).
+pub fn refresh_bundled_cli(app: &impl tauri::Manager<crate::app_runtime::Runtime>) {
+    let Some(src) = resolve_bundled_cli_src(app) else {
+        log::debug!("[cli-install] post-update: no bundled CLI in resources, skipping");
+        return;
+    };
+    let Some(home) = dirs::home_dir() else {
+        log::error!("[cli-install] post-update: cannot determine home directory");
+        return;
+    };
+    let data_dir = crate::paths::data_dir();
+    match refresh_installed_cli(&src, &home, &data_dir) {
+        Ok(true) => log::info!("[cli-install] post-update CLI refresh complete"),
+        Ok(false) => log::debug!("[cli-install] post-update: CLI already current"),
+        Err(e) => log::error!("[cli-install] post-update CLI refresh failed: {}", e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::file_sha256;
+    use std::io::Write;
+
+    /// Stands in for the registry writer. With this wired in there is no code
+    /// path from a test to `HKCU\Environment` at all.
+    #[derive(Default)]
+    struct RecordingUserPath {
+        added: std::sync::Mutex<Vec<std::path::PathBuf>>,
+    }
+
+    impl RecordingUserPath {
+        fn added(&self) -> Vec<std::path::PathBuf> {
+            self.added.lock().unwrap().clone()
+        }
+    }
+
+    impl super::UserPathWriter for RecordingUserPath {
+        fn add_dir(&self, dir: &std::path::Path) {
+            self.added.lock().unwrap().push(dir.to_path_buf());
+        }
+    }
+
+    #[test]
+    fn startup_bundled_cli_never_overwrites_dev_cli() {
+        assert!(!super::should_install_bundled_cli(true));
+        assert!(super::should_install_bundled_cli(false));
+    }
+
+    #[cfg(windows)]
+    fn write_pe(path: &std::path::Path, machine: u16) {
+        let mut bytes = vec![0u8; 0x86];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&(0x80u32).to_le_bytes());
+        bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+        bytes[0x84..0x86].copy_from_slice(&machine.to_le_bytes());
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bundled_cli_rejects_foreign_windows_architecture() {
+        let dir = tempfile::tempdir().unwrap();
+        let x64 = dir.path().join("x64.exe");
+        let arm64 = dir.path().join("arm64.exe");
+        write_pe(&x64, 0x8664);
+        write_pe(&arm64, 0xaa64);
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            assert!(super::bundled_cli_matches_host(&x64));
+            assert!(!super::bundled_cli_matches_host(&arm64));
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            assert!(!super::bundled_cli_matches_host(&x64));
+            assert!(super::bundled_cli_matches_host(&arm64));
+        }
+    }
+
+    #[test]
+    fn hash_distinguishes_same_size_different_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.bin");
+        let b = dir.path().join("b.bin");
+        // Two files of identical length but different content — exactly the v1.1.5/1.1.6 failure mode that defeated the old size-only skip.
+        std::fs::File::create(&a)
+            .unwrap()
+            .write_all(&[0u8; 64])
+            .unwrap();
+        std::fs::File::create(&b)
+            .unwrap()
+            .write_all(&[1u8; 64])
+            .unwrap();
+        let ha = file_sha256(&a).expect("hash a");
+        let hb = file_sha256(&b).expect("hash b");
+        assert_eq!(
+            std::fs::metadata(&a).unwrap().len(),
+            std::fs::metadata(&b).unwrap().len()
+        );
+        assert_ne!(
+            ha, hb,
+            "same-size files with different content must hash differently"
+        );
+    }
+
+    #[test]
+    fn hash_is_deterministic_for_same_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("c.bin");
+        std::fs::File::create(&p)
+            .unwrap()
+            .write_all(b"codeterm-cli-fixture")
+            .unwrap();
+        assert_eq!(file_sha256(&p).unwrap(), file_sha256(&p).unwrap());
+    }
+
+    #[test]
+    fn refresh_installs_then_skips_then_reinstalls_on_change() {
+        use std::io::Write;
+        let home = tempfile::tempdir().unwrap();
+        let data_dir = home.path().join(".codeterm");
+        let srcdir = tempfile::tempdir().unwrap();
+        let src = srcdir.path().join("codeterm");
+        let user_path = RecordingUserPath::default();
+        std::fs::File::create(&src)
+            .unwrap()
+            .write_all(b"v1.5.6-binary")
+            .unwrap();
+
+        // First refresh installs the CLI.
+        assert!(
+            super::refresh_installed_cli_with(&src, home.path(), &data_dir, &user_path).unwrap()
+        );
+        let dest = data_dir.join("bin").join(super::cli_bin_name());
+        assert!(dest.exists());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"v1.5.6-binary");
+
+        // Same content → up-to-date, no reinstall.
+        assert!(
+            !super::refresh_installed_cli_with(&src, home.path(), &data_dir, &user_path).unwrap()
+        );
+
+        // New release with same name but different content → reinstall.
+        std::fs::File::create(&src)
+            .unwrap()
+            .write_all(b"v1.5.7-binary-with-report-to")
+            .unwrap();
+        assert!(
+            super::refresh_installed_cli_with(&src, home.path(), &data_dir, &user_path).unwrap()
+        );
+        assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            b"v1.5.7-binary-with-report-to"
+        );
+
+        // The registry is never reached: every prod-dest refresh hands the bin
+        // directory to the seam and nothing else.
+        assert_eq!(
+            user_path.added(),
+            vec![
+                data_dir.join("bin"),
+                data_dir.join("bin"),
+                data_dir.join("bin")
+            ],
+            "each refresh must hand exactly the installed bin directory to the seam"
+        );
+    }
+
+    #[test]
+    fn refresh_dev_instance_installs_into_data_dir_not_prod() {
+        use std::io::Write;
+        let home = tempfile::tempdir().unwrap();
+        let data_dir = home.path().join(".codeterm-dev-phase-c-linux");
+        let srcdir = tempfile::tempdir().unwrap();
+        let src = srcdir.path().join("codeterm");
+        std::fs::File::create(&src)
+            .unwrap()
+            .write_all(b"dev-instance-binary")
+            .unwrap();
+
+        let user_path = RecordingUserPath::default();
+        assert!(
+            super::refresh_installed_cli_with(&src, home.path(), &data_dir, &user_path).unwrap()
+        );
+
+        let dev_dest = data_dir.join("bin").join(super::cli_bin_name());
+        let prod_dest = home
+            .path()
+            .join(".codeterm")
+            .join("bin")
+            .join(super::cli_bin_name());
+        assert_eq!(std::fs::read(&dev_dest).unwrap(), b"dev-instance-binary");
+        assert!(
+            !prod_dest.exists(),
+            "dev/named instance CLI refresh must not write prod bin"
+        );
+        // Companion to the seam assertion above: a non-prod destination reaches
+        // the seam with nothing, so a writer that records unconditionally fails.
+        assert!(
+            user_path.added().is_empty(),
+            "a dev/named instance must never touch the persistent user PATH"
+        );
+    }
+
+    #[test]
+    fn hash_returns_none_on_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist.bin");
+        assert!(file_sha256(&missing).is_none());
+    }
+}

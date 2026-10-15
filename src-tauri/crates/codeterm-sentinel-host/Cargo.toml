@@ -1,0 +1,47 @@
+[package]
+name = "codeterm-sentinel-host"
+version = "1.14.9-dev.6"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "codeterm_sentinel_host"
+
+[dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-sentinel = { path = "../codeterm-sentinel" }
+codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
+codeterm-cron = { path = "../codeterm-cron" }
+codeterm-storage = { path = "../codeterm-storage" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-util = { path = "../codeterm-util" }
+codeterm-events = { path = "../codeterm-events" }
+codeterm-decision = { path = "../codeterm-decision" }
+codeterm-pty = { path = "../codeterm-pty" }
+codeterm-shutdown = { path = "../codeterm-shutdown" }
+codeterm-analytics = { path = "../codeterm-analytics" }
+tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
+tokio = { version = "1", features = ["full", "test-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+regex = "1"
+cron = "0.13"
+rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
+tempfile = "3"
+
+[dev-dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
+codeterm-sentinel = { path = "../codeterm-sentinel", features = ["test-support"] }
+codeterm-decision = { path = "../codeterm-decision", features = ["decision-fixture-clock"] }
+codeterm-storage = { path = "../codeterm-storage", features = ["test-support"] }
+
+[features]
+test-support = ["codeterm-service-core/test-support", "codeterm-sentinel/test-support"]

@@ -1,10 +1,10 @@
 use super::{
-    last_error_code, run_listener, PostThreadMessageW, SelectedInputIdentity, UnavailableReason,
+    last_error_code, PostThreadMessageW, SelectedInputIdentity, UnavailableReason,
     WaitForSingleObject, WindowsInputEvent, LISTENER_CLAIMED, WM_QUIT,
 };
 use std::os::windows::io::AsRawHandle;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};

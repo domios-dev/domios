@@ -60,6 +60,19 @@ DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; pro
 From a DEV-bound shell, use `codeterm trace recent --limit 20`, then `codeterm trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.
 Exact protocol-turn and append-window source links join assistant appends, including late links; a missing assistant stage means pending or missing evidence, not a delivery verdict.
 
+## Chat scroll trace (iPhone viewport)
+
+For a change to Chat scrolling (`useMountedChatWindow`, `useChatScroll`, `chatSpacerDrift`, row heights), prove the scroll with a script, not by eye. The harness mounts the real hooks over 400 tool-card-sized rows. No dev instance is needed.
+
+```bash
+./build.sh chat-scroll-trace --webkit            # WebKit (no CSS scroll anchoring), fixed path: must report 0 jumps
+./build.sh chat-scroll-trace --webkit --fix 0    # same scroll without the spacer drift wiring: reproduces the jumps
+./build.sh chat-scroll-trace --webkit --strokes 60   # scroll all the way to the transcript top
+./build.sh chat-scroll-trace                     # native anchoring (Chromium/desktop) control
+```
+
+It drives touch strokes through your Domios Browser (opened if needed; `--cdp ws://...` or `CHAT_SCROLL_TRACE_CDP` selects another CDP endpoint) at 390x844 and prints a summary JSON. It exits 1 when `visualJumps > 0` or `scrollTopReversals > 0`. A jump is on-screen motion of the first visible row that does not mirror the scrollTop change. `spacerScrollFrames` counts frames where the top spacer and scrollTop moved together (a drift fold or a window remount). Those frames are judged against the neighbouring momentum speed instead. `trace.json` and screenshots land in `--out DIR` (default: a temp dir, printed at the end).
+
 ## Find GA tab
 
 The GA tab is protected. Find it by the protected flag:
