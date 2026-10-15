@@ -76,7 +76,7 @@ impl std::fmt::Display for ApproveError {
 /// handshake with a 502 (#126).
 pub async fn do_approve(
     mesh: codeterm_service_core::mesh::MeshState,
-    app_handle: codeterm_service_core::app_runtime::AppHandle,
+    app_handle: codeterm_host_runtime::app_runtime::AppHandle,
     request_id: String,
 ) -> Result<(), ApproveError> {
     let (request, our_pubkey, our_id, our_name) = {

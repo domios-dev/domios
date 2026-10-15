@@ -3,8 +3,8 @@
 //! endpoints. All three transports call the same
 //! `OrchestrationPairExt::create_orchestration_pair`.
 
+use codeterm_host_runtime::app_runtime::AppHandle;
 use codeterm_orchestration::OrchestrationPairExt;
-use codeterm_service_core::app_runtime::AppHandle;
 use serde_json::Value;
 
 use codeterm_orchestration::OrchestrationPairParams;
