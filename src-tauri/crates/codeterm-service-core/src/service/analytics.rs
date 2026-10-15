@@ -89,7 +89,7 @@ impl ServiceContext {
                     .map_or(1, |mesh| mesh.lock().machine_count());
                 let workspaces = self.mux.read().workspace_count();
                 let startup = app_started(
-                    env!("CARGO_PKG_VERSION"),
+                    codeterm_build_info::version(),
                     std::env::consts::OS,
                     mesh_machines,
                     workspaces,
@@ -117,7 +117,7 @@ impl ServiceContext {
                     let _ = worker.record_activity_nowait(|| workspaces);
                     if crate::service::analytics::update_confirm::confirm(
                         &crate::paths::data_dir().join("analytics-update.json"),
-                        env!("CARGO_PKG_VERSION"),
+                        codeterm_build_info::version(),
                         &worker,
                     )
                     .is_err()
