@@ -12,11 +12,25 @@ use crate::service::plan::PlanStore;
 
 pub struct ServiceFixture {
     pub service: ServiceContext,
+    pub ui: Arc<RecordedUiEvents>,
     /// The waiter lifetime owner. The registry keeps only a `Weak` of this, so
     /// dropping the fixture is itself the teardown signal.
     _owner: Arc<ServiceContext>,
     pub _app: crate::app_runtime::App,
     pub temp: tempfile::TempDir,
+}
+
+#[derive(Default)]
+pub struct RecordedUiEvents(pub Mutex<Vec<(String, serde_json::Value)>>);
+
+impl crate::ports::host::UiEvents for RecordedUiEvents {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        self.0.lock().push((event.to_owned(), payload));
+    }
+
+    fn emit_to(&self, _: &str, event: &str, payload: serde_json::Value) {
+        self.emit(event, payload);
+    }
 }
 
 #[derive(Default)]
@@ -491,6 +505,8 @@ impl ServiceFixture {
         extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(
             Mutex::new(Default::default()),
         )));
+        crate::async_runtime::install(tauri::async_runtime::handle().inner().clone());
+        let ui = Arc::new(RecordedUiEvents::default());
         let service = ServiceContext {
             lifecycle_journal: Arc::new(crate::session::lifecycle::TabLifecycleJournal::for_dir(
                 data_dir.join("sessions"),
@@ -520,6 +536,9 @@ impl ServiceFixture {
             })),
             events: Arc::new(codeterm_events::EventBroadcaster::new()),
             app_handle: app.handle().clone(),
+            ui: ui.clone(),
+            shell: Arc::new(crate::ports::host::NoShell),
+            rt: crate::async_runtime::handle().clone(),
             agent_tracker,
             report_store: Arc::new(Mutex::new(if persistent {
                 crate::agent::reports::ReportStore::with_ledger(
@@ -579,6 +598,7 @@ impl ServiceFixture {
         crate::ports::orchestration::install_fixture(&owner);
         Self {
             service,
+            ui,
             _owner: owner,
             _app: app,
             temp,
@@ -626,6 +646,40 @@ impl ServiceFixture {
 mod tests {
     use super::*;
     use tauri::{Emitter, Listener};
+
+    #[test]
+    fn recorded_ui_preserves_event_payloads_in_order() {
+        use crate::ports::host::UiEvents;
+        let ui = RecordedUiEvents::default();
+        let payload = serde_json::json!({ "probe": [1, 2] });
+        ui.emit("broadcast", payload.clone());
+        ui.emit_to("main", "targeted", serde_json::Value::Null);
+        assert_eq!(
+            *ui.0.lock(),
+            vec![
+                ("broadcast".to_owned(), payload),
+                ("targeted".to_owned(), serde_json::Value::Null)
+            ]
+        );
+    }
+
+    #[test]
+    fn service_runtime_uses_the_host_pool_from_blocking_workers() {
+        let fixture = ServiceFixture::new(MultiplexerState::new().0);
+        let expected = fixture.service.rt.id();
+        crate::async_runtime::block_on(async move {
+            let spawned =
+                crate::async_runtime::spawn(async { tokio::runtime::Handle::current().id() });
+            assert_eq!(spawned.await.unwrap(), expected);
+            let blocking = crate::async_runtime::spawn_blocking(|| {
+                crate::async_runtime::block_on(async {
+                    tokio::task::yield_now().await;
+                    tokio::runtime::Handle::current().id()
+                })
+            });
+            assert_eq!(blocking.await.unwrap(), expected);
+        });
+    }
 
     #[test]
     fn fixture_constructs_emits_and_drops_on_an_owned_thread_without_windows() {

@@ -247,7 +247,8 @@ qa_run_gate_body() {
       ;;
     file-sizes)
       bash scripts/check-file-sizes.sh --fail || return $?
-      node scripts/check-provider-boundary.mjs
+      node scripts/check-provider-boundary.mjs || return $?
+      bash scripts/check-tauri-reach.sh
       ;;
     comment-length)
       bash scripts/check-comment-length.sh --fail
