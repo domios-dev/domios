@@ -42,7 +42,6 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-service-core` | unit | rust | release | no | no | 3600 | nextest-list (fallback static-scan) | `./build.sh nextest app` | `.agents/skills/gates/SKILL.md` |
 | `rust-app` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest shell` | `.agents/skills/gates/SKILL.md` |
 | `rust-app-agent-state-replay` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test agent_state_replay -- --nocapture` | `evals/agent-state/README.md` |
-| `rust-app-attr-spike` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test attr_spike -- --nocapture` | `testbench/README.md` |
 | `rust-app-pty-test` | integration | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test pty_test` | `.agents/skills/gates/SKILL.md` |
 | `rust-app-snapshot-testbench` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test snapshot_testbench -- --nocapture` | `testbench/README.md` |
 | `rust-app-state-calibration` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test state_calibration -- --nocapture` | `testbench/README.md` |
