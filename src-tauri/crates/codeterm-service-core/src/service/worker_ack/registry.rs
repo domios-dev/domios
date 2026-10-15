@@ -5,13 +5,13 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WorkerAckIdentity {
-    pub(crate) plan_id: String,
-    pub(crate) task_id: String,
-    pub(crate) attempt_id: String,
-    pub(crate) tab_id: String,
-    pub(crate) startup_attempt_id: Option<String>,
-    pub(crate) session_id: Option<String>,
-    pub(crate) binding_nonce: Option<String>,
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub tab_id: String,
+    pub startup_attempt_id: Option<String>,
+    pub session_id: Option<String>,
+    pub binding_nonce: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
