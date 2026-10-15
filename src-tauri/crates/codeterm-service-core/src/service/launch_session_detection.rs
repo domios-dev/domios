@@ -5,14 +5,16 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use parking_lot::Mutex;
+use crate::lock_hold::TimedMutex;
 
 use super::ServiceContext;
 use crate::agent::provider::{LaunchSessionDetection, LaunchSessionEvidence, LaunchSessionSource};
 use crate::session::lifecycle::{AgentTypeWriteOrigin, BindingSource};
 
-static LAUNCH_MARKERS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
-static IN_FLIGHT: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+static LAUNCH_MARKERS: LazyLock<TimedMutex<HashMap<String, String>>> =
+    LazyLock::new(|| TimedMutex::new("launch_markers", HashMap::new()));
+static IN_FLIGHT: LazyLock<TimedMutex<HashSet<String>>> =
+    LazyLock::new(|| TimedMutex::new("launch_session_detection", HashSet::new()));
 
 struct DetectedLaunchSession {
     provider_id: String,

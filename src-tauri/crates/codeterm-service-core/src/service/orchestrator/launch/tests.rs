@@ -33,6 +33,12 @@ use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::sync::Barrier;
 
+#[test]
+fn launch_registry_uses_shared_hold_instrumentation() {
+    fn require_timed<T>(_: &codeterm_util::lock_hold::TimedMutex<T>) {}
+    require_timed(&*LAUNCH_REGISTRY);
+}
+
 #[derive(Default)]
 struct DeliverySink(Mutex<Vec<&'static str>>);
 
