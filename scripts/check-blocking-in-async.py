@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Reject ordered state locks on async runtime threads."""
+# Caller: scripts/check-blocking-in-async.sh, scripts/tests/test_check_blocking_in_async.py
 import re
 import subprocess
 from pathlib import Path
