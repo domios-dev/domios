@@ -23,6 +23,10 @@ CODETERM_SOCKET_PATH=/fake/codeterm-dev/sock CODETERM_API_PORT=7686 codeterm <cm
 ```
 The fake socket path just has to contain the substring `codeterm-dev` so the CLI picks the dev config dir; the actual socket connection is only used by a few subcommands.
 
+| Measurement | Command and observable output |
+|---|---|
+| DEV lock storm | `./build.sh qa-lock-storm --seconds 120 --out target-check/lock-storm.json` (PowerShell: `.\build.ps1 qa-lock-storm ...`): requires an existing tab; three independent DEV-only `dev_get` workers request mux state, tabs and one tab's chat on a 250 ms load cadence for a bounded 1..3600-second window. Reports helper-inclusive per-route p50/p95/max milliseconds and HTTP/transport status counts, plus per-lock/per-site LOCK-HOLD counts from the DEV log in JSON and a table. Slow requests never overlap on the same route; the final request can finish up to the helper's 5-second health check plus 30-second request deadline after the load window. Log timestamps have second precision, so both boundary seconds are included; unmatched older diagnostic formats are counted separately. This cadence generates load and proves no readiness state. Fixture selector: `node --test scripts/tests/qa-lock-storm.test.mjs`. |
+
 ## Setup
 
 ```bash
