@@ -10,8 +10,8 @@ use crate::service::plan::{PlanStore, TaskLaneUpdate};
 /// ownership, the title and id are what a refusal has to name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveTabCwd {
-    pub(crate) id: String,
-    pub(crate) title: String,
+    pub id: String,
+    pub title: String,
     pub(crate) cwd: String,
 }
 

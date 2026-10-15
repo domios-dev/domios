@@ -65,7 +65,7 @@ pub struct PlanLifecycleOutcome {
     pub(crate) kind: PlanLifecycleKind,
     pub(crate) plan_id: String,
     pub applied: bool,
-    pub(crate) mode: PlanMode,
+    pub mode: PlanMode,
     pub stride_id: Option<String>,
     pub operation: Option<PlanPauseOperation>,
 }

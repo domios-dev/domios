@@ -41,7 +41,7 @@ impl ChatBackendProvider for SpawnableTestBackend {
     }
 }
 
-pub(crate) fn registry_with_spawnable(id: &'static str) -> crate::chatbackend::ChatBackendRegistry {
+pub fn registry_with_spawnable(id: &'static str) -> crate::chatbackend::ChatBackendRegistry {
     let registry = crate::chatbackend::ChatBackendRegistry::new();
     registry.register(id, std::sync::Arc::new(SpawnableTestBackend { id }));
     registry
@@ -93,7 +93,7 @@ impl ChatBackendProvider for RuntimeTestBackend {
     }
 }
 
-pub(crate) fn registry_with_runtime(id: &'static str) -> crate::chatbackend::ChatBackendRegistry {
+pub fn registry_with_runtime(id: &'static str) -> crate::chatbackend::ChatBackendRegistry {
     let registry = crate::chatbackend::ChatBackendRegistry::new();
     registry.register(
         id,
