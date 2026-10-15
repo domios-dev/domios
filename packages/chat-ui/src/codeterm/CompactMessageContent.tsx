@@ -7,7 +7,8 @@ import { RichMarkdown } from "../MarkdownBody";
 import { normalizeMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { AttachmentStrip } from "../AttachmentStrip";
-import { AttachmentCapsule, InlineAttachmentText } from "../AttachmentCapsule";
+import { OrderedAttachmentContent } from "../OrderedAttachmentContent";
+import { InlineAttachmentText } from "../AttachmentCapsule";
 import { ReplyQuote } from "../ReplyQuote";
 import { EnvelopeContent } from "../EnvelopeContent";
 
