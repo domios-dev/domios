@@ -12,10 +12,14 @@ pub struct Extensions {
 
 impl Extensions {
     pub fn get<T: Any + Send + Sync>(&self) -> &T {
+        self.try_get::<T>()
+            .unwrap_or_else(|| panic!("extension {} is not registered", std::any::type_name::<T>()))
+    }
+
+    pub fn try_get<T: Any + Send + Sync>(&self) -> Option<&T> {
         self.map
             .get(&TypeId::of::<T>())
             .and_then(|slot| slot.downcast_ref::<T>())
-            .unwrap_or_else(|| panic!("extension {} is not registered", std::any::type_name::<T>()))
     }
 }
 

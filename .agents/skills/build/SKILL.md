@@ -50,6 +50,22 @@ command short unless the continuation itself must be customized.
 
 ## Choose one operation
 
+The service-core Tauri reach ratchet runs in verify, release-preflight and the
+file-sizes QA/CI gate. Run `bash scripts/check-tauri-reach.sh` and
+`node --test scripts/tests/check-tauri-reach.test.mjs` for focused proof. Its
+per-file baseline counts `tauri::`, `AppHandle` and `app_handle`; lower counts
+must lower the baseline, and zero removes the entry. Growth against the branch
+fork point is refused. Root host adapters remain outside the guarded core.
+
+The provider-boundary ratchet uses the branch fork point, floored at the audited
+allowlist migration `86b30145e90e9d2f31294ead517b82716fd44da8` when that commit is
+on the branch and descends from the fork point. This re-anchors stale allowances
+left by historical crate moves without raising any token's total budget. Newer
+fork points retain their own lower budgets; unrelated histories retain their own
+baseline. Never move this anchor to excuse new occurrences. Run
+`node scripts/check-provider-boundary.mjs` and
+`node --test scripts/tests/check-provider-boundary.test.mjs` for focused proof.
+
 These flows are deliberately separate. Full rebuilds, dev instances, full
 suites and gates run from the warm canonical checkout under Orchestrator
 authority. A Worker lane may run isolated checks only; in this repository that
