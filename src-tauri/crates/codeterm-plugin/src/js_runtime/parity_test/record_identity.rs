@@ -60,7 +60,7 @@ fn tab_chat_identity_claude_rows_anchor_to_their_record_start() {
     if require_plugins().is_none() {
         return;
     }
-    let claude = load_js("claude");
+    let provider = load_js("claude");
     let lines = [
         r#"{"type":"user","uuid":"c-uuid","message":{"role":"user","content":"with uuid é ✓"}}"#,
         r#"{"type":"user","message":{"role":"user","content":"no uuid"}}"#,
@@ -73,17 +73,17 @@ fn tab_chat_identity_claude_rows_anchor_to_their_record_start() {
         (Some(line_start(&lines, 3)), 0, None),
     ];
     assert_eq!(
-        anchors(&claude, &lines, 0),
+        anchors(&provider, &lines, 0),
         expected,
         "multi-record chunk from byte 0"
     );
     assert_eq!(
-        anchors(&claude, &lines, line_start(&lines, 1)),
+        anchors(&provider, &lines, line_start(&lines, 1)),
         expected[1..].to_vec(),
         "a record-aligned later read keeps absolute starts"
     );
     assert_eq!(
-        anchors(&claude, &lines, 5),
+        anchors(&provider, &lines, 5),
         expected[1..].to_vec(),
         "a read starting mid-record drops the partial head and keeps absolute starts"
     );
