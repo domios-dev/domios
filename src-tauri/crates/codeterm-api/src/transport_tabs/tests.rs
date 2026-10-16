@@ -58,7 +58,8 @@ fn transport_tabs_contract_attach_replay_and_truncation() {
         frame,
         json!({
             "tab_id": "tab", "pty_id": "pty", "boot": "boot",
-            "output": String::from_utf8_lossy(&bytes), "data": bytes, "offset": 9
+            "b64": base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &bytes),
+            "offset": 9
         })
     );
 
