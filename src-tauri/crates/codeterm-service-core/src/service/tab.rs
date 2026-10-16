@@ -951,7 +951,6 @@ pub(crate) fn focus_tab_hot_path(
     schedule_model_refresh: impl FnOnce(),
 ) -> Result<(), String> {
     mux.write().set_focused_tab(tab_id)?;
-    super::restore_admission::notify_changed();
     emit_focus_changed(tab_id);
     schedule_model_refresh();
     Ok(())

@@ -161,6 +161,7 @@ struct PreparationGate {
     state: Mutex<PreparationState>,
 }
 
+// Never enqueue or drop a PreparationTicket under a mux guard: gate state precedes mux.
 struct PreparationTicket<'a> {
     gate: &'a PreparationGate,
     ticket: u64,
