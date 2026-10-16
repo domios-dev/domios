@@ -1,5 +1,14 @@
 import type {UsageSnapshot, RuntimeUsageProjection} from "../../types/usage";
 
+export function latestUsageSnapshot(snapshot: UsageSnapshot | null, tabId?: string, threadId?: string | null): UsageSnapshot | null {
+  if (!snapshot) return null;
+  const runtime = ownRuntimeUsage(snapshot, tabId, threadId);
+  if (!runtime) return snapshot.runtime_usage ? null : snapshot;
+  const own = runtimeLimitsSnapshot(snapshot, runtime);
+  if (runtime.billing_mode !== "subscription" || !snapshot.parsed_ok || snapshot.captured_at < (runtime.rate_limits?.captured_at ?? 0)) return own;
+  return {...snapshot, resets: own.resets};
+}
+
 export function ownRuntimeUsage(snapshot: UsageSnapshot | null, tabId?:string, threadId?:string | null): RuntimeUsageProjection | null {
   return snapshot?.runtime_usage?.find(row => row.tab_id === tabId && row.thread_id === threadId) ?? null;
 }
