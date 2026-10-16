@@ -97,6 +97,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin: PluginModule = {
+  sessionResume: () => ({ exact: true }),
   checkForUpdate: checkOpencodeUpdate,
   ...modelSwitch,
   ...decisionModel,

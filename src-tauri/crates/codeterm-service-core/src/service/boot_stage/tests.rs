@@ -1,6 +1,30 @@
 use super::*;
 use parking_lot::Mutex;
 
+#[test]
+fn sleep_marker_survives_launch_and_failure_until_agent_ready() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.slept_at_ms = Some(42);
+    tab.sleep_reason = Some(crate::multiplexer::types::SleepReason::Idle);
+    for stage in [
+        BootStage::PtyStarting,
+        BootStage::AgentLaunching,
+        BootStage::ProviderReady,
+        BootStage::SpawnFailed,
+    ] {
+        apply_boot_stage(tab, stage, None);
+        assert_eq!(tab.slept_at_ms, Some(42));
+        assert_eq!(
+            tab.sleep_reason,
+            Some(crate::multiplexer::types::SleepReason::Idle)
+        );
+    }
+    apply_boot_stage(tab, BootStage::AgentReady, None);
+    assert_eq!(tab.slept_at_ms, None);
+    assert_eq!(tab.sleep_reason, None);
+}
+
 #[derive(Default)]
 struct MockSink {
     events: Mutex<Vec<(String, BootStage, Option<String>)>>,

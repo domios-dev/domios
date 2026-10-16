@@ -263,6 +263,7 @@ fn snapshot(leaves: Vec<SplitNodeSnapshot>) -> SessionSnapshot {
                 .enumerate()
                 .map(|(index, split_tree)| TabSnapshot {
                     last_active_at_ms: None,
+                    last_opened_at_ms: None,
                     id: split_tree_tab_id(&split_tree),
                     title: "tab".into(),
                     description: None,

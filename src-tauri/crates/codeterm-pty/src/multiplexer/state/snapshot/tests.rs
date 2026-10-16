@@ -82,6 +82,7 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
             sort_order: 0,
             tabs: vec![TabSnapshot {
                 last_active_at_ms: None,
+                last_opened_at_ms: None,
                 id: "tab".into(),
                 title: "tab".into(),
                 description: None,

@@ -377,6 +377,10 @@ impl AgentProvider for ClaudeProvider {
         launch::build_resume_command(session_id, skip_permissions)
     }
 
+    fn supports_exact_session_resume(&self) -> bool {
+        true
+    }
+
     fn build_resume_command_with_context(
         &self,
         params: &crate::provider::AgentResumeParams,
