@@ -2299,8 +2299,7 @@ EOF
     ct_cache_retention gc "${2:-}"
     ;;
   fmt-check)
-    cargo fmt --manifest-path src-tauri/Cargo.toml --check
-    cargo fmt --manifest-path cli/Cargo.toml --check
+    bash scripts/check-rustfmt.sh
     ;;
   cache-status)
     ct_sccache_status
@@ -2504,8 +2503,7 @@ EOF
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ensure_deps
-    cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
-    cargo fmt --manifest-path cli/Cargo.toml --all --check
+    bash scripts/check-rustfmt.sh
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-tauri-reach.sh
@@ -2699,8 +2697,7 @@ EOF
         ;;
     esac
     enter_cargo_gateway "$CMD ${*:2}"
-    cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
-    cargo fmt --manifest-path cli/Cargo.toml --all --check
+    bash scripts/check-rustfmt.sh
     bash scripts/check-file-sizes.sh --fail
     require_release_source
     node scripts/check-release-locks.mjs
