@@ -297,6 +297,25 @@ function isImageDisplayMetadata(entry) {
   return entry.type === "user" && entry.isMeta === true && typeof entry.message?.content === "string" && IMAGE_GEOMETRY.test(entry.message.content.trim());
 }
 
+// plugins/provider-claude/src/recordPrefix.ts
+function storedRecordType(line) {
+  const tokens = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
+  const opening = tokens.exec(line);
+  if (opening?.[0] !== "{") return void 0;
+  for (let token = tokens.exec(line); token; token = tokens.exec(line)) {
+    if (token[1] !== void 0) return token[1];
+    if (token[0] === "{" || token[0] === "[") return void 0;
+  }
+  return void 0;
+}
+function shouldParseClaudeRecord(line, delta) {
+  const type = storedRecordType(line);
+  if (type === void 0 || type === "user" || type === "assistant") return true;
+  if (!delta) return false;
+  if (["system", "ai-title", "edited_text_file", "attachment"].includes(type)) return true;
+  return /"(?:permissionMode|isApiErrorMessage|toolUseResult|message|attachment)"\s*:|\\u/.test(line);
+}
+
 // plugins/provider-shared/updateCheck.ts
 function record(raw) {
   if (raw !== null && typeof raw === "object") return raw;
@@ -2779,7 +2798,7 @@ var plugin = {
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (!line) continue;
+      if (!line || !shouldParseClaudeRecord(line, false)) continue;
       let v;
       try {
         v = JSON.parse(line);
@@ -2842,7 +2861,7 @@ var plugin = {
     for (let i = 0; i < lines.length; i++) {
       stampRows(i - 1);
       const line = lines[i];
-      if (!line) continue;
+      if (!line || !shouldParseClaudeRecord(line, true)) continue;
       let v;
       try {
         v = JSON.parse(line);
