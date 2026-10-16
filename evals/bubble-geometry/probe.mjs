@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
-import { CHAT_READABLE_WIDTH_REM } from "../../src/components/Terminal/chatLayoutTokens.ts";
+const require = createRequire(import.meta.url);
+const { CHAT_READABLE_WIDTH_REM } = require("../../src/components/Terminal/chatLayoutTokens.ts");
+const { chatGeometryVisible, selectChatGeometrySurface } = require("../../src/components/Terminal/chatGeometrySurface.ts");
 
 const { values } = parseArgs({ options: { cdp: { type: "string" }, target: { type: "string" } } });
 if (!values.cdp) throw new Error("Pass --cdp <Domios Browser endpoint>; open DEV Chat with user and assistant messages first");
@@ -50,10 +53,32 @@ const evaluate = async (expression) => {
   return result.result.value;
 };
 
-function measure() {
-  const visible = (element) => element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0;
-  const surface = [...document.querySelectorAll(".ct-chat-surface")].find(visible);
-  if (!surface) throw new Error("no visible transcript surface");
+function measure(selectSurface, isVisible) {
+  const visible = (element) => {
+    const rect = element.getBoundingClientRect();
+    const ancestors = [];
+    for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+      const style = getComputedStyle(ancestor);
+      ancestors.push({
+        hidden: ancestor.hidden, inert: ancestor.inert, ariaHidden: ancestor.getAttribute("aria-hidden") === "true",
+        display: style.display, visibility: style.visibility, opacity: Number(style.opacity),
+      });
+    }
+    return isVisible(rect.width, rect.height, ancestors);
+  };
+  const surfaces = [...document.querySelectorAll(".ct-chat-surface")];
+  const candidates = surfaces.map((element) => {
+    const shell = element.closest('[data-testid="tab-session-chat"]');
+    return {
+      tabId: shell?.dataset.tabId ?? null,
+      visible: visible(element),
+      snapshotReady: shell?.dataset.snapshotReady === "true",
+      busy: shell?.getAttribute("aria-busy") === "true",
+    };
+  });
+  const index = selectSurface(candidates);
+  if (index === null) throw new Error(`expected one active ready transcript surface: ${JSON.stringify(candidates)}`);
+  const surface = surfaces[index];
   const shell = surface.closest('[data-testid="tab-session-chat"]');
   if (shell?.dataset.snapshotReady !== "true" || shell.getAttribute("aria-busy") === "true") {
     throw new Error("transcript snapshot is not ready");
@@ -69,12 +94,13 @@ function measure() {
   const rows = [...surface.querySelectorAll(".ct-chat-message-row")].filter(visible);
   return {
     viewport: innerWidth,
+    tabId: shell.dataset.tabId,
     available: { left, width, center: left + width / 2 },
     rootFont: parseFloat(getComputedStyle(document.documentElement).fontSize),
     rows: rows.map(box),
     bubbles: [...surface.querySelectorAll('[role="group"][aria-label="User message"]')].filter(visible).map(box),
     assistants: [...surface.querySelectorAll(".ct-chat-message-row--agent .ct-chat-message-column")].filter(visible).map(box),
-    composers: [...document.querySelectorAll(".ct-composer-lane")].filter(visible).map(box),
+    composers: [...shell.querySelectorAll(".ct-composer-lane")].filter(visible).map(box),
   };
 }
 
@@ -96,7 +122,7 @@ try {
   for (const width of [1440, 1920, 2560, 390]) {
     await call("Emulation.setDeviceMetricsOverride", { width, height: 1000, deviceScaleFactor: 1, mobile: false });
     await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))");
-    const sample = await evaluate(`(${measure.toString()})()`);
+    const sample = await evaluate(`(${measure.toString()})(${selectChatGeometrySurface.toString()}, ${chatGeometryVisible.toString()})`);
     console.log(JSON.stringify({ build: health.build, width, ...sample }));
     check(sample, width);
     const regressed = structuredClone(sample);
