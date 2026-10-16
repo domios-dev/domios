@@ -12,7 +12,7 @@ scripts/qa-gate.sh list
 # Lane-friendly compile/format gate on current HEAD
 scripts/qa-gate.sh run fmt check
 
-# Integration branch gate (mirrors full pre-push hook)
+# Integration branch gate
 scripts/qa-gate.sh run prepush-full --timeout 2400
 
 # Verify a specific commit on this machine (fetch + checkout + sha pin)
