@@ -2296,6 +2296,7 @@ function claudePermissionPromptResponse(toolName, prompt, screen) {
 
 // plugins/provider-claude/src/hookOwnership.ts
 var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+var CODETERM_HOOK_TIMEOUT_SECONDS = 5;
 var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
 var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
 var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
@@ -2353,6 +2354,11 @@ function entriesCarryMarker(entries) {
       return typeof hook.command === "string" && commandCarriesMarker(hook.command);
     });
   });
+}
+function entriesHaveBoundedTimeout(entries) {
+  return entries.every((entry) => (entry.hooks || []).every((hook) => {
+    return !isCodetermHook({ hooks: [hook] }) || hook.timeout === CODETERM_HOOK_TIMEOUT_SECONDS;
+  }));
 }
 
 // plugins/provider-claude/src/plugin.ts
@@ -3120,7 +3126,7 @@ var plugin = {
     let marked = true;
     for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
       const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
-      if (Array.isArray(arr) && !entriesCarryMarker(arr)) {
+      if (Array.isArray(arr) && (!entriesCarryMarker(arr) || !entriesHaveBoundedTimeout(arr))) {
         marked = false;
         break;
       }
@@ -3194,10 +3200,10 @@ var plugin = {
       };
     }
     const newHooks = {
-      PermissionRequest: newEntry("*", notifyCmd, 5e3),
-      Notification: newEntry("permission_prompt", notifyCmd, 5e3),
-      Stop: newEntry("", stopCmd, 5e3),
-      SessionStart: newEntry("", sessionStartCmd, 5e3)
+      PermissionRequest: newEntry("*", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Notification: newEntry("permission_prompt", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Stop: newEntry("", stopCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      SessionStart: newEntry("", sessionStartCmd, CODETERM_HOOK_TIMEOUT_SECONDS)
     };
     const keys = INTEGRATION_HOOK_KEYS;
     let preservedUnclassified = 0;
