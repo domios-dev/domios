@@ -20,7 +20,6 @@ import {
   chatDaySeparators,
   chatLocalDay,
   messageRowTime,
-  ChatSessionIntentLine,
   isSessionIntentOnlyMessage,
   MessageBubble,
   MessageTimeFrame,
@@ -817,7 +816,6 @@ function TabSessionChatBody({
         </div>
       )}
       {!runtimeUnavailable && <RemovedChatPlugin error={effectiveChatBackend ? error : null} />}
-      <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
         <div
@@ -1049,6 +1047,7 @@ function TabSessionChatBody({
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
         inlineAttachmentSink={inlineSinkRef}
+        sessionIntent={sessionIntent}
         contextSlot={contextSlot}
         onWillSendMessage={willSendMessage}
         addOptimistic={addOptimistic}

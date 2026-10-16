@@ -1,3 +1,4 @@
+import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
 import { onResync } from "../../lib/resync";
@@ -187,6 +188,7 @@ function ChatComposerImpl({
   promptDock,
   replacement,
   inlineAttachmentSink,
+  sessionIntent,
   contextSlot = null,
   chatBackend = false,
   isActive = true,
@@ -217,6 +219,7 @@ function ChatComposerImpl({
   replacement?: ReactNode;
   /** Where pasted and dropped files land as capsules at the caret. */
   inlineAttachmentSink?: MutableRefObject<InlineAttachmentSink | null>;
+  sessionIntent?: ChatSessionIntent | null;
   /** Element above the status line that hosts the context header. */
   contextSlot?: HTMLElement | null;
 }) {
@@ -510,6 +513,7 @@ function ChatComposerImpl({
     <ComposerDock mode={composerLayout.mode} ref={shellRef}>
       {contextSlot && createPortal(
         <ComposerContextHeader
+          sessionIntent={sessionIntent}
           tabId={tabId}
           workspaceId={workspaceId}
           delayed={delayedMessages}
@@ -734,6 +738,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.replacement === b.replacement
   && a.promptDock === b.promptDock
   && a.inlineAttachmentSink === b.inlineAttachmentSink
+  && a.sessionIntent === b.sessionIntent
   && a.contextSlot === b.contextSlot
   && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive
