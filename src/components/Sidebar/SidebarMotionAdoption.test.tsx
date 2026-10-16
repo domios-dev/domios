@@ -94,7 +94,6 @@ async function run() {
     readFileSync(new URL("./WorkspaceCardGrid.tsx", import.meta.url), "utf8"),
   ].join("\n");
   assert.doesNotMatch(sources, /transition-all|transition:\s*all|setTimeout/);
-  assert.match(styles, /\.sidebar-team-card-activation[^}]*transform-origin:\s*center/s);
   assert.match(styles, /\.sidebar-tab-activation[^}]*transform-origin:\s*center/s);
   assert.match(styles, /\.sidebar-workspace-card-select[^}]*transform-origin:\s*center/s);
   assert.match(styles, /\.sidebar-workspace-card-create[^}]*transform-origin:\s*center/s);
@@ -107,7 +106,6 @@ async function run() {
   assert.match(styles, /\.sidebar-team-card-activation:focus-visible[\s\S]*?outline:\s*1px solid var\(--ct-accent\)/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.ct-segmented-donut[\s\S]*?animation:\s*none/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.sidebar-team-card-activation[\s\S]*?transform:\s*none/);
-  assert.match(styles, /\.sidebar-team-header-active:hover[\s\S]*?background:\s*var\(--ct-hover\)/);
   assert.match(styles, /\.sidebar-workspace-card\[data-selected="true"\][\s\S]*?background:\s*var\(--ct-accent\)/);
   assert.match(styles, /\.sidebar-workspace-card-working[\s\S]*?background:\s*color-mix/);
 }

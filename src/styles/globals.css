@@ -650,8 +650,7 @@ button,
   box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px var(--ct-accent);
 }
 
-.sidebar-tab-activation,
-.sidebar-team-card-activation {
+.sidebar-tab-activation {
   --ct-liquid-base-transform: translateZ(0);
   transform: var(--ct-liquid-base-transform) scale(1);
   transform-origin: center;
@@ -662,13 +661,11 @@ button,
     border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
-.sidebar-tab-activation:hover,
-.sidebar-team-card-activation:hover {
+.sidebar-tab-activation:hover {
   transform: var(--ct-liquid-base-transform) scale(1.0075);
 }
 
-.sidebar-tab-activation:active,
-.sidebar-team-card-activation:active {
+.sidebar-tab-activation:active {
   transform: var(--ct-liquid-base-transform) scale(0.975);
   transition-duration: var(--ct-duration-liquid-press);
   transition-timing-function: var(--ct-ease-liquid-settle);
@@ -679,8 +676,7 @@ button,
 }
 
 .ct-liquid-interactive[data-touch-mode="true"]:not(:disabled):active,
-[data-touch-mode="true"] .sidebar-tab-activation:active,
-[data-touch-mode="true"] .sidebar-team-card-activation:active {
+[data-touch-mode="true"] .sidebar-tab-activation:active {
   transform: var(--ct-liquid-base-transform) scale(0.965);
 }
 
@@ -691,10 +687,7 @@ button,
   .ct-segmented-thumb,
   .sidebar-tab-activation,
   .sidebar-tab-activation:hover,
-  .sidebar-tab-activation:active,
-  .sidebar-team-card-activation,
-  .sidebar-team-card-activation:hover,
-  .sidebar-team-card-activation:active {
+  .sidebar-tab-activation:active {
     transform: var(--ct-liquid-base-transform);
     transition: none;
     animation: none;
@@ -2028,17 +2021,35 @@ button,
 }
 
 .sidebar-team-unit {
-  --team-surface: color-mix(in srgb, var(--ct-bg) 98%, white);
-  --ct-bg-selected: color-mix(in srgb, var(--team-surface) 96%, white);
+  --team-surface: color-mix(in srgb, var(--ct-bg) 80%, var(--ct-surface));
+  --team-hover: rgb(from var(--team-surface) calc(r * 1.05) calc(g * 1.05) calc(b * 1.05));
+  --ct-bg-selected: color-mix(in srgb, var(--team-surface) 96%, var(--ct-fg));
   position: relative;
   min-width: 0;
   margin: 4px 0;
   padding: 3px 0 0;
   overflow: visible;
+  isolation: isolate;
   border-radius: 8px;
   background: var(--team-surface);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 4%, transparent);
   container-type: inline-size;
+}
+
+.sidebar-team-unit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--team-hover);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-team-unit::before { transition: none; }
 }
 
 .sidebar-team-disclosure-bar {
@@ -2132,14 +2143,13 @@ button,
   align-items: center;
   gap: 6px;
   margin: 0;
-  padding: 6px 7px 4px 10px;
+  padding: 7px 7px 3px 10px;
   border-radius: 7px;
   color: var(--ct-fg);
 }
 
-.sidebar-team-header-active:hover,
-.sidebar-team-header-active:focus-within {
-  background: color-mix(in srgb, var(--team-surface) 98%, white);
+.sidebar-team-unit:is(:hover, :focus-within)::before {
+  opacity: 1;
 }
 
 .sidebar-disclosure {
@@ -2174,10 +2184,9 @@ button,
 .sidebar-team-card-visual,
 .sidebar-team-card-static {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   align-items: center;
-  gap: 4px;
 }
 
 .sidebar-team-card-activation {
@@ -2193,6 +2202,8 @@ button,
   color: inherit;
   cursor: pointer;
   text-align: left;
+  transform: none;
+  transition: none;
 }
 
 .sidebar-team-unit-activatable .sidebar-team-header,
@@ -2222,12 +2233,6 @@ button,
 
 .sidebar-team-unit-activatable .sidebar-team-disclosure-bar {
   z-index: 2;
-}
-
-.sidebar-team-unit-activatable .sidebar-team-card-activation:hover,
-.sidebar-team-unit-activatable .sidebar-team-card-activation:focus-visible {
-  background: var(--ct-hover);
-  opacity: 0.35;
 }
 
 .sidebar-disclosure:focus-visible {
@@ -2731,8 +2736,8 @@ button,
   pointer-events: auto;
 }
 
-.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:hover) .sidebar-team-menu-root .sidebar-team-kebab,
-.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:hover) .sidebar-team-board-action,
+.sidebar-team-unit-activatable:hover .sidebar-team-menu-root .sidebar-team-kebab,
+.sidebar-team-unit-activatable:hover .sidebar-team-board-action,
 .sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:focus-visible) .sidebar-team-menu-root .sidebar-team-kebab,
 .sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:focus-visible) .sidebar-team-board-action {
   opacity: 1;

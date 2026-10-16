@@ -2,7 +2,6 @@
 
 import type { ProviderDescriptor, Tab, TabStatus, Workspace } from "../../lib/types";
 import { TaskStatus, type Plan } from "../Canvas/types";
-import { PLAN_STATUS_COLORS } from "../shared/SegmentedDonut";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
@@ -189,20 +188,12 @@ test("team header renders the live compact status tally", async () => {
   });
 
   const tally = host.querySelector('[data-testid="team-status-tally"]');
-  assert(host.querySelector('[data-testid="team-donut"]'), "bound team renders its status donut");
-  assert(!host.querySelector('[data-testid="team-donut"] svg'), "donut has no inner icon node");
   assert(!host.querySelector('[data-testid="team-open-effort"]'), "superseded effort row is absent");
   assert(
     Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []).map((item) => item.textContent?.trim()).join(",") === "3 todo,1 review,1 blocked,3 done",
     `tally=${tally?.textContent}`,
   );
   const items = Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []) as HTMLElement[];
-  assert(items.map((item) => item.style.color).join(",") === [
-    PLAN_STATUS_COLORS.todo,
-    PLAN_STATUS_COLORS.review,
-    PLAN_STATUS_COLORS.blocked,
-    PLAN_STATUS_COLORS.done,
-  ].join(","), "tally colors use runtime theme variables in board order");
   assert(items.length === 4, "tally exposes the four compact status buckets");
   assert(items.map((item) => item.querySelector(".ct-plan-status-breakdown-label")?.textContent?.trim()).join(",") === "todo,review,blocked,done", "paused stays out of the compact tally");
   assert(tally?.textContent?.replace(/\s+/g, " ").trim() === "3 todo · 1 review · 1 blocked · 3 done", "tally uses middle-dot separators");
@@ -279,7 +270,6 @@ test("team_card_activation_covers_title_tally_and_lower_area", async () => {
   assert(card.nextElementSibling === header, "card activation sits beside the title header instead of wrapping it");
   assert(!card.contains(menu) && !card.contains(chevron), "menu and disclosure stay outside the full-card activation");
   assert(sampledAreas.every((area) => area?.getAttribute("data-team-card-hit-target") === card.dataset.testid), "title, tally, and lower card resolve to the one activation target");
-  assert(/\.sidebar-team-unit-activatable \.sidebar-team-card-activation:hover[\s\S]*?background:\s*var\(--ct-hover\)/.test(sidebarStyles), "full-card hover exposes a visible affordance");
   assert(/\.sidebar-team-card-activation:focus-visible[\s\S]*?outline:\s*2px solid var\(--ct-accent\)/.test(sidebarStyles), "full-card activation exposes a visible focus ring");
   assert(card.tagName === "BUTTON" && host.querySelector('[data-testid="team-name"]')?.tagName === "SPAN", "Team title remains a text heading rather than becoming the activation control");
   const originalOpenWorkspace = canvasFocusStore.openWorkspace;

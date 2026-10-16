@@ -43,8 +43,7 @@ export const TEAM_PREFIX = "team:";
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return target.matches("input, textarea, select, [contenteditable]")
-    || target.closest("input, textarea, select, [contenteditable]") !== null;
+  return target.closest('input, textarea, select, [contenteditable], [role="textbox"]') !== null;
 }
 
 /** Strip the type prefix off a sortable id, yielding the raw backend id. */
@@ -107,6 +106,14 @@ export function SortableRow({
       }}
       {...attributes}
       {...listeners}
+      onMouseDown={(event) => {
+        if (isEditableTarget(event.target)) return;
+        listeners?.onMouseDown?.(event);
+      }}
+      onTouchStart={(event) => {
+        if (isEditableTarget(event.target)) return;
+        listeners?.onTouchStart?.(event);
+      }}
       onKeyDown={(event) => {
         if (isEditableTarget(event.target)) return;
         listeners?.onKeyDown?.(event);

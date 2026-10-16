@@ -12,6 +12,7 @@ export interface PlanStatusCounts {
 export interface PlanStatusBreakdownProps extends HTMLAttributes<HTMLSpanElement> {
   counts: PlanStatusCounts;
   itemTestIdPrefix?: string;
+  tone?: "status" | "muted";
 }
 
 const STATUS_ORDER: readonly PlanStatusKind[] = ["todo", "review", "blocked", "done"];
@@ -20,6 +21,7 @@ export function PlanStatusBreakdown({
   counts,
   className = "",
   itemTestIdPrefix,
+  tone = "status",
   "aria-label": ariaLabel,
   ...props
 }: PlanStatusBreakdownProps) {
@@ -46,7 +48,7 @@ export function PlanStatusBreakdown({
             data-testid={itemTestIdPrefix ? `${itemTestIdPrefix}-${status}` : undefined}
             data-status={status}
             className="ct-plan-status-breakdown-item"
-            style={{ color: PLAN_STATUS_COLORS[status] }}
+            style={{ color: tone === "muted" ? "var(--ct-muted-fg)" : PLAN_STATUS_COLORS[status] }}
           >
             <span className="ct-plan-status-breakdown-count">{counts[status]}</span>
             <span className="ct-plan-status-breakdown-label"> {status}</span>
