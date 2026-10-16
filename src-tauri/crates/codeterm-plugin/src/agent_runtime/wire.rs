@@ -173,6 +173,8 @@ pub enum RuntimeOperation {
         thread_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        order: Option<HistoryOrder>,
     },
     SubmitTurn {
         thread_id: String,
@@ -257,6 +259,14 @@ pub struct OpenItem {
     pub item: ChatMsg,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HistoryOrder {
+    #[default]
+    Asc,
+    Desc,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -278,6 +288,9 @@ pub enum RuntimeResult {
         open_items: Vec<OpenItem>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         questions: Option<Vec<RuntimeHistoryQuestion>>,
+        /// Echo of the requested order; absent means ascending.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        order: Option<HistoryOrder>,
     },
     TurnAccepted {
         thread_id: String,

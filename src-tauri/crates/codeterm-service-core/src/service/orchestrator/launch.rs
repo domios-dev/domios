@@ -515,10 +515,9 @@ pub fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::ReaderReady) {
             return;
         }
-        if direct {
-            if !backend_spawn::mark_direct_reader_ready(&mut launch, &svc, &mut delivery_gate) {
-                return;
-            }
+        if direct && !backend_spawn::mark_direct_reader_ready(&mut launch, &svc, &mut delivery_gate)
+        {
+            return;
         }
 
         crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "preparation_wait_enter");

@@ -1,8 +1,8 @@
 # Tab lifecycle journal and unconditional restore
 
-Domios keeps one append-only journal of every authoritative tab lifecycle transition. The journal is **telemetry**: a forensic record of what each launch committed and when. Normal session restore does not use it as authority.
+Domios journals every authoritative tab lifecycle transition. This append-only **telemetry** records what each launch committed and when; it never authorizes session restore.
 
-**When Storage is available, tab restore is unconditional.** Whatever tabs were open at shutdown come back. A claimed PTY session re-establishes its provider only from its own provider session record; without unique ownership the restored tab remains a shell. Journal state — missing, mismatched, truncated, or absent — does not change that decision.
+**With Storage available, tab restore is unconditional.** Tabs open at shutdown come back. A claimed PTY session recovers its provider only from its own provider session record; without unique ownership it remains a shell, regardless of journal state.
 
 ## Utility shell deadlines
 
@@ -134,7 +134,7 @@ Transitions are recorded when the mutation commits, never inferred afterwards fr
 
 ### Checkpoints
 
-A **checkpoint** is a sealed launch that committed its provider and session and was not rolled back or closed. Checkpoints show what a launch actually committed; they carry no restore authority.
+A **checkpoint** is a sealed launch that committed its provider and session without rollback or closure. It records that commitment but never authorizes restore.
 
 ## Retention and compaction
 
@@ -142,7 +142,7 @@ The journal is bounded, read-only diagnostic history; corruption is reported, ch
 
 ## Inspecting it
 
-Ordinary filesystem tools are the intended interface.
+Inspect with filesystem tools:
 
 ```bash
 JOURNAL=~/.codeterm-dev/sessions/tab-lifecycle.jsonl
@@ -231,4 +231,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 53 -->
+<!-- revision: 54 -->

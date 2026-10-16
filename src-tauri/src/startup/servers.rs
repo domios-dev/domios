@@ -44,11 +44,12 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
         );
         let started = std::time::Instant::now();
         log::debug!(
-            "[startup-pty] wave started tabs={} pty_concurrency={} chat_concurrency={}",
+            "[startup-pty] wave started tabs={} pty_reserved={} pty_shared={} chat_reserved={} chat_shared={}",
             queued.len(),
-            super::restored_backends::RESTORE_BUDGETS.foreground
-                + super::restored_backends::RESTORE_BUDGETS.background,
-            super::restored_backends::RESTORE_BUDGETS.chat,
+            super::restored_backends::RESTORE_BUDGETS.foreground,
+            super::restored_backends::RESTORE_BUDGETS.background,
+            super::restored_backends::RESTORE_BUDGETS.chat_foreground,
+            super::restored_backends::RESTORE_BUDGETS.chat_background,
         );
         let results = super::restored_backends::run_transport_waves(
             &queued,

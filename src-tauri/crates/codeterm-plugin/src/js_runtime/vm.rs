@@ -51,6 +51,20 @@ const PLUGIN_PREAMBLE: &str = r#"
       var pj = (params === undefined || params === null) ? null : JSON.stringify(params);
       return parseJson(host.sqliteQueryAllJson(db, sql, pj)) || [];
     },
+    // Same rows as sqliteQuery, read on a host thread while the VM serves other calls.
+    sqliteQueryAsync: function (db, sql, params, then) {
+      if (typeof then !== "function") { throw new Error("host.fs.sqliteQueryAsync requires a continuation function"); }
+      var pj = (params === undefined || params === null) ? null : JSON.stringify(params);
+      var j = parseJson(host.sqliteQueryStart(db, sql, pj));
+      if (j && typeof j.jobId === "string") {
+        return host.awaitJob(j.jobId, function (r) {
+          if (r && typeof r.rangeError === "string") { throw new RangeError(r.rangeError); }
+          return then((r && r.rows) || []);
+        });
+      }
+      if (j && typeof j.error === "string") { return then(host.fs.sqliteQuery(db, sql, params)); }
+      return then([]);
+    },
     readJson: function (p) {
       var s = host.readFile(p);
       return s === null || s === undefined ? null : parseJson(s);
@@ -588,6 +602,7 @@ impl PluginVm {
         *self.methods.write() = methods;
         drop(inner);
         *self.runtime_inner.lock() = None;
+        super::host_api::sqlite::drop_plugin_connections(self.sandbox.plugin_id());
         Ok(())
     }
 }
@@ -598,6 +613,7 @@ impl Drop for PluginVm {
         // keyed the jobs by when the plugin started them.
         super::host_net::drop_plugin_jobs(self.sandbox.plugin_id());
         super::host_exec::drop_plugin_jobs(self.sandbox.plugin_id());
+        super::host_api::sqlite::drop_plugin_connections(self.sandbox.plugin_id());
     }
 }
 

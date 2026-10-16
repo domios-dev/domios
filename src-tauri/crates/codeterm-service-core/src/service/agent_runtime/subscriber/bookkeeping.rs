@@ -90,7 +90,7 @@ fn emit_warning(svc: &ServiceContext, session: &Session, epoch: u64, reason: &st
     );
 }
 
-async fn resync(
+pub(super) async fn resync(
     svc: &ServiceContext,
     session: &Arc<Session>,
     process: &Arc<Process>,
@@ -143,6 +143,7 @@ async fn resync(
             RuntimeOperation::ReadHistory {
                 thread_id: thread_id.clone(),
                 cursor,
+                order: Some(HistoryOrder::Asc),
             },
         )
         .await?;

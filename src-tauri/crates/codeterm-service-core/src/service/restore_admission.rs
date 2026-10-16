@@ -424,7 +424,6 @@ fn schedule_preparation(
                     crate::service::boot_stage::BootStage::SpawnFailed,
                     Some(reason),
                 );
-                service.emit_state_changed();
                 log::error!("[startup-pty] tab={resolved} materialization failed: {reason}");
             }
             crate::startup::boot_timing::mark(&resolved, pty_id.as_deref(), "prepare_completed");
