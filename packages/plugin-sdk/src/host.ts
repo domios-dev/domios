@@ -171,6 +171,7 @@ export interface TabRef {
 
 // Read-only mirror of the host's parseUsage output (tokens/cost); loosely typed since provider shapes vary.
 export interface UsageSnapshot {
+  resets?: import("./agentRuntime").ResetCredits | null;
   billing_mode: "subscription" | "api" | "unknown";
   limits_reported: boolean;
   inputTokens?: number;

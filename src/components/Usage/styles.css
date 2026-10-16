@@ -934,3 +934,13 @@
   letter-spacing: 0.04em;
   text-align: right;
 }
+
+.ct-usage-reset-credits {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--u-overlay-2);
+  color: var(--ct-fg);
+  font-size: 12px;
+}

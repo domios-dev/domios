@@ -63,8 +63,20 @@ pub(in crate::service::agent_runtime) async fn publish_events(
             super::super::question_delivery::publish(svc, &context.tab_id, session, questions)
                 .map_err(RuntimeFailure::HookFailed)?;
         }
-        if let RuntimeEvent::RateLimitsUpdated { rate_limits, .. } = &runtime {
-            super::super::projections::rate_limits(svc, session, rate_limits.clone(), at).await?;
+        if let RuntimeEvent::RateLimitsUpdated {
+            rate_limits,
+            resets,
+            ..
+        } = &runtime
+        {
+            super::super::projections::rate_limits(
+                svc,
+                session,
+                rate_limits.clone(),
+                resets.clone(),
+                at,
+            )
+            .await?;
         }
         events::observe(&mut session.context.lock(), &runtime);
         super::super::controls::observe_event(session, &runtime);

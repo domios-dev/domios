@@ -81,6 +81,7 @@ export type OperationResult =
       /** Echo of the requested order; absent means ascending. */
       order?:HistoryOrder}
   | {kind:"turnAccepted"; threadId:string; sendId:string; turnId?:string}
+  | {kind:"resetCreditConsumed"; outcome:ResetCreditOutcome}
   | {kind:"done"};
 export type RuntimeStep =
   | {kind:"continue"; plan:RuntimePlan; beforeAcceptance?:boolean; history?:Extract<OperationResult,{kind:"historyPage"}>}
@@ -98,10 +99,14 @@ export type AgentEvent =
   | {kind:"question"; threadId:string; itemId:string; questions:readonly RuntimeQuestion[]; response:"message"}
   | {kind:"authLogin"; login:RuntimeLoginState}
   | {kind:"auth"; state:"signedIn"|"signedOut"|"unknown"; billingMode?:"subscription"|"api"|"unknown"; detail?:string}
-  | {kind:"rateLimits"; threadId?:string; rateLimits:readonly RuntimeRateLimit[]};
+  | {kind:"rateLimits"; threadId?:string; rateLimits:readonly RuntimeRateLimit[]; resets?:ResetCredits};
+export interface ResetCredit {id:string; status:"available"|"redeeming"|"redeemed"|"unknown"; expiresAt:number|null; title?:string; description?:string}
+export interface ResetCredits {availableCount:number; nextExpiry:number|null; credits:readonly ResetCredit[]|null}
+export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRedeemed";
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
+  resetCreditsMinVersion?:string;
   storedHistory?:boolean;
   usage?:boolean;
   runtime:AgentRuntimeTransport;
