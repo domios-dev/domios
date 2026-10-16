@@ -91,18 +91,20 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                         .chatbackend_reopen_if_restored(tab_id)
                         .map(|_| ())
                 } else {
-                    service_state.ensure_tab_pty_for_send(tab_id)
+                    service::restore_admission::admit_restored_pty(&service_state, tab_id)
                 };
                 if let Err(reason) = &result {
                     publish_backend_materialization_failure(&service_state, tab_id, reason);
                     log::error!("[startup-pty] tab={tab_id} materialization failed: {reason}");
                 }
                 log::debug!(
-                    "[startup-pty] tab={tab_id} materialized elapsed_ms={} ok={}",
+                    "[startup-pty] tab={tab_id} admitted elapsed_ms={} ok={}",
                     started.elapsed().as_millis(),
                     result.is_ok()
                 );
-                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "materialized");
+                if service_state.tab_chat_backing(tab_id).is_some() {
+                    codeterm_service_core::startup::boot_timing::mark(tab_id, None, "materialized");
+                }
                 result
             },
         );
