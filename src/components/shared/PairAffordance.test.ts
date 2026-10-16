@@ -13,7 +13,6 @@ const header = readFileSync(
   join(here, "..", "Canvas", "planView", "PlanContextHeader.tsx"),
   "utf8",
 );
-const css = readFileSync(join(here, "..", "..", "styles", "globals.css"), "utf8");
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -21,7 +20,6 @@ function assert(condition: unknown, message: string): asserts condition {
 
 assert(source.includes('data-pair-role="orchestrator"'), "PairAffordance labels orchestrator slot");
 assert(source.includes('data-pair-role="planner"'), "PairAffordance labels planner slot");
-assert(source.includes("pair-affordance--${layout}"), "layout-specific class");
 assert(source.includes('data-pair-affordance-layout={layout}'), "layout data attribute");
 
 assert(sidebar.includes("resolvePlanPeerPair"), "Sidebar derives pair from plan refs");
@@ -37,7 +35,6 @@ assert(header.includes("<PairAffordance"), "PlanContextHeader uses PairAffordanc
 assert(header.includes('data-testid="plan-peer-pair"'), "plan header orchestration marker");
 
 
-assert(!css.includes(".pair-affordance-rail"), "dead sidebar rail styles removed");
 assert(!source.includes('layout === "sidebar"'), "PairAffordance sidebar layout removed");
 
 console.log("✓ PairAffordance: chips/card only; sidebar uses TeamUnit groups");

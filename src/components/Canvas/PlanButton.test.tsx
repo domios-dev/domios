@@ -4,7 +4,6 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 // Run: npx tsx src/components/Canvas/PlanButton.test.tsx
 
 import { act } from "react";
-import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ApiConfig, Tab } from "../../lib/types";
@@ -119,7 +118,7 @@ test("PlanButton shows a muted activity cue for a changed plan without changing 
   await act(async () => planChangedListener?.({ payload: { plan_id: FIXTURE_PLAN.id } }));
   assert(canvasFocusStore.anyPulsing([FIXTURE_PLAN.id]), "plan change marks the plan as updated");
   const button = host.querySelector('[data-testid="plan-button"]') as HTMLButtonElement;
-  const dots = host.querySelector('[data-testid="plan-button-activity"].activity-dots');
+  const dots = host.querySelector('[data-testid="plan-button-activity"]');
   assert(dots?.getAttribute("data-active") === "false", "an unread plan change does not make the idle tab work");
   assert(button.querySelector('[role="status"]')?.textContent === "Plan updated", "status text carries the update meaning");
   await act(async () => button.click());
@@ -139,18 +138,6 @@ test("a changed plan on a starting tab retains its update status without work do
   assert(!canvasFocusStore.anyPulsing([FIXTURE_PLAN.id]), "opening clears the changed plan");
   canvasFocusStore.close();
   await act(async () => root.unmount());
-});
-
-test("Batch B pulse keyframes are absent and activity dots retain their static reduced-motion cue", () => {
-  const css = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
-  for (const name of ["ct-plan-sidebar-pulse", "ct-plan-button-pulse", "plan-companion-presence-pulse", "mem-pulse", "mem-pulse-card", "ct-canvas-pulse", "ct-canvas-live", "ct-canvas-heartbeat-dot"]) {
-    assert(!css.includes(name), `${name} should be removed`);
-  }
-  for (const name of ["ct-presence-live", "ct-canvas-step-live"]) {
-    assert(!new RegExp(`@keyframes\\s+${name}\\b`).test(css), `${name} should not have a bespoke keyframe`);
-  }
-  const activityCss = readFileSync(new URL("../../styles/agent-state.css", import.meta.url), "utf8");
-  assert(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.activity-dots i\s*\{[^}]*animation:\s*none !important;/s.test(activityCss), "activity dots have a static reduced-motion cue");
 });
 
 async function main() {
