@@ -50,6 +50,7 @@
     "resources": {
       "../dist": "dist",
       "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE",
       "../skills": "skills",
       "bundled-cli/*": "cli/",
       "conpty/x64/*": "conpty/x64/",
