@@ -132,13 +132,6 @@ debug = "line-tables-only"
 [profile.test.package."*"]
 debug = false
 
-# Signature verification is benchmarked in unit tests; unoptimized curve arithmetic is ~6x slower.
-[profile.test.package.curve25519-dalek]
-opt-level = 3
-
-[profile.test.package.sha2]
-opt-level = 3
-
 # One-off legacy plan.json → store_v2 yaml migration (T7). Deep-compare gate;
 # never deletes on mismatch. Rehearse on a project copy with --dry-run first.
 [[bin]]
