@@ -11,16 +11,34 @@ fn uncertain_handoff_cannot_replay_after_recovery_and_only_own_live_evidence_del
     ledger.mark_rpc_uncertain(&pending.send_id);
     assert!(!ledger.bind_rpc_send(&pending.send_id, bound));
     assert!(ledger
-        .confirm_rpc_send("other-tab", "thread", "nonce", &pending.send_id)
+        .confirm_rpc_send(
+            "other-tab",
+            "thread",
+            "nonce",
+            &pending.send_id,
+            "provider-item"
+        )
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab", "other-thread", "nonce", &pending.send_id)
+        .confirm_rpc_send(
+            "tab",
+            "other-thread",
+            "nonce",
+            &pending.send_id,
+            "provider-item"
+        )
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab", "thread", "old-nonce", &pending.send_id)
+        .confirm_rpc_send(
+            "tab",
+            "thread",
+            "old-nonce",
+            &pending.send_id,
+            "provider-item"
+        )
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab", "thread", "nonce", &pending.send_id)
+        .confirm_rpc_send("tab", "thread", "nonce", &pending.send_id, "provider-item")
         .is_some());
     assert_eq!(
         ledger.status(&pending.send_id).unwrap().state,

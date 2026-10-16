@@ -843,7 +843,8 @@
         "kind": "sendEvidence",
         "threadId": "01a143fd-5c1e-7cf2-87fc-8e0d3a842f36",
         "sendId": "capture-interrupt",
-        "turnId": "01a143fd-5cdb-7382-ac91-3190959c0143"
+        "turnId": "01a143fd-5cdb-7382-ac91-3190959c0143",
+        "itemId": "01a143fd-5d66-7802-a8b7-4e6280d8b4b3"
       },
       {
         "kind": "chatItem",
