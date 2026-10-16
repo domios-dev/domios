@@ -475,6 +475,7 @@ export interface CronRunInfo {
 }
 
 export interface CronJob {
+  protected?: boolean;
   id: string;
   name: string;
   description: string | null;
