@@ -253,3 +253,83 @@ fn partial_append_updates_file_length_without_advancing_served_end() {
     assert_eq!(unchanged.end_offset, 100);
     assert_eq!(unchanged.messages[0].content, "retained");
 }
+
+#[test]
+fn matching_client_window_beats_cached_rows_without_reads() {
+    let cache = RowCache::default();
+    put(&cache, "tab", "retained");
+    let known = cache
+        .get("tab", &epoch(), "file", 100)
+        .unwrap()
+        .known
+        .clone();
+    let reads = Cell::new(0);
+    let attached = cache
+        .attach("tab", &epoch(), "file", 100, Some(&known), |_| {
+            reads.set(reads.get() + 1);
+            None
+        })
+        .unwrap();
+    assert_eq!(attached.kind, ChatStartKind::Unchanged);
+    assert!(attached.snapshot.messages.is_empty());
+    assert_eq!(attached.snapshot.bytes_read, 0);
+    assert!(!attached.cache_hit);
+    assert_eq!(reads.get(), 0);
+}
+
+#[test]
+fn accepted_client_delta_returns_only_append_and_extends_contiguous_cache() {
+    let cache = RowCache::default();
+    put(&cache, "tab", "retained");
+    let known = cache
+        .get("tab", &epoch(), "file", 100)
+        .unwrap()
+        .known
+        .clone();
+    let reads = Cell::new(0);
+    let attached = cache
+        .attach("tab", &epoch(), "file", 120, Some(&known), |known| {
+            assert_eq!(known.end_offset, 100);
+            reads.set(reads.get() + 1);
+            Some((ChatStartKind::Delta, snapshot("appended", 100, 120)))
+        })
+        .unwrap();
+    assert_eq!(attached.kind, ChatStartKind::Delta);
+    assert_eq!(attached.snapshot.messages.len(), 1);
+    assert_eq!(attached.snapshot.messages[0].content, "appended");
+    assert_eq!(reads.get(), 1);
+    let cursor = ResumeCursor::Bytes {
+        epoch: epoch(),
+        incarnation: "file".into(),
+        offset: 120,
+    }
+    .encode()
+    .unwrap();
+    cache.extend_delta("tab", &epoch(), "file", cursor, &attached.snapshot);
+    let attached = cache
+        .attach("tab", &epoch(), "file", 120, None, |_| panic!("reread"))
+        .unwrap();
+    assert_eq!(attached.kind, ChatStartKind::Snapshot);
+    assert_eq!(attached.snapshot.messages.len(), 2);
+    assert!(attached.cache_hit);
+}
+
+#[test]
+fn refused_client_window_falls_back_to_cached_rows() {
+    let cache = RowCache::default();
+    put(&cache, "tab", "retained");
+    let mut known = cache
+        .get("tab", &epoch(), "file", 100)
+        .unwrap()
+        .known
+        .clone();
+    known.session_binding_nonce = Some("foreign".into());
+    let attached = cache
+        .attach("tab", &epoch(), "file", 100, Some(&known), |_| {
+            panic!("reread")
+        })
+        .unwrap();
+    assert_eq!(attached.kind, ChatStartKind::Snapshot);
+    assert_eq!(attached.snapshot.messages[0].content, "retained");
+    assert!(attached.cache_hit);
+}

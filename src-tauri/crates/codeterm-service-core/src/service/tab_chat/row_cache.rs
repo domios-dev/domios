@@ -10,6 +10,13 @@ use super::session_window::{attach_kind, SessionSnapshot};
 const MAX_ENTRIES: usize = 16;
 const MAX_BYTES: usize = 32 * 1024 * 1024;
 
+pub struct CacheAttach {
+    pub kind: ChatStartKind,
+    pub snapshot: SessionSnapshot,
+    pub cache_hit: bool,
+    pub cache_refresh: bool,
+}
+
 pub struct CachedRows {
     tab_id: String,
     known: KnownChatWindow,
@@ -36,18 +43,22 @@ impl CachedRows {
                 snapshot.bytes_read = 0;
                 Some(snapshot)
             }
-            ChatStartKind::Delta => {
-                let mut append = read_append(&self.known)?;
-                let mut messages = self.snapshot.messages.clone();
-                messages.append(&mut append.messages);
-                append.messages = messages;
-                append.start_offset = self.snapshot.start_offset;
-                if append.context_usage.is_none() {
-                    append.context_usage = self.snapshot.context_usage.clone();
-                }
-                Some(append)
-            }
+            ChatStartKind::Delta => self.extend(read_append(&self.known)?),
         }
+    }
+
+    fn extend(&self, mut append: SessionSnapshot) -> Option<SessionSnapshot> {
+        if append.start_offset != self.known.end_offset {
+            return None;
+        }
+        let mut messages = self.snapshot.messages.clone();
+        messages.append(&mut append.messages);
+        append.messages = messages;
+        append.start_offset = self.snapshot.start_offset;
+        if append.context_usage.is_none() {
+            append.context_usage = self.snapshot.context_usage.clone();
+        }
+        Some(append)
     }
 }
 
@@ -64,6 +75,71 @@ impl Default for RowCache {
 }
 
 impl RowCache {
+    pub fn attach(
+        &self,
+        tab_id: &str,
+        epoch: &ChatEpoch,
+        incarnation: &str,
+        total: u64,
+        known: Option<&KnownChatWindow>,
+        read: impl Fn(&KnownChatWindow) -> Option<(ChatStartKind, SessionSnapshot)>,
+    ) -> Option<CacheAttach> {
+        if let Some(known) = known {
+            match attach_kind(known, epoch, incarnation, total) {
+                ChatStartKind::Unchanged => {
+                    return Some(CacheAttach {
+                        kind: ChatStartKind::Unchanged,
+                        snapshot: SessionSnapshot {
+                            total,
+                            start_offset: known.end_offset,
+                            end_offset: known.end_offset,
+                            ..Default::default()
+                        },
+                        cache_hit: false,
+                        cache_refresh: false,
+                    })
+                }
+                ChatStartKind::Delta => {
+                    if let Some((kind, snapshot)) = read(known) {
+                        return Some(CacheAttach {
+                            kind,
+                            snapshot,
+                            cache_hit: false,
+                            cache_refresh: false,
+                        });
+                    }
+                }
+                ChatStartKind::Snapshot => {}
+            }
+        }
+        let entry = self.get(tab_id, epoch, incarnation, total)?;
+        let cache_refresh = entry.file_length() != total;
+        let snapshot = entry.resume(epoch, incarnation, total, |known| {
+            read(known).map(|(_, snapshot)| snapshot)
+        })?;
+        Some(CacheAttach {
+            kind: ChatStartKind::Snapshot,
+            snapshot,
+            cache_hit: true,
+            cache_refresh,
+        })
+    }
+
+    pub fn extend_delta(
+        &self,
+        tab_id: &str,
+        epoch: &ChatEpoch,
+        incarnation: &str,
+        cursor: String,
+        delta: &SessionSnapshot,
+    ) {
+        if let Some(entry) = self.get(tab_id, epoch, incarnation, delta.total) {
+            if let Some(snapshot) = entry.extend(delta.clone()) {
+                self.insert(tab_id, epoch, cursor, &snapshot);
+            }
+        }
+    }
+
     fn with_limits(max_entries: usize, max_bytes: usize) -> Self {
         Self {
             entries: Mutex::new(VecDeque::new()),

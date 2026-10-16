@@ -13,6 +13,19 @@ import {
 
 afterEach(clearTranscriptWindows);
 
+test("memo bound evicts the least recently used key", () => {
+  const known = {
+    source_session_id: "own", session_binding_nonce: null,
+    cursor: "cursor", end_offset: 42, file_length: 42,
+  };
+  for (let index = 0; index < 256; index++) rememberTranscriptWindow(`memo-${index}`, known);
+  assert.deepEqual(readTranscriptMemo("memo-0"), known);
+  rememberTranscriptWindow("memo-new", known);
+  assert.equal(readTranscriptMemo("memo-1"), undefined);
+  assert.deepEqual(readTranscriptMemo("memo-0"), known);
+  assert.deepEqual(readTranscriptMemo("memo-new"), known);
+});
+
 test("row eviction preserves the known window memo without claiming retained rows", () => {
   const known = {
     source_session_id: "own", session_binding_nonce: "nonce",
