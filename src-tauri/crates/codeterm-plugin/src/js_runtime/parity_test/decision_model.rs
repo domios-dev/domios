@@ -106,6 +106,8 @@ fn parity_decision_model_opencode_run_shared_fixtures() {
     let bundle = include_str!("../../../../../../plugins/provider-opencode/plugin.js");
     let setup = r#"
         host.exec = function() { return JSON.stringify({code: 0, stdout: 'fixture/model'}); };
+        host.execStart = function() { return JSON.stringify({jobId: 'fixture-discovery'}); };
+        host.awaitJob = function(id, then) { return then({code: 0, stdout: 'fixture/model'}); };
         host.exec.async = function(opts, then) {
             var request = JSON.parse(opts.stdin);
             var config = JSON.parse(opts.env.OPENCODE_CONFIG_CONTENT);
