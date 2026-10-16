@@ -588,6 +588,10 @@ pub(super) fn create_router_with_preview_admission(
             get(web_routes::peer_cron_history),
         )
         .route(
+            "/api/tabs/{id}/agent/runtime/goal",
+            post(super::runtime_login::goal),
+        )
+        .route(
             "/api/tabs/{id}/agent/runtime/reset-credits",
             post(super::runtime_login::reset_credits),
         )

@@ -1,11 +1,12 @@
+import { SessionGoalBubble } from "./SessionGoalBubble";
 import { ComposerContextChip } from "./ComposerContextChip";
 import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { removedChatPluginId } from "./removedChatPluginError";
 import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useEffect, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { ChevronUp, CircleCheck, Clock3, Target, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
+import { useEffect, useId, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { ChevronUp, CircleCheck, Clock3, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Target, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -81,13 +82,6 @@ function ContextPopoverBubble({ label, tone, title, children, details }: {
   </div>;
 }
 
-function SessionGoalBubble({ intent }: { intent: ChatSessionIntent }) {
-  const details = [intent.title, intent.goal].filter(Boolean).join("\n\n");
-  return <ContextPopoverBubble tone="scheduled" label="Session goal" title={(intent.goal || intent.title || "").split("\n")[0]} details={details}>
-    <Target size={13} aria-hidden="true" />
-  </ContextPopoverBubble>;
-}
-
 function RemovedPluginBubble({ error }: { error: string }) {
   return <ContextPopoverBubble tone="waiting" label="Plugin removed" details={<RemovedChatPlugin error={error} />}>
     <TriangleAlert size={13} aria-hidden="true" />
@@ -141,6 +135,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const phone = usePhoneViewport();
+  const linkedGroupId = useId();
   const [unfolded, setUnfolded] = useState(false);
 
   useEffect(() => {
@@ -262,13 +257,14 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     return next ? <ContextTitle kind="delayed" prefix="Next:" primary={delayedWhen(next)} secondary={next.text} /> : null;
   };
 
-  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0);
-  const PillIcon = plan ? Map : KIND_ICON[kinds[0]];
-  const pill = phone && (plan || kinds.length > 0) && (
+  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0) + Number(hasGoal) + Number(hasPluginError);
+  const PillIcon = plan ? Map : kinds.length > 0 ? KIND_ICON[kinds[0]] : hasGoal ? Target : TriangleAlert;
+  const pill = phone && (
     <button
       type="button"
       className="ct-ctx-pill"
       data-testid="composer-context-pill"
+      aria-controls={total > 0 ? linkedGroupId : undefined}
       aria-expanded={unfolded}
       aria-label={unfolded ? "Hide plan and linked items" : "Show plan and linked items"}
       onMouseDown={keepComposerFocus}
@@ -278,7 +274,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       }}
     >
       <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={plan ? "plan" : kinds[0]} />
-      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]]}</span>
+      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (hasGoal ? "Session goal" : "Plugin removed")}</span>
       {total > 0 && <span className="ct-ctx-pill__count">+{total}</span>}
       <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />
       {Object.values(alerts).some(Boolean) && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
@@ -299,41 +295,46 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     </>
   );
 
+  const linkedChips = (
+    (hasGoal || hasPluginError || kinds.length > 0) && (
+      <div id={linkedGroupId} hidden={phone && !unfolded} className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
+        {hasGoal && sessionIntent && <SessionGoalBubble intent={sessionIntent} tabId={tabId} />}
+        {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
+        {kinds.map((kind) => {
+          const Icon = KIND_ICON[kind];
+          return (
+            <ComposerContextChip
+              key={kind}
+              kind={kind}
+              open={open === kind}
+              aria-pressed={open === kind}
+              aria-label={`${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
+              title={KIND_LABEL[kind]}
+              onClick={() => toggle(kind)}
+            >
+              <Icon size={13} aria-hidden="true" />
+              {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
+              {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
+              {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
+            </ComposerContextChip>
+          );
+        })}
+      </div>
+    )
+  );
+
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined} data-phone={phone || undefined}>
       <div className="ct-ctx__head ct-ctx__compact">
         {phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
-        {(hasGoal || hasPluginError || kinds.length > 0) && (
-          <div className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
-            {hasGoal && sessionIntent && <SessionGoalBubble intent={sessionIntent} />}
-            {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
-            {kinds.map((kind) => {
-              const Icon = KIND_ICON[kind];
-              return (
-                <ComposerContextChip
-                  key={kind}
-                  kind={kind}
-                  open={open === kind}
-                  aria-pressed={open === kind}
-                  aria-label={`${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
-                  title={KIND_LABEL[kind]}
-                  onClick={() => toggle(kind)}
-                >
-                  <Icon size={13} aria-hidden="true" />
-                  {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
-                  {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
-                  {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
-                </ComposerContextChip>
-              );
-            })}
-          </div>
-        )}
+        {!phone && linkedChips}
       </div>
-      {(plan || kinds.length > 0) && (phone ? (
+      {phone && linkedChips}
+      {phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>
           <div className="ct-ctx__reveal-inner">{body}</div>
         </div>
-      ) : body)}
+      ) : body}
       {error && !confirming && <InlineErrorNotice error={error} operation="updating the composer context" blocking />}
       {confirming && (() => {
         const copy = deleteJobConfirmation(confirming);

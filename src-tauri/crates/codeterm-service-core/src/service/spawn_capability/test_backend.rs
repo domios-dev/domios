@@ -60,6 +60,7 @@ impl ChatBackendProvider for RuntimeTestBackend {
         let mut descriptor = self.0.describe();
         descriptor.agent_runtime = Some(codeterm_plugin::agent_runtime::AgentRuntimeCapability {
             background_processes: false,
+            goals: None,
             stored_history: false,
             usage: false,
             reset_credits_min_version: None,

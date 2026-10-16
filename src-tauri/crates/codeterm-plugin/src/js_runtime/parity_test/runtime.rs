@@ -327,3 +327,50 @@ async fn bundled_history_hook_adapts_large_pages_and_projects_twenty_mb_item() {
     assert!(next_cursor.is_some());
     validate_runtime_size(&items, MAX_RUNTIME_VALUE_BYTES).unwrap();
 }
+
+#[tokio::test]
+async fn runtime_goal_native_quickjs_parity() {
+    let js = generic_provider(&generic_paths());
+    let native = native::NativeRuntime(js.agent_runtime().unwrap());
+    let fixture: GenericFixture = serde_json::from_str(
+        &std::fs::read_to_string(generic_paths().join("shared.json")).unwrap(),
+    )
+    .unwrap();
+    let mut ctx = fixture.context;
+    ctx.thread_id = Some("fixture-thread".into());
+    let op = RuntimeOperation::Control {
+        thread_id: ctx.thread_id.clone(),
+        action: "goal".into(),
+        value: json!({"action":"read"}),
+    };
+    for intent in [
+        Value::Null,
+        json!({"goal":"fixture", "goalStatus":"paused"}),
+    ] {
+        let reply = RpcReply::Success {
+            value: json!({"intent":intent}),
+        };
+        let a = native
+            .runtime_response(&ctx, &op, &Value::Null, &reply)
+            .await
+            .unwrap();
+        let b = js
+            .runtime_response(&ctx, &op, &Value::Null, &reply)
+            .await
+            .unwrap();
+        assert_eq!(a, b);
+        let RuntimeStep::Complete {
+            result:
+                RuntimeResult::Goal {
+                    thread_id,
+                    intent: actual,
+                },
+            ..
+        } = a
+        else {
+            panic!("goal result required")
+        };
+        assert_eq!(Some(thread_id), ctx.thread_id);
+        assert_eq!(serde_json::to_value(actual).unwrap(), intent);
+    }
+}

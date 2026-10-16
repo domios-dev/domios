@@ -670,6 +670,7 @@ export type ChatTimelineMarker =
 export interface ChatSessionIntent {
   title?: string;
   goal?: string;
+  goalStatus?: string;
 }
 
 /** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
