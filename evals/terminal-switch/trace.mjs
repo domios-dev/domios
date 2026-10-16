@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const [endpoint, title, marker, foreignMarker, output = "terminal-switch-trace", viewport] = process.argv.slice(2);
+const [endpoint, title, marker, foreignMarker, output = "terminal-switch-trace", viewport, ownedTarget] = process.argv.slice(2);
 if (!endpoint || !title || !marker || !foreignMarker) {
   throw new Error("Usage: node evals/terminal-switch/trace.mjs <Browser CDP endpoint> <tab title> <own marker> <foreign marker> <output directory>");
 }
@@ -37,13 +37,14 @@ const call = (method, params = {}, target = sessionId) => new Promise((resolve, 
 await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
 try {
   const { targetInfos } = await call("Target.getTargets");
-  const pages = targetInfos.filter(target => target.type === "page" && target.url.startsWith("http://127.0.0.1:7686/"));
+  const pages = targetInfos.filter(target => target.type === "page" && target.url.startsWith("http://127.0.0.1:7686/")
+    && (!ownedTarget || target.targetId === ownedTarget));
   if (pages.length !== 1) throw new Error("Expected one owned Browser page; refusing to select another target");
   ({ sessionId } = await call("Target.attachToTarget", { targetId: pages[0].targetId, flatten: true }));
   if (viewport) {
     const [width, height] = viewport.split("x").map(Number);
     if (!(width > 0 && height > 0)) throw new Error("Viewport must be WIDTHxHEIGHT");
-    await call("Emulation.setDeviceMetricsOverride", { width, height, mobile: true, deviceScaleFactor: 1 });
+    await call("Emulation.setDeviceMetricsOverride", { width, height, mobile: width <= 600, deviceScaleFactor: 1 });
   }
   capture = true;
   await call("Page.startScreencast", { format: "png", everyNthFrame: 1 });
