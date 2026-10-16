@@ -42,20 +42,12 @@ const base = {
   accessLevel: "full" as const,
 };
 
-test("peer action is enabled for a verified URL", async () => {
-  const { host, root } = await render({ ...base, webUrl: "https://bot.tail.ts.net/" });
-  const btn = host.querySelector('[data-testid="peer-web-ui-open"]') as HTMLButtonElement;
-  assert(btn, "peer-web-ui-open present with verified url");
-  assert(!btn.disabled, "peer-web-ui-open enabled with verified url");
-  assert(btn?.getAttribute("data-peer-web-url") === "https://bot.tail.ts.net/", "carries url");
-  await act(async () => root.unmount());
-});
-
-test("peer action remains visible but disabled without a verified URL", async () => {
-  const { host, root } = await render({ ...base, webUrl: null });
-  const btn = host.querySelector('[data-testid="peer-web-ui-open"]') as HTMLButtonElement;
-  assert(btn, "peer-web-ui-open remains present without url");
-  assert(btn.disabled, "peer-web-ui-open disabled without url");
+test("machine cards select the peer without a duplicate web action", async () => {
+  let selected = 0;
+  const { host, root } = await render({ ...base, onClick: () => { selected++; } });
+  assert(host.querySelectorAll("button").length === 0, "no duplicate web action");
+  await act(async () => (host.firstElementChild as HTMLElement).click());
+  assert(selected === 1, "peer selected once");
   await act(async () => root.unmount());
 });
 
@@ -68,22 +60,6 @@ test("a discovered-not-paired peer never renders as paired (codeterm#440)", asyn
   });
   assert(!host.textContent?.includes("paired ·"), "must not render the paired status line");
   assert(host.textContent?.includes("pending · auto-pairs when online") === true, "shows the pending affordance instead");
-  await act(async () => root.unmount());
-});
-
-test("clicking peer action opens the verified url and does not select the card", async () => {
-  let opened: string | null = null;
-  let cardClicked = false;
-  const { host, root } = await render({
-    ...base,
-    webUrl: "https://bot.tail.ts.net/",
-    onOpenWebUi: (u) => { opened = u; },
-    onClick: () => { cardClicked = true; },
-  });
-  const btn = host.querySelector('[data-testid="peer-web-ui-open"]') as HTMLButtonElement;
-  await act(async () => btn.click());
-  assert(opened === "https://bot.tail.ts.net/", "opened verified url");
-  assert(!cardClicked, "click did not bubble to card select");
   await act(async () => root.unmount());
 });
 

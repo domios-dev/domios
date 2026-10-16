@@ -1,5 +1,4 @@
 import { memo } from "react";
-import { ArrowUpRight, Globe } from "lucide-react";
 
 type AccessLevel = "full" | "read_only" | "agent_isolated";
 
@@ -15,10 +14,6 @@ interface Props {
   onClick?: () => void;
   offline?: boolean;
   onGoOnline?: () => void;
-  /** Verified peer web UI URL — the Open action shows only when this is set. */
-  webUrl?: string | null;
-  webUnavailableReason?: string;
-  onOpenWebUi?: (url: string) => void;
 }
 
 function PeerTerminalComponent({
@@ -32,9 +27,6 @@ function PeerTerminalComponent({
   onClick,
   offline = false,
   onGoOnline,
-  webUrl = null,
-  webUnavailableReason,
-  onOpenWebUi,
 }: Props) {
   return (
     <div
@@ -94,27 +86,6 @@ function PeerTerminalComponent({
             pending · auto-pairs when online
           </div>
         )}
-      </div>
-      <div className="flex items-center gap-2 border-t border-[var(--ct-border)] px-3.5 py-2">
-        <span className="flex h-5 w-5 items-center justify-center rounded bg-[color-mix(in_srgb,var(--ct-accent)_10%,transparent)] text-[var(--ct-accent)]">
-          <Globe size={11} />
-        </span>
-        <span className="text-[11px] font-medium text-[var(--ct-fg)]">Web UI</span>
-        <button
-          type="button"
-          data-testid="peer-web-ui-open"
-          data-peer-web-url={webUrl ?? undefined}
-          disabled={!webUrl}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (webUrl) onOpenWebUi?.(webUrl);
-          }}
-          className="ml-auto inline-flex h-6 items-center gap-1 rounded border border-[color-mix(in_srgb,var(--ct-accent)_45%,var(--ct-border))] bg-[color-mix(in_srgb,var(--ct-accent)_10%,transparent)] px-2.5 text-[10px] font-semibold text-[var(--ct-accent)] transition-colors enabled:cursor-pointer enabled:hover:border-[var(--ct-accent)] enabled:hover:bg-[color-mix(in_srgb,var(--ct-accent)_18%,transparent)] disabled:cursor-default disabled:border-[var(--ct-border)] disabled:bg-[color-mix(in_srgb,var(--ct-fg)_4%,transparent)] disabled:text-[var(--ct-muted)]"
-          title={webUrl ? `Open ${name}'s Web UI — ${webUrl}` : webUnavailableReason ?? `${name} Web UI is unavailable`}
-        >
-          Open
-          <ArrowUpRight size={11} />
-        </button>
       </div>
     </div>
   );

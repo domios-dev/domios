@@ -44,7 +44,7 @@ assert.ok(copied[0].includes("opaque-secret"));
 assert.equal(host.querySelector<HTMLInputElement>('input[aria-label="Web address"]')?.value, "http://192.168.1.2:7686/");
 await act(async () => button("Set up Tailscale with AI").click());
 assert.equal(setupCount, 1);
-await act(async () => button("Close Web").click());
+await act(async () => button("Close Mesh").click());
 assert.equal(closeCount, 1);
 assert.equal(mutations.length, 0);
 for (const state of ["ready", "setup_required", "conflict"] as const) {

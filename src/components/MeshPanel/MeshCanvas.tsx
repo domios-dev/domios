@@ -311,11 +311,11 @@ export function MeshCanvas({
               );
             })}
         </svg>
-        <button type="button" data-peer-card aria-label="Web" aria-pressed={webSelected} onClick={onWebClick}
+        <button type="button" data-peer-card aria-label="Mesh" aria-pressed={webSelected} onClick={onWebClick}
           className="absolute flex w-[240px] flex-col items-center gap-2 rounded-xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] px-5 py-4 text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
           style={{ left: gateway.x, top: gateway.y, transform: "translate(-50%,-50%)" }}>
           <Globe size={24} aria-hidden="true" />
-          <strong>Web</strong>
+          <strong>Mesh</strong>
           <span className="text-xs">{webStatus}</span>
         </button>
         {layout.map((p, i) => (
@@ -356,9 +356,6 @@ export function MeshCanvas({
                 onClick={() => onPeerClick(p.name)}
                 offline={p.isThisMachine && !meshEnabled}
                 onGoOnline={p.isThisMachine ? onGoOnline : undefined}
-                webUrl={p.webUrl}
-                webUnavailableReason={p.webUnavailableReason}
-                onOpenWebUi={onOpenPeerWebUi}
               />
             )}
           </div>

@@ -18,7 +18,7 @@ async function main() {
     await act(async () => root.render(<MeshCanvas thisMachine={{ name: "Local", ip: "127.0.0.1" }} peers={[]} recentPushes={[]} onPeerClick={() => {}} width={1000} height={700} onWebClick={() => { clicks++; }} webSelected={selected} webStatus="Unavailable" />));
   };
   await render(false);
-  const web = host.querySelector<HTMLButtonElement>('button[aria-label="Web"]');
+  const web = host.querySelector<HTMLButtonElement>('button[aria-label="Mesh"]');
   assert.ok(web);
   assert.equal(web.getAttribute("aria-pressed"), "false");
   await act(async () => web.click());
