@@ -64,7 +64,7 @@ it("memory wires the shared toolbar to its camera and refresh once", async () =>
   await click("Refresh"); expect(refresh).toHaveBeenCalledTimes(1);
 });
 it("mesh wires the shared toolbar once", async () => {
-  await mount(<MeshCanvas thisMachine={{ name: "Fixture", ip: "127.0.0.1" }} peers={[]} services={[]} recentPushes={[]} onPeerClick={() => {}} width={600} height={400} />);
+  await mount(<MeshCanvas thisMachine={{ name: "Fixture", ip: "127.0.0.1" }} peers={[]} recentPushes={[]} onPeerClick={() => {}} width={600} height={400} />);
   await click("Fit all"); expect(fakes.fit).toHaveBeenCalledTimes(1);
   await click("Zoom out"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(-0.06); fakes.zoom.mockClear();
   await click("Zoom in"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(0.06);

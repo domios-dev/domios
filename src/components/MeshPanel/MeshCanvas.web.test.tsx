@@ -15,7 +15,7 @@ async function main() {
   const root = createRoot(host);
   let clicks = 0;
   const render = async (selected: boolean) => {
-    await act(async () => root.render(<MeshCanvas thisMachine={{ name: "Local", ip: "127.0.0.1" }} peers={[]} services={[]} recentPushes={[]} onPeerClick={() => {}} width={1000} height={700} onWebClick={() => { clicks++; }} webSelected={selected} webStatus="Unavailable" />));
+    await act(async () => root.render(<MeshCanvas thisMachine={{ name: "Local", ip: "127.0.0.1" }} peers={[]} recentPushes={[]} onPeerClick={() => {}} width={1000} height={700} onWebClick={() => { clicks++; }} webSelected={selected} webStatus="Unavailable" />));
   };
   await render(false);
   const web = host.querySelector<HTMLButtonElement>('button[aria-label="Web"]');

@@ -40,7 +40,6 @@ const base = {
   ip: "100.64.0.2",
   isPaired: true,
   accessLevel: "full" as const,
-  services: [],
 };
 
 test("peer action is enabled for a verified URL", async () => {
@@ -57,45 +56,6 @@ test("peer action remains visible but disabled without a verified URL", async ()
   const btn = host.querySelector('[data-testid="peer-web-ui-open"]') as HTMLButtonElement;
   assert(btn, "peer-web-ui-open remains present without url");
   assert(btn.disabled, "peer-web-ui-open disabled without url");
-  await act(async () => root.unmount());
-});
-
-test("card hides cron entries and stale service banners", async () => {
-  const { host, root } = await render({
-    ...base,
-    servicesStale: true,
-    services: [
-      {
-        id: "daemon-1",
-        name: "api",
-        kind: "daemon",
-        health_mode: "http",
-        health_interval: 30,
-        health: { status: "healthy" },
-        push_enabled: false,
-        registered_at: 1,
-        updated_at: 1,
-        enabled: true,
-      },
-      {
-        id: "cron-1",
-        name: "cleanup",
-        kind: "cron",
-        health_mode: "process",
-        health_interval: 30,
-        health: { status: "unknown" },
-        push_enabled: false,
-        registered_at: 1,
-        updated_at: 1,
-        enabled: true,
-      },
-    ],
-  });
-  const chips = Array.from(host.querySelectorAll('[data-testid="peer-service-chip"]'));
-  assert(chips.length === 1 && chips[0]?.textContent === "api", "only the daemon service is shown as a chip");
-  assert(!host.textContent?.includes("cleanup"), "cron hidden");
-  assert(!host.textContent?.includes("codeterm services list") && !host.textContent?.includes("·daemon"), "service card omits command chrome and redundant kind text");
-  assert(!host.textContent?.includes("cached / stale"), "stale banner hidden");
   await act(async () => root.unmount());
 });
 
