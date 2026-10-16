@@ -28,6 +28,14 @@ viewport; warm retained terminals should receive zero replay bytes. Inspect the
 PNGs as well: computed visibility alone cannot prove pixel identity or occlusion.
 This is a manual measurement, not an automatic test or readiness wait.
 
+The trace also records write submission/completion, resize duration, long tasks,
+terminal dimensions, screen bounds, and horizontally scrolled ancestors. Compare
+the first painted screen width with its host to catch a reveal before fitting.
+Zero network bytes with a nonzero write means replay came from the browser cache.
+Set `TERMINAL_TRACE_PROFILE=1` to save `cpu-profile.json` for a separate diagnostic
+capture; profiling and compositor capture add overhead, so retain unprofiled
+before/after measurements on identical fixtures too.
+
 For the silent-tab case, attach with an empty buffer. The output stream emits
 `{tab_id, pty_id, boot, offset, replay_complete: true}` once its retained replay
 has drained, including at offset zero. The client accepts only the subscribed
