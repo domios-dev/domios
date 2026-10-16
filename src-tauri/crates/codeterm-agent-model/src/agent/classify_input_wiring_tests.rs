@@ -1,5 +1,5 @@
 use super::classify_input::*;
-use crate::agent::offline_state_classifier::{StatusElapsedProgress, composer_cursor_ready};
+use crate::agent::offline_state_classifier::{composer_cursor_ready, StatusElapsedProgress};
 use crate::agent::registry::AgentRegistry;
 use crate::agent::signal_extractor::{Motion, SignalExtractor, StreamSignals};
 use crate::agent::test_provider::MockProvider;
