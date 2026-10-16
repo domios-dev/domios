@@ -135,6 +135,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
   const foldDrift = useCallback(() => {
     const spacer = topSpacerRef.current;
     const fold = chatSpacerFold(live.current.range.top, driftRef.current);
+    if (DEV_BUILD && fold.scrollBy !== 0) chatTraceEdge(keyRef.current, "fold", [fold.scrollBy]);
     driftRef.current = fold.drift;
     if (spacer) spacer.style.height = `${chatSpacerHeight(live.current.range.top, 0)}px`;
     translateRows(rowsRef.current, 0);

@@ -4,7 +4,7 @@ import { decodeChatScrollTrace } from "../chat-scroll-trace.mjs";
 
 test("decoder reconstructs out of order chunks and five-frame edge context per client", () => {
   const line = (client, index, frames, edges) => `[chat-scroll] client=${client} build_sha=Some("abc1234") ${JSON.stringify({ edge: "trace", state: { gestureId: "gesture-1", index, count: 2, frames, edges, droppedFrames: 0, droppedEdges: 0, droppedBatches: 0 } })}`;
-  const log = [line("a", 1, [[7, 20, 0, 0, 0, 0, 0, 0, 0, 0, 42, 0]], [[6, 5, 0, 20, 1]]), line("a", 0, [[6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 0]], [[1, 7], [2, 6]]), line("b", 0, [[0, 1]], [])].join("\n");
+  const log = [line("a", 1, [[7, 20, 0, 0, 0, 0, 0, 0, 0, 0, 42, 0]], [[7, 5, 0, 20, 1]]), line("a", 0, [[6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 0]], [[1, 7], [2, 6]]), line("b", 0, [[0, 1]], [])].join("\n");
   const decoded = decodeChatScrollTrace(log);
   assert.equal(decoded[0].complete, true);
   assert.equal(decoded[1].complete, false);
@@ -16,10 +16,10 @@ test("decoder reconstructs out of order chunks and five-frame edge context per c
 test("same-anchor oracle rejects a known layout shift and accepts native scroll motion", async () => {
   const { sameAnchorLayoutResidual } = await import("../chat-scroll-residual.mjs");
   const before = { anchor: 42, anchorTop: 100, scrollTop: 500 };
-  assert.deepEqual(sameAnchorLayoutResidual(before, { ...before, anchorTop: 285 }), { residual: 185, failed: true });
-  assert.deepEqual(sameAnchorLayoutResidual(before, { ...before, anchorTop: 120, scrollTop: 480 }), { residual: 0, failed: false });
-  assert.deepEqual(sameAnchorLayoutResidual(before, { ...before, anchorTop: 108 }), { residual: 8, failed: false });
-  assert.deepEqual(sameAnchorLayoutResidual(before, { ...before, anchorTop: -157 }), { residual: -257, failed: true });
+  assert.deepEqual(sameAnchorLayoutResidual(before, { ...before, anchorTop: 285 }), { residual: 185, visualDelta: 185, compensated: false, failed: true });
+  assert.deepEqual(sameAnchorLayoutResidual(before, { ...before, anchorTop: 120, scrollTop: 480 }), { residual: 0, visualDelta: 20, compensated: false, failed: false });
+  assert.deepEqual(sameAnchorLayoutResidual(before, { ...before, anchorTop: 108 }), { residual: 8, visualDelta: 8, compensated: false, failed: false });
+  assert.deepEqual(sameAnchorLayoutResidual(before, { ...before, anchorTop: -157 }), { residual: -257, visualDelta: -257, compensated: false, failed: true });
   assert.equal(sameAnchorLayoutResidual(before, { ...before, anchor: 43 }), null);
   assert.equal(sameAnchorLayoutResidual({ ...before, anchor: 0 }, { ...before, anchor: 0 }), null);
 });
@@ -36,4 +36,20 @@ test("segmented traces evaluate the seam motion once without losing layout shift
   assert.equal(decoded.flatMap(trace => trace.residuals).length, 2);
   assert.deepEqual(decoded.flatMap(trace => trace.jumps).map(jump => jump.delta), [185]);
   assert(decoded.every(trace => trace.complete && trace.droppedFrames === 0 && trace.droppedEdges === 0));
+});
+
+test("fold and write pairs judge visual displacement while untouched pairs judge layout residual", () => {
+  const decode = (visualDelta, scrollDelta, edges) => decodeChatScrollTrace(
+    `[chat-scroll] client=a build_sha=abc ${JSON.stringify({ edge: "trace", state: {
+      gestureId: "fold", index: 0, count: 1, droppedFrames: 0, droppedEdges: 0, droppedBatches: 0,
+      frames: [[0, 500, 1000, 400, 2, 0, 0, 0, 0, 0, 42, 100],
+        [1, 500 + scrollDelta, 1000, 400, 0, 0, 0, 0, 0, 0, 42, 100 + visualDelta]], edges,
+    } })}`)[0];
+  const folded = decode(0, 50, [[0, 12, 50], [0, 5, 500, 550, 0]]);
+  assert.equal(folded.jumps.length, 0);
+  assert.deepEqual(folded.residuals[0], { frame: 1, residual: 50, visualDelta: 0, compensated: true, failed: false });
+  assert.equal(decode(9, 50, [[0, 12, 50]]).jumps[0].delta, 9);
+  assert.equal(decode(0, 50, []).jumps[0].delta, 50);
+  assert.equal(decode(0, 50, [[0, 5, 500, 550, 0]]).jumps.length, 0);
+  assert.equal(decode(8, 50, [[0, 12, 50]]).jumps.length, 0);
 });

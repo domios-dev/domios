@@ -137,10 +137,12 @@ ws.close();
 const jumps = [];
 let residualPairs = 0;
 for (let index = 1; index < frames.length; index++) {
-  const result = sameAnchorLayoutResidual(frames[index - 1], frames[index], limit);
+  const before = frames[index - 1], after = frames[index];
+  const compensated = writes.some(write => write.at > before.t && write.at <= after.t);
+  const result = sameAnchorLayoutResidual(before, after, limit, compensated);
   if (!result) continue;
   residualPairs++;
-  if (result.failed) jumps.push({ frame: index, residual: result.residual });
+  if (result.failed) jumps.push({ frame: index, residual: result.compensated ? result.visualDelta : result.residual });
 }
 const summary = {
   url: values.url, frames: frames.length, gestures: frames.at(-1)?.gesture ?? 0,
