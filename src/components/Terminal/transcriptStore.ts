@@ -65,7 +65,7 @@ function publish(key: string, next: TranscriptWindow, coalesce = false): void {
 }
 
 /** Reduce one batch into the stored window and report what the reducer decided;
- *  `recover_gap` / `recover_overlap` / `rotated` are the recovery signals. */
+ *  `recover_gap` / `rotated` are the recovery signals. */
 export function commitTranscriptBatch(key: string, batch: TranscriptBatch): TranscriptOutcome {
   const current = readTranscriptWindow(key);
   const { state, outcome } = reduceTranscript(current.transcript, batch);

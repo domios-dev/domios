@@ -15,6 +15,7 @@ import { streamRecoveryAction } from "./streamRecoveryModel";
 import { apiHost, currentToken, relayTarget } from "./webApi";
 import { createTransportClient, type TransportClient } from "./transportClient";
 import { fireResync } from "./resync";
+import { replayCursorForTarget } from "./resyncModel";
 import { createSeqGapTracker } from "./eventSeqGaps";
 import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
@@ -109,6 +110,14 @@ export const RESYNC_EVENTS = [
   "service-health-changed",
 ];
 
+function readCursorTarget(): string | null {
+  try {
+    return cursorKey();
+  } catch {
+    return null;
+  }
+}
+
 function readCursor(): string | null {
   try {
     return sessionStorage.getItem(cursorKey());
@@ -121,6 +130,7 @@ function cursorKey(): string {
   return `${CURSOR_KEY}:${eventOrigin()}:${relayTarget()?.id ?? "self"}`;
 }
 
+let cursorTarget = readCursorTarget();
 let cursor: string | null = readCursor();
 const seqGaps = createSeqGapTracker();
 
@@ -128,7 +138,8 @@ const seqGaps = createSeqGapTracker();
 function saveCursor(next: string): void {
   cursor = next;
   try {
-    sessionStorage.setItem(cursorKey(), next);
+    cursorTarget = cursorKey();
+    sessionStorage.setItem(cursorTarget, next);
   } catch {
     /* storage unavailable (private mode) — memory-only cursor still works */
   }
@@ -153,7 +164,7 @@ function runFullResync(info: OverflowData): void {
   seqGaps.adopt(info.boot, info.next_seq - 1);
   window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
   for (const ev of RESYNC_EVENTS) dispatch(ev, null);
-  fireResync();
+  fireResync(info.reason === "boot-changed" ? "epoch_changed" : "overflow");
   if (info.reason === "boot-changed") {
     // and needs revalidation after a daemon restart (usePtyConnection.ts).
     window.dispatchEvent(
@@ -225,7 +236,7 @@ async function runStream(): Promise<void> {
           if (reconnecting) {
             window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
             window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
-            fireResync();
+            fireResync("reconnected");
           }
         }
         handleFrame(frame);
@@ -286,7 +297,9 @@ export function resetWebEvents(): void {
   stopReconnect();
   hasAttemptedConnection = true;
   seqGaps.reset();
-  cursor = readCursor();
+  const nextTarget = cursorKey();
+  cursor = replayCursorForTarget(cursorTarget, cursor, nextTarget, readCursor());
+  cursorTarget = nextTarget;
   started = false;
   streamAbort?.abort();
   streamAbort = null;
@@ -310,6 +323,7 @@ export function __resetWebEventsForTest(): void {
   streamAbort?.abort();
   streamAbort = null;
   handlers.clear();
+  cursorTarget = readCursorTarget();
   cursor = readCursor();
   lastFrameAt = 0;
   forceImmediateRetry = false;
