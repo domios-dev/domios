@@ -186,7 +186,9 @@ check("thread reverted evidence is scoped to the bound thread",()=> {
 });
 check("thread history refuses active turns before making a provider request",()=> {
   const operation:Operation={kind:"control",threadId:ctx.threadId,action:"threadHistory",value:{action:"revert",turnId:"turn-two"}};
-  assert.throws(()=>hooks.runtimePlan({...ctx,activeTurnId:"turn-active"},operation),/active turn/i);
+  assert.throws(()=>hooks.runtimePlan({...ctx,activeTurnId:"turn-active"},operation),error=>
+    error !== null && typeof error === "object" && "code" in error && "message" in error
+      && error.code === "provider_refused" && /active turn/i.test(String(error.message)));
 });
 check("recorded first replies follow binding without an injected developer item",()=> {
   const captured=JSON.parse(fs.readFileSync(new URL("captured/multi-turn.json",root),"utf8")) as Fixture;
