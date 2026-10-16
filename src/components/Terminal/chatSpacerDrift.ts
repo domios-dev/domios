@@ -6,14 +6,13 @@ export interface ChatShiftAnchor {
 }
 
 export interface ChatShiftContext {
-  nativeAnchoring: boolean;
   pinned: boolean;
   userScrolling: boolean;
 }
 
-// WebKit has no CSS scroll anchoring, and a scrollTop write mid-gesture fights iOS momentum, so the spacer absorbs the shift.
-export function shouldAbsorbChatShift({ nativeAnchoring, pinned, userScrolling }: ChatShiftContext): boolean {
-  return !nativeAnchoring && !pinned && userScrolling;
+// The spacer owns layout compensation during a gesture; native anchoring is disabled on every engine.
+export function shouldAbsorbChatShift({ pinned, userScrolling }: ChatShiftContext): boolean {
+  return !pinned && userScrolling;
 }
 
 /** Drift added to the top spacer so the anchor keeps its content offset; the spacer never shrinks below zero. */

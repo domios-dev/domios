@@ -4,17 +4,16 @@ import { chatScrollBookmark, chatScrollRestoreTarget } from "./chatScrollMemory"
 import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerDriftAfterShift, chatSpacerFold, chatSpacerHeight, shouldAbsorbChatShift,
   chatSpacerTranslation } from "./chatSpacerDrift";
 
-test("absorbs only a detached user scroll on an engine without scroll anchoring", () => {
-  assert.equal(shouldAbsorbChatShift({ nativeAnchoring: false, pinned: false, userScrolling: true }), true);
-  assert.equal(shouldAbsorbChatShift({ nativeAnchoring: true, pinned: false, userScrolling: true }), false);
-  assert.equal(shouldAbsorbChatShift({ nativeAnchoring: false, pinned: true, userScrolling: true }), false);
-  assert.equal(shouldAbsorbChatShift({ nativeAnchoring: false, pinned: false, userScrolling: false }), false);
+test("absorbs a detached owned scroll on every engine", () => {
+  assert.equal(shouldAbsorbChatShift({ pinned: false, userScrolling: true }), true);
+  assert.equal(shouldAbsorbChatShift({ pinned: true, userScrolling: true }), false);
+  assert.equal(shouldAbsorbChatShift({ pinned: false, userScrolling: false }), false);
 });
 
 test("activation with stick-to-bottom ignores the drift hold", () => {
   const bookmark = chatScrollBookmark({ mode: "pinned", scrollTop: 0 });
   const pinned = bookmark.mode === "pinned";
-  assert.equal(shouldAbsorbChatShift({ nativeAnchoring: false, pinned, userScrolling: true }), false);
+  assert.equal(shouldAbsorbChatShift({ pinned, userScrolling: true }), false);
   const restored = chatScrollRestoreTarget(bookmark, 0, 24000 - 800);
   assert.deepEqual(restored, { mode: "pinned", top: 23200 });
   assert.equal(24000 - restored.top - 800, 0);
