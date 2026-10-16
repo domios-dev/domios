@@ -177,6 +177,7 @@ pub(crate) struct CapturedSendEvidence {
 pub(crate) fn scan_transcript_evidence(
     registry: &AgentRegistry,
     ledger: &ChatSendLedger,
+    source: &JsonlSource,
     tab_id: &str,
     mut on_confirmed: impl FnMut(ChatSendStatus),
 ) {
@@ -185,7 +186,7 @@ pub(crate) fn scan_transcript_evidence(
         .iter()
         .map(|candidate| {
             structured_evidence_records(registry, &candidate.anchor)
-                .unwrap_or_else(|| window_evidence_turns(registry, &candidate.anchor))
+                .unwrap_or_else(|| window_evidence_turns(registry, &candidate.anchor, Some(source)))
         })
         .collect::<Vec<_>>();
     for (candidate_index, candidate) in candidates.iter().enumerate() {
@@ -230,10 +231,17 @@ pub(crate) fn scan_transcript_evidence(
     }
     for candidate in ledger.evidence_candidates(tab_id) {
         let anchor = &candidate.anchor;
+        let turns = window_evidence_turns(registry, anchor, Some(source));
+        let source_row = turns
+            .iter()
+            .filter(|turn| contains_written_payload(&turn.content, &candidate.payload))
+            .filter_map(|turn| turn.source_row.as_ref())
+            .find(|row| !ledger.source_row_claimed(row));
         let matching_turns =
             unconsumed_matching_turns(registry, ledger, tab_id, anchor, &candidate.payload);
         let claimed = ledger.claimed_turn_anchors(tab_id, &anchor.session_id, &candidate.payload);
-        let assignable = matching_turns > claimed.len()
+        let assignable = source_row.is_some()
+            || matching_turns > claimed.len()
             || nested_windows_assign_every_send(
                 claimed
                     .iter()
@@ -250,12 +258,6 @@ pub(crate) fn scan_transcript_evidence(
                     .collect(),
             );
         if assignable {
-            let turns = window_evidence_turns(registry, anchor);
-            let source_row = turns
-                .iter()
-                .filter(|turn| contains_written_payload(&turn.content, &candidate.payload))
-                .filter_map(|turn| turn.source_row.as_ref())
-                .find(|row| !ledger.source_row_claimed(row));
             let has_identity = turns.iter().any(|turn| turn.source_row.is_some());
             if has_identity && source_row.is_none() {
                 continue;
@@ -430,6 +432,7 @@ impl ServiceContext {
         scan_transcript_evidence(
             &self.agent_registry,
             &self.chat_send_ledger,
+            &self.chat_registry.jsonl_source(tab_id),
             tab_id,
             |status| {
                 let session_id = self
