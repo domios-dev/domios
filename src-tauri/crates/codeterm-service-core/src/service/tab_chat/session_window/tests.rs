@@ -9,6 +9,124 @@ use codeterm_plugin::jsonl_window::{read_records_from, DELTA_CHUNK_BYTES};
 use crate::agent::chat_types::{MessageBlock, SessionDelta};
 use crate::agent::provider::AgentProvider;
 
+fn known_window(epoch: &ChatEpoch, incarnation: &str, end: u64, total: u64) -> KnownChatWindow {
+    KnownChatWindow {
+        source_session_id: epoch.source_session_id.clone(),
+        session_binding_nonce: epoch.session_binding_nonce.clone(),
+        end_offset: end,
+        file_length: total,
+        cursor: ResumeCursor::Bytes {
+            epoch: epoch.clone(),
+            incarnation: incarnation.into(),
+            offset: end,
+        }
+        .encode()
+        .unwrap(),
+    }
+}
+
+#[test]
+fn attach_decision_requires_authority_incarnation_and_a_bounded_append() {
+    let epoch = ChatEpoch {
+        source_session_id: "own".into(),
+        session_binding_nonce: Some("nonce".into()),
+    };
+    let known = known_window(&epoch, "file", 100, 100);
+    assert_eq!(
+        attach_kind(&known, &epoch, "file", 100),
+        ChatStartKind::Unchanged
+    );
+    assert_eq!(
+        attach_kind(&known, &epoch, "file", 101),
+        ChatStartKind::Delta
+    );
+    assert_eq!(
+        attach_kind(&known, &epoch, "replacement", 100),
+        ChatStartKind::Snapshot
+    );
+    assert_eq!(
+        attach_kind(&known, &epoch, "file", 99),
+        ChatStartKind::Snapshot
+    );
+    assert_eq!(
+        attach_kind(&known, &epoch, "file", 100 + SNAPSHOT_WINDOW_BYTES),
+        ChatStartKind::Snapshot
+    );
+    let rotated = ChatEpoch {
+        session_binding_nonce: Some("rotated".into()),
+        ..epoch.clone()
+    };
+    assert_eq!(
+        attach_kind(&known, &rotated, "file", 100),
+        ChatStartKind::Snapshot
+    );
+    let foreign = ChatEpoch {
+        source_session_id: "foreign".into(),
+        ..epoch.clone()
+    };
+    assert_eq!(
+        attach_kind(&known, &foreign, "file", 100),
+        ChatStartKind::Snapshot
+    );
+    let partial = known_window(&epoch, "file", 100, 110);
+    assert_eq!(
+        attach_kind(&partial, &epoch, "file", 110),
+        ChatStartKind::Unchanged
+    );
+    let mut invalid = known.clone();
+    invalid.end_offset = 99;
+    assert_eq!(
+        attach_kind(&invalid, &epoch, "file", 100),
+        ChatStartKind::Snapshot
+    );
+}
+
+#[test]
+fn unchanged_attach_does_no_parser_read_and_growth_reads_only_the_append() {
+    let fx = fixture("resume-window", 10, 32);
+    let epoch = ChatEpoch {
+        source_session_id: "own".into(),
+        session_binding_nonce: Some("nonce".into()),
+    };
+    let source = super::super::registry::JsonlSource::default();
+    let incarnation =
+        super::super::resume::capture_incarnation(&source, &epoch, &fx.path, fx.total, None)
+            .unwrap();
+    let known = known_window(&epoch, &incarnation.id, fx.total, fx.total);
+    let (kind, snap) = resume_window(
+        &fx.registry,
+        "window-test",
+        &source,
+        &fx.path,
+        &epoch,
+        &known,
+    )
+    .unwrap();
+    assert_eq!(kind, ChatStartKind::Unchanged);
+    assert!(snap.messages.is_empty());
+    assert_eq!(fx.reads.load(Ordering::SeqCst), 0);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&fx.path)
+        .unwrap();
+    file.write_all(b"{\"text\":\"appended\"}\n").unwrap();
+    let (kind, snap) = resume_window(
+        &fx.registry,
+        "window-test",
+        &source,
+        &fx.path,
+        &epoch,
+        &known,
+    )
+    .unwrap();
+    assert_eq!(kind, ChatStartKind::Delta);
+    assert_eq!(snap.start_offset, fx.total);
+    assert_eq!(snap.messages.len(), 1);
+    assert_eq!(snap.messages[0].content, "appended");
+    assert_eq!(snap.bytes_read, b"{\"text\":\"appended\"}\n".len() as u64);
+    assert_eq!(fx.bytes.load(Ordering::SeqCst) as u64, snap.bytes_read);
+}
+
 /// Parses `{"text":"..."}` records through the same bounded reader the real JS
 /// provider uses, and counts how many bytes each snapshot actually pulled.
 struct WindowProvider {

@@ -2,6 +2,13 @@ import type { HttpMethod, TransportClient } from "../transportClient";
 import { describe, expect, it } from "vitest";
 import { createTabsTransport, type TabsTransportClient } from "./tabs";
 
+it("carries the client's known window to chat attach", async () => {
+  const { transport, calls } = fixture();
+  const knownWindow = { source_session_id: "own", session_binding_nonce: "nonce", end_offset: 123, file_length: 125, cursor: "opaque" };
+  await transport.chat_start({ tabId: "tab", subscriptionId: "sub", knownWindow });
+  expect(calls[0].body).toEqual({ subscriptionId: "sub", knownWindow });
+});
+
 function fixture(responses: unknown[] = [{}]) {
   const calls: Array<{ method: string; path: string; body: unknown; opts: unknown }> = [];
   const client: TabsTransportClient = {
