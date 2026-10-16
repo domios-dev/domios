@@ -1,4 +1,6 @@
+use super::pool::POOL_CONNECTIONS_PER_PLUGIN;
 use super::*;
+use std::sync::atomic::Ordering;
 
 #[test]
 fn provider_compat_sqlite_gate_covers_raw_and_convenience_host_calls() {
@@ -227,6 +229,7 @@ fn pool_rows(pool: &ConnectionPool, plugin: &str, db: &str, sql: &str) -> Vec<se
 fn same_path_reuses_one_connection() {
     let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER); INSERT INTO t VALUES (1);");
     let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
     for _ in 0..3 {
         assert_eq!(
             pool_rows(&pool, "p", &db, "SELECT v FROM t"),
@@ -243,6 +246,7 @@ fn same_path_reuses_one_connection() {
 fn pooled_connection_sees_later_commits() {
     let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER); INSERT INTO t VALUES (1);");
     let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
     assert_eq!(
         pool_rows(&pool, "p", &db, "SELECT count(*) AS n FROM t"),
         vec![serde_json::json!({"n": 1})]
@@ -262,8 +266,11 @@ fn pooled_connection_sees_later_commits() {
 fn changed_file_identity_drops_the_pooled_connection() {
     let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER);");
     let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
     pool_rows(&pool, "p", &db, "SELECT v FROM t");
-    pool.entries.lock().get_mut("p").unwrap()[0].identity.file ^= 1;
+    pool.state.lock().entries.get_mut("p").unwrap()[0]
+        .identity
+        .file ^= 1;
     pool_rows(&pool, "p", &db, "SELECT v FROM t");
     assert_eq!(opens(&pool), 2);
     assert_eq!(pool.pooled("p"), 1);
@@ -274,6 +281,7 @@ fn changed_file_identity_drops_the_pooled_connection() {
 fn vanished_or_replaced_file_drops_the_pooled_connection() {
     let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER); INSERT INTO t VALUES (1);");
     let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
     pool_rows(&pool, "p", &db, "SELECT v FROM t");
     std::fs::remove_file(&db).unwrap();
     assert_eq!(
@@ -305,6 +313,7 @@ fn pool_is_bounded_per_plugin_with_lru_eviction() {
         .map(|_| fixture_db("CREATE TABLE t(v INTEGER);"))
         .collect();
     let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
     for (_, db) in &dbs {
         pool_rows(&pool, "p", db, "SELECT v FROM t");
     }
@@ -321,6 +330,7 @@ fn pool_is_bounded_per_plugin_with_lru_eviction() {
 fn open_transaction_is_never_returned_to_the_pool() {
     let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER);");
     let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
     assert_eq!(
         pool_rows(&pool, "p", &db, "BEGIN"),
         Vec::<serde_json::Value>::new()
@@ -332,6 +342,7 @@ fn open_transaction_is_never_returned_to_the_pool() {
 fn write_locked_db_waits_the_busy_timeout_then_keeps_the_null_contract() {
     let (_dir, db) = fixture_db("PRAGMA journal_mode=DELETE; CREATE TABLE t(v INTEGER);");
     let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
     assert_eq!(
         pool_rows(&pool, "p", &db, "PRAGMA busy_timeout"),
         vec![serde_json::json!({"timeout": SQLITE_BUSY_TIMEOUT.as_millis() as i64})]
@@ -361,6 +372,7 @@ fn pooled_results_match_the_per_call_path() {
          INSERT INTO t VALUES (7, 1.5, 'q\"uote', x'010203', NULL), (8, -2.25, 'x', x'', 'y');",
     );
     let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
     let cases: [(&str, Option<&str>); 5] = [
         ("SELECT * FROM t ORDER BY i", None),
         ("SELECT i, s FROM t WHERE i = ?1", Some("[8]")),
@@ -387,6 +399,7 @@ fn plugin_reload_drops_its_pooled_connections() {
     let source = r#"module.exports.default = {
         run: function(db) { return host.sqliteQueryAllJson(db, 'SELECT v FROM t', null); }
     };"#;
+    let _lease = lease_plugin_sqlite(plugin);
     let vm = crate::js_runtime::vm::PluginVm::from_source(plugin, source.to_string()).unwrap();
     let _: Option<String> =
         crate::js_runtime::vm::call_json(&vm, "run", &[serde_json::json!(db)]).unwrap();
@@ -398,4 +411,102 @@ fn plugin_reload_drops_its_pooled_connections() {
     assert_eq!(POOL.pooled(plugin), 1);
     drop(vm);
     assert_eq!(POOL.pooled(plugin), 0);
+}
+
+#[test]
+fn lease_keeps_connections_across_calls_and_last_release_closes_them() {
+    let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER);");
+    let pool = ConnectionPool::new();
+    let first = pool.lease("p");
+    let second = pool.lease("p");
+    pool_rows(&pool, "p", &db, "SELECT v FROM t");
+    pool_rows(&pool, "p", &db, "SELECT v FROM t");
+    assert_eq!((opens(&pool), pool.pooled("p")), (1, 1));
+    drop(first);
+    pool_rows(&pool, "p", &db, "SELECT v FROM t");
+    assert_eq!((opens(&pool), pool.pooled("p")), (1, 1));
+    drop(second);
+    assert_eq!(pool.pooled("p"), 0);
+}
+
+#[test]
+fn checkin_after_the_last_release_closes_instead_of_pooling() {
+    let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER);");
+    let pool = ConnectionPool::new();
+    let lease = pool.lease("p");
+    let in_flight = pool.acquire("p", &db).unwrap();
+    drop(lease);
+    pool.checkin("p", in_flight, false);
+    assert_eq!(pool.pooled("p"), 0);
+}
+
+#[test]
+fn without_a_lease_every_call_opens_and_closes() {
+    let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER); INSERT INTO t VALUES (1);");
+    let pool = ConnectionPool::new();
+    for _ in 0..3 {
+        assert_eq!(
+            pool_rows(&pool, "p", &db, "SELECT v FROM t"),
+            vec![serde_json::json!({"v": 1})]
+        );
+        assert_eq!(pool.pooled("p"), 0);
+    }
+    assert_eq!(opens(&pool), 3);
+}
+
+#[test]
+fn file_fault_on_a_pooled_connection_evicts_it() {
+    let (_dir, db) = fixture_db("PRAGMA journal_mode=DELETE; CREATE TABLE t(v INTEGER);");
+    let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
+    pool_rows(&pool, "p", &db, "SELECT v FROM t");
+    assert_eq!(pool.pooled("p"), 1);
+    {
+        use std::io::{Seek, Write};
+        let mut file = std::fs::OpenOptions::new().write(true).open(&db).unwrap();
+        file.seek(std::io::SeekFrom::Start(0)).unwrap();
+        file.write_all(&[0xA5; 100]).unwrap();
+    }
+    assert_eq!(
+        pool.query("p", &db, "SELECT v FROM t", None, 4096),
+        Ok(None)
+    );
+    assert_eq!(pool.pooled("p"), 0);
+}
+
+#[test]
+fn fault_classification_spares_busy_and_sql_errors() {
+    let failure = |code| {
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error {
+                code,
+                extended_code: 0,
+            },
+            None,
+        )
+    };
+    assert!(is_connection_fault(&failure(
+        rusqlite::ErrorCode::SystemIoFailure
+    )));
+    assert!(is_connection_fault(&failure(
+        rusqlite::ErrorCode::NotADatabase
+    )));
+    assert!(!is_connection_fault(&failure(
+        rusqlite::ErrorCode::DatabaseBusy
+    )));
+    assert!(!is_connection_fault(&failure(rusqlite::ErrorCode::Unknown)));
+}
+
+#[test]
+fn concurrent_queries_on_one_path_pool_one_connection_each() {
+    let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER);");
+    let pool = ConnectionPool::new();
+    let _lease = pool.lease("p");
+    let first = pool.acquire("p", &db).unwrap();
+    let second = pool.acquire("p", &db).unwrap();
+    pool.checkin("p", first, false);
+    pool.checkin("p", second, false);
+    assert_eq!((opens(&pool), pool.pooled("p")), (2, 2));
+    pool_rows(&pool, "p", &db, "SELECT v FROM t");
+    assert_eq!((opens(&pool), pool.pooled("p")), (2, 2));
 }
