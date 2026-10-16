@@ -29,6 +29,7 @@ fn restored_claim_settles_as_uncertainty_without_blocking_later_sends() {
     let claimed = previous
         .admit(&reservation, "orphaned-claim", "orphaned-claim", None)
         .unwrap();
+    drop(reservation);
     assert!(previous.claim(&claimed, "opaque-session").unwrap());
     let later = admit_without_dispatch(&fixture, &tab, "later-send");
     let mut written = Vec::new();
