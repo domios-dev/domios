@@ -399,6 +399,14 @@ fn validate_runtime_result(
     }
     let valid = match (op, result) {
         (
+            RuntimeOperation::Control {
+                thread_id: Some(target),
+                action,
+                ..
+            },
+            RuntimeResult::Goal { thread_id, .. },
+        ) => action == "goal" && target == thread_id,
+        (
             RuntimeOperation::BackgroundProcesses {
                 thread_id: target,
                 action: RuntimeBackgroundProcessAction::List { cursor },

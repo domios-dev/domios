@@ -1,3 +1,4 @@
+import { goalIntent } from "./runtimeGoal";
 import type { ChatMsg, JsonValue, OpenItem, Operation, RpcReply, RuntimeHistoryQuestion, RuntimePlan, RuntimeStep } from "@codeterm/plugin-sdk";
 import { HISTORY_CHUNK_BYTES, serializedBytes } from "./runtimeHistoryBounds";
 import { projectHistoryItem } from "./runtimeStoredHistory";
@@ -53,7 +54,7 @@ export function pagedHistoryResponse(op:Read, raw:Record<string,unknown>, reply:
   const value = object(reply.value);
   if (state.stage === "goal") {
     const goal = text(object(value.goal).objective);
-    return finish(op,goal ? [{id:"thread:goal",seq:0,type:"custom",content:"",sessionIntent:{goal}}] : [],[],[]);
+    return finish(op,goal ? [{id:"thread:goal",seq:0,type:"custom",content:"",sessionIntent:goalIntent(value.goal) ?? {goal}}] : [],[],[]);
   }
   if (!Array.isArray(value.data)) failure("History page has no data array");
   const next = nextCursor(value,state.cursor);

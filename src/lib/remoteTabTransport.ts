@@ -80,6 +80,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
   switch (command) {
     case "agent_runtime_child_history": return call("GET", childHistorySuffix(String(args.threadId), args.request as ChildTranscriptAuthority & {cursor?:string}));
     case "agent_runtime_answer_question": return call("POST", `/agent/runtime/questions/${encodeURIComponent(String(args.itemId))}/answer`, { answers: args.answers });
+    case "agent_runtime_goal": return call("POST", "/agent/runtime/goal", args.request);
     case "agent_runtime_reset_credits": return call("POST", "/agent/runtime/reset-credits", args.request);
     case "agent_runtime_login": return call("POST", "/agent/runtime/login", args.request);
     case "agent_runtime_retry": return call("POST", "/agent/runtime/retry");

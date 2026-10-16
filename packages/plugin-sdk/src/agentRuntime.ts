@@ -76,7 +76,9 @@ export type RuntimeAction =
   | {kind:"reply"; requestId:RpcId; result:RpcReply}
   | {kind:"questionAnswer"; input:TurnInput};
 export interface RuntimePlan { action:RuntimeAction; state:JsonValue }
+export type RuntimeGoalAction = "read" | "cancel" | "pause" | "resume" | "complete";
 export type OperationResult =
+  | {kind:"goal"; threadId:string; intent:import("./gen/ChatSessionIntent").ChatSessionIntent|null}
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]; nextCursor:string|null}
   | {kind:"backgroundProcessTermination"; threadId:string; processId:string; acknowledged:boolean}
   | {kind:"initialized"}
@@ -113,6 +115,7 @@ export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
   backgroundProcesses?:boolean;
+  goals?:{actions:readonly RuntimeGoalAction[]};
   resetCreditsMinVersion?:string;
   storedHistory?:boolean;
   usage?:boolean;
