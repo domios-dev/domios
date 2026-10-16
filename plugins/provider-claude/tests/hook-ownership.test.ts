@@ -297,5 +297,24 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   }
 }
 
+{
+  const files = settingsWith({ Stop: [foreignEntry("Stop")] });
+  const provider = loadClaude(files);
+  provider.installIntegration(7686, { consent: true, repair: true });
+  const installed = JSON.parse(files.get(SETTINGS_PATH) as string);
+  const before = files.get(SETTINGS_PATH);
+  eq(provider.checkIntegration().hook_contract_current, true, "five-second hooks are current");
+  for (const event of EVENTS) {
+    const owned = installed.hooks[event].find((item: Entry) =>
+      item.hooks.some((hook) => hook.command.includes(MARKER_HEADER)));
+    eq(owned.hooks[0].timeout, 5, event + " deadline uses vendor seconds");
+    owned.hooks[0].timeout = 5000;
+  }
+  files.set(SETTINGS_PATH, JSON.stringify(installed));
+  eq(provider.checkIntegration().hook_contract_current, false, "millisecond-shaped timeouts require consented repair");
+  provider.installIntegration(7685, { consent: true, repair: true });
+  eq(files.get(SETTINGS_PATH), before, "repair is instance independent and preserves foreign hooks");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

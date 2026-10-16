@@ -70,11 +70,13 @@ import { claudePermissionPromptResponse } from "./permissionPrompt";
 import { claudeFolderTrustPrompt, claudeFolderTrustResponse } from "./folderTrust";
 import {
   CODETERM_HOOK_MARKER,
+  CODETERM_HOOK_TIMEOUT_SECONDS,
   CODETERM_HOOK_MARKER_ARG,
   INTEGRATION_HOOK_KEYS,
   entryCarriesMarker,
   entryIsLegacyPaneCodetermHook,
   entriesCarryMarker,
+  entriesHaveBoundedTimeout,
   isCurrentHookCommand,
   isCodetermHook,
 } from "./hookOwnership";
@@ -940,7 +942,7 @@ const plugin: PluginModule = {
     let marked = true;
     for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
       const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
-      if (Array.isArray(arr) && !entriesCarryMarker(arr)) { marked = false; break; }
+      if (Array.isArray(arr) && (!entriesCarryMarker(arr) || !entriesHaveBoundedTimeout(arr))) { marked = false; break; }
     }
     return {
       settings_exists: true,
@@ -1024,10 +1026,10 @@ const plugin: PluginModule = {
     // PermissionRequest and Notification share the permission route and differ
     // only in matcher: per-tool vs the vendor's late permission_prompt.
     const newHooks: Record<string, HookEntry> = {
-      PermissionRequest: newEntry("*", notifyCmd, 5000),
-      Notification:      newEntry("permission_prompt", notifyCmd, 5000),
-      Stop:              newEntry("", stopCmd, 5000),
-      SessionStart:      newEntry("", sessionStartCmd, 5000),
+      PermissionRequest: newEntry("*", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Notification:      newEntry("permission_prompt", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Stop:              newEntry("", stopCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      SessionStart:      newEntry("", sessionStartCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
     };
 
     // Remove existing codeterm hooks before appending to avoid stale leftovers.
