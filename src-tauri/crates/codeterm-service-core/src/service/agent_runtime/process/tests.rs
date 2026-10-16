@@ -4,6 +4,7 @@ fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
         stored_history: false,
         usage: false,
+        reset_credits_min_version: None,
         runtime: AgentRuntimeProtocol::StdioJsonrpc,
         command: AgentRuntimeCommand {
             binary: "node".into(),

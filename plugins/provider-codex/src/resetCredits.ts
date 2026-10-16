@@ -1,23 +1,9 @@
 import {object, text} from "./runtimeProtocol";
 
-export interface ResetCredit {
-  id: string;
-  status: "available" | "redeeming" | "redeemed" | "unknown";
-  expiresAt: number | null;
-  title?: string;
-  description?: string;
-}
-
-export interface ResetCredits {
-  availableCount: number;
-  nextExpiry: number | null;
-  credits: ResetCredit[] | null;
-}
-
-export type ResetOutcome = "reset" | "nothingToReset" | "noCredit" | "alreadyRedeemed";
+import type {ResetCredits, ResetCredit, ResetCreditOutcome as ResetOutcome} from "@codeterm/plugin-sdk";
 
 function expiry(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 8_640_000_000_000
     ? value * 1000 : null;
 }
 

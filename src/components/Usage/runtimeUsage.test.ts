@@ -6,6 +6,8 @@ const snapshot={provider:"fixture",captured_at:100,runtime_usage:[reading]} as U
 assert.equal(ownRuntimeUsage(snapshot,"foreign","thread"),null);
 assert.equal(ownRuntimeUsage(snapshot,"own","old"),null);
 assert.equal(ownRuntimeUsage(snapshot,"own","thread"),reading);
+const resets={availableCount:3,nextExpiry:null,credits:null};
+assert.deepEqual(runtimeLimitsSnapshot(snapshot,{...reading,resets}).resets,resets);
 const limits=runtimeLimitsSnapshot(snapshot,reading);
 assert.equal(limits.session_pct,2);
 assert.equal(limits.weekly_pct,0);
