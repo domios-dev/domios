@@ -173,6 +173,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.launch_permissions.clone()
     }
 
+    fn execution_sandbox_capability(&self) -> Option<provider::ExecutionSandboxCapability> {
+        self.manifest.spawn.execution_sandbox.clone()
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         super::command_template::build_launch_command(self, params)
     }

@@ -208,6 +208,7 @@ pub enum PathOpenKind {
 mod agent_provider;
 mod availability;
 mod capabilities;
+mod execution_sandbox;
 mod descriptor;
 mod launch_permissions;
 mod launch_session;
@@ -221,6 +222,7 @@ mod worker_lane_setting;
 pub use agent_provider::*;
 pub use availability::*;
 pub use capabilities::*;
+pub use execution_sandbox::*;
 pub use launch_permissions::*;
 pub use launch_session::*;
 pub use model_group::*;

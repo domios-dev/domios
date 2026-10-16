@@ -12,6 +12,8 @@
 
 #[path = "parity_test/runtime.rs"]
 mod runtime;
+#[path = "parity_test/execution_sandbox.rs"]
+mod execution_sandbox;
 
 use std::path::PathBuf;
 
@@ -658,6 +660,9 @@ struct NativeCodexReadiness;
 
 #[async_trait::async_trait]
 impl AgentProvider for NativeCodexReadiness {
+    fn execution_sandbox_capability(&self) -> Option<crate::provider::ExecutionSandboxCapability> {
+        Some(execution_sandbox::fixture_capability())
+    }
     fn sandboxed_linux_launch_capability(
         &self,
     ) -> Option<crate::provider::SandboxedLinuxLaunchCapability> {
