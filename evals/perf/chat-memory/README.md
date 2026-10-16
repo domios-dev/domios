@@ -23,6 +23,12 @@ sample times and cycle count remain in `result.json`; this short capture measure
 growth and does not establish an hours-long plateau. Give the owning QA shell
 enough remaining lifetime for warm-up, the workload and cleanup.
 
+Use `--instrumentation minimal --snapshots no --allocations no` for the same
+load and switching control without enabling CDP performance/heap profiling,
+forcing GC or collecting snapshots. It reads `performance.memory` and process
+private/working bytes; DOM/listener profiler counters remain unknown. These
+heap samples include collectible allocations and are not post-GC retained size.
+
 Samples preserve JS heap, DOM/listener counts, mounted chat and terminal counts,
 Windows private/working bytes and process creation identities. Warm and paused
 snapshots are optional; compare them with the existing renderer-memory snapshot

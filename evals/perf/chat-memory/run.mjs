@@ -10,12 +10,14 @@ import {aggregateVisitMeasures} from './measures.mjs';
 import {summarizeAllocations} from './allocations.mjs';
 import {workloadDuration,continueWorkload,sampleWorkload} from './duration.mjs';
 import {attach} from '../streaming-soak/runtime.mjs';
+import {memoryInstrumentation} from './instrumentation.mjs';
 
 const flags=Object.fromEntries(process.argv.slice(2).reduce((all,x,i,args)=>x.startsWith('--')?[...all,[x.slice(2),args[i+1]]]:all,[]));
 const bundle=flags.bundle??'dev';
 if(!['dev','production'].includes(bundle))throw Error('Invalid bundle: use dev or production');
 const allocations=flags.allocations==='yes';
 const duration=workloadDuration(flags.seconds);
+const instrumentation=memoryInstrumentation(flags);
 const count=Number(flags.tabs??15),cycles=Number(flags.cycles??4),perCycle=Number(flags.records??64),initial=Number(flags.initial??480);
 for(const [name,value,max] of [['tabs',count,15],['cycles',cycles,8],['records',perCycle,128],['initial',initial,600]]) {
   if(!Number.isSafeInteger(value)||value<1||value>max)throw Error(`Invalid ${name}`);
@@ -29,7 +31,7 @@ const api=async route=>{const r=await fetch('http://127.0.0.1:7686'+route,{heade
 const health=await api('/api/health');if(health.build_sha!==expected)throw Error('Build drift');
 const before=await api('/api/mux/state');
 const created=[],samples=[],visits=[];let workspace,junction,cdp,productionTarget,productionController,sampling=false;
-const result={status:'incomplete',bundle,run,health,count,cycles,perCycle,initial,duration,created,samples,visits};
+const result={status:'incomplete',bundle,run,health,count,cycles,perCycle,initial,duration,instrumentation,created,samples,visits};
 const save=()=>fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2));
 const bound=AbortSignal.timeout(duration===null?420000:duration+180000);
 const append=(fixture,n)=>{
@@ -66,8 +68,11 @@ function processSample(){
   return JSON.parse(execFileSync('powershell.exe',['-NoLogo','-NoProfile','-Command',script],{encoding:'utf8',timeout:15000}));
 }
 async function sample(phase,{gc=false,snapshot=false}={}){
+  gc=gc&&instrumentation.profiler;
   if(gc)await cdp.send('HeapProfiler.collectGarbage');
-  const heap=await cdp.send('Runtime.getHeapUsage'),dom=await cdp.send('Memory.getDOMCounters');
+  const heap=instrumentation.profiler?await cdp.send('Runtime.getHeapUsage'):
+    await evaluate(cdp,'({usedSize:performance.memory?.usedJSHeapSize??null,totalSize:performance.memory?.totalJSHeapSize??null,measurement:"performance.memory"})');
+  const dom=instrumentation.profiler?await cdp.send('Memory.getDOMCounters'):{nodes:null,documents:null,jsEventListeners:null};
   const census=await evaluate(cdp,`({elements:document.querySelectorAll('*').length,chatRows:document.querySelectorAll('[data-source-message-id]').length,chatRoots:document.querySelectorAll('[data-testid="tab-session-chat"]').length,xterms:document.querySelectorAll('.xterm').length,canvases:document.querySelectorAll('canvas').length,callbacks:window.__TAURI_INTERNALS__?.callbacks?.size??null})`);
   const row={phase,at:new Date().toISOString(),gc,heap,dom,census,processes:processSample()};
   samples.push(row);save();console.log(`CHAT_MEMORY_SAMPLE phase=${phase} heap=${heap.usedSize} nodes=${dom.nodes}`);
@@ -100,7 +105,7 @@ try{
     result.target={id:pages[0].id,url:pages[0].url};cdp=await connect(pages[0].webSocketDebuggerUrl);
   }
   bound.addEventListener('abort',()=>cdp.close(),{once:true});
-  await cdp.send('Performance.enable');await cdp.send('HeapProfiler.enable');
+  if(instrumentation.profiler){await cdp.send('Performance.enable');await cdp.send('HeapProfiler.enable');}
   await sample('before');
   const made=await dcJson(['workspace','create','Memsoak'+run,'--provision']);workspace=made.workspace??made;
   if(!workspace.id||!workspace.cwd)throw Error('Workspace identity missing');result.workspace=workspace;save();
