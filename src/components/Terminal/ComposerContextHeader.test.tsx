@@ -1,3 +1,5 @@
+import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
+import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Terminal/ComposerContextHeader.test.tsx
 import assert from "node:assert/strict";
 import { act } from "react";
@@ -8,18 +10,10 @@ import type { AutomationGraphAdapter } from "../Automation/types";
 import type { DelayedMessage } from "./delayedSend";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 
-async function waitForSelector<T extends Element>(selector: string): Promise<T> {
+function requireControl<T extends Element>(selector: string): T {
   const current = document.querySelector<T>(selector);
-  if (current) return current;
-  return new Promise((resolve) => {
-    const observer = new window.MutationObserver(() => {
-      const element = document.querySelector<T>(selector);
-      if (!element) return;
-      observer.disconnect();
-      resolve(element);
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  });
+  assert.ok(current, `Missing control: ${selector}`);
+  return current;
 }
 
 function bubble(host: HTMLElement, title: string): HTMLButtonElement | null {
@@ -54,6 +48,10 @@ async function main() {
     last_run: { run_id: "run-1", started_at: 1, finished_at: null, status: "Running", tab_id: "run-tab" },
   };
   const jobs = [job, ...[2, 3, 4, 5].map((index) => ({ ...job, id: `cron-${index}`, name: `run-${index}` }))];
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, path: string) => {
+    assert.equal(path, "/api/crons");
+    return jobs as T;
+  }));
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
     if (command === "cron_list") return jobs as T;
     throw new Error(`unexpected invoke: ${command}`);
@@ -104,9 +102,9 @@ async function main() {
   );
   await act(async () => { render("tab-a", [stashed, delayed, system]); });
 
-  const crons = await waitForSelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]');
+  const crons = requireControl<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]');
   assert.equal(crons.querySelector(".ct-ctx-kind__count")?.textContent, "5", "the cron button counts every cron bound to the tab");
-  const blueprints = await waitForSelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="blueprints"]');
+  const blueprints = requireControl<HTMLButtonElement>('.ct-ctx-kind[data-kind="blueprints"]');
   assert.equal(blueprints.querySelector(".ct-ctx-kind__count"), null, "a single blueprint shows no count");
   assert.match(host.querySelector(".ct-ctx__title")?.textContent ?? "", /Blueprint:Echo pipeline/, "with no plan, the owned blueprint heads the capsule");
 
@@ -147,6 +145,59 @@ async function main() {
 
   await act(async () => { render("tab-b", []); });
   assert.equal(host.querySelector('[data-testid="composer-context-header"]'), null, "a tab with nothing linked shows no header");
+
+  for (const width of [1280, 390]) {
+    await act(async () => { win.happyDOM.setWindowSize({ width, height: 900 }); });
+    for (const theme of ["light", "dark"]) {
+      document.documentElement.dataset.theme = theme;
+      await act(async () => { root.render(null); });
+      await act(async () => { root.render(
+        <MuxStateStoreContext.Provider value={store}><ComposerContextHeader
+          tabId="tab-a" workspaceId="workspace-a" delayed={[delayed]} adapter={adapter}
+          sessionIntent={{ goal: "Fixture goal" }}
+          pluginError={JSON.stringify({ code: "chat_backend_plugin_removed", plugin_id: "fixture" })}
+          onEditDelayed={() => undefined} onDeleteDelayed={() => undefined} onScheduleDelayed={() => undefined}
+        /></MuxStateStoreContext.Provider>,
+      ); });
+      const group = host.querySelector<HTMLElement>('[role="group"][aria-label="Linked to this tab"]')!;
+      assert.ok(group);
+      for (const label of ["Session goal", "Plugin removed", "1 blueprints", "5 crons", "1 delayed messages"]) {
+        const chip = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+        assert.ok(chip, label);
+        assert.equal(chip.closest('[role="group"]'), group);
+      }
+      const fold = host.querySelector<HTMLButtonElement>('button[aria-controls]');
+      if (width === 390) {
+        assert.ok(fold);
+        assert.equal(fold.getAttribute("aria-controls"), group.id);
+        assert.equal(group.hidden, true);
+        assert.equal(fold.getAttribute("aria-expanded"), "false");
+        await act(async () => { fold.click(); });
+        assert.equal(group.hidden, false);
+        assert.equal(fold.getAttribute("aria-expanded"), "true");
+        await act(async () => { fold.click(); });
+        assert.equal(group.hidden, true);
+        await act(async () => { root.render(null); });
+        await act(async () => { root.render(
+          <MuxStateStoreContext.Provider value={store}><ComposerContextHeader
+            tabId="tab-b" workspaceId="workspace-a" delayed={[]} adapter={adapter}
+            sessionIntent={{ goal: "Standalone goal" }}
+            onEditDelayed={() => undefined} onDeleteDelayed={() => undefined} onScheduleDelayed={() => undefined}
+          /></MuxStateStoreContext.Provider>,
+        ); });
+        const goalOnlyGroup = host.querySelector<HTMLElement>('[role="group"][aria-label="Linked to this tab"]')!;
+        const goalOnlyFold = host.querySelector<HTMLButtonElement>('button[aria-controls]')!;
+        assert.ok(goalOnlyFold);
+        assert.equal(goalOnlyGroup.hidden, true);
+        await act(async () => { goalOnlyFold.click(); });
+        assert.equal(goalOnlyGroup.hidden, false);
+        assert.ok(goalOnlyGroup.querySelector('button[aria-label="Session goal"]'));
+      } else {
+        assert.equal(fold, null);
+        assert.equal(group.hidden, false);
+      }
+    }
+  }
 
   await act(async () => { root.unmount(); });
   console.log("Composer context header wiring passed");
