@@ -588,6 +588,7 @@ impl PluginVm {
         *self.methods.write() = methods;
         drop(inner);
         *self.runtime_inner.lock() = None;
+        super::host_api::sqlite::drop_plugin_connections(self.sandbox.plugin_id());
         Ok(())
     }
 }
@@ -598,6 +599,7 @@ impl Drop for PluginVm {
         // keyed the jobs by when the plugin started them.
         super::host_net::drop_plugin_jobs(self.sandbox.plugin_id());
         super::host_exec::drop_plugin_jobs(self.sandbox.plugin_id());
+        super::host_api::sqlite::drop_plugin_connections(self.sandbox.plugin_id());
     }
 }
 

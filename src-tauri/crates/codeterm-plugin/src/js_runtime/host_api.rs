@@ -24,7 +24,7 @@ use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
 mod filesystem;
-mod sqlite;
+pub(super) mod sqlite;
 
 use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
