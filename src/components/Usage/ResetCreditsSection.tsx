@@ -1,4 +1,4 @@
-import {useRef, useState} from "react";
+import {useRef, useSyncExternalStore} from "react";
 import {createPortal} from "react-dom";
 import {formatUntil} from "../../lib/timeLabels";
 import type {ResetCredits} from "@codeterm/plugin-sdk";
@@ -7,16 +7,15 @@ import {resetCreditsState, resetOutcomeLabels, type ResetCreditsModel} from "./r
 
 export function ResetCreditsSection({resets, model}: {resets?:ResetCredits|null; model:ResetCreditsModel}) {
   const resetButton = useRef<HTMLButtonElement>(null);
-  const [, render] = useState(0);
+  useSyncExternalStore(model.subscribe, model.snapshot, model.snapshot);
   const state = resetCreditsState(resets);
   if (!state.visible || !resets) return null;
-  const update = () => render(value => value + 1);
-  const run = (operation: () => Promise<void>) => { const pending = operation(); update(); void pending.finally(update); };
-  const cancel = () => {model.cancel(); update(); resetButton.current?.focus();};
+  const run = (operation: () => Promise<void>) => {void operation();};
+  const cancel = () => {model.cancel(); resetButton.current?.focus();};
   return <section aria-label="Rate limit resets" className="ct-usage-reset-credits">
     <div>{resets.availableCount} resets available</div>
     {resets.nextExpiry != null && <div>Next known expiry: {formatUntil(resets.nextExpiry, Date.now())} · <time dateTime={new Date(resets.nextExpiry).toISOString()}>{new Date(resets.nextExpiry).toLocaleString()}</time></div>}
-    <button ref={resetButton} type="button" className="ct-btn" disabled={state.disabled || model.busy || !!model.key} onClick={() => {model.request(resets); update();}}>Reset now</button>
+    <button ref={resetButton} type="button" className="ct-btn" disabled={state.disabled || model.busy || !!model.key} onClick={() => {model.request(resets);}}>Reset now</button>
     {model.key && !model.busy && <button type="button" className="ct-btn" onClick={() => run(() => model.retry())}>Retry reset</button>}
     {model.busy && <div role="status">Resetting limits…</div>}
     {model.outcome && <div role="status">{resetOutcomeLabels[model.outcome]}</div>}

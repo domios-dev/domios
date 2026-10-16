@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {ResetCreditsModel, resetCreditsState} from "./resetCreditsModel";
+import {ResetCreditsModel, resetCreditsState, resetCreditsForTab, clearResetCreditsForTab} from "./resetCreditsModel";
 
 async function main() {
   assert.deepEqual(resetCreditsState(undefined), {visible:false,disabled:true});
@@ -32,10 +32,45 @@ async function main() {
   const held = new ResetCreditsModel(() => "one", () => new Promise(resolve => {finish=resolve;}));
   held.request(available);
   const pending = held.confirm();
-  await held.confirm(); await held.retry();
+  const duplicate = held.retry();
   assert.equal(held.busy,true);
-  finish({outcome:"noCredit"}); await pending;
+  finish({outcome:"noCredit"}); await Promise.all([pending, duplicate]);
   assert.equal(held.outcome,"noCredit");
+  const sent: string[] = [];
+  let shouldFail = true;
+  const consume = async (key: string) => {sent.push(key); if (shouldFail) {shouldFail=false;throw new Error("uncertain");} return {outcome:"alreadyRedeemed" as const};};
+  const original = resetCreditsForTab("remounted-tab", () => "retained-key", consume);
+  original.request(available); await original.confirm();
+  const remounted = resetCreditsForTab("remounted-tab", () => "wrong-new-key", consume);
+  assert.equal(remounted.key,"retained-key");
+  assert.equal(resetCreditsForTab("other-tab", () => "other", consume).key,null);
+  await remounted.retry();
+  assert.deepEqual(sent,["retained-key","retained-key"]);
+  assert.equal(remounted.key,null);
+  assert.equal(remounted.inFlight,null);
+  assert.equal(remounted.busy,false);
+  let settle!:(value:{outcome:"reset"})=>void;
+  const outstanding = resetCreditsForTab("in-flight-tab", () => "one-key", () => new Promise(resolve=>{settle=resolve;}));
+  outstanding.request(available); const outstandingRequest=outstanding.confirm();
+  const again=resetCreditsForTab("in-flight-tab", () => "wrong", consume);
+  assert.equal(again.inFlight,outstanding.inFlight);
+  assert.equal(again.busy,true);
+  let notifications=0; const unsubscribe=again.subscribe(()=>notifications++);
+  settle({outcome:"reset"}); await outstandingRequest;
+  assert.equal(again.key,null); assert.ok(notifications>0); unsubscribe();
+  clearResetCreditsForTab("remounted-tab");
+  assert.notEqual(resetCreditsForTab("remounted-tab", () => "after-sign-out", consume),original);
+  let settleSignedOut!:(value:{outcome:"reset"})=>void;
+  const signedOut = resetCreditsForTab("sign-out-pending", () => "old-account-key", () => new Promise(resolve=>{settleSignedOut=resolve;}));
+  signedOut.request(available); const oldRequest=signedOut.confirm();
+  clearResetCreditsForTab("sign-out-pending");
+  const signedIn = resetCreditsForTab("sign-out-pending", () => "new-account-key", consume);
+  assert.notEqual(signedIn,signedOut); assert.equal(signedIn.key,null);
+  settleSignedOut({outcome:"reset"}); await oldRequest;
+  assert.equal(signedOut.outcome,null); assert.equal(signedIn.key,null);
+  const syncFailure = new ResetCreditsModel(() => "sync-key", () => {throw new Error("synchronous transport failure");});
+  syncFailure.request(available); await syncFailure.confirm();
+  assert.equal(syncFailure.key,"sync-key"); assert.equal(syncFailure.inFlight,null); assert.equal(syncFailure.busy,false);
   console.log("PASS reset model: visibility, zero count, cancellation, confirmation, retry UUID and duplicate exclusion");
 }
 void main();
