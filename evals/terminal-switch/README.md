@@ -23,6 +23,12 @@ viewport; warm retained terminals should receive zero replay bytes. Inspect the
 PNGs as well: computed visibility alone cannot prove pixel identity or occlusion.
 This is a manual measurement, not an automatic test or readiness wait.
 
+For the silent-tab case, attach with an empty buffer. The output stream emits
+`{tab_id, pty_id, boot, offset, replay_complete: true}` once its retained replay
+has drained, including at offset zero. The client accepts only the subscribed
+tab and bound PTY, then queues its first-frame acknowledgement behind pending
+terminal writes. Transport activity and keepalives cannot reveal the frame.
+
 The isolated benchmark compares the former full-cache snapshot with a snapshot
 from a terminal's known cursor, then verifies a five-byte delta. It measures
 local cache-copy cost, not network or terminal-parser speed.

@@ -37,6 +37,7 @@ export function bindOutputStreamTransport(client: TransportClient): void {
 export interface TabOutputSink {
   onOutput(text: string): void;
   onReady?(): void;
+  onReplayComplete?(): void;
   onBytes?(bytes: Uint8Array): void;
   onTruncated(from: number): void;
   onEnded(): void;
@@ -53,6 +54,7 @@ interface OutputFrame {
   ended?: boolean;
   boot_changed?: boolean;
   boot?: string;
+  replay_complete?: boolean;
 }
 
 const BOOT_KEY = "codeterm-web-output-boot";
@@ -75,6 +77,7 @@ declare global {
 const sinks = new Map<string, Set<TabOutputSink>>();
 const offsets = new Map<string, number>();
 const rings = new Map<string, { boot: string; ptyId?: string }>();
+const completedReplays = new Map<string, OutputFrame>();
 
 let boot: string | null = readBoot();
 let streamAbort: AbortController | null = null;
@@ -144,6 +147,7 @@ function handleFrame(msg: OutputFrame): void {
     saveBoot(msg.boot);
     offsets.clear();
     rings.clear();
+    completedReplays.clear();
     retainedOutput.clear();
     for (const [tabId, offset] of replayOffsetsAfterBootChange(sinks.keys())) {
       offsets.set(tabId, offset);
@@ -155,6 +159,12 @@ function handleFrame(msg: OutputFrame): void {
   const tab = msg.tab_id;
   if (!tab) return;
   const set = sinks.get(tab);
+  if (msg.replay_complete) {
+    if (set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
+    completedReplays.set(tab, msg);
+    if (set) for (const sink of set) deliverReplayComplete(tab, sink, msg);
+    return;
+  }
   if (bytes && set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
   if (typeof msg.offset === "number" && bytes) {
     const ring = { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id };
@@ -197,6 +207,10 @@ function decodeOutputBytes(b64: string): Uint8Array {
 function acceptsSinkOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame): boolean {
   const frameTabId = parseCompositeTabId(tabId)?.remoteTabId ?? tabId;
   return acceptsTerminalOutput(frameTabId, sinkIdentities.get(sink)?.boundPtyId, frame.tab_id, frame.pty_id);
+}
+
+function deliverReplayComplete(tabId: string, sink: TabOutputSink, frame: OutputFrame): void {
+  if (acceptsSinkOutput(tabId, sink, frame)) sink.onReplayComplete?.();
 }
 
 function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame, bytes: Uint8Array): void {
@@ -265,6 +279,8 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
     replay.deliver(terminal, tabId, cached, (bytes) => writeSinkBytes(sink, bytes));
     sink.onReady?.();
   }
+  const completed = completedReplays.get(tabId);
+  if (completed) deliverReplayComplete(tabId, sink, completed);
   ensureStarted();
   return () => {
     set!.delete(sink);
@@ -289,6 +305,8 @@ function subscribeRemoteTabOutput(
   }
   set.add(sink);
   startRemoteTabOutput(ordinaryTabId, peerId);
+  const completed = remoteRecords.get(ordinaryTabId)?.replayComplete;
+  if (completed) deliverReplayComplete(ordinaryTabId, sink, completed);
   return () => {
     set!.delete(sink);
     if (set!.size === 0) {
@@ -312,6 +330,7 @@ interface RemoteOutputRecord {
   controller: AbortController | null;
   recovery: RemoteChannelRecovery<RemoteOutputCursor>;
   settlements: Map<number, { promise: Promise<void>; resolve: () => void }>;
+  replayComplete?: OutputFrame;
 }
 
 const remoteSinks = new Map<string, Set<TabOutputSink>>();
@@ -401,6 +420,16 @@ function handleRemoteOutputFrame(
   message: OutputFrame,
 ): void {
   if (message.tab_id && message.tab_id !== remoteTabId) return;
+  if (message.replay_complete) {
+    const targets = remoteSinks.get(ordinaryTabId);
+    if (!targets || ![...targets].some(target => acceptsSinkOutput(ordinaryTabId, target, message))) return;
+    record.recovery.noteProgress(generation, {
+      boot: message.boot, ptyId: message.pty_id, offset: message.offset ?? 0,
+    });
+    record.replayComplete = message;
+    for (const target of targets) deliverReplayComplete(ordinaryTabId, target, message);
+    return;
+  }
   if (message.truncated && typeof message.from === "number") {
     if (!record.recovery.isCurrent(generation)) return;
     const previous = record.recovery.currentCursor();
@@ -497,6 +526,7 @@ onResync(() => pokeOutputStream());
 
 /** Tear down (peer switch) — next subscription reconnects to the current host. */
 export function resetOutputStream(): void {
+  completedReplays.clear();
   started = false;
   aggregate.dispose();
   window.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, recoverOutputStream);

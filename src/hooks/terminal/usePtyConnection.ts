@@ -117,6 +117,11 @@ export function usePtyConnection({
       connectedPtyRef.current = id;
       const sink: TabOutputSink = {
         onReady() { if (!disposed) onConnectionStateChange?.(true); },
+        onReplayComplete() {
+          if (disposed) return;
+          onConnectionStateChange?.(true);
+          writeTerminalOutput(term, "", () => { if (termRef.current === term) onFrameReady?.(id); });
+        },
         onOutput: (text) => {
           if (disposed) return;
           writeTerminalOutput(term, text, () => { if (termRef.current === term) onFrameReady?.(id); });

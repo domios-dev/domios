@@ -14,6 +14,34 @@ function pending<T>() {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("aggregate terminal attachment", () => {
+  it.each(["tab", "mesh:928b06dd-1234-4567-890a-123456789abc/tab"])("reports an empty %s replay only for the bound PTY", async tabId => {
+    vi.resetModules();
+    localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    let receive!: (name: string, frame: unknown) => void;
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (_path, handler) => {
+      receive = handler; return () => {};
+    } } as import("./transportClient").TransportClient);
+    const written = vi.fn(), ready = vi.fn();
+    const stop = output.subscribeTabOutput(tabId, {
+      onOutput: written, onReplayComplete: ready, onTruncated() {}, onEnded() {},
+    }, {}, "own-pty");
+    try {
+      receive("message", { tab_id: "tab", pty_id: "foreign-pty", boot: "boot", replay_complete: true, offset: 0 });
+      expect(ready).not.toHaveBeenCalled();
+      receive("message", { tab_id: "tab", pty_id: "own-pty", boot: "boot", replay_complete: true, offset: 0 });
+      expect(ready).toHaveBeenCalledOnce();
+      const cachedReady = vi.fn();
+      const detach = output.subscribeTabOutput(tabId, {
+        onOutput: written, onReplayComplete: cachedReady, onTruncated() {}, onEnded() {},
+      }, {}, "own-pty");
+      expect(cachedReady).toHaveBeenCalledOnce();
+      detach();
+      receive("message", { tab_id: "tab", pty_id: "foreign-pty", boot: "boot", offset: 1, b64: "WA" });
+      expect(written).not.toHaveBeenCalled();
+    } finally { stop(); output.resetOutputStream(); }
+  });
   it.each(["tab", "mesh:928b06dd-1234-4567-890a-123456789abc/tab"])("rejects foreign PTY bytes before advancing %s replay", async tabId => {
     vi.resetModules();
     localStorage.clear();
