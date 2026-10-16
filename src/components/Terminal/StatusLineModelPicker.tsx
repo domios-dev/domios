@@ -1,3 +1,4 @@
+import { confirmedTabFastMode, tabMetaParts } from "../../lib/tabMetaLabel";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -46,7 +47,7 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
       facts={{ hasSession: Boolean(tab.pty_id) || tab.backing?.kind === "chat_backend" }}
       label={label}
       modelCandidates={[statusLineModelName(tab)]}
-      currentFastMode={tab.agent_runtime_config?.fastMode}
+      currentFastMode={confirmedTabFastMode(tab, descriptor)}
       currentEffort={effort?.actual ?? effort?.resolved ?? effort?.requested ?? undefined}
       pendingSelection={tab.pending_model_selection ?? (tab.pending_model_switch_observation ? {
         model: tab.pending_model_switch_observation.launched_model,
@@ -134,7 +135,7 @@ export function StatusLineModelPicker({
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
   const afterTurn = Boolean(pendingSelection);
-  const displayedLabel = [modelName, selection.effort, afterTurn ? "after this turn" : undefined].filter(Boolean).join(" · ");
+  const displayedLabel = tabMetaParts(modelName, descriptor?.agent_runtime?.fastMode ? currentFastMode : undefined, selection.effort, afterTurn ? "after this turn" : undefined).join(" · ");
   const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
   const glyph = descriptor ? (
     <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessName}>

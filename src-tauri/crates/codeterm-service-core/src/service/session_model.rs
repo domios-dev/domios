@@ -934,6 +934,11 @@ fn apply_runtime_controls(
             .agent_runtime_config
             .get_or_insert_with(|| serde_json::json!({}));
         config["fastMode"] = fast_mode.into();
+        config["confirmedFastMode"] = serde_json::json!({
+            "enabled": fast_mode,
+            "sessionId": thread,
+            "bindingNonce": tab.session_binding_nonce,
+        });
     }
     if let Some(mode) = settings.mode.as_ref() {
         tab.structured_runtime_mode = Some(mode.clone());

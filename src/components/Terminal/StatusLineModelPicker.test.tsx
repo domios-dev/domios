@@ -528,3 +528,15 @@ test("providers without the Fast mode capability have no control", async () => {
     assert.equal(document.body.querySelector('[role="switch"][aria-label="Fast mode"]'), null);
   } finally { await view.unmount(); }
 });
+
+test("model chip displays only the confirmed fast tier", async () => {
+  const provider = { ...descriptor("next_turn"), agent_runtime: { fastMode: true } };
+  for (const fast of [true, false, undefined]) {
+    const view = await mount(provider, fast);
+    try {
+      assert.equal(view.trigger()!.textContent?.includes(" · fast"), fast === true);
+    } finally {
+      await view.unmount();
+    }
+  }
+});
