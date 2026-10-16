@@ -1,3 +1,4 @@
+import type { HelpSectionId } from "../../help/types";
 import { Bot } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { GeneralAgentProviderChoice } from "./GeneralAgentProviderChoice";
@@ -8,11 +9,12 @@ import { capabilityHintsEnabled, capabilityHintsPatch } from "./generalAgentSett
 
 interface GeneralAgentCardProps {
   config: AppConfig;
+  onOpenGuide?: (section: HelpSectionId) => void;
   onSwitchProvider?: (provider: string) => Promise<void>;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }
 
-export function GeneralAgentCard({ config, onUpdate, onSwitchProvider }: GeneralAgentCardProps) {
+export function GeneralAgentCard({ config, onUpdate, onSwitchProvider, onOpenGuide }: GeneralAgentCardProps) {
   return (
     <SettingsCard
       icon={<Bot size={16} />}
@@ -32,7 +34,7 @@ export function GeneralAgentCard({ config, onUpdate, onSwitchProvider }: General
       {config.general_agent?.enabled && (
         <div className="space-y-3">
             {onSwitchProvider && <GeneralAgentProviderChoice current={config.general_agent?.agent_provider}
-              enabled={config.general_agent?.enabled ?? true} onSwitch={onSwitchProvider} />}
+              enabled={config.general_agent?.enabled ?? true} onSwitch={onSwitchProvider} onOpenGuide={onOpenGuide} />}
 
             <Button
               variant="ghost"

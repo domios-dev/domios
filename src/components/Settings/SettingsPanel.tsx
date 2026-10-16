@@ -345,7 +345,7 @@ export function SettingsPanel({
                   />
                 </SettingsCard>
 
-                <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} />
+                <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })} />
 
                 <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>
                   <MessengersCard config={localConfig} onUpdate={update} />

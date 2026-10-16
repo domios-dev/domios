@@ -76,7 +76,7 @@ export function AgentsOverview({
         />
       </SettingsCard>
 
-      <ModelDefaultsCard config={config} onUpdate={onUpdate} onSwitchGeneralProvider={onSwitchGeneralProvider} />
+      <ModelDefaultsCard config={config} onUpdate={onUpdate} onSwitchGeneralProvider={onSwitchGeneralProvider} onOpenGuide={onOpenGuide} />
 
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
 

@@ -21,12 +21,16 @@ test("each stored default renders once and only a still-current replacement show
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
+  const opened: string[] = [];
   try {
-    await act(async () => root.render(<ModelDefaultsCard config={config} />));
+    await act(async () => root.render(<ModelDefaultsCard config={config} onOpenGuide={(section) => opened.push(section)} />));
     assert.equal(host.querySelectorAll('[data-testid="model-default-row"]').length, 4);
     const notes = host.querySelectorAll('[data-testid="model-default-replaced"]');
     assert.equal(notes.length, 1);
     assert.ok(notes[0].textContent?.includes("gpt-5.1-codex"));
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="About Memory dreaming"]')!.click());
+    assert.deepEqual(opened, ["memory"]);
+
   } finally {
     await act(async () => root.unmount());
     host.remove();

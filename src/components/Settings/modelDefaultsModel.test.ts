@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AppConfig } from "../../lib/types";
-import { modelDefaultPatch, modelDefaultRows } from "./modelDefaultsModel";
+import { modelDefaultGuideSection, modelDefaultPatch, modelDefaultRows } from "./modelDefaultsModel";
 
 function config(overrides: Partial<AppConfig>): AppConfig {
   return {
@@ -43,4 +43,10 @@ test("a replacement note shows only while the replaced value is still configured
   assert.equal(current[0].replacedFrom, "gpt-5.1-codex");
   const changedSince = modelDefaultRows(config({ agents: { codex: { default_model: "gpt-5.5" } }, model_defaults: { replaced } }));
   assert.equal(changedSince[0].replacedFrom, undefined);
+});
+
+test("model default help follows its setting namespace", () => {
+  const row = { key: "memory.extraction_model", subject: "opaque", provider: "fixture", model: "m" };
+  assert.equal(modelDefaultGuideSection(row), "memory");
+  assert.equal(modelDefaultGuideSection({ ...row, key: "agents.fixture.default_model" }), "agents");
 });

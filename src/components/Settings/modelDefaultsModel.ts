@@ -1,4 +1,5 @@
 import type { AppConfig } from "../../lib/types";
+import type { HelpSectionId } from "../../help/types";
 
 export interface ModelDefaultRow {
   key: string;
@@ -6,6 +7,10 @@ export interface ModelDefaultRow {
   provider: string;
   model: string;
   replacedFrom?: string;
+}
+
+export function modelDefaultGuideSection(row: ModelDefaultRow): HelpSectionId {
+  return row.key.startsWith("memory.") ? "memory" : "agents";
 }
 
 export function modelDefaultPatch(config: AppConfig, row: ModelDefaultRow, model: string): Partial<AppConfig> {
