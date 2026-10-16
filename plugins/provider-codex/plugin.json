@@ -62,7 +62,10 @@
           "account/login/start",
           "account/login/cancel",
           "account/rateLimits/read",
-          "account/rateLimitResetCredit/consume"
+          "account/rateLimitResetCredit/consume",
+          "thread/goal/get",
+          "thread/goal/set",
+          "thread/goal/clear"
         ],
         "backgroundProcesses": [
           "thread/backgroundTerminals/list",
@@ -110,7 +113,16 @@
       },
       "usage": true,
       "resetCreditsMinVersion": "0.162.1",
-      "backgroundProcesses": true
+      "backgroundProcesses": true,
+      "goals": {
+        "actions": [
+          "read",
+          "cancel",
+          "pause",
+          "resume",
+          "complete"
+        ]
+      }
     },
     "chatBackend": {
       "spawnable": true,

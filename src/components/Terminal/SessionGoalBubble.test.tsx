@@ -1,0 +1,48 @@
+import assert from "node:assert/strict";
+import {act} from "react";
+import {createRoot} from "react-dom/client";
+import {Window} from "happy-dom";
+import type {GoalSnapshot} from "./goalModel";
+async function main(){
+  const dom=new Window({url:"http://localhost/"});
+  Object.defineProperty(globalThis,"IS_REACT_ACT_ENVIRONMENT",{value:true,configurable:true});
+  for(const key of ["window","document","navigator","HTMLElement","Element","Node","Event","MouseEvent","KeyboardEvent"] as const) Object.defineProperty(globalThis,key,{value:dom[key],configurable:true});
+  const bridge=await import("../../lib/bridge");
+  const requests:Record<string,unknown>[]=[];
+  let snapshot:GoalSnapshot={supported:true,binding:{threadId:"fixture",bindingNonce:"nonce",epoch:3},intent:{goal:"Fixture objective",goalStatus:"active"},actions:["read","cancel","pause","resume","complete"]};
+  bridge.__setInvokeForTest(async <T,>(command:string,args?:Record<string,unknown>):Promise<T>=>{
+    assert.equal(command,"agent_runtime_goal");
+    const request=args?.request as Record<string,unknown>;
+    requests.push(request);
+    if(request.action === "cancel") snapshot={...snapshot,intent:null} as GoalSnapshot;
+    return snapshot as T;
+  });
+  const {SessionGoalBubble}=await import("./SessionGoalBubble");
+  const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
+  const buttons=(label:string,scope:ParentNode=host)=>Array.from(scope.querySelectorAll<HTMLButtonElement>("button")).filter(button=>(button.getAttribute("aria-label")??button.textContent)===label);
+  await act(async()=>root.render(<SessionGoalBubble tabId="own" intent={{goal:"Fixture objective",goalStatus:"active"}}/>));
+  await act(async()=>buttons("Session goal")[0].click());
+  assert.equal(host.querySelector('[role="status"]')?.textContent,"Active");
+  assert.equal(buttons("Cancel goal").length,1);
+  await act(async()=>buttons("Cancel goal")[0].click());
+  const dialog=host.querySelector('[role="alertdialog"]');assert.ok(dialog);
+  assert.equal(requests.filter(request=>request.action==="cancel").length,0);
+  await act(async()=>buttons("Cancel",dialog)[0].click());
+  assert.equal(requests.filter(request=>request.action==="cancel").length,0);
+  await act(async()=>buttons("Cancel goal")[0].click());
+  await act(async()=>buttons("Cancel goal",host.querySelector('[role="alertdialog"]')!)[0].click());
+  assert.deepEqual(requests.filter(request=>request.action==="cancel"),[{action:"cancel",confirmed:true,binding:{threadId:"fixture",bindingNonce:"nonce",epoch:3},expectedIntent:{goal:"Fixture objective",goalStatus:"active"}}]);
+  assert.ok(host.querySelector('[role="status"]'));
+  assert.ok(!host.textContent?.includes("Fixture objective"));
+  assert.equal(host.querySelector('[role="alertdialog"]'),null);
+  assert.equal(buttons("Cancel goal").length,0);
+  assert.equal(document.activeElement,buttons("Session goal")[0]);
+  snapshot={supported:false};
+  await act(async()=>root.render(<SessionGoalBubble key="unsupported" tabId="other" intent={{goal:"Opaque"}}/>));
+  await act(async()=>buttons("Session goal")[0].click());
+  assert.equal(buttons("Cancel goal").length,0);
+  assert.equal(buttons("Complete goal").length,0);
+  await act(async()=>root.unmount());bridge.__setInvokeForTest(null);dom.happyDOM.abort();
+  console.log("goal popover confirmed cancellation wiring passed");
+}
+main().catch(error=>{console.error(error);process.exitCode=1;});

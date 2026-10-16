@@ -1,3 +1,4 @@
+import { goalIntent } from "./runtimeGoal";
 import type { RuntimeContext, JsonValue, RuntimeFrame, RuntimeReduction, AgentEvent, ChatMsg, TokenUsage } from "@codeterm/plugin-sdk";
 import { rateLimitEvents } from "./runtimeUsage";
 import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
@@ -250,7 +251,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       }
       case "thread/goal/updated": {
         const goal = text(object(params.goal).objective);
-        if (goal) events.push({kind:"chatItem",threadId,item:stamp(state,{id:"thread:goal",seq:state.seq+1,type:"custom",content:"",sessionIntent:{goal}},params)});
+        if (goal) events.push({kind:"chatItem",threadId,item:stamp(state,{id:"thread:goal",seq:state.seq+1,type:"custom",content:"",sessionIntent:goalIntent(params.goal) ?? {goal}},params)});
         break;
       }
       case "turn/plan/updated": {
