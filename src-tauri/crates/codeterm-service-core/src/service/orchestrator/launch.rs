@@ -44,6 +44,9 @@ mod public_send;
 mod reader_readiness;
 mod resume_binding;
 mod startup_readiness;
+#[cfg(any(test, feature = "test-support"))]
+#[path = "launch/test_support.rs"]
+pub mod test_support;
 mod user_input;
 pub use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,

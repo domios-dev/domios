@@ -49,30 +49,56 @@ async fn protected_frontend_attach_reuses_the_backend_launch_claim() {
 
 #[test]
 fn frontend_restore_launch_arms_shared_readiness_with_snapshot_origin() {
-    let source = include_str!("../pty.rs");
-    let spawn = source
-        .split("pub async fn spawn_pty_core(")
-        .nth(1)
-        .and_then(|remaining| remaining.split("pub async fn read_pty(").next())
-        .expect("the frontend spawn command remains present");
-    let call_sites = spawn.matches("dispatch_restored_snapshot_launch(").count()
-        - spawn
-            .matches("fn dispatch_restored_snapshot_launch(")
-            .count();
-    assert_eq!(call_sites, 2);
-    assert!(!spawn.contains("poll_bare_shell_prompt"));
-    assert!(!spawn.contains("await_agent_tui_frame_on_screen"));
+    use codeterm_service_core::service::launch_readiness::test_support;
+    use codeterm_service_core::service::launch_test_support::FakeRegisteredLaunch;
+    use codeterm_service_core::service::{AgentLaunchOrigin, RestoredFreshLaunchInput};
 
-    let dispatcher = source
-        .split("fn dispatch_restored_snapshot_launch(")
-        .nth(1)
-        .expect("restored frontend launches use one dispatcher");
-    assert!(dispatcher.contains("launch_agent_in_background_with_env("));
-    assert!(dispatcher.contains("AgentLaunchOrigin::RestoredSnapshot"));
-
-    let shared_launcher =
-        include_str!("../../../../codeterm-service-core/src/service/orchestrator/launch.rs");
-    assert!(shared_launcher.contains("arm_with_origin(readiness_attempt.clone(), origin)"));
+    let (mut mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pty_id = Some("frontend-restore-fake-pty".into());
+    tab.agent_type = Some("fixture-provider".into());
+    tab.restored_from_snapshot = true;
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let input = RestoredFreshLaunchInput {
+        params: Default::default(),
+        launch_parameters: Default::default(),
+        launch_task: None,
+    };
+    assert!(test_support::snapshot(&tab_id).is_none());
+    let launch = super::dispatch_restored_snapshot_launch_with(
+        &fixture.service,
+        &tab_id,
+        "fixture-provider",
+        &input,
+        |origin| {
+            FakeRegisteredLaunch::register(
+                &fixture.service,
+                &tab_id,
+                "frontend-restore-fake-pty",
+                origin,
+            )
+            .unwrap()
+        },
+    );
+    let armed = test_support::snapshot(&tab_id).unwrap();
+    assert_eq!(armed.attempt, launch.attempt());
+    assert_eq!(armed.origin, Some(AgentLaunchOrigin::RestoredSnapshot));
+    assert_eq!(armed.registrations, 1);
+    assert!(!armed.acknowledged);
+    assert!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .restorable_launch
+            .captured
+    );
+    assert!(test_support::acknowledge(&launch.attempt()));
+    assert!(test_support::consume_acknowledgement(&launch.attempt()));
+    assert!(!test_support::consume_acknowledgement(&launch.attempt()));
+    assert!(test_support::snapshot(&tab_id).is_none());
 }
 
 mod restored_fresh_launch_tests {
