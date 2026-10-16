@@ -212,6 +212,7 @@ impl super::ServiceContext {
         self.pending_delivery_payloads
             .user_sends
             .ready_launch_is_latched(authority)
+            || self.latch_user_authority_ready(authority)
     }
 
     pub(crate) fn latch_user_authority_ready(&self, authority: &UserSendAuthority) -> bool {
