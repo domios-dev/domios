@@ -138,6 +138,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       continue;
     }
     if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents,params.threadId) && frame.method !== "serverRequest/resolved") {
+      if ((frame.method === "item/started" || frame.method === "item/completed") && ctx.threadId) {
+        state.agents ??= {rows:Object.create(null),ordinal:0};
+        const agents = reduceRuntimeAgents(state.agents,state.items,state.parents,params.threadId,params.item,state.seq+1);
+        if (agents) for (const activity of agents) events.push({kind:"chatItem",threadId:ctx.threadId,item:stamp(state,activity,params)});
+      }
       const threadId=params.threadId;const turnId=text(object(params.turn).id) ?? text(params.turnId);
       if (!turnId) continue;
       state.childActive ??= {};state.childCompleted ??= [];

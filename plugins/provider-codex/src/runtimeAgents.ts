@@ -42,7 +42,7 @@ export function reduceRuntimeAgents(
     state.rows[agent] = row.id;
     parents[agent] = parent;
     state.ordinal += 1;
-    row.toolInput = {...object(row.toolInput), agent_ordinal: spawn ? object(row.toolInput).agent_ordinal : state.ordinal};
+    row.toolInput = {...object(row.toolInput), agent_parent_thread_id: parent, agent_ordinal: state.ordinal};
     return [row];
   });
 }

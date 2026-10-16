@@ -2,6 +2,7 @@
 import { useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { useMountedChatWindow } from "../../src/components/Terminal/useMountedChatWindow";
+import { ScrollToLatestButton } from "../../src/components/Terminal/ScrollToLatestButton";
 import { useChatScroll } from "../../src/components/Terminal/useChatScroll";
 
 const fixed = new URLSearchParams(location.search).get("fix") !== "0";
@@ -23,6 +24,7 @@ function Chat() {
     onViewportChange: win.syncViewport, userScrollingRef: fixed ? userScrollingRef : undefined,
     foldLayoutDrift: fixed ? win.foldDrift : undefined });
   return (
+    <>
     <div ref={scrollRef} id="scroller" onScroll={scroll.handleScroll}
       style={{ height: "100vh", overflowY: "auto", position: "relative" }}>
       <div ref={win.topSpacerRef} style={{ height: win.topSpacer }} />
@@ -39,6 +41,10 @@ function Chat() {
       </div>
       <div style={{ height: win.range.bottom }} />
     </div>
+    <div id="jump" style={{ position: "fixed", right: 16, bottom: 16 }}>
+      <ScrollToLatestButton testId="jump" gestureOwned={scroll.gestureOwned} userScrollingRef={userScrollingRef} onClick={scroll.scrollToBottom} />
+    </div>
+    </>
   );
 }
 

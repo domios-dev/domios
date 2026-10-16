@@ -13,6 +13,7 @@ import {resetOutcome} from "./resetCredits";
 import { accountAuth } from "./runtimeAuth";
 import {backgroundOwns, backgroundPlan, backgroundResponse} from "./runtimeBackground";
 import { interruptTargets } from "./runtimeInterrupt";
+import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
@@ -50,11 +51,22 @@ function validateBinding(ctx: RuntimeContext, op: Operation): void {
     if (!backgroundOwns(ctx,op.threadId)) fail("binding_mismatch","Background thread is not owned");
     return;
   }
-  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId) fail("binding_mismatch","Thread differs from the bound thread");
+  if (op.kind === "readHistory" && !ctx.threadId) fail("binding_mismatch","History requires a bound root thread");
+  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId
+    && !(op.kind === "readHistory" && descendantThread(ctx,op.threadId))) fail("binding_mismatch","Thread differs from the bound thread");
   if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail("binding_mismatch","Active turn differs from the bound turn");
 }
 
+function historyTarget(ctx: RuntimeContext, op: Operation, plan: RuntimePlan): RuntimePlan {
+  if (op.kind !== "readHistory" || op.threadId === ctx.threadId || plan.action.kind !== "request") return plan;
+  return {...plan,action:{...plan.action,call:{...plan.action.call,target:{threadId:op.threadId}}}};
+}
+
 export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
+  return historyTarget(ctx,op,planOperation(ctx,op));
+}
+
+function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
   validateBinding(ctx,op);
   switch (op.kind) {
     case "backgroundProcesses": return backgroundPlan(ctx,op);
@@ -111,9 +123,24 @@ function continuation(plan: RuntimePlan, beforeAcceptance?: boolean): RuntimeSte
   return {kind:"continue",plan,...(beforeAcceptance ? {beforeAcceptance} : {})};
 }
 export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
+  const step = respondOperation(ctx,op,raw,reply);
+  return step.kind === "continue" ? {...step,plan:historyTarget(ctx,op,step.plan)} : step;
+}
+
+function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
   validateBinding(ctx,op);
   if (op.kind === "backgroundProcesses") return backgroundResponse(op,reply);
   const state = object(raw);
+  if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns"
+    && !op.cursor && reply.error.code === -32600
+    && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
+    return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"unmaterialized"}));
+  if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
+    const thread = object(object(reply.value).thread);
+    if (!historyThread(ctx,reply.value,op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
+      return refused("Empty thread identity unverified");
+    return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:[],openItems:[],...(op.order ? {order:op.order} : {})}};
+  }
   if (op.kind === "readHistory" && state.pager === 1) {
     if (reply.kind === "error" && reply.error.code === -32601 && ["turns","items"].includes(String(state.stage)))
       return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",seq:0}));
@@ -145,11 +172,9 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
       }
       return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent,...rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)]};
     case "openThread": {
-      if (state.stage === "materialize") return {kind:"complete",result:{kind:"threadLoaded",threadId:String(state.threadId),settings:state.settings as RuntimeSettings}};
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
-      return continuation(request("thread/inject_items",{threadId,items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]},
-        {stage:"materialize",threadId,settings:codexEffectiveSettings(op.settings,value)}));
+      return {kind:"complete",result:{kind:"threadLoaded",threadId,settings:codexEffectiveSettings(op.settings,value)}};
     }
     case "resumeThread": {
       if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true}));
@@ -157,7 +182,7 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
       if (state.stage !== "verify") return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"verify",settings:codexEffectiveSettings(op.settings,value)}));
       return {kind:"complete",result:{kind:"threadLoaded",threadId:op.threadId,settings:state.settings as RuntimeSettings}};
     }
-    case "readHistory": return historyResponse(op,state,value);
+    case "readHistory": return historyResponse(ctx,op,state,value);
     case "submitTurn": {
       const turnId = text(object(value.turn).id) ?? text(value.turnId);
       return {kind:"complete",result:{kind:"turnAccepted",threadId:op.threadId,sendId:op.sendId,...(turnId ? {turnId} : {})}};
@@ -184,9 +209,9 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
   }
 }
 
-function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>, value: Record<string,unknown>): RuntimeStep {
+function historyResponse(ctx: RuntimeContext, op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>, value: Record<string,unknown>): RuntimeStep {
   if (state.stage === "snapshot") {
-    if (!userThread(value,op.threadId)) return refused("History snapshot thread identity unverified");
+    if (!historyThread(ctx,value,op.threadId)) return refused("History snapshot thread identity unverified");
     const turns = object(value.thread).turns;
     if (!Array.isArray(turns)) return refused("Missing history snapshot turns");
     let collected: Record<string,unknown> = {...state,items:[],openItems:[],questions:[]};

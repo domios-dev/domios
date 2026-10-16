@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
+import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatScroll, type UseChatScrollResult } from "./useChatScroll";
 
@@ -37,11 +38,14 @@ async function frame() {
   });
 }
 const followTail = { current: true };
+const userScrolling = { current: false };
 function Fixture({ active, revision }: { active: boolean; revision: number }) {
   hook = useChatScroll({ sessionKey: "gesture-wiring", active, loading: false, messageCount: 3,
-    contentVersion: revision, prependVersion: "first", followTailRef: followTail,
+    contentVersion: revision, prependVersion: "first", followTailRef: followTail, userScrollingRef: userScrolling,
     foldLayoutDrift: () => { const value = drift; drift = 0; return value; } });
-  return <div ref={hook.scrollRef} onScroll={hook.handleScroll} />;
+  return <><div ref={hook.scrollRef} onScroll={hook.handleScroll} />
+    <ScrollToLatestButton testId="latest" gestureOwned={hook.gestureOwned} userScrollingRef={userScrolling} onClick={hook.scrollToBottom} />
+  </>;
 }
 
 async function main() {
@@ -82,16 +86,29 @@ async function main() {
     });
     assert.equal(writes, 0, "content commits and resize repairs defer while the user touches");
 
+    await act(async () => hook.scrollToBottom());
+    assert.equal(writes, 0, "jump during touch cannot write");
+    assert.equal(hook.gestureOwned, true, "jump cannot reset ownership");
+    assert.equal(scroll.style.overflowAnchor, "none");
     await act(async () => fire("touchend"));
     nativeTop = 500;
     height = 1400;
     await act(async () => { fire("scroll"); repair(); root.render(<Fixture active revision={3} />); });
     assert.equal(writes, 0, "momentum retains ownership after touchend");
+    await act(async () => hook.scrollToBottom());
+    assert.equal(writes, 0, "synthetic momentum click cannot write");
+    assert.equal(hook.gestureOwned, true, "synthetic momentum click cannot reset ownership");
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Scroll to latest"]')!;
+    await act(async () => button.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true })));
     await act(async () => fire("scrollend"));
+    await act(async () => button.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+    assert.equal(writes, 0, "a click that began during momentum stays rejected after quiescence");
+    assert.equal(scroll.style.overflowAnchor, "auto");
     assert.equal(followTail.current, false, "gesture completion cannot reattach a reader");
 
-    await act(async () => hook.scrollToBottom());
-    assert.equal(writes, 1, "explicit latest performs one necessary write");
+    await act(async () => button.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true })));
+    await act(async () => button.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 })));
+    assert.equal(writes, 1, "idle deliberate latest performs one necessary write");
     writes = 0;
     await act(async () => fire("touchstart"));
     height = 1600;
@@ -150,7 +167,9 @@ async function main() {
     for (let index = 0; index < 4; index++) {
       nativeTop -= 10;
       await act(async () => { fire("scroll"); repair(); });
+      await act(async () => hook.scrollToBottom());
       await frame();
+      assert.equal(hook.gestureOwned, true);
       assert.equal(drift, 50, "momentum never folds a held layout deviation");
       assert.equal(writes, 0);
     }

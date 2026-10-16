@@ -204,6 +204,11 @@ pub(crate) fn spawn_launch_task(
         params.role_profile.as_deref(),
         system_prompt_capable,
     );
+    let prompt = if params.execution_intent == Some(crate::plan::ExecutionIntent::ReadOnly) {
+        prompt.map(crate::prompts::with_read_only_worker_guidance)
+    } else {
+        prompt
+    };
     let target = (
         params.report_target_mesh_peer.as_deref().map(str::trim),
         params.report_target_tab_id.as_deref().map(str::trim),

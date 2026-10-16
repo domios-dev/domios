@@ -1,5 +1,6 @@
 pub mod attempt;
 pub mod execution;
+pub mod execution_sandbox;
 pub mod external_refs;
 pub mod gates;
 pub mod ids;
@@ -17,6 +18,7 @@ pub mod work_facet;
 
 pub use attempt::*;
 pub use execution::*;
+pub use execution_sandbox::*;
 pub use external_refs::*;
 pub use gates::{DecisionGate, GateAnswer, GateStatus, STALE_GATE_MS};
 pub use interruption::*;

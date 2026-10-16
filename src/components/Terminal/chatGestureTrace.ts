@@ -3,7 +3,7 @@ import type { ChatScrollGesture } from "./chatScrollGesture";
 export const TRACE_FRAME_LIMIT = 600;
 export const TRACE_EDGE_LIMIT = 400;
 export const TRACE_CHUNK_BYTES = 3900;
-export const traceEdges = ["touchstart", "touchend", "scroll", "scrollend", "gesture", "write", "absorb", "resize", "clientHeight", "visualViewport", "capabilities"] as const;
+export const traceEdges = ["touchstart", "touchend", "scroll", "scrollend", "gesture", "write", "absorb", "resize", "clientHeight", "visualViewport", "capabilities", "jump_ignored_owned"] as const;
 export type TraceEdge = typeof traceEdges[number];
 export type TraceTuple = number[];
 export interface TraceChunk {
@@ -69,4 +69,11 @@ export class ChatGestureTrace {
     chunks.push(chunk);
     return chunks.map((value, index) => ({ ...value, index, count: chunks.length, droppedFrames: value.droppedFrames + overflowFrames, droppedEdges: value.droppedEdges + overflowEdges }));
   }
+}
+
+export function continueChatGestureTrace(previous: ChatGestureTrace, gestureId: string): ChatGestureTrace {
+  const next = new ChatGestureTrace(gestureId, previous.scopeId);
+  const last = previous.frames[previous.frames.length - 1];
+  if (last) next.sample(last.slice(1), true);
+  return next;
 }

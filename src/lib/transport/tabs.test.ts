@@ -16,6 +16,13 @@ function fixture(responses: unknown[] = [{}]) {
   return { calls, transport: createTabsTransport(client) };
 }
 
+it("reads child history with root authority and no send payload",async()=>{
+  const {transport,calls}=fixture();
+  await transport.agent_runtime_child_history({tabId:"owned",threadId:"child/a",request:{rootThreadId:"root",bindingNonce:"nonce",epoch:4}});
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({method:"GET",path:"/api/tabs/owned/agent/runtime/children/child%2Fa/history?rootThreadId=root&bindingNonce=nonce&epoch=4",body:undefined});
+});
+
 const simple = [
   ["wake_tab", "POST", "/api/tabs/tab/wake"],
   ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],

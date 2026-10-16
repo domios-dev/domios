@@ -1,6 +1,20 @@
 use super::*;
+use crate::js_runtime::SerdeModelInfo;
 
 impl JsProvider {
+    pub(super) fn js_discover_models(&self) -> Option<Vec<ModelInfo>> {
+        if !self.has_js("discoverModels") {
+            return None;
+        }
+        let _catalogue = self.vm.catalogue_gate.lock();
+        let fingerprint = self.vm.binary_fingerprint();
+        // `null` is the plugin's honest "no genuine discovery" signal — it must
+        // not deserialize-fail into warn noise, and never falls back to a seed.
+        self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[json!(fingerprint)])
+            .flatten()
+            .map(|models| models.iter().map(ModelInfo::from).collect())
+    }
+
     pub(super) fn js_model_launch_args(&self, model: &str) -> Vec<String> {
         if model.is_empty() {
             return Vec::new();
