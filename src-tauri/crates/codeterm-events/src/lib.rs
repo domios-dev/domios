@@ -96,46 +96,116 @@ pub struct CodeTermEvent {
 pub struct SeqEvent {
     pub seq: u64,
     pub event: SystemEvent,
+    pub frame: Arc<EncodedFrame>,
 }
 
-/// Replay-ring bounds (D1): count AND age, evict from front on either.
+#[derive(Debug)]
+pub struct EncodedFrame {
+    pub seq: u64,
+    pub event_type: String,
+    pub bytes: Arc<str>,
+    pub size: usize,
+}
+
+impl EncodedFrame {
+    fn new(seq: u64, boot: &str, event: &SystemEvent) -> Self {
+        let (event_type, data) = match event {
+            SystemEvent::Generic { event_type, data } => (event_type.clone(), data.clone()),
+            other => (
+                other.type_name().to_string(),
+                serde_json::to_value(other).unwrap_or(serde_json::Value::Null),
+            ),
+        };
+        let bytes: Arc<str> = serde_json::json!({
+            "seq": seq,
+            "boot": boot,
+            "event_type": event_type,
+            "data": data,
+        })
+        .to_string()
+        .into();
+        let size = bytes.len();
+        Self {
+            seq,
+            event_type,
+            bytes,
+            size,
+        }
+    }
+}
+
 const RING_MAX_COUNT: usize = 2048;
 const RING_MAX_AGE: Duration = Duration::from_secs(120);
+pub const RING_MAX_BYTES: usize = 8 * 1024 * 1024;
+pub const REPLAY_MAX_BYTES: usize = 2 * 1024 * 1024;
+pub const REPLAY_MAX_EVENTS: usize = 512;
+
+#[derive(Clone, Copy)]
+pub struct ReplayBudget {
+    pub max_bytes: usize,
+    pub max_events: usize,
+}
+
+impl Default for ReplayBudget {
+    fn default() -> Self {
+        Self {
+            max_bytes: REPLAY_MAX_BYTES,
+            max_events: REPLAY_MAX_EVENTS,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReplayStats {
+    pub retained_bytes: usize,
+    pub retained_events: usize,
+    pub retained_bytes_high_water: usize,
+    pub encoded_events: u64,
+    pub published_events: u64,
+    pub oversize_singleton: bool,
+}
 
 struct RingEntry {
     seq: u64,
     at: Instant,
-    event: SystemEvent,
+    event: Arc<SeqEvent>,
 }
 
-/// Bounded replay ring, separate from the broadcast channel. `next_seq`
-/// allocates the gap-free cursor under the push lock, which `send_bus` also
-/// holds across the broadcast send so delivery order == seq order.
 struct ReplayRing {
     entries: VecDeque<RingEntry>,
     next_seq: u64,
+    retained_bytes: usize,
+    retained_bytes_high_water: usize,
+    encoded_events: u64,
+    boot_id: String,
 }
 
 impl ReplayRing {
-    fn push(&mut self, event: SystemEvent, now: Instant) -> u64 {
+    fn push(&mut self, event: SystemEvent, now: Instant) -> SeqEvent {
         let seq = self.next_seq;
         self.next_seq = seq + 1;
+        let frame = Arc::new(EncodedFrame::new(seq, &self.boot_id, &event));
+        self.encoded_events += 1;
+        self.retained_bytes += frame.size;
+        let event = SeqEvent { seq, event, frame };
         self.entries.push_back(RingEntry {
             seq,
             at: now,
-            event,
+            event: Arc::new(event.clone()),
         });
-        while self.entries.len() > RING_MAX_COUNT {
-            self.entries.pop_front();
-        }
-        while self
-            .entries
-            .front()
-            .is_some_and(|e| now.duration_since(e.at) > RING_MAX_AGE)
+        while self.entries.len() > RING_MAX_COUNT
+            || (self.entries.len() > 1 && self.retained_bytes > RING_MAX_BYTES)
+            || self
+                .entries
+                .front()
+                .is_some_and(|e| now.duration_since(e.at) > RING_MAX_AGE)
         {
-            self.entries.pop_front();
+            if let Some(entry) = self.entries.pop_front() {
+                self.retained_bytes -= entry.event.frame.size;
+            }
         }
-        seq
+        self.retained_bytes_high_water = self.retained_bytes_high_water.max(self.retained_bytes);
+        event
     }
 }
 
@@ -143,7 +213,7 @@ impl ReplayRing {
 /// the bounds needed to classify a client `since` cursor.
 pub struct RingSnapshot {
     pub boot_id: String,
-    pub entries: Vec<SeqEvent>,
+    pub entries: Vec<Arc<SeqEvent>>,
     pub next_seq: u64,
 }
 
@@ -154,18 +224,18 @@ pub enum ReplayPlan {
     /// Boot changed — client must full-resync; overflow frame then live.
     BootChanged { next_seq: u64 },
     /// Cursor covered by the ring — replay events with `seq > S` in order.
-    Covered { replay: Vec<SeqEvent> },
-    /// Cursor older than the ring — overflow, then replay the full ring.
+    Covered { replay: Vec<Arc<SeqEvent>> },
+    /// Cursor or budget exceeded — overflow, then replay the retained suffix.
     Evicted {
         oldest: u64,
         next_seq: u64,
-        replay: Vec<SeqEvent>,
+        replay: Vec<Arc<SeqEvent>>,
     },
 }
 
 impl RingSnapshot {
-    pub fn plan(&self, since: Option<(&str, u64)>) -> ReplayPlan {
-        let Some((boot, s)) = since else {
+    pub fn plan(&self, since: Option<(&str, u64)>, budget: ReplayBudget) -> ReplayPlan {
+        let Some((boot, cursor)) = since else {
             return ReplayPlan::FromNow;
         };
         if boot != self.boot_id {
@@ -174,15 +244,25 @@ impl RingSnapshot {
             };
         }
         let oldest = self.entries.first().map(|e| e.seq).unwrap_or(self.next_seq);
-        // Covered iff the first event we'd need (S+1) is still retained.
-        if s + 1 >= oldest {
-            let replay = self.entries.iter().filter(|e| e.seq > s).cloned().collect();
+        let needed = self.entries.partition_point(|e| e.seq <= cursor);
+        let mut start = self.entries.len();
+        let mut bytes = 0;
+        while start > needed && self.entries.len() - start < budget.max_events {
+            let size = self.entries[start - 1].frame.size;
+            if size > budget.max_bytes.saturating_sub(bytes) {
+                break;
+            }
+            bytes += size;
+            start -= 1;
+        }
+        let replay = self.entries[start..].to_vec();
+        if cursor.saturating_add(1) >= oldest && start == needed {
             ReplayPlan::Covered { replay }
         } else {
             ReplayPlan::Evicted {
                 oldest,
                 next_seq: self.next_seq,
-                replay: self.entries.clone(),
+                replay,
             }
         }
     }
@@ -217,13 +297,18 @@ pub struct EventBroadcaster {
 impl EventBroadcaster {
     pub fn new() -> Self {
         let (system_bus, _) = broadcast::channel::<SeqEvent>(SYSTEM_BUS_CAPACITY);
+        let boot_id = Uuid::new_v4().simple().to_string();
         Self {
             webhooks: Arc::new(Mutex::new(HashMap::new())),
             system_bus,
-            boot_id: Uuid::new_v4().simple().to_string(),
+            boot_id: boot_id.clone(),
             ring: Mutex::new(ReplayRing {
                 entries: VecDeque::new(),
                 next_seq: 1,
+                retained_bytes: 0,
+                retained_bytes_high_water: 0,
+                encoded_events: 0,
+                boot_id,
             }),
         }
     }
@@ -249,12 +334,24 @@ impl EventBroadcaster {
             entries: ring
                 .entries
                 .iter()
-                .map(|e| SeqEvent {
-                    seq: e.seq,
-                    event: e.event.clone(),
+                .map(|e| {
+                    debug_assert_eq!(e.seq, e.event.seq);
+                    Arc::clone(&e.event)
                 })
                 .collect(),
             next_seq: ring.next_seq,
+        }
+    }
+
+    pub fn replay_stats(&self) -> ReplayStats {
+        let ring = self.ring.lock();
+        ReplayStats {
+            retained_bytes: ring.retained_bytes,
+            retained_events: ring.entries.len(),
+            retained_bytes_high_water: ring.retained_bytes_high_water,
+            encoded_events: ring.encoded_events,
+            published_events: ring.next_seq - 1,
+            oversize_singleton: ring.entries.len() == 1 && ring.retained_bytes > RING_MAX_BYTES,
         }
     }
 
@@ -284,10 +381,9 @@ impl EventBroadcaster {
     /// does not prevent. `ring` stays a leaf and `broadcast::send` is
     /// synchronous and non-blocking, so the guard never spans an `.await`.
     fn send_bus(&self, event: SystemEvent) {
-        let for_ring = event.clone();
         let mut ring = self.ring.lock();
-        let seq = ring.push(for_ring, Instant::now());
-        let _ = self.system_bus.send(SeqEvent { seq, event });
+        let event = ring.push(event, Instant::now());
+        let _ = self.system_bus.send(event);
     }
 
     /// Subscribe to the typed in-process event bus. Each subscriber gets
@@ -458,7 +554,13 @@ mod tests {
         flood(&bc, 5); // seqs 1..=5
         let snap = bc.snapshot_ring();
         let boot = snap.boot_id.clone();
-        match snap.plan(Some((&boot, 2))) {
+        match snap.plan(
+            Some((&boot, 2)),
+            ReplayBudget {
+                max_bytes: usize::MAX,
+                max_events: usize::MAX,
+            },
+        ) {
             ReplayPlan::Covered { replay } => {
                 let seqs: Vec<u64> = replay.iter().map(|e| e.seq).collect();
                 assert_eq!(seqs, vec![3, 4, 5]);
@@ -473,7 +575,13 @@ mod tests {
         flood(&bc, 5);
         let snap = bc.snapshot_ring();
         let boot = snap.boot_id.clone();
-        match snap.plan(Some((&boot, 5))) {
+        match snap.plan(
+            Some((&boot, 5)),
+            ReplayBudget {
+                max_bytes: usize::MAX,
+                max_events: usize::MAX,
+            },
+        ) {
             ReplayPlan::Covered { replay } => assert!(replay.is_empty()),
             _ => panic!("expected Covered"),
         }
@@ -487,7 +595,13 @@ mod tests {
         assert_eq!(snap.entries.len(), RING_MAX_COUNT);
         let oldest = snap.entries.first().unwrap().seq;
         let boot = snap.boot_id.clone();
-        match snap.plan(Some((&boot, 0))) {
+        match snap.plan(
+            Some((&boot, 0)),
+            ReplayBudget {
+                max_bytes: usize::MAX,
+                max_events: usize::MAX,
+            },
+        ) {
             ReplayPlan::Evicted {
                 oldest: o, replay, ..
             } => {
@@ -503,7 +617,13 @@ mod tests {
         let bc = EventBroadcaster::new();
         flood(&bc, 3);
         let snap = bc.snapshot_ring();
-        match snap.plan(Some(("some-other-boot", 1))) {
+        match snap.plan(
+            Some(("some-other-boot", 1)),
+            ReplayBudget {
+                max_bytes: usize::MAX,
+                max_events: usize::MAX,
+            },
+        ) {
             ReplayPlan::BootChanged { next_seq } => assert_eq!(next_seq, 4),
             _ => panic!("expected BootChanged"),
         }
@@ -514,7 +634,16 @@ mod tests {
         let bc = EventBroadcaster::new();
         flood(&bc, 3);
         let snap = bc.snapshot_ring();
-        assert!(matches!(snap.plan(None), ReplayPlan::FromNow));
+        assert!(matches!(
+            snap.plan(
+                None,
+                ReplayBudget {
+                    max_bytes: usize::MAX,
+                    max_events: usize::MAX
+                }
+            ),
+            ReplayPlan::FromNow
+        ));
     }
 
     #[test]
@@ -534,6 +663,10 @@ mod tests {
         let mut ring = ReplayRing {
             entries: VecDeque::new(),
             next_seq: 1,
+            retained_bytes: 0,
+            retained_bytes_high_water: 0,
+            encoded_events: 0,
+            boot_id: "test".into(),
         };
         let t0 = Instant::now();
         ring.push(SystemEvent::MuxStateChanged, t0);
@@ -556,7 +689,13 @@ mod tests {
         let snap = bc.snapshot_ring();
         let boot = snap.boot_id.clone();
         let cursor: u64 = 2;
-        let replay = match snap.plan(Some((&boot, cursor))) {
+        let replay = match snap.plan(
+            Some((&boot, cursor)),
+            ReplayBudget {
+                max_bytes: usize::MAX,
+                max_events: usize::MAX,
+            },
+        ) {
             ReplayPlan::Covered { replay } => replay,
             _ => panic!("expected Covered"),
         };
@@ -657,7 +796,13 @@ mod tests {
         let mut rx = bc.subscribe();
         let snap = bc.snapshot_ring();
         let boot = snap.boot_id.clone();
-        let plan = snap.plan(Some((&boot, 0)));
+        let plan = snap.plan(
+            Some((&boot, 0)),
+            ReplayBudget {
+                max_bytes: usize::MAX,
+                max_events: usize::MAX,
+            },
+        );
         let mut overflows = overflow_count_for(&plan);
         let (mut replayed_max, replay) = match plan {
             ReplayPlan::Evicted {
@@ -699,7 +844,13 @@ mod tests {
         let snap = bc.snapshot_ring();
         let boot = snap.boot_id.clone();
         let cursor = 2u64;
-        let replay = match snap.plan(Some((&boot, cursor))) {
+        let replay = match snap.plan(
+            Some((&boot, cursor)),
+            ReplayBudget {
+                max_bytes: usize::MAX,
+                max_events: usize::MAX,
+            },
+        ) {
             ReplayPlan::Covered { replay } => replay,
             _ => panic!("expected Covered"),
         };
@@ -748,6 +899,138 @@ mod tests {
             worst < Duration::from_millis(50),
             "critical section crossed the [LOCK-HOLD] threshold: {worst:?}"
         );
+    }
+
+    fn large_event(bytes: usize) -> SystemEvent {
+        SystemEvent::Generic {
+            event_type: "large".into(),
+            data: serde_json::json!({"text": "x".repeat(bytes)}),
+        }
+    }
+
+    #[test]
+    fn byte_eviction_is_oldest_first_and_gap_free() {
+        let bc = EventBroadcaster::new();
+        for _ in 0..5 {
+            bc.send_bus(large_event(2 * 1024 * 1024));
+            assert!(bc.replay_stats().retained_bytes <= RING_MAX_BYTES);
+        }
+        let snap = bc.snapshot_ring();
+        assert_eq!(
+            snap.entries.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            vec![3, 4, 5]
+        );
+        assert_eq!(snap.next_seq, 6);
+        assert_eq!(
+            bc.replay_stats().retained_bytes,
+            snap.entries.iter().map(|e| e.frame.size).sum::<usize>()
+        );
+    }
+
+    #[test]
+    fn oversized_singleton_is_visible_and_evicted_by_next_push() {
+        let bc = EventBroadcaster::new();
+        bc.send_bus(large_event(RING_MAX_BYTES));
+        let stats = bc.replay_stats();
+        assert!(stats.oversize_singleton);
+        assert!(stats.retained_bytes > RING_MAX_BYTES);
+        assert_eq!(stats.retained_events, 1);
+        let snap = bc.snapshot_ring();
+        assert!(
+            matches!(snap.plan(Some((bc.boot_id(), 0)), ReplayBudget::default()),
+            ReplayPlan::Evicted { replay, .. } if replay.is_empty())
+        );
+        bc.send_bus(SystemEvent::MuxStateChanged);
+        let stats = bc.replay_stats();
+        assert!(!stats.oversize_singleton);
+        assert_eq!(stats.retained_events, 1);
+        assert_eq!(bc.snapshot_ring().entries[0].seq, 2);
+        assert_eq!(stats.retained_bytes_high_water, snap.entries[0].frame.size);
+    }
+
+    #[test]
+    fn replay_budget_exact_fit_and_newest_contiguous_suffix() {
+        let bc = EventBroadcaster::new();
+        flood(&bc, 3);
+        let snap = bc.snapshot_ring();
+        let bytes = snap.entries.iter().map(|e| e.frame.size).sum::<usize>();
+        assert!(matches!(snap.plan(Some((bc.boot_id(), 0)),
+            ReplayBudget { max_bytes: bytes, max_events: 3 }),
+            ReplayPlan::Covered { replay } if replay.len() == 3));
+        for budget in [
+            ReplayBudget {
+                max_bytes: bytes - 1,
+                max_events: 3,
+            },
+            ReplayBudget {
+                max_bytes: bytes,
+                max_events: 2,
+            },
+        ] {
+            match snap.plan(Some((bc.boot_id(), 0)), budget) {
+                ReplayPlan::Evicted { replay, .. } => {
+                    assert_eq!(replay.iter().map(|e| e.seq).collect::<Vec<_>>(), vec![2, 3]);
+                    assert!(replay.iter().map(|e| e.frame.size).sum::<usize>() <= budget.max_bytes);
+                }
+                _ => panic!("expected budget overflow"),
+            }
+        }
+        assert!(
+            matches!(snap.plan(Some((bc.boot_id(), u64::MAX)), ReplayBudget::default()),
+            ReplayPlan::Covered { replay } if replay.is_empty())
+        );
+    }
+
+    #[test]
+    fn replay_default_limits_hold_for_covered_and_evicted_cursors() {
+        let bc = EventBroadcaster::new();
+        flood(&bc, 2100);
+        let snap = bc.snapshot_ring();
+        for cursor in [0, 52] {
+            match snap.plan(Some((bc.boot_id(), cursor)), ReplayBudget::default()) {
+                ReplayPlan::Evicted { replay, .. } => {
+                    assert_eq!(replay.len(), REPLAY_MAX_EVENTS);
+                    assert_eq!(replay.last().unwrap().seq, 2100);
+                    assert!(replay.iter().map(|e| e.frame.size).sum::<usize>() <= REPLAY_MAX_BYTES);
+                }
+                _ => panic!("expected replay limit"),
+            }
+        }
+    }
+
+    #[test]
+    fn replay_default_byte_budget_keeps_only_the_newest_fitting_events() {
+        let bc = EventBroadcaster::new();
+        for _ in 0..3 {
+            bc.send_bus(large_event(1024 * 1024));
+        }
+        let snap = bc.snapshot_ring();
+        match snap.plan(Some((bc.boot_id(), 0)), ReplayBudget::default()) {
+            ReplayPlan::Evicted { replay, .. } => {
+                assert_eq!(replay.len(), 1);
+                assert_eq!(replay[0].seq, 3);
+                assert!(replay[0].frame.size <= REPLAY_MAX_BYTES);
+            }
+            _ => panic!("expected byte budget overflow"),
+        }
+    }
+
+    #[test]
+    fn publish_encodes_once_and_shares_frame_with_every_subscriber_and_replay() {
+        let bc = EventBroadcaster::new();
+        let mut receivers: Vec<_> = (0..8).map(|_| bc.subscribe()).collect();
+        bc.publish(SystemEvent::MuxStateChanged);
+        let snap = bc.snapshot_ring();
+        let frame = &snap.entries[0].frame;
+        for rx in &mut receivers {
+            let received = rx.try_recv().unwrap();
+            assert!(Arc::ptr_eq(frame, &received.frame));
+            assert_eq!(received.seq, frame.seq);
+        }
+        assert_eq!(bc.replay_stats().encoded_events, 1);
+        assert_eq!(bc.replay_stats().published_events, 1);
+        let next = bc.snapshot_ring();
+        assert!(Arc::ptr_eq(&snap.entries[0], &next.entries[0]));
     }
 
     #[test]
