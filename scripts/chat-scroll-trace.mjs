@@ -3,7 +3,7 @@ import { sameAnchorLayoutResidual } from "./chat-scroll-residual.mjs";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const edgeNames = ["touchstart", "touchend", "scroll", "scrollend", "gesture", "write", "absorb", "resize", "clientHeight", "visualViewport", "capabilities", "jump_ignored_owned"];
+const edgeNames = ["touchstart", "touchend", "scroll", "scrollend", "gesture", "write", "absorb", "resize", "clientHeight", "visualViewport", "capabilities", "jump_ignored_owned", "fold"];
 export function decodeChatScrollTrace(log, threshold = 8) {
   const groups = new Map();
   for (const line of log.split(/\r?\n/)) {
@@ -25,12 +25,14 @@ export function decodeChatScrollTrace(log, threshold = 8) {
     const residuals = [];
     for (let index = 1; index < frames.length; index++) {
       const before = frames[index - 1], after = frames[index];
+      const compensated = edges.some(edge => edge[0] >= before[0] && edge[0] < after[0]
+        && (edge[1] === 5 || edge[1] === 12));
       const result = after[0] === before[0] + 1 ? sameAnchorLayoutResidual(
         { anchor: before[10], anchorTop: before[11], scrollTop: before[1] },
-        { anchor: after[10], anchorTop: after[11], scrollTop: after[1] }, threshold) : null;
+        { anchor: after[10], anchorTop: after[11], scrollTop: after[1] }, threshold, compensated) : null;
       if (!result) continue;
       residuals.push({ frame: after[0], ...result });
-      const delta = result.residual;
+      const delta = result.compensated ? result.visualDelta : result.residual;
       if (!result.failed) continue;
       jumps.push({ frame: after[0], delta, before, after,
         context: edges.filter(edge => edge[0] >= after[0] - 5 && edge[0] <= after[0])

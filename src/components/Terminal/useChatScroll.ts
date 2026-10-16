@@ -394,11 +394,11 @@ export function useChatScroll({
   gestureEndRef.current = () => {
     const el = scrollRef.current;
     if (el) {
+      const scrollBy = foldLayoutDrift?.() ?? 0;
+      if (scrollBy !== 0) writeScrollTop(el, el.scrollTop + scrollBy);
       el.style.overflowAnchor = chatOverflowAnchorFor(modeRef.current, false);
       const mode = chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el, true);
       if (mode !== modeRef.current || shouldCaptureChatAnchor(lastViewportRef.current, el, true)) setMode(mode, el);
-      const scrollBy = foldLayoutDrift?.() ?? 0;
-      if (scrollBy !== 0) writeScrollTop(el, el.scrollTop + scrollBy);
     }
     repairViewport();
   };
