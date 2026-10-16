@@ -65,3 +65,22 @@ const repeated=plan({...initial,cursor:itemPage.result.nextCursor});
 assert.throws(()=>reply(initial,repeated.state,{data:[],nextCursor:"repeat"}));
 assert.throws(()=>pagedHistoryPlan({...initial,threadId:"foreign",cursor:itemPage.result.nextCursor}));
 console.log(`PASS bounded history pager: 512 MiB logical history, ${large.pageCount} pages, max=${large.maxBytes} bytes; byte splits, page-9 retry, cursor refusal, binding, order and dedupe`);
+
+let adaptive = turns.plan;
+for (const limit of [8,4,2,1]) {
+  const step = pagedHistoryResponse(initial, adaptive.state as Record<string,unknown>, {
+    kind:"error",error:{code:-32097,message:"opaque",data:{historyPageLimit:limit}}
+  });
+  assert.equal(step.kind,"continue");
+  if (step.kind !== "continue" || step.plan.action.kind !== "request") throw new Error("No adaptive request");
+  assert.equal((step.plan.action.call.params as Record<string,unknown>).limit,limit);
+  assert.equal((step.plan.action.call.params as Record<string,unknown>).cursor,null);
+  adaptive = step.plan;
+}
+const projected = reply(initial,adaptive.state,{data:[{item:{id:"huge",type:"agentMessage",historyTruncated:true}}],nextCursor:"older"});
+assert.equal(projected.kind,"complete");
+if (projected.kind !== "complete" || projected.result.kind !== "historyPage") throw new Error("No projected page");
+assert.equal(projected.result.items[0].id,"huge");
+assert.match(projected.result.items[0].content,/truncated/);
+assert.ok(Buffer.byteLength(JSON.stringify(projected)) < HISTORY_CHUNK_BYTES);
+console.log("PASS adaptive limits 16 -> 8 -> 4 -> 2 -> 1, cursor retained, truncated row delivered");

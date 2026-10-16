@@ -143,16 +143,20 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
   }
   if (op.kind === "readHistory" && state.pager === 1) {
     if (reply.kind === "error" && reply.error.code === -32601 && ["turns","items"].includes(String(state.stage)))
-      return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",seq:0}));
+      return historyComplete(op,{items:[],openItems:[]});
     return pagedHistoryResponse(op,state,reply);
   }
   if (reply.kind === "error") {
+    const smaller = object(reply.error.data).historyPageLimit;
+    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097
+      && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
+      return historyItems(op,{...state,historyItemLimit:smaller},text(state.cursor));
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"}};
     if (op.kind === "initialize" && state.stage === "initializeLimits") return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent]};
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
     if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
-      return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",seq:0}));
+      return historyComplete(op,{items:[],openItems:[]});
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error,op.activeTurnId))
       return continuation(request("turn/start",turnParams(ctx,op)),true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived
@@ -182,7 +186,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       if (state.stage !== "verify") return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"verify",settings:codexEffectiveSettings(op.settings,value)}));
       return {kind:"complete",result:{kind:"threadLoaded",threadId:op.threadId,settings:state.settings as RuntimeSettings}};
     }
-    case "readHistory": return historyResponse(ctx,op,state,value);
+    case "readHistory": return historyResponse(op,state,value);
     case "submitTurn": {
       const turnId = text(object(value.turn).id) ?? text(value.turnId);
       return {kind:"complete",result:{kind:"turnAccepted",threadId:op.threadId,sendId:op.sendId,...(turnId ? {turnId} : {})}};
@@ -209,21 +213,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
   }
 }
 
-function historyResponse(ctx: RuntimeContext, op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>, value: Record<string,unknown>): RuntimeStep {
-  if (state.stage === "snapshot") {
-    if (!historyThread(ctx,value,op.threadId)) return refused("History snapshot thread identity unverified");
-    const turns = object(value.thread).turns;
-    if (!Array.isArray(turns)) return refused("Missing history snapshot turns");
-    let collected: Record<string,unknown> = {...state,items:[],openItems:[],questions:[]};
-    for (const raw of turns.slice(Number(state.snapshotTurn ?? 0))) {
-      const turn = object(raw);
-      if (!text(turn.id) || !Array.isArray(turn.items)) return refused("Missing history snapshot turn items");
-      collected = collectHistoryItems(op,collected,turn,turn.items);
-      if (collected.offset != null) return streamHistory(op,continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},
-        {...collected,stage:"snapshot",snapshotTurn:turns.indexOf(raw)})),collected);
-    }
-    return historyGoal(op,collected);
-  }
+function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>, value: Record<string,unknown>): RuntimeStep {
   if (state.stage === "goal") {
     const objective = text(object(sanitizeHistory(object(value.goal))).objective);
     if (objective) state.items = [...list(state.items),{id:"thread:goal",seq:Number(state.seq)+1,type:"custom",content:"",sessionIntent:{goal:objective}}];
@@ -282,7 +272,7 @@ function collectHistoryItems(op: Extract<Operation,{kind:"readHistory"}>, state:
 function historyItems(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>, cursor?: string): RuntimeStep {
   const turn = object(list(state.turns)[Number(state.index)]);
   if (!text(turn.id)) return refused("Missing history turn id");
-  return continuation(request("thread/items/list",{threadId:op.threadId,turnId:turn.id,sortDirection:"asc",limit:100,cursor},{...state,cursor:cursor ?? null}));
+  return continuation(request("thread/items/list",{threadId:op.threadId,turnId:turn.id,sortDirection:"asc",limit:Number(state.historyItemLimit ?? 100),cursor},{...state,historyItemLimit:Number(state.historyItemLimit ?? 100),cursor:cursor ?? null}));
 }
 function historyGoal(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>): RuntimeStep {
   if (text(state.nextCursor)) return historyComplete(op,state);
