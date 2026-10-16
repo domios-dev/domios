@@ -47,11 +47,9 @@ fn prompt_placeholders_are_fully_substituted() {
     assert!(first_message.contains("fixture-team"));
     assert!(first_message.contains("fixture-plan"));
     assert!(peer_pairing_mandate_full(spawn_cmd).contains(spawn_cmd));
-    assert!(
-        GENERAL_AGENT_TEMPLATE
-            .replace("{codeterm_cli}", general_cli)
-            .contains(general_cli)
-    );
+    assert!(GENERAL_AGENT_TEMPLATE
+        .replace("{codeterm_cli}", general_cli)
+        .contains(general_cli));
 }
 
 #[test]
