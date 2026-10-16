@@ -653,6 +653,11 @@ export function TeamUnit({
         ref={headerRef}
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-plan-entry-completion" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
+        onClick={(event) => {
+          if (plan && !editing && event.target instanceof Element && event.target.closest(".sidebar-team-title-block")) {
+            onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id });
+          }
+        }}
       >
         {plan && !editing ? (
           <div
