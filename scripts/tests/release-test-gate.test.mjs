@@ -112,6 +112,19 @@ test("each fast check cancels the calling run on its own failure; nothing else c
   assert.equal(tests.on.workflow_call.inputs.cancel_run.default, false, "pull requests and pushes never cancel themselves");
 });
 
+test("only a dry run tolerates refused artifact uploads, and every Rust test job stays required", () => {
+  assert.equal(tests.on.workflow_call.inputs.artifacts_optional.default, false);
+  for (const id of ["quick-checks", "tests"]) assert.equal(release.jobs[id].with.artifacts_optional, "${{ needs.prepare.outputs.dry_run == 'true' }}", id);
+  const tolerant = Object.entries(tests.jobs).flatMap(([id, job]) => (job.steps || [])
+    .filter(step => step["continue-on-error"] === "${{ inputs.artifacts_optional }}").map(step => [id, step]));
+  for (const [id, step] of tolerant) {
+    assert.ok(/actions\/(upload|download)-artifact@/.test(step.uses ?? "") || step.run === "node scripts/ci-rust-tests.mjs verify ci-rust-receipts", `${id}: only artifact transport and receipt verification may be optional`);
+  }
+  assert.deepEqual(tolerant.map(([id]) => id).sort(), ["frontend-windows", "rust-embeddings", "rust-platform", "rust-receipts", "rust-receipts", "rust-tests"]);
+  const required = tests.jobs["rust-receipts"].steps.find(step => step.name === "Require every Rust test job");
+  assert.equal(required["continue-on-error"], undefined);
+});
+
 test("publication needs every stage to succeed", () => {
   const vars = { RELEASE_PUBLISH_ENABLED: "true" };
   const ok = Object.fromEntries([...builds, "tests"].map(id => [id, { result: "success" }]));
@@ -167,7 +180,7 @@ test("reusable tests require the release SHA and force scope through both skip g
   assert.equal(tests.on.schedule, undefined, "no nightly trigger without a scheduled catalogue tier");
   assert.equal(tests.on.workflow_call.inputs.source_ref.required, true);
   assert.equal(tests.on.workflow_call.inputs.source_ref.type, "string");
-  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase", "cancel_run"]);
+  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase", "cancel_run", "artifacts_optional"]);
   const changed = tests.jobs.changed;
   assert.equal(changed.if, "${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}", "only a release branch's own pull request skips; release calls inherit the push event");
   assert.equal(changed.steps.find(step => step.id === "tree").env.CI_RELEASE_CALL, "${{ inputs.source_ref != '' }}");

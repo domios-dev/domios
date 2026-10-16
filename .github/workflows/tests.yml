@@ -26,6 +26,11 @@ on:
         required: false
         default: false
         type: boolean
+      artifacts_optional:
+        description: Dry runs keep going when artifact storage refuses an upload
+        required: false
+        default: false
+        type: boolean
   pull_request:
   push:
     branches: [master]
@@ -338,6 +343,7 @@ jobs:
         run: bash build.sh cache-stats
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
+        continue-on-error: ${{ inputs.artifacts_optional }}
         with:
           overwrite: true
           name: rust-receipt-${{ matrix.suite }}-${{ runner.os }}
@@ -429,6 +435,7 @@ jobs:
           package-manager-cache: false
           node-version: '22.22.0'
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: ${{ inputs.artifacts_optional }}
         with:
           pattern: rust-receipt-*
           path: ci-rust-receipts
@@ -439,7 +446,9 @@ jobs:
           PLATFORM_RESULT: ${{ needs.rust-platform.result }}
           EMBEDDINGS_RESULT: ${{ needs.rust-embeddings.result }}
         run: node -e "if (process.env.TESTS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success' || process.env.EMBEDDINGS_RESULT !== 'success') process.exit(1)"
+      # A dry run without artifact storage still requires every test job above; only the receipts may be absent.
       - name: One passing full suite and one passing platform subset per OS
+        continue-on-error: ${{ inputs.artifacts_optional }}
         run: node scripts/ci-rust-tests.mjs verify ci-rust-receipts
 
   clippy-linux:
@@ -579,6 +588,7 @@ jobs:
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
       - name: Upload frontend warning collection
         if: always()
+        continue-on-error: ${{ inputs.artifacts_optional }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           overwrite: true
