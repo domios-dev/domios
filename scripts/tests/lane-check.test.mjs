@@ -77,6 +77,7 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
     lane_check codeterm-fixture && exit 1 || [ "$?" = 41 ]
     lane_check codeterm-fixture --tests && exit 1 || [ "$?" = 41 ]
     lane_check codeterm-cli --tests && exit 1 || [ "$?" = 41 ]
+    lane_check codeterm-fixture --tests --timings && exit 1 || [ "$?" = 41 ]
     lane_check codeterm-fixture --all && exit 1 || [ "$?" = 2 ]
   `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
@@ -84,6 +85,7 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
     'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib',
     'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests',
     'jobs=4 check --manifest-path cli/Cargo.toml -p codeterm-cli --bin codeterm --tests',
+    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests --timings',
   ]);
 });
 

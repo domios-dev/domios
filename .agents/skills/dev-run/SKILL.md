@@ -312,6 +312,13 @@ well as the immediate environment before declaring recovery complete.
 
 ### Windows
 
+- **Slow MSVC link step** — the project Cargo config selects Rust's bundled
+  `rust-lld.exe` for x86_64 MSVC. It still needs the Windows SDK and MSVC
+  libraries loaded by build.sh. If the linker cannot be found, repair the
+  installed Rust toolchain; do not replace it with a machine-specific path.
+  Use the build skill's `dev-link-measure --wait-build` recipe to separate
+  linker time from gateway/setup time without restarting the running DEV.
+
 - **2026-07-25: process starts but 7686 never binds** — a temporary config guard
   in the `ServiceContext` literal was reacquired by a later field. Snapshot config
   once before constructing the context; do not erase dev state to mask the deadlock.

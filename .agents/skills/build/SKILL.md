@@ -198,6 +198,35 @@ from unset to that value invalidates native build scripts and their dependents.
 build. Keep this environment shared through packaging; do not hardcode a second
 minimum version or change the tuned profiles to hide the rebuild.
 
+For inner-loop build measurements, use `./build.sh dev-link-measure
+[app|cli-release|cli-dev] --wait-build` in a fresh Team build shell with
+`--timeout 10m`. The default app scope uses DEV's configured profile and
+features, prepares resource placeholders, and builds only its binary with
+`--timings`. CLI scopes select the existing release or dev profile. This
+operation installs nothing and starts or stops no application; it measures
+compilation rather than relaunch readiness. Keep the target and intermediate
+directories isolated from running DEV.
+
+On Windows, set `CODETERM_LINK_TIMING=1` for linker `/TIME` output and rustc
+link logging. The recipe excludes `LINK` from MSYS environment path conversion;
+otherwise `/TIME` becomes a Git directory path and linking fails with
+`LNK1181: cannot open input file C:\Program.obj`.
+
+Record gateway queue time separately from wall and Cargo times. HTML timings
+separate frontend and codegen where Cargo receives those events; a binary or
+multi-output library's duration is not a pure linker measurement. Fresh shells
+avoid carrying a previous measurement shell's deadline into a queued run.
+`lane-check <package> --tests --timings --wait-build` is the serialized lane
+measurement path; ordinary lane-check retains its existing Cargo locking.
+
+The repository selects `rust-lld.exe` for `x86_64-pc-windows-msvc`; Rust ships
+this linker, while build.sh still loads the MSVC/SDK libraries. A linker change
+invalidates Cargo fingerprints once. Measure warm edits after that seed;
+compare actual `/TIME` output, not the seed's full rebuild against a warm run.
+Cargo can replay old rustc stderr for fresh artifacts, so count link output
+only when the timing report also shows that target compiled in this run.
+Canonical DEV and check-queue retain incremental compilation.
+
 CLI builds rely on `cli/build.rs` watching Git HEAD and its branch reference;
 do not touch `cli/src/main.rs` to force a rebuild. Repeated builds at the same
 SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
