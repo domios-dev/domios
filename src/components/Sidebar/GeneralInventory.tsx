@@ -1,7 +1,11 @@
 import { useId, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Tab, Team, Workspace } from "../../lib/types";
-import { shellPurposeLabel, shellStateLabel } from "../../lib/shellCommandState";
+import { Circle, Clock3 } from "lucide-react";
+import { SidebarCronRow, SidebarResourceRow } from "./SidebarResourceRow";
+import { SidebarShellRow, type SidebarOwnerTabRowProps } from "./SidebarShellRow";
+import { persistTabRename } from "./SidebarPlanPeerPair";
+import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { generalInventorySections, projectUtilityShells } from "../General/generalOverviewModel";
 import { ServiceDrawer, type DrawerState } from "../MeshPanel/ServiceDrawer";
 import { useMeshData, type MeshDataResult } from "../MeshPanel/useMeshData";
@@ -40,44 +44,66 @@ function InventoryGroup({ name, count, children, touchMode }: { name: GroupName;
   </section>;
 }
 
-function InventoryRow({ name, label = name, detail, onClick, touchMode }: { name: string; label?: string; detail: string; onClick: () => void; touchMode: boolean }) {
-  return <li className="min-w-0"><button type="button" aria-label={`Open ${name}`} onClick={onClick}
-    className={`w-full min-w-0 rounded px-2 py-1 text-left text-xs hover:bg-[var(--ct-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)] ${touchMode ? "min-h-11" : "min-h-8"}`}>
-    <span className="block truncate" title={label}>{label}</span><span className="block truncate text-[var(--ct-muted-fg)]" title={detail}>{detail}</span>
-  </button></li>;
-}
-
 export interface GeneralInventoryProps {
   workspaces: readonly Workspace[];
   teams: readonly Team[];
   tabs: Record<string, Tab>;
   onNavigate: (workspaceId: string, tabId: string) => void;
   touchMode?: boolean;
+  onCloseTab: (workspaceId: string, tabId: string) => void;
+  onRenameTab: (workspaceId: string, tabId: string, title: string) => void;
+  rowState?: Pick<SidebarOwnerTabRowProps, "tabStatuses" | "tabAttentionByTab" | "planIndex" | "activeWork" | "closingTabIds" | "appearingTabIds" | "orchestrators" | "uiFontScale">;
 }
 
-export function GeneralInventorySections({ workspaces, teams, tabs, onNavigate, touchMode = false, inventory, jobs, jobsFailed = false, onOpenJob = openTabJob }: GeneralInventoryProps & {
+export function GeneralInventorySections({ workspaces, teams, tabs, onNavigate, touchMode = false, onCloseTab, onRenameTab, rowState, inventory, jobs, jobsFailed = false, onOpenJob = openTabJob, onJobsChanged = () => {} }: GeneralInventoryProps & {
   inventory: MeshDataResult;
   jobs: readonly MergedJob[];
   jobsFailed?: boolean;
   onOpenJob?: (job: MergedJob) => void;
+  onJobsChanged?: () => void;
 }) {
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const sections = generalInventorySections({ resources: inventory.services, loading: inventory.loading, error: inventory.error }, inventory.thisMachine.name);
   const shells = projectUtilityShells(workspaces, tabs, teams);
   const remoteSchedules = sections.remoteSchedules;
-  const resourceRows = (rows: typeof sections.services.rows) => rows.map((row) => <InventoryRow key={row.resourceKey}
-    name={`${row.resource.name}, machine ${row.machineName}`} label={row.resource.name} detail={`${row.machineName} · ${row.stateLabel} · ${row.freshness}${row.schedule ? ` · ${row.schedule}` : ""}`} touchMode={touchMode}
-    onClick={() => setDrawer({ kind: "service", id: row.resource.id, sourcePeerId: row.resource.source_peer_id ?? row.resource.source_peer })} />);
+  const attachmentsByOwner = surfaceAttachmentsByOwner(Object.values(tabs));
+  const resourceRows = (rows: typeof sections.services.rows) => rows.map((row) => <li key={row.resourceKey}>
+    <SidebarResourceRow name={row.resource.name} state={row.stateLabel}
+      accessibleName={`Open ${row.resource.name}, machine ${row.machineName}`}
+      title={`${row.machineName} · ${row.stateLabel} · ${row.freshness}${row.schedule ? ` · ${row.schedule}` : ""}`}
+      icon={row.schedule ? <Clock3 size={11} aria-hidden="true" /> : <Circle size={7} fill="currentColor" aria-hidden="true" />}
+      onOpen={() => setDrawer({ kind: "service", id: row.resource.id, sourcePeerId: row.resource.source_peer_id ?? row.resource.source_peer })} />
+  </li>);
   return <div className="min-w-0">
     <InventoryGroup name="Jobs" count={jobs.length + remoteSchedules.length} touchMode={touchMode}>
-      {jobs.map((job) => <InventoryRow key={`${job.kind}:${mergedJobId(job)}`} name={`job ${job.title}`} label={job.title} detail={jobStateLabel(job.state)} touchMode={touchMode} onClick={() => onOpenJob(job)} />)}
+      {jobs.map((job) => <li key={`${job.kind}:${mergedJobId(job)}`}>
+        {job.kind === "cron" ? <SidebarCronRow job={job.cron} tabs={tabs} onDeleted={onJobsChanged} />
+          : <SidebarResourceRow name={job.title} state={jobStateLabel(job.state)} icon={<Clock3 size={11} aria-hidden="true" />}
+            accessibleName={`Open job ${job.title}`} onOpen={() => onOpenJob(job)} />}
+      </li>)}
       {resourceRows(remoteSchedules)}
     </InventoryGroup>
     <InventoryGroup name="Services" count={sections.services.rows.length} touchMode={touchMode}>{resourceRows(sections.services.rows)}</InventoryGroup>
     <InventoryGroup name="Utility shells" count={shells.length} touchMode={touchMode}>
-      {shells.map((shell) => <InventoryRow key={shell.tab.id} name={`utility shell ${shell.tab.title}`} label={shell.tab.title} touchMode={touchMode}
-        detail={`${shell.workspace.name} · ${shell.team?.name ?? "No Team"} · ${shell.owner?.name ?? "User"} · ${shellPurposeLabel(shell.tab.purpose)} · ${shellStateLabel(shell.tab.shell_command_state)}`}
-        onClick={() => onNavigate(shell.target.workspaceId, shell.target.tabId)} />)}
+      {shells.map((shell, index) => <li key={shell.tab.id}>
+        <SidebarShellRow tab={shell.tab} index={index} tabs={tabs}
+          attachments={attachmentsByOwner.get(shell.tab.id) ?? []}
+          planIndex={rowState?.planIndex ?? []} activeWork={rowState?.activeWork}
+          closingTabIds={rowState?.closingTabIds ?? new Set()} appearingTabIds={rowState?.appearingTabIds ?? new Set()}
+          compact={false} sortable={false} group="team" groupKey={shell.tab.team_id ?? shell.workspace.id} pinnedIds={[]}
+          workspaceId={shell.workspace.id} activeTabId={null} isActiveVisual={false} workspaceCanvasActive={false}
+          tabStatuses={rowState?.tabStatuses ?? {}} tabAttentionByTab={rowState?.tabAttentionByTab}
+          orchestrators={rowState?.orchestrators ?? []} touchMode={touchMode} uiFontScale={rowState?.uiFontScale}
+          onActivateTab={(tabId) => {
+            const workspace = workspaces.find((entry) => entry.tabs.includes(tabId));
+            if (workspace) onNavigate(workspace.id, tabId);
+          }}
+          onCloseTab={(tabId) => onCloseTab(shell.workspace.id, tabId)}
+          onRenameTab={(tabId, title) => {
+            onRenameTab(shell.workspace.id, tabId, title);
+            persistTabRename(shell.workspace.id, tabId, title);
+          }} />
+      </li>)}
     </InventoryGroup>
     {jobsFailed && <InlineErrorNotice error={{ code: "jobs_unavailable", raw: "" }} />}
     {inventory.error && <InlineErrorNotice error={inventory.error} />}
@@ -87,6 +113,6 @@ export function GeneralInventorySections({ workspaces, teams, tabs, onNavigate, 
 
 export function GeneralInventory(props: GeneralInventoryProps) {
   const inventory = useMeshData(0);
-  const { jobs, failed } = useGeneralJobs(props.workspaces);
-  return <GeneralInventorySections {...props} inventory={inventory} jobs={jobs} jobsFailed={failed} />;
+  const { jobs, failed, refresh } = useGeneralJobs(props.workspaces);
+  return <GeneralInventorySections {...props} inventory={inventory} jobs={jobs} jobsFailed={failed} onJobsChanged={refresh} />;
 }

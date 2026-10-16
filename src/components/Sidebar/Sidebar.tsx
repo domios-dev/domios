@@ -803,6 +803,9 @@ export function Sidebar({
                       onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(generalWorkspace.id, target) : undefined}
                     />}
                     {generalExpanded && <GeneralInventory workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} touchMode={touchMode}
+                      rowState={{ tabStatuses: state.tabStatuses, tabAttentionByTab: attention, planIndex, activeWork,
+                        closingTabIds: new Set(closingTabs.keys()), appearingTabIds: appearingTabs, orchestrators: generalOrchestrators, uiFontScale }}
+                      onCloseTab={animatedCloseTab} onRenameTab={setTabTitle}
                       onNavigate={(workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); }} />}
                   </section>
                 );

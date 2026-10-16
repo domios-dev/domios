@@ -131,7 +131,7 @@ describe("web host picker placement", () => {
     const contents = host.querySelector('[data-testid="general-section"]');
     expect(contents).not.toBeNull();
     expect(contents!.querySelector('button[aria-label="Map"]')).toBeNull();
-    expect(contents!.querySelector('button[aria-label^="Jobs"]')).not.toBeNull();
+    expect(contents!.querySelector('button[aria-label^="Jobs"]:not([aria-expanded])')).toBeNull();
   });
 
   it("stays mounted when the sidebar collapses", async () => {

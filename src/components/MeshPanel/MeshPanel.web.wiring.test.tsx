@@ -71,7 +71,7 @@ it("renders the same daemon and schedule source in General after removing Mesh r
         <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />
         <ServiceDrawer state={{ kind: "peer", id: "Remote machine" }} services={inventory.services} peers={inventory.peers} thisMachineName="Local" onClose={() => {}} onActionDone={() => {}} />
       </section>
-      <GeneralInventorySections workspaces={workspaces} teams={teams} tabs={tabs} inventory={inventory} jobs={[]} onNavigate={(workspaceId, tabId) => navigated.push([workspaceId, tabId])} />
+      <GeneralInventorySections workspaces={workspaces} teams={teams} tabs={tabs} inventory={inventory} jobs={[]} onCloseTab={() => {}} onRenameTab={() => {}} onNavigate={(workspaceId, tabId) => navigated.push([workspaceId, tabId])} />
     </>));
     const mesh = host.querySelector('section[aria-label="Mesh resource source"]')!;
     expect(mesh.textContent).not.toContain(daemon.name);
@@ -83,7 +83,7 @@ it("renders the same daemon and schedule source in General after removing Mesh r
     for (const resource of [daemon, schedule]) {
       expect(host.querySelector(`button[aria-label="Open ${resource.name}, machine ${resource.machine_name}"]`)).not.toBeNull();
     }
-    const utility = host.querySelector<HTMLButtonElement>(`button[aria-label="Open utility shell ${shell.title}"]`);
+    const utility = host.querySelector<HTMLButtonElement>(`button[aria-label="Open tab qa shell, ${shell.title}"]`);
     expect(utility).not.toBeNull();
     await act(async () => utility!.click());
     expect(navigated).toEqual([[workspaces[0].id, shell.id]]);

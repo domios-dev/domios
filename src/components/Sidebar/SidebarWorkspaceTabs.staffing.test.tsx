@@ -73,6 +73,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(close, "Close Team action is available");
   await act(async () => close.click());
   assert(closed.join(",") === TEAM.id, "Close Team reports the exact Team id");
+  assert(host.querySelector(`section[aria-label="${TEAM.name}"]`), "Team identity remains visible without a plan");
   assert(!host.querySelector('[data-testid="team-plan-button"]'), "no plan button is rendered without a plan");
   assert(!host.querySelector('[data-testid="team-status-tally"]'), "no plan tally is rendered without a plan");
   canvasFocusStore.closeWorkspace();
