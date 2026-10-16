@@ -7,10 +7,22 @@ fn rpc_ledger_admission_traces_the_existing_id_before_transport_and_exact_turn()
         let status = started(&ledger, "nonce-a");
         ledger.mark_rpc_accepted(&status.send_id).unwrap();
         assert!(ledger
-            .confirm_rpc_send("tab-a", "foreign", "nonce-a", &status.send_id)
+            .confirm_rpc_send(
+                "tab-a",
+                "foreign",
+                "nonce-a",
+                &status.send_id,
+                "provider-item"
+            )
             .is_none());
         ledger
-            .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &status.send_id)
+            .confirm_rpc_send(
+                "tab-a",
+                "thread-a",
+                "nonce-a",
+                &status.send_id,
+                "provider-item",
+            )
             .unwrap();
     });
     assert_eq!(
@@ -75,7 +87,13 @@ fn codex_rpc_send_ledger_held_written_delivered_by_exact_client_id() {
     );
     assert_eq!(
         ledger
-            .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &status.send_id)
+            .confirm_rpc_send(
+                "tab-a",
+                "thread-a",
+                "nonce-a",
+                &status.send_id,
+                "provider-item"
+            )
             .unwrap()
             .state,
         ChatSendState::Sent
@@ -95,16 +113,40 @@ fn codex_rpc_send_ledger_rejects_foreign_thread_tab_nonce_and_client_id() {
     let status = started(&ledger, "nonce-a");
     ledger.mark_rpc_accepted(&status.send_id);
     assert!(ledger
-        .confirm_rpc_send("tab-b", "thread-a", "nonce-a", &status.send_id)
+        .confirm_rpc_send(
+            "tab-b",
+            "thread-a",
+            "nonce-a",
+            &status.send_id,
+            "provider-item"
+        )
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-b", "nonce-a", &status.send_id)
+        .confirm_rpc_send(
+            "tab-a",
+            "thread-b",
+            "nonce-a",
+            &status.send_id,
+            "provider-item"
+        )
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-b", &status.send_id)
+        .confirm_rpc_send(
+            "tab-a",
+            "thread-a",
+            "nonce-b",
+            &status.send_id,
+            "provider-item"
+        )
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", "foreign-id")
+        .confirm_rpc_send(
+            "tab-a",
+            "thread-a",
+            "nonce-a",
+            "foreign-id",
+            "provider-item"
+        )
         .is_none());
     assert_eq!(
         ledger.status(&status.send_id).unwrap().state,
@@ -134,11 +176,23 @@ fn codex_rpc_send_ledger_evidence_before_response_wins_and_one_item_confirms_onc
     let first = started(&ledger, "nonce-a");
     let second = started(&ledger, "nonce-a");
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &first.send_id)
+        .confirm_rpc_send(
+            "tab-a",
+            "thread-a",
+            "nonce-a",
+            &first.send_id,
+            "provider-item"
+        )
         .is_some());
     assert!(ledger.mark_rpc_accepted(&first.send_id).is_none());
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &first.send_id)
+        .confirm_rpc_send(
+            "tab-a",
+            "thread-a",
+            "nonce-a",
+            &first.send_id,
+            "provider-item"
+        )
         .is_none());
     assert_eq!(
         ledger.status(&second.send_id).unwrap().state,
@@ -158,7 +212,13 @@ fn codex_rpc_send_ledger_uncertainty_keeps_late_exact_evidence_and_refuses_recla
     assert!(ledger.mark_rpc_accepted(&status.send_id).is_none());
     assert!(!ledger.bind_rpc_send(&status.send_id, SendLiveBinding::default()));
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &status.send_id)
+        .confirm_rpc_send(
+            "tab-a",
+            "thread-a",
+            "nonce-a",
+            &status.send_id,
+            "provider-item"
+        )
         .is_some());
 }
 
@@ -257,4 +317,60 @@ fn parked_user_delivery_accepted_rpc_does_not_block_later_held_message() {
         ledger.status(&status.send_id).unwrap().state,
         ChatSendState::Written
     );
+}
+
+#[test]
+fn runtime_items_claim_identical_sends_once_and_survive_durable_restore() {
+    use crate::service::chat_send_transaction::{MatchedRow, SendRowClaim, SourceRowRef};
+    use crate::service::pending_delivery_payloads::user_sends::UserSendStore;
+    let ledger = ChatSendLedger::default();
+    let first = started(&ledger, "nonce-a");
+    let second = started(&ledger, "nonce-a");
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &first.send_id, "")
+        .is_none());
+    let first = ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &first.send_id, "user-1")
+        .unwrap();
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &second.send_id, "user-1")
+        .is_none());
+    assert_eq!(
+        ledger.status(&second.send_id).unwrap().state,
+        ChatSendState::Pending
+    );
+    let second = ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &second.send_id, "user-2")
+        .unwrap();
+    let claims: Vec<_> = [&first, &second]
+        .into_iter()
+        .map(|status| SendRowClaim::from_status(status).unwrap())
+        .collect();
+    for (status, item) in [(&first, "user-1"), (&second, "user-2")] {
+        assert_eq!(
+            status.matched_row,
+            Some(MatchedRow {
+                source: SourceRowRef::structured("thread-a", item).unwrap(),
+                ordinal: 1
+            })
+        );
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    store.record_source_claims("tab-a", &claims).unwrap();
+    drop(store);
+    let reopened = UserSendStore::open(dir.path()).unwrap();
+    let restored = ChatSendLedger::default();
+    for claim in reopened.source_claims("tab-a").unwrap() {
+        restored.restore_source_claim(&claim);
+    }
+    for status in [&first, &second] {
+        let actual = restored.status(&status.send_id).unwrap();
+        assert_eq!(actual.state, ChatSendState::Sent);
+        assert_eq!(actual.matched_row, status.matched_row);
+    }
+    let third = started(&restored, "nonce-a");
+    assert!(restored
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &third.send_id, "user-1")
+        .is_none());
 }

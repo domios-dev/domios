@@ -456,6 +456,7 @@ pub enum AgentRuntimeEvent {
         status_line: Option<String>,
     },
     SendEvidence {
+        item_id: String,
         thread_id: String,
         send_id: String,
         turn_id: String,

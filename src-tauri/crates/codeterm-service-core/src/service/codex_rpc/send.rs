@@ -622,6 +622,7 @@ fn observe(svc: &ServiceContext, tab: &str, sidecar: &Arc<Sidecar>) {
                     };
                     let Frame::Notification { method, params } = event else { continue };
                     let Some((thread, client_id)) = user_client_id(&method, &params) else { continue };
+                    let Some(item_id) = params.get("item").and_then(|item| item.get("id")).and_then(Value::as_str) else { continue };
                     let Some(sidecar) = weak.upgrade() else { break };
                     if !super::lifecycle::for_tab(&tab).is_some_and(|current| Arc::ptr_eq(&current, &sidecar))
                         || !sidecar.verified.load(Ordering::Acquire) || *sidecar.thread.lock() != thread { continue; }
@@ -632,7 +633,7 @@ fn observe(svc: &ServiceContext, tab: &str, sidecar: &Arc<Sidecar>) {
                             .and_then(|tab| tab.session_binding_nonce.clone())
                     };
                     if let Some(nonce) = nonce {
-                        if let Some(status) = svc.chat_send_ledger.confirm_rpc_send(&tab, thread, &nonce, client_id) {
+                        if let Some(status) = svc.chat_send_ledger.confirm_rpc_send(&tab, thread, &nonce, client_id, item_id) {
                             log::info!("[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={client_id} send_id={} state=delivered", status.send_id);
                             emit(&svc, &status);
                         }

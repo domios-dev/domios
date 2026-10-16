@@ -740,22 +740,28 @@ async fn codex_rpc_send_two_busy_messages_are_two_independently_confirmed_steers
         assert_eq!(calls[index].1["clientUserMessageId"], ids[index]);
     }
     assert!(ledger
-        .confirm_rpc_send("tab-a", "foreign", "nonce-a", &ids[0])
+        .confirm_rpc_send("tab-a", "foreign", "nonce-a", &ids[0], "provider-item")
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "stale", &ids[0])
+        .confirm_rpc_send("tab-a", "thread-a", "stale", &ids[0], "provider-item")
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0], "provider-item")
         .is_some());
     assert_eq!(
         ledger.status(&ids[1]).unwrap().state,
         ChatSendState::Written
     );
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0], "provider-item")
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[1])
+        .confirm_rpc_send(
+            "tab-a",
+            "thread-a",
+            "nonce-a",
+            &ids[1],
+            "provider-item-second"
+        )
         .is_some());
 }

@@ -65,7 +65,7 @@ function usage(params: Record<string,unknown>): TokenUsage | undefined {
     ...(typeof token.modelContextWindow === "number" ? {window_tokens:token.modelContextWindow} : {})};
 }
 function sendEvidence(ctx: RuntimeContext, item: Record<string,unknown>, turnId: string | undefined): AgentEvent | undefined {
-  if (item.type !== "userMessage" || !turnId) return undefined;
+  if (item.type !== "userMessage" || !text(item.id) || !turnId) return undefined;
   const sendId = text(item.clientId);
   const claim = ctx.claimedSends.find(c => c.sendId === sendId && c.threadId === ctx.threadId);
   if (!claim) return undefined;
@@ -80,7 +80,7 @@ function sendEvidence(ctx: RuntimeContext, item: Record<string,unknown>, turnId:
     if (expected.url) return image.type === "image" && image.url === expected.url;
     return !!expected.path && image.type === "localImage" && image.path === expected.path;
   })) return undefined;
-  return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId};
+  return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId,itemId:text(item.id)!};
 }
 function stamp(state: ReduceState, row: RuntimeItem, params: Record<string,unknown>): RuntimeItem {
   const previous = state.items[row.id];

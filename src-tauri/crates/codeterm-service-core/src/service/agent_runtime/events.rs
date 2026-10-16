@@ -52,6 +52,7 @@ pub enum RuntimeEvent {
         resolved: bool,
     },
     EvidenceUpdated {
+        item_id: String,
         thread_id: String,
         send_id: String,
         turn_id: String,
@@ -90,7 +91,7 @@ pub struct RuntimeMaps {
     items: Vec<StoredItem>,
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
-    evidence: HashMap<String, (String, String)>,
+    evidence: HashMap<String, (String, String, String)>,
     usage: HashMap<String, TokenUsage>,
     rate_limits: HashMap<String, Vec<RuntimeRateLimit>>,
     auth: Option<RuntimeAuthState>,
@@ -114,7 +115,7 @@ impl RuntimeMaps {
         };
     }
 
-    pub fn take_evidence(&mut self, send_id: &str) -> Option<(String, String)> {
+    pub fn take_evidence(&mut self, send_id: &str) -> Option<(String, String, String)> {
         self.evidence.remove(send_id)
     }
 }
@@ -191,10 +192,12 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             parent_thread_id: parent_thread_id.clone(),
         },
         AgentRuntimeEvent::SendEvidence {
+            item_id,
             thread_id,
             send_id,
             turn_id,
         } => RuntimeEvent::EvidenceUpdated {
+            item_id: item_id.clone(),
             thread_id: thread_id.clone(),
             send_id: send_id.clone(),
             turn_id: turn_id.clone(),
@@ -302,13 +305,14 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             }
         }
         RuntimeEvent::EvidenceUpdated {
+            item_id,
             thread_id,
             send_id,
             turn_id,
         } => {
             maps.evidence
                 .entry(send_id.clone())
-                .or_insert_with(|| (thread_id.clone(), turn_id.clone()));
+                .or_insert_with(|| (thread_id.clone(), turn_id.clone(), item_id.clone()));
         }
         RuntimeEvent::UsageUpdated { thread_id, usage } => {
             maps.usage.insert(thread_id.clone(), usage.clone());

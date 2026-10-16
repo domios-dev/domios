@@ -77,12 +77,14 @@ fn live_evidence_requires_the_exact_claimed_input_and_thread_in_the_same_reducti
         },
     };
     let evidence = AgentRuntimeEvent::SendEvidence {
+        item_id: "user-item".into(),
         thread_id: "own".into(),
         send_id: "send".into(),
         turn_id: "turn".into(),
     };
     assert!(validated_evidence(&[claim.clone()], &[evidence.clone()]).is_empty());
     let mut row = ChatMsg {
+        id: "user-item".into(),
         kind: "user".into(),
         content: "other input".into(),
         ..Default::default()
@@ -97,8 +99,23 @@ fn live_evidence_requires_the_exact_claimed_input_and_thread_in_the_same_reducti
     row.content = claim.input.text.clone();
     assert!(
         validated_evidence(&[claim.clone()], &[event(row.clone()), evidence.clone()])
-            .contains("send")
+            .contains(&("send".into(), "user-item".into()))
     );
+    let mut wrong_evidence = evidence.clone();
+    if let AgentRuntimeEvent::SendEvidence { item_id, .. } = &mut wrong_evidence {
+        *item_id = "unobserved-item".into();
+    }
+    let accepted = validated_evidence(
+        &[claim.clone()],
+        &[event(row.clone()), evidence.clone(), wrong_evidence],
+    );
+    assert_eq!(
+        accepted,
+        [("send".into(), "user-item".into())].into_iter().collect()
+    );
+    let mut wrong_id = row.clone();
+    wrong_id.id = "other-user-item".into();
+    assert!(validated_evidence(&[claim.clone()], &[event(wrong_id), evidence.clone()]).is_empty());
     let mut foreign = claim;
     foreign.thread_id = "foreign".into();
     assert!(validated_evidence(&[foreign], &[event(row), evidence]).is_empty());

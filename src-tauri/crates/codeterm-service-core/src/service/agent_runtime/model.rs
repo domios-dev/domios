@@ -551,17 +551,17 @@ pub fn validate_prompt_answer(
 pub fn validated_evidence(
     claims: &[codeterm_plugin::agent_runtime::ClaimedSend],
     events: &[codeterm_plugin::agent_runtime::AgentRuntimeEvent],
-) -> std::collections::HashSet<String> {
+) -> std::collections::HashSet<(String, String)> {
     use codeterm_plugin::agent_runtime::AgentRuntimeEvent;
     events.iter().filter_map(|event| {
-        let AgentRuntimeEvent::SendEvidence { thread_id, send_id, turn_id } = event else { return None };
-        if turn_id.is_empty() { return None; }
+        let AgentRuntimeEvent::SendEvidence { thread_id, send_id, turn_id, item_id } = event else { return None };
+        if turn_id.is_empty() || item_id.is_empty() { return None; }
         let claim = claims.iter().find(|claim| claim.send_id == *send_id && claim.thread_id == *thread_id)?;
         let exact = events.iter().any(|item| matches!(item,
             AgentRuntimeEvent::ChatItem { thread_id: own, item }
-                if own == thread_id && item.kind == "user" && item.content == claim.input.text
+                if own == thread_id && item.id == *item_id && item.kind == "user" && item.content == claim.input.text
                     && item.attachments.as_deref().unwrap_or_default() == claim.input.attachments.as_slice()));
-        exact.then(|| send_id.clone())
+        exact.then(|| (send_id.clone(), item_id.clone()))
     }).collect()
 }
 

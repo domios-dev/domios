@@ -727,11 +727,13 @@ pub fn validate_runtime_reduction(
             | AgentRuntimeEvent::Question { thread_id, .. }
             | AgentRuntimeEvent::ContextCompacted { thread_id, .. } => thread_id,
             AgentRuntimeEvent::SendEvidence {
+                item_id,
                 thread_id,
                 send_id,
                 turn_id,
             } => {
                 if !identifier(turn_id)
+                    || !identifier(item_id)
                     || !ctx
                         .claimed_sends
                         .iter()
