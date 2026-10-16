@@ -208,7 +208,9 @@ async fn per_tab_output_stream_offsets_and_resume_are_exact() {
     );
     assert!(futures_util::poll!(stream.next()).is_pending());
 
-    let burst = vec![b'x'; (2 << 20) + 17];
+    let burst: Vec<u8> = (0..(2 << 20) + 17)
+        .map(|index| b'!' + ((index * 31 + index / 97) % 94) as u8)
+        .collect();
     output.lock().append("pty-x", &burst);
     for _ in 0..4097 {
         activity
@@ -219,10 +221,47 @@ async fn per_tab_output_stream_offsets_and_resume_are_exact() {
     let total = initial_total + burst.len() as u64;
     let retained_start = total - (2 << 20);
     let dropped_burst_bytes = (retained_start - initial_total) as usize;
-    let rotated = stream.next().await.unwrap();
-    assert_eq!(rotated.output.as_bytes(), &burst[dropped_burst_bytes..]);
-    assert_eq!(rotated.offset, total);
+    let retained = &burst[dropped_burst_bytes..];
+    let mut covered = 0;
+    let mut frame_count = 0;
+    let mut resume_offset = retained_start;
+    while covered < retained.len() {
+        let rotated = stream.next().await.unwrap();
+        let expected_len = PER_TAB_SWEEP_CAP.min(retained.len() - covered);
+        assert_eq!(
+            rotated.output.as_bytes(),
+            &retained[covered..covered + expected_len]
+        );
+        covered += expected_len;
+        assert_eq!(rotated.offset, retained_start + covered as u64);
+        frame_count += 1;
+        if frame_count == 1 {
+            resume_offset = rotated.offset;
+        }
+    }
+    assert_eq!(frame_count, 16);
     assert!(futures_util::poll!(stream.next()).is_pending());
+
+    let resumed = tab_output_frames(
+        activity.subscribe(),
+        output.clone(),
+        Some("pty-x".into()),
+        resume_offset,
+    );
+    futures_util::pin_mut!(resumed);
+    let mut resumed_offset = resume_offset;
+    while resumed_offset < total {
+        let frame = resumed.next().await.unwrap();
+        let from = (resumed_offset - retained_start) as usize;
+        let expected_len = PER_TAB_SWEEP_CAP.min(retained.len() - from);
+        assert_eq!(
+            frame.output.as_bytes(),
+            &retained[from..from + expected_len]
+        );
+        resumed_offset += expected_len as u64;
+        assert_eq!(frame.offset, resumed_offset);
+    }
+    assert!(futures_util::poll!(resumed.next()).is_pending());
 
     output.lock().append("pty-x", b"tail");
     activity
