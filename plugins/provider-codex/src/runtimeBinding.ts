@@ -20,7 +20,9 @@ export function historyThread(ctx: RuntimeContext, value: unknown, expected: str
   if (!descendantThread(ctx, expected)) return false;
   const thread = object(object(value).thread);
   if (text(thread.id) !== expected) return false;
-  const parent = text(thread.parentThreadId)
-    ?? text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
-  return parent === ctx.threadParents.find(entry => entry.threadId === expected)?.parentThreadId;
+  const parent = ctx.threadParents.find(entry => entry.threadId === expected)?.parentThreadId;
+  const declared = text(thread.parentThreadId);
+  const source = text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+  return (declared !== undefined || source !== undefined)
+    && (declared === undefined || declared === parent) && (source === undefined || source === parent);
 }

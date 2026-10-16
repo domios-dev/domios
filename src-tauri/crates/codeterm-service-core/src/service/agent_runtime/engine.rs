@@ -664,11 +664,16 @@ async fn run_inner(
                     RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
                     _ => None,
                 };
+                let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
+                    .then(|| operation.clone());
                 let guard: super::rpc::PrewriteGuard = Arc::new(move || {
                     if runtime.context.lock().epoch != epoch {
                         return Err(RuntimeFailure::Superseded);
                     }
                     validate_binding(&owner, &runtime)?;
+                    if let Some(read) = &captured_read {
+                        super::model::validate_operation_thread(&runtime.context.lock(), read)?;
+                    }
                     if let Some(send) = &captured_send {
                         if runtime.compaction.lock().held(epoch) {
                             return Err(RuntimeFailure::Refused(

@@ -6,6 +6,26 @@ use axum::{
 };
 use codeterm_service_core::service::agent_runtime::login::{operate, LoginRequest};
 
+pub(super) async fn child_history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((tab, thread)): Path<(String, String)>,
+    axum::extract::Query(request): axum::extract::Query<
+        codeterm_service_core::service::agent_runtime::children::ChildHistoryRequest,
+    >,
+) -> Result<
+    Json<codeterm_service_core::service::agent_runtime::children::ChildHistoryPage>,
+    (StatusCode, String),
+> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    codeterm_service_core::service::agent_runtime::children::history(
+        &state.svc, &tab, &thread, request,
+    )
+    .await
+    .map(Json)
+    .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
+
 pub(super) async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,

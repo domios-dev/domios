@@ -52,7 +52,16 @@ function validateBinding(ctx: RuntimeContext, op: Operation): void {
   if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail("binding_mismatch","Active turn differs from the bound turn");
 }
 
+function historyTarget(ctx: RuntimeContext, op: Operation, plan: RuntimePlan): RuntimePlan {
+  if (op.kind !== "readHistory" || op.threadId === ctx.threadId || plan.action.kind !== "request") return plan;
+  return {...plan,action:{...plan.action,call:{...plan.action.call,target:{threadId:op.threadId}}}};
+}
+
 export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
+  return historyTarget(ctx,op,planOperation(ctx,op));
+}
+
+function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
   validateBinding(ctx,op);
   switch (op.kind) {
     case "initialize":
@@ -108,6 +117,11 @@ function continuation(plan: RuntimePlan, beforeAcceptance?: boolean): RuntimeSte
   return {kind:"continue",plan,...(beforeAcceptance ? {beforeAcceptance} : {})};
 }
 export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
+  const step = respondOperation(ctx,op,raw,reply);
+  return step.kind === "continue" ? {...step,plan:historyTarget(ctx,op,step.plan)} : step;
+}
+
+function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
   validateBinding(ctx,op);
   const state = object(raw);
   if (op.kind === "readHistory" && state.pager === 1) {
