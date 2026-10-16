@@ -86,3 +86,25 @@ fn structured_live_seq_is_scoped_to_binding_and_respects_snapshot_max() {
     assert_eq!(emitted_seqs(&ui), [41, 5, 42]);
     clear_tab(tab);
 }
+
+#[test]
+fn structured_live_seq_reports_only_fresh_unseeded_streams() {
+    let tab = "structured-seq-unseeded";
+    let mut rows = [ChatMsg::default()];
+    assert!(assign(tab, Some("session"), Some("nonce"), &mut rows));
+    assert_eq!(rows[0].seq, 0);
+    assert!(!assign(tab, Some("session"), Some("nonce"), &mut rows));
+    assert_eq!(rows[0].seq, 1);
+
+    seed_snapshot(tab, Some("session"), Some("seeded-nonce"), &snapshot(5));
+    assert!(!assign(
+        tab,
+        Some("session"),
+        Some("seeded-nonce"),
+        &mut rows
+    ));
+    assert_eq!(rows[0].seq, 5);
+    assert!(assign(tab, Some("session"), None, &mut rows));
+    assert_eq!(rows[0].seq, 0);
+    clear_tab(tab);
+}

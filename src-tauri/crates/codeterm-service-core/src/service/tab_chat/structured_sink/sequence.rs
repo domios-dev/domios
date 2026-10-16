@@ -35,15 +35,29 @@ pub fn seed_snapshot(tab: &str, session: Option<&str>, nonce: Option<&str>, rows
     *next = (*next).max(floor);
 }
 
-pub(super) fn assign(tab: &str, session: Option<&str>, nonce: Option<&str>, rows: &mut [ChatMsg]) {
+pub(super) fn assign(
+    tab: &str,
+    session: Option<&str>,
+    nonce: Option<&str>,
+    rows: &mut [ChatMsg],
+) -> bool {
     let mut sequences = SEQUENCES.lock();
+    let mut unseeded = false;
     let next = sequences
         .entry(Stream::new(tab, session, nonce))
-        .or_default();
+        .or_insert_with(|| {
+            unseeded = true;
+            log::debug!(
+                "[chat-seq] unseeded stream tab={tab} session={session:?} nonce_present={}",
+                nonce.is_some()
+            );
+            0
+        });
     for row in rows {
         row.seq = *next;
         *next = next.saturating_add(1);
     }
+    unseeded
 }
 
 pub(crate) fn clear_tab(tab: &str) {
