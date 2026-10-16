@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { act } from "react";
 import { test } from "vitest";
+import { GeneralOverviewRail } from "./GeneralWorkspaceOverview";
 import { graphA, installBridge, installDom, machine, machineTransport, mount, named, settle, workspaces as jobsWorkspaces } from "../Jobs/jobsEntry.testdata";
 import { daemon, schedule, shell, tabs, teams, workspaces } from "./generalOverview.testdata";
 
@@ -8,7 +9,6 @@ async function main() {
   installDom();
   const cleanup = await installBridge();
   machine.graphs.project = { ...graphA, workspace_id: "project" };
-  const { GeneralOverviewRail } = await import("./GeneralWorkspaceOverview");
   let refreshes = 0;
   const navigated: string[][] = [];
   const view = await mount(<GeneralOverviewRail
