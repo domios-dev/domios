@@ -1,3 +1,7 @@
+import {uid} from "../../lib/uid";
+import {invoke} from "../../lib/bridge";
+import {ResetCreditsModel, type ResetResponse} from "./resetCreditsModel";
+import {ResetCreditsSection} from "./ResetCreditsSection";
 import { ownRuntimeUsage, runtimeLimitsSnapshot, runtimeTokenLabel, runtimeTokenBreakdown } from "./runtimeUsage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
@@ -63,6 +67,8 @@ export function UsageBubble({
   const runtime = ownRuntimeUsage(snapshot,tabId,threadId);
   const active = runtime && snapshot ? runtimeLimitsSnapshot(snapshot,runtime) : snapshot?.runtime_usage ? null : groupSnapshot ?? snapshot;
   const tokenSession = runtime?.billing_mode === "api" ? runtime : null;
+  const resetModel = useMemo(() => new ResetCreditsModel(uid, key => invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key}})), [tabId, threadId, provider, accountId]);
+  const [resetReadError, setResetReadError] = useState<string|null>(null);
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
@@ -155,6 +161,10 @@ export function UsageBubble({
         title={tokenSession ? runtimeTokenBreakdown(tokenSession) : undefined}
         onClick={(e) => {
           e.stopPropagation();
+          if (!open && runtime && tabId) {
+            setResetReadError(null);
+            void invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}}).then(() => refetch()).catch(() => setResetReadError("Reset credits could not be refreshed."));
+          }
           setOpen((v) => !v);
         }}
       >
@@ -183,6 +193,7 @@ export function UsageBubble({
       {open && !tokenSession && isSpend && (
         <UsageSpendDetail
           snapshot={active}
+          resetSection={tabId && runtime ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <div role="alert">{resetReadError}</div>}</> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
@@ -195,6 +206,7 @@ export function UsageBubble({
       {open && !tokenSession && !isSpend && (
         <UsageDetail
           snapshot={active}
+          resetSection={tabId && runtime ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <div role="alert">{resetReadError}</div>}</> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {

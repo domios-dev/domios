@@ -1,0 +1,146 @@
+use super::engine::{self, Session};
+use crate::service::ServiceContext;
+use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult};
+use serde::Deserialize;
+use serde_json::{json, Value};
+
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ResetCreditsRequest {
+    Read,
+    Redeem {
+        #[serde(rename = "idempotencyKey")]
+        idempotency_key: uuid::Uuid,
+        confirmed: bool,
+    },
+}
+
+pub(super) async fn supported(session: &Session) -> bool {
+    let capability = session
+        .adapter
+        .lock()
+        .as_ref()
+        .and_then(|provider| provider.agent_runtime());
+    let Some(capability) = capability else {
+        return false;
+    };
+    let Some(minimum) = capability.reset_credits_min_version else {
+        return false;
+    };
+    tokio::task::spawn_blocking(move || {
+        let version =
+            codeterm_plugin::provider_version::observe(&capability.command.binary).version;
+        version_supported(version.as_deref(), &minimum)
+    })
+    .await
+    .unwrap_or(false)
+}
+
+pub async fn operate(
+    svc: &ServiceContext,
+    tab: &str,
+    request: ResetCreditsRequest,
+) -> Result<Value, String> {
+    let session = engine::for_tab(tab).ok_or("Runtime binding unavailable")?;
+    engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
+    if !supported(&session).await {
+        return match request {
+            ResetCreditsRequest::Read => Ok(json!({"supported":false})),
+            _ => Err("Reset credits are unsupported by the installed provider".into()),
+        };
+    }
+    let (action, value) = operation(request)?;
+    let _permit = session
+        .gate
+        .try_acquire()
+        .map_err(|_| "Runtime operation already in progress")?;
+    let process = session
+        .process
+        .lock()
+        .clone()
+        .ok_or("Runtime unavailable")?;
+    let thread_id = session.context.lock().thread_id.clone();
+    let result = engine::run(
+        svc,
+        &session.provider,
+        &session,
+        &process,
+        RuntimeOperation::Control {
+            thread_id,
+            action: action.into(),
+            value,
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
+    match result {
+        RuntimeResult::ResetCreditConsumed { outcome } => Ok(json!({"outcome":outcome})),
+        RuntimeResult::Done if action == "readResetCredits" => Ok(json!({"supported":true})),
+        _ => Err("Unexpected reset credit response".into()),
+    }
+}
+
+fn version_supported(installed: Option<&str>, minimum: &str) -> bool {
+    installed
+        .and_then(|value| semver::Version::parse(value).ok())
+        .zip(semver::Version::parse(minimum).ok())
+        .is_some_and(|(installed, minimum)| installed >= minimum)
+}
+fn operation(request: ResetCreditsRequest) -> Result<(&'static str, Value), String> {
+    let selected = match request {
+        ResetCreditsRequest::Read => ("readResetCredits", json!({"details":true})),
+        ResetCreditsRequest::Redeem {
+            idempotency_key,
+            confirmed: true,
+        } if idempotency_key.get_version_num() == 4 => (
+            "redeemResetCredit",
+            json!({"idempotencyKey":idempotency_key}),
+        ),
+        _ => return Err("Reset requires explicit confirmation and a confirmation UUID".into()),
+    };
+    Ok(selected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn reset_version_gate_is_absent_for_old_or_unknown_versions() {
+        for installed in [None, Some("0.160.0"), Some("invalid")] {
+            assert!(!version_supported(installed, "0.162.1"));
+        }
+        assert!(version_supported(Some("0.162.1"), "0.162.1"));
+        assert!(version_supported(Some("0.163.0"), "0.162.1"));
+    }
+    #[test]
+    fn reset_operation_requires_confirmation_and_preserves_retry_key() {
+        let key = uuid::Uuid::parse_str("12345678-1234-4123-8123-123456789abc").unwrap();
+        assert!(operation(ResetCreditsRequest::Redeem {
+            idempotency_key: key,
+            confirmed: false
+        })
+        .is_err());
+        assert!(operation(ResetCreditsRequest::Redeem {
+            idempotency_key: uuid::Uuid::nil(),
+            confirmed: true
+        })
+        .is_err());
+        let a = operation(ResetCreditsRequest::Redeem {
+            idempotency_key: key,
+            confirmed: true,
+        })
+        .unwrap();
+        let b = operation(ResetCreditsRequest::Redeem {
+            idempotency_key: key,
+            confirmed: true,
+        })
+        .unwrap();
+        assert_eq!(a, b);
+        assert_eq!(a.1["idempotencyKey"], key.to_string());
+        assert_eq!(
+            operation(ResetCreditsRequest::Read).unwrap().1,
+            json!({"details":true})
+        );
+    }
+}

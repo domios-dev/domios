@@ -18,6 +18,7 @@ module.exports = {
       case 'resumeThread': return {kind:'complete',result:{kind:'threadLoaded',threadId:op.threadId,settings:op.settings}};
       case 'readHistory': if (reply.value.more) return {kind:'continue',plan:{action:{kind:"request",call:{method:op.kind,params:op}},state:null},history:{kind:'historyPage',threadId:op.threadId,items:reply.value.items,openItems:[]},beforeAcceptance:false}; return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:reply.value.items,openItems:[]}};
       case 'submitTurn': return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId}};
+      case 'control': if (op.action === 'redeemResetCredit') return {kind:'complete',result:{kind:'resetCreditConsumed',outcome:reply.value.outcome}}; return {kind:'complete',result:{kind:'done'}};
       default: return {kind:'complete',result:{kind:'done'}};
     }
   },

@@ -61,4 +61,12 @@ check("all consume outcomes are recognized without issuing a request", () => {
   for (const raw of [null, {}, {outcome: "future"}]) assert.equal(resetOutcome(raw), undefined);
 });
 
+
+
+check("out-of-range expiry stays unknown instead of breaking date rendering", () => {
+  const result = resetCredits({available_count:1,credits:[{id:"invalid-date",status:"available",expires_at:1e99}]});
+  assert.equal(result?.nextExpiry,null);
+  assert.equal(result?.credits?.[0].expiresAt,null);
+});
+
 console.log(`${count} reset credit mapping checks passed`);

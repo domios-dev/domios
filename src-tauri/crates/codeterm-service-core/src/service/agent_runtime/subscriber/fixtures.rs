@@ -89,6 +89,7 @@ impl AgentProvider for Adapter {
         Some(AgentRuntimeCapability {
             stored_history: false,
             usage: false,
+            reset_credits_min_version: None,
             runtime: AgentRuntimeProtocol::StdioJsonrpc,
             command: AgentRuntimeCommand {
                 binary: "unused".into(),

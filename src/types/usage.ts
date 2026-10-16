@@ -1,4 +1,7 @@
+import type {ResetCredits} from "@codeterm/plugin-sdk";
+
 export interface UsageSnapshot {
+  resets?: ResetCredits | null;
   runtime_usage?: RuntimeUsageProjection[];
   billing_mode: "subscription" | "api" | "unknown";
   limits_reported: boolean;
@@ -42,6 +45,7 @@ export function classify(pct: number | null | undefined): UsageState {
 }
 
 export interface RuntimeUsageProjection {
+  resets?: ResetCredits | null;
   captured_at?: number;
   tab_id: string;
   thread_id: string | null;

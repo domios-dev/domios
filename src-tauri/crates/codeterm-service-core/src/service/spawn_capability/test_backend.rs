@@ -61,6 +61,7 @@ impl ChatBackendProvider for RuntimeTestBackend {
         descriptor.agent_runtime = Some(codeterm_plugin::agent_runtime::AgentRuntimeCapability {
             stored_history: false,
             usage: false,
+            reset_credits_min_version: None,
             runtime: codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc,
             command: codeterm_plugin::agent_runtime::AgentRuntimeCommand {
                 binary: "fixture-peer".into(),
