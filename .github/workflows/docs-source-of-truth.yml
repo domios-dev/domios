@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   source-of-truth:
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, light]
     steps:
       - uses: actions/checkout@v5
         with:

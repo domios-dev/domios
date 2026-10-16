@@ -166,7 +166,7 @@ impl Member {
                 )
             };
             if count != 1
-                || note.ident != self.pid as _
+                || note.ident != self.pid as libc::uintptr_t
                 || note.filter != libc::EVFILT_PROC
                 || note.fflags & libc::NOTE_EXIT == 0
                 || note.flags & libc::EV_ERROR != 0
