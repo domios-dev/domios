@@ -290,7 +290,7 @@ alongside the fast checks. Release passes `cancel_run: true` to `tests.yml`, and
 fast job ends with a `failure() && inputs.cancel_run` step that runs `gh run cancel`,
 so the first failure stops in-flight builds without waiting for sibling checks; pull
 requests and pushes keep the default `false`. The Linux x64 bundle and the Rust tests
-wait for the fast checks. `RELEASE_OVERLAP_FAST_CHECKS=false` makes every build wait instead.
+wait for the fast checks.
 Bundle builds running alongside a failing Rust test stage finish, but cannot publish.
 `release-manifest` needs every build, `quick-checks` and `tests`; frontend publication
 needs both test stages. Failure, cancellation or a skipped required gate cannot publish.

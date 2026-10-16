@@ -25,57 +25,45 @@ const afterFast = ["linux-x86_64", "tests"];
 const app = { result: "success", outputs: { kind: "app", published: "false", dry_run: "false" } };
 const results = ["success", "failure", "cancelled", "skipped"];
 
-test("one fast-check caller runs per mode, and the overlapping one cancels the run when it fails", () => {
-  for (const id of ["quick-checks", "fast-gate"]) {
-    const job = release.jobs[id];
-    assert.equal(job.uses, "./.github/workflows/tests.yml");
-    assert.equal(job.with.phase, "fast");
-    assert.deepEqual(dependencies(job), ["prepare"]);
-    assert.equal(job.with.source_ref, "${{ needs.prepare.outputs.source_sha }}");
-  }
-  for (const overlap of [undefined, "true", "false"]) {
-    const vars = { RELEASE_OVERLAP_FAST_CHECKS: overlap };
-    const running = ["quick-checks", "fast-gate"].filter(id => condition(release.jobs[id].if, { needs: { prepare: app }, inputs: {}, vars }));
-    assert.deepEqual(running, [overlap === "false" ? "fast-gate" : "quick-checks"], String(overlap));
-  }
-  assert.equal(release.jobs["quick-checks"].with.cancel_run, true);
-  for (const id of [...builds, "tests", "quick-checks", "fast-gate"]) assert.notEqual(release.jobs[id]["continue-on-error"], true);
+test("one fast-check caller runs, and it cancels the run when a check fails", () => {
+  const job = release.jobs["quick-checks"];
+  assert.equal(job.uses, "./.github/workflows/tests.yml");
+  assert.equal(job.with.phase, "fast");
+  assert.deepEqual(dependencies(job), ["prepare"]);
+  assert.equal(job.with.source_ref, "${{ needs.prepare.outputs.source_sha }}");
+  assert.equal(job.with.cancel_run, true);
+  const callers = Object.entries(release.jobs).filter(([, entry]) => entry.uses === "./.github/workflows/tests.yml").map(([id]) => id);
+  assert.deepEqual(callers.sort(), ["quick-checks", "tests"]);
+  for (const id of [...builds, "tests", "quick-checks"]) assert.notEqual(release.jobs[id]["continue-on-error"], true);
 });
 
 test("builds on machines no fast check uses start at once; the rest wait for the fast checks", () => {
   for (const id of overlapped) {
     const job = release.jobs[id];
-    assert.deepEqual(dependencies(job), ["prepare", "fast-gate"]);
-    for (const gate of results) {
-      const needs = { prepare: app, "fast-gate": { result: gate } };
-      assert.equal(condition(job.if, { needs }), ["success", "skipped"].includes(gate), `${id}: ${gate}`);
-      assert.equal(condition(job.if, { needs, cancelled: true }), false);
-    }
-    assert.equal(dependencies(job).includes("tests"), false, "builds overlap the Rust tests");
+    assert.deepEqual(dependencies(job), ["prepare"]);
+    assert.equal(condition(job.if, { needs: { prepare: app } }), true, id);
+    assert.equal(condition(job.if, { needs: { prepare: app }, cancelled: true }), false);
   }
   for (const id of afterFast) {
     const job = release.jobs[id];
-    assert.deepEqual(dependencies(job), ["prepare", "quick-checks", "fast-gate"]);
+    assert.deepEqual(dependencies(job), ["prepare", "quick-checks"]);
     for (const fast of results) {
-      for (const [overlapping, gating] of [[fast, "skipped"], ["skipped", fast]]) {
-        const needs = { prepare: app, "quick-checks": { result: overlapping }, "fast-gate": { result: gating } };
-        assert.equal(condition(job.if, { needs, inputs: {} }), fast === "success", `${id}: ${overlapping}/${gating}`);
-      }
+      const needs = { prepare: app, "quick-checks": { result: fast } };
+      assert.equal(condition(job.if, { needs, inputs: {} }), fast === "success", `${id}: ${fast}`);
     }
   }
   assert.equal(release.jobs.tests.with.phase, "long");
-  assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "quick-checks", "fast-gate", "tests", ...builds]));
+  assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "quick-checks", "tests", ...builds]));
 });
 
 test("dry runs use both test stages by default; bundle-only diagnostics explicitly bypass them", () => {
   assert.equal(release.on.workflow_dispatch.inputs.dry_run_tests.default, true);
   const base = "(needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'";
-  assert.equal(release.jobs["quick-checks"].if, `${base} && vars.RELEASE_OVERLAP_FAST_CHECKS != 'false'`);
-  assert.equal(release.jobs["fast-gate"].if, `${base} && vars.RELEASE_OVERLAP_FAST_CHECKS == 'false'`);
+  assert.equal(release.jobs["quick-checks"].if, base);
   const dry = { result: "success", outputs: { kind: "app", published: "false", dry_run: "true" } };
   for (const id of builds) {
     assert.equal(release.jobs[id].with.dry_run, "${{ needs.prepare.outputs.dry_run == 'true' }}");
-    const needs = { prepare: dry, "quick-checks": { result: "skipped" }, "fast-gate": { result: "skipped" } };
+    const needs = { prepare: dry, "quick-checks": { result: "skipped" } };
     assert.equal(condition(release.jobs[id].if, { needs, inputs: { dry_run_tests: false } }), true, id);
   }
   const draft = release.jobs.prepare.steps.find(step => step.name === "Create draft releases before parallel uploads");
@@ -121,20 +109,16 @@ test("publication needs every stage to succeed", () => {
   const vars = { RELEASE_PUBLISH_ENABLED: "true" };
   const ok = Object.fromEntries([...builds, "tests"].map(id => [id, { result: "success" }]));
   const manifest = release.jobs["release-manifest"];
-  for (const [overlapping, gating] of [["success", "skipped"], ["skipped", "success"]]) {
-    const needs = { ...ok, prepare: app, "quick-checks": { result: overlapping }, "fast-gate": { result: gating } };
-    assert.equal(condition(manifest.if, { needs, vars }), true);
-    assert.equal(condition(manifest.if, { needs, vars: {} }), false, "publication stays off without the variable");
-    for (const id of [...builds, "tests"]) {
-      for (const result of ["failure", "cancelled", "skipped"]) {
-        assert.equal(condition(manifest.if, { needs: { ...needs, [id]: { result } }, vars }), false, `${id}: ${result}`);
-      }
+  const needs = { ...ok, prepare: app, "quick-checks": { result: "success" } };
+  assert.equal(condition(manifest.if, { needs, vars }), true);
+  assert.equal(condition(manifest.if, { needs, vars: {} }), false, "publication stays off without the variable");
+  for (const id of [...builds, "tests", "quick-checks"]) {
+    for (const result of ["failure", "cancelled", "skipped"]) {
+      assert.equal(condition(manifest.if, { needs: { ...needs, [id]: { result } }, vars }), false, `${id}: ${result}`);
     }
   }
-  const failed = { ...ok, prepare: app, "quick-checks": { result: "failure" }, "fast-gate": { result: "skipped" } };
-  assert.equal(condition(manifest.if, { needs: failed, vars }), false);
   for (const id of ["release-manifest", "frontend"]) {
-    assert.ok(["tests", "quick-checks", "fast-gate"].every(need => dependencies(release.jobs[id]).includes(need)), id);
+    assert.ok(["tests", "quick-checks"].every(need => dependencies(release.jobs[id]).includes(need)), id);
   }
 });
 
@@ -218,9 +202,9 @@ test("platform builders do not push release tags before the test gate", () => {
 test("a frontend-only release builds and publishes only the frontend after the frontend tests", () => {
   const frontend = release.jobs.frontend;
   assert.equal(frontend.uses, "./.github/workflows/frontend-release.yml");
-  assert.deepEqual(new Set(dependencies(frontend)), new Set(["prepare", "quick-checks", "fast-gate", "tests"]));
+  assert.deepEqual(new Set(dependencies(frontend)), new Set(["prepare", "quick-checks", "tests"]));
   const frontendRelease = { result: "success", outputs: { kind: "frontend", published: "false", dry_run: "false" } };
-  const needs = { prepare: frontendRelease, tests: { result: "success" }, "quick-checks": { result: "success" }, "fast-gate": { result: "skipped" } };
+  const needs = { prepare: frontendRelease, tests: { result: "success" }, "quick-checks": { result: "success" } };
   const vars = { RELEASE_PUBLISH_ENABLED: "true" };
   assert.equal(condition(frontend.if, { needs, vars }), true);
   assert.equal(condition(frontend.if, { needs: { ...needs, tests: { result: "failure" } }, vars }), false);
