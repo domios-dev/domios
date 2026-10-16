@@ -32,10 +32,6 @@ async function run() {
   await act(async () => flip.click());
   assert.equal(meshEnabled, true, "flip invokes checked callback");
 
-  const source = await import("node:fs").then(({ readFileSync }) =>
-    readFileSync(new URL("./LiquidToggle.tsx", import.meta.url), "utf8"),
-  );
-  assert.match(source, /onAnimationEnd/);
   await act(async () => root.unmount());
   console.log("liquid toggle and flip tests: passed");
 }

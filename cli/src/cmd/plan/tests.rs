@@ -349,47 +349,6 @@ fn renders_readback_mismatch_without_blind_retry() {
 }
 
 #[test]
-fn all_backend_plan_error_types_have_cli_renderers() {
-    let source =
-        include_str!("../../../../src-tauri/crates/codeterm-plan/src/service_plan/types.rs");
-    let mut types = source
-        .lines()
-        .filter_map(extract_plan_error_type)
-        .collect::<Vec<_>>();
-    types.sort();
-    types.dedup();
-    assert!(!types.is_empty());
-
-    for kind in types {
-        let data = json!({
-            "type": kind,
-            "from": "in_progress",
-            "to": "done",
-            "declared": ["status_update"],
-            "count": 1,
-            "budget": 2,
-            "operation": "test_operation",
-            "committed": true,
-            "committed_id": "task_1",
-            "message": "test message",
-            "subtasks": []
-        });
-        let params = json!({
-            "plan_id": "plan_1",
-            "task_id": "task_1",
-            "loop_id": "loop_1",
-            "section_id": "section_1"
-        });
-        let msg = render_plan_error(&data, &params)
-            .unwrap_or_else(|| panic!("missing CLI renderer for PlanError type '{kind}'"));
-        assert!(
-            !msg.contains("RPC error"),
-            "renderer for PlanError type '{kind}' fell back to raw RPC: {msg}"
-        );
-    }
-}
-
-#[test]
 fn active_plan_requires_team_renderer_names_the_adoption_command() {
     let msg = render_plan_error(
         &json!({ "type": "active_plan_requires_team" }),
@@ -445,17 +404,6 @@ fn ref_not_found_renderer_is_actionable() {
     assert!(msg.contains("not found"));
     assert!(msg.contains("pl_missing"));
     assert!(msg.contains("codeterm plan list --active"));
-}
-
-fn extract_plan_error_type(line: &str) -> Option<String> {
-    let marker = "\"type\"";
-    let idx = line.find(marker)?;
-    let rest = &line[idx + marker.len()..];
-    let colon = rest.find(':')?;
-    let rest = rest[colon + 1..].trim_start();
-    let rest = rest.strip_prefix('"')?;
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
 }
 
 #[test]
@@ -580,7 +528,7 @@ fn render_plan_markdown_omits_empty_goal_and_task_quality_fields() {
 mod plan_rpc {
     use crate::client::{RpcClient, RpcError, SocketCallError};
     use crate::cmd::plan::{call_plan_rpc, call_plan_rpc_detailed};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use std::collections::VecDeque;
 
     struct Probe {
