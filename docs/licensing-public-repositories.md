@@ -4,7 +4,9 @@ Effective date: 2026-10-16. No public changes were performed by this task.
 
 2026-10-16: All versions of this software, including every prior revision in this repository's history, are licensed solely under the PolyForm Shield License 1.0.0. No revision was ever distributed under the MIT License.
 
-Pending owner decision: packages/plugin-sdk and packages/chat-engine retain their pre-task ISC package licence fields. This exception must be resolved before publishing those packages under different terms.
+Owner decision on 2026-10-16: new versions of `@codeterm/plugin-sdk` and `@codeterm/chat-engine` ship under PolyForm Shield 1.0.0. Already-published npm versions remain licensed under ISC; their published contents and licence grants are unchanged. Each package includes the root LICENSE verbatim in its published files.
+
+Plugins for Domios are not competing products. Authors may write and sell plugins for Domios. This clarification does not authorize selling a competing product based on Domios code.
 
 ## Observed public state
 
