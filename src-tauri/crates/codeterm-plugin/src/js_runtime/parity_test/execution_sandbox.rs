@@ -16,7 +16,7 @@ pub(super) fn fixture_capability() -> ExecutionSandboxCapability {
 
 #[test]
 fn execution_sandbox_native_js_parity() {
-    let native = NativeCodexReadiness;
+    let native = NativeSandbox;
     let capability = native.execution_sandbox_capability().unwrap();
     let manifest_json = serde_json::json!({
         "id":"sandbox-fixture", "version":"0.1.0", "displayName":"Fixture",

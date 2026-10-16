@@ -332,6 +332,12 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
+        crate::service::execution_sandbox::preflight(
+            &self.agent_registry,
+            &agent_cmd,
+            &params,
+            crate::service::agent_runtime::engine::requested(self, &agent_cmd),
+        )?;
         self.move_chatbackend_task_to_system_prompt(&agent_cmd, &mut params)?;
         {
             let svc = self.clone();

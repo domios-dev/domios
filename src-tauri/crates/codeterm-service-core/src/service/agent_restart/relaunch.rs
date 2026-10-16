@@ -20,6 +20,17 @@ pub(super) fn build_relaunch(
 ) -> Option<Relaunch> {
     let provider = snap.target_provider.as_deref().unwrap_or(&snap.provider);
     let provider_changed = provider != snap.provider;
+    let confined = svc
+        .mux
+        .read()
+        .get_tab(&snap.tab_id)
+        .is_some_and(|tab| tab.restorable_launch.execution_sandbox.is_some());
+    if confined {
+        if provider_changed {
+            return None;
+        }
+        return recorded_launch_relaunch(svc, snap, session_present);
+    }
     if !provider_changed {
         if let Some(relaunch) = recorded_launch_relaunch(svc, snap, session_present) {
             return Some(relaunch);
