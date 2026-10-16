@@ -1,7 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus, UsersRound } from "lucide-react";
+import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus } from "lucide-react";
 import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -12,11 +12,7 @@ import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
-import {
-  PLAN_STATUS_COLORS,
-  SegmentedDonut,
-  type SegmentedDonutSegment,
-} from "../shared/SegmentedDonut";
+import { PLAN_STATUS_COLORS } from "../shared/SegmentedDonut";
 import {
   PlanStatusBreakdown,
   type PlanStatusCounts,
@@ -501,14 +497,6 @@ export function TeamUnit({
     () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
     [plan, tabs],
   );
-  const donutSegments = useMemo<SegmentedDonutSegment[]>(
-    () => buckets.map((bucket) => ({
-      status: bucket.key,
-      count: bucket.count,
-      color: bucket.color,
-    })),
-    [buckets],
-  );
   const statusCounts = useMemo<PlanStatusCounts>(
     () => deriveCardStatusCounts(buckets),
     [buckets],
@@ -569,7 +557,7 @@ export function TeamUnit({
 
   const commitRename = async () => {
     const trimmed = name.trim();
-    if (!trimmed || trimmed === (team.name?.trim() || "Team") || !onRenameTeam) {
+    if (!trimmed || trimmed === displayTitle || trimmed === (team.name?.trim() || "Team") || !onRenameTeam) {
       setName(team.name?.trim() || "Team");
       setEditing(false);
       return;
@@ -587,17 +575,6 @@ export function TeamUnit({
   };
 
   const cardContents = <>
-    {plan ? (
-      <SegmentedDonut
-        key={`donut-${planMotion.revision}`}
-        data-testid="team-donut"
-        segments={donutSegments}
-        size={22}
-        aria-label={`Task status composition: ${statusCounts.todo} todo, ${statusCounts.review} review, ${statusCounts.blocked} blocked, ${statusCounts.paused} paused, ${statusCounts.done} done`}
-      />
-    ) : (
-      <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>
-    )}
     <div className="sidebar-team-title-block">
       {editing ? (
         <input
@@ -700,6 +677,7 @@ export function TeamUnit({
               onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id }) : undefined}
               onRename={!plan && onRenameTeam ? () => {
                 setRenameError(null);
+                setName(displayTitle);
                 setEditing(true);
               } : undefined}
               addableRoles={addableRoles}
@@ -716,6 +694,7 @@ export function TeamUnit({
           data-team-card-hit-target="team-card-activation"
           className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
           counts={statusCounts}
+          tone="muted"
           itemTestIdPrefix="team-status"
         />
       )}
