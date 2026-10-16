@@ -97,6 +97,14 @@ function mapFixture(directory, base) {
   ], directory);
 }
 
+test("maps plugin root metadata to release checks without plugin suites", () => {
+  for (const file of ["plugins/channel.json", "plugins/README.md", "plugins/metadata"]) {
+    const output = run(process.execPath, [mapper, file], repoRoot);
+    assert.match(output, /node scripts\/release-plugin\.mjs check/);
+    assert.doesNotMatch(output, /bash scripts\/plugin-tests\.sh/);
+  }
+});
+
 test("maps a Rust service diff to its module filter", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/src/service/handler.rs");
   const output = mapFixture(fixture.directory, fixture.base);
