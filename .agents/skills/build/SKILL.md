@@ -1090,7 +1090,7 @@ supply the other worktree's metadata, producing a false E0425. No stable drive
 mapping is needed; touching the dependency only repairs one check.
 
 Lane-check sets `RUSTC_WORKSPACE_WRAPPER` to the physical worktree's passthrough
-wrapper (`scripts/lane-rustc-wrapper.cmd` on Windows, `.sh` elsewhere). Cargo
+wrapper (a native executable on Windows, `scripts/lane-rustc-wrapper.sh` elsewhere). Cargo
 includes that path in workspace artifact hashes. Registry dependencies still
 reuse one shared cache; lane checks retain Cargo's shared build-directory lock
 and per-worktree final targets. The setting is confined to the lane subshell;
@@ -1103,3 +1103,26 @@ timestamps, proves the former policy returns E0425, then checks A/B/A/B through
 lane-check and verifies two workspace metadata files but one registry metadata
 file. The registry fixture is local and needs no network. The same regression
 runs under `node --test scripts/tests/lane-check.test.mjs`.
+
+
+### Windows lane-check fails with "The command line is too long"
+
+A `.cmd` workspace wrapper passes the compiler invocation through cmd.exe's
+8191-character limit. Service-core library and test targets exceed it before
+rustc starts. Windows lane-check now compiles `scripts/lane-rustc-wrapper.c`
+with the MSVC environment already loaded by build.sh. The small native launcher
+forwards the original Unicode command line with `CreateProcessW`, inherits
+standard handles, waits for compiler exit and propagates its exit code.
+
+`scripts/lane-native-wrapper.mjs` caches that executable beside the shared lane
+build directory in `codeterm-lane-wrappers`, keyed by physical source path,
+source bytes and host architecture. Compilation uses a temporary directory and
+publishes only a finished executable. Different worktrees retain different
+wrapper paths; no Cargo target directory is added. Unix keeps the shell wrapper.
+
+On Windows, run focused tests with the build toolchain loaded in a Team QA shell:
+`bash -c 'source build.sh env; CODETERM_LANE_REAL_CRATE_TEST=1 node --test scripts/tests/lane-check.test.mjs'`.
+Run this opt-in regression from a lane: it includes the two-worktree E0425
+reproduction, a 12000-character Unicode/quotes/exit-code forwarding check, and
+real `./build.sh lane-check codeterm-service-core --tests`. Require exit 0 from
+the real crate check; a tiny fixture alone does not cover Windows argument limits.
