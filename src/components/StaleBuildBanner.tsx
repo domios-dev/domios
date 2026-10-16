@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Info, RefreshCw, X } from "lucide-react";
 import { reloadInterface } from "../lib/serviceWorkerRegistration";
 import { checkBuildMismatch, installBuildDriftTriggers, onMismatch, type BuildMismatch } from "../lib/buildMismatchGuard";
+import { InlineErrorNotice } from "./shared/ErrorNotice";
 
 function noticeFor(mismatch: BuildMismatch): { code: string; raw: string } {
   if (mismatch.reason === "api") {
@@ -54,7 +55,7 @@ export function StaleBuildBanner() {
       </div>
       {failure && <p role="alert" className="max-w-64 px-2 py-1">Update did not complete. Try again.</p>}
       {details && <div role="region" aria-label="Interface build details" className="max-w-72 break-words border-t border-[var(--ct-border)] px-2 py-2">
-        {noticeFor(mismatch).raw}{failure && <p>{failure}</p>}
+        {noticeFor(mismatch).raw}{failure && <InlineErrorNotice error={failure} operation="reloading the interface" />}
       </div>}
     </div>
   );
