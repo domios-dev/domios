@@ -1,11 +1,13 @@
+export const WEB_CARD_SCALE = 0.8;
 export const MACHINE_CARD_SCALE = 1.5;
 export const MACHINE_CARD_WIDTH = 360 * MACHINE_CARD_SCALE;
 export const MACHINE_CARD_HEIGHT = 100 * MACHINE_CARD_SCALE;
 const GAP = 20;
 
 export function webGraphLayout(width: number, height: number, machineCount: number, webHeight = 800) {
-  const webWidth = Math.min(520, Math.max(0, width - 32));
-  const qrSize = Math.max(0, Math.min(360, webWidth - 64));
+  const originalWidth = Math.min(344, Math.max(0, width - 32));
+  const webWidth = originalWidth * WEB_CARD_SCALE;
+  const qrSize = Math.max(0, Math.min(280, originalWidth - 64)) * WEB_CARD_SCALE;
   const directions = Array.from({ length: machineCount }, (_, index) => {
     const angle = index / machineCount * Math.PI * 2 - Math.PI / 2;
     return { x: Math.cos(angle), y: Math.sin(angle) };

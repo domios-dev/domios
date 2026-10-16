@@ -31,6 +31,10 @@
   opacity: 0.8;
 }
 
+.ct-bar-pill > svg:only-child {
+  margin-left: 0;
+}
+
 .ct-bar-pill:hover,
 .ct-bar-pill:focus-visible {
   background: color-mix(in srgb, var(--ct-fg) 10%, var(--ct-bg));

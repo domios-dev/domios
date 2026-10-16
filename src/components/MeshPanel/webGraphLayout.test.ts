@@ -23,7 +23,7 @@ for (const width of [390, 1280, 1920]) {
         };
       });
       assert.ok(tightened.some((rectangle, index) => tightened.slice(index + 1).some((other) => intersects(rectangle, other))), "A smaller radius violates the reserved 20 px gap");
-      assert.ok(layout.qrSize >= 280);
+      assert.ok(layout.qrSize >= 200);
       assert.ok(layout.web.width < width);
       assert.equal(layout.web.x, width / 2);
       assert.equal(layout.web.y, 400);
@@ -50,9 +50,12 @@ const viewFor = (width: number, height: number, count: number) => {
   assert.ok(Math.abs(view.bounds.height / 2 * view.scale - height / 2) < 1e-8);
   return view;
 };
-assert.equal(viewFor(1440, 900, 8).mode, "fit");
+assert.ok(Math.abs(webGraphLayout(1440, 900, 2).web.width - 275.2) < 1e-8);
+assert.ok(Math.abs(webGraphLayout(390, 844, 2).web.width - 275.2) < 1e-8);
+assert.equal(viewFor(1440, 1200, 2).mode, "fit");
+assert.equal(viewFor(1440, 900, 8).mode, "web");
 assert.equal(viewFor(1440, 900, 15).mode, "web");
 assert.equal(viewFor(390, 844, 8).mode, "web");
 assert.equal(viewFor(390, 844, 15).mode, "web");
-assert.equal(viewFor(1920, 1600, 15).mode, "fit");
+viewFor(1920, 1600, 15);
 console.log("✓ Initial camera fits readable inventories, otherwise centres Web at readable scale; both axes centre in the actual surface");

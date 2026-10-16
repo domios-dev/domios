@@ -31,7 +31,7 @@ vi.mock("../Canvas/useCanvasViewport", () => ({
   useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: () => {}, zoomBy: () => {} }),
 }));
 
-it("opens the Web panel from its graph node with the live Serve status and target", async () => {
+it("shows the access card directly in the graph without a duplicate details dialog", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div");
   document.body.append(host);
@@ -40,12 +40,18 @@ it("opens the Web panel from its graph node with the live Serve status and targe
   try {
     await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />));
     const web = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Web details');
-    expect(host.querySelector('[role="region"][aria-label="Web"] img')).not.toBeNull();
-    expect(web).not.toBeNull();
-    await act(async () => web!.click());
-    expect(host.querySelector('[role="dialog"][aria-labelledby="web-access-heading"]')).not.toBeNull();
-    expect(host.querySelector('[data-testid="web-access-status"]')?.textContent).toBe("Ready");
-    expect(host.querySelector<HTMLInputElement>('input[aria-label="Web address"]')?.value).toBe("https://host.tail.ts.net/");
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"] img')).not.toBeNull();
+    expect(web).toBeUndefined();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.querySelector('[data-testid="web-access-status"]')).toBeNull();
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('host.tail.ts.net');
+    const expand = host.querySelector<HTMLButtonElement>('button[aria-label="Expand Mesh UI"]');
+    expect(expand).not.toBeNull();
+    await act(async () => expand!.click());
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Collapse Mesh UI"]')!.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
   } finally {
     await act(async () => root.unmount());
     host.remove();

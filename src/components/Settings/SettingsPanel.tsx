@@ -1,3 +1,4 @@
+import { DropdownSelect } from "../shared/DropdownMenu";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
@@ -248,25 +249,15 @@ export function SettingsPanel({
                 <SettingsCard icon={<Palette size={16} />} title="Appearance">
                   <label className="ct-settings-toggle">
                     <span>Theme</span>
-                    <select
-                      data-testid="settings-theme-select"
-                      value={localConfig.theme.name}
-                      onChange={(e) => update("theme", { name: e.target.value })}
-                      className="ct-field w-56"
-                    >
-                      <optgroup label="Built-in">
-                        {themes.filter(t => builtinThemes.includes(t)).map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </optgroup>
-                      {themes.some(t => !builtinThemes.includes(t)) && (
-                        <optgroup label="Custom">
-                          {themes.filter(t => !builtinThemes.includes(t)).map((t) => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
+                    <div className="w-56 min-w-0">
+                      <DropdownSelect
+                        data-testid="settings-theme-select"
+                        aria-label="Theme"
+                        value={localConfig.theme.name}
+                        onChange={(name) => update("theme", { name })}
+                        options={themes.map((name) => ({ value: name, label: name, group: builtinThemes.includes(name) ? "Built-in" : "Custom" }))}
+                      />
+                    </div>
                   </label>
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1 flex-1">

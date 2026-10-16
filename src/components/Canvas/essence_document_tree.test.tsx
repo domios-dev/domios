@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../../lib/types";
 import { EssenceMapCanvasInner } from "./EssenceMapCanvas";
 import { essenceDocumentEntries } from "./essenceDocumentTree";
-import type { EssenceMapProject } from "./essenceMapModel";
+import { visibleEssenceProjects, type EssenceMapProject } from "./essenceMapModel";
 
 const project = (nodes: EssenceMapProject["nodes"], documents = nodes.map((item) => item.source.path)): EssenceMapProject => ({
   file: { project_path: "/repo", map_path: "/repo/essences/map.jsonl", status: "ready", documents },
@@ -17,6 +17,14 @@ const node = (id: string, path: string): EssenceMapProject["nodes"][number] => (
 });
 
 describe("essence_document_tree", () => {
+  it("omits absent maps beside a populated map but retains actionable failures", () => {
+    const populated = project([node("a", "essences/core.md")]);
+    const missing: EssenceMapProject = { ...project([]), status: "missing" };
+    const malformed: EssenceMapProject = { ...project([]), status: "malformed" };
+    expect(visibleEssenceProjects([missing, populated, malformed])).toEqual([populated, malformed]);
+    expect(visibleEssenceProjects([missing])).toEqual([missing]);
+  });
+
   it("essence_tree_source lists the on-disk set and keeps map context", () => {
     const entries = essenceDocumentEntries(project([
       node("a", "essences/core.md"), node("b", "essences/core.md"), node("c", "essences/vision.md"),
