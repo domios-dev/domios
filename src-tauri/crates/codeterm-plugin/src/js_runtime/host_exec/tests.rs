@@ -28,8 +28,40 @@ fn agent_task_wait_observes_cancellation_without_waiting_for_job_completion() {
 fn exec_output_retains_only_the_bounded_prefix() {
     let bytes = vec![b'x'; 256 * 1024];
     let mut reader = std::io::Cursor::new(bytes);
-    assert_eq!(bounded_output(&mut reader).len(), 128 * 1024);
+    let (output, truncated) = bounded_output(&mut reader);
+    assert_eq!(output.len(), 128 * 1024);
+    assert!(truncated);
     assert_eq!(reader.position(), 256 * 1024);
+}
+
+#[test]
+fn exec_output_at_the_cap_is_complete() {
+    let mut reader = std::io::Cursor::new(vec![b'x'; 128 * 1024]);
+    let (output, truncated) = bounded_output(&mut reader);
+    assert_eq!(output.len(), 128 * 1024);
+    assert!(!truncated);
+}
+
+#[test]
+fn async_exec_preserves_truncation_in_completion() {
+    let _guard = TEST_LOCK.lock();
+    let id = start_exec_job("truncation-fixture").unwrap();
+    finish_exec_job(
+        &id,
+        &serde_json::json!({
+            "code": 0, "stdout": "prefix", "stderr": "", "truncated": true
+        }),
+    );
+    let result = match wait_json("truncation-fixture", &id) {
+        WaitResult::Completed(result) => result,
+        WaitResult::TimedOut => panic!("completed job timed out"),
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&result).unwrap(),
+        serde_json::json!({
+            "done": true, "code": 0, "stdout": "prefix", "stderr": "", "truncated": true
+        })
+    );
 }
 use crate::js_runtime::host_api::PluginSandbox;
 use crate::js_runtime::PROCESS_TEST_LOCK as TEST_LOCK;
@@ -292,6 +324,7 @@ fn run_drains_output_larger_than_pipe_buffer_without_deadlock() {
     assert!(out.get("error").is_none(), "unexpected error: {out}");
     assert_eq!(out["code"], 0);
     assert_eq!(out["stdout"].as_str().map(str::len), Some(128 * 1024));
+    assert_eq!(out["truncated"], true);
 }
 
 #[test]

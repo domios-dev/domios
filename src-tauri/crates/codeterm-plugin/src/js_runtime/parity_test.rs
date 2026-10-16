@@ -12,6 +12,8 @@
 
 #[path = "parity_test/execution_sandbox.rs"]
 mod execution_sandbox;
+#[path = "parity_test/host_exec.rs"]
+mod host_exec;
 #[path = "parity_test/inline_fixture.rs"]
 mod inline_fixture;
 #[path = "parity_test/runtime.rs"]
