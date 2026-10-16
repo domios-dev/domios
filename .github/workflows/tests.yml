@@ -21,6 +21,11 @@ on:
         required: false
         default: all
         type: string
+      cancel_run:
+        description: A failed fast check cancels the calling run at once
+        required: false
+        default: false
+        type: boolean
   pull_request:
   push:
     branches: [master]
@@ -152,6 +157,14 @@ jobs:
           node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
       - run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-release-contracts'] }}
       - run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+      # Builds already in flight stop with the first failure instead of after the slowest sibling check.
+      - &cancel-run-on-failure
+        name: Cancel the run on this fast-check failure
+        if: failure() && inputs.cancel_run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
 
   plugins:
     name: plugin (${{ matrix.plugin.id }})
@@ -186,6 +199,7 @@ jobs:
           PLUGIN_ID: ${{ matrix.plugin.id }}
         shell: bash
         run: ${PLUGIN_COMMAND//<plugin-id>/"$PLUGIN_ID"}
+      - *cancel-run-on-failure
 
   # Formatting is platform-independent, so it does not belong inside a platform
   # lane: gating that lane off silences the check with it, which is how 22 files
@@ -198,6 +212,7 @@ jobs:
     runs-on: [self-hosted, light]
     permissions:
       contents: read
+      actions: write
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -205,6 +220,7 @@ jobs:
           ref: ${{ inputs.source_ref || github.ref }}
       - name: Source file size discipline
         run: bash scripts/check-file-sizes.sh --fail
+      - *cancel-run-on-failure
 
   fmt:
     name: fmt
@@ -235,6 +251,7 @@ jobs:
           exit 1
       - name: cargo fmt --check
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['rust-fmt'] }}
+      - *cancel-run-on-failure
 
   # The whole suite compiles and runs once, in place, on any free runner in the
   # rust-tests pool: shipping a nextest archive between runners cost more than the tests.
@@ -476,6 +493,7 @@ jobs:
       - name: Clean 0-byte stubs
         if: always()
         run: find src-tauri/bundled-cli -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
+      - *cancel-run-on-failure
       - *clean-job-outputs
 
   ts-static:
@@ -524,6 +542,7 @@ jobs:
       - name: Biome (TS lint)
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-biome'] }}
+      - *cancel-run-on-failure
 
   # Windows bundles build the frontend from the gateway's subst drive, where a pnpm
   # workspace symlink can give one file two identities; nothing else runs from there.
@@ -534,6 +553,7 @@ jobs:
     runs-on: [self-hosted, Windows, windows-light]
     permissions:
       contents: read
+      actions: write
     timeout-minutes: 8
     defaults:
       run:
@@ -567,6 +587,7 @@ jobs:
           name: rust-warnings-win32-frontend
           path: ci-rust-warnings/rust-warnings-win32-frontend.json
           if-no-files-found: error
+      - *cancel-run-on-failure
 
   ts-types:
     name: ts generated types
@@ -619,6 +640,7 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: types-${{ runner.os }}
           target: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
+      - *cancel-run-on-failure
       - *clean-job-outputs
 
   ts-unit:
@@ -656,6 +678,7 @@ jobs:
       - name: TS unit runner contracts
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit-runner-tests'] }}
+      - *cancel-run-on-failure
 
   ts-vitest:
     name: ts vitest
@@ -692,6 +715,7 @@ jobs:
       # Light runners share a 16 GiB BLACKSTAR WSL VM with a heavy runner; bound the worker fanout.
       - name: Run vitest-owned TS tests
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-vitest'] }}
+      - *cancel-run-on-failure
 
   ts-plugins:
     name: plugin bundles + tests
@@ -728,6 +752,7 @@ jobs:
       - name: Run plugin tests
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-tests'] }}
+      - *cancel-run-on-failure
 
   release-contracts:
     name: release contract tests
@@ -770,6 +795,7 @@ jobs:
       - name: Offline core journey contracts
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
+      - *cancel-run-on-failure
 
   rust-warnings:
     permissions:
