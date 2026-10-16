@@ -1,4 +1,5 @@
 {
+  "license": "PolyForm-Noncommercial-1.0.0",
   "name": "@codeterm/plugin-git",
   "version": "0.1.1",
   "private": true,

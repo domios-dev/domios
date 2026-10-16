@@ -1,4 +1,5 @@
 [package]
+license = "PolyForm-Noncommercial-1.0.0"
 name = "codeterm-plan"
 version = "1.6.2"
 edition = "2021"

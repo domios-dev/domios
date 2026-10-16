@@ -1,4 +1,5 @@
 [package]
+license = "PolyForm-Noncommercial-1.0.0"
 name = "codeterm-mem-store"
 version = "0.1.0"
 edition = "2021"

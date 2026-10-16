@@ -29,6 +29,9 @@
   },
   "bundle": {
     "active": true,
+    "license": "PolyForm-Noncommercial-1.0.0",
+    "licenseFile": "../LICENSE",
+    "copyright": "Copyright (c) 2025 Andrey Kovalev",
     "createUpdaterArtifacts": true,
     "targets": [
       "nsis",
@@ -46,6 +49,7 @@
     ],
     "resources": {
       "../dist": "dist",
+      "../LICENSE": "LICENSE",
       "../skills": "skills",
       "bundled-cli/*": "cli/",
       "conpty/x64/*": "conpty/x64/",
