@@ -119,3 +119,39 @@ export function chatReadingWindowAnchor(
   if (anchorKey != null || followTail || previousTail == null) return anchorKey;
   return rekeyedChatWindowAnchor(items, previousTail);
 }
+
+export type OlderChatAction = { kind: "reveal"; anchorKey: string | null }
+  | { kind: "backfill"; beforeOffset: number }
+  | { kind: "stop"; reason: "exhausted" | "limit" }
+  | { kind: "error"; reason: "stalled_cursor" }
+  | { kind: "none" };
+
+export interface OlderChatScan {
+  previousCursor: number;
+  pages: number;
+  consumedBytes: number;
+  byteBudget: number;
+  rows: number;
+}
+
+export function olderChatAction(
+  items: readonly TimelineItem[],
+  anchorKey: string | null,
+  anchorLoaded: boolean,
+  cursor: number | null,
+  inFlight: boolean,
+  scan?: OlderChatScan,
+): OlderChatAction {
+  if (inFlight) return { kind: "none" };
+  if (scan) {
+    if (cursor == null || cursor < 0 || cursor >= scan.previousCursor) return { kind: "error", reason: "stalled_cursor" };
+    if (scan.rows > 0) return { kind: "reveal", anchorKey: slideChatWindowOlder(items, anchorKey) };
+    if (cursor === 0) return { kind: "stop", reason: "exhausted" };
+    if (scan.pages >= 8 || scan.consumedBytes >= scan.byteBudget) return { kind: "stop", reason: "limit" };
+    return { kind: "backfill", beforeOffset: cursor };
+  }
+  if (anchorLoaded && chatWindowRange(items, anchorKey).start > 0) {
+    return { kind: "reveal", anchorKey: slideChatWindowOlder(items, anchorKey) };
+  }
+  return cursor != null && cursor > 0 ? { kind: "backfill", beforeOffset: cursor } : { kind: "none" };
+}
