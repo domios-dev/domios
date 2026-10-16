@@ -96,6 +96,7 @@ impl ChatSendLedger {
         thread: &str,
         nonce: &str,
         client_id: &str,
+        item_id: Option<&str>,
     ) -> Option<ChatSendStatus> {
         {
             let state = self.state.lock();
@@ -108,7 +109,11 @@ impl ChatSendLedger {
                 return None;
             }
         }
-        self.confirm_send(client_id)
+        let source = match item_id {
+            Some(id) => Some(super::SourceRowRef::structured(thread, id)?),
+            None => None,
+        };
+        self.confirm_send_with_row(client_id, source.as_ref())
     }
 
     pub(crate) fn mark_rpc_uncertain(&self, send_id: &str) -> Option<ChatSendStatus> {

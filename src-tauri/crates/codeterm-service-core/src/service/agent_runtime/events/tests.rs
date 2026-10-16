@@ -128,3 +128,44 @@ fn idle_thread_prunes_its_background_roster() {
     );
     assert!(!maps.background_processes.contains_key("child"));
 }
+
+#[test]
+fn runtime_evidence_preserves_the_protocol_item_through_translation_and_fold() {
+    let source = AgentRuntimeEvent::SendEvidence {
+        thread_id: "own-thread".into(),
+        send_id: "send".into(),
+        turn_id: "shared-turn".into(),
+        item_id: Some("user-item".into()),
+    };
+    let event = translate(&source);
+    assert!(
+        matches!(&event, RuntimeEvent::EvidenceUpdated { item_id, .. } if item_id.as_deref() == Some("user-item"))
+    );
+    let mut maps = RuntimeMaps::default();
+    fold(&mut maps, 1, &event);
+    assert_eq!(
+        maps.take_evidence("send"),
+        Some((
+            "own-thread".into(),
+            "shared-turn".into(),
+            Some("user-item".into())
+        ))
+    );
+    assert_eq!(maps.take_evidence("send"), None);
+}
+
+#[test]
+fn runtime_evidence_without_item_identity_survives_translation_and_fold() {
+    let source = AgentRuntimeEvent::SendEvidence {
+        thread_id: "own-thread".into(),
+        send_id: "send".into(),
+        turn_id: "turn".into(),
+        item_id: None,
+    };
+    let mut maps = RuntimeMaps::default();
+    fold(&mut maps, 1, &translate(&source));
+    assert_eq!(
+        maps.take_evidence("send"),
+        Some(("own-thread".into(), "turn".into(), None))
+    );
+}

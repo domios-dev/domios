@@ -28,7 +28,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
     let mut run_completed = false;
     let mut run_chat_item = false;
     for event in enriched {
-        if matches!(&event.event, AgentRuntimeEvent::SendEvidence { send_id, .. } if !evidence.contains(send_id))
+        if matches!(&event.event, AgentRuntimeEvent::SendEvidence { send_id, item_id, .. } if !evidence.contains(&(send_id.clone(), item_id.clone())))
         {
             continue;
         }
@@ -192,6 +192,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
             );
         }
         RuntimeEvent::EvidenceUpdated {
+            item_id,
             thread_id,
             send_id,
             turn_id,
@@ -208,6 +209,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                 &thread_id,
                 &context.binding_nonce,
                 &send_id,
+                item_id.as_deref(),
             ) {
                 session
                     .context

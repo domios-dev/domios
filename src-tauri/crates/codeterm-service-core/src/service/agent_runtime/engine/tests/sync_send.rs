@@ -361,7 +361,13 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
     assert!(fixture
         .service
         .chat_send_ledger
-        .confirm_rpc_send(&tab_id, "other-thread", &nonce, &send_id)
+        .confirm_rpc_send(
+            &tab_id,
+            "other-thread",
+            &nonce,
+            &send_id,
+            Some("provider-item")
+        )
         .is_none());
     let authority = fixture.service.user_send_authority(&tab_id).unwrap();
     let mut foreign_provider = authority.clone();
@@ -392,7 +398,13 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
     assert!(fixture
         .service
         .chat_send_ledger
-        .confirm_rpc_send(&tab_id, "own-thread", &nonce, &send_id)
+        .confirm_rpc_send(
+            &tab_id,
+            "own-thread",
+            &nonce,
+            &send_id,
+            Some("provider-item")
+        )
         .is_some());
     let delivery = fixture
         .service
