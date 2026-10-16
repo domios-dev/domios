@@ -178,7 +178,10 @@ impl AgentProvider for JsProvider {
         super::command_template::build_launch_command(self, params)
     }
 
-    fn launch_spec(&self, params: &AgentLaunchParams) -> Option<codeterm_types::agent::LaunchSpec> {
+    fn launch_spec(
+        &self,
+        params: &crate::provider::LaunchSpecParams<'_>,
+    ) -> Option<codeterm_types::agent::LaunchSpec> {
         super::command_template::launch_spec(self, params)
     }
 

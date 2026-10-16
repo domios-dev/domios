@@ -22,10 +22,15 @@ pub(crate) const EXIT_RECOVERY_SESSION_NOT_OWNED: &str = "exit_recovery_session_
 
 struct ExitedShell {
     pty_id: String,
+    live: bool,
     cwd: Option<String>,
     lineage: Vec<PriorBindingNonce>,
     role: Option<String>,
     role_profile: Option<String>,
+}
+
+fn recovery_has_launch_host(live_shell: bool, direct: bool) -> bool {
+    live_shell || direct
 }
 
 fn refusal(code: &str, detail: String) -> AgentRestartError {
@@ -269,6 +274,15 @@ impl ServiceContext {
                 timed_out: false,
             });
         };
+        let direct = relaunch.command.direct.is_some();
+        if !recovery_has_launch_host(shell.live, direct) {
+            return Err(refusal(
+                EXIT_RECOVERY_NO_LIVE_SHELL,
+                "provider requires a live shell for exit recovery".into(),
+            )
+            .into());
+        }
+        outcome.recovered_in_place = !direct;
         if let Some(attempt) = attempt {
             self.claim_exited_shell_for_recovery(attempt)?;
         }
@@ -316,13 +330,16 @@ impl ServiceContext {
             None,
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
         );
-        let ready = match ready {
+        let mut ready = match ready {
             Ok(ready) => ready,
             Err(error) => {
                 crate::service::task_files::release_tab(self, &snap.tab_id);
                 return Err(error);
             }
         };
+        if direct {
+            ready.old_pty_torn_down = self.old_pty_was_torn_down(&snap);
+        }
         self.settle_restored_binding(ready, &snap)
     }
 
@@ -356,8 +373,11 @@ impl ServiceContext {
                 tab.role_profile.clone(),
             )
         };
+        let live = pty_id
+            .as_deref()
+            .is_some_and(|pty_id| self.pty_child_is_live(pty_id));
         let pty_id = pty_id
-            .filter(|pty_id| self.pty.lock().get_session(pty_id).is_some())
+            .filter(|_| live || !lineage.is_empty())
             .ok_or_else(|| {
                 refusal(
                     EXIT_RECOVERY_NO_LIVE_SHELL,
@@ -367,6 +387,7 @@ impl ServiceContext {
             })?;
         Ok(ExitedShell {
             pty_id,
+            live,
             cwd,
             lineage,
             role,

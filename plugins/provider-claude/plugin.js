@@ -212,14 +212,25 @@ function writeClaudeLaunchPrompt(task) {
 // plugins/provider-claude/src/launchSpec.ts
 var FILE_TASK_PROMPT = "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-function starterPrompt2(prompt, hostText) {
+function starterPrompt(prompt, hostText) {
   if (hostText) return hostText;
   if (prompt === "no_starter") return void 0;
   if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return FILE_TASK_PROMPT;
 }
-function buildClaudeLaunchSpec(params) {
+function hasResume(input) {
+  const resume = input.resume;
+  return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
+}
+function buildClaudeLaunchSpec(input) {
+  if ("resume" in input && !hasResume(input)) return null;
+  const params = hasResume(input) ? {
+    args: ["--resume", input.resume.sessionId, ...input.resume.args || []],
+    task: input.resume.systemPrompt ?? void 0,
+    skipPermissions: input.resume.skipPermissions,
+    starterPrompt: "no_starter"
+  } : input;
   const args = [];
   if (params.skipPermissions) args.push("--dangerously-skip-permissions");
   if (params.agentName) args.push("--agent", params.agentName);
@@ -230,7 +241,7 @@ function buildClaudeLaunchSpec(params) {
   const path = writeClaudeLaunchPrompt(params.task || "");
   if (!path) return null;
   args.push("--append-system-prompt-file", path);
-  const prompt = params.task ? starterPrompt2(params.starterPrompt, params.starterPromptText) : void 0;
+  const prompt = params.task ? starterPrompt(params.starterPrompt, params.starterPromptText) : void 0;
   if (prompt) {
     const framed = params.starterPromptPrefix ? params.starterPromptPrefix + prompt + "</domios>" : prompt;
     args.push("--", framed);

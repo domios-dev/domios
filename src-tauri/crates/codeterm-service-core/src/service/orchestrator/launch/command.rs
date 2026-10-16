@@ -1,4 +1,4 @@
-use super::{AgentRegistry, ServiceContext};
+use super::{AgentRegistry, PreparedAgentCommand, ServiceContext};
 use crate::agent::provider::AgentLaunchParams;
 use crate::service::orchestrator::types::SpawnAgentParams;
 
@@ -38,7 +38,9 @@ pub fn build_agent_command_for_service(
         injected_session_id,
         registry,
         None,
+        false,
     )
+    .shell_command
 }
 
 pub fn build_agent_command_with_launch_marker(
@@ -57,7 +59,9 @@ pub fn build_agent_command_with_launch_marker(
         injected_session_id,
         registry,
         launch_marker,
+        false,
     )
+    .shell_command
 }
 
 pub fn build_agent_command_with_launch_marker_for_service(
@@ -78,6 +82,30 @@ pub fn build_agent_command_with_launch_marker_for_service(
         injected_session_id,
         registry,
         launch_marker,
+        false,
+    )
+    .shell_command
+}
+
+pub(crate) fn prepare_agent_command_for_service(
+    service: &ServiceContext,
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &AgentRegistry,
+    launch_marker: Option<&str>,
+) -> PreparedAgentCommand {
+    build_agent_command_inner(
+        Some((service, tab_id)),
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
+        launch_marker,
+        true,
     )
 }
 
@@ -89,7 +117,8 @@ fn build_agent_command_inner(
     injected_session_id: Option<&str>,
     registry: &AgentRegistry,
     launch_marker: Option<&str>,
-) -> String {
+    direct: bool,
+) -> PreparedAgentCommand {
     if let Some((service, tab_id)) = notice_context {
         crate::service::directory_pre_trust::for_tab(
             service,
@@ -162,7 +191,7 @@ fn build_agent_command_inner(
             task,
             injected_session_id,
         ) {
-            return command;
+            return command.into();
         }
     }
     let structured_prompt_server = params.structured_prompt_server.clone().or_else(|| {
@@ -279,7 +308,7 @@ fn build_agent_command_inner(
             .with_provider(agent_cmd, |provider| provider.fork_session_args())
             .flatten()
         else {
-            return String::new();
+            return Default::default();
         };
         args.extend(fork_args);
     }
@@ -305,10 +334,11 @@ fn build_agent_command_inner(
             crate::service::task_files::capture(service, tab_id, || {
                 registry
                     .with_provider(agent_cmd, |provider| {
-                        crate::service::context_bundle::build_resume(
+                        crate::service::context_bundle::build_resume_prepared(
                             provider,
                             &resume,
                             params.context_skills.as_deref(),
+                            direct,
                         )
                     })
                     .flatten()
@@ -316,10 +346,11 @@ fn build_agent_command_inner(
         } else {
             registry
                 .with_provider(agent_cmd, |provider| {
-                    crate::service::context_bundle::build_resume(
+                    crate::service::context_bundle::build_resume_prepared(
                         provider,
                         &resume,
                         params.context_skills.as_deref(),
+                        direct,
                     )
                 })
                 .flatten()
@@ -351,29 +382,31 @@ fn build_agent_command_inner(
     let command = if let Some((service, tab_id)) = notice_context {
         crate::service::task_files::capture(service, tab_id, || {
             registry.with_provider(agent_cmd, |provider| {
-                crate::service::context_bundle::build(
+                crate::service::context_bundle::build_prepared(
                     provider,
                     &launch_params,
                     params.context_skills.as_deref(),
+                    direct,
                 )
             })
         })
     } else {
         registry.with_provider(agent_cmd, |provider| {
-            crate::service::context_bundle::build(
+            crate::service::context_bundle::build_prepared(
                 provider,
                 &launch_params,
                 params.context_skills.as_deref(),
+                direct,
             )
         })
     };
     match command {
-        Some(command) if command.trim().is_empty() => String::new(),
-        Some(command) => crate::agent::stub_launch::apply(agent_cmd, command),
+        Some(command) if command.trim().is_empty() => Default::default(),
+        Some(command) => command.with_stub(agent_cmd),
         None => {
             let mut parts = vec![agent_cmd.to_string()];
             parts.extend(args);
-            parts.join(" ")
+            parts.join(" ").into()
         }
     }
 }

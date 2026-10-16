@@ -289,7 +289,7 @@ export interface AgentProvider {
   detectEvents?(text: string): string[];
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
-  buildLaunchSpec?(params: LaunchParams): {
+  buildLaunchSpec?(params: LaunchParams | { resume: ResumeParams }): {
     program: string;
     args: string[];
     envSet?: Record<string, string>;

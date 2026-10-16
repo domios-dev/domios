@@ -37,6 +37,25 @@ pub(super) fn launch_spec(params: &AgentLaunchParams) -> Option<codeterm_types::
     launch_spec_with(params, super::context::launch_args, write_launch_prompt)
 }
 
+pub(super) fn provider_launch_spec(
+    params: &crate::provider::LaunchSpecParams<'_>,
+) -> Option<codeterm_types::agent::LaunchSpec> {
+    match params {
+        crate::provider::LaunchSpecParams::Fresh(params) => launch_spec(params),
+        crate::provider::LaunchSpecParams::Resume(params) => {
+            let mut args = vec!["--resume".into(), params.session_id.clone()];
+            args.extend(params.args.clone());
+            launch_spec(&AgentLaunchParams {
+                args: Some(args),
+                task: params.system_prompt.clone(),
+                skip_permissions: params.skip_permissions,
+                starter_prompt: crate::provider::StarterPrompt::NoStarter,
+                ..Default::default()
+            })
+        }
+    }
+}
+
 fn launch_spec_with(
     params: &AgentLaunchParams,
     launch_args: impl FnOnce(&[String]) -> Option<Vec<String>>,
