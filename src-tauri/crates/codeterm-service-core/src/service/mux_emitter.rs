@@ -131,9 +131,10 @@ fn emit_snapshot(service: &ServiceContext) {
         .ext::<Arc<PublishedMuxState>>()
         .publish(snapshot.generation, &snapshot)
     {
-        Ok(true) => service
-            .events
-            .publish_generic("mux-state-changed", serde_json::json!({})),
+        Ok(true) => service.events.publish_generic(
+            "mux-state-changed",
+            serde_json::json!({"generation": snapshot.generation}),
+        ),
         Ok(false) => {}
         Err(error) => log::error!("[mux-snapshot] publication failed: {error}"),
     }
