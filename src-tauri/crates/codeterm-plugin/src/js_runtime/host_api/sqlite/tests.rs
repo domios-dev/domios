@@ -28,13 +28,20 @@ fn provider_compat_sqlite_gate_covers_raw_and_convenience_host_calls() {
             PluginVm::from_source_with("sqlite-gate-fixture", r#"module.exports.default = {
                 raw: function(db) { return host.sqliteQueryAllJson(db, 'SELECT value FROM fixture', null); },
                 wrapped: function(db) { return host.fs.sqliteQuery(db, 'SELECT value FROM fixture'); },
+                awaited: function(db) { return host.fs.sqliteQueryAsync(db, 'SELECT value FROM fixture', null, function(rows) { return rows; }); },
                 buildLaunchCommand: function(value) { return value; }
             };"#.into(), Some(json)).unwrap()
         });
         let raw: Option<String> = call_json(&vm, "raw", &[serde_json::json!(db)]).unwrap();
         let wrapped: Vec<serde_json::Value> =
             call_json(&vm, "wrapped", &[serde_json::json!(db)]).unwrap();
+        let awaited: Vec<serde_json::Value> =
+            call_json(&vm, "awaited", &[serde_json::json!(db)]).unwrap();
         assert_eq!(raw.is_some(), allow);
+        assert_eq!(
+            awaited, wrapped,
+            "the async read keeps the compatibility gate"
+        );
         assert_eq!(
             wrapped,
             if allow {

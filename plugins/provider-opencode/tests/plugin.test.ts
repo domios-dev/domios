@@ -696,6 +696,64 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
   eq(p.modelGroupUsage(), [], "no session store ⇒ no usage, never a guess");
 }
 
+// Usage is re-read only when the db or its WAL changes, or after the TTL.
+{
+  const dbPath = "/data/opencode/opencode.db";
+  let now = 1_000_000;
+  let queries = 0;
+  let wal = { size: 10, modifiedMs: 5 };
+  let listed = true;
+  const p = loadOpencodeWithHost(ocHost({
+    envGet: (key: string) => key === "OPENCODE_DB" ? dbPath : null,
+    unixNowMs: () => now,
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      readDir: (dir: string) => !listed || dir !== "/data/opencode" ? [] : [
+        { name: "opencode.db", size: 4096, modifiedMs: 1 },
+        { name: "opencode.db-wal", size: wal.size, modifiedMs: wal.modifiedMs },
+      ],
+      sqliteQuery: () => {
+        queries++;
+        return [{ g: "xai", messages: queries, input: 0, output: 0, cache_read: 0, cache_write: 0, cost: 0 }];
+      },
+    },
+  }));
+  const messages = () => (p.modelGroupUsage() as Array<{ messages: number }>)[0].messages;
+  eq(messages(), 1, "first usage read queries the store");
+  now += 59_000;
+  eq([messages(), queries], [1, 1], "an unchanged store inside the TTL is served from the cache");
+  wal = { size: 20, modifiedMs: 5 };
+  eq([messages(), queries], [2, 2], "a WAL size change re-reads the store");
+  wal = { size: 20, modifiedMs: 6 };
+  eq([messages(), queries], [3, 3], "a WAL mtime change re-reads the store");
+  now += 60_000;
+  eq([messages(), queries], [4, 4], "an expired TTL re-reads an unchanged store");
+  listed = false;
+  messages();
+  messages();
+  eq(queries, 6, "an unstamped store is never cached");
+}
+
+// Both heavy reads return the awaited query instead of holding the VM.
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const pending: Array<(rows: unknown[]) => unknown> = [];
+  const host = ocHost({ fs: { fileExists: (pth: string) => pth === dbPath } }) as Record<string, any>;
+  host.fs.sqliteQueryAsync = (_db: string, _sql: string, _params: unknown[], then: (rows: unknown[]) => unknown) => {
+    pending.push(then);
+    return { awaiting: pending.length };
+  };
+  const p = loadOpencodeWithHost(host);
+  eq(p.modelGroupUsage(), { awaiting: 1 }, "modelGroupUsage yields on the usage query");
+  eq(
+    pending[0]([{ g: "xai", messages: 1, input: 2, output: 3, cache_read: 0, cache_write: 0, cost: 0 }]),
+    [{ group: "xai", messages: 1, input_tokens: 2, output_tokens: 3, cache_read_tokens: 0, cache_write_tokens: 0, cost_micros: 0 }],
+    "the usage continuation builds the result from the awaited rows",
+  );
+  eq(p.readStructuredChat("/work", "ses_owned", null), { awaiting: 2 }, "readStructuredChat yields on the part query");
+  eq(pending[1]([]), { messages: [], observations: [], cursor: "[0,[]]" }, "the chat continuation keeps the cursor contract");
+}
+
 // The manifest declares the balance credential secret and the network host the
 // plugin's balance read reaches — core never learns either.
 {
