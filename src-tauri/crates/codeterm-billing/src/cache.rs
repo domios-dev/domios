@@ -10,6 +10,7 @@ use std::{
 pub struct Snapshot {
     pub entitlements: Entitlements,
     pub stale: bool,
+    pub access: Option<Access>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RefreshEvent {
@@ -99,7 +100,17 @@ impl Billing {
         let mut product_event = None;
         if cache.generation == generation {
             match result {
-                Ok(entitlements) => {
+                Ok(Reading {
+                    entitlements: None,
+                    access,
+                }) => {
+                    cache.snapshot.stale = true;
+                    cache.snapshot.access = Some(access);
+                }
+                Ok(Reading {
+                    entitlements: Some(entitlements),
+                    access,
+                }) => {
                     let changed = !cache.observed
                         || cache.snapshot.entitlements.plan != entitlements.plan
                         || cache.snapshot.entitlements.status != entitlements.status;
@@ -113,6 +124,7 @@ impl Billing {
                     cache.snapshot = Snapshot {
                         entitlements,
                         stale: false,
+                        access: Some(access),
                     };
                 }
                 Err(_) => cache.snapshot.stale = true,
