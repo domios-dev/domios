@@ -27,6 +27,7 @@ mod process_boundary;
 mod process_slot;
 pub(crate) mod projections;
 pub mod reset_credits;
+pub mod goals;
 pub use projections::latest as projections_latest;
 pub(crate) mod prompt_answers;
 mod question_delivery;

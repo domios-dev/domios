@@ -328,13 +328,12 @@ fn codex_rpc_rich_tools_diffs_and_agent_receivers_preserve_details() {
     let goal = normalizer
         .apply(&Frame::Notification {
             method: "thread/goal/updated".into(),
-            params: json!({"threadId":"t","goal":{"objective":"inspect"}}),
+            params: json!({"threadId":"t","goal":{"objective":"inspect","status":"paused"}}),
         })
         .unwrap();
-    assert_eq!(
-        goal.session_intent.unwrap().goal.as_deref(),
-        Some("inspect")
-    );
+    let intent = goal.session_intent.unwrap();
+    assert_eq!(intent.goal.as_deref(), Some("inspect"));
+    assert_eq!(intent.goal_status.as_deref(), Some("paused"));
 }
 
 #[test]
