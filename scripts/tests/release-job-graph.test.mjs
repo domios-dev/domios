@@ -126,7 +126,7 @@ test('native release processes share a job wrapper and verify before compiling',
     assert.equal(job.env.RUSTC_WRAPPER, 'sccache');
     const commands = job.steps.map(step => step.run || '');
     const verify = commands.findIndex(command => /build\.(?:sh|ps1) cache-verify/.test(command));
-    const compile = commands.findIndex(command => /mac-bundle|build\.(?:sh|ps1) release-inputs/.test(command));
+    const compile = commands.findIndex(command => /mac-bundle|build\.(?:sh|ps1) release-(?:inputs|bundle)/.test(command));
     assert.ok(verify >= 0 && compile > verify, name);
     const stats = job.steps.at(-2);
     assert.equal(stats.if, "${{ always() && steps.compile.outcome != 'skipped' }}");
