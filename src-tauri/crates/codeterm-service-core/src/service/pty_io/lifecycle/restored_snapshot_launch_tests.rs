@@ -807,3 +807,83 @@ fn restored_snapshot_service_builder_keeps_direct_spec_and_owned_session() {
         .unwrap();
     assert!(fixture.service.resolve_pty_id(&tab_id).is_err());
 }
+
+#[test]
+fn restored_snapshot_shell_commands_match_the_service_builders_byte_for_byte() {
+    use crate::plugin::js_runtime::{JsProvider, PluginVm};
+    for session_id in [Some("owned-shell-session"), None] {
+        let (state, tab_id) = MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(state);
+        let registry = &fixture.service.agent_registry;
+        let provider_id = "shell-restore-fixture";
+        let manifest = serde_json::json!({
+            "id": provider_id, "version": "0.1.0", "displayName": "Fixture"
+        });
+        let source = r#"module.exports.default = {
+            buildLaunchCommand(params) { return 'fixture ' + JSON.stringify(params.args); },
+            buildResumeCommand(sessionId) { return 'fixture --resume ' + sessionId; }
+        };"#;
+        let vm = PluginVm::from_source(provider_id, source.into()).unwrap();
+        registry.register_provider(Box::new(JsProvider::new(
+            serde_json::from_value(manifest).unwrap(),
+            Arc::new(vm),
+        )));
+        assert_eq!(
+            registry.with_provider(provider_id, |provider| provider.declares_launch_spec()),
+            Some(false)
+        );
+        let input = restored_snapshot_launch_input(
+            registry,
+            RestoredLaunch {
+                provider_id: provider_id.into(),
+                session_id: session_id.map(str::to_owned),
+                cwd: Some(fixture.temp.path().to_string_lossy().into_owned()),
+                model: None,
+                launch_parameters: RestorableLaunchParameters {
+                    captured: true,
+                    args: Some(vec![
+                        "--opaque".into(),
+                        "value with spaces".into(),
+                        "$literal".into(),
+                    ]),
+                    ..Default::default()
+                },
+                role: None,
+                role_profile: None,
+            },
+            None,
+            None,
+        );
+        let prepared = super::restored_snapshot_launch_command_for_service(
+            &fixture.service,
+            &tab_id,
+            provider_id,
+            &input,
+        );
+        let expected = if session_id.is_some() {
+            crate::service::orchestrator::build_agent_command_for_service(
+                &fixture.service,
+                &tab_id,
+                provider_id,
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                registry,
+            )
+        } else {
+            crate::service::launch_session_detection::marked_agent_command_for_service(
+                &fixture.service,
+                &tab_id,
+                provider_id,
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                registry,
+            )
+        };
+        crate::service::launch_session_detection::clear_launch_marker(&tab_id);
+        assert!(prepared.direct.is_none());
+        assert!(!expected.is_empty());
+        assert_eq!(prepared.shell_command, expected);
+    }
+}
