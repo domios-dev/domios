@@ -696,6 +696,30 @@ fn call_json_mode_interruptible<R: serde::de::DeserializeOwned>(
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<R, VmError> {
+    let args = Arguments::prepare(method, args)
+        .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
+    call_prepared(vm, method, &args, strict, interrupt)
+}
+
+pub(super) fn call_records<R: serde::de::DeserializeOwned>(
+    vm: &PluginVm,
+    method: &str,
+    args: &[serde_json::Value],
+    window: &crate::jsonl_window::records::RecordWindow,
+) -> Result<R, VmError> {
+    let mut args = Arguments::prepare(method, args)
+        .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
+    args.window = Some(window);
+    call_prepared(vm, method, &args, false, None)
+}
+
+fn call_prepared<R: serde::de::DeserializeOwned>(
+    vm: &PluginVm,
+    method: &str,
+    args: &Arguments<'_>,
+    strict: bool,
+    interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
+) -> Result<R, VmError> {
     if !has_method(vm, method) {
         return Err(VmError::MissingFunction(method.to_owned()));
     }
@@ -744,25 +768,16 @@ fn parse_await(result_json: &str) -> Option<AwaitRequest> {
 fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,
-    args: &[serde_json::Value],
+    args: &Arguments<'_>,
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<R, VmError> {
     let mut timing = (method == "runtimeStoredHistory").then(|| timing::HookTiming::new(method));
-    let args = Arguments::prepare(method, args)
-        .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
     if let Some(timing) = timing.as_mut() {
         timing.bytes = args.bytes();
         timing.enter("vm_wait");
     }
-    let mut result_json = enter_call(
-        vm,
-        method,
-        &args,
-        strict,
-        interrupt.clone(),
-        timing.as_mut(),
-    )?;
+    let mut result_json = enter_call(vm, method, args, strict, interrupt.clone(), timing.as_mut())?;
     while let Some(pending) = parse_await(&result_json) {
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
@@ -852,9 +867,11 @@ fn enter_call(
             .map_err(|e| VmError::Script(format!("setting raw argument failed: {e:?}")))?;
         let result = (|| {
             if let Some(values) = args.objects {
-                let objects = objects::arguments(&ctx, values).catch(&ctx).map_err(|e| {
-                    VmError::Script(format!("constructing record arguments failed: {e:?}"))
-                })?;
+                let objects = objects::record_arguments(&ctx, values, args.window)
+                    .catch(&ctx)
+                    .map_err(|e| {
+                        VmError::Script(format!("constructing record arguments failed: {e:?}"))
+                    })?;
                 globals
                     .set("__ct_object_args__", objects)
                     .catch(&ctx)

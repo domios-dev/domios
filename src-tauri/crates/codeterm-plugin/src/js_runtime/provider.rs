@@ -179,6 +179,21 @@ impl JsProvider {
         }
     }
 
+    fn try_call_records<R: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        args: &[Value],
+        window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Option<R> {
+        match super::vm::call_records(&self.vm, method, args, window) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                log::warn!("[plugin {}] {} failed: {error}", self.manifest.id, method);
+                None
+            }
+        }
+    }
+
     fn extend_parsed_session_chunk(&self, out: &mut Vec<SessionMessage>, chunk: &str) {
         if let Some(parsed) =
             self.try_call::<Vec<SerdeSessionMessage>>("parseSessionMessages", &[json!(chunk)])

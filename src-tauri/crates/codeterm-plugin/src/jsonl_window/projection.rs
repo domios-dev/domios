@@ -1,3 +1,5 @@
+use super::ordered::OrderedValue;
+use indexmap::IndexMap;
 use serde_json::{value::RawValue, Value};
 use std::collections::BTreeMap;
 
@@ -17,7 +19,11 @@ impl Selection {
     }
 }
 
-fn select(raw: &RawValue, selection: &Selection, remaining: &mut usize) -> Result<Value, String> {
+fn select(
+    raw: &RawValue,
+    selection: &Selection,
+    remaining: &mut usize,
+) -> Result<OrderedValue, String> {
     if selection.retain {
         if raw.get().len() > *remaining {
             return Err("Stored record metadata exceeds page budget".into());
@@ -25,21 +31,29 @@ fn select(raw: &RawValue, selection: &Selection, remaining: &mut usize) -> Resul
         *remaining -= raw.get().len();
         return serde_json::from_str(raw.get()).map_err(|error| error.to_string());
     }
-    let mut output = serde_json::Map::new();
+    let mut output = IndexMap::new();
     if !raw.get().trim_start().starts_with('{') {
-        return Ok(Value::Object(output));
+        return Ok(OrderedValue::Object(output));
     }
-    let fields: BTreeMap<String, &RawValue> =
+    let fields: IndexMap<String, &RawValue> =
         serde_json::from_str(raw.get()).map_err(|error| error.to_string())?;
-    for (key, child) in &selection.children {
-        if let Some(raw) = fields.get(key) {
-            output.insert(key.clone(), select(raw, child, remaining)?);
+    for (key, raw) in fields {
+        if let Some(child) = selection.children.get(&key) {
+            output.insert(key, select(raw, child, remaining)?);
         }
     }
-    Ok(Value::Object(output))
+    Ok(OrderedValue::Object(output))
 }
 
 pub fn project(record: &str, paths: &[Vec<String>], budget: usize) -> Result<Value, String> {
+    serde_json::to_value(project_ordered(record, paths, budget)?).map_err(|error| error.to_string())
+}
+
+pub(crate) fn project_ordered(
+    record: &str,
+    paths: &[Vec<String>],
+    budget: usize,
+) -> Result<OrderedValue, String> {
     let raw: &RawValue = serde_json::from_str(record).map_err(|error| error.to_string())?;
     let mut selection = Selection::default();
     for path in paths {

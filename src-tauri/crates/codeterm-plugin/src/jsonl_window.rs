@@ -8,6 +8,7 @@ use std::path::Path;
 
 use codeterm_types::agent::chat_types::RichMessage;
 
+pub(crate) mod ordered;
 pub mod projection;
 pub mod records;
 

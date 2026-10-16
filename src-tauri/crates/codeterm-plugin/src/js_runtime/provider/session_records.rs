@@ -73,9 +73,10 @@ impl JsProvider {
             if window.meta.new_offset <= offset || window.projection_error.is_some() {
                 break;
             }
-            let Some(rows) = self.try_call::<Vec<SerdeSessionMessage>>(
+            let Some(rows) = self.try_call_records::<Vec<SerdeSessionMessage>>(
                 "parseSessionMessageRecords",
                 &[json!(window.records), json!(window.meta)],
+                &window,
             ) else {
                 break;
             };

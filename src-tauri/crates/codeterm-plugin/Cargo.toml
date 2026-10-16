@@ -21,6 +21,7 @@ dirs = "6"
 futures-executor = "0.3"
 futures-util = "0.3"
 include_dir = "0.7"
+indexmap = { version = "2", features = ["serde"] }
 log = "0.4"
 md-5 = "0.10"
 parking_lot = "0.12"

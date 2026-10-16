@@ -107,12 +107,13 @@ impl JsProvider {
             new_offset: u64,
         }
         let delta: Delta = self
-            .try_call(
+            .try_call_records(
                 "parseSessionRecords",
                 &[
                     serde_json::json!(window.records),
                     serde_json::json!(window.meta),
                 ],
+                window,
             )
             .ok_or("Parsed session record projection failed")?;
         if delta.new_offset != window.meta.new_offset {
