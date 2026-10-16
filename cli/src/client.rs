@@ -907,26 +907,21 @@ fn is_daemon_socket_name(name: &str) -> bool {
         && !name.starts_with("codeterm-gateway-mutex-")
 }
 
-/// Resolve a scanned socket name from raw `/tmp` entry names.
-///
-/// Liveness, selection and the process probe are injected so the fall-through
-/// order can be exercised without a running daemon.
-#[cfg(all(test, not(target_os = "windows")))]
-fn resolve_scanned_socket(
+#[cfg(not(target_os = "windows"))]
+fn resolve_scanned_socket<T>(
     entry_names: impl Iterator<Item = String>,
-    is_live: &dyn Fn(&str) -> bool,
+    connect: &dyn Fn(&str) -> Option<T>,
     select: &dyn Fn(&[String]) -> Option<String>,
-    probe_running_daemon: &dyn Fn() -> Option<String>,
-) -> Result<String, String> {
+    probe_running_daemon: &dyn Fn() -> Option<(T, String)>,
+) -> Result<(T, String), String> {
     let mut candidates: Vec<String> = entry_names.filter(|n| is_daemon_socket_name(n)).collect();
     candidates.sort();
-    // A socket file outlives its daemon, and returning a dead one here would
-    // shadow the process probe that still finds the live one.
-    candidates.retain(|name| is_live(name));
-    if let Some(name) = select(&candidates) {
-        return Ok(name);
+    while let Some(path) = select(&candidates) {
+        if let Some(client) = connect(&path) {
+            return Ok((client, path));
+        }
+        candidates.retain(|candidate| *candidate != path);
     }
-
     probe_running_daemon().ok_or_else(|| "No Domios socket found. Is Domios running?".to_string())
 }
 
@@ -963,34 +958,21 @@ fn discover_unix_socket() -> Result<(SocketClient, ResolvedSocket), String> {
         })
         .unwrap_or_default();
 
-    let mut candidates: Vec<_> = entry_names
-        .into_iter()
-        .filter(|name| is_daemon_socket_name(name))
-        .collect();
-    candidates.sort();
-    while let Some(path) = pick_preferred_socket(&candidates, prefers_dev_socket()) {
-        if let Ok(client) = SocketClient::connect(&path) {
-            return Ok((
-                client,
-                ResolvedSocket {
-                    path,
-                    source: ResolutionSource::Scan,
-                },
-            ));
-        }
-        candidates.retain(|candidate| *candidate != path);
-    }
-    pgrep_daemon_socket()
-        .map(|(client, path)| {
-            (
-                client,
-                ResolvedSocket {
-                    path,
-                    source: ResolutionSource::Scan,
-                },
-            )
-        })
-        .ok_or_else(|| "No Domios socket found. Is Domios running?".to_owned())
+    resolve_scanned_socket(
+        entry_names.into_iter(),
+        &|path| SocketClient::connect(path).ok(),
+        &|candidates| pick_preferred_socket(candidates, prefers_dev_socket()),
+        &pgrep_daemon_socket,
+    )
+    .map(|(client, path)| {
+        (
+            client,
+            ResolvedSocket {
+                path,
+                source: ResolutionSource::Scan,
+            },
+        )
+    })
 }
 
 /// An agent sandbox that denies the daemon pipe must not read as a dead daemon.
