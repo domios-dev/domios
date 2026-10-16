@@ -62,7 +62,7 @@ pub fn capture_scrollback_tails(
         let buf = output_buf.lock();
         let mut tails = Vec::new();
         for (tab_id, pty_id) in plan {
-            let Some(data) = buf.get(&pty_id).filter(|data| !data.is_empty()) else {
+            let Some(data) = buf.copy(&pty_id).filter(|data| !data.is_empty()) else {
                 skipped_tabs.push((tab_id, "no_buffered_output"));
                 continue;
             };

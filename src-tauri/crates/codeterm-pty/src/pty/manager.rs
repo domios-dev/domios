@@ -156,133 +156,7 @@ impl PtySession {
     }
 }
 
-/// Ring buffer storing last N bytes of PTY output per tab.
-/// Also maintains a full history (capped at MAX_FULL_SIZE) for chat view parsing.
-///
-/// Screen parsing (VT100) lives in `ScreenState` behind a separate lock
-/// to avoid contention between output processing and chat view reads.
-pub struct OutputBuffer {
-    buffers: HashMap<String, Vec<u8>>,
-    /// Full output history (capped at MAX_FULL_SIZE per PTY). Used by chat view parser.
-    full_buffers: HashMap<String, Vec<u8>>,
-    /// Monotonic logical output byte count per PTY, including seeded history.
-    /// SSE clients use this as a stable absolute offset.
-    total_written: HashMap<String, u64>,
-    max_size: usize,
-    max_full: usize,
-}
-
-/// Maximum size of full_buffers per PTY (2 MB).
-const MAX_FULL_SIZE: usize = 2 * 1024 * 1024;
-
-impl OutputBuffer {
-    pub fn new(max_size: usize) -> Self {
-        Self::new_with_caps(max_size, MAX_FULL_SIZE)
-    }
-
-    fn new_with_caps(ring_size: usize, full_size: usize) -> Self {
-        Self {
-            buffers: HashMap::new(),
-            full_buffers: HashMap::new(),
-            total_written: HashMap::new(),
-            max_size: ring_size,
-            max_full: full_size,
-        }
-    }
-
-    pub fn append(&mut self, pty_id: &str, data: &[u8]) {
-        // Ring buffer (truncated)
-        let buf = self.buffers.entry(pty_id.to_string()).or_default();
-        buf.extend_from_slice(data);
-        if buf.len() > self.max_size {
-            let drain = buf.len() - self.max_size;
-            buf.drain(..drain);
-        }
-        // Full history (capped at max_full)
-        let full = self.full_buffers.entry(pty_id.to_string()).or_default();
-        full.extend_from_slice(data);
-        if full.len() > self.max_full {
-            let excess = full.len() - self.max_full;
-            full.drain(..excess);
-        }
-        *self.total_written.entry(pty_id.to_string()).or_insert(0) += data.len() as u64;
-    }
-
-    pub fn prepend(&mut self, pty_id: &str, data: &[u8]) {
-        if data.is_empty() {
-            return;
-        }
-
-        let buf = self.buffers.entry(pty_id.to_string()).or_default();
-        prepend_capped(buf, data, self.max_size);
-
-        let full = self.full_buffers.entry(pty_id.to_string()).or_default();
-        prepend_capped(full, data, self.max_full);
-
-        *self.total_written.entry(pty_id.to_string()).or_insert(0) += data.len() as u64;
-    }
-
-    pub fn get(&self, pty_id: &str) -> Option<&[u8]> {
-        self.buffers.get(pty_id).map(|v| v.as_slice())
-    }
-
-    /// Get full untruncated output history.
-    pub fn get_full(&self, pty_id: &str) -> Option<&[u8]> {
-        self.full_buffers.get(pty_id).map(|v| v.as_slice())
-    }
-
-    pub fn get_text(&self, pty_id: &str) -> Option<String> {
-        self.get(pty_id)
-            .map(|b| String::from_utf8_lossy(b).to_string())
-    }
-
-    /// Get full untruncated output as text.
-    pub fn get_full_text(&self, pty_id: &str) -> Option<String> {
-        self.get_full(pty_id)
-            .map(|b| String::from_utf8_lossy(b).to_string())
-    }
-
-    /// Total logical output bytes represented for this PTY (monotonic).
-    pub fn total_written(&self, pty_id: &str) -> u64 {
-        self.total_written.get(pty_id).copied().unwrap_or(0)
-    }
-
-    /// Read everything written after `offset`. If `offset` predates the
-    /// retained full_buffer window (rotated out), starts from the oldest
-    /// retained byte. Returns (data, new_total) — caller advances its
-    /// offset to `new_total` regardless of how much data was returned.
-    pub fn read_since(&self, pty_id: &str, offset: u64) -> (Vec<u8>, u64) {
-        let total = self.total_written(pty_id);
-        let buf = match self.full_buffers.get(pty_id) {
-            Some(b) => b,
-            None => return (Vec::new(), total),
-        };
-        if offset >= total {
-            return (Vec::new(), total);
-        }
-        let buf_start = total.saturating_sub(buf.len() as u64);
-        let read_from = offset.max(buf_start);
-        let local_idx = (read_from - buf_start) as usize;
-        let slice = buf.get(local_idx..).map(|s| s.to_vec()).unwrap_or_default();
-        (slice, total)
-    }
-
-    pub fn remove(&mut self, pty_id: &str) {
-        self.buffers.remove(pty_id);
-        self.full_buffers.remove(pty_id);
-        self.total_written.remove(pty_id);
-    }
-}
-
-fn prepend_capped(buffer: &mut Vec<u8>, prefix: &[u8], max_size: usize) {
-    let mut combined = Vec::with_capacity(prefix.len().saturating_add(buffer.len()));
-    combined.extend_from_slice(prefix);
-    combined.extend_from_slice(buffer);
-    if combined.len() > max_size {
-        combined.drain(..combined.len() - max_size);
-    }
-    *buffer = combined;
-}
+pub use super::output_buffer::{OutputBuffer, OutputRead};
 
 #[cfg(test)]
 mod output_buffer_tests {
@@ -335,7 +209,7 @@ mod output_buffer_tests {
         buffer.append("p", b"fresh banner\n");
 
         assert_eq!(
-            buffer.get("p"),
+            buffer.copy("p").as_deref(),
             Some(&b"restored history\nfresh banner\n"[..])
         );
         assert_eq!(buffer.total_written("p"), history_end + 13);
@@ -358,8 +232,8 @@ mod output_buffer_tests {
         buffer.prepend("p", b"old history");
         buffer.append("p", b"fresh");
 
-        assert_eq!(buffer.get("p"), Some(&b"yfresh"[..]));
-        assert_eq!(buffer.get_full("p"), Some(&b"oryfresh"[..]));
+        assert_eq!(buffer.copy("p").as_deref(), Some(&b"yfresh"[..]));
+        assert_eq!(buffer.copy_full("p").as_deref(), Some(&b"oryfresh"[..]));
         assert_eq!(buffer.total_written("p"), 16);
         assert_eq!(buffer.read_since("p", 11).0, b"fresh");
     }

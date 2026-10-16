@@ -637,7 +637,7 @@ mod restored_scrollback_tests {
         .expect("frontend spawn should materialize the restored PTY");
 
         let buffer = service.output_buf.lock();
-        assert!(buffer.get_full(&pty_id).unwrap().starts_with(tail));
+        assert!(buffer.copy_full(&pty_id).unwrap().starts_with(tail));
         assert_eq!(
             buffer.read_since(&pty_id, 0).0.get(..tail.len()),
             Some(tail.as_slice())
