@@ -33,8 +33,11 @@ impl Drop for RuntimeDispatchFixture {
     fn drop(&mut self) {
         let tabs = self.fixture.service.mux.read().snapshot().tabs;
         for id in tabs.keys() {
-            codeterm_service_core::service::agent_runtime::engine::stop(&self.fixture.service, id)
-                .unwrap();
+            codeterm_service_core::service::agent_runtime::engine::stop_blocking(
+                &self.fixture.service,
+                id,
+            )
+            .unwrap();
         }
         codeterm_service_core::service::session_persist::stop_worker(&self.fixture.service)
             .unwrap();

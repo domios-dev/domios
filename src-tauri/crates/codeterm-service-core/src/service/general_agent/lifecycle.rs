@@ -335,7 +335,8 @@ pub fn start_general_agent(
                     }
                 }
             } else {
-                if let Err(reason) = crate::service::agent_runtime::engine::stop(svc, &pid) {
+                if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &pid)
+                {
                     fail_general_agent_start(svc, mux, &pid, &reason);
                     return;
                 }
@@ -585,7 +586,7 @@ fn restart_general_agent_inner(
     if let Some(tab_id) =
         runtime_tab.filter(|tab| crate::service::agent_runtime::requested_for_tab(svc, tab))
     {
-        if let Err(reason) = crate::service::agent_runtime::engine::stop(svc, &tab_id) {
+        if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab_id) {
             fail_general_agent_start(svc, mux, &tab_id, &reason);
             return;
         }

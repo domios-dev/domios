@@ -33,7 +33,7 @@ impl Member {
             handle: handle as usize,
             born: 0,
         };
-        if !boundary.job.contains_process(handle)? {
+        if !unsafe { boundary.job.contains_process(handle) }? {
             return Err("Process left the owned Job before observation".into());
         }
         let mut born = FILETIME::default();
@@ -50,7 +50,7 @@ impl Member {
         self.born
     }
     pub(super) fn validate_identity(&self, boundary: &Boundary) -> Result<(), String> {
-        if self.exited()? || boundary.job.contains_process(self.handle as HANDLE)? {
+        if self.exited()? || unsafe { boundary.job.contains_process(self.handle as HANDLE) }? {
             Ok(())
         } else {
             Err("Retained process is outside the owned Job".into())
