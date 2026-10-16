@@ -24,3 +24,6 @@ tests/fixtures/plan-state/*.yaml text eol=lf
 
 # Tauri regenerates these with LF on every check/dev run.
 src-tauri/gen/schemas/*.json text eol=lf
+
+# Producer vector packet bytes are pinned by SHA256; never normalize line endings.
+src-tauri/crates/codeterm-entitlements/vectors/** -text
