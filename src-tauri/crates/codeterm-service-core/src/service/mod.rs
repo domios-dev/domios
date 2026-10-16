@@ -152,6 +152,7 @@ pub use receiver_target::ReceiverTargetError;
 pub mod remote_tabs;
 pub mod remote_workers;
 pub mod reply_relay;
+pub mod restore_admission;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
 pub mod role_identity;
