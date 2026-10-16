@@ -19,6 +19,7 @@ mod tab;
 mod tab_runtime;
 mod task_keys;
 mod workspace;
+mod wire_snapshot;
 
 pub use closed::{
     ArchivedTab, ClosedGroup, ClosedStructure, ClosedStructureView, ClosedTabView, ClosedTabsStore,
@@ -129,6 +130,7 @@ pub struct TeamResolution {
 #[derive(Debug, Clone, Serialize)]
 pub struct MultiplexerSnapshot {
     pub workspaces: Vec<Workspace>,
+    #[serde(serialize_with = "wire_snapshot::tabs")]
     pub tabs: HashMap<String, Tab>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub teams: Vec<Team>,
