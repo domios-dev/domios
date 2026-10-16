@@ -15,6 +15,14 @@ The latest marker must reach the actual chat DOM. This exercises file parsing,
 tailing, delivery, transcript retention and rendering, without a real PTY agent.
 It does not reproduce provider RPCs or partial-token amendments.
 
+For a bounded ten-minute load, add `--seconds 600 --tabs 5 --records 16`.
+The duration starts after warm-up; consumer acknowledgements drive each cycle,
+and elapsed time only stops the workload. Timed mode samples post-GC at the
+first completed cycle after each minute, with a final paused sample. Actual
+sample times and cycle count remain in `result.json`; this short capture measures
+growth and does not establish an hours-long plateau. Give the owning QA shell
+enough remaining lifetime for warm-up, the workload and cleanup.
+
 Samples preserve JS heap, DOM/listener counts, mounted chat and terminal counts,
 Windows private/working bytes and process creation identities. Warm and paused
 snapshots are optional; compare them with the existing renderer-memory snapshot
