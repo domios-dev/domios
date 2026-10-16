@@ -661,13 +661,20 @@ export function TeamUnit({
             data-team-card-hit-target="team-card-activation"
             className="sidebar-team-card-visual"
           >
-            <SegmentedDonut
-              data-testid="team-donut"
-              className="sidebar-team-status-donut"
-              segments={buckets}
-              size={27}
-              aria-hidden="true"
-            />
+            <button
+              type="button"
+              className="sidebar-team-status-trigger"
+              aria-label={`Open task status for ${displayTitle}`}
+              onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id })}
+            >
+              <SegmentedDonut
+                data-testid="team-donut"
+                className="sidebar-team-status-donut"
+                segments={buckets}
+                size={27}
+                aria-hidden="true"
+              />
+            </button>
             {cardContents}
           </div>
         ) : (

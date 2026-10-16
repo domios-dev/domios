@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Sidebar/TeamUnit.a11y.test.tsx
 
 import { Window } from "happy-dom";
+import { FIXTURE_PLAN } from "../Canvas/cards/fixtures.testdata";
 
 const window = new Window({ url: "http://localhost/" });
 Object.defineProperty(globalThis, "window", { value: window, configurable: true });
@@ -26,15 +27,16 @@ async function main() {
     if (!condition) throw new Error(message);
   }
 
-  async function render(name: string | null) {
+  async function render(name: string | null, withPlan = false) {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
+    const opened: string[] = [];
     await act(async () => {
       root.render(
         <TeamUnit
           team={{ id: "team-1", name, lifecycle: "active", created_at: 0, workspace_id: "ws" }}
-          plan={null}
+          plan={withPlan ? { ...FIXTURE_PLAN, title: name ?? "Team", team_id: "team-1" } : null}
           tabs={{}}
           managers={<div />}
           managerCount={1}
@@ -46,12 +48,12 @@ async function main() {
           crons={<div />}
           cronCount={1}
           providers={[]}
-          onOpenEffort={() => {}}
+          onOpenEffort={(target) => { opened.push(target.planId ?? ""); }}
           onCloseTeam={() => {}}
         />,
       );
     });
-    return { host, root };
+    return { host, root, opened };
   }
 
   function labels(host: HTMLElement): string[] {
@@ -95,6 +97,16 @@ async function main() {
       ].join("|"),
       `member groups follow visual order, so focus does too: ${groups.join("|")}`,
     );
+    await act(async () => root.unmount());
+    host.remove();
+  }
+
+  {
+    const { host, root, opened } = await render("Release train", true);
+    const ring = host.querySelector('button[aria-label="Open task status for Release train"]') as HTMLButtonElement | null;
+    assert(ring, "the status ring is a named native button");
+    await act(async () => ring.click());
+    assert(opened.length === 1 && opened[0] === FIXTURE_PLAN.id, "ring activation opens its own plan once");
     await act(async () => root.unmount());
     host.remove();
   }

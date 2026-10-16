@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import type { CSSProperties, HTMLAttributes } from "react";
 import { PLAN_STATUS_COLORS, type PlanStatusKind } from "./SegmentedDonut";
 
 export interface PlanStatusCounts {
@@ -48,7 +48,10 @@ export function PlanStatusBreakdown({
             data-testid={itemTestIdPrefix ? `${itemTestIdPrefix}-${status}` : undefined}
             data-status={status}
             className="ct-plan-status-breakdown-item"
-            style={{ color: tone === "muted" ? "var(--ct-muted-fg)" : PLAN_STATUS_COLORS[status] }}
+            style={{
+              "--ct-plan-status-color": PLAN_STATUS_COLORS[status],
+              color: tone === "muted" ? "var(--ct-plan-status-foreground, var(--ct-muted-fg))" : PLAN_STATUS_COLORS[status],
+            } as CSSProperties}
           >
             <span className="ct-plan-status-breakdown-count">{counts[status]}</span>
             <span className="ct-plan-status-breakdown-label"> {status}</span>
