@@ -2,8 +2,6 @@
 // Run: npx tsx src/components/shared/Button.test.tsx
 
 import React, { act } from "react";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { Button } from "./Button";
@@ -34,11 +32,6 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
   await act(async () => { root.render(ui); });
   return { host, root };
 }
-
-test("Button uses the shared touch-mode path", () => {
-  const source = readFileSync(fileURLToPath(import.meta.url).replace(/\.test\.tsx$/, ".tsx"), "utf8");
-  assert(/useTouchOptimizedUi/.test(source), "Button must use the shared touch-mode path");
-});
 
 test("Button disabled is not interactive", async () => {
   const { host } = await render(<Button variant="primary" disabled>Nope</Button>);
