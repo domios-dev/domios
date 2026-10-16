@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseOpencodeModels } from "../src/helpers";
+import { withAsyncSqlite } from "./hostFixture.testdata";
 import { rejectedModelIds, sessionObservations, turnError, unavailableModelError } from "../src/turnErrors";
 
 const error = { role: "assistant", providerID: "opencode", modelID: "exo-free",
@@ -32,6 +33,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import plugin from "../src/plugin";
+import { withAsyncSqlite } from "./hostFixture.testdata";
 
 // rusqlite binds ?N by index; node:sqlite 22.14 rejects ?N, so expand each to a positional "?".
 function queryLikeHost(db: DatabaseSync, sql: string, params: Array<string | number>) {
@@ -58,7 +60,7 @@ it("reads the 410 from a real SQLite own session, advances on message updates, a
       execStart: () => JSON.stringify({ jobId: "discovery" }),
       awaitJob: (_id: string, then: (result: unknown) => unknown) => then({ code: 0, stdout: 'opencode/exo-free\n{"name":"Exo"}\nopencode/good\n{"name":"Good"}' }),
       unixNowMs: () => 1_000_000,
-      fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, params: Array<string | number>) => queryLikeHost(db, sql, params) },
+      fs: withAsyncSqlite({ fileExists: () => true, sqliteQuery: (_path: string, sql: string, params: Array<string | number>) => queryLikeHost(db, sql, params) }),
     } });
     const delta = plugin.readStructuredChat("/work", "ses_own", '[20,[]]') as {
       messages: Array<{ type: string; content: string }>;
