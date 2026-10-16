@@ -465,16 +465,46 @@ fn chat_start_inner(
         None,
     );
     let read_started = std::time::Instant::now();
-    let resumed = known_window.as_ref().and_then(|known| {
-        codeterm_service_core::service::tab_chat::session_window::resume_window(
-            &svc.agent_registry,
-            &provider_id,
-            &source,
-            &path,
-            &resume_epoch,
-            known,
-        )
+    let cached = incarnation.as_ref().and_then(|held| {
+        let total = std::fs::metadata(&path).ok()?.len();
+        let entry = svc
+            .chat_registry
+            .row_cache
+            .get(&tab_id, &resume_epoch, &held.id, total)?;
+        let refresh = entry.file_length() != total;
+        entry
+            .resume(&resume_epoch, &held.id, total, |known| {
+                codeterm_service_core::service::tab_chat::session_window::resume_window(
+                    &svc.agent_registry,
+                    &provider_id,
+                    &source,
+                    &path,
+                    &resume_epoch,
+                    known,
+                )
+                .map(|(_, snapshot)| snapshot)
+            })
+            .map(|snapshot| (snapshot, refresh))
     });
+    if incarnation.is_none() {
+        svc.chat_registry.row_cache.drop_tab(&tab_id);
+    }
+    let cache_hit = cached.is_some();
+    let cache_refresh = cached.as_ref().is_some_and(|(_, refresh)| *refresh);
+    let resumed = cached
+        .map(|(snapshot, _)| (ChatStartKind::Snapshot, snapshot))
+        .or_else(|| {
+            known_window.as_ref().and_then(|known| {
+                codeterm_service_core::service::tab_chat::session_window::resume_window(
+                    &svc.agent_registry,
+                    &provider_id,
+                    &source,
+                    &path,
+                    &resume_epoch,
+                    known,
+                )
+            })
+        });
     let (kind, snap) = if let Some((kind, snapshot)) = resumed {
         (kind, std::sync::Arc::new(snapshot))
     } else {
@@ -517,16 +547,39 @@ fn chat_start_inner(
             Some(held),
         )
         .and_then(|current| {
+            if current != *held {
+                svc.chat_registry.row_cache.drop_tab(&tab_id);
+                return None;
+            }
             codeterm_service_core::service::tab_chat::resume::encode_cursor(
-                resume_epoch,
+                resume_epoch.clone(),
                 &current,
                 snap.end_offset,
             )
         })
     });
+    if kind == ChatStartKind::Snapshot && (!cache_hit || cache_refresh) {
+        if let Some(cursor) = cursor.as_ref() {
+            let mux = svc.mux.read();
+            if mux.get_tab(&tab_id).is_some_and(|tab| {
+                tab.agent_session_id.as_deref() == Some(session_id.as_str())
+                    && tab.session_binding_nonce == session_binding_nonce
+            }) {
+                svc.chat_registry
+                    .row_cache
+                    .insert(&tab_id, &resume_epoch, cursor.clone(), &snap);
+            }
+        }
+    }
+    log::debug!(
+        "[chat_start.row_cache] tab={} hit={} bytes_read={}",
+        tab_id,
+        cache_hit,
+        snap.bytes_read
+    );
     let read_ms = read_started.elapsed().as_millis();
     if let Some(nonce) = session_binding_nonce.as_deref() {
-        if kind == ChatStartKind::Snapshot && snap.truncated() {
+        if kind == ChatStartKind::Snapshot && snap.truncated() && !cache_hit {
             codeterm_service_core::service::incomplete_snapshot(svc, &tab_id, &session_id, nonce);
         }
         codeterm_service_core::service::provider_signals_apply(

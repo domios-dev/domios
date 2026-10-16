@@ -222,6 +222,7 @@ pub struct ChatRegistry {
     inner: Mutex<HashMap<String, Entry>>,
     sources: Mutex<HashMap<String, Arc<JsonlSource>>>,
     pub snapshot_flights: super::snapshot_flight::SnapshotFlights,
+    pub row_cache: super::row_cache::RowCache,
 }
 
 impl ChatRegistry {
@@ -371,6 +372,7 @@ impl ChatRegistry {
     }
 
     pub fn shutdown_tab(&self, tab_id: &str) {
+        self.row_cache.drop_tab(tab_id);
         super::structured_sink::clear_tab(tab_id);
         self.sources.lock().remove(tab_id);
         let h = self.inner.lock().remove(tab_id).map(|entry| entry.handle);
