@@ -15,6 +15,17 @@ fn closed_chat_scan_returns_the_exact_matched_jsonl_record_ref() {
     assert!(fx.scan("tab").is_empty());
     fx.append_user_turn("own", "payload");
     let confirmed = fx.scan("tab");
+    let incarnation = crate::service::tab_chat::resume::capture_incarnation(
+        &fx.source,
+        &crate::service::tab_chat::resume_cursor::ChatEpoch {
+            source_session_id: "own".into(),
+            session_binding_nonce: None,
+        },
+        &fx.session_path("own"),
+        transcript_offset,
+        None,
+    )
+    .unwrap();
     assert_eq!(confirmed.len(), 1);
     assert_eq!(confirmed[0].send_id, send.send_id);
     assert_eq!(
@@ -23,6 +34,7 @@ fn closed_chat_scan_returns_the_exact_matched_jsonl_record_ref() {
             source: SourceRowRef {
                 source_session_id: "own".into(),
                 record: SourceRecord::Jsonl {
+                    incarnation: incarnation.id.to_string(),
                     record_start: transcript_offset,
                     record_row: 0,
                 }
@@ -30,6 +42,54 @@ fn closed_chat_scan_returns_the_exact_matched_jsonl_record_ref() {
             ordinal: 1,
         })
     );
+    assert!(fx.scan("tab").is_empty());
+}
+
+#[test]
+fn closed_chat_scan_distinguishes_recreated_rows_at_the_same_offset() {
+    let fx = Fixture::new();
+    let first = fx
+        .ledger
+        .try_start("tab", "repeat", Some(fx.anchor_now("own")))
+        .unwrap();
+    fx.ledger.finish(&first.send_id, Ok(())).unwrap();
+    fx.append_user_turn("own", "repeat");
+    let first_status = fx.scan("tab").pop().unwrap();
+    std::fs::remove_file(fx.session_path("own")).unwrap();
+    assert!(matches!(
+        fx.source.capture("own", &fx.session_path("own")),
+        SourceCapture::Absent { .. }
+    ));
+    let second = fx
+        .ledger
+        .try_start("tab", "repeat", Some(fx.anchor_now("own")))
+        .unwrap();
+    fx.ledger.finish(&second.send_id, Ok(())).unwrap();
+    fx.append_user_turn("own", "repeat");
+    let confirmed = fx.scan("tab");
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, second.send_id);
+    let first_row = first_status.matched_row.unwrap();
+    let second_row = confirmed[0].matched_row.as_ref().unwrap();
+    match (&first_row.source.record, &second_row.source.record) {
+        (
+            SourceRecord::Jsonl {
+                incarnation: first,
+                record_start: first_start,
+                record_row: first_row,
+            },
+            SourceRecord::Jsonl {
+                incarnation: second,
+                record_start: second_start,
+                record_row: second_row,
+            },
+        ) => {
+            assert_ne!(first, second);
+            assert_eq!((*first_start, *first_row), (0, 0));
+            assert_eq!((*second_start, *second_row), (0, 0));
+        }
+        _ => panic!("JSONL fixture"),
+    }
     assert!(fx.scan("tab").is_empty());
 }
 
@@ -45,11 +105,12 @@ fn jsonl_record_text_matching_keeps_its_reference() {
         }],
         ..Default::default()
     };
-    let turns = turn_window::jsonl_evidence_turns("own", &rich);
+    let turns = turn_window::jsonl_evidence_turns("own", Some("incarnation-1"), &rich);
     assert_eq!(turns[0].content, "payload");
     assert_eq!(
         turns[0].source_row.as_ref().unwrap().record,
         SourceRecord::Jsonl {
+            incarnation: "incarnation-1".into(),
             record_start: 1234,
             record_row: 5
         }

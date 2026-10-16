@@ -240,6 +240,7 @@ impl ServiceContext {
         super::chat_send_evidence::scan_transcript_evidence(
             &self.agent_registry,
             &ledger,
+            &self.chat_registry.jsonl_source(tab_id),
             tab_id,
             |_| {},
         );

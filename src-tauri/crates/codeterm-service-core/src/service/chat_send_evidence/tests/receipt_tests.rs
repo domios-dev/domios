@@ -25,12 +25,12 @@ fn glued_consumed_owner_record_is_evidence_only_after_its_send_anchor() {
     fx.ledger.finish(&send.send_id, Ok(())).unwrap();
     fx.append_user_turn("foreign", prompt);
     fx.append_user_turn("own", &payload[..payload.len() - 2]);
-    scan_transcript_evidence(&fx.registry, &fx.ledger, "tab", |_| {
+    scan_transcript_evidence(&fx.registry, &fx.ledger, &fx.source, "tab", |_| {
         panic!("pre-send/foreign/partial evidence")
     });
     fx.append_user_turn("own", prompt);
     let mut confirmed = Vec::new();
-    scan_transcript_evidence(&fx.registry, &fx.ledger, "tab", |status| {
+    scan_transcript_evidence(&fx.registry, &fx.ledger, &fx.source, "tab", |status| {
         confirmed.push(status)
     });
     assert_eq!(confirmed.len(), 1);
