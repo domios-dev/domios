@@ -1,0 +1,56 @@
+{
+  "stage": "script-error",
+  "failure": {
+    "name": "TypeError",
+    "reason": "unexpected",
+    "httpStatus": 403,
+    "filename": "https://example.test/assets/app.js?secret=hidden#hidden",
+    "lineno": 12,
+    "colno": 4,
+    "message": "hidden",
+    "request": {
+      "method": "GET",
+      "path": "/api/tabs",
+      "pageOrigin": "https://example.test",
+      "targetOrigin": "https://example.test",
+      "kind": "http",
+      "status": 503
+    },
+    "chat": {
+      "scope": "tab:fixture",
+      "edge": "window",
+      "at": 42,
+      "state": {
+        "followTail": false
+      }
+    }
+  },
+  "body": {
+    "stage": "script-error",
+    "errorName": "TypeError",
+    "reason": "unexpected",
+    "httpStatus": 403,
+    "source": "app.js",
+    "line": 12,
+    "column": 4,
+    "native": false,
+    "injected": false,
+    "mounted": true,
+    "request": {
+      "method": "GET",
+      "path": "/api/tabs",
+      "pageOrigin": "https://example.test",
+      "targetOrigin": "https://example.test",
+      "kind": "http",
+      "status": 503
+    },
+    "chat": {
+      "scope": "tab:fixture",
+      "edge": "window",
+      "at": 42,
+      "state": {
+        "followTail": false
+      }
+    }
+  }
+}
