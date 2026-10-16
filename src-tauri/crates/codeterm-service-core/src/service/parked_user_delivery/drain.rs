@@ -47,7 +47,7 @@ impl super::super::ServiceContext {
             bool,
         ) -> Result<UserWrite, DeliveryError>,
     ) -> Result<UserDrain, String> {
-        self.bind_user_send_owner(tab_id);
+        self.bind_user_send_owner();
         let store = &self.pending_delivery_payloads.user_sends;
         macro_rules! hold {
             ($head:expr, $reason:expr, $event:ident) => {
