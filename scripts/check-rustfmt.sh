@@ -18,7 +18,11 @@ if [ -n "$foreign" ]; then
   exit 2
 fi
 
-git ls-files -z -- "${scope[@]/%//**.rs}" |
-  grep -zEv "$skip" |
-  xargs -0 rustfmt --edition "$edition" --check
+mapfile -d '' files < <(git ls-files -z -- "${scope[@]/%//**.rs}" | grep -zEv "$skip")
+# Batches stay under the Windows command-line limit; the first failing rustfmt status is returned as is.
+status=0
+for ((i = 0; i < ${#files[@]}; i += 200)); do
+  rustfmt --edition "$edition" --check "${files[@]:i:200}" || { code=$?; [ "$status" -ne 0 ] || status=$code; }
+done
+[ "$status" -eq 0 ] || exit "$status"
 echo "check-rustfmt: tracked Rust files are formatted"
