@@ -6,8 +6,10 @@ import {randomUUID} from 'node:crypto';
 import {dcJson,dc} from '../../core-journeys/lib/env.mjs';
 import {connect,evaluate,takeHeapSnapshot} from '../renderer-memory/cdp.mjs';
 import {fixtureRecord} from './fixture.mjs';
+import {summarizeAllocations} from './allocations.mjs';
 
 const flags=Object.fromEntries(process.argv.slice(2).reduce((all,x,i,args)=>x.startsWith('--')?[...all,[x.slice(2),args[i+1]]]:all,[]));
+const allocations=flags.allocations==='yes';
 const count=Number(flags.tabs??15),cycles=Number(flags.cycles??4),perCycle=Number(flags.records??64),initial=Number(flags.initial??480);
 for(const [name,value,max] of [['tabs',count,15],['cycles',cycles,8],['records',perCycle,128],['initial',initial,600]]) {
   if(!Number.isSafeInteger(value)||value<1||value>max)throw Error(`Invalid ${name}`);
@@ -20,7 +22,7 @@ const headers={Authorization:`Bearer ${process.env.CODETERM_API_TOKEN}`,'Content
 const api=async route=>{const r=await fetch('http://127.0.0.1:7686'+route,{headers,signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(`API ${route}: ${r.status}`);return r.json();};
 const health=await api('/api/health');if(health.build_sha!==expected)throw Error('Build drift');
 const before=await api('/api/mux/state');
-const created=[],samples=[],visits=[];let workspace,junction,cdp;
+const created=[],samples=[],visits=[];let workspace,junction,cdp,sampling=false;
 const result={status:'incomplete',run,health,count,cycles,perCycle,initial,created,samples,visits};
 const save=()=>fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2));
 const bound=AbortSignal.timeout(420000);
@@ -87,6 +89,11 @@ try{
   save();await selectWorkspace(workspace.name);
   for(const f of created)await visit(f,'warm');
   await sample('warm',{gc:true,snapshot:flags.snapshots==='yes'});
+  if(allocations){
+    await cdp.send('HeapProfiler.startSampling',{samplingInterval:32768,includeObjectsCollectedByMajorGC:true,includeObjectsCollectedByMinorGC:true});
+    sampling=true;
+    result.allocationSampling={intervalBytes:32768,includesCollectedObjects:true};save();
+  }
   console.log(`CHAT_MEMORY_ARMED tabs=${created.length} providerLaunched=false`);
   for(let cycle=1;cycle<=cycles;cycle++){
     if(bound.aborted)throw Error('Scenario deadline');
@@ -97,10 +104,12 @@ try{
     }
     await sample('cycle'+cycle);
   }
+  if(sampling)await finishAllocations();
   await sample('paused',{gc:true,snapshot:flags.snapshots==='yes'});
   result.status='measured';
 }catch(error){result.error=String(error);process.exitCode=1;console.log('CHAT_MEMORY_FAILED '+String(error));}
 finally{
+  if(sampling){try{await finishAllocations();}catch(error){result.allocationError=String(error);process.exitCode=1;}}
   if(cdp){try{const shot=await cdp.send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(out,'final.png'),Buffer.from(shot.data,'base64'));}catch(error){result.screenshotError=String(error);}}
   result.cleanup=[];
   for(const fixture of created){const closed=await dc(['tab','close','--tab',fixture.tab]);result.cleanup.push({tab:fixture.tab,exit:closed.code});save();}
@@ -109,4 +118,11 @@ finally{
   if(cdp){try{const old=before.workspaces.find(w=>w.id===before.active_workspace_id);if(old)await selectWorkspace(old.name);const oldTab=before.tabs[before.focused_tab_id];if(oldTab)await evaluate(cdp,`(()=>{(${button('Open tab '+oldTab.title)})?.click();return true})()`);await sample('cleanup',{gc:true});}catch(error){result.cleanupSampleError=String(error);}cdp.close();}
   if(result.cleanup.some(x=>x.exit!==0)||result.workspaceCloseExit!==0)process.exitCode=1;
   save();console.log(`CHAT_MEMORY_COMPLETE status=${result.status} out=${out}`);
+}
+
+async function finishAllocations(){
+  const {profile}=await cdp.send('HeapProfiler.stopSampling');sampling=false;
+  fs.writeFileSync(path.join(out,'allocations.heapprofile'),JSON.stringify(profile));
+  result.allocations=summarizeAllocations(profile);
+  fs.writeFileSync(path.join(out,'allocations-summary.json'),JSON.stringify(result.allocations,null,2));save();
 }

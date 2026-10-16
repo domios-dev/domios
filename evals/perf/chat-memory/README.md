@@ -19,6 +19,12 @@ Samples preserve JS heap, DOM/listener counts, mounted chat and terminal counts,
 Windows private/working bytes and process creation identities. Warm and paused
 snapshots are optional; compare them with the existing renderer-memory snapshot
 summarizer. Samples before and after forced GC are labeled separately.
+Add `--allocations yes` to sample V8 allocations during the measured cycles,
+including objects collected by minor and major GC. `allocations.heapprofile`
+retains the raw call tree; `allocations-summary.json` ranks self and inclusive
+allocation volume by function and served source location. These are statistical
+allocation estimates, not retained bytes or native renderer memory. Profiling
+can perturb the workload; compare with the unprofiled control.
 All created tabs are closed on exit. Real sessions, drafts and PROD are untouched.
 
 `result.json` records each marker observation and switch latency, including
