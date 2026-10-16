@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AppConfig } from "../../lib/types";
-import { modelDefaultRows } from "./modelDefaultsModel";
+import { modelDefaultPatch, modelDefaultRows } from "./modelDefaultsModel";
 
 function config(overrides: Partial<AppConfig>): AppConfig {
   return {
@@ -11,6 +11,18 @@ function config(overrides: Partial<AppConfig>): AppConfig {
     ...overrides,
   } as unknown as AppConfig;
 }
+
+test("editing a default preserves other provider and memory settings", () => {
+  const original = config({ agents: { fixture: { default_model: "old", visible_in_menu: false } } });
+  const row = modelDefaultRows(original)[0];
+  assert.deepEqual(modelDefaultPatch(original, row, "next"), {
+    agents: { fixture: { default_model: "next", visible_in_menu: false } },
+  });
+  const memoryRow = { key: "memory.extraction_model", subject: "opaque", provider: "fixture", model: "old" };
+  assert.deepEqual(modelDefaultPatch(original, memoryRow, "next"), {
+    memory: { ...original.memory, extraction_model: "next" },
+  });
+});
 
 test("every stored default is listed with the provider that owns it", () => {
   const rows = modelDefaultRows(config({

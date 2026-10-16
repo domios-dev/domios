@@ -160,6 +160,16 @@ export function SettingsPanel({
     [saveDraft],
   );
 
+  const switchGeneralProvider = useCallback(async (provider: string) => {
+    const previous = draftRef.current.config;
+    const next = { ...previous, general_agent: { ...previous.general_agent, agent_provider: provider } };
+    await onUpdateConfig(next);
+    const updated = { config: next, save: onUpdateConfig };
+    draftRef.current = updated;
+    setDraft(updated);
+    if (next.general_agent.enabled !== false) await invoke("restart_general_agent");
+  }, [onUpdateConfig]);
+
   const headerTitle =
     top.kind === "root"
       ? "Settings"
@@ -335,7 +345,7 @@ export function SettingsPanel({
                   />
                 </SettingsCard>
 
-                <GeneralAgentCard config={localConfig} onUpdate={update} />
+                <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} />
 
                 <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>
                   <MessengersCard config={localConfig} onUpdate={update} />
@@ -406,6 +416,7 @@ export function SettingsPanel({
             {top.kind === "section" && top.id === "agents" && (
               <SettingsPage title="Agents">
                 <AgentsOverview
+                  onSwitchGeneralProvider={switchGeneralProvider}
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
                   onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
