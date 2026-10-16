@@ -100,6 +100,13 @@ impl AgentProvider for LaunchEvidenceProvider {
                 messages: Vec::new(),
             };
         }
+        // Like the production JSONL window, consume whole records only; a write observed
+        // mid-record stays unread until its newline lands.
+        let complete = bytes
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        bytes.truncate(complete);
         let messages = bytes
             .split(|byte| *byte == b'\n')
             .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())

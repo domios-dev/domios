@@ -1,3 +1,6 @@
+#[path = "../crates/codeterm-service-core/src/test_support.rs"]
+mod test_support;
+
 fn occurrences(haystack: &str, needle: &str) -> usize {
     haystack.match_indices(needle).count()
 }
@@ -40,6 +43,6 @@ fn outbound_calls_in(dir: &std::path::Path) -> usize {
 
 #[test]
 fn outbound_stages_have_no_additional_crate_callers() {
-    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("crates");
+    let crates = test_support::fixture_manifest_dir().join("crates");
     assert_eq!(outbound_calls_in(&crates), 2);
 }
