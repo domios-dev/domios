@@ -136,6 +136,28 @@ never shell commands. No candidates means no rerun; missing/incomplete timing
 logs or missing candidate confirmations fail closed. A plain log-only guard
 works when no serial confirmations are required.
 
+### QuickJS frame-mapping performance check
+
+`runtime_quickjs_frame_mapping_benchmark` is ignored in ordinary suites because
+its absolute wall-clock throughput varies with host load. Run it alone in a
+canonical Team QA shell under Orchestrator authority, from the repository root:
+
+```bash
+source build.sh env
+scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml \
+  -p codeterm-plugin --lib \
+  js_runtime::parity_test::runtime::replay::runtime_quickjs_frame_mapping_benchmark \
+  -- --exact --ignored --nocapture
+```
+
+On Windows, open Git Bash in that Team shell for this recipe. `test-one` does
+not forward libtest harness arguments, so use the capped runner explicitly.
+The check retains its 2x measured-stream-rate assertion and prints QuickJS and
+native baseline throughput, p99 latency, first-call latency, and peak headroom.
+A failure is performance evidence to investigate on an otherwise idle host;
+it is not an ordinary correctness gate. The native baseline only maps frames
+and counts them, so it does not justify a relative runtime-reducer threshold.
+
 ### Unified entrypoint: `./build.sh test:all`
 
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:
@@ -691,4 +713,4 @@ Worker pre-commit Rust feedback uses `./build.sh lane-check <touched crate> [--t
 
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
