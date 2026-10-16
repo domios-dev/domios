@@ -25,10 +25,11 @@ export function RestoreStatePanel({ providerId, view, onRetry, retrying = false 
           </div>
           <div role="progressbar" aria-label="Restore progress" aria-valuemin={0}
             aria-valuenow={view.phase === "ready" ? view.steps.length : Math.max(0, view.current)}
-            aria-valuemax={view.steps.length} aria-valuetext={currentLabel}
+            aria-valuemax={view.steps.length} aria-valuetext={view.hint ? currentLabel + ". " + view.hint : currentLabel}
             className="flex w-full gap-1.5">
             {view.steps.map(step => <span key={step.id} aria-hidden="true" data-state={step.state} className="restore-progress-segment"><span /></span>)}
           </div>
+          {view.hint && <p className="mt-3 text-xs text-[var(--ct-muted-fg)]">{view.hint}</p>}
         </div>}
         {view.detail && view.phase === "failed" && <InlineErrorNotice error={view.detail} operation="restoring this session" />}
         {view.phase === "failed" && <button type="button" className="ct-btn mt-5 border border-[var(--ct-border)] bg-[var(--ct-surface)] text-xs" disabled={retrying} onClick={onRetry}>Wake again</button>}
