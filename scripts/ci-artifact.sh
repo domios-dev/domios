@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Caller: CI ci-artifact-smoke.yml
+# Caller: CI ci-artifact-smoke.yml, tests.yml, rust-warnings-summary.yml, actions/rust-warnings
 # CI artifacts in the shared MinIO ci-artifacts bucket instead of GitHub artifact storage.
 #
 #   ci-artifact.sh put <key> <file>
 #   ci-artifact.sh get <key> <file>
 #   ci-artifact.sh rm  <key>
+#   ci-artifact.sh get-prefix <prefix> <dir>   (every object under prefix, by base name)
 #
-# Objects live in the ci-artifacts bucket (50 GB hard quota, 7-day expiry) next to the
+# Objects live in the ci-artifacts bucket (500 GB hard quota, 7-day expiry) next to the
 # sccache bucket, signed with the same runner keys; the keys reach curl through stdin, never argv.
 set -euo pipefail
 
@@ -42,6 +43,17 @@ case "$verb" in
   rm)
     s3 --request DELETE "$url" >/dev/null
     echo "ci-artifact: removed $bucket/$key"
+    ;;
+  get-prefix)
+    dir=${3:?missing directory}
+    mkdir -p "$dir"
+    keys=$(s3 "${endpoint%/}/$bucket?list-type=2&prefix=$key" | grep -o '<Key>[^<]*</Key>' | sed 's#</*Key>##g' || true)
+    count=0
+    for object in $keys; do
+      s3 --output "$dir/${object##*/}" "${endpoint%/}/$bucket/$object"
+      count=$((count + 1))
+    done
+    echo "ci-artifact: got $count object(s) under $bucket/$key into $dir"
     ;;
   *) echo "ci-artifact: unknown verb $verb" >&2; exit 2 ;;
 esac

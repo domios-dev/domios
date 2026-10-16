@@ -341,16 +341,15 @@ jobs:
         if: always() && runner.os != 'Windows'
         shell: bash
         run: bash build.sh cache-stats
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - name: Store Rust test receipts
         if: always()
         continue-on-error: ${{ inputs.artifacts_optional }}
-        with:
-          overwrite: true
-          name: rust-receipt-${{ matrix.suite }}-${{ runner.os }}
-          path: |
-            ci-rust-receipts/*.json
-            ci-rust-receipts/*.log
-          if-no-files-found: error
+        shell: bash
+        run: |
+          shopt -s nullglob
+          receipts=(ci-rust-receipts/*.json ci-rust-receipts/*.log)
+          [ "${#receipts[@]}" -gt 0 ] || { echo "no Rust test receipts to store" >&2; exit 1; }
+          for receipt in "${receipts[@]}"; do bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-receipt/${receipt##*/}" "$receipt"; done
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
@@ -434,12 +433,9 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Fetch Rust test receipts
         continue-on-error: ${{ inputs.artifacts_optional }}
-        with:
-          pattern: rust-receipt-*
-          path: ci-rust-receipts
-          merge-multiple: true
+        run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-receipt/" ci-rust-receipts
       - name: Require every Rust test job
         env:
           TESTS_RESULT: ${{ needs.rust-tests.result }}
@@ -586,15 +582,10 @@ jobs:
       # frontend-build installs through the bundle's own ensure_deps, from the mapped path.
       - name: Build the release frontend from the stable build path
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
-      - name: Upload frontend warning collection
+      - name: Store frontend warning collection
         if: always()
         continue-on-error: ${{ inputs.artifacts_optional }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          overwrite: true
-          name: rust-warnings-win32-frontend
-          path: ci-rust-warnings/rust-warnings-win32-frontend.json
-          if-no-files-found: error
+        run: bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json" ci-rust-warnings/rust-warnings-win32-frontend.json
       - *cancel-run-on-failure
 
   ts-types:
@@ -771,6 +762,7 @@ jobs:
     # Release calls summarise once in release.yml; a skipped scope gate has nothing to summarise.
     if: ${{ always() && inputs.source_ref == '' && needs.changed.result == 'success' }}
     uses: ./.github/workflows/rust-warnings-summary.yml
+    secrets: inherit
     with:
       source_ref: ${{ inputs.source_ref || github.ref }}
       report_name: ${{ format('rust-warnings-tests-{0}-report', inputs.phase || 'all') }}

@@ -422,6 +422,20 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}",
     "entry": "frontend-windows-build",
     "if": null
+  },
+  {
+    "job": "rust-warnings → report",
+    "run": "bash scripts/ci-artifact.sh get-prefix \"$GITHUB_RUN_ID/rust-warnings/\" ci-rust-warnings",
+    "if": null,
+    "reason": "Warning collections from the MinIO ci-artifacts bucket",
+    "job_if": "always()"
+  },
+  {
+    "job": "frontend-windows",
+    "run": "bash scripts/ci-artifact.sh put \"$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json\" ci-rust-warnings/rust-warnings-win32-frontend.json",
+    "if": "always()",
+    "reason": "Warning collection to the MinIO ci-artifacts bucket",
+    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
   }
 ]
 ```
