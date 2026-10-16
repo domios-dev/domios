@@ -52,8 +52,9 @@ export function storedRecordType(line: string): string | undefined {
 export function runtimeStoredHistory(sessionId: string, records: string): ChatMsg[] {
   const rows = new Map<string, ChatMsg>();
   for (const line of records.split("\n")) {
+    if (!line.trim()) continue;
     const type = storedRecordType(line);
-    if (type !== "event_msg" && type !== "session_meta") continue;
+    if (type !== undefined && type !== "event_msg" && type !== "session_meta") continue;
     const record = object(JSON.parse(line));
     const payload = object(record.payload);
     if (record.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
