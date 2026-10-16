@@ -81,7 +81,9 @@ impl Job {
             .collect()
     }
 
-    pub fn contains_process(&self, process: HANDLE) -> Result<bool, String> {
+    /// # Safety
+    /// The process handle must remain valid for this call.
+    pub unsafe fn contains_process(&self, process: HANDLE) -> Result<bool, String> {
         let mut contained = 0;
         if unsafe { IsProcessInJob(process, self.0 as HANDLE, &mut contained) } == 0 {
             return Err(std::io::Error::last_os_error().to_string());

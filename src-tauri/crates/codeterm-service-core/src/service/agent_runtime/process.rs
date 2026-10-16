@@ -15,6 +15,7 @@ pub struct Process {
     pub client: Client,
     pub ended: watch::Receiver<Option<RuntimeFailure>>,
     stop: watch::Sender<bool>,
+    turn_members: parking_lot::Mutex<Vec<super::process_boundary::Member>>,
     boundary: Option<Arc<super::process_boundary::Boundary>>,
 }
 impl Process {
@@ -39,6 +40,7 @@ impl Process {
             ended: exit,
             stop,
             boundary: None,
+            turn_members: parking_lot::Mutex::new(Vec::new()),
         }
     }
 
@@ -53,15 +55,22 @@ impl Process {
             .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
     }
 
+    pub(super) async fn begin_turn(&self) -> Result<(), RuntimeFailure> {
+        let members = self.observe().await?;
+        *self.turn_members.lock() = members;
+        Ok(())
+    }
+
     pub(super) async fn verify_interrupt(
         &self,
         captured: Vec<super::process_boundary::Member>,
         roster: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
-    ) -> Result<(), RuntimeFailure> {
+    ) -> Result<Vec<u32>, RuntimeFailure> {
         let Some(boundary) = self.boundary.clone() else {
-            return Ok(());
+            return Ok(Vec::new());
         };
-        tokio::task::spawn_blocking(move || boundary.verify_interrupt(captured, &roster))
+        let baseline = std::mem::take(&mut *self.turn_members.lock());
+        tokio::task::spawn_blocking(move || boundary.verify_interrupt(captured, &baseline, &roster))
             .await
             .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
     }
@@ -282,6 +291,7 @@ pub fn spawn(
         ended: exit,
         stop,
         boundary: Some(boundary),
+        turn_members: parking_lot::Mutex::new(Vec::new()),
     })
 }
 fn effective_env(command: &std::process::Command) -> HashMap<String, String> {

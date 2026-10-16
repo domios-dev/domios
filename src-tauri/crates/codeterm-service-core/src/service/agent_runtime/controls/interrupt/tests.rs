@@ -214,5 +214,5 @@ fn mock_runtime_interrupt_waits_for_events_and_deadline_degrades_without_idle() 
             Some("never-completes")
         );
     });
-    engine::stop(&fixture.service, &id).unwrap();
+    engine::stop_blocking(&fixture.service, &id).unwrap();
 }

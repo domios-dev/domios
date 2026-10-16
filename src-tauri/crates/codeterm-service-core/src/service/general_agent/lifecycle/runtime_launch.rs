@@ -28,7 +28,7 @@ pub(super) fn start_main(
     };
     let same_provider = tab.agent_type.as_deref() == Some(provider);
     if same_provider && tab.auto_approve != permission_bypass {
-        if let Err(reason) = crate::service::agent_runtime::engine::stop(svc, &tab.id) {
+        if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab.id) {
             fail_general_agent_start(svc, mux, &tab.id, &reason);
             return;
         }
@@ -49,7 +49,7 @@ pub(super) fn start_main(
         }
     }
     if !same_provider {
-        if let Err(reason) = crate::service::agent_runtime::engine::stop(svc, &tab.id) {
+        if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab.id) {
             fail_general_agent_start(svc, mux, &tab.id, &reason);
             return;
         }
@@ -74,7 +74,8 @@ pub(super) fn start_main(
             &general_dir().to_string_lossy(),
         ),
         GeneralAgentSessionPlan::FirstRunFresh | GeneralAgentSessionPlan::ConfiguredFresh => {
-            if let Err(reason) = crate::service::agent_runtime::engine::stop(svc, &tab.id) {
+            if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab.id)
+            {
                 fail_general_agent_start(svc, mux, &tab.id, &reason);
                 return;
             }

@@ -17,8 +17,11 @@ pub(super) enum Mode {
 #[async_trait::async_trait]
 trait CleanupIo {
     async fn run(&mut self, operation: RuntimeOperation) -> Result<RuntimeResult, RuntimeFailure>;
-    async fn verify(&mut self, roster: Vec<RuntimeBackgroundProcess>)
-        -> Result<(), RuntimeFailure>;
+    async fn verify(
+        &mut self,
+        roster: Vec<RuntimeBackgroundProcess>,
+    ) -> Result<Vec<u32>, RuntimeFailure>;
+    fn notice(&mut self, unknown: &[u32]);
     async fn finish(&mut self) -> Result<(), RuntimeFailure>;
     fn ended(&self) -> bool {
         false
@@ -73,10 +76,17 @@ impl CleanupIo for RuntimeIo<'_> {
     async fn verify(
         &mut self,
         roster: Vec<RuntimeBackgroundProcess>,
-    ) -> Result<(), RuntimeFailure> {
+    ) -> Result<Vec<u32>, RuntimeFailure> {
         self.process
             .verify_interrupt(std::mem::take(&mut self.captured), roster)
             .await
+    }
+    fn notice(&mut self, unknown: &[u32]) {
+        self.svc.log_system_notice(
+            "Runtime processes retained".into(),
+            Some(format!("Tab {} retained unattributed processes {unknown:?}; only roster-matched commands are stopped on interrupt.", self.session.context.lock().tab_id)),
+            Some("info"),
+        );
     }
     async fn finish(&mut self) -> Result<(), RuntimeFailure> {
         self.process.finish().await?;
@@ -143,7 +153,11 @@ async fn coordinate(
         if io.ended() {
             return Ok(());
         }
-        let verified = io.verify(roster).await;
+        let verified = io.verify(roster).await.map(|unknown| {
+            if !unknown.is_empty() {
+                io.notice(&unknown);
+            }
+        });
         protocol.and(verified)
     }
 }

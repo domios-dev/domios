@@ -7,6 +7,8 @@ struct Fake {
     verified: bool,
     finished: bool,
     os_absent: bool,
+    unknown_present: bool,
+    notices: Vec<String>,
     exited: bool,
     observed_tree_exit: bool,
 }
@@ -22,14 +24,23 @@ impl CleanupIo for Fake {
     async fn verify(
         &mut self,
         roster: Vec<RuntimeBackgroundProcess>,
-    ) -> Result<(), RuntimeFailure> {
+    ) -> Result<Vec<u32>, RuntimeFailure> {
         self.verified = true;
         let _ = roster;
         if self.os_absent {
-            Ok(())
+            Ok(if self.unknown_present {
+                vec![42]
+            } else {
+                Vec::new()
+            })
         } else {
-            Err(refused("unattributed OS process; server retained"))
+            Err(refused(
+                "roster-matched OS process survived; server retained",
+            ))
         }
+    }
+    fn notice(&mut self, unknown: &[u32]) {
+        self.notices.push(format!("retained {unknown:?}"));
     }
     async fn finish(&mut self) -> Result<(), RuntimeFailure> {
         self.finished = true;
@@ -89,6 +100,8 @@ fn fake(residual: bool) -> Fake {
         verified: false,
         finished: false,
         os_absent: true,
+        unknown_present: false,
+        notices: Vec::new(),
         exited: true,
         observed_tree_exit: false,
     }
@@ -136,7 +149,7 @@ async fn interrupt_consumes_pages_then_terminates_lists_cleans_and_verifies_os_w
     ));
 }
 #[tokio::test]
-async fn acknowledgement_is_not_absence_and_unknown_os_members_remain_visible() {
+async fn acknowledgement_is_not_absence_and_roster_survivors_fail() {
     let mut io = fake(true);
     assert!(coordinate(&mut io, &context(), Mode::Interrupt, true)
         .await
@@ -263,4 +276,16 @@ async fn full_shutdown_interrupts_owned_turns_before_listing() {
         matches!(&io.calls[0],RuntimeOperation::Interrupt{thread_id,active_turn_id:Some(turn)} if thread_id=="root" && turn=="turn")
     );
     assert!(io.finished);
+}
+
+#[tokio::test]
+async fn unknown_members_are_retained_with_notice_and_interrupt_succeeds() {
+    let mut io = fake(false);
+    io.unknown_present = true;
+    coordinate(&mut io, &context(), Mode::Interrupt, true)
+        .await
+        .unwrap();
+    assert_eq!(io.notices, ["retained [42]"]);
+    assert!(!io.finished);
+    assert!(io.verified);
 }

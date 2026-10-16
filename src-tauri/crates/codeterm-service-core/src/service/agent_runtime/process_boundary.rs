@@ -94,8 +94,9 @@ impl Boundary {
                 member.argv = process
                     .cmd()
                     .iter()
-                    .map(|arg| arg.to_string_lossy().into_owned())
-                    .collect();
+                    .map(|arg| arg.to_str().map(str::to_owned))
+                    .collect::<Option<Vec<_>>>()
+                    .unwrap_or_default();
                 member.cwd = process.cwd().map(std::path::Path::to_path_buf);
             }
             member.native.validate_identity(self).map_err(failure)?;
@@ -116,43 +117,68 @@ impl Boundary {
     pub(super) fn verify_interrupt(
         &self,
         mut captured: Vec<Member>,
+        baseline: &[Member],
         roster: &[RuntimeBackgroundProcess],
-    ) -> Result<(), RuntimeFailure> {
+    ) -> Result<Vec<u32>, RuntimeFailure> {
+        let infrastructure = |member: &Member| {
+            self.infrastructure(member)
+                || baseline.iter().any(|original| {
+                    original.pid == member.pid
+                        && original.native.token() == member.native.token()
+                        && !original.native.exited().unwrap_or(true)
+                })
+        };
         captured.extend(self.observe()?);
         let deadline = Instant::now() + Duration::from_secs(5);
-        let mut unknown = Vec::new();
+        let mut unknown = std::collections::BTreeSet::new();
         for member in captured {
-            if Instant::now() >= deadline {
-                return Err(failure("command process verification deadline"));
-            }
-            if self.infrastructure(&member) || member.native.exited().map_err(failure)? {
+            if infrastructure(&member) || member.native.exited().map_err(failure)? {
                 continue;
             }
             if !roster
                 .iter()
                 .any(|process| matches_command(&member, process))
             {
-                unknown.push(member.pid);
+                log::debug!(
+                    "[agent-runtime] unattributed member retained pid={} argv={:?} cwd={:?}",
+                    member.pid,
+                    member.argv,
+                    member.cwd
+                );
+                unknown.insert(member.pid);
                 continue;
+            }
+            if Instant::now() >= deadline {
+                return Err(failure(
+                    "matched command verification deadline; server retained",
+                ));
             }
             member.native.validate_identity(self).map_err(failure)?;
             member.native.terminate(self).map_err(failure)?;
             member.native.wait(deadline).map_err(failure)?;
         }
-        let leftovers = self
-            .snapshot()?
-            .into_iter()
-            .filter(|member| !self.infrastructure(member))
-            .filter_map(|member| match member.native.exited() {
-                Ok(true) => None,
-                Ok(false) => Some(Ok(member.pid)),
-                Err(error) => Some(Err(failure(error))),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        if !leftovers.is_empty() {
-            return Err(failure(format!("unattributed live processes {leftovers:?}; server retained (observed unknown {unknown:?})")));
+        for member in self.observe()? {
+            if infrastructure(&member) || member.native.exited().map_err(failure)? {
+                continue;
+            }
+            if roster
+                .iter()
+                .any(|process| matches_command(&member, process))
+            {
+                return Err(failure(format!(
+                    "roster-matched process {} survived; server retained",
+                    member.pid
+                )));
+            }
+            log::debug!(
+                "[agent-runtime] unattributed member retained pid={} argv={:?} cwd={:?}",
+                member.pid,
+                member.argv,
+                member.cwd
+            );
+            unknown.insert(member.pid);
         }
-        Ok(())
+        Ok(unknown.into_iter().collect())
     }
 
     pub(super) fn force_terminate(&self) -> Result<(), RuntimeFailure> {
@@ -215,7 +241,10 @@ fn matches_command(member: &Member, process: &RuntimeBackgroundProcess) -> bool 
 }
 
 fn normalized_path(path: &std::path::Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
+    let Some(path) = path.to_str() else {
+        return String::new();
+    };
+    let path = path.replace('\\', "/");
     path.strip_prefix("//?/")
         .unwrap_or(&path)
         .trim_end_matches('/')
@@ -229,7 +258,9 @@ fn command_matches(
     expected_cwd: &std::path::Path,
     raw: &str,
 ) -> bool {
-    if normalized_path(cwd) != normalized_path(expected_cwd)
+    if cwd.to_str().is_none()
+        || expected_cwd.to_str().is_none()
+        || normalized_path(cwd) != normalized_path(expected_cwd)
         || argv.is_empty()
         || expected.is_empty()
     {

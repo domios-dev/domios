@@ -39,7 +39,7 @@ impl Drop for Scene {
     fn drop(&mut self) {
         let tabs = self.fixture.service.mux.read().snapshot().tabs;
         for tab in tabs.keys() {
-            engine::stop(&self.fixture.service, tab).unwrap();
+            engine::stop_blocking(&self.fixture.service, tab).unwrap();
         }
         crate::service::session_persist::stop_worker(&self.fixture.service).unwrap();
         for worker in self.fixture.service.workers.list() {
