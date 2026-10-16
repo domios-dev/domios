@@ -17,6 +17,7 @@ dev_conf_path() { printf /dev/null; }
 node() { [ "$owned" = 1 ]; [ "$1" = scripts/bundle-cli.js ]; }
 cargo() { [ "$owned" = 1 ]; [ "$PWD" = "$gateway_cwd" ]; printf 'cargo %s\\n' "$*"; return ${failure}; }
 git() { printf opaque-sha; }
+build_dev_frontend() { [ "$owned" = 1 ]; echo frontend; }
 write_dev_provenance() { [ "$owned" = 1 ]; echo provenance; }
 retain_dev_pdb() { :; }
 release_stable_build_path() { [ "$owned" = 1 ]; mapping=0; cd /; }
@@ -28,8 +29,8 @@ build_and_launch_dev --wait --notify-tab opaque-tab`;
     const result = spawnSync(bash, ['-c', script], { encoding: 'utf8' });
     assert.equal(result.status, failure, result.stderr);
     assert.match(result.stdout, /cargo build .*--bin codeterm --profile dev --no-default-features --features opaque/);
-    if (failure) assert.doesNotMatch(result.stdout, /provenance|released|launch/);
-    else assert.match(result.stdout, /provenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
+    if (failure) assert.doesNotMatch(result.stdout, /frontend|provenance|released|launch/);
+    else assert.match(result.stdout, /frontend\nprovenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
   });
 }
 test('prebuilt retains its single provenance validation before stopping dev', () => {
