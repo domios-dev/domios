@@ -62,7 +62,12 @@ pub fn read_records_from(
         if need > 0 {
             (&mut file).take(need).read_to_end(&mut buf)?;
         }
-        if let Some(idx) = buf.iter().rposition(|&b| b == b'\n') {
+        let boundary = if target > chunk_cap.max(1) {
+            buf.iter().position(|&b| b == b'\n')
+        } else {
+            buf.iter().rposition(|&b| b == b'\n')
+        };
+        if let Some(idx) = boundary {
             buf.truncate(idx + 1);
             let new_offset = from_offset + buf.len() as u64;
             return Ok(JsonlChunk {

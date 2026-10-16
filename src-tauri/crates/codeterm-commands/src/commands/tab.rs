@@ -411,6 +411,18 @@ fn chat_start_inner(
     };
     let path_ms = path_started.elapsed().as_millis();
 
+    let source = svc.chat_registry.jsonl_source(&tab_id);
+    let resume_epoch = codeterm_service_core::service::tab_chat::resume_cursor::ChatEpoch {
+        source_session_id: session_id.clone(),
+        session_binding_nonce: session_binding_nonce.clone(),
+    };
+    let incarnation = codeterm_service_core::service::tab_chat::resume::capture_incarnation(
+        &source,
+        &resume_epoch,
+        &path,
+        0,
+        None,
+    );
     let read_started = std::time::Instant::now();
     let snap = codeterm_service_core::service::tab_chat::session_window::snapshot(
         &svc.agent_registry,
@@ -424,6 +436,22 @@ fn chat_start_inner(
         &provider_id,
         &snap,
     );
+    let cursor = incarnation.as_ref().and_then(|held| {
+        codeterm_service_core::service::tab_chat::resume::capture_incarnation(
+            &source,
+            &resume_epoch,
+            &path,
+            snap.end_offset,
+            Some(held),
+        )
+        .and_then(|current| {
+            codeterm_service_core::service::tab_chat::resume::encode_cursor(
+                resume_epoch,
+                &current,
+                snap.end_offset,
+            )
+        })
+    });
     let read_ms = read_started.elapsed().as_millis();
     if let Some(nonce) = session_binding_nonce.as_deref() {
         if snap.truncated() {
@@ -525,7 +553,7 @@ fn chat_start_inner(
         pending: false,
         source_missing: false,
         messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
-        cursor: None,
+        cursor,
         source_session_id: Some(session_id),
         session_binding_nonce,
         subscription_id: Some(subscription_id),
