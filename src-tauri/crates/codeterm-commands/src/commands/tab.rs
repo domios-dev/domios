@@ -424,11 +424,23 @@ fn chat_start_inner(
         None,
     );
     let read_started = std::time::Instant::now();
-    let snap = codeterm_service_core::service::tab_chat::session_window::snapshot(
-        &svc.agent_registry,
-        &provider_id,
-        &path,
-    );
+    let snap = svc.chat_registry.snapshot_flights.run(
+        codeterm_service_core::service::tab_chat::snapshot_flight::SnapshotKey {
+            tab_id: tab_id.clone(),
+            provider_id: provider_id.clone(),
+            session_id: session_id.clone(),
+            binding_nonce: session_binding_nonce.clone(),
+            path: path.clone(),
+            incarnation: incarnation.as_ref().map(|current| current.id.to_string()),
+        },
+        || {
+            codeterm_service_core::service::tab_chat::session_window::snapshot(
+                &svc.agent_registry,
+                &provider_id,
+                &path,
+            )
+        },
+    )?;
     // Scope carries the attach that asked, so a second bounded line in the log
     // is decidable: a new subscription is a re-attach, a repeat is a double read.
     codeterm_service_core::service::tab_chat::session_window::log_bounded_snapshot(
@@ -486,7 +498,7 @@ fn chat_start_inner(
     let snapshot_start = snap.start_offset;
     let msg_count = snap.messages.len();
     let mut messages = archived_messages;
-    messages.extend(snap.messages);
+    messages.extend(snap.messages.iter().cloned());
 
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
@@ -632,25 +644,20 @@ pub(crate) fn backfill_page(
     path: &std::path::Path,
     before_offset: u64,
 ) -> Result<ChatBackfillResult, String> {
-    let page_bytes = codeterm_service_core::service::tab_chat::session_window::BACKFILL_PAGE_BYTES;
-    let (text, aligned_start) = backfill_window_slice(path, before_offset, page_bytes)
-        .map_err(|e| format!("read jsonl: {e}"))?;
     let page = codeterm_service_core::service::tab_chat::session_window::parse_page_before(
         registry,
         provider_id,
         path,
         before_offset,
-    );
+    )?;
     Ok(ChatBackfillResult {
-        text,
-        // `aligned_start` is the first complete record read, so the next page
-        // ends there and parses the partial head this read dropped.
+        text: String::new(),
         offset_kind: ChatOffsetKind::Bytes,
-        start_offset: aligned_start,
+        start_offset: page.start_offset,
         end_offset: page.end_offset,
         messages: codeterm_service_core::service::tab_chat::rich_rows_to_chat_msgs(
             &page.messages,
-            aligned_start,
+            page.start_offset,
         ),
         source_session_id: None,
         session_binding_nonce: None,
@@ -659,6 +666,7 @@ pub(crate) fn backfill_page(
 
 /// Seek one backfill page and align it forward to the first complete record.
 /// A read already on a boundary keeps it, so no emitted record falls outside.
+#[cfg(test)]
 fn backfill_window_slice(
     path: &std::path::Path,
     before_offset: u64,
@@ -685,6 +693,7 @@ fn backfill_window_slice(
 
 /// True when `offset` is itself a record start (the byte before it terminates
 /// the previous record).
+#[cfg(test)]
 fn record_starts_at(path: &std::path::Path, offset: u64) -> bool {
     use std::io::{Read, Seek, SeekFrom};
     let Ok(mut file) = std::fs::File::open(path) else {

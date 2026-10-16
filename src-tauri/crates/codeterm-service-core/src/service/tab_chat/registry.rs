@@ -221,6 +221,7 @@ impl Entry {
 pub struct ChatRegistry {
     inner: Mutex<HashMap<String, Entry>>,
     sources: Mutex<HashMap<String, Arc<JsonlSource>>>,
+    pub snapshot_flights: super::snapshot_flight::SnapshotFlights,
 }
 
 impl ChatRegistry {
