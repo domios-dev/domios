@@ -225,7 +225,7 @@ pub struct ItemCache {
     backfill: HistoryBackfill,
     history_pages: u32,
     live_during_backfill: HashSet<String>,
-    live_added_during_backfill: HashSet<String>,
+    history_origin: HashSet<String>,
 }
 impl ItemCache {
     fn index(&self, id: &str) -> Option<usize> {
@@ -233,12 +233,24 @@ impl ItemCache {
             .get(id)
             .map(|slot| (slot - self.head) as usize)
     }
+    /// Starts a replay and drops rows a previous replay landed, keeping live and host rows,
+    /// so every history row of this replay can sit below the surviving minimum.
     pub fn begin_backfill(&mut self) -> u64 {
         self.backfill_generation = self.backfill_generation.wrapping_add(1);
         self.backfill = HistoryBackfill::Loading;
         self.history_pages = 0;
         self.live_during_backfill.clear();
-        self.live_added_during_backfill.clear();
+        if !self.history_origin.is_empty() {
+            let origin = std::mem::take(&mut self.history_origin);
+            self.items.retain(|row| !origin.contains(&row.id));
+            self.head = 0;
+            self.positions = self
+                .items
+                .iter()
+                .enumerate()
+                .map(|(index, row)| (row.id.clone(), index as i64))
+                .collect();
+        }
         self.backfill_generation
     }
     pub fn backfill_current(&self, generation: u64) -> bool {
@@ -250,7 +262,6 @@ impl ItemCache {
         }
         self.backfill = outcome;
         self.live_during_backfill.clear();
-        self.live_added_during_backfill.clear();
         true
     }
     pub fn backfill(&self) -> HistoryBackfill {
@@ -259,16 +270,19 @@ impl ItemCache {
     pub fn history_pages(&self) -> u32 {
         self.history_pages
     }
-    /// Lands one history page without renumbering cached rows. Unknown rows of an older page,
-    /// or of a first page that found only live rows, take seqs below the current minimum.
-    pub fn reconcile_backfill(&mut self, page: Vec<ChatMsg>, older: bool) -> usize {
+    pub fn note_history_page(&mut self) {
         self.history_pages = self.history_pages.saturating_add(1);
+    }
+    /// Lands history rows older than every cached row without renumbering: known rows update
+    /// in place unless a live delta superseded them, unknown rows take seqs below the minimum.
+    pub fn reconcile_backfill(&mut self, page: Vec<ChatMsg>) -> usize {
         let mut landed = 0;
         let mut block: Vec<ChatMsg> = Vec::new();
         for mut item in page {
             if self.live_during_backfill.contains(&item.id) {
                 continue;
             }
+            self.history_origin.insert(item.id.clone());
             if self.positions.contains_key(&item.id) {
                 self.reconcile(item);
                 landed += 1;
@@ -281,16 +295,6 @@ impl ItemCache {
             }
         }
         landed += block.len();
-        let only_live = self
-            .items
-            .iter()
-            .all(|row| self.live_added_during_backfill.contains(&row.id));
-        if !older && !only_live {
-            for item in block {
-                self.reconcile(item);
-            }
-            return landed;
-        }
         let base = self.items.front().map_or(0, |row| row.seq) - block.len() as i64;
         for (offset, mut item) in block.into_iter().enumerate().rev() {
             item.seq = base + offset as i64;
@@ -302,9 +306,6 @@ impl ItemCache {
     }
     pub fn reconcile_live(&mut self, mut item: ChatMsg, at: u64) -> ChatMsg {
         if self.backfill == HistoryBackfill::Loading {
-            if !self.positions.contains_key(&item.id) {
-                self.live_added_during_backfill.insert(item.id.clone());
-            }
             self.live_during_backfill.insert(item.id.clone());
         }
         if let Some(status) = item.tool_status.as_deref() {
