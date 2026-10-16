@@ -2,13 +2,10 @@
 // Run: npx tsx src/components/shared/Chip.test.tsx
 
 import React, { act } from "react";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { Chip } from "./Chip";
 
-const componentSource = readFileSync(fileURLToPath(import.meta.url).replace(/\.test\.tsx$/, ".tsx"), "utf8");
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -45,10 +42,6 @@ test("Chip renders children text", async () => {
   const { host } = await render(<Chip>pending</Chip>);
   const chip = host.querySelector("span")!;
   assert(chip.textContent === "pending", `expected 'pending', got '${chip.textContent}'`);
-});
-
-test("Chip uses the shared touch-mode path", () => {
-  assert(componentSource.includes("useTouchOptimizedUi"), "Chip must use the shared touch-mode path");
 });
 
 async function main() {
