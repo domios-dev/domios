@@ -1777,6 +1777,29 @@ function interruptTargets(ctx, root) {
   return turns.map((turn) => ({ turn, depth: depth(turn.threadId) })).filter((entry) => entry.depth >= 0).sort((a, b) => b.depth - a.depth || a.turn.threadId.localeCompare(b.turn.threadId)).map((entry) => entry.turn);
 }
 
+// plugins/provider-codex/src/runtimeBinding.ts
+function descendantThread(ctx, threadId) {
+  if (!ctx.threadId || threadId === ctx.threadId) return false;
+  const seen = /* @__PURE__ */ new Set();
+  let current = threadId;
+  while (current !== ctx.threadId) {
+    if (seen.has(current)) return false;
+    seen.add(current);
+    const parents = ctx.threadParents.filter((parent) => parent.threadId === current);
+    if (parents.length !== 1) return false;
+    current = parents[0].parentThreadId;
+  }
+  return true;
+}
+function historyThread(ctx, value, expected) {
+  if (expected === ctx.threadId) return userThread(value, expected) !== void 0;
+  if (!descendantThread(ctx, expected)) return false;
+  const thread = object(object(value).thread);
+  if (text(thread.id) !== expected) return false;
+  const parent = text(thread.parentThreadId) ?? text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+  return parent === ctx.threadParents.find((entry) => entry.threadId === expected)?.parentThreadId;
+}
+
 // plugins/provider-codex/src/runtimePrompts.ts
 function fail(message) {
   throw { code: "provider_refused", message };
@@ -2562,7 +2585,8 @@ function turnParams(ctx, op) {
   };
 }
 function validateBinding(ctx, op) {
-  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId) fail2("binding_mismatch", "Thread differs from the bound thread");
+  if (op.kind === "readHistory" && !ctx.threadId) fail2("binding_mismatch", "History requires a bound root thread");
+  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId && !(op.kind === "readHistory" && descendantThread(ctx, op.threadId))) fail2("binding_mismatch", "Thread differs from the bound thread");
   if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail2("binding_mismatch", "Active turn differs from the bound turn");
 }
 function runtimePlan(ctx, op) {
@@ -2674,7 +2698,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings } };
     }
     case "readHistory":
-      return historyResponse(op, state, value);
+      return historyResponse(ctx, op, state, value);
     case "submitTurn": {
       const turnId = text(object(value.turn).id) ?? text(value.turnId);
       return { kind: "complete", result: { kind: "turnAccepted", threadId: op.threadId, sendId: op.sendId, ...turnId ? { turnId } : {} } };
@@ -2702,9 +2726,9 @@ function runtimeResponse(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "done" } };
   }
 }
-function historyResponse(op, state, value) {
+function historyResponse(ctx, op, state, value) {
   if (state.stage === "snapshot") {
-    if (!userThread(value, op.threadId)) return refused("History snapshot thread identity unverified");
+    if (!historyThread(ctx, value, op.threadId)) return refused("History snapshot thread identity unverified");
     const turns2 = object(value.thread).turns;
     if (!Array.isArray(turns2)) return refused("Missing history snapshot turns");
     let collected2 = { ...state, items: [], openItems: [], questions: [] };
