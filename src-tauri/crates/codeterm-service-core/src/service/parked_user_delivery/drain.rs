@@ -1,3 +1,4 @@
+use super::liveness::UserClearingEvent;
 use super::*;
 
 impl super::super::ServiceContext {
@@ -18,8 +19,13 @@ impl super::super::ServiceContext {
             .revoked
             .load(Ordering::Acquire)
         {
-            if let Some(head) = self.pending_delivery_payloads.user_sends.head(tab_id)? {
-                return Ok(self.pending_user_send(&head, "owner_revoked"));
+            if self
+                .pending_delivery_payloads
+                .user_sends
+                .head(tab_id)?
+                .is_some()
+            {
+                return Err("user send owner is revoked".into());
             }
             return Ok(UserDrain::Idle);
         }
@@ -42,13 +48,22 @@ impl super::super::ServiceContext {
         ) -> Result<UserWrite, DeliveryError>,
     ) -> Result<UserDrain, String> {
         let store = &self.pending_delivery_payloads.user_sends;
+        macro_rules! hold {
+            ($head:expr, $reason:expr, $event:ident) => {
+                if self.hold_live_user_head($head, $reason, UserClearingEvent::$event)? {
+                    return Ok(UserDrain::Idle);
+                } else {
+                    continue;
+                }
+            };
+        }
         for _ in 0..crate::service::pending_delivery_payloads::user_sends::MAX_UNSETTLED * 2 {
+            if store.tab(tab_id).revoked.load(Ordering::Acquire) {
+                return Ok(UserDrain::Idle);
+            }
             let Some(mut head) = store.head(tab_id)? else {
                 return Ok(UserDrain::Idle);
             };
-            if head.state != UserSendState::Queued {
-                return Ok(UserDrain::Idle);
-            }
             self.chat_send_ledger.restore_user_record(&head);
             if let Some(carried) = self.carry_held_user_send(&head)? {
                 head = carried;
@@ -56,10 +71,18 @@ impl super::super::ServiceContext {
             if self.settle_degraded_user_send(&head)? {
                 continue;
             }
+            if self.user_authority_is_from_ended_launch(&head.authority) {
+                self.settle_ended_user_head(&head)?;
+                continue;
+            }
+            if head.state != UserSendState::Queued {
+                self.settle_ended_user_head(&head)?;
+                continue;
+            }
             if !self.user_authority_is_ready(&head.authority)
                 && self.held_user_identity_is_unresolved(&head)
             {
-                return Ok(self.pending_user_send(&head, "held_launch_identity_pending"));
+                hold!(&head, "held_launch_identity_pending", Identity);
             }
             if let Some(rebound) = self.advance_prelaunch_user_authority(&head)? {
                 head = rebound;
@@ -69,50 +92,7 @@ impl super::super::ServiceContext {
                 .read()
                 .get_tab(tab_id)
                 .is_some_and(|tab| self.user_authority_matches_launch(tab, &head.authority));
-            let ended_launch = self.user_authority_is_from_ended_launch(&head.authority);
-            if head.state == UserSendState::Queued && (!same_launch || ended_launch) {
-                if ended_launch {
-                    match store.discard_queued_from_ended_launch(&head) {
-                        Ok(true) => {
-                            const REASON: &str = "launch_ended_before_write";
-                            if let Some(status) = self
-                                .chat_send_ledger
-                                .expire_owned_before_write(&head.send_id, REASON)
-                            {
-                                self.ui.emit(
-                                    "chat-send-status",
-                                    serde_json::to_value(&status).unwrap_or_default(),
-                                );
-                            } else {
-                                log::warn!(
-                                    "[chat-send] expired user send {} had no held ledger status",
-                                    head.send_id
-                                );
-                            }
-                            log::warn!(
-                                "[chat-send] user owner settled tab={} send_id={} reason={REASON}",
-                                head.authority.tab_id,
-                                head.send_id,
-                            );
-                            self.local_recordings.retire_write_ticket(&head.send_id);
-                            continue;
-                        }
-                        Ok(false) => {
-                            return Ok(
-                                self.pending_user_send(&head, "ended_launch_settlement_changed")
-                            );
-                        }
-                        Err(error) => {
-                            log::warn!(
-                                "[chat-send] user send {} launch settlement failed: {error}",
-                                head.send_id
-                            );
-                            return Ok(
-                                self.pending_user_send(&head, "ended_launch_settlement_failed")
-                            );
-                        }
-                    }
-                }
+            if !same_launch {
                 if self.local_recordings.has_write_ticket(&head.send_id)
                     && store.discard_queued_from_ended_launch(&head)?
                 {
@@ -128,13 +108,13 @@ impl super::super::ServiceContext {
                     self.local_recordings.retire_write_ticket(&head.send_id);
                     continue;
                 }
-                return Ok(self.pending_user_send(&head, "user_launch_identity_unavailable"));
+                hold!(&head, "user_launch_identity_unavailable", Identity);
             }
             if head.authority.pty_session_generation.is_none()
                 && head.state == UserSendState::Queued
             {
                 let Some(pty_id) = head.authority.pty_id.as_deref() else {
-                    return Ok(self.pending_user_send(&head, "pty_authority_pending"));
+                    hold!(&head, "pty_authority_pending", Identity);
                 };
                 let generation = self
                     .pty
@@ -142,21 +122,17 @@ impl super::super::ServiceContext {
                     .get_session(pty_id)
                     .map(|session| session.generation);
                 let Some(generation) = generation else {
-                    return Ok(self.pending_user_send(&head, "pty_session_generation_unavailable"));
+                    hold!(&head, "pty_session_generation_unavailable", Identity);
                 };
                 let Some(bound) = store.bind_pty_session_generation(&head, generation)? else {
-                    return Ok(self.pending_user_send(
-                        &head,
-                        "pty_session_generation_changed_before_binding",
-                    ));
+                    continue;
                 };
                 if !self
                     .chat_send_ledger
                     .bind_user_pty_session_generation(&head.send_id, &bound.authority)
                 {
-                    return Ok(
-                        self.pending_user_send(&head, "user_pty_generation_binding_mismatch")
-                    );
+                    self.settle_ended_user_head(&bound)?;
+                    continue;
                 }
                 head = bound;
             }
@@ -165,11 +141,15 @@ impl super::super::ServiceContext {
             } else {
                 match self.user_readiness_fallback(&head.authority) {
                     Ok(readiness) => Some(readiness),
-                    Err(reason) => return Ok(self.pending_user_send(&head, reason)),
+                    Err(reason) => hold!(&head, reason, Readiness),
                 }
             };
             if !store.eligible(&head) {
-                return Ok(self.pending_user_send(&head, "owner_head_not_eligible"));
+                if store.waiting_for_preparation(&head) {
+                    hold!(&head, "owner_preparation_pending", Settlement);
+                }
+                self.settle_ended_user_head(&head)?;
+                continue;
             }
             let text = store.prepared(&head)?;
             let separator_before = if head.held_before_readiness {
@@ -199,7 +179,7 @@ impl super::super::ServiceContext {
                         !self.user_readiness_is_current(&head.authority, receipt)
                     }))
             {
-                return Ok(self.pending_user_send(&head, "launch_binding_changed_before_claim"));
+                hold!(&head, "launch_binding_changed_before_claim", Identity);
             }
             let turn_text = format!(
                 "{text}{}",
@@ -231,7 +211,8 @@ impl super::super::ServiceContext {
                 None
             };
             if !store.claim(&head, session)? {
-                return Ok(self.pending_user_send(&head, "owner_claim_refused"));
+                self.settle_ended_user_head(&head)?;
+                continue;
             }
             if !self
                 .chat_send_ledger
@@ -292,7 +273,9 @@ impl super::super::ServiceContext {
                     self.local_recordings.retire_write_ticket(&head.send_id);
                     continue;
                 }
-                self.pending_user_send(&head, &reason);
+                if !self.hold_live_user_head(&head, &reason, UserClearingEvent::Readiness)? {
+                    continue;
+                }
                 return Ok(UserDrain::ZeroWriteRefusal {
                     dispatch_generation,
                 });
