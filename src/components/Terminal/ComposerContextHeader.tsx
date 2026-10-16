@@ -1,3 +1,4 @@
+import { SessionGoalBubble } from "./SessionGoalBubble";
 import { ComposerContextChip } from "./ComposerContextChip";
 import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { removedChatPluginId } from "./removedChatPluginError";
@@ -5,7 +6,7 @@ import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { ChevronUp, CircleCheck, Clock3, Target, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
+import { ChevronUp, CircleCheck, Clock3, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -79,13 +80,6 @@ function ContextPopoverBubble({ label, tone, title, children, details }: {
     {open && <div ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
       className="ct-menu absolute bottom-full right-0 z-40 mb-2 w-64 max-w-[calc(100vw-2rem)] whitespace-pre-wrap break-words p-3 text-xs text-[var(--ct-fg)]">{details}</div>}
   </div>;
-}
-
-function SessionGoalBubble({ intent }: { intent: ChatSessionIntent }) {
-  const details = [intent.title, intent.goal].filter(Boolean).join("\n\n");
-  return <ContextPopoverBubble tone="scheduled" label="Session goal" title={(intent.goal || intent.title || "").split("\n")[0]} details={details}>
-    <Target size={13} aria-hidden="true" />
-  </ContextPopoverBubble>;
 }
 
 function RemovedPluginBubble({ error }: { error: string }) {
@@ -305,7 +299,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         {phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
         {(hasGoal || hasPluginError || kinds.length > 0) && (
           <div className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
-            {hasGoal && sessionIntent && <SessionGoalBubble intent={sessionIntent} />}
+            {hasGoal && sessionIntent && <SessionGoalBubble intent={sessionIntent} tabId={tabId} />}
             {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
             {kinds.map((kind) => {
               const Icon = KIND_ICON[kind];

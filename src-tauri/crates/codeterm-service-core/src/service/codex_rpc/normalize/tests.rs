@@ -334,6 +334,17 @@ fn codex_rpc_rich_tools_diffs_and_agent_receivers_preserve_details() {
     let intent = goal.session_intent.unwrap();
     assert_eq!(intent.goal.as_deref(), Some("inspect"));
     assert_eq!(intent.goal_status.as_deref(), Some("paused"));
+    let cleared = normalizer
+        .apply(&Frame::Notification {
+            method: "thread/goal/cleared".into(),
+            params: json!({"threadId":"t"}),
+        })
+        .unwrap();
+    assert_eq!(cleared.id, goal.id);
+    assert_eq!(
+        serde_json::to_value(cleared.session_intent.unwrap()).unwrap(),
+        json!({})
+    );
 }
 
 #[test]

@@ -294,6 +294,9 @@ pub(super) fn attachments(item: &Value) -> Option<Vec<ChatAttachment>> {
 }
 
 pub(super) fn notification_item(method: &str, params: &Value) -> Option<Value> {
+    if method == "thread/goal/cleared" {
+        return Some(json!({"id":"thread:goal","type":"sessionIntent"}));
+    }
     if method == "thread/goal/updated" {
         return Some(
             json!({"id":"thread:goal","type":"sessionIntent","objective":params["goal"]["objective"],"status":params["goal"]["status"]}),
