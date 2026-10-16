@@ -2143,7 +2143,7 @@ button,
   align-items: center;
   gap: 6px;
   margin: 0;
-  padding: 7px 3px 3px 10px;
+  padding: 7px 3px 1px 14px;
   border-radius: 7px;
   color: var(--ct-fg);
 }
@@ -2816,7 +2816,7 @@ button,
 }
 
 .sidebar-team-readout {
-  margin: 6px 12px 9px 14px;
+  margin: 2px 12px 9px 14px;
   justify-content: flex-start;
 }
 
