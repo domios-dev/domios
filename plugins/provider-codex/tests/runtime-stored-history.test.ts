@@ -15,6 +15,19 @@ const base = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime/tool-call.js
 const ctx: RuntimeContext = {...base.context, threadId:fixture.sessionId};
 const operation = {kind:"readHistory" as const, threadId:fixture.sessionId};
 const stored = runtimeStoredHistory(fixture.sessionId, fixture.records.map(record => JSON.stringify(record)).join("\n"));
+const projected = runtimeStoredHistory(fixture.sessionId, JSON.stringify({
+  type:"event_msg", payload:{type:"item_completed",thread_id:fixture.sessionId,turn_id:"large-turn",
+    item:{id:"large-item",type:"AgentMessage",status:"completed",historyTruncated:true}},
+}));
+assert.equal(projected.length, 1);
+assert.equal(projected[0].id, "large-item");
+assert.equal(projected[0].type, "system");
+assert.ok(projected[0].content.length > 0);
+const projectedSnapshot = reduceTranscript(createTranscriptState(), {
+  kind:"snapshot", authority:{sourceSessionId:fixture.sessionId,sessionBindingNonce:"own-launch"},
+  range:{start:0,end:20 * 1024 * 1024,unit:"bytes"}, rows:projected as NormalizedChatMessage[],
+});
+assert.deepEqual(transcriptRows(projectedSnapshot.state).map(row => row.id), ["large-item"]);
 const plan = runtimePlan(ctx,operation);
 let step = runtimeResponse(ctx,operation,plan.state,{
   kind:"success",value:{data:fixture.runtimeTurns.map(turn => {
