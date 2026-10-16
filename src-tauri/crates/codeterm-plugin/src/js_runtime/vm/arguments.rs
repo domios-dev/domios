@@ -4,6 +4,7 @@ pub(super) struct Arguments<'a> {
     pub json: String,
     pub raw: Option<&'a str>,
     pub objects: Option<&'a [Value]>,
+    pub window: Option<&'a crate::jsonl_window::records::RecordWindow>,
 }
 
 impl<'a> Arguments<'a> {
@@ -22,6 +23,7 @@ impl<'a> Arguments<'a> {
                 json: String::new(),
                 raw: None,
                 objects: Some(args),
+                window: None,
             });
         }
         let raw = match (method, args) {
@@ -42,6 +44,7 @@ impl<'a> Arguments<'a> {
             json: serde_json::to_string(envelope)?,
             raw,
             objects: None,
+            window: None,
         })
     }
 
