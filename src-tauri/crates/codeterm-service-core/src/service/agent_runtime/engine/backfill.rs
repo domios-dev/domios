@@ -78,6 +78,20 @@ impl Replay {
         if !self.current(session, ready) {
             return Err(RuntimeFailure::Superseded);
         }
+        let started = Instant::now();
+        log::debug!(
+            "[chat_backfill] tab={} page={} cursor_bytes={} phase=read",
+            session.context.lock().tab_id,
+            self.pages + 1,
+            self.cursor.as_ref().map_or(0, String::len)
+        );
+        let result = port.read(self.cursor.clone()).await;
+        log::debug!(
+            "[chat_backfill] page={} elapsed_us={} ok={}",
+            self.pages + 1,
+            started.elapsed().as_micros(),
+            result.is_ok()
+        );
         let RuntimeResult::HistoryPage {
             thread_id,
             items,
@@ -85,7 +99,7 @@ impl Replay {
             open_items,
             questions,
             order,
-        } = port.read(self.cursor.clone()).await?
+        } = result?
         else {
             return Err(RuntimeFailure::HookFailed(
                 "History result is invalid".into(),

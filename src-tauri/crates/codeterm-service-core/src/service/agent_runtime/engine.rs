@@ -623,6 +623,12 @@ async fn run_inner(
                 ))
             }
             RuntimeAction::Request { call } => {
+                log::debug!(
+                    "[runtime-rpc] tab={} operation={} method={}",
+                    context.tab_id,
+                    operation.kind(),
+                    call.method
+                );
                 if matches!(operation, RuntimeOperation::ReadHistory { .. })
                     && !history.admit_request(&call.method, &call.params.to_string())
                 {
