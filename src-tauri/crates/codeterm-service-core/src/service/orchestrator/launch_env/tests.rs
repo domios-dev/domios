@@ -1,5 +1,78 @@
 use super::*;
 
+#[test]
+fn direct_launch_environment_preserves_values_and_host_identity_without_shell_quoting() {
+    use codeterm_types::agent::LaunchSpec;
+    let cli_dir = crate::pty::manager::cli_dir_of(std::ffi::OsStr::new(cli_path())).unwrap();
+    let path = std::env::join_paths([
+        cli_dir.clone(),
+        std::path::PathBuf::from("/fixture/bin"),
+        cli_dir.clone(),
+    ])
+    .unwrap();
+    let inherited = [
+        ("PATH".into(), path.to_str().unwrap().into()),
+        ("REMOVE_ME".into(), "inherited".into()),
+    ]
+    .into();
+    let spec = LaunchSpec {
+        env_set: [
+            ("VALUE".into(), "юникод 😀 'quoted' $value; `raw`".into()),
+            ("CODETERM_SESSION_BINDING_NONCE".into(), "spoof".into()),
+        ]
+        .into(),
+        env_unset: vec!["REMOVE_ME".into()],
+        ..Default::default()
+    };
+    let env = direct_environment(
+        inherited,
+        &spec,
+        "nonce-'😀",
+        "attempt-$raw",
+        Some(std::path::Path::new(cli_path())),
+        std::ffi::OsStr::new(""),
+    )
+    .unwrap();
+    assert_eq!(env["VALUE"], spec.env_set["VALUE"]);
+    assert_eq!(env["CODETERM_SESSION_BINDING_NONCE"], "nonce-'😀");
+    assert_eq!(env["CODETERM_STARTUP_ATTEMPT_ID"], "attempt-$raw");
+    assert!(!env.contains_key("REMOVE_ME"));
+    assert_eq!(occurrences(std::ffi::OsStr::new(&env["PATH"]), &cli_dir), 1);
+    assert_eq!(std::env::split_paths(&env["PATH"]).next(), Some(cli_dir));
+    let wrapped = command_with_binding_nonce_for_shell(
+        "fixture",
+        "nonce-'😀",
+        "attempt-$raw",
+        cfg!(windows),
+        Some(std::ffi::OsStr::new(cli_path())),
+    );
+    assert!(wrapped.contains("CODETERM_SESSION_BINDING_NONCE="));
+    assert!(wrapped.contains("CODETERM_STARTUP_ATTEMPT_ID="));
+    assert_ne!(
+        env["VALUE"],
+        codeterm_util::shell::ShellSyntax::quote(&env["VALUE"])
+    );
+    for key in [
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_STARTUP_ATTEMPT_ID",
+        "PATH",
+    ] {
+        let invalid = LaunchSpec {
+            env_unset: vec![key.into()],
+            ..Default::default()
+        };
+        assert!(direct_environment(
+            Default::default(),
+            &invalid,
+            "n",
+            "a",
+            None,
+            std::ffi::OsStr::new("")
+        )
+        .is_err());
+    }
+}
+
 fn cli_path() -> &'static str {
     if cfg!(windows) {
         r"C:\ct\bin\codeterm.exe"

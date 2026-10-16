@@ -541,10 +541,49 @@ pub fn build_session_with_profile(
     env_vars: HashMap<String, String>,
     profile: Option<&super::shell_profiles::ShellProfile>,
 ) -> Result<BuiltSession, String> {
+    build_session_for_launch(
+        spawn_gate, command, cwd, cols, rows, env_vars, profile, None,
+    )
+}
+
+pub fn build_direct_session(
+    spawn_gate: PtySpawnGate,
+    launch: super::shell_profiles::ShellLaunch,
+    cols: u16,
+    rows: u16,
+    env_vars: HashMap<String, String>,
+    env_unset: &[String],
+) -> Result<BuiltSession, String> {
+    build_session_for_launch(
+        spawn_gate,
+        None,
+        None,
+        cols,
+        rows,
+        env_vars,
+        None,
+        Some((launch, env_unset)),
+    )
+}
+
+fn build_session_for_launch(
+    spawn_gate: PtySpawnGate,
+    command: Option<String>,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+    env_vars: HashMap<String, String>,
+    profile: Option<&super::shell_profiles::ShellProfile>,
+    direct: Option<(super::shell_profiles::ShellLaunch, &[String])>,
+) -> Result<BuiltSession, String> {
+    let is_direct = direct.is_some();
+    let (direct_launch, env_unset) =
+        direct.map_or((None, &[][..]), |(launch, unset)| (Some(launch), unset));
     let launch = profile
         .filter(|_| command.is_none())
         .map(|p| p.launch(cwd.as_deref()))
-        .transpose()?;
+        .transpose()?
+        .or(direct_launch);
     let spawn_permit = spawn_gate.acquire()?;
     let pty_system = native_pty_system();
     let size = PtySize {
@@ -582,9 +621,7 @@ pub fn build_session_with_profile(
         }
     };
 
-    if let Some(dir) = launch.as_ref().map(|l| l.cwd.clone()).unwrap_or(cwd) {
-        cmd.cwd(dir);
-    }
+    let launch_cwd = launch.as_ref().map(|l| l.cwd.clone()).unwrap_or(cwd);
 
     cmd.env("CODETERM", "1");
     cmd.env("TERM", "xterm-256color");
@@ -604,29 +641,32 @@ pub fn build_session_with_profile(
     // portable-pty resolves the default program from $SHELL before consulting the
     // account database; pin the shell we resolved so a stale inherited value loses.
     #[cfg(not(target_os = "windows"))]
-    if command.is_none() {
+    if command.is_none() && !is_direct {
         cmd.env("SHELL", &shell);
     }
 
-    super::shell_integration::apply_agent_startup(
-        &mut cmd,
-        &shell,
-        env_vars
-            .get(super::shell_integration::AGENT_SHELL_ENV)
-            .is_some_and(|value| value == "1"),
-    );
-    if let Some(profile) = profile.filter(|_| command.is_none()) {
-        super::shell_profiles::apply_profile(
+    if !is_direct {
+        super::shell_integration::apply_agent_startup(
             &mut cmd,
-            profile,
-            env_vars.get("CODETERM_SHELL_NONCE").map(String::as_str),
-        )?;
-    } else {
-        super::shell_integration::apply_env(&mut cmd, &shell);
+            &shell,
+            env_vars
+                .get(super::shell_integration::AGENT_SHELL_ENV)
+                .is_some_and(|value| value == "1"),
+        );
+        if let Some(profile) = profile.filter(|_| command.is_none()) {
+            super::shell_profiles::apply_profile(
+                &mut cmd,
+                profile,
+                env_vars.get("CODETERM_SHELL_NONCE").map(String::as_str),
+            )?;
+        } else {
+            super::shell_integration::apply_env(&mut cmd, &shell);
+        }
     }
 
     // Env vars stripped from every interactive tab PTY. CLAUDECODE / CLAUDE_CODE_*:
     apply_pty_env(&mut cmd, &env_vars);
+    apply_launch_overrides(&mut cmd, launch_cwd.as_deref(), env_unset);
 
     let child = pair
         .slave
@@ -634,7 +674,6 @@ pub fn build_session_with_profile(
         .map_err(|e| format!("Failed to spawn '{}': {}", shell, e))?;
 
     let write_queue = WriteQueue::new(writer);
-
     let session = Arc::new(PtySession {
         generation: next_session_generation(),
         pair: StdMutex::new(Some(pair)),
@@ -666,6 +705,15 @@ pub fn build_session_with_profile(
         session,
         _spawn_permit: spawn_permit,
     })
+}
+
+fn apply_launch_overrides(cmd: &mut CommandBuilder, cwd: Option<&str>, env_unset: &[String]) {
+    if let Some(cwd) = cwd {
+        cmd.cwd(cwd);
+    }
+    for key in env_unset {
+        cmd.env_remove(key);
+    }
 }
 
 /// Manages PTY sessions. Sessions are stored behind Arc for shared access.

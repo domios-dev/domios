@@ -27,6 +27,9 @@ for (const platform of ["windows", "linux", "macos"]) {
     vm.createContext(context);
     vm.runInContext(source, context);
     const plugin = context.module.exports.default;
+    assert.equal(plugin.starterPromptText!("no_starter"), undefined);
+    assert.equal(typeof plugin.starterPromptText!("assigned_task"), "string");
+    assert.equal(plugin.buildLaunchSpec!({ resume: null }), null);
     const args = ["--resume", "fixture-session", "--model", "two words; $value 😀"];
     const params: LaunchParams = {
       args, skipPermissions, agentName: "name 'quoted' 😀", sessionId: "fixture-id",
@@ -46,6 +49,16 @@ for (const platform of ["windows", "linux", "macos"]) {
     assert.ok(files.get(spec.args.at(-1))!.includes(params.task!));
     assert.equal(files.get(spec.args.at(-1))!.startsWith("\uFEFF"), platform === "windows");
     assert.deepEqual(args, params.args);
+    const resumed = JSON.parse(JSON.stringify(plugin.buildLaunchSpec!({ resume: {
+      sessionId: "own-session", args: ["--model", "fixture-model"], skipPermissions,
+      systemPrompt: "opaque resume context 😀",
+    } })!));
+    assert.deepEqual(resumed.args.slice(0, skipPermissions ? 5 : 4), [
+      ...(skipPermissions ? ["--dangerously-skip-permissions"] : []),
+      "--resume", "own-session", "--model", "fixture-model",
+    ]);
+    assert.ok(!resumed.args.includes("--session-id"));
+    assert.ok(!resumed.args.includes("--"));
     enabled = false;
     assert.equal(plugin.buildLaunchSpec!(params), null);
     cases++;

@@ -152,13 +152,20 @@ pub(super) fn build_launch_command(
 
 pub(super) fn launch_spec(
     provider: &super::JsProvider,
-    params: &AgentLaunchParams,
+    params: &crate::provider::LaunchSpecParams<'_>,
 ) -> Option<codeterm_types::agent::LaunchSpec> {
     if provider.has_js("buildLaunchSpec") {
+        let wire = match params {
+            crate::provider::LaunchSpecParams::Fresh(params) => super::wire::launch_params_to_json(params),
+            crate::provider::LaunchSpecParams::Resume(params) => serde_json::json!({"resume": params}),
+        };
         return provider.try_call(
             "buildLaunchSpec",
-            &[super::wire::launch_params_to_json(params)],
+            &[wire],
         );
     }
-    launch_spec_from_template(&provider.manifest, params)
+    match params {
+        crate::provider::LaunchSpecParams::Fresh(params) => launch_spec_from_template(&provider.manifest, params),
+        crate::provider::LaunchSpecParams::Resume(_) => None,
+    }
 }

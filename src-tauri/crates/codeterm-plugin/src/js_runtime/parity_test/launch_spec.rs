@@ -1,4 +1,5 @@
 use super::*;
+use crate::provider::LaunchSpecParams;
 use codeterm_types::agent::LaunchSpec;
 
 fn materialized_arguments(mut spec: LaunchSpec) -> LaunchSpec {
@@ -23,6 +24,21 @@ fn materialized_arguments(mut spec: LaunchSpec) -> LaunchSpec {
 
 pub(super) fn assert_native_js_parity(native: &dyn AgentProvider, js: &dyn AgentProvider) {
     for skip_permissions in [false, true] {
+        let resume = crate::provider::AgentResumeParams {
+            session_id: "own-resume-session".into(),
+            skip_permissions,
+            args: vec!["--model".into(), "fixture-model".into()],
+            system_prompt: Some("opaque resume context 😀".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            materialized_arguments(
+                native
+                    .launch_spec(&LaunchSpecParams::Resume(&resume))
+                    .unwrap()
+            ),
+            materialized_arguments(js.launch_spec(&LaunchSpecParams::Resume(&resume)).unwrap()),
+        );
         for (agent_name, session_id, args) in [
             (None, None, vec![]),
             (Some("agent 'юникод' 😀"), Some("fixture-session"), vec![]),
@@ -41,8 +57,12 @@ pub(super) fn assert_native_js_parity(native: &dyn AgentProvider, js: &dyn Agent
                 ..Default::default()
             };
             assert_eq!(
-                materialized_arguments(native.launch_spec(&params).unwrap()),
-                materialized_arguments(js.launch_spec(&params).unwrap()),
+                materialized_arguments(
+                    native
+                        .launch_spec(&LaunchSpecParams::Fresh(&params))
+                        .unwrap()
+                ),
+                materialized_arguments(js.launch_spec(&LaunchSpecParams::Fresh(&params)).unwrap()),
             );
         }
     }
@@ -80,7 +100,7 @@ fn launch_spec_templates_expand_vectors_without_shell_parsing() {
         skip_permissions: true,
         ..Default::default()
     };
-    let spec = js.launch_spec(&params).unwrap();
+    let spec = js.launch_spec(&LaunchSpecParams::Fresh(&params)).unwrap();
     assert_eq!(
         spec.args,
         [
@@ -94,7 +114,9 @@ fn launch_spec_templates_expand_vectors_without_shell_parsing() {
     );
     assert_eq!(spec.env_set["VALUE"], params.task.clone().unwrap());
     assert_eq!(spec.env_unset, ["INHERITED"]);
-    let bare = js.launch_spec(&AgentLaunchParams::default()).unwrap();
+    let bare = js
+        .launch_spec(&LaunchSpecParams::Fresh(&AgentLaunchParams::default()))
+        .unwrap();
     assert_eq!(bare.args, ["", ""]);
 }
 
@@ -108,16 +130,23 @@ fn launch_spec_export_wins_and_absence_stays_on_shell_host() {
     };"#,
     );
     assert_eq!(
-        exported.launch_spec(&Default::default()).unwrap().program,
+        exported
+            .launch_spec(&LaunchSpecParams::Fresh(&Default::default()))
+            .unwrap()
+            .program,
         "export"
     );
     let refused = fixture(
         template,
         "module.exports.default = {buildLaunchSpec() { return null; }};",
     );
-    assert!(refused.launch_spec(&Default::default()).is_none());
+    assert!(refused
+        .launch_spec(&LaunchSpecParams::Fresh(&Default::default()))
+        .is_none());
     let absent = load_inline_js("absent-spec", "module.exports.default = {};");
-    assert!(absent.launch_spec(&Default::default()).is_none());
+    assert!(absent
+        .launch_spec(&LaunchSpecParams::Fresh(&Default::default()))
+        .is_none());
     for args in [
         serde_json::json!(["prefix{args}"]),
         serde_json::json!(["{unknown}"]),
@@ -126,7 +155,7 @@ fn launch_spec_export_wins_and_absence_stays_on_shell_host() {
             serde_json::json!({"program": "fixture", "args": args}),
             "module.exports.default = {};"
         )
-        .launch_spec(&Default::default())
+        .launch_spec(&LaunchSpecParams::Fresh(&Default::default()))
         .is_none());
     }
 }

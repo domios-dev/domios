@@ -158,7 +158,7 @@ pub trait AgentProvider: Send + Sync {
 
     fn launch_spec(
         &self,
-        _params: &AgentLaunchParams,
+        _params: &crate::provider::LaunchSpecParams<'_>,
     ) -> Option<codeterm_types::agent::LaunchSpec> {
         None
     }

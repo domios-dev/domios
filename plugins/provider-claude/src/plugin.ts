@@ -1,4 +1,4 @@
-import { buildClaudeLaunchCommand, buildClaudeLaunchSpec } from "./launchSpec";
+import { buildClaudeLaunchCommand, buildClaudeLaunchSpec, starterPrompt } from "./launchSpec";
 import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
 import { writeClaudeLaunchPrompt } from "./launchPrompt";
 import { isImageDisplayMetadata } from "./imageMetadata";
@@ -340,7 +340,7 @@ const plugin: PluginModule = {
 
   buildLaunchCommand: buildClaudeLaunchCommand,
 
-  buildLaunchSpec(params: LaunchParams) {
+  buildLaunchSpec(params: LaunchParams | { resume: ResumeParams }) {
     return manifest()?.commands?.launchSpec ? buildClaudeLaunchSpec(params) : null;
   },
 
