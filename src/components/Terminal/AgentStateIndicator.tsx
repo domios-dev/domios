@@ -87,6 +87,9 @@ export function AgentStateIndicator({
       aria-live="polite"
       aria-label={text ? `Agent ${text}` : "Agent idle"}
     >
+      <span className="inline-flex w-4 shrink-0 items-center justify-center self-center">
+        {dots}
+      </span>
       {renderIdentity && identity ? (
         <>
           <span
@@ -95,7 +98,6 @@ export function AgentStateIndicator({
           >
             {renderIdentity(identity)}
           </span>
-          {dots}
           <span
             className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
             style={{ fontFamily: "var(--ct-font-mono)" }}
@@ -106,7 +108,6 @@ export function AgentStateIndicator({
         </>
       ) : (
         <>
-          {dots}
           <span
             className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
             style={{ fontFamily: "var(--ct-font-mono)" }}
