@@ -1,6 +1,7 @@
 //! `PluginVm` — one QuickJS context per plugin.
 
 mod runtime_hook;
+mod timing;
 pub(crate) use runtime_hook::call_runtime_hook;
 
 use std::collections::HashSet;
@@ -736,9 +737,21 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<R, VmError> {
+    let mut timing = (method == "runtimeStoredHistory").then(|| timing::HookTiming::new(method));
     let args_json =
         serde_json::to_string(args).map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
-    let mut result_json = enter_call(vm, method, &args_json, strict, interrupt.clone())?;
+    if let Some(timing) = timing.as_mut() {
+        timing.bytes = args_json.len();
+        timing.enter("vm_wait");
+    }
+    let mut result_json = enter_call(
+        vm,
+        method,
+        &args_json,
+        strict,
+        interrupt.clone(),
+        timing.as_mut(),
+    )?;
     while let Some(pending) = parse_await(&result_json) {
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
@@ -772,6 +785,9 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
             interrupt.clone(),
         )?;
     }
+    if let Some(timing) = timing.as_mut() {
+        timing.enter("decode");
+    }
     serde_json::from_str(&result_json)
         .map_err(|e| VmError::InvalidJson(method.to_string(), e.to_string()))
 }
@@ -785,8 +801,12 @@ fn enter_call(
     args_json: &str,
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
+    timing: Option<&mut timing::HookTiming<'_>>,
 ) -> Result<String, VmError> {
     let inner = VmEntry::acquire(vm, method);
+    if let Some(timing) = timing {
+        timing.enter("execute");
+    }
     if let Some((cancellation, deadline)) = interrupt.clone() {
         inner._rt.set_interrupt_handler(Some(Box::new(move || {
             cancellation.is_cancelled() || std::time::Instant::now() >= deadline
