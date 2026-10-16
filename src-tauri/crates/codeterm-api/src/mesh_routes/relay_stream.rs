@@ -85,8 +85,8 @@ mod tests {
     #[tokio::test]
     async fn output_body_without_level_forwards_upstream_bytes_unchanged() {
         let upstream = stream::iter([
-            Ok::<_, reqwest::Error>(Bytes::from_static(b"data: {\"output\":")),
-            Ok(Bytes::from_static(b"\"secret-free\"}\n\n")),
+            Ok::<_, reqwest::Error>(Bytes::from_static(b"data: {\"b64\":")),
+            Ok(Bytes::from_static(b"\"c2VjcmV0LWZyZWU\"}\n\n")),
         ]);
         let census = crate::stream_census::StreamCensus::default();
         let body = output_body(
@@ -104,7 +104,7 @@ mod tests {
         );
         assert_eq!(serde_json::to_value(census.snapshot()).unwrap()["live"], 1);
         let received = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-        assert_eq!(&received[..], b"data: {\"output\":\"secret-free\"}\n\n");
+        assert_eq!(&received[..], b"data: {\"b64\":\"c2VjcmV0LWZyZWU\"}\n\n");
         let counts = serde_json::to_value(census.snapshot()).unwrap();
         assert_eq!(counts["live"], 0);
         assert_eq!(counts["opened"], 1);
@@ -124,7 +124,7 @@ mod tests {
             )
         };
         let upstream = stream::iter([Ok::<_, reqwest::Error>(Bytes::from_static(
-            b"data: {\"tab_id\":\"t\",\"output\":\"x\"}\n\n",
+            b"data: {\"tab_id\":\"t\",\"b64\":\"eA\"}\n\n",
         ))]);
         let body = output_body(
             upstream,
@@ -137,7 +137,7 @@ mod tests {
         let received = axum::body::to_bytes(body, usize::MAX).await.unwrap();
         assert_eq!(
             &received[..],
-            b"data: {\"tab_id\":\"t\",\"output\":\"x\"}\n\n"
+            b"data: {\"tab_id\":\"t\",\"b64\":\"eA\"}\n\n"
         );
         let counts = serde_json::to_value(census.snapshot()).unwrap();
         assert_eq!(counts["live"], 0);

@@ -44,8 +44,7 @@ export interface TabOutputSink {
 
 interface OutputFrame {
   tab_id?: string;
-  output?: string;
-  data?: number[];
+  b64?: string;
   pty_id?: string;
   offset?: number;
   truncated?: boolean;
@@ -126,13 +125,19 @@ function outputStreamUrl(): string {
   return url;
 }
 
-function handleFrame(msg: OutputFrame): void {
+function accountOutputFrame(bytes?: Uint8Array) {
   const perf = window.__outputStreamPerf;
   if (perf) {
     perf.frames += 1;
     perf.lastFrameAt = performance.now();
-    if (typeof msg.output === "string") perf.bytes += msg.output.length;
+    perf.bytes += bytes?.length ?? 0;
   }
+  return perf;
+}
+
+function handleFrame(msg: OutputFrame): void {
+  const bytes = typeof msg.b64 === "string" ? decodeOutputBytes(msg.b64) : undefined;
+  const perf = accountOutputFrame(bytes);
   if (msg.boot_changed && msg.boot) {
     // boot-scoped offsets and reconnect — the boot-matched cursor full-replays.
     saveBoot(msg.boot);
@@ -149,7 +154,7 @@ function handleFrame(msg: OutputFrame): void {
   const tab = msg.tab_id;
   if (!tab) return;
   const set = sinks.get(tab);
-  if (typeof msg.offset === "number" && typeof msg.output === "string") {
+  if (typeof msg.offset === "number" && bytes) {
     const ring = { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id };
     const previous = rings.get(tab);
     const sameRing = previous?.boot === ring.boot && previous.ptyId === ring.ptyId;
@@ -157,11 +162,11 @@ function handleFrame(msg: OutputFrame): void {
     rings.set(tab, ring);
     retainedOutput.append(tab, {
       boot: ring.boot, ptyId: msg.pty_id ?? tab, offset: msg.offset,
-      bytes: msg.data ? new Uint8Array(msg.data) : new TextEncoder().encode(msg.output),
+      bytes,
     });
     if (set) {
       perf && (perf.batches += 1);
-      for (const sink of set) deliverOutput(tab, sink, msg);
+      for (const sink of set) deliverOutput(tab, sink, msg, bytes);
     }
     return;
   }
@@ -180,9 +185,15 @@ function deliverTruncation(tabId: string, sink: TabOutputSink, from: number, boo
   replay.resync(identity.terminal, tabId, bootId, identity.ptyId, from, () => sink.onTruncated(from));
 }
 
-function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame): void {
+function decodeOutputBytes(b64: string): Uint8Array {
+  const binary = atob(b64.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame, bytes: Uint8Array): void {
   const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: frame.pty_id ?? tabId };
-  const bytes = frame.data ? new Uint8Array(frame.data) : new TextEncoder().encode(frame.output ?? "");
   replay.deliver(identity.terminal, tabId, {
     boot: frame.boot ?? boot ?? "", ptyId: frame.pty_id ?? identity.ptyId,
     offset: frame.offset ?? bytes.length, bytes,
@@ -213,8 +224,8 @@ function openAggregateStream(): () => void {
       streamAbort = null;
       aggregate.ended();
       if (DEV_BUILD) console.debug("[output-stream] waiting for recovery signal", { reason: end.reason });
-      if (end.reason === "error" || end.reason === "http") {
-        const error = end.error instanceof Error ? end.error : new Error(String(end.error));
+      if (end.reason === "error" || end.reason === "http" || end.reason === "capacity") {
+        const error = end.error instanceof Error ? end.error : new Error(end.reason === "capacity" ? `SSE capacity exceeded (${end.bytes} bytes)` : String(end.error));
         for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
       }
     },
@@ -365,8 +376,8 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
       deadline.clear();
       const reason: StreamEndReason = end.reason === "http"
         ? streamResponseFailureReason(end.status ?? 500) : end.reason === "eof" ? "eof" : "error";
-      if (!abort.signal.aborted && record.recovery.isCurrent(generation) && end.error) {
-        const error = end.error instanceof Error ? end.error : new Error(String(end.error));
+      if (!abort.signal.aborted && record.recovery.isCurrent(generation) && (end.error || end.reason === "capacity")) {
+        const error = end.error instanceof Error ? end.error : new Error(end.reason === "capacity" ? `SSE capacity exceeded (${end.bytes} bytes)` : String(end.error));
         for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onStreamError?.(error);
       }
       finalizeRemoteOutputConnection(ordinaryTabId, record, generation, abort, reason);
@@ -392,7 +403,9 @@ function handleRemoteOutputFrame(
     }
     return;
   }
-  if (typeof message.output === "string") {
+  if (typeof message.b64 === "string") {
+    const bytes = decodeOutputBytes(message.b64);
+    const perf = accountOutputFrame(bytes);
     const prev = record.recovery.currentCursor();
     const next: RemoteOutputCursor = {
       boot: message.boot ?? prev?.boot,
@@ -400,7 +413,8 @@ function handleRemoteOutputFrame(
       offset: typeof message.offset === "number" ? message.offset : prev?.offset ?? 0,
     };
     if (!record.recovery.noteProgress(generation, next)) return; // duplicate replay or stale generation dropped.
-    for (const target of remoteSinks.get(ordinaryTabId) ?? []) deliverOutput(ordinaryTabId, target, { ...message, boot: next.boot });
+    if (perf) perf.batches++;
+    for (const target of remoteSinks.get(ordinaryTabId) ?? []) deliverOutput(ordinaryTabId, target, { ...message, boot: next.boot }, bytes);
     return;
   }
   if (message.boot) {
