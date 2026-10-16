@@ -31,11 +31,12 @@ fn session() -> (Session, u64) {
         maps: Mutex::new(Default::default()),
         bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
         prompts: Mutex::new(HashMap::new()),
-        process: Mutex::new(None),
+        process: crate::service::agent_runtime::process_slot::ProcessSlot::new(None),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),
         compaction: Mutex::new(Default::default()),
         abort_note: Mutex::new(None),
+        history_retry: Mutex::new(None),
     };
     (session, epoch)
 }
@@ -295,9 +296,11 @@ async fn repeated_cursor_is_refused() {
     make_ready(&session, epoch);
     assert_eq!(
         replay.rest(&session, &mut port).await,
-        Err(RuntimeFailure::HookFailed("History cursor limit".into()))
+        Err(RuntimeFailure::HookFailed(
+            "History cursor did not advance".into()
+        ))
     );
-    assert_eq!(ids(&session), ["a", "b"]);
+    assert_eq!(ids(&session), ["b"]);
 }
 
 #[tokio::test]
@@ -406,4 +409,90 @@ async fn a_question_on_an_older_page_resolves_from_an_answer_on_a_newer_page() {
     let last = port.questions.last().unwrap();
     assert_eq!(last.len(), 1);
     assert_eq!(last[0].resolved, Some(true));
+}
+
+#[tokio::test]
+async fn failed_history_checkpoint_retries_same_page_without_clearing_landed_rows() {
+    let (session, epoch) = session();
+    let mut replay = replay_for(&session, epoch);
+    let mut port = FakePort::with(vec![
+        (None, page(&["c"], Some("older"))),
+        (Some("older"), Err(RuntimeFailure::Deadline)),
+    ]);
+    replay.first(&session, &mut port).await.unwrap();
+    make_ready(&session, epoch);
+    assert_eq!(
+        replay.rest(&session, &mut port).await,
+        Err(RuntimeFailure::Deadline)
+    );
+    assert!(session
+        .cache
+        .lock()
+        .finish_backfill(replay.generation, HistoryBackfill::Failed));
+    session
+        .cache
+        .lock()
+        .reconcile_live(row("c", "live revision"), 2);
+    let checkpoint = FailedReplay {
+        replay: replay.clone(),
+        error: "fixture deadline".into(),
+    };
+    let mut replay = checkpoint.resume(&session).unwrap();
+    assert!(!session.cache.lock().resume_backfill(replay.generation));
+    let mut retry = FakePort::with(vec![(Some("older"), page(&["a", "b", "c"], None))]);
+    replay.rest(&session, &mut retry).await.unwrap();
+    assert_eq!(retry.reads, [Some("older".into())]);
+    assert_eq!(ids(&session), ["a", "b", "c"]);
+    assert_eq!(
+        session.cache.lock().snapshot().last().unwrap().content,
+        "live revision"
+    );
+    assert_seq_ascending(&session);
+    session.context.lock().epoch += 1;
+    assert!(!replay.current(&session, true));
+}
+
+#[tokio::test]
+async fn failed_checkpoint_refuses_a_new_binding_epoch_without_changing_cache() {
+    let (session, epoch) = session();
+    let replay = replay_for(&session, epoch);
+    make_ready(&session, epoch);
+    session
+        .cache
+        .lock()
+        .finish_backfill(replay.generation, HistoryBackfill::Failed);
+    let checkpoint = FailedReplay {
+        replay,
+        error: "fixture".into(),
+    };
+    session.context.lock().epoch += 1;
+    assert!(matches!(
+        checkpoint.resume(&session),
+        Err(RuntimeFailure::Superseded)
+    ));
+    assert_eq!(session.cache.lock().backfill(), HistoryBackfill::Failed);
+}
+
+#[test]
+fn history_failure_snapshot_keeps_runtime_loaded_with_precise_page_error() {
+    let (session, epoch) = session();
+    let replay = replay_for(&session, epoch);
+    make_ready(&session, epoch);
+    for _ in 0..8 {
+        session.cache.lock().note_history_page();
+    }
+    session
+        .cache
+        .lock()
+        .finish_backfill(replay.generation, HistoryBackfill::Failed);
+    let error = "History page 9: fixture execution deadline".to_string();
+    *session.history_retry.lock() = Some(FailedReplay {
+        replay,
+        error: error.clone(),
+    });
+    let snapshot = serde_json::to_value(super::super::snapshot(&session)).unwrap();
+    assert_eq!(snapshot["state"], "loaded");
+    assert_eq!(snapshot["history"], "failed");
+    assert_eq!(snapshot["historyPages"], 8);
+    assert_eq!(snapshot["historyError"], error);
 }

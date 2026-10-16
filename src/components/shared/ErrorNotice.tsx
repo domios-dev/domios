@@ -1,3 +1,4 @@
+import { PaneState } from "./PaneState";
 import { useState, type KeyboardEvent } from "react";
 import { describeError, type ErrorContext, type ErrorDescription } from "../../lib/describeError";
 
@@ -21,7 +22,8 @@ export function ErrorNotice({ error, description, actions = [], blocking = false
     try { await navigator.clipboard.writeText(view.raw); setCopyState("Copied"); }
     catch { setCopyState("Copy was unavailable. Select the details and copy them manually."); }
   };
-  return <section role={blocking ? "alert" : "status"} aria-label={view.title} className={`${compact ? "text-xs" : "rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 text-sm"} min-w-0 text-left text-[var(--ct-fg)]`}>
+  if (blocking) return <PaneState error={error} context={{ ...context, description }} actions={actions} />;
+  return <section role="status" aria-label={view.title} className={`${compact ? "text-xs" : "rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 text-sm"} min-w-0 text-left text-[var(--ct-fg)]`}>
     <p className="font-medium">{view.title}</p>
     <p className="mt-1 break-words text-[var(--ct-muted-fg)]">{view.cause}</p>
     {actions.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{actions.map(action =>
@@ -37,5 +39,8 @@ export function ErrorNotice({ error, description, actions = [], blocking = false
 }
 
 export function InlineErrorNotice(props: Omit<ErrorNoticeProps, "compact">) {
-  return <ErrorNotice {...props} compact />;
+  const { blocking, ...noticeProps } = props;
+  return blocking
+    ? <PaneState error={props.error} context={{ operation: props.operation, cwd: props.cwd, description: props.description }} actions={props.actions} />
+    : <ErrorNotice {...noticeProps} compact blocking={false} />;
 }

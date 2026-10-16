@@ -1,30 +1,61 @@
-import { useCallback, useEffect, useState } from "react";
+import { PageDataContext } from "./PageDataContext";
+import { useCallback, useEffect, useState, useContext, useRef } from "react";
 import { invoke, listen } from "../lib/bridge";
 import type { CronJob } from "../lib/types";
 
 export function useWorkspaceCrons(workspaceId: string) {
+  const page = useContext(PageDataContext);
+  const local = useWorkspaceCronsLoader(workspaceId, !page);
+  if (page) return { jobs: page.crons.jobs.filter((job) => job.workspace_id === workspaceId), refresh: page.crons.refresh };
+  return local;
+}
+
+export function useWorkspaceCronsLoader(workspaceId?: string, enabled = true) {
+  const sequence = useRef(0);
+  const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [jobs, setJobs] = useState<CronJob[]>([]);
 
   const refresh = useCallback(async () => {
-    const next = await invoke<CronJob[]>("cron_list", { workspaceId });
-    setJobs(Array.isArray(next) ? next : []);
+    const request = ++sequence.current;
+    try {
+      const next = await invoke<CronJob[]>("cron_list", workspaceId ? { workspaceId } : {});
+      if (request !== sequence.current) return;
+      if (!Array.isArray(next)) throw new Error("Cron list is unavailable");
+      setJobs(next);
+      setReady(true);
+      setFailed(false);
+    } catch {
+      if (request === sequence.current) setFailed(true);
+    } finally {
+      if (request === sequence.current) setLoading(false);
+    }
   }, [workspaceId]);
 
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     let unlisten: (() => void) | undefined;
     void refresh().catch(() => {
       if (active) setJobs([]);
     });
-    void listen("cron-run-finished", () => void refresh()).then((stop) => {
+    void listen("cron-run-finished", () => { void refresh().catch(() => undefined); }).then((stop) => {
       if (active) unlisten = stop;
       else stop();
-    });
+    }).catch(() => undefined);
+    const reset = () => { sequence.current++; setJobs([]); setLoading(true); setReady(false); setFailed(false); };
+    const rebind = () => { void refresh().catch(() => undefined); };
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener("codeterm-peer-switch-rebind", rebind);
     return () => {
+      sequence.current++;
+      window.removeEventListener("codeterm-peer-switch-reset", reset);
+      window.removeEventListener("codeterm-peer-switch-rebind", rebind);
       active = false;
       unlisten?.();
     };
-  }, [refresh]);
+  }, [refresh, enabled]);
 
-  return { jobs, refresh };
+  return { jobs, refresh, loading, ready, failed };
 }

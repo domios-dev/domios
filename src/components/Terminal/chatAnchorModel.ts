@@ -11,7 +11,12 @@ export interface ChatContentAnchor {
   offset: number;
 }
 
-export interface ChatAnchorGeometry extends ChatAnchorIdentity { top: number }
+export interface ChatAnchorGeometry extends ChatAnchorIdentity { top: number; height?: number }
+
+export function chatVisibleAnchorIndex(rows: readonly { top: number; height?: number }[], scrollTop: number): number {
+  const index = rows.findIndex((row, index) => (row.height == null ? rows[index + 1]?.top ?? Infinity : row.top + row.height) > scrollTop);
+  return index >= 0 ? index : rows.length - 1;
+}
 
 export function chatAnchorIdentities(messages: readonly { id: string; sourceMessageId?: string }[]): ChatAnchorIdentity[] {
   const seen = new Map<string, number>();
@@ -24,7 +29,7 @@ export function chatAnchorIdentities(messages: readonly { id: string; sourceMess
 }
 
 export function captureChatAnchor(rows: readonly ChatAnchorGeometry[], scrollTop: number): ChatContentAnchor | null {
-  const row = rows.find((candidate) => candidate.top >= scrollTop) ?? rows[rows.length - 1];
+  const row = rows[chatVisibleAnchorIndex(rows, scrollTop)];
   return row ? { id: row.id, key: row.key, ordinal: row.ordinal, offset: row.top - scrollTop } : null;
 }
 

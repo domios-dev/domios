@@ -150,3 +150,15 @@ describe("runtime status presentation", () => {
     expect(runtimeHistorySettled(loading?.history, done?.history)).toBe(true);
   });
 });
+
+
+it("retries a failed history page while the conversation remains loaded", () => {
+  const state:AgentRuntimeState={state:"loaded",epoch:3,history:"failed",historyPages:8,historyError:"fixture-page-nine"};
+  expect(runtimeStateFromSnapshot(null,state)).toMatchObject(state);
+  expect(runtimeStatusPresentation(state)).toMatchObject({details:state.historyError,canRetry:true});
+  const loading=beginRuntimeRetry(state);
+  expect(loading).toMatchObject({state:"loaded",history:"loading",epoch:3,historyPages:8});
+  expect(beginRuntimeRetry(loading)).toBe(loading);
+  expect(runtimeRetryFailed(loading,"fixture-retry-error")).toMatchObject({state:"loaded",history:"failed",historyError:"fixture-retry-error"});
+  expect(runtimeStateFromEvent(loading,authority,{tab_id:"owned",session_binding_nonce:"binding",state:{state:"loaded",epoch:3,history:"complete",historyPages:12}})).toMatchObject({state:"loaded",history:"complete",historyPages:12});
+});

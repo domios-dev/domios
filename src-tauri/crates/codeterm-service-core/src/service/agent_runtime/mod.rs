@@ -19,7 +19,9 @@ pub mod model;
 mod ownership;
 pub(crate) mod plan_warning;
 pub(crate) mod process;
+mod process_slot;
 pub(crate) mod projections;
+pub mod reset_credits;
 pub use projections::latest as projections_latest;
 pub(crate) mod prompt_answers;
 mod question_delivery;
@@ -55,7 +57,8 @@ pub async fn retry(
         .or_else(|| engine::for_tab(tab))
         .ok_or_else(|| "Runtime binding unavailable".to_string())?;
     engine::validate_binding(svc, &session).map_err(|reason| reason.to_string())?;
-    let snapshot = session.state.lock().snapshot();
+    engine::backfill::retry(svc, tab, &session).map_err(|reason| reason.to_string())?;
+    let snapshot = engine::snapshot(&session);
     svc.emit_state_changed();
     Ok(snapshot)
 }

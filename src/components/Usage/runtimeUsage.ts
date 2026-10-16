@@ -1,5 +1,14 @@
 import type {UsageSnapshot, RuntimeUsageProjection} from "../../types/usage";
 
+export function latestUsageSnapshot(snapshot: UsageSnapshot | null, tabId?: string, threadId?: string | null): UsageSnapshot | null {
+  if (!snapshot) return null;
+  const runtime = ownRuntimeUsage(snapshot, tabId, threadId);
+  if (!runtime) return snapshot.runtime_usage ? null : snapshot;
+  const own = runtimeLimitsSnapshot(snapshot, runtime);
+  if (runtime.billing_mode !== "subscription" || !snapshot.parsed_ok || snapshot.captured_at < (runtime.rate_limits?.captured_at ?? 0)) return own;
+  return {...snapshot, resets: own.resets};
+}
+
 export function ownRuntimeUsage(snapshot: UsageSnapshot | null, tabId?:string, threadId?:string | null): RuntimeUsageProjection | null {
   return snapshot?.runtime_usage?.find(row => row.tab_id === tabId && row.thread_id === threadId) ?? null;
 }
@@ -10,6 +19,7 @@ export function runtimeLimitsSnapshot(snapshot:UsageSnapshot, reading:RuntimeUsa
   const secondary = windows.find(window => window.window === "secondary") ?? windows[1];
   return {...snapshot,id:0,provider:snapshot.provider,account_id:null,
     captured_at:reading.rate_limits?.captured_at ?? reading.token_usage?.captured_at ?? reading.captured_at ?? snapshot.captured_at,
+    resets:reading.resets,
     parsed_ok:true,billing_mode:reading.billing_mode,limits_reported:windows.length > 0,
     session_pct:primary?.usedPercent ?? null,session_resets_at:primary?.resetsAt ?? null,
     weekly_pct:secondary?.usedPercent ?? null,weekly_resets_at:secondary?.resetsAt ?? null,

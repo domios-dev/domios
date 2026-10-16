@@ -89,6 +89,7 @@ impl AgentProvider for Adapter {
         Some(AgentRuntimeCapability {
             stored_history: false,
             usage: false,
+            reset_credits_min_version: None,
             runtime: AgentRuntimeProtocol::StdioJsonrpc,
             command: AgentRuntimeCommand {
                 binary: "unused".into(),
@@ -259,11 +260,12 @@ pub(super) fn scene() -> Scene {
         maps: Mutex::new(super::super::events::RuntimeMaps::default()),
         bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
         prompts: Mutex::new(HashMap::new()),
-        process: Mutex::new(Some(process)),
+        process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),
         compaction: Mutex::new(Default::default()),
         abort_note: Mutex::new(None),
+        history_retry: Mutex::new(None),
         controls_confirmation: Mutex::new(None),
         control_changes: tokio::sync::watch::channel(()).0,
     });

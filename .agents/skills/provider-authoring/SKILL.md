@@ -589,3 +589,13 @@ confirmation reader and native/JS model-label detection share that parser;
 shared command fixtures cover native/QuickJS parity.
 
 `agentRuntime.usage: true` declares live usage publication and earns the shared Usage Tracking setting. Runtime auth events declare `billingMode`; account rate windows reach the subscription meter and exact-thread token events reach the session chip. `TokenUsage.cost_micros` is optional reported USD cost, never an estimate. These pure data extensions grant no host filesystem, environment, network or subprocess access.
+
+`agentRuntime.resetCreditsMinVersion` declares account rate-limit reset support
+and the minimum installed provider CLI version. The host hides reset data and
+refuses redemption below that version or when the version is unknown. Runtime
+`rateLimits` events may include provider-neutral `resets` with authoritative
+`availableCount`, millisecond `nextExpiry`, and nullable credit details. A capped
+list never replaces the count. Explicit popover opens request details; background
+reads omit them. `redeemResetCredit` returns `resetCreditConsumed` with one of the
+four typed outcomes. Confirmation creates a UUID once; retries preserve it.
+Never invoke a live redemption during testing: credits are irreversible.

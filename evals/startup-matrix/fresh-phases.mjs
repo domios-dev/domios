@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { root, client } from '../core-journeys/lib/env.mjs';
 import { captureBounded, parseBootPhase, phasesForTab } from './phase-collector.mjs';
-import { devCli } from './phase-cli.mjs';
+import { devCli, resolveDevCli, cliToReceivedMs } from './phase-cli.mjs';
 
 const [expected, destination, workspaceName = 'Endure', selected = 'shell,claude,codex'] = process.argv.slice(2);
 if (!expected || !destination) throw Error('Usage: fresh-phases.mjs BUILD_SHA OUT [WORKSPACE] [shell,claude,codex]');
@@ -27,6 +27,8 @@ function adopt() {
     row.phases = phasesForTab(data.marks, row.id);
     const first = row.phases.find(mark => mark.phase === 'first_output');
     const agent = row.phases.find(mark => mark.phase === 'AgentReady');
+    row.received_at_us = row.phases.find(mark => mark.phase === 'request_received')?.atUs;
+    row.cli_to_received_ms = cliToReceivedMs(row.requestBeginAt, row.received_at_us);
     row.firstFrameAtUs = first?.atUs;
     row.agentReadyAtUs = agent?.atUs;
     row.observed = row.kind === 'shell' ? Boolean(first) : Boolean(agent);
@@ -63,18 +65,19 @@ const outcome = await captureBounded({
     checkpoint('health');
     data.health = await api('/api/health', { signal });
     if (data.health.build_sha !== expected) throw Error('Unexpected DEV build');
+    const cliConnection = resolveDevCli();
     checkpoint('workspace');
     const state = await api('/api/mux/state', { signal });
     const workspace = state.workspaces.find(value => value.name === workspaceName);
     if (!workspace) throw Error('Workspace absent');
-    logPath = join(process.env.CODETERM_DEV_DATA_DIR, 'logs/codeterm.log');
+    logPath = join(cliConnection.env.CODETERM_DEV_DATA_DIR, 'logs/codeterm.log');
     logPosition = statSync(logPath).size;
     watcher = watch(logPath, () => {
       try { readLog(); } catch (error) { data.logError = String(error); controller.abort(error); }
     });
     checkpoint('launching');
     await Promise.all(selected.split(',').map(async kind => {
-      const row = { kind, requestBeginAt: Date.now() };
+      const row = { kind };
       data.rows.push(row);
       const title = `Phase${kind}`;
       let args = ['tab', 'new', '--workspace', workspace.id, '--shell', 'powershell', '--title', title, '--eager'];
@@ -86,7 +89,7 @@ const outcome = await captureBounded({
       }
       row.command = args;
       try {
-        const result = await devCli(root, args, signal);
+        const result = await devCli(root, cliConnection, args, signal, at => { row.requestBeginAt = at; });
         row.responseAt = Date.now();
         row.id = result.tab_id ?? result.id ?? result.tab?.id;
         if (!row.id) throw Error('CLI returned no tab id');

@@ -154,7 +154,10 @@ export function useChatScroll({
     const before = el.scrollTop;
     if (target != null) el.scrollTop = target;
     lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
-    if (el.scrollTop !== before) hookScrollTopRef.current = el.scrollTop;
+    if (el.scrollTop !== before) {
+      hookScrollTopRef.current = el.scrollTop;
+      chatScrollDiagnostic(sessionKeyRef.current, "write", { before, after: el.scrollTop, owned: userScrollingRef.current });
+    }
     onViewportChange?.();
   }, [onViewportChange, userScrollingRef]);
 
@@ -260,7 +263,7 @@ export function useChatScroll({
     const row = rows[index];
     if (!row) return false;
     resetGesture();
-    writeScrollTop(el, row.offsetTop);
+    writeScrollTop(el, row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop);
     // Detached, so a pinned tail cannot pull the revealed row back out of view.
     setMode("detached", el);
     updateScrollDown(el);

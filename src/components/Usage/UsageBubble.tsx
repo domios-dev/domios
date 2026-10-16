@@ -1,4 +1,9 @@
-import { ownRuntimeUsage, runtimeLimitsSnapshot, runtimeTokenLabel, runtimeTokenBreakdown } from "./runtimeUsage";
+import {uid} from "../../lib/uid";
+import {invoke} from "../../lib/bridge";
+import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
+import {ResetCreditsSection} from "./ResetCreditsSection";
+import {InlineErrorNotice} from "../shared/ErrorNotice";
+import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown } from "./runtimeUsage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
@@ -54,15 +59,29 @@ export function UsageBubble({
     () => (hasGroupSpend(groupUsage) ? groupSpendSnapshot(provider, groupUsage, Date.now()) : null),
     [provider, groupUsage],
   );
-  // nor register a usage-snapshot-updated listener (was a per-tab IPC fan-out).
   const { snapshot, refresh, refetch } = useUsageSnapshot({
     provider,
     accountId,
-    enabled: trackingEnabled && !groupSnapshot,
+    enabled: trackingEnabled,
   });
   const runtime = ownRuntimeUsage(snapshot,tabId,threadId);
-  const active = runtime && snapshot ? runtimeLimitsSnapshot(snapshot,runtime) : snapshot?.runtime_usage ? null : groupSnapshot ?? snapshot;
+  const active = runtime || snapshot?.runtime_usage
+    ? latestUsageSnapshot(snapshot, tabId, threadId)
+    : groupSnapshot ?? snapshot;
+  const [, updateAge] = useState(0);
+  const refreshAge = () => updateAge(value => value + 1);
+  useEffect(() => {
+    const refresh = () => updateAge(value => value + 1);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
   const tokenSession = runtime?.billing_mode === "api" ? runtime : null;
+  const resetModel = tabId ? resetCreditsForTab(tabId, uid, key => invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key}})) : null;
+  const [resetReadError, setResetReadError] = useState<string|null>(null);
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
@@ -140,6 +159,8 @@ export function UsageBubble({
   return (
     <div
       ref={wrapRef}
+      onPointerEnter={refreshAge}
+      onFocus={refreshAge}
       className="ct-usage"
       style={{ position: "relative", display: "inline-flex" }}
     >
@@ -155,6 +176,10 @@ export function UsageBubble({
         title={tokenSession ? runtimeTokenBreakdown(tokenSession) : undefined}
         onClick={(e) => {
           e.stopPropagation();
+          if (!open && runtime && tabId) {
+            setResetReadError(null);
+            void invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}}).then(() => refetch()).catch(() => setResetReadError("Reset credits could not be refreshed."));
+          }
           setOpen((v) => !v);
         }}
       >
@@ -183,6 +208,7 @@ export function UsageBubble({
       {open && !tokenSession && isSpend && (
         <UsageSpendDetail
           snapshot={active}
+          resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <InlineErrorNotice error={resetReadError} operation="reading the reset credits" />}</> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
@@ -195,6 +221,7 @@ export function UsageBubble({
       {open && !tokenSession && !isSpend && (
         <UsageDetail
           snapshot={active}
+          resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <InlineErrorNotice error={resetReadError} operation="reading the reset credits" />}</> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {

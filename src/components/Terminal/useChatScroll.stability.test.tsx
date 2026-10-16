@@ -232,9 +232,17 @@ function readerPosition(source: string): number {
 }
 
 let offsetTopDescriptor: PropertyDescriptor | undefined;
+let rectDescriptor: PropertyDescriptor | undefined;
 
 beforeAll(() => {
   offsetTopDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+  rectDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getBoundingClientRect");
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", { configurable: true, value(this: HTMLElement) {
+    const scroller = this.closest<HTMLElement>('[data-testid="scroll"]');
+    const top = this.hasAttribute("data-height") ? this.offsetTop - (scroller?.scrollTop ?? 0) : 0;
+    const height = Number(this.dataset.height ?? this.clientHeight);
+    return { top, bottom: top + height, height, left: 0, right: 800, width: 800, x: 0, y: top, toJSON: () => ({}) };
+  } });
   Object.defineProperty(HTMLElement.prototype, "offsetTop", {
     configurable: true,
     get(this: HTMLElement) {
@@ -253,6 +261,7 @@ beforeAll(() => {
 afterAll(() => {
   if (offsetTopDescriptor) Object.defineProperty(HTMLElement.prototype, "offsetTop", offsetTopDescriptor);
   else delete (HTMLElement.prototype as { offsetTop?: number }).offsetTop;
+  if (rectDescriptor) Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", rectDescriptor);
   vi.unstubAllGlobals();
 });
 

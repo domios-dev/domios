@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { PageDataContext } from "./PageDataContext";
+import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
 import { webRequestContext, assertWebRequestContext } from "../lib/webApi";
@@ -129,6 +130,12 @@ export function mergeConfigEvent(previous: AppConfig, incoming: AppConfig): AppC
 }
 
 export function useConfig() {
+  const page = useContext(PageDataContext);
+  const local = useConfigLoader(!page);
+  return page?.config ?? local;
+}
+
+export function useConfigLoader(enabled = true) {
   const [generation, setGeneration] = useState(webRequestContext);
   const [snapshot, setSnapshot] = useState(() => ({
     generation, config: defaultConfig(), loading: true, ready: false,
@@ -136,6 +143,7 @@ export function useConfig() {
   const readyGeneration = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     const reset = () => {
       readyGeneration.current = null;
       setSnapshot({ generation: webRequestContext(), config: defaultConfig(), loading: true, ready: false });
@@ -147,9 +155,10 @@ export function useConfig() {
       window.removeEventListener("codeterm-peer-switch-reset", reset);
       window.removeEventListener("codeterm-peer-switch-rebind", rebind);
     };
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     readyGeneration.current = null;
@@ -179,7 +188,7 @@ export function useConfig() {
       readyGeneration.current = null;
       unlisten?.();
     };
-  }, [generation]);
+  }, [generation, enabled]);
 
   const updateConfig = useCallback(async (newConfig: AppConfig) => {
     assertWebRequestContext(generation);

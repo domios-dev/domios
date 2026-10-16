@@ -854,14 +854,26 @@ impl ServiceContext {
                 permission_bypass_requested: params.permission_bypass_requested(&agent_cmd),
             },
         );
-        let launch_cmd = build_or_refuse_orchestrated_launch_command(
-            self,
-            &tab_id,
-            &agent_cmd,
-            &params,
-            bg_task.as_deref(),
-            launch_session_id.as_deref(),
-        )?;
+        let launch_cmd = {
+            let service = self.clone();
+            let tab_id = tab_id.clone();
+            let provider = agent_cmd.clone();
+            let params = params.clone();
+            let task = bg_task.clone();
+            let session = launch_session_id.clone();
+            tokio::task::spawn_blocking(move || {
+                build_or_refuse_orchestrated_launch_command(
+                    &service,
+                    &tab_id,
+                    &provider,
+                    &params,
+                    task.as_deref(),
+                    session.as_deref(),
+                )
+            })
+            .await
+            .map_err(|error| format!("Launch composition failed: {error}"))??
+        };
         self.bind_worker_plan_task_or_rollback_tab_async(&params, &tab_id)
             .await?;
         let fallback_spec = spawn_input.fallback_spec(

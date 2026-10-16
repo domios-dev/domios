@@ -247,7 +247,13 @@ async fn replay(
                         provider.runtime_plan(ctx, &case.operation).await.unwrap(),
                     );
                 }
-                assert_eq!(&plans[operation].action, action);
+                let mut expected = action.clone();
+                if let RuntimeAction::Request { call } = &mut expected {
+                    if call.method == "account/rateLimits/read" {
+                        call.params = json!({"exclude_reset_credit_details":true});
+                    }
+                }
+                assert_eq!(plans[operation].action, expected);
                 if matches!(action, RuntimeAction::QuestionAnswer { .. }) {
                     plans.remove(operation);
                 }

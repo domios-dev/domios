@@ -139,7 +139,18 @@ pub(super) async fn handle(
     .await;
     let reduced = match result {
         Ok(Ok(reduced)) => reduced,
-        Ok(Err(_)) | Err(_) => {
+        Ok(Err(reason)) => {
+            log::debug!(
+                "[agent-runtime] tab={} epoch={epoch} reducer failed: {reason}",
+                context.tab_id
+            );
+            return fail_requests(svc, session, process, epoch, &accepted, "hook").await;
+        }
+        Err(reason) => {
+            log::debug!(
+                "[agent-runtime] tab={} epoch={epoch} reducer deadline: {reason}",
+                context.tab_id
+            );
             return fail_requests(svc, session, process, epoch, &accepted, "hook").await;
         }
     };
@@ -180,7 +191,6 @@ pub(super) async fn handle(
             _ => bookkeeping::account(svc, session, process, epoch, "publish").await,
         };
     }
-    bookkeeping::reset(session);
     if lagged {
         bookkeeping::account(svc, session, process, epoch, "lag").await
     } else {

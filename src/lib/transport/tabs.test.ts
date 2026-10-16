@@ -19,6 +19,7 @@ function fixture(responses: unknown[] = [{}]) {
 const simple = [
   ["wake_tab", "POST", "/api/tabs/tab/wake"],
   ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],
+  ["agent_runtime_reset_credits", "POST", "/api/tabs/tab/agent/runtime/reset-credits"],
   ["agent_runtime_login", "POST", "/api/tabs/tab/agent/runtime/login"],
   ["agent_runtime_retry", "POST", "/api/tabs/tab/agent/runtime/retry"],
   ["chat_send_admissions", "POST", "/api/tabs/tab/chat-send/admissions"],
@@ -80,6 +81,13 @@ describe("tab command HTTP contract", () => {
     await transport[name](args);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ method, path, opts: { callerTabId: "caller" } });
+  });
+
+  it("preserves reset confirmation and retry UUID", async () => {
+    const {transport,calls}=fixture();
+    const request={action:"redeem",confirmed:true,idempotencyKey:"confirmation-key"};
+    await transport.agent_runtime_reset_credits({tabId:"owned",request});
+    expect(calls[0]).toMatchObject({method:"POST",path:"/api/tabs/owned/agent/runtime/reset-credits",body:request});
   });
 
   it("preserves captured prompt identity and native value on the existing response route", async () => {

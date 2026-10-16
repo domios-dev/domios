@@ -30,10 +30,12 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
   const [error, setError] = useState<string | null>(null);
   const [resetTick, setResetTick] = useState(0);
   const cancelledRef = useRef(false);
+  const readSequence = useRef(0);
   const snapshotKey = snapshot ? JSON.stringify(snapshot) : null;
 
   const refetch = useCallback(async () => {
     if (!enabled) return;
+    const read = ++readSequence.current;
     setLoading(true);
     setError(null);
     try {
@@ -41,11 +43,11 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
         provider,
         accountId: accountId ?? undefined,
       });
-      if (!cancelledRef.current) setSnapshot(row ?? null);
+      if (!cancelledRef.current && read === readSequence.current) setSnapshot(row ?? null);
     } catch (e) {
-      if (!cancelledRef.current) setError(String(e));
+      if (!cancelledRef.current && read === readSequence.current) setError(String(e));
     } finally {
-      if (!cancelledRef.current) setLoading(false);
+      if (!cancelledRef.current && read === readSequence.current) setLoading(false);
     }
   }, [provider, accountId, enabled]);
 
@@ -60,20 +62,25 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
   useEffect(() => {
     cancelledRef.current = false;
     if (!enabled) return;
-    refetch();
     let unlisten: (() => void) | null = null;
+    let active = true;
     listen<UsageSnapshotEvent>("usage-snapshot-updated", (evt) => {
-      if (cancelledRef.current) return;
+      if (!active) return;
       if (evt.payload.provider !== provider) return;
       const wantAcc = accountId ?? null;
       if ((evt.payload.account_id ?? null) !== wantAcc) return;
       refetch();
     }).then((fn) => {
-      if (cancelledRef.current) fn();
-      else unlisten = fn;
+      if (!active) fn();
+      else {
+        unlisten = fn;
+        void refetch();
+      }
     });
     return () => {
       cancelledRef.current = true;
+      active = false;
+      ++readSequence.current;
       unlisten?.();
     };
   }, [provider, accountId, enabled, refetch]);

@@ -191,6 +191,14 @@ export function invalidatePluginBubblesForRepo(identity: string): void {
   }
 }
 
+export function invalidateActivePluginBubbles(): void {
+  for (const byKey of cache.values()) {
+    for (const entry of byKey.values()) {
+      if (activeCount(entry) > 0) computeNow(entry);
+    }
+  }
+}
+
 export function __resetPluginBubbleCacheForTest(): void {
   cache.clear();
   canonical.clear();

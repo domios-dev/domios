@@ -12,6 +12,7 @@ export interface AgentRuntimeState {
   last_turn_duration_ms?: number | null;
   history?: RuntimeHistoryState;
   historyPages?: number;
+  historyError?: string;
 }
 
 export type RuntimeHistoryState = "loading" | "complete" | "failed";
@@ -61,16 +62,23 @@ export function runtimeStateFromEvent(
 }
 
 export function beginRuntimeRetry(current: AgentRuntimeState | null): AgentRuntimeState | null {
+  if (current?.state === "loaded" && current.history === "failed") return { ...current, history:"loading", historyError:undefined };
   if (!current || current.state === "loading" || current.state === "loaded") return current;
   return { ...current, state: "loading" };
 }
 
 export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: string): AgentRuntimeState | null {
+  if (current?.state === "loaded" && current.history === "loading") return { ...current, history:"failed", historyError:reason };
   if (!current || current.state !== "loading") return current;
   return { ...current, state: "degraded", reason: reason.trim() || current.reason || "Agent runtime unavailable" };
 }
 
 export function runtimeStatusPresentation(state: AgentRuntimeState | null, startupOwned = false) {
+  if (state?.state === "loaded" && state.history === "failed") {
+    const details = state.historyError?.trim() || `History page ${(state.historyPages ?? 0)+1} could not be loaded`;
+    return { severity:"action_needed" as const, label:"Chat history incomplete",
+      reason:describeError(details,{operation:"loading older messages"}).title, details, canRetry:true };
+  }
   if (!state || state.state === "loaded") return null;
   if (startupOwned && state.state === "loading") return null;
   const loading = state.state === "loading";
