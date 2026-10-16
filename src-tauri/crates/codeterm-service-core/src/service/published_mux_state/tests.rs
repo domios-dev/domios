@@ -69,3 +69,21 @@ fn serialization_failure_keeps_the_previous_snapshot() {
     assert!(published.publish(2, &Failed).is_err());
     assert_eq!(published.read(), r#"{"generation":1}"#);
 }
+
+#[test]
+fn versioned_read_pairs_generation_with_the_same_published_body() {
+    let published = PublishedMuxState::new(4, &json!({"generation": 4})).unwrap();
+    let (generation, json) = published.read_versioned();
+    assert_eq!(generation, 4);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&json).unwrap()["generation"],
+        generation
+    );
+    assert!(published.publish(5, &json!({"generation": 5})).unwrap());
+    let (generation, json) = published.read_versioned();
+    assert_eq!(generation, 5);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&json).unwrap()["generation"],
+        generation
+    );
+}
