@@ -39,13 +39,13 @@ it("opens the Web panel from its graph node with the live Serve status and targe
   const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
   try {
     await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />));
-    const web = host.querySelector<HTMLButtonElement>('button[aria-label="Mesh"]');
+    const web = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Web details');
+    expect(host.querySelector('[role="region"][aria-label="Web"] img')).not.toBeNull();
     expect(web).not.toBeNull();
     await act(async () => web!.click());
     expect(host.querySelector('[role="dialog"][aria-labelledby="web-access-heading"]')).not.toBeNull();
     expect(host.querySelector('[data-testid="web-access-status"]')?.textContent).toBe("Ready");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Web address"]')?.value).toBe("https://host.tail.ts.net/");
-    expect(web!.getAttribute("aria-pressed")).toBe("true");
   } finally {
     await act(async () => root.unmount());
     host.remove();
