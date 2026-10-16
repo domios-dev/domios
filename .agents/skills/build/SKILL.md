@@ -606,8 +606,13 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 ### Local production troubleshooting
 
+The app's non-daemon CLI shim delegates to an installed CLI before daemon
+initialization. Smoke the produced bundled CLI directly as well.
+
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Release executable ignores `CODETERM_INSTANCE` and still selects prod data | `codeterm-paths::instance_suffix` and `dir_name` select named instances only with debug assertions; release always uses `~/.codeterm`. A separate port does not isolate its databases. | Never launch a release daemon/GUI for testing. Validate a fresh `build` bundle and each binary's non-daemon `--version`/`--help` entry; full launch proof belongs to the owner-approved `install-local`, with the next Windows release workflow as an independent build proof. |
+| Fresh release build ends as `owner_lost` after its Team shell deadline | The utility owner exited before the command result; a rustc child of the detached sccache server can outlive that owner. This is not a compiler diagnostic. | Preserve the job log and partial target, inspect compiler command lines for the exact owned scratch root, and terminate only those orphaned compilers. Obtain a new bounded build grant before retrying; retain intermediates, keep the fresh final target, and require the completed bundle before claiming success. |
 | Lane dispatch fixture exits 127 at `configure_product_cargo` | Its extracted dispatch fragment omitted the real product feature helper. | Load the helper from build.sh and assert selected features with `node --test scripts/check-queue-plan.test.mjs`. |
 | Lock-storm fixture reports a null child exit with empty output on Linux | The child never launched: Linux runners have `python3`, not bare `python`. | Select `python3` on Unix and `python` on Windows; assert launch errors and report signals before diagnosing a runtime crash. Run `node --test scripts/tests/qa-lock-storm.test.mjs`. |
 | `install-local` fails in seconds with rustfmt `Diff in ...` | The cheap gates run before the gateway | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all` (and `cli/`), commit, rerun; with `--notify-tab` the receipt names the step and log. |
