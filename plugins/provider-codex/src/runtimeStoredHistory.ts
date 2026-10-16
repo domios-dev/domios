@@ -6,7 +6,10 @@ import { durationMilliseconds } from "./activity";
 import { commandText } from "./execWrapper";
 
 export function projectHistoryItem(raw: unknown, seq: number, turn: string, timestamp: unknown): ChatMsg[] {
-  const rows = boundHistoryRows(runtimeItems(historyItem(raw), seq));
+  const source = object(raw);
+  const rows:ChatMsg[] = source.historyTruncated === true
+    ? [{id:String(source.id),seq,type:"system",content:"[content truncated: history item exceeds display budget]"}]
+    : boundHistoryRows(runtimeItems(historyItem(raw), seq));
   for (const row of rows) {
     row.toolFlowId = turn;
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) row.timestamp = new Date(timestamp).toISOString();

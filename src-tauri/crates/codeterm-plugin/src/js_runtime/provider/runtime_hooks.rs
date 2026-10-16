@@ -41,18 +41,16 @@ impl JsProvider {
         let ctx = ctx.clone();
         let op = op.clone();
         let state = state.clone();
-        let mut reply = reply.clone();
+        let reply = reply.clone();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
         let queued = std::time::Instant::now();
         tokio::task::spawn_blocking(move || {
             let executing = std::time::Instant::now();
             validate_runtime_operation(&ctx, &op)?;
             validate_runtime_state(&state)?;
-            if matches!(op, RuntimeOperation::ReadHistory { .. }) {
-                if let RpcReply::Success { value } = &mut reply {
-                    sanitize_history_input(value);
-                }
-            }
+            let reply = if matches!(op, RuntimeOperation::ReadHistory { .. }) {
+                prepare_history_reply(&state, reply)
+            } else { reply };
             validate_runtime_reply(&reply)?;
             log::debug!(
                 "[runtime-hook] tab={} operation={} hook=runtimeResponse caller_us={} queue_us={} preparation_us={}",
