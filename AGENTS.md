@@ -119,7 +119,7 @@ On gateway acquisition, at most hourly, cache retention removes exceptional targ
 
 Never cherry-pick, squash, replay, or patch-copy work out of a worktree lane. Merge the lane branch with a real merge commit, and delete it only after `git merge-base --is-ancestor <lane-tip> <target-tip>` succeeds.
 
-The pre-push hook is intentionally light on `lane/*` and full on integration branches. Do not add compilation back to lane pushes.
+The pre-push hook (`.githooks/pre-push`) is a no-op; CI owns push verification. Do not add compilation back to it.
 
 Interactive dev uses one visible foreground tab. Confirm 7686 is free, then:
 
