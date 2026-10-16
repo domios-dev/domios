@@ -18,6 +18,31 @@ export interface WebUiTarget {
   port: number;
 }
 
+export type WebRouteKind = "tailscale_https" | "tailscale_ip" | "lan" | "loopback";
+
+export function displayedWebUrl(link: string): string {
+  const url = new URL(link);
+  url.hash = "";
+  url.searchParams.delete("token");
+  return url.toString();
+}
+
+export function classifyWebUiRoute(config: AppConfig, network: NetworkInfo | null, serve: ServeStatus | null = null): { kind: WebRouteKind; reason: string } {
+  const url = new URL(buildWebUiTarget(config, network, serve).link);
+  const host = url.hostname.toLowerCase();
+  if (host === "localhost" || host === "127.0.0.1" || host === "[::1]") {
+    return { kind: "loopback", reason: "Local access on this machine only. A phone cannot reach this loopback address." };
+  }
+  if (url.protocol === "https:") {
+    return { kind: "tailscale_https", reason: "HTTPS through this machine's Tailscale Serve gateway. Connect your phone to the same tailnet." };
+  }
+  const parts = host.split(".").map(Number);
+  if (parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] < 128) {
+    return { kind: "tailscale_ip", reason: "Direct HTTP over this machine's Tailscale address. Connect your phone to the same tailnet; HTTPS Serve is not selected." };
+  }
+  return { kind: "lan", reason: "Direct HTTP over the local network. Your phone must be on the same LAN; HTTPS Serve is not selected." };
+}
+
 export function buildWebUiTarget(
   config: AppConfig,
   network: NetworkInfo | null,
