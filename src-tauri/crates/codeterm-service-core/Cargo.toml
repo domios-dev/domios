@@ -10,6 +10,8 @@ workspace = true
 name = "codeterm_service_core"
 
 [dependencies]
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+shell-words = "1"
 codeterm-crash = { path = "../codeterm-crash" }
 codeterm-surface = { path = "../codeterm-surface" }
 codeterm-notifications = { path = "../codeterm-notifications" }

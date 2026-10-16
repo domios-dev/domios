@@ -61,3 +61,47 @@ fn bind_commit_emits_one_ready_event_with_booting_and_session_bound() {
     assert!(commit_runtime_binding(tab, "stale", "thread", |_| rejected_events += 1).is_err());
     assert_eq!(rejected_events, 0);
 }
+
+async fn live_stop_fixture() -> (
+    crate::service::test_fixture::ServiceFixture,
+    String,
+    test_support::LiveRuntime,
+) {
+    let (mut mux, _root) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.list_workspaces()[0].id.clone();
+    let id = mux.create_tab(&workspace).unwrap();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("fixture".into());
+    tab.agent_session_id = Some("thread".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    let prepared = tab.clone();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let live = tokio::task::spawn_blocking(move || test_support::live_runtime(&prepared))
+        .await
+        .unwrap();
+    (fixture, id, live)
+}
+
+#[tokio::test]
+async fn stop_awaits_tree_exit_on_current_thread_executor_without_nested_block_on() {
+    let (fixture, id, live) = live_stop_fixture().await;
+    let session = for_tab(&id).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    assert!(stop_blocking(&fixture.service, &id).is_err());
+    assert!(for_tab(&id).is_some());
+    stop(&fixture.service, &id).await.unwrap();
+    assert!(process.terminated());
+    assert!(for_tab(&id).is_none());
+    drop(live);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn synchronous_stop_bridge_releases_the_tokio_worker_and_awaits_exit() {
+    let (fixture, id, live) = live_stop_fixture().await;
+    let session = for_tab(&id).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    stop_blocking(&fixture.service, &id).unwrap();
+    assert!(process.terminated());
+    assert!(for_tab(&id).is_none());
+    drop(live);
+}

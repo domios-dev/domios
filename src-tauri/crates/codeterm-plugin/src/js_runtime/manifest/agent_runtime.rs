@@ -156,6 +156,7 @@ impl AgentRuntimeCapability {
             }
         }
         let kinds = [
+            "backgroundProcesses",
             "initialize",
             "openThread",
             "resumeThread",
@@ -166,7 +167,12 @@ impl AgentRuntimeCapability {
             "answerQuestion",
             "control",
         ];
-        if self.request_methods.is_empty()
+        if (self.background_processes
+            && self
+                .request_methods
+                .get("backgroundProcesses")
+                .is_none_or(|methods| methods.is_empty()))
+            || self.request_methods.is_empty()
             || self
                 .request_methods
                 .iter()

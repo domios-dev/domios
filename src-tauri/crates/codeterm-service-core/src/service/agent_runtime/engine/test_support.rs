@@ -8,7 +8,7 @@ pub(crate) struct LiveRuntime {
 
 impl Drop for LiveRuntime {
     fn drop(&mut self) {
-        stop(&self.tab_id);
+        stop_test(&self.tab_id);
     }
 }
 
@@ -59,5 +59,14 @@ pub(crate) fn live_runtime(tab: &Tab) -> LiveRuntime {
     LiveRuntime {
         tab_id: tab.id.clone(),
         _peer: peer,
+    }
+}
+
+pub(super) fn stop_test(tab: &str) {
+    let session = SESSIONS.lock().remove(tab);
+    if let Some(session) = session {
+        if let Some(process) = session.process.close() {
+            crate::async_runtime::block_on(process.finish()).unwrap();
+        }
     }
 }
