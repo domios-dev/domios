@@ -125,6 +125,29 @@ check("exact steer refusal only",()=> {
     assert.equal(hooks.runtimeResponse(context,steer,plan.state,{kind:"error",error}).kind,"refused");
   assert.equal(hooks.runtimeResponse(context,steer,plan.state,{kind:"success",value:{}}).kind,"complete");
 });
+check("taskless read-only verification turn maps through completion",()=> {
+  const context:RuntimeContext = {...ctx,settings:{mode:"full-access"},providerSettings:{execution_intent:"read_only"},claimedSends:[],activeTurns:[],threadParents:[]};
+  const threadId=context.threadId!;
+  const frames:RuntimeFrame[] = [
+    {kind:"notification",method:"turn/started",params:{threadId,turn:{id:"verify-turn",startedAt:100}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"intro",type:"agentMessage",text:"opaque-intro"}}},
+    {kind:"notification",method:"item/started",params:{threadId,turnId:"verify-turn",item:{id:"exec",type:"dynamicToolCall",tool:"exec",arguments:{cmd:"git status --short"},status:"inProgress"}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"exec",type:"dynamicToolCall",tool:"exec",arguments:{cmd:"git status --short"},status:"completed",success:true,contentItems:[{type:"inputText",text:"opaque-result"}]}}},
+    {kind:"notification",method:"item/started",params:{threadId,turnId:"verify-turn",item:{id:"command",type:"commandExecution",command:"git status --short",status:"inProgress"}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"command",type:"commandExecution",command:"git status --short",status:"completed",exitCode:0,aggregatedOutput:"opaque-command-result"}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"answer",type:"agentMessage",text:"opaque-answer"}}},
+    {kind:"notification",method:"turn/completed",params:{threadId,turn:{id:"verify-turn",status:"completed",completedAt:101}}},
+  ];
+  let state:JsonValue=null;
+  const events:AgentEvent[]=[];
+  for(const frame of frames) {
+    const reduced=hooks.runtimeReduce(context,state,[frame]);
+    state=reduced.state;events.push(...reduced.events);
+  }
+  assert.ok(events.some(event=>event.kind === "chatItem" && event.item.id === "answer" && event.item.content === "opaque-answer"));
+  assert.ok(events.some(event=>event.kind === "chatItem" && event.item.id === "command" && event.item.toolResult === "opaque-command-result"));
+  assert.ok(events.some(event=>event.kind === "turnState" && event.turnId === "verify-turn" && event.state === "idle"));
+});
 check("wrong thread and active turn refuse",()=> {
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"interrupt",threadId:"foreign",activeTurnId:"active"}));
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"wrong"}));
