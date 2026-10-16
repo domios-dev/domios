@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.30",
+  "version": "1.14.31",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -13,6 +13,7 @@
       "minVersion": "0.159.0"
     },
     "agentRuntime": {
+      "fastMode": true,
       "storedHistory": true,
       "runtime": "stdio-jsonrpc",
       "command": {
