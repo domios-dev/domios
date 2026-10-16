@@ -3,11 +3,14 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { ProviderCard } from "../AgentPicker/ProviderCard";
 import { ConfirmDialog } from "../Extensions/ConfirmDialog";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import type { HelpSectionId } from "../../help/types";
+import { GuideInfoButton } from "./GuideInfoButton";
 
-export function GeneralAgentProviderChoice({ current, enabled, onSwitch }: {
+export function GeneralAgentProviderChoice({ current, enabled, onSwitch, onOpenGuide }: {
   current: string | undefined;
   enabled: boolean;
   onSwitch: (provider: string) => Promise<void>;
+  onOpenGuide?: (section: HelpSectionId) => void;
 }) {
   const { providers } = useAgentProviders();
   const [pending, setPending] = useState<string | null>(null);
@@ -24,7 +27,9 @@ export function GeneralAgentProviderChoice({ current, enabled, onSwitch }: {
     finally { applying.current = false; setBusy(false); }
   }
   return <div className="space-y-3" role="group" aria-label="General Agent provider">
-    <div className="text-xs text-[var(--ct-muted-fg)]">General Agent</div>
+    <div className="flex items-center gap-1 text-sm font-medium text-[var(--ct-fg)]">General Agent
+      {onOpenGuide && <GuideInfoButton label="General Agent" section="agents" onOpen={onOpenGuide} />}
+    </div>
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {providers.map((provider) => <ProviderCard key={provider.id} provider={provider} selected={provider.id === current}
         onSelect={() => { if (!busy && provider.id !== current) { setError(null); setPending(provider.id); } }} />)}
