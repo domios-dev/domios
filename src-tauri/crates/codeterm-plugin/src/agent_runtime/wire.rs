@@ -280,6 +280,10 @@ pub enum HistoryOrder {
     deny_unknown_fields
 )]
 pub enum RuntimeResult {
+    Goal {
+        thread_id: String,
+        intent: Option<codeterm_types::agent::chat_types::ChatSessionIntent>,
+    },
     BackgroundProcesses {
         thread_id: String,
         processes: Vec<super::RuntimeBackgroundProcess>,
