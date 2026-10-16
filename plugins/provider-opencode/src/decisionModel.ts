@@ -1,5 +1,6 @@
 import type { DecisionAnswer, DecisionFailure, DecisionModelCapability, DecisionQuestion, DecisionRequest, ExecOpts, Host } from "@codeterm/plugin-sdk";
-import { discoverOpencodeModels, opencodeConfigPath } from "./helpers";
+import { cachedOpencodeModels, hasOpencodeCatalogue, withOpencodeModels, opencodeConfigPath } from "./helpers";
+import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { readModelProviders } from "./modelProviders";
 
 declare const host: Host;
@@ -88,8 +89,8 @@ export function parseDecisionEvents(stdout: string, question: DecisionQuestion):
   }
 }
 
-function models() {
-  const catalogue = new Map((discoverOpencodeModels() ?? []).map((model) => [model.id, { id: model.id, display_name: model.displayName }]));
+function modelsFromCatalogue(models: ModelInfo[] | null) {
+  const catalogue = new Map((models ?? []).map((model) => [model.id, { id: model.id, display_name: model.displayName }]));
   const path = opencodeConfigPath();
   const raw = path ? host.fs.readFile(path) : null;
   if (raw) {
@@ -105,6 +106,12 @@ function models() {
     }
   }
   return Array.from(catalogue.values());
+}
+
+function models(binaryFingerprint?: string | null) {
+  return hasOpencodeCatalogue()
+    ? modelsFromCatalogue(cachedOpencodeModels())
+    : withOpencodeModels(binaryFingerprint, modelsFromCatalogue);
 }
 
 export const decisionModel: DecisionModelCapability = {

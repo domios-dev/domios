@@ -1,4 +1,5 @@
-export const ocHost = (over: Record<string, unknown>) => ({
+export const ocHost = (over: Record<string, unknown>) => {
+  const fixture = {
   manifestJson: () => JSON.stringify({
     models: [
       { id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" },
@@ -15,4 +16,10 @@ export const ocHost = (over: Record<string, unknown>) => ({
   shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
   fs: { fileExists: () => false, readJson: () => null, readFile: () => null },
   ...over,
-});
+  };
+  return {
+    ...fixture,
+    execStart: () => JSON.stringify({ jobId: "fixture-job" }),
+    awaitJob: <T>(_id: string, then: (result: unknown) => T) => then(JSON.parse((fixture.exec as () => string)())),
+  };
+};

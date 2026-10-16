@@ -623,20 +623,52 @@ function isQuestionMenuFooter(line) {
   const lc = String(line || "").toLowerCase();
   return lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
 }
-function discoverOpencodeModels() {
-  const raw = host.exec(JSON.stringify({
+var MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1e3;
+var modelCatalogue = null;
+var modelDiscoveryInFlight = false;
+function cachedOpencodeModels() {
+  return modelCatalogue?.models ?? null;
+}
+function hasOpencodeCatalogue() {
+  return modelCatalogue !== null;
+}
+function discoverOpencodeModels(binaryFingerprint) {
+  return withOpencodeModels(binaryFingerprint, (models2) => models2);
+}
+function withOpencodeModels(binaryFingerprint, then) {
+  const now = host.unixNowMs();
+  if (modelDiscoveryInFlight && modelCatalogue && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) return then(cachedOpencodeModels());
+  const stamp = binaryFingerprint ?? "unresolved";
+  if (modelCatalogue && modelCatalogue.stamp === stamp && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
+    return then(modelCatalogue.models);
+  }
+  const previous = cachedOpencodeModels();
+  modelCatalogue = { stamp, since: now, models: previous };
+  const started = safeJson(host.execStart(JSON.stringify({
     bin: "opencode",
     args: ["models", "--verbose"],
     timeoutMs: 3e3
-  }));
-  const result = safeJson(raw);
+  })));
+  if (!started?.jobId) return then(previous);
+  modelDiscoveryInFlight = true;
+  return host.awaitJob(started.jobId, (result) => {
+    try {
+      const models2 = discoveredOpencodeModels(result);
+      modelCatalogue = { stamp, since: host.unixNowMs(), models: models2 ?? previous };
+      return then(models2);
+    } finally {
+      modelDiscoveryInFlight = false;
+    }
+  });
+}
+function discoveredOpencodeModels(result) {
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
   const models2 = parseOpencodeModels(result.stdout);
   const db = opencodeDbPath();
   if (!models2 || !db || !host.fs.fileExists(db)) return models2;
   const rows = host.fs.sqliteQuery(
     db,
-    "SELECT data FROM message WHERE octet_length(data) <= ?1 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY time_updated DESC LIMIT 1000",
+    "SELECT data FROM (SELECT data, time_updated FROM message ORDER BY time_updated DESC LIMIT 200) WHERE octet_length(data) <= ?1 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY time_updated DESC LIMIT 200",
     [ASSISTANT_MESSAGE_MAX_BYTES]
   );
   const rejected = rejectedModelIds(rows.map((row) => {
@@ -1412,8 +1444,8 @@ function parseDecisionEvents(stdout, question) {
     return { error: "invalid_response" };
   }
 }
-function models() {
-  const catalogue = new Map((discoverOpencodeModels() ?? []).map((model) => [model.id, { id: model.id, display_name: model.displayName }]));
+function modelsFromCatalogue(models2) {
+  const catalogue = new Map((models2 ?? []).map((model) => [model.id, { id: model.id, display_name: model.displayName }]));
   const path = opencodeConfigPath();
   const raw = path ? host.fs.readFile(path) : null;
   if (raw) {
@@ -1429,6 +1461,9 @@ function models() {
     }
   }
   return Array.from(catalogue.values());
+}
+function models(binaryFingerprint) {
+  return hasOpencodeCatalogue() ? modelsFromCatalogue(cachedOpencodeModels()) : withOpencodeModels(binaryFingerprint, modelsFromCatalogue);
 }
 var decisionModel = {
   models,
@@ -1622,8 +1657,8 @@ var plugin = {
     }
     return events;
   },
-  discoverModels() {
-    return discoverOpencodeModels();
+  discoverModels(binaryFingerprint) {
+    return discoverOpencodeModels(binaryFingerprint);
   },
   // Cumulative usage per upstream company comes from OpenCode's session store.
   // Model-id prefixes match picker groups, keeping vendor knowledge out of core.

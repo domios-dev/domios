@@ -64,6 +64,8 @@ mod access_errors;
 mod agent_tasks;
 #[path = "parity_test/project_files.rs"]
 mod project_files;
+#[path = "parity_test/session_name.rs"]
+mod session_name;
 
 type PluginsDir = PathBuf;
 
