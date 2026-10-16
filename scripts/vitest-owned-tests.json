@@ -229,5 +229,7 @@
   "src/components/Terminal/ComposerIssuesIndicator.test.tsx",
   "src/lib/buildDriftReload.test.ts",
   "src/lib/webEvents.bootChanged.test.ts",
-  "src/components/StaleBuildBanner.test.tsx"
+  "src/components/StaleBuildBanner.test.tsx",
+  "src/components/Settings/DefaultModelPicker.test.tsx",
+  "src/components/Settings/GeneralAgentProviderChoice.test.tsx"
 ]

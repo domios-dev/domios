@@ -198,12 +198,13 @@ function selectionReached(
   return modelReached && selection.effort === currentEffort;
 }
 
-function ModelPickerPopover({
+export function ModelPickerPopover({
   descriptor,
   gate,
   triggerRef,
   currentModel,
   currentEffort,
+  showReasoning = true,
   busy,
   failure,
   onCommit,
@@ -214,6 +215,7 @@ function ModelPickerPopover({
   triggerRef: RefObject<HTMLButtonElement | null>;
   currentModel: string | undefined;
   currentEffort: string | undefined;
+  showReasoning?: boolean;
   busy: boolean;
   failure: { message: string; selection: PickerSelection } | null;
   onCommit: (selection: PickerSelection, restart: boolean) => void;
@@ -234,7 +236,7 @@ function ModelPickerPopover({
   const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
   const searchable = pickerNeedsSearch(descriptor);
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll);
-  const efforts = effortChoices(descriptor, staged?.model);
+  const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort }, staged) : { action: "none" };
 

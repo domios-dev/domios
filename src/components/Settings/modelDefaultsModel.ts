@@ -8,6 +8,16 @@ export interface ModelDefaultRow {
   replacedFrom?: string;
 }
 
+export function modelDefaultPatch(config: AppConfig, row: ModelDefaultRow, model: string): Partial<AppConfig> {
+  if (row.key === `agents.${row.provider}.default_model`) {
+    return { agents: { ...config.agents, [row.provider]: { ...config.agents?.[row.provider], default_model: model } } };
+  }
+  for (const key of ["extraction_model", "dreaming_model", "worker_model"] as const) {
+    if (row.key === `memory.${key}`) return { memory: { ...config.memory, [key]: model } };
+  }
+  throw new Error("Unknown model default");
+}
+
 function workerAgent(configured: string | undefined, fallback: string): string {
   return configured?.trim() ? configured : fallback;
 }
