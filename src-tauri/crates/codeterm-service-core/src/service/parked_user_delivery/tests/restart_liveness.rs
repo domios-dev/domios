@@ -15,6 +15,65 @@ fn admit_without_dispatch(fixture: &ServiceFixture, tab: &str, payload: &str) ->
 }
 
 #[test]
+fn restored_claim_settles_as_uncertainty_without_blocking_later_sends() {
+    let (fixture, tab) = queue_fixture(true, None);
+    mark_ready(&fixture, &tab);
+    let previous = UserSendStore::open(fixture.temp.path()).unwrap();
+    let reservation = previous
+        .reserve(
+            fixture.service.user_send_authority(&tab).unwrap(),
+            None,
+            || fixture.service.chat_send_ledger.reserve_identity(),
+        )
+        .unwrap();
+    let claimed = previous
+        .admit(&reservation, "orphaned-claim", "orphaned-claim", None)
+        .unwrap();
+    drop(reservation);
+    assert!(previous.claim(&claimed, "opaque-session").unwrap());
+    let later = admit_without_dispatch(&fixture, &tab, "later-send");
+    let mut written = Vec::new();
+
+    fixture
+        .service
+        .drain_user_owner_with(&tab, |record, _, _, _| {
+            fixture
+                .service
+                .chat_send_ledger
+                .mark_user_written(&record.send_id)
+                .unwrap();
+            written.push(record.send_id.clone());
+            Ok(UserWrite::Finished)
+        })
+        .unwrap();
+
+    assert_eq!(written, [later.send_id]);
+    let status = fixture
+        .service
+        .chat_send_ledger
+        .status(&claimed.send_id)
+        .unwrap();
+    assert_eq!(status.state, ChatSendState::Unknown);
+    assert_eq!(status.error, None);
+    let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
+    assert!(reopened.head(&tab).unwrap().is_none());
+    assert_eq!(
+        reopened
+            .receipts(&tab)
+            .unwrap()
+            .iter()
+            .find(|receipt| receipt.send_id == claimed.send_id)
+            .unwrap()
+            .state,
+        crate::service::pending_delivery_payloads::user_sends::continuity::ReceiptState::Uncertain
+    );
+    fixture
+        .service
+        .drain_user_owner_with(&tab, |_, _, _, _| panic!("claimed input must not replay"))
+        .unwrap();
+}
+
+#[test]
 fn restart_ready_launch_terminalizes_stale_head_and_delivers_later_sends_in_one_pass() {
     let (fixture, tab) = queue_fixture(true, None);
     {
