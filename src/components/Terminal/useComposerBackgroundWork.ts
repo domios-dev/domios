@@ -68,13 +68,16 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean) {
     setError(null);
   }, []);
 
+  const rootThreadId = identity?.rootThreadId;
+  const bindingNonce = identity?.bindingNonce;
+  const epoch = identity?.epoch;
   useEffect(() => {
-    if (!supported || !identity) {
-      setLoaded({ identity, processes: [] });
+    if (!supported || rootThreadId === undefined || bindingNonce === undefined || epoch === undefined) {
+      setLoaded({ identity: null, processes: [] });
       setError(null);
       return;
     }
-    const request = identity;
+    const request: BackgroundProcessAuthority = { rootThreadId, bindingNonce, epoch };
     const controller = new AbortController();
     void invoke<BackgroundProcessSnapshot>("agent_runtime_background_processes", {
       tabId,
@@ -86,7 +89,7 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean) {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
     });
     return () => controller.abort();
-  }, [tabId, supported, identity, refreshKey, revision, acceptSnapshot]);
+  }, [tabId, supported, rootThreadId, bindingNonce, epoch, refreshKey, revision, acceptSnapshot]);
 
   const stop = useCallback(async (item: ComposerBackgroundWorkItem) => {
     if (item.kind !== "terminal" || !identity || !item.processId) return;
