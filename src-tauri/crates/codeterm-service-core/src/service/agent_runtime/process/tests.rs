@@ -3,7 +3,7 @@ use codeterm_plugin::agent_runtime::{AgentRuntimeCommand, AgentRuntimeProtocol, 
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
         background_processes: false,
-            goals: None,
+        goals: None,
         stored_history: false,
         usage: false,
         reset_credits_min_version: None,

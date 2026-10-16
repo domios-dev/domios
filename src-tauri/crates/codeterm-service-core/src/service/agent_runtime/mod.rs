@@ -12,6 +12,7 @@ pub mod engine;
 mod envelope_delivery;
 mod environment;
 mod events;
+pub mod goals;
 mod initialize;
 mod launch_options;
 #[cfg(unix)]
@@ -27,7 +28,6 @@ mod process_boundary;
 mod process_slot;
 pub(crate) mod projections;
 pub mod reset_credits;
-pub mod goals;
 pub use projections::latest as projections_latest;
 pub(crate) mod prompt_answers;
 mod question_delivery;
