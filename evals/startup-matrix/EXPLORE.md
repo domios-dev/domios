@@ -332,6 +332,7 @@ This diagnostic remains local-only and is never a CI gate.
 | DEV recovery diagnostics used a stage rejected by the server | locked by FrontendDiagnosticStage type checking; the three invalid call sites fail tsc before the channel repair, and the live preflight requires cold_attach POST 204 |
 | A workspace click completed the snapshot before the bench armed its response observer | locked by test observation is armed before an action can synchronously complete its event in evals/_lib/observe-action.test.mjs; observeAction preserves the original UI action sequence |
 | A phase collector waited past its deadline without saving incomplete evidence | locked by tests a deadline persists incomplete evidence even when an operation ignores cancellation and a late operation cannot overwrite evidence after deadline termination in scripts/tests/startup-phase-collector.test.mjs |
+| Process-tree verification rejected multiple listening addresses belonging to the same DEV process | locked by test DEV process safety accepts multiple addresses of one owner and refuses absent or competing owners in scripts/tests/startup-process-owner.test.mjs; the Windows helper uses Resolve-DevListenerOwner |
 
 ## Fresh launch phase capture
 
