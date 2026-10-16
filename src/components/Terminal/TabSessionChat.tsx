@@ -1,3 +1,4 @@
+import { ChatComposerSurface } from "./ChatComposerSurface";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { heldMessagesForLaunch } from "./chatSetupModel";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
@@ -993,7 +994,7 @@ function TabSessionChatBody({
         </div>
       )}
       </div>
-      <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
+      <ChatComposerSurface view={setupView}>
       {isWatcherTab && watcherSpec ? (
         runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}
@@ -1058,7 +1059,7 @@ function TabSessionChatBody({
       />}
       </>
       )}
-      </div>
+      </ChatComposerSurface>
     </div>
     </PluginNameProvider>
     </ChatBlockHostProvider>

@@ -1,3 +1,4 @@
+import { composerVisible } from "./chatBodyVisibility";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { chatSetupView, heldMessagesForLaunch } from "./chatSetupModel";
@@ -12,4 +13,13 @@ test("an observed spawn failure replaces loading even after a transcript attache
 test("only undismissed backend-held messages are shown as waiting for launch", () => {
   assert.equal(heldMessagesForLaunch([{ status: { state: "held" } }, { status: { state: "written" } },
     { status: { state: "held" }, dismissed: true }, {}, { status: { state: "held" } }]), 2);
+});
+
+test("composer follows the launch-failure body state and returns on relaunch", () => {
+  for (const attached of [false, true]) {
+    assert.equal(composerVisible(chatSetupView({ boot_stage: "spawn_failed" }, attached)), false);
+    assert.equal(composerVisible(chatSetupView({ boot_stage: "pty_starting" }, attached)), true);
+    assert.equal(composerVisible(chatSetupView({ boot_stage: "agent_ready" }, attached)), true);
+  }
+  assert.equal(composerVisible({ kind: "failed", reason: "no_transcript_source" }), true);
 });
