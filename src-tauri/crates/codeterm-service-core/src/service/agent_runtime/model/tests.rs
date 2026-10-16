@@ -77,7 +77,7 @@ fn live_evidence_requires_the_exact_claimed_input_and_thread_in_the_same_reducti
         },
     };
     let evidence = AgentRuntimeEvent::SendEvidence {
-        item_id: "user-item".into(),
+        item_id: Some("user-item".into()),
         thread_id: "own".into(),
         send_id: "send".into(),
         turn_id: "turn".into(),
@@ -99,11 +99,11 @@ fn live_evidence_requires_the_exact_claimed_input_and_thread_in_the_same_reducti
     row.content = claim.input.text.clone();
     assert!(
         validated_evidence(&[claim.clone()], &[event(row.clone()), evidence.clone()])
-            .contains(&("send".into(), "user-item".into()))
+            .contains(&("send".into(), Some("user-item".into())))
     );
     let mut wrong_evidence = evidence.clone();
     if let AgentRuntimeEvent::SendEvidence { item_id, .. } = &mut wrong_evidence {
-        *item_id = "unobserved-item".into();
+        *item_id = Some("unobserved-item".into());
     }
     let accepted = validated_evidence(
         &[claim.clone()],
@@ -111,7 +111,9 @@ fn live_evidence_requires_the_exact_claimed_input_and_thread_in_the_same_reducti
     );
     assert_eq!(
         accepted,
-        [("send".into(), "user-item".into())].into_iter().collect()
+        [("send".into(), Some("user-item".into()))]
+            .into_iter()
+            .collect()
     );
     let mut wrong_id = row.clone();
     wrong_id.id = "other-user-item".into();
@@ -403,4 +405,31 @@ fn rereadable_backfill_keeps_newest_rows_and_can_reread_evicted_ids() {
         ..Default::default()
     }]);
     assert_eq!(cache.items.front().unwrap().id, "0");
+}
+
+#[test]
+fn identity_free_provider_evidence_requires_its_exact_live_send_claim() {
+    use codeterm_plugin::agent_runtime::{AgentRuntimeEvent, ClaimedSend, TurnInput};
+    let claim = ClaimedSend {
+        send_id: "send".into(),
+        thread_id: "own".into(),
+        input: TurnInput {
+            text: "payload".into(),
+            attachments: Vec::new(),
+        },
+    };
+    let evidence: AgentRuntimeEvent = serde_json::from_value(serde_json::json!({
+        "kind":"sendEvidence", "threadId":"own", "sendId":"send", "turnId":"turn"
+    }))
+    .unwrap();
+    assert_eq!(
+        validated_evidence(&[claim.clone()], &[evidence.clone()]),
+        [("send".into(), None)].into_iter().collect()
+    );
+    assert!(validated_evidence(&[], &[evidence.clone()]).is_empty());
+    let foreign = ClaimedSend {
+        thread_id: "foreign".into(),
+        ..claim
+    };
+    assert!(validated_evidence(&[foreign], &[evidence]).is_empty());
 }

@@ -139,10 +139,22 @@ mod tests {
             matches!(outcome(finished).unwrap(), Delivery::ChatBackend {message_id} if message_id == pending.send_id)
         );
         assert!(ledger
-            .confirm_rpc_send("tab", "foreign", "nonce", &pending.send_id, "provider-item")
+            .confirm_rpc_send(
+                "tab",
+                "foreign",
+                "nonce",
+                &pending.send_id,
+                Some("provider-item")
+            )
             .is_none());
         let delivered = ledger
-            .confirm_rpc_send("tab", "thread", "nonce", &pending.send_id, "provider-item")
+            .confirm_rpc_send(
+                "tab",
+                "thread",
+                "nonce",
+                &pending.send_id,
+                Some("provider-item"),
+            )
             .unwrap();
         assert_eq!(delivered.state, ChatSendState::Sent);
         assert!(

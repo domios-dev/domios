@@ -16,7 +16,7 @@ fn uncertain_handoff_cannot_replay_after_recovery_and_only_own_live_evidence_del
             "thread",
             "nonce",
             &pending.send_id,
-            "provider-item"
+            Some("provider-item")
         )
         .is_none());
     assert!(ledger
@@ -25,7 +25,7 @@ fn uncertain_handoff_cannot_replay_after_recovery_and_only_own_live_evidence_del
             "other-thread",
             "nonce",
             &pending.send_id,
-            "provider-item"
+            Some("provider-item")
         )
         .is_none());
     assert!(ledger
@@ -34,11 +34,17 @@ fn uncertain_handoff_cannot_replay_after_recovery_and_only_own_live_evidence_del
             "thread",
             "old-nonce",
             &pending.send_id,
-            "provider-item"
+            Some("provider-item")
         )
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab", "thread", "nonce", &pending.send_id, "provider-item")
+        .confirm_rpc_send(
+            "tab",
+            "thread",
+            "nonce",
+            &pending.send_id,
+            Some("provider-item")
+        )
         .is_some());
     assert_eq!(
         ledger.status(&pending.send_id).unwrap().state,

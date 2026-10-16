@@ -98,7 +98,7 @@ export type AgentEvent =
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]}
   | {kind:"chatItem"; threadId:string; item:ChatMsg}
   | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; detail?:RuntimeTurnDetail; statusLine?:string; startedAt?:number; completedAt?:number; parentThreadId?:string}
-  | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string; itemId:string}
+  | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string; itemId?:string}
   | {kind:"usage"; threadId:string; usage:TokenUsage}
   | {kind:"prompt"; threadId:string; requestId:RpcId; prompt:PendingPrompt}
   | {kind:"promptResolved"; threadId:string; requestId:RpcId}
