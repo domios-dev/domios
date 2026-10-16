@@ -5,6 +5,10 @@ import { daemon, owner, schedule, shell, tabs, teams, workspaces } from "./gener
 const sections = generalInventorySections({ resources: [daemon, schedule] }, "Local");
 assert.deepEqual(sections.services.rows.map((row) => row.resource), [daemon]);
 assert.deepEqual(sections.schedules.rows.map((row) => row.resource), [schedule]);
+const localSchedule = { ...schedule, id: "local", source_peer_id: undefined, source_peer: undefined };
+assert.deepEqual(generalInventorySections({ resources: [localSchedule, schedule] }, "Local").remoteSchedules.map((row) => row.resource), [schedule]);
+const empty = generalInventorySections({ resources: [] }, "Local");
+assert.deepEqual([empty.services.rows, empty.schedules.rows, empty.remoteSchedules], [[], [], []]);
 assert.equal(sections.services.rows[0].machineName, daemon.machine_name);
 assert.equal(sections.services.rows[0].freshness, "offline");
 assert.equal(sections.services.rows[0].resource.capabilities?.delete?.unavailable_reason, "offline");

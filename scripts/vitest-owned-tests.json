@@ -1,6 +1,6 @@
 [
   "src/components/Sidebar/sortable.editing.test.tsx",
-  "src/components/General/GeneralWorkspaceOverview.test.tsx",
+  "src/components/Sidebar/GeneralInventory.test.tsx",
   "src/components/MeshPanel/MeshPanel.web.wiring.test.tsx",
   "src/lib/interfaceReload.test.ts",
   "src/lib/childTranscript.test.ts",
