@@ -245,23 +245,24 @@ function supersedeRows(
 ): TranscriptSegment[] {
   const incomingIds = new Set(incoming.map(row => row.id));
   const preserved: TranscriptSegment[] = [];
-  let superseded: (TranscriptSegment & { range: TranscriptRange }) | null = null;
+  const superseded: TranscriptSegment[] = [];
+  let anchorStart = Number.POSITIVE_INFINITY;
+  let anchorEnd = 0;
   for (const segment of segments) {
     const rows = segment.rows.filter(row => !incomingIds.has(row.id));
     if (rows.length > 0) {
       preserved.push({ ...segment, rows });
     } else if (segment.range != null) {
-      superseded = superseded == null ? { ...segment, range: segment.range, rows } : {
-        ...superseded,
-        range: {
-          ...segment.range,
-          start: Math.min(superseded.range.start, segment.range.start),
-          end: Math.max(superseded.range.end, segment.range.end),
-        },
-      };
+      if (superseded.length === 0) superseded.push({ ...segment, rows });
+      anchorStart = Math.min(anchorStart, segment.range.start);
+      anchorEnd = Math.max(anchorEnd, segment.range.end);
     }
   }
-  return superseded == null ? preserved : [...preserved, superseded];
+  const anchor = superseded[0];
+  return anchor == null ? preserved : [
+    ...preserved,
+    { ...anchor, range: { ...anchor.range, start: anchorStart, end: anchorEnd } },
+  ];
 }
 
 function reduceDelta(
