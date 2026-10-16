@@ -503,15 +503,16 @@ function readTurnPage(op:Extract<Operation,{kind:"readHistory"}>, turns:string[]
   if(complete.kind !== "complete" || complete.result.kind !== "historyPage")throw new Error("Expected history page");
   return {params,requested,result:complete.result,items:collectHistory([...chunks,complete.result]).items.map(item=>item.id)};
 }
-check("history reads the newest turn page first when the host requests descending order and echoes it",()=> {
+check("history reads bounded newest turn pages and echoes descending order",()=> {
   const op:Extract<Operation,{kind:"readHistory"}>={kind:"readHistory",threadId:ctx.threadId!,order:"desc"};
-  const first=readTurnPage(op,["newer","older"],"page-2");
+  const first=readTurnPage(op,["newer"],"page-2");
   assert.equal(first.params.sortDirection,"desc");
-  assert.deepEqual(first.requested,["older","newer"]);
-  assert.deepEqual(first.items,["older-reply","newer-reply"]);
-  assert.equal(first.result.nextCursor,"page-2");
+  assert.equal(first.params.limit,1);
+  assert.deepEqual(first.requested,["newer"]);
+  assert.deepEqual(first.items,["newer-reply"]);
+  assert.ok(first.result.nextCursor);
   assert.equal(first.result.order,"desc");
-  const next=readTurnPage({...op,cursor:"page-2"},["oldest"],null);
+  const next=readTurnPage({...op,cursor:first.result.nextCursor!},["older"],null);
   assert.equal(next.params.cursor,"page-2");
   assert.equal(next.params.sortDirection,"desc");
   assert.equal(next.result.order,"desc");
@@ -1037,4 +1038,13 @@ check("reset credit reads and consume outcomes stay inside declared runtime meth
   const refreshFailed=hooks.runtimeResponse(ctx,consume,reset.plan.state,{kind:"error",error:{code:-1,message:"offline"}});
   assert.deepEqual(plain(refreshFailed),{kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"}});
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"control",action:"redeemResetCredit",value:{}}));
+});
+
+check("descending bounded history preserves correlated method-absence snapshot recovery",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!,order:"desc"};
+  const first=hooks.runtimePlan(ctx,op);
+  const fallback=plain(hooks.runtimeResponse(ctx,op,first.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
+  if(fallback.kind!=="continue" || fallback.plan.action.kind!=="request")throw new Error("Missing snapshot recovery");
+  assert.equal(fallback.plan.action.call.method,"thread/read");
+  assert.equal((fallback.plan.action.call.params as Record<string,JsonValue>).threadId,ctx.threadId);
 });

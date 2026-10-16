@@ -57,7 +57,8 @@ pub async fn retry(
         .or_else(|| engine::for_tab(tab))
         .ok_or_else(|| "Runtime binding unavailable".to_string())?;
     engine::validate_binding(svc, &session).map_err(|reason| reason.to_string())?;
-    let snapshot = session.state.lock().snapshot();
+    engine::backfill::retry(svc, tab, &session).map_err(|reason| reason.to_string())?;
+    let snapshot = engine::snapshot(&session);
     svc.emit_state_changed();
     Ok(snapshot)
 }

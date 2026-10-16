@@ -5,6 +5,7 @@ import type {
 import { object, text, list, userThread, steerRefused, archivedResume } from "./runtimeProtocol";
 import { HISTORY_CHUNK_BYTES, serializedBytes, sanitizeHistory, historyItem } from "./runtimeHistoryBounds";
 import { json } from "./runtimeMessages";
+import { pagedHistoryPlan, pagedHistoryResponse } from "./runtimeHistoryPager";
 import { projectHistoryItem } from "./runtimeStoredHistory";
 import { loginPlan, loginResponse } from "./runtimeLogin";
 import { rateLimitEvents } from "./runtimeUsage";
@@ -56,6 +57,7 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
     case "openThread": return request("thread/start",settingsParams(ctx,op.settings,op.instructions));
     case "resumeThread": return request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true});
     case "readHistory":
+      if (op.order === "desc") return pagedHistoryPlan(op);
       return request("thread/turns/list",{threadId:op.threadId,itemsView:"notLoaded",sortDirection:op.order ?? "asc",limit:8,cursor:op.cursor},
         {stage:"turns",turns:[],cursor:null,seq:0});
     case "submitTurn": {
@@ -105,6 +107,11 @@ function continuation(plan: RuntimePlan, beforeAcceptance?: boolean): RuntimeSte
 export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
   validateBinding(ctx,op);
   const state = object(raw);
+  if (op.kind === "readHistory" && state.pager === 1) {
+    if (reply.kind === "error" && reply.error.code === -32601 && ["turns","items"].includes(String(state.stage)))
+      return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",seq:0}));
+    return pagedHistoryResponse(op,state,reply);
+  }
   if (reply.kind === "error") {
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"}};
     if (op.kind === "initialize" && state.stage === "initializeLimits") return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent]};
