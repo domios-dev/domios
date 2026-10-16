@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 
 use super::results::{ChatStartKind, KnownChatWindow};
 use super::resume_cursor::ChatEpoch;
-use super::session_window::{attach_kind, SessionSnapshot};
+use super::session_window::{attach_kind, SessionSnapshot, SNAPSHOT_WINDOW_BYTES};
 
 const MAX_ENTRIES: usize = 16;
 const MAX_BYTES: usize = 32 * 1024 * 1024;
@@ -51,15 +51,45 @@ impl CachedRows {
         if append.start_offset != self.known.end_offset {
             return None;
         }
+        let mut record_starts = row_record_starts(&self.snapshot);
+        record_starts.extend(row_record_starts(&append));
         let mut messages = self.snapshot.messages.clone();
         messages.append(&mut append.messages);
         append.messages = messages;
         append.start_offset = self.snapshot.start_offset;
+        let cutoff = append.end_offset.saturating_sub(SNAPSHOT_WINDOW_BYTES);
+        if append.start_offset < cutoff {
+            let first = record_starts
+                .iter()
+                .position(|start| *start >= cutoff)
+                .unwrap_or(record_starts.len());
+            append.messages.drain(..first);
+            record_starts.drain(..first);
+            append.start_offset = record_starts.first().copied().unwrap_or(append.end_offset);
+        }
+        append.row_record_starts = record_starts;
         if append.context_usage.is_none() {
             append.context_usage = self.snapshot.context_usage.clone();
         }
         Some(append)
     }
+}
+
+fn row_record_starts(snapshot: &SessionSnapshot) -> Vec<u64> {
+    if snapshot.row_record_starts.len() == snapshot.messages.len() {
+        return snapshot.row_record_starts.clone();
+    }
+    snapshot
+        .messages
+        .iter()
+        .map(|message| {
+            usize::try_from(message.seq)
+                .ok()
+                .and_then(|index| snapshot.runtime_observations.get(index))
+                .and_then(|row| row.record_start)
+                .unwrap_or(snapshot.start_offset)
+        })
+        .collect()
 }
 
 pub struct RowCache {
@@ -177,9 +207,11 @@ impl RowCache {
         };
         let bytes = encoded
             .len()
-            .saturating_mul(4)
+            .saturating_mul(2)
             .saturating_add(
-                snapshot.messages.len() * std::mem::size_of::<crate::agent::chat_types::ChatMsg>(),
+                snapshot.messages.len()
+                    * (std::mem::size_of::<crate::agent::chat_types::ChatMsg>()
+                        + std::mem::size_of::<u64>()),
             )
             .saturating_add(
                 cursor.len()
@@ -190,6 +222,7 @@ impl RowCache {
             .saturating_add(std::mem::size_of::<CachedRows>());
         drop(encoded);
         let retained = SessionSnapshot {
+            row_record_starts: row_record_starts(snapshot),
             messages: snapshot.messages.clone(),
             context_usage: snapshot.context_usage.clone(),
             total: snapshot.total,
@@ -217,7 +250,14 @@ impl RowCache {
         while entries.len() > self.max_entries
             || entries.iter().map(|entry| entry.bytes).sum::<usize>() > self.max_bytes
         {
-            entries.pop_front();
+            if let Some(evicted) = entries.pop_front() {
+                log::debug!(
+                    "[chat_row_cache.evict] tab={} entries={} charged_bytes={}",
+                    evicted.tab_id,
+                    entries.len(),
+                    entries.iter().map(|entry| entry.bytes).sum::<usize>()
+                );
+            }
         }
     }
 

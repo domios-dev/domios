@@ -333,3 +333,163 @@ fn refused_client_window_falls_back_to_cached_rows() {
     assert_eq!(attached.snapshot.messages[0].content, "retained");
     assert!(attached.cache_hit);
 }
+
+fn cursor_at(offset: u64) -> String {
+    ResumeCursor::Bytes {
+        epoch: epoch(),
+        incarnation: "file".into(),
+        offset,
+    }
+    .encode()
+    .unwrap()
+}
+
+fn anchored_snapshot(starts: &[u64], end: u64) -> SessionSnapshot {
+    let rich: Vec<_> = starts
+        .iter()
+        .map(|start| crate::agent::chat_types::RichMessage {
+            record_start: Some(*start),
+            role: "assistant".into(),
+            blocks: vec![crate::agent::chat_types::MessageBlock {
+                kind: "text".into(),
+                data: serde_json::json!({"text": "row"}),
+            }],
+            ..Default::default()
+        })
+        .collect();
+    SessionSnapshot {
+        messages: super::super::rich_rows_to_chat_msgs(&rich, starts[0]),
+        runtime_observations: rich,
+        start_offset: starts[0],
+        end_offset: end,
+        total: end,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn extension_trims_whole_records_and_repeated_extensions_keep_anchors() {
+    let window = SNAPSHOT_WINDOW_BYTES;
+    let cache = RowCache::default();
+    let original = anchored_snapshot(&[0, window / 2, window / 2], window);
+    cache.insert("tab", &epoch(), cursor_at(window), &original);
+    let delta = anchored_snapshot(&[window], window + window / 4);
+    cache.extend_delta("tab", &epoch(), "file", cursor_at(delta.end_offset), &delta);
+    let entry = cache.get("tab", &epoch(), "file", delta.total).unwrap();
+    assert_eq!(entry.snapshot.start_offset, window / 2);
+    assert_eq!(
+        entry.snapshot.row_record_starts,
+        [window / 2, window / 2, window]
+    );
+    assert_eq!(entry.snapshot.messages.len(), 3);
+    assert!(entry.snapshot.runtime_observations.is_empty());
+    assert!(entry.snapshot.end_offset - entry.snapshot.start_offset <= window);
+    let delta = anchored_snapshot(&[delta.end_offset], window * 2);
+    cache.extend_delta("tab", &epoch(), "file", cursor_at(delta.end_offset), &delta);
+    let entry = cache.get("tab", &epoch(), "file", delta.total).unwrap();
+    assert_eq!(entry.snapshot.start_offset, window);
+    assert_eq!(
+        entry.snapshot.row_record_starts,
+        [window, window + window / 4]
+    );
+}
+
+#[test]
+fn older_page_ends_at_trimmed_start_without_gaps_or_duplicates() {
+    let record = format!("{}\n", "x".repeat(SNAPSHOT_WINDOW_BYTES as usize / 2 - 1));
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), record.repeat(3)).unwrap();
+    let width = record.len() as u64;
+    let cache = RowCache::default();
+    cache.insert(
+        "tab",
+        &epoch(),
+        cursor_at(width * 2),
+        &anchored_snapshot(&[0, width], width * 2),
+    );
+    let entry = cache.get("tab", &epoch(), "file", width * 3).unwrap();
+    let extended = entry
+        .resume(&epoch(), "file", width * 3, |_| {
+            Some(anchored_snapshot(&[width * 2], width * 3))
+        })
+        .unwrap();
+    let page = codeterm_plugin::jsonl_window::page_before(
+        file.path(),
+        extended.start_offset,
+        SNAPSHOT_WINDOW_BYTES,
+    )
+    .unwrap();
+    assert_eq!((page.start, page.end), (0, width));
+    assert_eq!(extended.start_offset, width);
+    assert_eq!(extended.row_record_starts, [width, width * 2]);
+}
+
+#[test]
+fn sixteen_window_sized_entries_fit_existing_byte_cap() {
+    let cache = RowCache::default();
+    let mut full = anchored_snapshot(&[0], SNAPSHOT_WINDOW_BYTES);
+    full.messages[0].content = "x".repeat(SNAPSHOT_WINDOW_BYTES as usize - 4096);
+    for tab in 0..16 {
+        cache.insert(
+            &tab.to_string(),
+            &epoch(),
+            cursor_at(full.end_offset),
+            &full,
+        );
+    }
+    assert_eq!(cache.len(), 16);
+    assert!(cache.charged_bytes() <= MAX_BYTES);
+    for tab in 0..16 {
+        assert!(cache
+            .get(&tab.to_string(), &epoch(), "file", full.total)
+            .is_some());
+    }
+}
+
+#[test]
+fn eviction_logs_each_victim_at_entry_and_byte_bounds() {
+    struct Logger;
+    thread_local! {
+        static LINES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+    impl log::Log for Logger {
+        fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+            metadata.level() == log::Level::Debug
+        }
+        fn log(&self, record: &log::Record<'_>) {
+            if self.enabled(record.metadata()) {
+                LINES.with(|lines| lines.borrow_mut().push(record.args().to_string()));
+            }
+        }
+        fn flush(&self) {}
+    }
+    static LOGGER: Logger = Logger;
+    log::set_logger(&LOGGER).unwrap();
+    log::set_max_level(log::LevelFilter::Debug);
+    let cache = RowCache::with_limits(2, usize::MAX);
+    put(&cache, "a", "a");
+    put(&cache, "b", "b");
+    LINES.with(|lines| assert!(lines.borrow().is_empty()));
+    put(&cache, "c", "c");
+    let bytes = cache.charged_bytes();
+    LINES.with(|lines| {
+        assert_eq!(
+            *lines.borrow(),
+            [format!(
+                "[chat_row_cache.evict] tab=a entries=2 charged_bytes={bytes}"
+            )]
+        )
+    });
+    let cache = RowCache::with_limits(16, bytes / 2);
+    put(&cache, "d", "d");
+    put(&cache, "e", "e");
+    let bytes = cache.charged_bytes();
+    LINES.with(|lines| {
+        let lines = lines.borrow();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            lines[1],
+            format!("[chat_row_cache.evict] tab=d entries=1 charged_bytes={bytes}")
+        );
+    });
+}
