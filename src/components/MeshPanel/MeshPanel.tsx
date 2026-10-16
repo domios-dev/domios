@@ -5,13 +5,11 @@ import { RefreshCw } from "lucide-react";
 import { invoke, listen } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
 import type { ApiConfig, AppConfig } from "../../lib/types";
-import type { MeshTab, Service } from "./types";
+import type { MeshTab } from "./types";
 import { MeshCanvas, type RecentPush } from "./MeshCanvas";
-import { MeshInventoryList } from "./MeshInventoryList";
-import { DEFAULT_MESH_INVENTORY_MODE, MeshInventoryModeToggle, type MeshInventoryMode } from "./MeshInventoryModeToggle";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
-import { pairedPeers, visibleServices } from "./meshProjection";
+import { pairedPeers } from "./meshProjection";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -60,7 +58,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     await onConfigUpdate({ ...config, mesh: { ...config.mesh, enabled: true } });
   }, [config, onConfigUpdate]);
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
-  const [inventoryMode, setInventoryMode] = useState<MeshInventoryMode>(DEFAULT_MESH_INVENTORY_MODE);
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
   const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);
@@ -73,7 +70,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   // Same projection the graph nodes render from — a pending (discovered-not-
   // paired) peer must never inflate this count (codeterm#440).
   const headerPeerCount = useMemo(() => pairedPeers(data.peers).length, [data.peers]);
-  const headerServiceCount = useMemo(() => visibleServices(data.services).length, [data.services]);
 
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
@@ -136,36 +132,15 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
 
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
   const [meshAnnouncement, setMeshAnnouncement] = useState("");
-  const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
-  const inventoryPeerIssues = useMemo(
-    () => data.peers
-      .filter((peer) => !peer.pending && (peer.services_loaded === false || Boolean(peer.services_error)))
-      .map((peer) => ({
-        machineId: peer.instance_id,
-        machineName: peer.name,
-        freshness: peer.online ? "stale" as const : "offline" as const,
-        partialError: peer.services_error,
-      })),
-    [data.peers],
-  );
-  const handleServiceClick = useCallback((s: Service, resourceKey?: string) => {
-    setSelectedResourceKey(resourceKey ?? null);
-    setDrawerState({
-      kind: "service",
-      id: s.id,
-      sourcePeerId: s.source_peer_id ?? s.source_peer ?? null,
-    });
-  }, []);
-
   const handlePeerClick = useCallback((name: string) => {
     setDrawerState({ kind: "peer", id: name });
   }, []);
 
   useEffect(() => {
     const element = mapRef.current;
-    if (!element || activeTab !== "inventory" || inventoryMode !== "graph") return;
+    if (!element || activeTab !== "inventory") return;
     const observer = new ResizeObserver(() => {
       const bounds = element.getBoundingClientRect();
       if (bounds.width <= 0 || bounds.height <= 0) return;
@@ -175,7 +150,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [activeTab, inventoryMode]);
+  }, [activeTab]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -214,7 +189,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           <div className={`${UI_TEXT.meta} opacity-70`}>
             {data.error
               ? <InlineErrorNotice error={data.error} operation="loading the mesh" />
-              : `${headerPeerCount} peer${headerPeerCount === 1 ? "" : "s"} · ${headerServiceCount} service${headerServiceCount === 1 ? "" : "s"}`}
+              : `${headerPeerCount} peer${headerPeerCount === 1 ? "" : "s"}`}
           </div>
           <button
             onClick={() => setRefreshKey((k) => k + 1)}
@@ -238,45 +213,25 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
       </div>
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {activeTab === "inventory" && (
-          <>
-            {inventoryMode === "list" ? (
-              <MeshInventoryList
-                resources={data.services}
-                thisMachineName={data.thisMachine.name}
-                peerIssues={inventoryPeerIssues}
-                loading={data.loading}
-                error={data.error}
-                selectedResourceKey={selectedResourceKey}
-                onSelectResource={handleServiceClick}
-                onRefresh={triggerRefresh}
-
-              />
-            ) : (
-              <div ref={mapRef} className="absolute inset-0">
-                <MeshCanvas
-                  onWebClick={() => setWebUiOpen(true)}
-                  webSelected={webUiOpen}
-                  webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
-                  thisMachine={data.thisMachine}
-                  peers={data.peers}
-                  services={data.services}
-                  recentPushes={recentPushes}
-                  onPeerClick={handlePeerClick}
-                  width={mapSize.width}
-                  height={mapSize.height}
-                  onAddPeerClick={() => setActiveTab("network")}
-                  meshEnabled={config.mesh.enabled}
-                  onGoOnline={goOnline}
-                  onOpenPeerWebUi={(url) => void nativeBridge.openUrl(url)}
-                  webUiBaseUrl={displayedWebUrl(buildWebUiTarget(config, network, serve).link)}
-                  webUiToken={config.api.token}
-                />
-              </div>
-            )}
-            <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
-              <MeshInventoryModeToggle mode={inventoryMode} onChange={setInventoryMode} />
-            </div>
-          </>
+          <div ref={mapRef} className="absolute inset-0">
+            <MeshCanvas
+              onWebClick={() => setWebUiOpen(true)}
+              webSelected={webUiOpen}
+              webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
+              thisMachine={data.thisMachine}
+              peers={data.peers}
+              recentPushes={recentPushes}
+              onPeerClick={handlePeerClick}
+              width={mapSize.width}
+              height={mapSize.height}
+              onAddPeerClick={() => setActiveTab("network")}
+              meshEnabled={config.mesh.enabled}
+              onGoOnline={goOnline}
+              onOpenPeerWebUi={(url) => void nativeBridge.openUrl(url)}
+              webUiBaseUrl={displayedWebUrl(buildWebUiTarget(config, network, serve).link)}
+              webUiToken={config.api.token}
+            />
+          </div>
         )}
         {activeTab === "activity" && <ActivityTab active={activeTab === "activity"} />}
         {activeTab === "network" && (
@@ -289,7 +244,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           thisMachineName={data.thisMachine.name}
           thisMachineIp={data.thisMachine.ip}
           onClose={() => setDrawerState(null)}
-          onOpenResource={(service, resourceKey) => handleServiceClick(service, resourceKey)}
           onActionDone={() => setRefreshKey((k) => k + 1)}
           onAnnouncement={setMeshAnnouncement}
         />

@@ -2,13 +2,12 @@ import { useEffect, useMemo, useRef } from "react";
 import { ArrowRight, Globe, Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { ConnectionLine } from "./ConnectionLine";
-import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
 import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
-import { groupServicesByPeer, webGatewayGraph } from "./meshProjection";
+import { webGatewayGraph } from "./meshProjection";
 
 export interface RecentPush {
   source_id: string;
@@ -27,9 +26,6 @@ interface PeerLayout {
   pending?: boolean;
   accessLevel?: string;
   isGhost?: boolean;
-  servicesStale?: boolean;
-  servicesError?: string | null;
-  servicesLoaded?: boolean;
   webUrl?: string | null;
   webUnavailableReason?: string;
 }
@@ -45,7 +41,6 @@ interface Props {
   webStatus?: string;
   thisMachine: { name: string; ip: string };
   peers: PeerStatus[];
-  services: Service[];
   recentPushes: RecentPush[];
   onPeerClick: (peerName: string) => void;
   width: number;
@@ -75,7 +70,6 @@ export function MeshCanvas({
   webStatus = "Unavailable",
   thisMachine,
   peers,
-  services,
   recentPushes,
   onPeerClick,
   width,
@@ -123,9 +117,6 @@ export function MeshCanvas({
         isPaired: !p.pending,
         pending: p.pending,
         accessLevel: p.access_level,
-        servicesStale: p.services_stale,
-        servicesError: p.services_error,
-        servicesLoaded: p.services_loaded,
         webUrl: p.online && p.relay_protocol_version === RELAY_PROTOCOL_VERSION && webUiBaseUrl
           ? webLinkWithTokenAndRelay(webUiBaseUrl, webUiToken, {
               id: p.instance_id,
@@ -157,7 +148,7 @@ export function MeshCanvas({
         `${thisMachine.name}@${thisMachine.ip}`,
         showGhost ? "ghost" : "no-ghost",
         peers
-          .map((p) => `${p.instance_id}:${p.name}@${p.ip}:${p.access_level ?? ""}:${p.services_stale ?? ""}:${p.services_error ?? ""}`)
+          .map((p) => `${p.instance_id}:${p.name}@${p.ip}:${p.access_level ?? ""}`)
           .sort()
           .join("|"),
       ].join("::"),
@@ -168,7 +159,6 @@ export function MeshCanvas({
   const gatewayGraph = webGatewayGraph(peers);
   const local = layout[0];
   const remoteLayout = useMemo(() => layout.slice(1), [layout]);
-  const serviceByPeer = useMemo(() => groupServicesByPeer(services), [services]);
   const pushStatsByPeer = useMemo(() => {
     const now = Date.now();
     const stats = new Map<string, PushStats>();
@@ -363,13 +353,9 @@ export function MeshCanvas({
                 isPaired={p.isPaired}
                 pending={p.pending}
                 accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
-                services={serviceByPeer.get(p.id) ?? []}
                 onClick={() => onPeerClick(p.name)}
                 offline={p.isThisMachine && !meshEnabled}
                 onGoOnline={p.isThisMachine ? onGoOnline : undefined}
-                servicesStale={p.servicesStale}
-                servicesError={p.servicesError}
-                servicesLoaded={p.servicesLoaded}
                 webUrl={p.webUrl}
                 webUnavailableReason={p.webUnavailableReason}
                 onOpenWebUi={onOpenPeerWebUi}
