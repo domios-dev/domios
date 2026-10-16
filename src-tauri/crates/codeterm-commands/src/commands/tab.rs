@@ -505,9 +505,12 @@ fn chat_start_inner(
                     incarnation: incarnation.as_ref().map(|current| current.id.to_string()),
                 },
                 || {
-                    codeterm_service_core::service::tab_chat::session_window::snapshot(
-                        &svc.agent_registry,
+                    codeterm_service_core::service::tab_chat::fork_history::snapshot(
+                        svc,
+                        &tab_id,
                         &provider_id,
+                        &cwd,
+                        &session_id,
                         &path,
                     )
                 },

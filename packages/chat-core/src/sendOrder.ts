@@ -23,7 +23,7 @@ export interface ChatSend {
 }
 
 function isUserAuthored(row: NormalizedChatMessage): boolean {
-  return row.type === "user" || row.type === "local_command";
+  return row.inheritedFromSessionId == null && (row.type === "user" || row.type === "local_command");
 }
 
 function echoContent(content: string): string {
