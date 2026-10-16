@@ -8,9 +8,15 @@ pub struct SleepPolicy {
 
 impl Default for SleepPolicy {
     fn default() -> Self {
+        Self::from(&codeterm_types::config::tab_sleep::TabSleepConfig::default())
+    }
+}
+
+impl From<&codeterm_types::config::tab_sleep::TabSleepConfig> for SleepPolicy {
+    fn from(config: &codeterm_types::config::tab_sleep::TabSleepConfig) -> Self {
         Self {
-            enabled: true,
-            idle_minutes: 60,
+            enabled: config.enabled,
+            idle_minutes: config.idle_minutes,
         }
     }
 }

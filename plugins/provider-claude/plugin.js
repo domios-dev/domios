@@ -2536,6 +2536,7 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
+  sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
   tracksBackgroundWork: () => true,

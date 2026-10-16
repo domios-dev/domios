@@ -268,6 +268,25 @@ mod tests {
     }
 
     #[test]
+    fn waking_keeps_runtime_sleep_marker_and_exact_session() {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.frozen = true;
+        tab.slept_at_ms = Some(42);
+        tab.agent_session_id = Some("own-session".into());
+        let fixture = ServiceFixture::new(mux);
+        wake_with(&fixture.service, &id, false, |resolved, _| {
+            let mux = fixture.service.mux.read();
+            let tab = mux.get_tab(resolved).unwrap();
+            assert!(!tab.frozen);
+            assert_eq!(tab.slept_at_ms, Some(42));
+            assert_eq!(tab.agent_session_id.as_deref(), Some("own-session"));
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn missing_backend_wake_eligibility_excludes_owned_stopped_and_protected_tabs() {
         let (mut mux, id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&id).unwrap();

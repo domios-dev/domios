@@ -180,6 +180,7 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin: PluginModule = {
+  sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
   tracksBackgroundWork: () => true,
