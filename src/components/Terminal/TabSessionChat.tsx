@@ -889,7 +889,7 @@ function TabSessionChatBody({
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           const deliverySend = sendForRow(deliverySends, msg);
-          const deliveryView = deliverySend ? deliveryPresentation(deliverySend, allMessages) : undefined;
+          const deliveryView = deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined;
           return (
             <Fragment key={msg.id}>
             <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
@@ -915,7 +915,7 @@ function TabSessionChatBody({
                 streaming={msg.id === streamingId}
                 userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
                   ? <VoiceTranscriptionProgress /> : undefined}
-                userFooter={deliverySend && deliveryView && deliveryView !== "delivered" && deliveryView !== "settled"
+                userFooter={deliverySend && deliveryView && deliveryView !== "delivered"
                   ? <ChatDeliveryState state={deliveryView} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
                   : undefined}
                 item={item.kind === "tool" ? item : undefined}

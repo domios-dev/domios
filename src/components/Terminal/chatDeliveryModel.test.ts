@@ -161,58 +161,41 @@ test("written sends flow above later rows while held and failed sends retain the
   }
 });
 
-test("written input with later source output has settled presentation without ledger confirmation", () => {
-  const at = 1_800_000_000_000;
+test("written input queues while working and becomes uncertain only at idle without evidence", () => {
   for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
-    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
+    const current = applyDeliveryStatus(send(), status(ledgerState, 2));
     const before = JSON.stringify(current);
-    for (const type of ["assistant", "thinking", "tool_call", "tool_result", "tool_flow"] as const) {
-      const transcript = reduceTranscript(createTranscriptState(), {
-        kind: "delta", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
-        rows: [{ id: "later", type, content: "output", timestamp: String(at + 1) }],
-      }).state;
-      const projection = projectTranscript(transcript, deliveryProjectionSends([current]));
-      assert.deepEqual(projection.rows.map((row) => row.id), ["bubble", "later"]);
-      assert.equal(deliveryPresentation(current, projection.rows), "settled");
-      assert.equal(projection.pending.length, 1);
-      assert.equal(projection.echoes.size, 0);
-      assert.equal(JSON.stringify(current), before);
+    assert.equal(deliveryPresentation(current, "working"), "queued");
+    for (const activity of ["starting", "waiting-on-user", "failed"] as const) {
+      assert.equal(deliveryPresentation(current, activity), "sending");
     }
+    assert.equal(deliveryPresentation(current, "idle"), "uncertain");
+    assert.equal(JSON.stringify(current), before);
+    const delivered = applyDeliveryStatus(current, status("delivered", 3));
+    assert.equal(deliveryPresentation(delivered, "working"), "delivered");
+    assert.equal(deliveryPresentation(delivered, "idle"), "delivered");
   }
 });
 
-test("written input remains pending until later output is actually below its bubble", () => {
-  const at = 1_800_000_000_000;
-  const bubble = { id: "bubble", type: "user" as const, content: "opaque", timestamp: String(at) };
-  for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
-    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
-    const expected = ledgerState === "written" ? "sending" : "uncertain";
-    assert.equal(deliveryPresentation(current, [bubble]), expected);
-    for (const timestamp of [undefined, String(at - 1), String(at)]) {
-      assert.equal(deliveryPresentation(current, [bubble,
-        { id: "old", type: "assistant", content: "output", timestamp }]), expected);
-    }
-    for (const type of ["user", "status", "system"] as const) {
-      assert.equal(deliveryPresentation(current, [bubble,
-        { id: "non-output", type, content: "other", timestamp: String(at + 1) }]), expected);
-    }
-    const later = { id: "later", type: "assistant" as const, content: "output", timestamp: String(at + 1) };
-    assert.equal(deliveryPresentation(current, [later, bubble]), expected);
-    assert.equal(deliveryPresentation(current, [later]), expected);
-  }
-});
-
-test("later output never hides proven non-delivery or turns held input into sent presentation", () => {
-  const at = 1_800_000_000_000;
-  const rows = [
-    { id: "bubble", type: "user" as const, content: "opaque", timestamp: String(at) },
-    { id: "later", type: "assistant" as const, content: "output", timestamp: String(at + 1) },
-  ];
+test("activity never changes held or proven terminal outcomes", () => {
   for (const [ledgerState, expected] of [["failed", "failed"], ["held", "queued"], ["delivered", "delivered"]] as const) {
-    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
-    assert.equal(deliveryPresentation(current, rows), expected);
-    assert.equal(current.status?.state, ledgerState);
+    const current = applyDeliveryStatus(send(), status(ledgerState, 2));
+    for (const activity of ["working", "idle", "starting", "waiting-on-user", "failed"] as const) {
+      assert.equal(deliveryPresentation(current, activity), expected);
+    }
   }
+});
+
+test("held input remains queued when a later ledger snapshot omits it", () => {
+  const held = applyDeliveryStatus(send(), status("held", 1));
+  const restored = JSON.parse(JSON.stringify(held)) as DeliverySend;
+  const reconciled = reconcileDeliveryStatusesModel([restored], [])[0];
+  assert.equal(reconciled, restored);
+  assert.equal(deliveryState(reconciled), "queued");
+  assert.equal(deliveryPresentation(reconciled, "idle"), "queued");
+  const delivered = reconcileDeliveryStatusesModel([reconciled], [status("delivered", 2)])[0];
+  assert.equal(deliveryPresentation(delivered, "idle"), "delivered");
+  assert.equal(delivered.id, held.id);
 });
 
 test("unclassified and request-failed sends flow before newer output without changing delivery", () => {
@@ -226,7 +209,7 @@ test("unclassified and request-failed sends flow before newer output without cha
     const projection = projectTranscript(transcript, deliveryProjectionSends([current]));
     assert.deepEqual(projection.rows.map((row) => row.id), ["bubble", "new"]);
     assert.equal(deliveryState(current), requestFailed ? "failed" : "sending");
-    assert.equal(deliveryPresentation(current, projection.rows), requestFailed ? "failed" : "sending");
+    assert.equal(deliveryPresentation(current, "idle"), requestFailed ? "failed" : "sending");
     assert.equal(current.status, undefined);
   }
 });
