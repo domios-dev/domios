@@ -114,4 +114,4 @@ For a production build, run `./build.sh build`. On Windows PowerShell, use `.\bu
 
 Inside Domios, run `codeterm docs` to discover the help embedded in your installed version, then `codeterm docs <NAME>` to read a document.
 
-Contributions welcome: open an issue to discuss the change. Licensed under [MIT](LICENSE).
+Contributions welcome: open an issue to discuss the change. Licensed under [PolyForm Noncommercial 1.0.0](LICENSE).
