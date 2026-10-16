@@ -81,20 +81,64 @@ pub(super) mod backfill;
 #[path = "engine/test_support.rs"]
 pub(crate) mod test_support;
 
-pub fn stop(tab: &str) {
+pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    if for_tab(tab).is_none() {
+        return Ok(());
+    }
+    let finish = || crate::async_runtime::block_on(stop(svc, tab));
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(finish)
+        }
+        Ok(_) => Err("Runtime stop requires async stop on a current-thread executor".into()),
+        Err(_) => finish(),
+    }
+}
+
+pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    let Some(session) = for_tab(tab) else {
+        return Ok(());
+    };
+    let permit = session.gate.try_acquire().ok();
+    session.gate.close();
+    let process = session.process.lock().clone();
+    if let Some(process) = process {
+        if let Err(reason) = super::background::cleanup(
+            svc,
+            &session,
+            &process,
+            super::background::Mode::Shutdown,
+            Vec::new(),
+            permit.is_some(),
+        )
+        .await
+        {
+            let epoch = session.context.lock().epoch;
+            session.state.lock().degrade(epoch, &reason);
+            publish(svc, tab, &session);
+            return Err(reason.to_string());
+        }
+    }
+    {
+        let mut sessions = SESSIONS.lock();
+        if !sessions
+            .get(tab)
+            .is_some_and(|current| Arc::ptr_eq(current, &session))
+        {
+            return Err(RuntimeFailure::Superseded.to_string());
+        }
+        sessions.remove(tab);
+    }
     super::authority::revoke(tab);
     super::environment::revoke(tab);
     super::capture::revoke(tab);
-    if let Some(session) = SESSIONS.lock().remove(tab) {
-        super::login::forget(&session);
-        session.state.lock().phase = RuntimePhase::Unloaded {
-            reason: Some("Runtime stopped".into()),
-        };
-        session.control_changes.send_replace(());
-        if let Some(process) = session.process.close() {
-            process.stop();
-        }
-    }
+    super::login::forget(&session);
+    session.state.lock().phase = RuntimePhase::Unloaded {
+        reason: Some("Runtime stopped".into()),
+    };
+    session.control_changes.send_replace(());
+    session.process.close();
+    Ok(())
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
@@ -614,6 +658,9 @@ async fn run_inner(
         let prompt = pending.prompt.as_ref().ok_or(RuntimeFailure::Superseded)?;
         super::model::validate_prompt_answer(prompt, answer)?;
         context.pending_request = Some(pending.request.clone());
+    }
+    if matches!(operation, RuntimeOperation::SubmitTurn { .. }) {
+        process.begin_turn().await?;
     }
     let adapter = session
         .adapter

@@ -50,6 +50,11 @@
         "account/login/cancel",
         "account/rateLimits/read",
         "account/rateLimitResetCredit/consume"
+      ],
+      "backgroundProcesses": [
+        "thread/backgroundTerminals/list",
+        "thread/backgroundTerminals/terminate",
+        "thread/backgroundTerminals/clean"
       ]
     },
     "notificationMethods": [
@@ -91,7 +96,8 @@
       "terminalCommand": "codex login"
     },
     "usage": true,
-    "resetCreditsMinVersion": "0.162.1"
+    "resetCreditsMinVersion": "0.162.1",
+    "backgroundProcesses": true
   },
   "chatBackend": {
     "spawnable": true,
