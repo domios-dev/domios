@@ -2,7 +2,6 @@ use super::{engine, model::ItemCache};
 use crate::multiplexer::types::TabBacking;
 use crate::service::{ServiceContext, SpawnAgentParams};
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeThreadHistoryAction};
-use codeterm_types::agent::chat_types::ChatMsg;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -180,7 +179,7 @@ pub async fn operate(
             let cwd = source_tab.cwd.clone().ok_or("Source cwd unavailable")?;
             let params = SpawnAgentParams {
                 agent: Some(session.provider.clone()),
-                cwd: Some(cwd),
+                cwd: Some(cwd.clone()),
                 workspace_id: Some(workspace_id),
                 force_tab: Some(true),
                 title: Some("Fork".into()),
@@ -219,7 +218,11 @@ pub async fn operate(
                 close_fork_tab(svc, &spawned.tab_id).await;
                 return Err(error.to_string());
             }
-            let forked_binding = match binding(&fork_session.context.lock()) {
+            let forked_binding_result = {
+                let context = fork_session.context.lock();
+                binding(&context)
+            };
+            let forked_binding = match forked_binding_result {
                 Ok(binding) => binding,
                 Err(error) => {
                     close_fork_tab(svc, &spawned.tab_id).await;
@@ -253,8 +256,11 @@ pub async fn operate(
             tokio::time::timeout(std::time::Duration::from_secs(30), async {
                 loop {
                     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
-                    if session.reverted_thread.lock().as_deref() == Some(current.thread_id.as_str())
-                    {
+                    let reverted = {
+                        let evidence = session.reverted_thread.lock();
+                        evidence.as_deref() == Some(current.thread_id.as_str())
+                    };
+                    if reverted {
                         return Ok::<(), String>(());
                     }
                     changes
@@ -292,6 +298,7 @@ async fn close_fork_tab(svc: &ServiceContext, tab_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codeterm_types::agent::chat_types::ChatMsg;
 
     fn binding() -> ThreadHistoryBinding {
         ThreadHistoryBinding {
