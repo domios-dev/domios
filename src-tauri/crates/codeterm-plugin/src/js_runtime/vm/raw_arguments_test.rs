@@ -1,6 +1,44 @@
 use super::*;
 
 #[test]
+fn claude_session_parser_argument_channels_preserve_rows() {
+    let vm = PluginVm::from_source(
+        "claude-channel-parity",
+        include_str!("../../../../../../plugins/provider-claude/plugin.js").into(),
+    )
+    .unwrap();
+    for records in [
+        include_str!("../../../../../../plugins/provider-claude/tests/fixtures/file-diffs.jsonl"),
+        include_str!("../../../../../../plugins/provider-claude/tests/fixtures/queued-mid-turn.jsonl"),
+        include_str!("../../../../../../plugins/provider-claude/tests/fixtures/owner-mid-turn-2.1.296.jsonl"),
+        "{\"type\":\"user\",\"message\":{\"content\":\"quotes \\\" slash \\\\ null \\u0000 🦀\"}}\n",
+    ] {
+        let args = [serde_json::json!(records)];
+        for method in ["parseSessionDelta", "parseSessionMessages"] {
+            let json = Arguments {
+                json: serde_json::to_string(&args).unwrap(),
+                raw: None,
+            };
+            let raw = Arguments::prepare(method, &args).unwrap();
+            assert!(raw.raw.is_some());
+            let expected = enter_call(&vm, method, &json, false, None, None).unwrap();
+            let actual = enter_call(&vm, method, &raw, false, None, None).unwrap();
+            assert_eq!(actual, expected, "{method}");
+            let rows: serde_json::Value = serde_json::from_str(&actual).unwrap();
+            let rows = if method == "parseSessionDelta" {
+                &rows["messages"]
+            } else {
+                &rows
+            };
+            assert!(rows.is_array());
+            if records.contains("quotes") {
+                assert!(!rows.as_array().unwrap().is_empty());
+            }
+        }
+    }
+}
+
+#[test]
 fn stored_history_argument_measurement() {
     let vm = PluginVm::from_source(
         "argument-measurement",
