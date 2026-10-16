@@ -130,7 +130,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
     return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"unmaterialized"}));
   if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
     const thread = object(object(reply.value).thread);
-    if (!userThread(reply.value,op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
+    if (!historyThread(ctx,reply.value,op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
       return refused("Empty thread identity unverified");
     return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:[],openItems:[],...(op.order ? {order:op.order} : {})}};
   }
