@@ -55,7 +55,7 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
     case "openThread": return request("thread/start",settingsParams(ctx,op.settings,op.instructions));
     case "resumeThread": return request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true});
     case "readHistory":
-      return request("thread/turns/list",{threadId:op.threadId,itemsView:"notLoaded",sortDirection:"asc",limit:8,cursor:op.cursor},
+      return request("thread/turns/list",{threadId:op.threadId,itemsView:"notLoaded",sortDirection:"desc",limit:8,cursor:op.cursor},
         {stage:"turns",turns:[],cursor:null,seq:0});
     case "submitTurn": {
       const params = turnParams(ctx,op);
@@ -178,7 +178,7 @@ function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Rec
   if (state.stage === "turns") {
     const source = list(value.data).map(object);
     if (source.length > 8 || source.some(turn=>typeof turn.id !== "string" || !turn.id || turn.id.length > 4096)) return refused("Invalid history turn page");
-    const turns = source.map(turn=>({id:turn.id,status:turn.status === "inProgress" ? "inProgress" : "completed",
+    const turns = [...source].reverse().map(turn=>({id:turn.id,status:turn.status === "inProgress" ? "inProgress" : "completed",
       startedAt:typeof turn.startedAt === "number" && Number.isFinite(turn.startedAt) ? turn.startedAt : null}));
     const next = text(value.nextCursor);
     if (next && (next.length > 4096 || next === op.cursor)) return refused("Repeated history cursor");

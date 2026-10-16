@@ -72,6 +72,9 @@ pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bo
         && process_live
 }
 
+#[path = "engine/backfill.rs"]
+mod backfill;
+
 #[cfg(test)]
 #[path = "engine/test_support.rs"]
 pub(crate) mod test_support;
@@ -251,6 +254,8 @@ async fn ensure_locked(
     if live && matches!(session.state.lock().phase, RuntimePhase::Ready) {
         return validate_binding(svc, session);
     }
+    let started = std::time::Instant::now();
+    let mut spawned_ms = None;
     let owner = svc.clone();
     let target = tab.to_string();
     let settings =
@@ -259,6 +264,7 @@ async fn ensure_locked(
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
             .map_err(RuntimeFailure::Refused)?;
     session.context.lock().settings = settings;
+    crate::startup::boot_timing::mark(tab, None, "runtime_options_ready");
     let process = if live {
         old.ok_or(RuntimeFailure::Superseded)?
     } else {
@@ -340,6 +346,8 @@ async fn ensure_locked(
             reason: error.to_string(),
         })??;
         *session.process.lock() = Some(process.clone());
+        crate::startup::boot_timing::mark(tab, None, "runtime_spawned");
+        spawned_ms = Some(started.elapsed().as_millis());
         *session.hook_state.lock() = Value::Null;
         session.prompts.lock().clear();
         super::subscriber::start(
@@ -371,6 +379,8 @@ async fn ensure_locked(
             Ok(())
         })
         .await?;
+    crate::startup::boot_timing::mark(tab, None, "runtime_initialized");
+    let initialized_ms = started.elapsed().as_millis();
     if matches!(*session.auth.lock(), RuntimeAuthState::SignedOut) {
         let thread_id = session.context.lock().thread_id.clone();
         run(
@@ -421,6 +431,8 @@ async fn ensure_locked(
             "Thread load result is invalid".into(),
         ));
     };
+    crate::startup::boot_timing::mark(tab, None, "thread_resumed");
+    let resumed_ms = started.elapsed().as_millis();
     if context
         .thread_id
         .as_deref()
@@ -460,66 +472,6 @@ async fn ensure_locked(
     .map_err(RuntimeFailure::HookFailed)?;
     super::question_delivery::publish(svc, tab, session, questions)
         .map_err(RuntimeFailure::HookFailed)?;
-    let mut cursor = None;
-    let mut cursors = std::collections::HashSet::new();
-    let mut history_questions = RuntimeHistory::default();
-    loop {
-        let RuntimeResult::HistoryPage {
-            thread_id: read_thread,
-            items,
-            next_cursor,
-            open_items,
-            questions,
-        } = run(
-            svc,
-            provider,
-            session,
-            &process,
-            RuntimeOperation::ReadHistory {
-                thread_id: thread_id.clone(),
-                cursor,
-            },
-        )
-        .await?
-        else {
-            return Err(RuntimeFailure::HookFailed(
-                "History result is invalid".into(),
-            ));
-        };
-        if read_thread != thread_id {
-            return Err(RuntimeFailure::Superseded);
-        }
-        history_questions.reconcile_questions(&items, questions);
-        if !history_questions.questions().is_empty() {
-            let questions = history_questions.questions();
-            let owner = svc.clone();
-            let target = tab.to_string();
-            let thread = thread_id.clone();
-            let questions = tokio::task::spawn_blocking(move || {
-                owner
-                    .pending_delivery_payloads
-                    .user_sends
-                    .persist_runtime_history_questions(&target, &thread, questions)
-            })
-            .await
-            .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
-            .map_err(RuntimeFailure::HookFailed)?;
-            super::question_delivery::publish(svc, tab, session, questions)
-                .map_err(RuntimeFailure::HookFailed)?;
-        }
-        for item in items {
-            session.cache.lock().reconcile(item);
-        }
-        for open in open_items {
-            session.cache.lock().reconcile(open.item);
-            session.context.lock().active_turn_id = Some(open.turn_id);
-        }
-        let Some(next) = next_cursor else { break };
-        if !cursors.insert(next.clone()) {
-            return Err(RuntimeFailure::HookFailed("History cursor limit".into()));
-        }
-        cursor = Some(next);
-    }
     super::bootstrap::submit(svc, session, &process).await?;
     inject_abort_note(svc, provider, session, &process, &thread_id).await;
     if !session.state.lock().load(context.epoch, &thread_id) {
@@ -528,8 +480,26 @@ async fn ensure_locked(
     session
         .thread_loaded
         .store(true, std::sync::atomic::Ordering::Release);
+    crate::startup::boot_timing::mark(tab, None, "runtime_ready");
+    let generation = session.cache.lock().begin_backfill();
     publish(svc, tab, session);
     svc.emit_state_changed();
+    backfill::start(
+        svc,
+        session,
+        &process,
+        generation,
+        backfill::Reopen {
+            tab: tab.into(),
+            thread: thread_id,
+            epoch: context.epoch,
+            started,
+            spawned_ms,
+            initialized_ms,
+            resumed_ms,
+            ready_ms: started.elapsed().as_millis(),
+        },
+    );
     Ok(())
 }
 
@@ -877,6 +847,10 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
         snapshot.insert(
             "login".into(),
             serde_json::to_value(session.login.lock().login.clone()).unwrap_or(Value::Null),
+        );
+        snapshot.insert(
+            "history".into(),
+            serde_json::to_value(session.cache.lock().backfill()).unwrap_or(Value::Null),
         );
         if let Some(adapter) = session.adapter.lock().as_ref() {
             if let Some(login) = adapter.agent_runtime().and_then(|runtime| runtime.login) {
