@@ -318,7 +318,8 @@
         "kind": "sendEvidence",
         "threadId": "thread-fixture",
         "sendId": "steer",
-        "turnId": "turn-a"
+        "turnId": "turn-a",
+        "itemId": "steer-user"
       },
       {
         "kind": "chatItem",
@@ -360,7 +361,8 @@
         "kind": "sendEvidence",
         "threadId": "thread-fixture",
         "sendId": "fallback",
-        "turnId": "turn-b"
+        "turnId": "turn-b",
+        "itemId": "fallback-user"
       },
       {
         "kind": "turnState",

@@ -30422,7 +30422,8 @@
         "kind": "sendEvidence",
         "threadId": "01a143fd-6189-7021-beb5-dd2320bbc32f",
         "sendId": "capture-streaming",
-        "turnId": "01a143fd-6252-7fd2-b645-6e24983aafd7"
+        "turnId": "01a143fd-6252-7fd2-b645-6e24983aafd7",
+        "itemId": "01a143fd-6997-7613-9269-18a71211d970"
       },
       {
         "kind": "chatItem",

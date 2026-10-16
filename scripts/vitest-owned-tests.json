@@ -1,5 +1,6 @@
 [
   "src/components/MeshPanel/MeshPanel.web.wiring.test.tsx",
+  "src/components/General/GeneralWorkspaceOverview.test.tsx",
   "src/lib/interfaceReload.test.ts",
   "src/lib/childTranscript.test.ts",
   "src/components/Terminal/ChildTranscriptScope.test.tsx",
