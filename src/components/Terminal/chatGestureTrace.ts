@@ -3,7 +3,7 @@ import type { ChatScrollGesture } from "./chatScrollGesture";
 export const TRACE_FRAME_LIMIT = 600;
 export const TRACE_EDGE_LIMIT = 400;
 export const TRACE_CHUNK_BYTES = 3900;
-export const traceEdges = ["touchstart", "touchend", "scroll", "scrollend", "gesture", "write", "absorb", "resize", "clientHeight", "visualViewport", "capabilities", "jump_ignored_owned"] as const;
+export const traceEdges = ["touchstart", "touchend", "scroll", "scrollend", "gesture", "write", "absorb", "resize", "clientHeight", "visualViewport", "capabilities", "jump_ignored_owned", "fold"] as const;
 export type TraceEdge = typeof traceEdges[number];
 export type TraceTuple = number[];
 export interface TraceChunk {
