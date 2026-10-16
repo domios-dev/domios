@@ -32,6 +32,10 @@ class FakeServiceWorkerContainer {
   getRegistrations(): Promise<never[]> {
     return Promise.resolve([]);
   }
+
+  getRegistration(): Promise<undefined> {
+    return Promise.resolve(undefined);
+  }
 }
 
 async function withFreshModule(controllerAtRegisterTime: unknown) {
@@ -40,14 +44,19 @@ async function withFreshModule(controllerAtRegisterTime: unknown) {
   const container = new FakeServiceWorkerContainer();
   container.controller = controllerAtRegisterTime;
   const reloadCalls: number[] = [];
+  const replacements: string[] = [];
   // defineProperty rather than plain assignment.
   Object.defineProperty(win, "navigator", { value: { serviceWorker: container }, configurable: true });
-  Object.defineProperty(win, "location", { value: { reload: () => reloadCalls.push(1) }, configurable: true });
+  Object.defineProperty(win, "location", { value: {
+    href: "https://fixture.test/?tab=owned#token=opaque",
+    reload: () => reloadCalls.push(1), replace: (url: string) => replacements.push(url),
+  }, configurable: true });
   win.window = win;
   delete win.__TAURI_INTERNALS__;
 
   const mod = await import(`./serviceWorkerRegistration.ts?t=${Date.now()}-${Math.random()}`);
-  return { mod, container, reloadCalls };
+  mod.__resetServiceWorkerForTest();
+  return { mod, container, reloadCalls, replacements };
 }
 
 test("first-ever controllerchange (no prior controller) does not reload", async () => {
@@ -62,6 +71,19 @@ test("a genuine update (page already had a controller) still reloads", async () 
   mod.registerServiceWorker();
   container.fire("controllerchange");
   assert(reloadCalls.length === 1, "a real SW update must still reload once");
+});
+
+test("manual reload and a controller change share one cache-bypassing navigation", async () => {
+  const { mod, container, reloadCalls, replacements } = await withFreshModule({ id: "old-worker" });
+  mod.registerServiceWorker();
+  const pending = mod.reloadInterface("next-build");
+  container.fire("controllerchange");
+  await pending;
+  assert(reloadCalls.length === 0, "manual refresh must preserve its cache-bypassing navigation");
+  assert(replacements.length === 1, "activation and the button must navigate only once");
+  const url = new URL(replacements[0]);
+  assert(url.searchParams.get("__ct_ui") === "next-build", "navigation must name the requested build");
+  assert(url.searchParams.get("tab") === "owned" && url.hash === "#token=opaque", "tab and authentication must survive");
 });
 
 async function main() {
