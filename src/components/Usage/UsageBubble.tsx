@@ -2,7 +2,7 @@ import {uid} from "../../lib/uid";
 import {invoke} from "../../lib/bridge";
 import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
 import {ResetCreditsSection} from "./ResetCreditsSection";
-import { ownRuntimeUsage, runtimeLimitsSnapshot, runtimeTokenLabel, runtimeTokenBreakdown } from "./runtimeUsage";
+import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown } from "./runtimeUsage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
@@ -58,14 +58,26 @@ export function UsageBubble({
     () => (hasGroupSpend(groupUsage) ? groupSpendSnapshot(provider, groupUsage, Date.now()) : null),
     [provider, groupUsage],
   );
-  // nor register a usage-snapshot-updated listener (was a per-tab IPC fan-out).
   const { snapshot, refresh, refetch } = useUsageSnapshot({
     provider,
     accountId,
-    enabled: trackingEnabled && !groupSnapshot,
+    enabled: trackingEnabled,
   });
   const runtime = ownRuntimeUsage(snapshot,tabId,threadId);
-  const active = runtime && snapshot ? runtimeLimitsSnapshot(snapshot,runtime) : snapshot?.runtime_usage ? null : groupSnapshot ?? snapshot;
+  const active = runtime || snapshot?.runtime_usage
+    ? latestUsageSnapshot(snapshot, tabId, threadId)
+    : groupSnapshot ?? snapshot;
+  const [, updateAge] = useState(0);
+  const refreshAge = () => updateAge(value => value + 1);
+  useEffect(() => {
+    const refresh = () => updateAge(value => value + 1);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
   const tokenSession = runtime?.billing_mode === "api" ? runtime : null;
   const resetModel = tabId ? resetCreditsForTab(tabId, uid, key => invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key}})) : null;
   const [resetReadError, setResetReadError] = useState<string|null>(null);
@@ -146,6 +158,8 @@ export function UsageBubble({
   return (
     <div
       ref={wrapRef}
+      onPointerEnter={refreshAge}
+      onFocus={refreshAge}
       className="ct-usage"
       style={{ position: "relative", display: "inline-flex" }}
     >

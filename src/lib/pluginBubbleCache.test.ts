@@ -207,6 +207,26 @@ test("a hidden->visible transition rechecks even a value another tab already fet
   fx.teardown();
 });
 
+test("contribution invalidation refreshes active repository and receiver bubbles", async () => {
+  const fx = await setupCache();
+  const repoValues: Array<Bubble | null> = [];
+  const receiverValues: Array<Bubble | null> = [];
+  const repo = fx.cache.subscribePluginBubble("fixture", "/repo", "repo", true, value => repoValues.push(value));
+  const receiver = fx.cache.subscribePluginBubble("receiver", null, "receiver", true, value => receiverValues.push(value));
+  const hidden = fx.cache.subscribePluginBubble("hidden", null, "hidden", false, () => {});
+  fx.resolveNext({label:"before"});
+  fx.resolveNext({label:"before"});
+  await drain();
+  fx.cache.invalidateActivePluginBubbles();
+  assertEqual(fx.calls,4,"only active entries are refreshed");
+  fx.resolveNext({label:"after"});
+  fx.resolveNext({label:"after"});
+  await drain();
+  assertEqual(last(repoValues)?.label,"after","repository subscriber updates");
+  assertEqual(last(receiverValues)?.label,"after","receiver subscriber updates");
+  repo.unsubscribe(); receiver.unsubscribe(); hidden.unsubscribe(); fx.teardown();
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {
