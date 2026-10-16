@@ -14,6 +14,9 @@ use std::time::Instant;
 
 mod wait;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 #[cfg(test)]
 #[path = "launch_readiness/tests.rs"]
 mod tests;
@@ -313,6 +316,8 @@ fn settle_proven_exit(
 }
 
 struct Armed {
+    #[cfg(any(test, feature = "test-support"))]
+    registrations: usize,
     attempt: LaunchAttempt,
     origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
     evidence: Option<LaunchEvidence>,
@@ -510,9 +515,17 @@ fn arm_inner(
 ) {
     let mut state = OBSERVATIONS.state.lock();
     let owner_prompt = state.owner_prompts.get(&attempt.tab_id).cloned();
+    #[cfg(any(test, feature = "test-support"))]
+    let registrations = state
+        .armed
+        .get(&attempt.tab_id)
+        .filter(|armed| armed.attempt == attempt)
+        .map_or(1, |armed| armed.registrations + 1);
     state.armed.insert(
         attempt.tab_id.clone(),
         Armed {
+            #[cfg(any(test, feature = "test-support"))]
+            registrations,
             attempt,
             origin,
             evidence: None,
