@@ -15,6 +15,7 @@ import type {
   TranscriptRange,
 } from "@codeterm/chat-core";
 import { onResync } from "../../lib/resync";
+import { frontendBootDiagnostic } from "../../lib/frontendBootDiagnostic";
 import { resyncRequiresTranscriptRecovery } from "../../lib/resyncModel";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import {
@@ -212,11 +213,13 @@ export function useChatSession({
     }
   }, [tabId]);
 
-  const requestAttach = useCallback(() => {
+  const requestAttach = useCallback((cause = "attachment") => {
     const requested = requestedAuthorityRef.current;
     if (attachmentStateRef.current === "attaching"
       && requested?.source_session_id === agentSessionIdRef.current
       && requested.session_binding_nonce === (sessionBindingNonceRef.current ?? null)) return;
+    frontendBootDiagnostic("chat-recovery", { chat: { scope: tabId, edge: "cold_attach", at: performance.now(),
+      state: { cause, state: attachmentStateRef.current, session: agentSessionIdRef.current, nonce: sessionBindingNonceRef.current } } });
     pendingLiveEventsRef.current = [];
     snapshotOnNextLiveEventRef.current = false;
     const authority = readTranscriptWindow(windowKeyRef.current).transcript.authority;
@@ -240,7 +243,7 @@ export function useChatSession({
     resumeFlightRef.current?.cancelPending();
     beginAttach();
     void reconcileSendStatuses();
-  }, [beginAttach, reconcileSendStatuses]);
+  }, [beginAttach, reconcileSendStatuses, tabId]);
 
   const markAttached = useCallback(() => {
     markTranscriptSnapshotReady(windowKeyRef.current, sessionBindingNonceRef.current);
@@ -285,7 +288,7 @@ export function useChatSession({
     return outcome;
   }, [commitBatch, rememberCursor, tabId]);
 
-  const requestRecoveryAttach = useCallback((cold = false) => {
+  const requestRecoveryAttach = useCallback((cold = false, cause = "retry") => {
     coldRecoveryRef.current ||= cold;
     if (recoveryQueuedRef.current) return;
     recoveryQueuedRef.current = true;
@@ -296,9 +299,11 @@ export function useChatSession({
       const authority = bindingKey(agentSessionIdRef.current, sessionBindingNonceRef.current);
       const forceCold = coldRecoveryRef.current;
       coldRecoveryRef.current = false;
+      frontendBootDiagnostic("chat-recovery", { chat: { scope: tabId, edge: "recovery_requested", at: performance.now(),
+        state: { cause, forceCold, state: attachmentStateRef.current, cursor: cursor?.token ?? null, authority } } });
       if (forceCold || attachmentStateRef.current !== "attached" || cursor == null || cursor.authority !== authority) {
         resumeCursorRef.current = null;
-        requestAttach();
+        requestAttach(cause);
         return;
       }
       const lifetime = resumeLifetimeRef.current;
@@ -309,7 +314,13 @@ export function useChatSession({
         const currentCursor = resumeCursorRef.current;
         if (!isCurrent() || currentCursor?.authority !== authority) return;
         const outcome = await resumeChatCursor(currentCursor.token,
-          token => invoke<ChatResumeResult>("chat_resume", { tabId, cursor: token }),
+          async token => {
+            const result = await invoke<ChatResumeResult>("chat_resume", { tabId, cursor: token });
+            frontendBootDiagnostic("chat-recovery", { chat: { scope: tabId, edge: "resume_result", at: performance.now(),
+              state: { kind: result.kind, ...("reason" in result ? { reason: result.reason } : {}),
+                ...("source_kind" in result ? { sourceKind: result.source_kind } : {}) } } });
+            return result;
+          },
           delta => {
             if (!canAdoptTranscriptAuthority(delta, agentSessionIdRef.current, sessionBindingNonceRef.current ?? null)) {
               throw new Error("Chat resume authority mismatch");
@@ -320,7 +331,7 @@ export function useChatSession({
         );
         if (outcome === "attach" && isCurrent()) {
           resumeCursorRef.current = null;
-          requestAttach();
+          requestAttach("resume_fallback");
         }
       }).catch((error: unknown) => {
         if (isCurrent()) setError(error instanceof Error ? error.message : String(error));
@@ -440,7 +451,7 @@ export function useChatSession({
                 ev.payload.source_session_id,
                 ev.payload.session_binding_nonce,
               ));
-              if (ownStream && attachmentStateRef.current === "attached") requestRecoveryAttach();
+              if (ownStream && attachmentStateRef.current === "attached") requestRecoveryAttach(false, "authority_drop");
               return;
             }
             emitDiagnostic({ edge: "authority_adopt", ...diagnosticBase });
@@ -452,7 +463,7 @@ export function useChatSession({
               pendingLiveEventsRef.current.push(ev.payload);
               return;
             }
-            if (needsRecovery(commitLiveEvent(ev.payload))) requestRecoveryAttach();
+            if (needsRecovery(commitLiveEvent(ev.payload))) requestRecoveryAttach(false, "recover_gap");
             void reconcileSendStatuses();
             emitDiagnostic({ edge: "state_enqueued", ...diagnosticBase });
             if (attachmentStateRef.current !== "attached") markAttached();
@@ -464,7 +475,7 @@ export function useChatSession({
         }
         emitDiagnostic({ edge: "listener_owned", tabId });
         unlistenTest = listenForTestChatReplies(tabId, commitLiveEvent);
-        requestAttach();
+        requestAttach("listener_owned");
         setListenerReady(true);
       } catch (e) {
         if (cancelled) return;
@@ -510,7 +521,7 @@ export function useChatSession({
       || adopted.sessionBindingNonce !== (sessionBindingNonce ?? null)) {
       attachmentRef.current.adopt(null);
     }
-    requestAttach();
+    requestAttach("authority_changed");
   }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
 
   useEffect(() => {
@@ -640,7 +651,7 @@ export function useChatSession({
           if (needsRecovery(commitLiveEvent(event))) recover = true;
         }
         markAttached();
-        if (recover) requestRecoveryAttach();
+        if (recover) requestRecoveryAttach(false, "pending_recover_gap");
       } catch (e) {
         if (cancelled || !owner.isCurrent(generationAtRequest)) return;
         const msg = e instanceof Error ? e.message : String(e);
@@ -673,7 +684,7 @@ export function useChatSession({
     if (!active) return;
     return onResync(reason => {
       if (resyncRequiresTranscriptRecovery(reason, attachmentStateRef.current === "failed")) {
-        requestRecoveryAttach(reason === "epoch_changed");
+        requestRecoveryAttach(reason === "epoch_changed", `resync:${reason}`);
       }
     });
   }, [active, requestRecoveryAttach]);
