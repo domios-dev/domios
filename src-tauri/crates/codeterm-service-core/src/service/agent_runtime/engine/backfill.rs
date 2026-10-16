@@ -19,7 +19,7 @@ pub(super) trait HistoryPort {
 }
 
 /// History replay of one epoch: requested newest first; a plugin that answers ascending
-/// is replayed whole before Ready through the append path.
+/// is replayed whole before Ready and lands as one block.
 pub(super) struct Replay {
     epoch: u64,
     generation: u64,
@@ -28,6 +28,7 @@ pub(super) struct Replay {
     cursors: HashSet<String>,
     history: RuntimeHistory,
     answers: Vec<ChatMsg>,
+    ascending: Vec<ChatMsg>,
     pub pages: u32,
     pub rows: usize,
     pub descending: bool,
@@ -44,6 +45,7 @@ impl Replay {
             cursors: HashSet::new(),
             history: RuntimeHistory::default(),
             answers: Vec::new(),
+            ascending: Vec::new(),
             pages: 0,
             rows: 0,
             descending: false,
@@ -116,19 +118,16 @@ impl Replay {
                 rows.push(open.item.clone());
             }
         }
-        self.rows += if self.descending {
-            session
-                .cache
-                .lock()
-                .reconcile_backfill(rows, self.pages > 1)
+        session.cache.lock().note_history_page();
+        if self.descending {
+            self.rows += session.cache.lock().reconcile_backfill(rows);
         } else {
-            let landed = rows.len();
-            let mut cache = session.cache.lock();
-            for row in rows {
-                cache.reconcile(row);
+            self.ascending.extend(rows);
+            if next_cursor.is_none() {
+                let rows = std::mem::take(&mut self.ascending);
+                self.rows += session.cache.lock().reconcile_backfill(rows);
             }
-            landed
-        };
+        }
         adopt_open_turns(session, &self.thread, &open_items);
         port.page_landed(self.pages);
         match next_cursor {

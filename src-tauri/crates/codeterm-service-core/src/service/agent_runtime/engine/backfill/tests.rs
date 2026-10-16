@@ -301,8 +301,12 @@ async fn repeated_cursor_is_refused() {
 }
 
 #[tokio::test]
-async fn a_plugin_answering_ascending_is_replayed_whole_before_ready_by_append() {
+async fn a_plugin_answering_ascending_is_replayed_whole_before_ready_below_kept_rows() {
     let (session, epoch) = session();
+    session
+        .cache
+        .lock()
+        .reconcile_live(row("host", "warning"), 1);
     let mut replay = replay_for(&session, epoch);
     let mut port = FakePort::with(vec![
         (None, page_in(&["a", "b"], Some("newer"), None)),
@@ -312,7 +316,39 @@ async fn a_plugin_answering_ascending_is_replayed_whole_before_ready_by_append()
     assert!(replay.done);
     assert!(!replay.descending);
     assert_eq!(port.reads, [None, Some("newer".into())]);
-    assert_eq!(ids(&session), ["a", "b", "c"]);
+    assert_eq!(ids(&session), ["a", "b", "c", "host"]);
+    assert_seq_ascending(&session);
+    assert_eq!(session.cache.lock().history_pages(), 2);
+}
+
+#[tokio::test]
+async fn a_new_replay_drops_previous_history_rows_and_lands_below_kept_live_rows() {
+    let (session, epoch) = session();
+    let mut replay = replay_for(&session, epoch);
+    let mut port = FakePort::with(vec![(None, page(&["a", "b"], None))]);
+    replay.first(&session, &mut port).await.unwrap();
+    assert!(replay.done);
+    assert!(session
+        .cache
+        .lock()
+        .finish_backfill(replay.generation, HistoryBackfill::Complete));
+    session
+        .cache
+        .lock()
+        .reconcile_live(row("aborted", "turn aborted"), 1);
+    assert_eq!(ids(&session), ["a", "b", "aborted"]);
+
+    let mut again = replay_for(&session, epoch);
+    assert_eq!(ids(&session), ["aborted"]);
+    let mut port = FakePort::with(vec![
+        (None, page(&["b", "c"], Some("older"))),
+        (Some("older"), page(&["a"], None)),
+    ]);
+    again.first(&session, &mut port).await.unwrap();
+    assert_eq!(ids(&session), ["b", "c", "aborted"]);
+    make_ready(&session, epoch);
+    again.rest(&session, &mut port).await.unwrap();
+    assert_eq!(ids(&session), ["a", "b", "c", "aborted"]);
     assert_seq_ascending(&session);
 }
 
