@@ -156,16 +156,42 @@ pub(super) fn launch_spec(
 ) -> Option<codeterm_types::agent::LaunchSpec> {
     if provider.has_js("buildLaunchSpec") {
         let wire = match params {
-            crate::provider::LaunchSpecParams::Fresh(params) => super::wire::launch_params_to_json(params),
-            crate::provider::LaunchSpecParams::Resume(params) => serde_json::json!({"resume": params}),
+            crate::provider::LaunchSpecParams::Fresh(params) => {
+                super::wire::launch_params_to_json(params)
+            }
+            crate::provider::LaunchSpecParams::Resume(params) => {
+                serde_json::json!({"resume": params})
+            }
         };
-        return provider.try_call(
-            "buildLaunchSpec",
-            &[wire],
-        );
+        return provider.try_call("buildLaunchSpec", &[wire]);
     }
     match params {
-        crate::provider::LaunchSpecParams::Fresh(params) => launch_spec_from_template(&provider.manifest, params),
+        crate::provider::LaunchSpecParams::Fresh(params) => {
+            launch_spec_from_template(&provider.manifest, params)
+        }
         crate::provider::LaunchSpecParams::Resume(_) => None,
     }
+}
+
+pub(super) fn build_resume_command(
+    provider: &super::JsProvider,
+    session_id: &str,
+    skip_permissions: bool,
+) -> Option<String> {
+    if !provider.has_js("buildResumeCommand") {
+        if let Some(command) =
+            resume_command_from_template(&provider.manifest, session_id, skip_permissions)
+        {
+            return Some(command);
+        }
+    }
+    provider
+        .try_call::<Option<String>>(
+            "buildResumeCommand",
+            &[
+                serde_json::json!(session_id),
+                serde_json::json!(skip_permissions),
+            ],
+        )
+        .flatten()
 }

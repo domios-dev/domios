@@ -84,14 +84,18 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                 codeterm_service_core::startup::boot_timing::mark(tab_id, None, "cwd_check_done");
                 result
             },
-            |tab_id| {
-                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "wave_admitted");
+            |tab_id, admission| {
+                admission.mark(tab_id, None, "wave_admitted");
                 let result = if service_state.tab_chat_backing(tab_id).is_some() {
                     service_state
                         .chatbackend_reopen_if_restored(tab_id)
                         .map(|_| ())
                 } else {
-                    service::restore_admission::admit_restored_pty(&service_state, tab_id)
+                    service::restore_admission::admit_restored_pty(
+                        &service_state,
+                        tab_id,
+                        admission,
+                    )
                 };
                 if let Err(reason) = &result {
                     publish_backend_materialization_failure(&service_state, tab_id, reason);

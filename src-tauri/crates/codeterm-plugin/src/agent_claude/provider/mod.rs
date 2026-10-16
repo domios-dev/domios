@@ -187,6 +187,10 @@ impl AgentProvider for ClaudeProvider {
         launch::build_launch_command(params)
     }
 
+    fn declares_launch_spec(&self) -> bool {
+        true
+    }
+
     fn launch_spec(
         &self,
         params: &crate::provider::LaunchSpecParams<'_>,
