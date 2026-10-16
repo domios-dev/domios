@@ -1,4 +1,5 @@
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { ChildTranscriptScope } from "./ChildTranscriptScope";
 import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { heldMessagesForLaunch } from "./chatSetupModel";
@@ -785,6 +786,8 @@ function TabSessionChatBody({
 
   return (
     <ChatHighlightBudgetProvider>
+    <ChildTranscriptScope tabId={tabId} authority={runtime.state?.state === "loaded" && tab?.agent_session_id && tab.session_binding_nonce
+      ? {rootThreadId:tab.agent_session_id,bindingNonce:tab.session_binding_nonce,epoch:runtime.state.epoch} : null}>
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <PluginNameProvider resolve={resolvePluginName}>
@@ -1066,6 +1069,7 @@ function TabSessionChatBody({
     </PluginNameProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>
+    </ChildTranscriptScope>
     </ChatHighlightBudgetProvider>
   );
 }
