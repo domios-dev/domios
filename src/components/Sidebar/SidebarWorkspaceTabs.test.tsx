@@ -165,6 +165,33 @@ test("teamless_tabs_render_plain", async () => {
   await act(async () => root.unmount());
 });
 
+test("bound Team menu renames the displayed plan rather than the hidden Team identity", async () => {
+  const tabs = { manager: tab({ id: "manager", title: "Manager", role: "Manager", team_id: TEAM.id }) };
+  const currentPlan = plan([]);
+  const renamed: string[][] = [];
+  const { host, root } = await renderSidebar({
+    tabs,
+    plans: [currentPlan],
+    onRenamePlan: async (id, title) => { renamed.push([id, title]); },
+    onRenameTeam: () => { throw new Error("Bound plan rename must not mutate the hidden Team name"); },
+  });
+  await act(async () => (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
+  const rename = Array.from(document.querySelectorAll('[data-testid="team-menu"] [role="menuitem"]'))
+    .find((item) => item.textContent?.includes("Rename")) as HTMLButtonElement | undefined;
+  assert(rename, "Rename is available for a Team with an active plan");
+  await act(async () => rename.click());
+  const input = host.querySelector('[data-testid="team-name-input"]') as HTMLInputElement;
+  assert(input.value === currentPlan.title, "the editor starts with the displayed title");
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  await act(async () => {
+    setter?.call(input, "Renamed effort");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  assert(JSON.stringify(renamed) === JSON.stringify([[currentPlan.id, "Renamed effort"]]), "rename targets the displayed plan once");
+  await act(async () => root.unmount());
+});
+
 test("team header renders the live compact status tally", async () => {
   const tabs = {
     orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),

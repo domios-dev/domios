@@ -2143,7 +2143,7 @@ button,
   align-items: center;
   gap: 6px;
   margin: 0;
-  padding: 7px 7px 3px 10px;
+  padding: 7px 3px 3px 10px;
   border-radius: 7px;
   color: var(--ct-fg);
 }
@@ -2681,15 +2681,15 @@ button,
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  width: 46px;
-  height: 20px;
+  width: 38px;
+  height: 22px;
 }
 
 .sidebar-team-menu-root {
   position: relative;
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 22px;
 }
 
 .sidebar-team-board-action {
@@ -2720,7 +2720,7 @@ button,
   height: 100%;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 160ms ease;
+  transition: opacity 0.2s linear;
 }
 
 .sidebar-team-unit-activatable .sidebar-team-progress-slot,
@@ -2760,11 +2760,6 @@ button,
 }
 
 [data-touch-mode="true"] .sidebar-team-count { opacity: 0; }
-
-.sidebar-team-kebab:hover {
-  background: var(--ct-border);
-  color: var(--ct-fg);
-}
 
 .sidebar-team-menu {
   --ct-menu-origin: top right;
