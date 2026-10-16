@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_service_core::service::MuxEmitCause;
 
 /// Clear pending_prompt state without sending to PTY (safe for cleanup/reset).
 pub async fn clear_prompt(
@@ -50,7 +51,7 @@ pub async fn set_agent_type(
                 state.svc.set_tab_agent_type(&tab_id, None);
             }
         }
-        state.svc.emit_state_changed();
+        state.svc.emit_state_changed(MuxEmitCause::AgentIdentity);
         Ok(Json(serde_json::json!({"ok": true})))
     })
     .await

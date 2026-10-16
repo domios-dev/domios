@@ -1,4 +1,5 @@
 use crate::multiplexer::types::{Tab, TabBacking};
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_pty::multiplexer::restore_policy::{restore_on_boot, RestoreDecision};
 use codeterm_types::pty::BootStage;
@@ -137,7 +138,7 @@ fn wake_with(
         super::boot_stage::apply_boot_stage(tab, stage, None);
         retry_started_agent
     };
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     let result = materialize(&id, retry_started_agent);
     if let Err(reason) = &result {
         if let Some(tab) = svc.mux.write().get_tab_mut(&id) {
@@ -145,7 +146,7 @@ fn wake_with(
             super::boot_stage::apply_boot_stage(tab, BootStage::SpawnFailed, Some(reason));
         }
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     result
 }
 

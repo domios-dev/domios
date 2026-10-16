@@ -2,6 +2,7 @@ use super::{
     engine::{self, Session},
     model::{RuntimeFailure, RuntimePhase, RuntimeState},
 };
+use crate::service::MuxEmitCause;
 use crate::{multiplexer::types::TabBacking, service::ServiceContext};
 use std::sync::{atomic::Ordering, Arc};
 
@@ -122,7 +123,7 @@ async fn restart_inner(
     if let Some(session) = &session {
         engine::publish(svc, tab, session);
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     let result = async {
         svc.prepare_agent_runtime_launch_env(tab, &environment)
             .map_err(RuntimeFailure::Refused)?;
@@ -182,5 +183,5 @@ fn publish_failure(
             target.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
         }
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
 }

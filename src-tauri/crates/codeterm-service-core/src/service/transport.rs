@@ -4,6 +4,7 @@
 //! `chatbackend_launch`). [`ServiceContext::spawn_tab_atomic`] builds the tab
 //! and returns a snapshot only after transport launch succeeds.
 
+use crate::service::MuxEmitCause;
 use serde::{Deserialize, Serialize};
 
 use super::spawn::{should_default_agent_tab_to_chat, TabVisibility};
@@ -439,7 +440,7 @@ impl ServiceContext {
         }
         let pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.rollback_provisional_tab(&ws_id, &tab_id);
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabLifecycle);
         })?;
         let _ = self.focus_tab(&tab_id);
 
@@ -453,7 +454,7 @@ impl ServiceContext {
         if let Err(error) = persistence {
             self.rollback_provisional_tab(&ws_id, &tab_id);
             let _ = self.revoke_agent_pad(&tab_id);
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabLifecycle);
             if let Err(rollback_error) =
                 crate::service::session_persist::write_session_snapshot_with_intent(
                     self,
@@ -487,13 +488,13 @@ impl ServiceContext {
                     self.rollback_provisional_tab(&ws_id, &tab_id);
                     let _ = self.revoke_agent_pad(&tab_id);
                 }
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::TabLifecycle);
             },
         )?;
         drop(pad);
 
         let snapshot = self.mux.read().snapshot();
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
 
         Ok(AtomicSpawn {
             snapshot,

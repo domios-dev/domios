@@ -1,4 +1,4 @@
-use super::{MuxEmitPending, MuxEmitStats, PublishedMuxState, ServiceContext};
+use super::{MuxEmitCause, MuxEmitPending, MuxEmitStats, PublishedMuxState, ServiceContext};
 use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc};
 
@@ -9,6 +9,7 @@ struct Pending<T> {
     latest: Option<T>,
     focuses: Vec<String>,
     snapshot_requested: bool,
+    causes: u64,
 }
 
 struct Emitter<T> {
@@ -23,13 +24,22 @@ impl<T> Emitter<T> {
             latest: None,
             focuses: Vec::new(),
             snapshot_requested: false,
+            causes: 0,
         }));
         (Self { wake, pending }, receiver)
     }
 
-    fn request(&self, state: T, focus: Option<String>) -> Option<(T, bool, Vec<String>)> {
+    fn request(
+        &self,
+        state: T,
+        focus: Option<String>,
+        cause: Option<MuxEmitCause>,
+    ) -> Option<(T, bool, Vec<String>, u64)> {
         let mut pending = self.pending.lock();
         pending.latest = Some(state);
+        if let Some(cause) = cause {
+            pending.causes |= cause.bit();
+        }
         pending.snapshot_requested |= focus.is_none();
         pending.focuses.extend(focus);
         match self.wake.try_send(()) {
@@ -40,6 +50,7 @@ impl<T> Emitter<T> {
                     state,
                     std::mem::take(&mut pending.snapshot_requested),
                     std::mem::take(&mut pending.focuses),
+                    std::mem::take(&mut pending.causes),
                 ))
             }
         }
@@ -47,7 +58,12 @@ impl<T> Emitter<T> {
 }
 
 impl MuxEmitter {
-    pub(super) fn request(&self, service: &ServiceContext, focus: Option<String>) {
+    pub(super) fn request(
+        &self,
+        service: &ServiceContext,
+        focus: Option<String>,
+        cause: Option<MuxEmitCause>,
+    ) {
         let mut emitter = self.0.lock();
         if emitter.is_none() {
             let (sender, receiver) = Emitter::channel();
@@ -64,19 +80,20 @@ impl MuxEmitter {
                         service.clone(),
                         focus.is_none(),
                         focus.into_iter().collect(),
+                        cause.map_or(0, MuxEmitCause::bit),
                     );
                     return;
                 }
             }
         }
         if let Some(sender) = emitter.as_ref() {
-            if let Some((state, snapshot_requested, focuses)) =
-                sender.request(service.clone(), focus)
+            if let Some((state, snapshot_requested, focuses, causes)) =
+                sender.request(service.clone(), focus, cause)
             {
                 *emitter = None;
                 drop(emitter);
                 log::error!("[events] mux emitter disconnected");
-                emit(state, snapshot_requested, focuses);
+                emit(state, snapshot_requested, focuses, causes);
             }
         }
     }
@@ -85,7 +102,7 @@ impl MuxEmitter {
 fn run<T>(
     receiver: mpsc::Receiver<()>,
     pending: Arc<parking_lot::Mutex<Pending<T>>>,
-    mut emit: impl FnMut(T, bool, Vec<String>),
+    mut emit: impl FnMut(T, bool, Vec<String>, u64),
 ) {
     while receiver.recv().is_ok() {
         let batch = {
@@ -95,18 +112,19 @@ fn run<T>(
                     state,
                     std::mem::take(&mut pending.snapshot_requested),
                     std::mem::take(&mut pending.focuses),
+                    std::mem::take(&mut pending.causes),
                 )
             })
         };
-        if let Some((state, snapshot_requested, focuses)) = batch {
-            emit(state, snapshot_requested, focuses);
+        if let Some((state, snapshot_requested, focuses, causes)) = batch {
+            emit(state, snapshot_requested, focuses, causes);
         }
     }
 }
 
-fn emit(service: ServiceContext, snapshot_requested: bool, focuses: Vec<String>) {
+fn emit(service: ServiceContext, snapshot_requested: bool, focuses: Vec<String>, causes: u64) {
     if snapshot_requested {
-        emit_snapshot(&service);
+        emit_snapshot(&service, causes);
     }
     for tab_id in focuses {
         service
@@ -115,7 +133,7 @@ fn emit(service: ServiceContext, snapshot_requested: bool, focuses: Vec<String>)
     }
 }
 
-fn emit_snapshot(service: &ServiceContext) {
+fn emit_snapshot(service: &ServiceContext, causes: u64) {
     let stats = service.ext::<Arc<MuxEmitStats>>();
     stats.pending_since_ms.store(0, Ordering::Relaxed);
     service
@@ -147,6 +165,7 @@ fn emit_snapshot(service: &ServiceContext) {
     }
     if !stats.frozen.load(Ordering::Acquire) {
         stats.fires.fetch_add(1, Ordering::Relaxed);
+        stats.causes.fire(causes);
         service.ui.emit_native(
             "mux-state-changed",
             serde_json::to_value(&snapshot).unwrap_or_default(),

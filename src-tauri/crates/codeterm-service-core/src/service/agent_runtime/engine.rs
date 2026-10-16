@@ -3,6 +3,7 @@ use super::{
     process::Process,
     process_slot::ProcessSlot,
 };
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use parking_lot::Mutex;
@@ -576,7 +577,7 @@ async fn ensure_locked(
         publish(svc, tab, session);
         backfill::continue_in_background(port, replay, reopen);
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     Ok(())
 }
 

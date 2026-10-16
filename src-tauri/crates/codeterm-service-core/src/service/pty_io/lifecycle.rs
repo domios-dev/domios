@@ -7,6 +7,7 @@ use super::{
 use crate::multiplexer::commands::MuxState;
 use crate::service::boot_stage::BootStage;
 use crate::service::restore_admission::Admission;
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 
 mod empty_session;
@@ -407,7 +408,7 @@ impl ServiceContext {
                 "restored_provider_unresolved: Tab {tab_id} retains its session but has no unique lifecycle journal owner"
             );
             self.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason.as_str()));
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabLifecycle);
             return Err(reason);
         };
         let result = self.commit_verified_tab_agent_type_with_origin(
@@ -435,7 +436,7 @@ impl ServiceContext {
             Ok(Some(crate::service::provider_identity::ConditionalAgentTypeWrite::Committed {
                 ..
             })) => {
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::TabLifecycle);
                 Ok(())
             }
             _ => Err(format!(
@@ -835,7 +836,7 @@ impl ServiceContext {
         if restored_empty {
             self.emit_empty_restore_notice(tab_id);
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
         Ok(())
     }
 
@@ -845,7 +846,7 @@ impl ServiceContext {
             tab.agent_booting = false;
         }
         self.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
     }
 
     pub fn resize_tab(&self, tab_id: &str, cols: u16, rows: u16) -> Result<(), String> {

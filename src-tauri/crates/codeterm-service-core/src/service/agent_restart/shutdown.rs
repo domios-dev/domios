@@ -1,4 +1,5 @@
 use super::{ServiceContext, TabRestartSnapshot};
+use crate::service::MuxEmitCause;
 use std::time::Duration;
 
 impl ServiceContext {
@@ -132,7 +133,7 @@ impl ServiceContext {
             );
         }
         crate::service::boot_wait::notify_boot_changed();
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentRestart);
         Ok(())
     }
 }

@@ -2,6 +2,7 @@ use super::{
     engine::{self, Session},
     model::RuntimeFailure,
 };
+use crate::service::MuxEmitCause;
 use crate::service::{
     chat_send_transaction::SendLiveBinding, delivery_error::DeliveryError, ServiceContext,
 };
@@ -272,7 +273,7 @@ pub fn launch(
     let result = crate::async_runtime::block_on(engine::ensure(svc, tab))
         .map(|_| ())
         .map_err(|error| format!("Runtime tab {tab} degraded: {error}"));
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     result
 }
 

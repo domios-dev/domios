@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -43,7 +44,8 @@ impl ServiceContext {
             &self.agent_registry,
         ) else {
             drop(published);
-            Arc::new(self.clone()).emit_state_changed_when_snapshot_readable();
+            Arc::new(self.clone())
+                .emit_state_changed_when_snapshot_readable(MuxEmitCause::TabStatus);
             return;
         };
         let mut idle_tabs = Vec::new();

@@ -1,4 +1,5 @@
 use crate::multiplexer::types::RestorableRuntimeLaunchOptions;
+use crate::service::MuxEmitCause;
 use crate::service::{
     launch_session_detection, permission_policy, ServiceContext, SpawnAgentParams,
 };
@@ -189,7 +190,7 @@ fn publish_failure(svc: &ServiceContext, tab_id: &str, scope: &(String, String),
         serde_json::json!({"tab_id":tab_id, "session_binding_nonce":tab.session_binding_nonce, "state":snapshot})
     };
     svc.notify_event("agent-runtime-state", event);
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::BootStage);
 }
 
 fn runtime_settings(options: &RestorableRuntimeLaunchOptions) -> RuntimeSettings {

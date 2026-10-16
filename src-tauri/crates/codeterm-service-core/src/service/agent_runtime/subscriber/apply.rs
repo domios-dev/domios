@@ -1,6 +1,7 @@
 use super::super::engine::{self, Session};
 use super::super::events::{self, RuntimeEvent};
 use super::super::model::{RuntimeFailure, RuntimePhase};
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use std::sync::Arc;
@@ -339,6 +340,6 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         _ => {}
     }
     if !matches!(session.state.lock().phase, RuntimePhase::Loading) {
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
     }
 }

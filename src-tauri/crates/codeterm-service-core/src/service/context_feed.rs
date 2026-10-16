@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use codeterm_types::agent::context::TurnContext;
 
 pub(crate) fn merge(
@@ -89,7 +90,7 @@ pub fn update(
     }
     tab.context = context;
     drop(mux);
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::ContextFeed);
     true
 }
 

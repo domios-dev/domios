@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use codeterm_types::pty::{AgentLiveness, BootStage};
 
 use super::{AgentRestartError, RestartAttemptError, TabRestartSnapshot};
@@ -194,7 +195,7 @@ impl ServiceContext {
             },
         );
         self.schedule_session_persist_debounced();
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentRestart);
         Ok(())
     }
 }

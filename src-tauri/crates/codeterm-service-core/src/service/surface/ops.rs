@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use serde::Serialize;
 
 use super::model::{
@@ -57,7 +58,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             place_surface_tab(&mut mux, &request, &target, &surface.title, backing)?
         };
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Surface);
         Ok(row)
     }
 

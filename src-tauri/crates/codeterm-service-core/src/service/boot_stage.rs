@@ -4,6 +4,7 @@
 
 use super::ServiceContext;
 use crate::multiplexer::types::Tab;
+use crate::service::MuxEmitCause;
 
 pub use codeterm_types::pty::{BootStage, BootStageSink, ProvisionalLaunch};
 
@@ -305,7 +306,7 @@ impl ServiceContext {
             }
             tab.boot_failure_reason = Some(reason.to_string());
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::BootStage);
         true
     }
 
@@ -474,7 +475,7 @@ impl ServiceContext {
             );
         }
         if stage_publishes_mux_snapshot(stage) {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::BootStage);
         }
     }
 

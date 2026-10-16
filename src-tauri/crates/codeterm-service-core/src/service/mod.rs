@@ -92,7 +92,9 @@ pub mod prompt_resolution;
 pub use prompt_resolution::tests as prompt_resolution_tests;
 pub(crate) mod protocol_recorder;
 pub use protocol_recorder::ProtocolRecorder;
+mod mux_emit_stats;
 mod mux_emitter;
+pub use mux_emit_stats::{MuxEmitCause, MuxEmitCauseStats};
 pub mod provider_cli;
 mod published_mux_state;
 pub use provider_cli::provider_cli_status as provider_cli_provider_cli_status;
@@ -116,6 +118,7 @@ pub(crate) use orchestrator::role_onboarding_task;
 pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
+pub(crate) mod execution_sandbox;
 mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod output;
@@ -125,7 +128,6 @@ pub mod pending_delivery_payloads;
 pub(crate) mod permission_auto_confirm;
 pub mod permission_decision;
 pub mod permission_policy;
-pub(crate) mod execution_sandbox;
 pub use permission_policy::configured_permission_bypass_for as permission_policy_configured_permission_bypass_for;
 pub mod persona;
 pub mod plan;
@@ -456,6 +458,7 @@ pub struct BridgeOutboundRx(
 /// shows requests climbing, fires flat, pending stuck true with a growing age.
 #[derive(Default)]
 pub struct MuxEmitStats {
+    pub causes: MuxEmitCauseStats,
     pub requests: AtomicU64,
     pub fires: AtomicU64,
     pub suppressed: AtomicU64,
@@ -683,12 +686,13 @@ impl ServiceContext {
         );
     }
 
-    pub fn emit_state_changed(&self) {
+    pub fn emit_state_changed(&self, cause: MuxEmitCause) {
         publish_mux_state_changed(&self.events);
-        self.emit_state_changed_after_bus_publish();
+        self.emit_state_changed_after_bus_publish(cause);
     }
 
-    pub fn emit_state_changed_after_bus_publish(&self) {
+    pub fn emit_state_changed_after_bus_publish(&self, cause: MuxEmitCause) {
+        self.ext::<Arc<MuxEmitStats>>().causes.request(cause);
         self.publish_authoritative_tab_statuses();
         self.output_stream_mux_changed();
         self.ext::<Arc<crate::service::MuxEmitStats>>()
@@ -715,12 +719,13 @@ impl ServiceContext {
                 .pending_since_ms
                 .store(wall_now_ms(), Ordering::Relaxed);
         }
-        self.ext::<mux_emitter::MuxEmitter>().request(self, None);
+        self.ext::<mux_emitter::MuxEmitter>()
+            .request(self, None, Some(cause));
     }
 
     /// Socket mutations use the same published view and coalescing as local mutations.
     pub fn emit_mux_state_changed_empty(&self) {
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
     }
 
     pub(crate) fn emit_tab_title_pinned(&self, tab_id: &str, title: &str) {
@@ -743,7 +748,7 @@ impl ServiceContext {
                 tab_id: tab_id.to_string(),
             });
         self.ext::<mux_emitter::MuxEmitter>()
-            .request(self, Some(tab_id.to_string()));
+            .request(self, Some(tab_id.to_string()), None);
     }
 
     pub fn kill_ptys(&self, pty_ids: &[String]) {
