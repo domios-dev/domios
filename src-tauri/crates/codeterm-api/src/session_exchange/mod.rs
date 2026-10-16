@@ -4,6 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_service_core::service::MuxEmitCause;
 use codeterm_service_core::session::store::{SessionSnapshot, SplitNodeSnapshot};
 use serde_json::{json, Value};
 
@@ -213,7 +214,7 @@ pub async fn import(
         }
         *svc.mux.write() = candidate;
         codeterm_service_core::service::agent_runtime::restore_all(&svc);
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::SessionRestore);
         Ok::<_, String>(
             json!({"imported_tabs":count,"restart_required":true,"boot_id":svc.events.boot_id()}),
         )

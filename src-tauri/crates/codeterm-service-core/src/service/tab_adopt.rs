@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use serde::Serialize;
 
 use crate::multiplexer::types::{Tab, TabBacking};
@@ -258,7 +259,7 @@ impl ServiceContext {
         } else {
             RepairFieldStatus::Corrected
         };
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
         Ok(TabAdoptResponse {
             ok: true,
             tab_id: tab_id.to_string(),

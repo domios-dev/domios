@@ -1,4 +1,5 @@
 use super::{engine, RuntimeFailure, ServiceContext, Session};
+use crate::service::MuxEmitCause;
 use codeterm_plugin::agent_runtime::{RuntimeContext, RuntimeOperation, RuntimeResult};
 use serde_json::Value;
 use std::{collections::HashSet, sync::Arc};
@@ -85,7 +86,7 @@ pub(super) fn schedule(
             if let Err(reason) = result {
                 session.state.lock().degrade(epoch, &reason);
                 engine::publish(&owner, &expected.tab_id, &session);
-                owner.emit_state_changed();
+                owner.emit_state_changed(MuxEmitCause::RuntimeSignal);
                 log::debug!(
                     "[agent-runtime] tab={} context restore failed: {reason}; sends held",
                     expected.tab_id

@@ -1,5 +1,6 @@
 //! Telegram bridge boot/restart entry. Re-exported at the crate root.
 
+use crate::service::MuxEmitCause;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -102,7 +103,7 @@ pub fn unmark_tab_connected_service(svc: &ServiceState, service: &str) {
         before != tab.connected_services.len()
     };
     if removed {
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::Startup);
     }
 }
 

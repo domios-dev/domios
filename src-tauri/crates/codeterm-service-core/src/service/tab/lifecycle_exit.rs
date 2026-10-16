@@ -1,5 +1,6 @@
 use super::ServiceContext;
 use crate::service::session_model::clear_runtime_model_evidence;
+use crate::service::MuxEmitCause;
 
 #[cfg(any(test, feature = "test-support"))]
 pub fn clear_agent_identity_for_lifecycle_exit(tab: &mut crate::multiplexer::types::Tab) -> bool {
@@ -479,7 +480,7 @@ impl ServiceContext {
         self.clear_dead_planner_binding(tab_id);
         self.prompt_detector.lock().clear(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
         if matches!(source, "pty-exit" | "lifecycle-clear" | "finished-marker") {
             if let Some(pty_id) = identity.pty_id.as_deref() {
                 crate::service::pty_io::submit_transaction::notify_submit_cycle_provider_exit(

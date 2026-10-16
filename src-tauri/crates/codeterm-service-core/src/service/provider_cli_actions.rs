@@ -1,6 +1,7 @@
 use super::shell_exec::{ExecCompletion, ExecWaiter};
 use super::spawn::SpawnTabSpec;
 use super::ServiceContext;
+use crate::service::MuxEmitCause;
 use codeterm_plugin::provider_cli::ProviderCliStatus;
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
@@ -187,7 +188,7 @@ pub fn launch_with_dispatch(
                 .mux
                 .write()
                 .set_tab_description(&monitor_tab, Some(fit_tab_description(&summary)));
-            service.emit_state_changed();
+            service.emit_state_changed(MuxEmitCause::TabLifecycle);
             service.ui.emit("provider-cli-completed", serde_json::to_value(serde_json::json!({
                 "provider": provider, "operation": operation, "tab_id": monitor_tab,
                 "exit_code": completion.and_then(ExecCompletion::exit_code), "status": status, "summary": summary,

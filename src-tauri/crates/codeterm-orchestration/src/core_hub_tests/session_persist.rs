@@ -1,3 +1,4 @@
+use codeterm_service_core::service::MuxEmitCause;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -81,7 +82,9 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
     if let Some(tab) = fixture.service.mux.write().get_tab_mut(&tab_id) {
         tab.reported_session_binding_nonce = Some(nonce.into());
     }
-    fixture.service.emit_state_changed();
+    fixture
+        .service
+        .emit_state_changed(MuxEmitCause::TabLifecycle);
     let transient_tab = fixture
         .service
         .create_tab_with_activate(&workspace_id, false)
@@ -225,7 +228,9 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
         committed.snapshot.active_workspace_id,
         Some(moved_workspace.id.clone())
     );
-    fixture.service.emit_state_changed();
+    fixture
+        .service
+        .emit_state_changed(MuxEmitCause::TabLifecycle);
     event_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("second coalesced mux event");

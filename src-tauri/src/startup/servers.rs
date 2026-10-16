@@ -1,5 +1,6 @@
 //! Start socket server, REST API server, cron scheduler, GA, mesh, bridge.
 
+use codeterm_service_core::service::MuxEmitCause;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -130,7 +131,7 @@ fn publish_backend_materialization_failure(service: &ServiceState, tab_id: &str,
         codeterm_types::pty::BootStage::SpawnFailed,
         Some(reason),
     );
-    service.emit_state_changed();
+    service.emit_state_changed(MuxEmitCause::Startup);
 }
 
 /// A missed frontend deadline never abandons restored agents: the backend claims

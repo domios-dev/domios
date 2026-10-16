@@ -4,6 +4,7 @@ use super::worker::{WorkerTurnReport, WorkerTurnState};
 use crate::agent::reports::ReportDetails;
 use crate::service::chat_send_evidence::{contains_exact_user_turn_since, ExactTurnCursor};
 use crate::service::chat_send_transaction::{EvidenceWindow, SendEvidenceAnchor};
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use parking_lot::Mutex;
 
@@ -130,7 +131,7 @@ impl ServiceContext {
         match result {
             Ok(()) => {
                 state.lock().mark_acknowledged(task.clone());
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::PlanTask);
             }
             Err(error) => {
                 log::warn!("[tool-less-worker] target={target} exact-turn ACK refused: {error}")

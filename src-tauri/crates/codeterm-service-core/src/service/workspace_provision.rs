@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use std::path::{Path, PathBuf};
 
 use super::ServiceContext;
@@ -73,7 +74,7 @@ impl ServiceContext {
             ws.id,
             cwd
         );
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         if let Err(error) =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)
         {

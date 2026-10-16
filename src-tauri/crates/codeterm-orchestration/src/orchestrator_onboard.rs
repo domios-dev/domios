@@ -1,5 +1,6 @@
 //! Promote a tab to Orchestrator and inject the onboarding cheat-sheet.
 
+use codeterm_service_core::service::MuxEmitCause;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
 use codeterm_service_core::mem::{SearchHit, SearchQuery};
@@ -138,7 +139,7 @@ pub fn deliver_orchestrator_onboarding(svc: &ServiceContext, tab_id: &str) {
     if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
         tab.pending_greeting = Some(body.clone());
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::Team);
     if let Err(error) =
         codeterm_service_core::service::session_persist::persist_session_after_mutation(
             svc,

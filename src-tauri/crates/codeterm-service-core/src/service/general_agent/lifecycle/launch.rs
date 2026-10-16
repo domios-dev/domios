@@ -1,5 +1,6 @@
 use super::*;
 use crate::service::general_agent::session_contract::{LaunchOwnership, TabLaunch};
+use crate::service::MuxEmitCause;
 
 pub(super) fn start(
     svc: &crate::ServiceState,
@@ -159,7 +160,7 @@ pub(super) fn start(
         crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
         None,
     );
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::GeneralAgent);
     log::info!("[general-agent] PTY {} linked to Tab {}", pty_id, tab_id);
 
     // Start backend reader on a tokio runtime (start_backend_reader uses tokio::spawn, but we're on a plain std::thread — no tokio runtime here)
@@ -470,7 +471,7 @@ pub(super) fn start(
     if let Some(tab) = settled_tab {
         svc.general_agent_watchdog_event(&tab, super::super::WatchdogEvent::LaunchSettlement);
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::GeneralAgent);
     log::info!(
         "[general-agent] Started successfully (tab={}, pty={})",
         tab_id,
