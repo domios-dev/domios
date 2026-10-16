@@ -2,7 +2,7 @@ use super::*;
 use crate::agent::provider::*;
 use crate::service::test_fixture::ServiceFixture;
 use parking_lot::Mutex;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
@@ -90,6 +90,7 @@ impl AgentProvider for Adapter {
             fast_mode: false,
             background_processes: false,
             goals: None,
+            thread_history: None,
             stored_history: false,
             usage: false,
             reset_credits_min_version: None,
@@ -271,6 +272,7 @@ pub(super) fn scene() -> Scene {
         history_retry: Mutex::new(None),
         controls_confirmation: Mutex::new(None),
         control_changes: tokio::sync::watch::channel(()).0,
+        reverted_thread: Mutex::new(None),
     });
     validate_runtime_context(&session.context.lock()).unwrap();
     Scene {

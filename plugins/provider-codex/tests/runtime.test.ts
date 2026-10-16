@@ -171,13 +171,23 @@ function replay(fixture:Fixture) {
   return {events,state};
 }
 const names = fs.readdirSync(fileURLToPath(root)).filter(n => n.endsWith(".json")).sort();
-assert.equal(names.length,9);
+assert.equal(names.length,11);
 for (const name of names) check(`replay ${name}`,()=>replay(JSON.parse(fs.readFileSync(new URL(name,root),"utf8"))));
 for (const name of fs.readdirSync(new URL("captured/",root)).filter(n=>n.endsWith(".json") && n!=="metrics.json").sort())
   check(`captured traffic ${name}`,()=>replay(JSON.parse(fs.readFileSync(new URL(`captured/${name}`,root),"utf8"))));
 const sample = JSON.parse(fs.readFileSync(new URL("multi-turn.json",root),"utf8")) as Fixture;
 const ctx = sample.context;
 const submit = sample.operations[0].operation;
+check("thread reverted evidence is scoped to the bound thread",()=> {
+  const own=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/reverted",params:{threadId:ctx.threadId}}]);
+  assert.deepEqual(own.events,[{kind:"threadReverted",threadId:ctx.threadId}]);
+  const foreign=hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/reverted",params:{threadId:"foreign-thread"}}]);
+  assert.deepEqual(foreign.events,[]);
+});
+check("thread history refuses active turns before making a provider request",()=> {
+  const operation:Operation={kind:"control",threadId:ctx.threadId,action:"threadHistory",value:{action:"revert",turnId:"turn-two"}};
+  assert.throws(()=>hooks.runtimePlan({...ctx,activeTurnId:"turn-active"},operation),/active turn/i);
+});
 check("recorded first replies follow binding without an injected developer item",()=> {
   const captured=JSON.parse(fs.readFileSync(new URL("captured/multi-turn.json",root),"utf8")) as Fixture;
   const opening=captured.operations.findIndex(entry=>entry.operation.kind === "openThread");

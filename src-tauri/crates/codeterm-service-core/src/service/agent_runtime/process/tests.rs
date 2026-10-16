@@ -5,6 +5,7 @@ fn capability() -> AgentRuntimeCapability {
         fast_mode: false,
         background_processes: false,
         goals: None,
+        thread_history: None,
         stored_history: false,
         usage: false,
         reset_credits_min_version: None,

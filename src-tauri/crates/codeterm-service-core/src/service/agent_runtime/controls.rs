@@ -1,10 +1,10 @@
 use super::{engine, model::RuntimeFailure};
 use crate::multiplexer::types::TabBacking;
+use crate::service::MuxEmitCause;
 use crate::service::agent_restart::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };
-use crate::service::MuxEmitCause;
-use crate::service::{agent_runtime::model::RuntimeMode, ServiceContext};
+use crate::service::{ServiceContext, agent_runtime::model::RuntimeMode};
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeSettings};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -244,6 +244,12 @@ pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
 }
 
 pub(super) fn observe_event(session: &engine::Session, event: &super::events::RuntimeEvent) {
+    if let super::events::RuntimeEvent::ThreadReverted { thread_id } = event {
+        if session.context.lock().thread_id.as_deref() == Some(thread_id) {
+            *session.reverted_thread.lock() = Some(thread_id.clone());
+            session.control_changes.send_replace(());
+        }
+    }
     if let super::events::RuntimeEvent::TurnUpdated {
         thread_id,
         turn_id: Some(turn),

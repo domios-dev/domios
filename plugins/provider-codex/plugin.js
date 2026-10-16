@@ -2484,6 +2484,10 @@ function runtimeReduce(ctx, raw, frames) {
       events.push(notificationAuth(params));
       continue;
     }
+    if (frame.kind === "notification" && frame.method === "thread/reverted") {
+      if (ctx.threadId && params.threadId === ctx.threadId) events.push({ kind: "threadReverted", threadId: ctx.threadId });
+      continue;
+    }
     state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
     if (frame.kind === "notification" && frame.method === "thread/started") {
       const thread = object(params.thread);
@@ -2749,6 +2753,49 @@ function turnParams(ctx, op) {
     effort: op.settings.effort
   };
 }
+function threadHistoryPlan(ctx, thread, value) {
+  const action = text(object(value).action);
+  const turnId = text(object(value).turnId);
+  if (action !== "fork" && action !== "revert" || !turnId || turnId.length > 4096) fail2("invalid_schema", "Invalid thread history action");
+  if (ctx.activeTurnId) fail2("provider_refused", "Thread history cannot change during an active turn");
+  return request(
+    "thread/turns/list",
+    { threadId: thread, itemsView: "notLoaded", sortDirection: "asc", limit: 8 },
+    { stage: "threadHistoryTurns", action, turnId, cursor: null, targetFound: false }
+  );
+}
+function threadHistoryTurns(ctx, op, state, value) {
+  const thread = op.threadId ?? ctx.threadId;
+  const action = text(state.action);
+  const turnId = text(state.turnId);
+  if (!thread || !action || !turnId || !Array.isArray(value.data) || value.data.length > 8) return refused("Invalid thread history page");
+  let targetFound = state.targetFound === true;
+  for (const raw of value.data) {
+    const turn = object(raw);
+    const id = text(turn.id);
+    if (!id || id.length > 4096) return refused("Thread history turn identity missing");
+    if (targetFound) {
+      if (action === "revert") return continuation(request("thread/revert", { threadId: thread, beforeTurnId: id }, { stage: "thread/revert", turnId }));
+      return refused("Fork boundary resolution failed");
+    }
+    if (id !== turnId) continue;
+    if (turn.status === "inProgress") return refused("Active turns cannot be forked or reverted");
+    if (action === "fork") return continuation(request(
+      "thread/fork",
+      { threadId: thread, lastTurnId: turnId },
+      { stage: "thread/fork", turnId }
+    ));
+    targetFound = true;
+  }
+  const next = text(value.nextCursor);
+  if (next && (next.length > 4096 || next === state.cursor)) return refused("Thread history cursor did not advance");
+  if (next) return continuation(request(
+    "thread/turns/list",
+    { threadId: thread, itemsView: "notLoaded", sortDirection: "asc", limit: 8, cursor: next },
+    { ...state, cursor: next, targetFound }
+  ));
+  return targetFound ? refused("There is no later turn to revert") : refused("Selected turn is not in the bound thread");
+}
 function validateBinding(ctx, op) {
   if (op.kind === "backgroundProcesses") {
     if (!backgroundOwns(ctx, op.threadId)) fail2("binding_mismatch", "Background thread is not owned");
@@ -2812,6 +2859,7 @@ function planOperation(ctx, op) {
       const thread = op.threadId ?? ctx.threadId;
       if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
       if (op.action === "goal") return goalPlan(thread, op.value);
+      if (op.action === "threadHistory") return threadHistoryPlan(ctx, thread, op.value);
       if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
       if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
@@ -2838,6 +2886,10 @@ function respondOperation(ctx, op, raw, reply) {
   if (op.kind === "backgroundProcesses") return backgroundResponse(op, reply);
   const state = object(raw);
   if (op.kind === "control" && op.action === "goal") return goalResponse(op.threadId ?? ctx.threadId, state, reply);
+  if (op.kind === "control" && op.action === "threadHistory" && state.stage === "threadHistoryTurns") {
+    if (reply.kind === "error") return refused(reply.error.message);
+    return threadHistoryTurns(ctx, op, state, object(reply.value));
+  }
   if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns" && !op.cursor && reply.error.code === -32600 && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
     return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "unmaterialized" }));
   if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
@@ -2910,6 +2962,12 @@ function respondOperation(ctx, op, raw, reply) {
         return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: outcome2 } };
       }
       if (op.action === "login") return loginResponse(state, value);
+      if (op.action === "threadHistory" && state.stage === "thread/fork") {
+        const threadId = userThread(reply.value);
+        if (!threadId || threadId === op.threadId || !text(state.turnId)) return refused("Forked thread identity unverified");
+        return { kind: "complete", result: { kind: "threadForked", sourceThreadId: op.threadId ?? ctx.threadId, threadId, turnId: String(state.turnId) } };
+      }
+      if (op.action === "threadHistory" && state.stage === "thread/revert") return { kind: "complete", result: { kind: "done" } };
       if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
       const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).fastMode !== void 0 && codexReportedSettings(value).fastMode === void 0;
       return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" && !awaitingTier ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };

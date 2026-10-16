@@ -31,6 +31,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"),
         agent_runtime_answer_question: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/questions/${enc(s(a, "itemId"))}/answer`, { answers: a.answers }),
         agent_runtime_goal: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/goal`, a.request),
+        agent_runtime_thread_history: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/thread-history`, a.request),
         agent_runtime_reset_credits: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/reset-credits`, a.request),
         agent_runtime_login: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/login`, a.request),
         agent_runtime_retry: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/retry`),

@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/project",
+    "hostVersion": "1.14.7",
+    "tabId": "tab-fixture",
+    "bindingNonce": "nonce-fixture",
+    "threadId": "thread-fixture",
+    "settings": {
+      "model": "fixture-model",
+      "effort": "high",
+      "mode": "auto-accept-edits"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "thread-fixture",
+        "action": "threadHistory",
+        "value": {
+          "action": "fork",
+          "turnId": "turn-two"
+        }
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/turns/list",
+          "params": {
+            "threadId": "thread-fixture",
+            "itemsView": "notLoaded",
+            "sortDirection": "asc",
+            "limit": 8
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [
+            {
+              "id": "turn-one",
+              "status": "completed"
+            },
+            {
+              "id": "turn-two",
+              "status": "completed"
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/fork",
+          "params": {
+            "threadId": "thread-fixture",
+            "lastTurnId": "turn-two"
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "fork-thread"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadForked",
+            "sourceThreadId": "thread-fixture",
+            "threadId": "fork-thread",
+            "turnId": "turn-two"
+          }
+        }
+      }
+    ],
+    "events": []
+  }
+}
