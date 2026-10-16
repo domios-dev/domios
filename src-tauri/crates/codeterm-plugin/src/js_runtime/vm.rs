@@ -943,7 +943,9 @@ impl Drop for VmEntry<'_> {
                 "{}",
                 timing_line(&self.vm.plugin_id, self.method, self.waited, held)
             );
-        } else {
+        } else if self.waited > std::time::Duration::from_millis(100)
+            || held > std::time::Duration::from_millis(50)
+        {
             log::debug!(
                 "{}",
                 timing_line(&self.vm.plugin_id, self.method, self.waited, held)
