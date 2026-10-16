@@ -546,6 +546,16 @@ async fn ensure_locked(
     };
     let mut port = backfill::RpcPort::new(svc, session, &process, tab, &thread_id);
     let mut replay = backfill::Replay::new(context.epoch, generation, &thread_id);
+    if session
+        .adapter
+        .lock()
+        .as_ref()
+        .and_then(|adapter| adapter.agent_runtime())
+        .is_some_and(|runtime| runtime.stored_history)
+    {
+        session.cache.lock().bound_rereadable();
+        replay.bound_startup();
+    }
     if let Err(reason) = replay.first(session, &mut port).await {
         session
             .cache

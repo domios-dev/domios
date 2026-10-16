@@ -1,7 +1,7 @@
 mod input;
 use super::*;
 use codeterm_types::agent::chat_types::ChatMsg;
-pub use input::sanitize_history_input;
+pub use input::{prepare_history_reply, sanitize_history_input, HISTORY_PAGE_TOO_LARGE};
 use serde::Deserialize;
 
 #[derive(Clone, Default)]

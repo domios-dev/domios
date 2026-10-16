@@ -37,6 +37,14 @@ describe("chat body authority", () => {
     expect(view.kind).toBe("starting");
     expect(chatRailsVisible(view)).toBe(false);
   });
+  it("renders a held authority window while the attach is still loading", () => {
+    const view = chatBodyView({ snapshotReady: false, hasHeldWindow: true, hasTranscript: true,
+      chatLoading: true, unavailable: null, bootView: { kind: "starting", label: "opaque" } });
+    expect(view.kind).toBe("none");
+    expect(chatRailsVisible(view)).toBe(true);
+    expect(chatChannelLoadingRow(true, view, false)).toBe("model");
+    expect(chatChannelLoadingRow(true, view, true, true)).toBe("model");
+  });
   it("an already loaded conversation remains visible during channel recovery", () => {
     const view = chatBodyView({ snapshotReady: true, hasTranscript: true, chatLoading: true,
       unavailable: null, bootView: { kind: "none" } });

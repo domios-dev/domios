@@ -323,3 +323,67 @@ fn observe_turn(
     use crate::service::agent_runtime::events::{observe, translate};
     observe(context, &translate(event));
 }
+
+#[test]
+fn rereadable_cache_evicts_rows_and_indexes_and_bounds_replacements() {
+    let mut cache = ItemCache::default();
+    cache.bound_rereadable();
+    for index in 0..1000 {
+        cache.reconcile_live(
+            ChatMsg {
+                id: index.to_string(),
+                content: "x".repeat(32),
+                ..Default::default()
+            },
+            1,
+        );
+    }
+    assert_eq!(cache.items.len(), REREADABLE_CACHE_ROWS);
+    assert_eq!(cache.positions.len(), REREADABLE_CACHE_ROWS);
+    assert_eq!(cache.items.front().unwrap().id, "600");
+    for index in 0..8 {
+        cache.reconcile(ChatMsg {
+            id: (999 - index).to_string(),
+            content: "x".repeat(1024 * 1024),
+            ..Default::default()
+        });
+        assert!(cache.cached_bytes <= REREADABLE_CACHE_BYTES);
+    }
+    cache.reconcile(ChatMsg {
+        id: "oversized".into(),
+        content: "x".repeat(REREADABLE_CACHE_BYTES + 1),
+        ..Default::default()
+    });
+    assert!(cache.items.is_empty());
+    assert!(cache.positions.is_empty());
+    assert!(cache.history_origin.is_empty());
+    assert!(cache.live_during_backfill.is_empty());
+    assert_eq!(cache.cached_bytes, 0);
+}
+
+#[test]
+fn rereadable_backfill_keeps_newest_rows_and_can_reread_evicted_ids() {
+    let mut cache = ItemCache::default();
+    cache.bound_rereadable();
+    for page in (0..10).rev() {
+        cache.reconcile_backfill(
+            (page * 100..(page + 1) * 100)
+                .map(|index| ChatMsg {
+                    id: index.to_string(),
+                    content: "history".into(),
+                    ..Default::default()
+                })
+                .collect(),
+        );
+        assert!(cache.items.len() <= REREADABLE_CACHE_ROWS);
+        assert!(cache.history_origin.len() <= REREADABLE_CACHE_ROWS);
+    }
+    assert_eq!(cache.items.front().unwrap().id, "600");
+    cache.begin_backfill();
+    assert!(cache.items.is_empty());
+    cache.reconcile_backfill(vec![ChatMsg {
+        id: "0".into(),
+        ..Default::default()
+    }]);
+    assert_eq!(cache.items.front().unwrap().id, "0");
+}

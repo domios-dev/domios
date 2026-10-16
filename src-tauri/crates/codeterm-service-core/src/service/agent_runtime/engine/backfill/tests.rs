@@ -496,3 +496,89 @@ fn history_failure_snapshot_keeps_runtime_loaded_with_precise_page_error() {
     assert_eq!(snapshot["historyPages"], 8);
     assert_eq!(snapshot["historyError"], error);
 }
+
+#[tokio::test]
+async fn logical_500mb_restore_stops_at_two_pages_and_preserves_older_cursor() {
+    struct LogicalHistory {
+        reads: usize,
+    }
+    impl HistoryPort for LogicalHistory {
+        async fn read(&mut self, cursor: Option<String>) -> Result<RuntimeResult, RuntimeFailure> {
+            let page_number: usize = cursor.as_deref().unwrap_or("500").parse().unwrap();
+            self.reads += 1;
+            Ok(RuntimeResult::HistoryPage {
+                thread_id: THREAD.into(),
+                items: vec![row(&page_number.to_string(), &"x".repeat(1024 * 1024))],
+                next_cursor: (page_number > 1).then(|| (page_number - 1).to_string()),
+                open_items: vec![],
+                questions: None,
+                order: Some(HistoryOrder::Desc),
+            })
+        }
+        async fn questions(
+            &mut self,
+            _: Vec<RuntimeHistoryQuestion>,
+        ) -> Result<(), RuntimeFailure> {
+            Ok(())
+        }
+    }
+    let (session, epoch) = session();
+    session.cache.lock().bound_rereadable();
+    let mut replay = replay_for(&session, epoch);
+    replay.bound_startup();
+    let mut port = LogicalHistory { reads: 0 };
+    replay.first(&session, &mut port).await.unwrap();
+    make_ready(&session, epoch);
+    replay.rest(&session, &mut port).await.unwrap();
+    assert_eq!(port.reads, STARTUP_HISTORY_PAGES as usize);
+    assert_eq!(replay.cursor.as_deref(), Some("498"));
+    assert!(!replay.done);
+    assert!(
+        session.cache.lock().retained().1
+            <= crate::service::agent_runtime::model::REREADABLE_CACHE_BYTES
+    );
+    assert!(session.cache.lock().snapshot().len() <= 2);
+    replay.rest(&session, &mut port).await.unwrap();
+    assert_eq!(port.reads, STARTUP_HISTORY_PAGES as usize);
+    let mut cursor = replay.cursor.clone();
+    let mut oldest = String::new();
+    while cursor.is_some() {
+        let RuntimeResult::HistoryPage {
+            items, next_cursor, ..
+        } = port.read(cursor).await.unwrap()
+        else {
+            panic!("expected page")
+        };
+        oldest = items[0].id.clone();
+        cursor = next_cursor;
+        assert!(session.cache.lock().snapshot().len() <= 2);
+    }
+    assert_eq!(oldest, "1");
+    assert_eq!(port.reads, 500);
+}
+
+#[tokio::test]
+async fn history_concurrency_admits_only_two_restored_tabs_until_a_permit_releases() {
+    let budget = &*HISTORY_READS;
+    let first = budget.try_acquire().unwrap();
+    let second = budget.try_acquire().unwrap();
+    let mut queued = Vec::new();
+    for _ in 0..20 {
+        let mut pending = Box::pin(budget.acquire());
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        queued.push(pending);
+    }
+    drop(first);
+    let admitted = queued.remove(0).await.unwrap();
+    assert!(budget.try_acquire().is_err());
+    drop(second);
+    drop(admitted);
+    for pending in queued {
+        drop(pending.await.unwrap());
+    }
+    assert_eq!(budget.available_permits(), HISTORY_CONCURRENCY);
+}

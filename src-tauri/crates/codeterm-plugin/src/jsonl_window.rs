@@ -58,8 +58,18 @@ pub fn page_before(path: &Path, until: u64, budget: u64) -> std::io::Result<Reco
         }
     }
     let Some(end) = end else {
+        if position > 0 {
+            return Err(std::io::Error::other(
+                "JSONL tail exceeds backward scan limit",
+            ));
+        }
         return Ok(RecordPage { start: 0, end: 0 });
     };
+    if position > 0 && start == end {
+        return Err(std::io::Error::other(
+            "JSONL record exceeds backward scan limit",
+        ));
+    }
     if position == 0 && (end <= budget || start == end) {
         start = 0;
     }
@@ -158,8 +168,8 @@ pub fn read_range(path: &Path, start: u64, end: u64) -> std::io::Result<(Vec<u8>
     let end = end.min(total);
     let start = start.min(end);
     file.seek(SeekFrom::Start(start))?;
-    let mut buf = Vec::with_capacity((end - start) as usize);
-    (&mut file).take(end - start).read_to_end(&mut buf)?;
+    let mut buf = vec![0; (end - start) as usize];
+    file.read_exact(&mut buf)?;
     Ok((buf, start))
 }
 

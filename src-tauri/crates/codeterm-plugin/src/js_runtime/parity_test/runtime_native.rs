@@ -207,6 +207,21 @@ impl AgentProvider for NativeRuntime {
                         send_id: send_id.clone(),
                         turn_id: None,
                     },
+                    RuntimeOperation::Control {
+                        thread_id: Some(thread_id),
+                        action,
+                        ..
+                    } if action == "goal" => RuntimeResult::Goal {
+                        thread_id: thread_id.clone(),
+                        intent: serde_json::from_value(value["intent"].clone()).map_err(
+                            |error| {
+                                RuntimeFailure::new(
+                                    RuntimeFailureCode::InvalidSchema,
+                                    error.to_string(),
+                                )
+                            },
+                        )?,
+                    },
                     RuntimeOperation::Control { action, .. } if action == "redeemResetCredit" => {
                         RuntimeResult::ResetCreditConsumed {
                             outcome: serde_json::from_value(value["outcome"].clone()).map_err(

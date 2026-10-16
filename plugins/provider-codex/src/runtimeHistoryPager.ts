@@ -1,3 +1,4 @@
+import { goalIntent } from "./runtimeGoal";
 import type { ChatMsg, JsonValue, OpenItem, Operation, RpcReply, RuntimeHistoryQuestion, RuntimePlan, RuntimeStep } from "@codeterm/plugin-sdk";
 import { HISTORY_CHUNK_BYTES, serializedBytes } from "./runtimeHistoryBounds";
 import { projectHistoryItem } from "./runtimeStoredHistory";
@@ -13,23 +14,26 @@ interface Position {
   turn?: {id:string;status:string;startedAt:number|null};
   nextTurn?: string|null;
   offset?: number;
+  historyItemLimit?: number;
 }
 const PREFIX = "history:";
 function failure(message:string):never { throw {code:"provider_refused",message}; }
 function encode(position:Position):string { return PREFIX + JSON.stringify(position); }
 function decode(op:Read):Position {
-  if (!op.cursor) return {pager:1,thread:op.threadId,stage:"turns",cursor:null};
+  if (!op.cursor) return {pager:1,thread:op.threadId,stage:"turns",cursor:null,historyItemLimit:16};
   if (!op.cursor.startsWith(PREFIX) || op.cursor.length > 128 * 1024) failure("Invalid history checkpoint");
   const position = JSON.parse(op.cursor.slice(PREFIX.length)) as Position;
   if (position.pager !== 1 || position.thread !== op.threadId || !["turns","items","goal"].includes(position.stage)
     || (position.cursor !== null && typeof position.cursor !== "string")
     || (position.stage === "items" && !text(object(position.turn).id))) failure("History checkpoint differs from bound thread");
+  position.historyItemLimit ??= 16;
+  if (!Number.isSafeInteger(position.historyItemLimit) || position.historyItemLimit < 1 || position.historyItemLimit > 16) failure("Invalid history item limit");
   return position;
 }
 export function pagedHistoryPlan(op:Read):RuntimePlan {
   const state = decode(op);
   const params = {threadId:op.threadId,sortDirection:"desc",cursor:state.cursor};
-  const call = state.stage === "items" ? {method:"thread/items/list",params:{...params,turnId:state.turn!.id,limit:16}}
+  const call = state.stage === "items" ? {method:"thread/items/list",params:{...params,turnId:state.turn!.id,limit:state.historyItemLimit}}
     : state.stage === "goal" ? {method:"thread/goal/get",params:{threadId:op.threadId}}
     : {method:"thread/turns/list",params:{...params,itemsView:"notLoaded",limit:1}};
   return {action:{kind:"request",call:{...call,params:call.params as JsonValue}},state:state as unknown as JsonValue};
@@ -47,13 +51,18 @@ export function pagedHistoryResponse(op:Read, raw:Record<string,unknown>, reply:
   const state = raw as unknown as Position;
   if (state.thread !== op.threadId) failure("History checkpoint differs from bound thread");
   if (reply.kind === "error") {
+    const smaller = object(reply.error.data).historyPageLimit;
+    if (state.stage === "items" && reply.error.code === -32097
+      && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < (state.historyItemLimit ?? 16)) {
+      return {kind:"continue",plan:pagedHistoryPlan({...op,cursor:encode({...state,historyItemLimit:smaller})})};
+    }
     if (state.stage === "goal") return finish(op,[],[],[]);
     failure(`History ${state.stage} read failed (${reply.error.code}): ${reply.error.message}`);
   }
   const value = object(reply.value);
   if (state.stage === "goal") {
     const goal = text(object(value.goal).objective);
-    return finish(op,goal ? [{id:"thread:goal",seq:0,type:"custom",content:"",sessionIntent:{goal}}] : [],[],[]);
+    return finish(op,goal ? [{id:"thread:goal",seq:0,type:"custom",content:"",sessionIntent:goalIntent(value.goal) ?? {goal}}] : [],[],[]);
   }
   if (!Array.isArray(value.data)) failure("History page has no data array");
   const next = nextCursor(value,state.cursor);
@@ -66,7 +75,7 @@ export function pagedHistoryResponse(op:Read, raw:Record<string,unknown>, reply:
       turn:{id:String(turn.id),status:turn.status === "inProgress" ? "inProgress" : "completed",startedAt:typeof turn.startedAt === "number" && Number.isFinite(turn.startedAt) ? turn.startedAt : null}};
     return {kind:"continue",plan:pagedHistoryPlan({...op,cursor:encode(position)})};
   }
-  if (value.data.length > 16) failure("History item page exceeds requested limit");
+  if (value.data.length > (state.historyItemLimit ?? 16)) failure("History item page exceeds requested limit");
   const items:ChatMsg[] = [], openItems:OpenItem[] = [];
   let questions:RuntimeHistoryQuestion[] = [], bytes = 0;
   const offset = state.offset ?? 0;
