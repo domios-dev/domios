@@ -19,6 +19,12 @@
   idle wake must transfer zero transcript payload. A collection script exit 0
   does not imply product acceptance. Distinguish deliberate triggers from a
   spontaneous loop and reconcile overlapping responses individually.
+- [ ] For JSONL event loss or a byte-range gap, retain the applied chat cursor
+  and subscription ID. Verify `/chat-raw/resume` reads forward, preserves the
+  prior visible rows and appends each writer token once with zero start/stop
+  calls. Record each page's range, cursor and caught_up flag; a page is at most
+  1 MiB except one oversized complete record. An idle caught-up response carries
+  no transcript. Structured/runtime recovery remains a separate source-kind case.
 - [ ] Compare the same actions after repair on a matched build. Record DEV-only
   TIME_WAIT through the assigned socket observer; never sample or mutate prod
   as part of this bench. Remove only owned synthetic lookup junctions at cleanup.
@@ -293,10 +299,17 @@ external CLI's startup or prove native UI wiring.
 
 | Fixed defect | Regression coverage |
 |---|---|
+| An oversized first JSONL record consumed following records beyond the page budget | locked by test oversized_first_record_does_not_consume_the_following_page and bounded_session_delta_matches_host_record_boundaries_and_identity |
+| Resync bursts started overlapping initial snapshots | locked by test same attachment requests share one in-flight operation, authority changes serialize and only the latest pending attachment starts, and useChatSession initial-attachment single-flight wiring assertion |
+| JSONL event loss restarted the chat lease and reread history | locked by test caught_up_resume_never_invokes_the_transcript_parser, forward_resume_uses_one_budgeted_read_and_reports_the_true_end, changed_incarnation_and_epoch_reset_without_parsing, and useChatSession JSONL loss-recovery wiring assertion |
 | Retained journal repeatedly compacted without new growth | locked by test opening_retained_history_allows_growth_before_automatic_compaction and automatic_compaction_rechecks_growth_and_preserves_uncovered_records |
 | Derived restore observations blocked lifecycle progress | locked by test requests_coalesce_without_waiting_and_keep_changes_during_an_observation |
 | Chat restores consumed the PTY admission budget | locked by test bounded_transports_progress_independently_without_starving_queued_tabs |
 | Opening a pending restored chat did not bypass boot admission | locked by test explicit_chat_wake_bypasses_pending_boot_restore |
+| A live delta overlapping a snapshot caused repeated chat restarts | locked by test record-aligned overlap merges new rows and incoming revisions without restarting, overlap beginning below the loaded window keeps incoming revision precedence, repeated overlapping tails remain bounded and keep the latest shared revisions, and evicting the oldest overlap advances paging to the retained segment |
+| Valid event replay and idle wake restarted an attached chat | locked by test valid reconnect and idle wake preserve the transcript projection and useChatSession existing-lease replay/wake wiring assertion; event loss and daemon epoch changes still require transcript recovery remains paired |
+| Reconnect discarded the memory replay cursor when storage was unavailable | locked by test same-target reconnect retains an in-memory cursor when storage is unavailable and peer switches use only the destination cursor and cold pages use saved replay |
+| Reconnect failed to retry an initial attachment error | locked by test an observed reconnect can retry a failed initial attachment and useChatSession failed-first-attachment recovery wiring assertion |
 
 Run the existing tests in each changed area alongside its regression test.
 A new defect adds its fast oracle here and in the run report; retain any executed

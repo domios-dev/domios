@@ -245,6 +245,7 @@
         "/api/tabs/tab/chat-raw/stop"
       ]
     ],
+    "chat_resume": [["POST", "/api/tabs/tab/chat-raw/resume"]],
     "chat_backfill": [
       [
         "POST",

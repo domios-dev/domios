@@ -289,7 +289,7 @@ fn oversized_claude_session_snapshots_a_bounded_tail() {
     let filler = serde_json::json!({
         "type": "user",
         "uuid": "filler",
-        "message": {"role": "user", "content": "f".repeat(4096)}
+        "message": {"role": "user", "content": "supplied tail context"}
     })
     .to_string();
     let tail_marker = serde_json::json!({
@@ -302,10 +302,15 @@ fn oversized_claude_session_snapshots_a_bounded_tail() {
     {
         use std::io::Write;
         let mut f = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
-        let mut written = 0u64;
-        while written <= SNAPSHOT_CAP_BYTES + SNAPSHOT_WINDOW_BYTES {
+        // The unread head proves window selection; parser parity uses only the small tail.
+        f.write_all(&vec![
+            b' ';
+            (SNAPSHOT_CAP_BYTES + SNAPSHOT_WINDOW_BYTES) as usize
+        ])
+        .unwrap();
+        writeln!(f, "{{}}").unwrap();
+        for _ in 0..2 {
             writeln!(f, "{filler}").unwrap();
-            written += filler.len() as u64 + 1;
         }
         writeln!(f, "{tail_marker}").unwrap();
         f.flush().unwrap();

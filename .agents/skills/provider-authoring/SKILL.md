@@ -5,6 +5,13 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+JSONL cursor recovery calls the host's `parse_session_delta_bounded` capability.
+The JS host owns the byte budget and complete-record offsets; `parseSessionDelta`
+still receives the same line-aligned chunk and gains no filesystem access.
+Unsupported native parsers return `None`, never an unbounded fallback. A record
+larger than the budget is returned alone under the existing oversized-record guard.
+Pin host/JS budget and record-identity parity before extending another parser.
+
 `agentRuntime.storedHistory` declares that `runtimeStoredHistory(sessionId, records)` projects bounded native session records to the same item ids and row order as runtime history. It is pure: no process, filesystem or new sandbox host API. Reject foreign session metadata, ignore foreign-thread events, and test offline/runtime projection parity. The host keeps stored byte cursors separate from runtime item cursors.
 
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
