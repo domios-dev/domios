@@ -2355,7 +2355,7 @@ function sendEvidence(ctx, item, turnId) {
     if (expected.url) return image.type === "image" && image.url === expected.url;
     return !!expected.path && image.type === "localImage" && image.path === expected.path;
   })) return void 0;
-  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId };
+  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId, ...text(item.id) ? { itemId: text(item.id) } : {} };
 }
 function stamp(state, row2, params) {
   const previous = state.items[row2.id];
