@@ -144,7 +144,10 @@ impl StreamDiagnostics {
                 .get("tab_id")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
-            output_bytes: frame.get("output").and_then(Value::as_str).map(str::len),
+            output_bytes: frame
+                .get("b64")
+                .and_then(Value::as_str)
+                .map(|b64| b64.len() * 3 / 4),
             offset: frame.get("offset").and_then(Value::as_u64),
             truncated: frame.get("truncated").and_then(Value::as_bool) == Some(true),
             from: frame.get("from").and_then(Value::as_u64),
@@ -320,7 +323,7 @@ struct OutputFrame<'a> {
     #[serde(borrow)]
     tab_id: Option<&'a RawValue>,
     #[serde(borrow)]
-    output: Option<&'a RawValue>,
+    b64: Option<&'a str>,
     offset: Option<u64>,
     truncated: Option<bool>,
     from: Option<u64>,
@@ -405,9 +408,7 @@ fn parse_data_frame(frame: &[u8]) -> Option<FrameSummary> {
         tab_id: parsed
             .tab_id
             .and_then(|tab| serde_json::from_str(tab.get()).ok()),
-        output_bytes: parsed
-            .output
-            .and_then(|output| json_string_bytes(output.get())),
+        output_bytes: parsed.b64.map(|b64| b64.len() * 3 / 4),
         offset: parsed.offset,
         truncated: parsed.truncated == Some(true),
         from: parsed.from,
@@ -442,73 +443,6 @@ fn data_payload(frame: &[u8]) -> Option<Cow<'_, [u8]>> {
     Some(Cow::Owned(data))
 }
 
-fn json_string_bytes(raw: &str) -> Option<usize> {
-    let bytes = raw.as_bytes();
-    if bytes.len() < 2 || bytes.first() != Some(&b'"') || bytes.last() != Some(&b'"') {
-        return None;
-    }
-    if !bytes.contains(&b'\\') {
-        return Some(bytes.len() - 2);
-    }
-
-    let end = bytes.len() - 1;
-    let mut index = 1;
-    let mut decoded_len = 0;
-    while index < end {
-        if bytes[index] != b'\\' {
-            decoded_len += 1;
-            index += 1;
-            continue;
-        }
-        index += 1;
-        match *bytes.get(index)? {
-            b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't' => {
-                decoded_len += 1;
-                index += 1;
-            }
-            b'u' => {
-                let code = parse_hex_quad(bytes.get(index + 1..index + 5)?)?;
-                index += 5;
-                if (0xD800..=0xDBFF).contains(&code)
-                    && bytes.get(index..index + 2) == Some(&b"\\u"[..])
-                {
-                    let low = parse_hex_quad(bytes.get(index + 2..index + 6)?)?;
-                    if !(0xDC00..=0xDFFF).contains(&low) {
-                        return None;
-                    }
-                    decoded_len += 4;
-                    index += 6;
-                } else if (0xD800..=0xDFFF).contains(&code) {
-                    return None;
-                } else {
-                    decoded_len += match code {
-                        0x0000..=0x007F => 1,
-                        0x0080..=0x07FF => 2,
-                        0x0800..=0xFFFF => 3,
-                    };
-                }
-            }
-            _ => return None,
-        }
-    }
-    Some(decoded_len)
-}
-
-fn parse_hex_quad(bytes: &[u8]) -> Option<u16> {
-    if bytes.len() != 4 {
-        return None;
-    }
-    bytes.iter().try_fold(0u16, |value, byte| {
-        let digit = match *byte {
-            b'0'..=b'9' => (*byte - b'0') as u16,
-            b'a'..=b'f' => (*byte - b'a' + 10) as u16,
-            b'A'..=b'F' => (*byte - b'A' + 10) as u16,
-            _ => return None,
-        };
-        Some((value << 4) | digit)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,7 +470,7 @@ mod tests {
         });
 
         diagnostics
-            .observe_sse_bytes(b"data: {\"tab_id\":\"tab-1\",\"output\":\"hello\",\"offset\":5}\n");
+            .observe_sse_bytes(b"data: {\"tab_id\":\"tab-1\",\"b64\":\"aGVsbG8\",\"offset\":5}\n");
         assert_eq!(diagnostics.counters.frames, 0);
         diagnostics.observe_sse_bytes(b"\n");
         diagnostics.observe_sse_bytes(
@@ -604,7 +538,7 @@ mod tests {
         assert!(parser.pending.len() <= 3);
 
         let recovered =
-            parser.push(b"\n\ndata: {\"tab_id\":\"tab-1\",\"output\":\"ok\",\"offset\":2}\n\n");
+            parser.push(b"\n\ndata: {\"tab_id\":\"tab-1\",\"b64\":\"b2s\",\"offset\":2}\n\n");
         assert!(!parser.discarding);
         assert_eq!(recovered.len(), 1);
         assert_eq!(recovered[0].tab_id.as_deref(), Some("tab-1"));
@@ -613,12 +547,22 @@ mod tests {
     }
 
     #[test]
-    fn output_length_counts_json_escapes_without_decoding_the_text() {
-        assert_eq!(json_string_bytes(r#""a\n\uD83D\uDE00""#), Some(6));
-        assert_eq!(json_string_bytes(r#""plain 😀""#), Some(10));
-        assert_eq!(json_string_bytes(r#""a\"b""#), Some(3));
-        assert_eq!(json_string_bytes(r#""a\\b""#), Some(3));
-        assert_eq!(json_string_bytes(r#""\uD800""#), None);
-        assert_eq!(json_string_bytes("true"), None);
+    fn base64_output_lengths_match_local_and_relay_diagnostics() {
+        for (b64, bytes) in [("", 0), ("AA", 1), ("AP8", 2), ("4oKs", 3), ("AP_i", 3)] {
+            let frame = serde_json::json!({"tab_id": "t", "b64": b64, "offset": bytes});
+            let mut diagnostics = StreamDiagnostics::new(
+                log::Level::Debug,
+                "test",
+                "s".into(),
+                "*".into(),
+                None,
+                None,
+            );
+            diagnostics.observe_value(&frame);
+            let wire = format!("data: {frame}\n\n");
+            diagnostics.observe_sse_bytes(wire.as_bytes());
+            assert_eq!(diagnostics.counters.frames, 2);
+            assert_eq!(diagnostics.counters.bytes, bytes * 2);
+        }
     }
 }

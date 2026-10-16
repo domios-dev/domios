@@ -34,180 +34,6 @@ function quoteNativeArgument(value, platform, quote) {
   return `$(if ($PSVersionTable.PSVersion -ge [version]'7.3') { ${literal} } else { ${quote(quoteWindowsArgument(value), platform)} })`;
 }
 
-// plugins/provider-claude/src/switchConfirmation.ts
-function parseSwitchConfirmationPrompt(screen, selection) {
-  if (!selection || /\s|[\x00-\x1f]/.test(selection)) return null;
-  const lines = screen.replace(/\r\n?/g, "\n").trimEnd().split("\n");
-  const row = /^\s*(❯\s*)?([12])\.\s+(.+?)\s*$/;
-  const second = row.exec(lines[lines.length - 1] ?? "");
-  const first = row.exec(lines[lines.length - 2] ?? "");
-  if (!first || !second || first[2] !== "1" || second[2] !== "2") return null;
-  if (!first[1] || second[1]) return null;
-  const before = lines.slice(0, -2);
-  let questionIndex = -1;
-  for (let index = before.length - 1; index >= 0; index--) {
-    if (before[index].trim().endsWith("?")) {
-      questionIndex = index;
-      break;
-    }
-  }
-  if (questionIndex < 0 || before.slice(questionIndex + 1).filter((line) => line.trim()).length < 1) return null;
-  if (before.slice(questionIndex).some((line) => /[│┃┌└☐☑]|^\s*[❯>]\s*\d+\./.test(line))) return null;
-  const escaped = selection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const token = new RegExp(`(?:^|[^a-z0-9_-])${escaped}(?:$|[^a-z0-9_-])`, "i");
-  if (!token.test(first[3]) || token.test(second[3])) return null;
-  return { question: before[questionIndex].trim(), options: [[first[3], "1"], [second[3], "2"]] };
-}
-
-// plugins/provider-claude/src/launchPromptRule.json
-var launchPromptRule_default = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
-
-// plugins/provider-claude/src/launchPrompt.ts
-function writeClaudeLaunchPrompt(task) {
-  const suffix = ".ct-task-" + Math.random().toString(16).slice(2, 10);
-  const fragment = task + "\n\n" + launchPromptRule_default;
-  const body = host.platform() === "windows" ? "\uFEFF" + fragment : fragment;
-  return host.fs.writeTempFile(body, suffix);
-}
-
-// plugins/provider-claude/src/imageMetadata.ts
-var IMAGE_GEOMETRY = /^\[Image: original \d+x\d+, displayed at \d+x\d+\. Multiply coordinates by \d+(?:\.\d+)? to map to original image\.\]$/;
-function isImageDisplayMetadata(entry) {
-  return entry.type === "user" && entry.isMeta === true && typeof entry.message?.content === "string" && IMAGE_GEOMETRY.test(entry.message.content.trim());
-}
-
-// plugins/provider-shared/updateCheck.ts
-function record(raw) {
-  if (typeof raw !== "string") return null;
-  try {
-    const value = JSON.parse(raw);
-    return value !== null && typeof value === "object" ? value : null;
-  } catch {
-    return null;
-  }
-}
-function versionParts(version) {
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
-  const parts = version.split(".").map(Number);
-  return parts.every(Number.isSafeInteger) ? parts : null;
-}
-function compare(left, right) {
-  const a = versionParts(left), b = versionParts(right);
-  if (!a || !b) return null;
-  for (let index = 0; index < 3; index++) {
-    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
-  }
-  return 0;
-}
-function matchesRange(version, range) {
-  return range.split(",").every((clause) => {
-    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
-    if (!match) return false;
-    const order = compare(version, match[2]);
-    if (order === null) return false;
-    switch (match[1] ?? "=") {
-      case ">=":
-        return order >= 0;
-      case "<=":
-        return order <= 0;
-      case ">":
-        return order > 0;
-      case "<":
-        return order < 0;
-      default:
-        return order === 0;
-    }
-  });
-}
-function newestSupportedVersion(versions, compatibility) {
-  return versions.reduce((best, version) => {
-    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
-    return best === null || compare(version, best) === 1 ? version : best;
-  }, null);
-}
-function checkProviderUpdate(host2, binary, metadataUrl, compatibility) {
-  const installed = record(host2.exec(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
-  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
-  const currentVersion = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
-  if (!currentVersion || !versionParts(currentVersion)) return null;
-  const response = record(host2.fetch(JSON.stringify({
-    url: metadataUrl,
-    method: "GET",
-    timeoutMs: 6e3,
-    headers: { Accept: "application/vnd.npm.install-v1+json" }
-  })));
-  if (response?.status !== 200) return null;
-  const metadata = record(response.body);
-  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
-  if (compatibility) {
-    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
-    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
-  }
-  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
-}
-
-// plugins/provider-claude/src/update.ts
-function checkClaudeUpdate() {
-  return checkProviderUpdate(host, "claude", "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest");
-}
-
-// plugins/provider-claude/src/preTrust.ts
-function claudeProjectKey(canonical, windows) {
-  if (!windows) return canonical;
-  return canonical.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//, "//").replace(/^\/\/\?\//, "").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
-}
-function claudeTrustRecord(host2, cwd, grant) {
-  const root = host2.envGet("CLAUDE_CONFIG_DIR") || host2.homeDir();
-  const canonical = host2.canonicalPath(cwd);
-  if (!root) return { status: "skipped", reason: "configuration root unavailable" };
-  if (!canonical) return { status: "skipped", reason: "launch cwd cannot be resolved" };
-  const windows = host2.platform() === "windows";
-  const absoluteRoot = windows ? /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(root) : root.startsWith("/");
-  if (!absoluteRoot) return { status: "skipped", reason: "configuration root unavailable" };
-  const key = claudeProjectKey(canonical, windows);
-  const path = root.replace(/[\\/]$/, "") + "/.claude.json";
-  try {
-    return JSON.parse(host2.jsonBooleanRecord(path, JSON.stringify(["projects", key, "hasTrustDialogAccepted"]), grant));
-  } catch {
-    return { status: "failed", reason: "record capability failed" };
-  }
-}
-
-// plugins/provider-shared/updatePrompt.ts
-function updatePromptSafeChoice(prompt) {
-  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
-    return null;
-  }
-  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
-  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
-  const chosen = safe.length === 1 ? safe : bare;
-  if (chosen.length !== 1) return null;
-  const [label, value] = chosen[0];
-  if (!value || /\bupdate\b/i.test(label)) return null;
-  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
-  return value;
-}
-
-// plugins/provider-claude/src/shared.ts
-function manifest() {
-  try {
-    return JSON.parse(host.manifestJson() || "null");
-  } catch (e) {
-    return null;
-  }
-}
-
-// plugins/provider-claude/src/permissionHook.ts
-function permissionHookCapability() {
-  return {
-    protocol: "claude-permission-request",
-    options: [
-      { label: "Allow", value: "allow" },
-      { label: "Deny", value: "deny" }
-    ]
-  };
-}
-
 // plugins/provider-claude/model-capabilities.json
 var model_capabilities_default = {
   profiles: {
@@ -370,6 +196,237 @@ function statuslineLaunchArgs(args) {
   const path = host.fs.writeTempFile(composed[composed.length - 1], ".ct-settings.json");
   if (!path) return null;
   return [...composed.slice(0, -1), path];
+}
+
+// plugins/provider-claude/src/launchPromptRule.json
+var launchPromptRule_default = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
+
+// plugins/provider-claude/src/launchPrompt.ts
+function writeClaudeLaunchPrompt(task) {
+  const suffix = ".ct-task-" + Math.random().toString(16).slice(2, 10);
+  const fragment = task + "\n\n" + launchPromptRule_default;
+  const body = host.platform() === "windows" ? "\uFEFF" + fragment : fragment;
+  return host.fs.writeTempFile(body, suffix);
+}
+
+// plugins/provider-claude/src/launchSpec.ts
+var FILE_TASK_PROMPT = "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
+var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+function starterPrompt(prompt, hostText) {
+  if (hostText) return hostText;
+  if (prompt === "no_starter") return void 0;
+  if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
+  return FILE_TASK_PROMPT;
+}
+function hasResume(input) {
+  const resume = input.resume;
+  return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
+}
+function buildClaudeLaunchSpec(input) {
+  if ("resume" in input && !hasResume(input)) return null;
+  const params = hasResume(input) ? {
+    args: ["--resume", input.resume.sessionId, ...input.resume.args || []],
+    task: input.resume.systemPrompt ?? void 0,
+    skipPermissions: input.resume.skipPermissions,
+    starterPrompt: "no_starter"
+  } : input;
+  const args = [];
+  if (params.skipPermissions) args.push("--dangerously-skip-permissions");
+  if (params.agentName) args.push("--agent", params.agentName);
+  if (params.sessionId) args.push("--session-id", params.sessionId);
+  const extra = statuslineLaunchArgs(params.args || []);
+  if (!extra) return null;
+  args.push(...extra);
+  const path = writeClaudeLaunchPrompt(params.task || "");
+  if (!path) return null;
+  args.push("--append-system-prompt-file", path);
+  const prompt = params.task ? starterPrompt(params.starterPrompt, params.starterPromptText) : void 0;
+  if (prompt) {
+    const framed = params.starterPromptPrefix ? params.starterPromptPrefix + prompt + "</domios>" : prompt;
+    args.push("--", framed);
+  }
+  return { program: "claude", args, envSet: {}, envUnset: ["CLAUDECODE"] };
+}
+function buildClaudeLaunchCommand(params) {
+  const spec = buildClaudeLaunchSpec(params);
+  if (!spec) return "";
+  const unset = host.platform() === "windows" ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
+  const parts = [unset, spec.program];
+  let previous = "";
+  for (const arg of spec.args) {
+    if (previous === "--") parts.push(quoteNativeArgument(arg, host.platform(), host.shell.quoteFor));
+    else if (["--agent", "--session-id", "--append-system-prompt-file"].includes(previous)) {
+      parts.push(host.shell.quoteFor(arg, host.platform()));
+    } else {
+      parts.push(/^[A-Za-z0-9_\-.,:=@/+%]+$/.test(arg) ? arg : host.shell.quoteFor(arg, host.platform()));
+    }
+    previous = arg;
+  }
+  return parts.join(" ");
+}
+
+// plugins/provider-claude/src/switchConfirmation.ts
+function parseSwitchConfirmationPrompt(screen, selection) {
+  if (!selection || /\s|[\x00-\x1f]/.test(selection)) return null;
+  const lines = screen.replace(/\r\n?/g, "\n").trimEnd().split("\n");
+  const row = /^\s*(❯\s*)?([12])\.\s+(.+?)\s*$/;
+  const second = row.exec(lines[lines.length - 1] ?? "");
+  const first = row.exec(lines[lines.length - 2] ?? "");
+  if (!first || !second || first[2] !== "1" || second[2] !== "2") return null;
+  if (!first[1] || second[1]) return null;
+  const before = lines.slice(0, -2);
+  let questionIndex = -1;
+  for (let index = before.length - 1; index >= 0; index--) {
+    if (before[index].trim().endsWith("?")) {
+      questionIndex = index;
+      break;
+    }
+  }
+  if (questionIndex < 0 || before.slice(questionIndex + 1).filter((line) => line.trim()).length < 1) return null;
+  if (before.slice(questionIndex).some((line) => /[│┃┌└☐☑]|^\s*[❯>]\s*\d+\./.test(line))) return null;
+  const escaped = selection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const token = new RegExp(`(?:^|[^a-z0-9_-])${escaped}(?:$|[^a-z0-9_-])`, "i");
+  if (!token.test(first[3]) || token.test(second[3])) return null;
+  return { question: before[questionIndex].trim(), options: [[first[3], "1"], [second[3], "2"]] };
+}
+
+// plugins/provider-claude/src/imageMetadata.ts
+var IMAGE_GEOMETRY = /^\[Image: original \d+x\d+, displayed at \d+x\d+\. Multiply coordinates by \d+(?:\.\d+)? to map to original image\.\]$/;
+function isImageDisplayMetadata(entry) {
+  return entry.type === "user" && entry.isMeta === true && typeof entry.message?.content === "string" && IMAGE_GEOMETRY.test(entry.message.content.trim());
+}
+
+// plugins/provider-shared/updateCheck.ts
+function record(raw) {
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility) {
+  const installed = record(host2.exec(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const currentVersion = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  if (!currentVersion || !versionParts(currentVersion)) return null;
+  const response = record(host2.fetch(JSON.stringify({
+    url: metadataUrl,
+    method: "GET",
+    timeoutMs: 6e3,
+    headers: { Accept: "application/vnd.npm.install-v1+json" }
+  })));
+  if (response?.status !== 200) return null;
+  const metadata = record(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
+}
+
+// plugins/provider-claude/src/update.ts
+function checkClaudeUpdate() {
+  return checkProviderUpdate(host, "claude", "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest");
+}
+
+// plugins/provider-claude/src/preTrust.ts
+function claudeProjectKey(canonical, windows) {
+  if (!windows) return canonical;
+  return canonical.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//, "//").replace(/^\/\/\?\//, "").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+}
+function claudeTrustRecord(host2, cwd, grant) {
+  const root = host2.envGet("CLAUDE_CONFIG_DIR") || host2.homeDir();
+  const canonical = host2.canonicalPath(cwd);
+  if (!root) return { status: "skipped", reason: "configuration root unavailable" };
+  if (!canonical) return { status: "skipped", reason: "launch cwd cannot be resolved" };
+  const windows = host2.platform() === "windows";
+  const absoluteRoot = windows ? /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(root) : root.startsWith("/");
+  if (!absoluteRoot) return { status: "skipped", reason: "configuration root unavailable" };
+  const key = claudeProjectKey(canonical, windows);
+  const path = root.replace(/[\\/]$/, "") + "/.claude.json";
+  try {
+    return JSON.parse(host2.jsonBooleanRecord(path, JSON.stringify(["projects", key, "hasTrustDialogAccepted"]), grant));
+  } catch {
+    return { status: "failed", reason: "record capability failed" };
+  }
+}
+
+// plugins/provider-shared/updatePrompt.ts
+function updatePromptSafeChoice(prompt) {
+  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
+    return null;
+  }
+  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
+  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
+  const chosen = safe.length === 1 ? safe : bare;
+  if (chosen.length !== 1) return null;
+  const [label, value] = chosen[0];
+  if (!value || /\bupdate\b/i.test(label)) return null;
+  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
+  return value;
+}
+
+// plugins/provider-claude/src/shared.ts
+function manifest() {
+  try {
+    return JSON.parse(host.manifestJson() || "null");
+  } catch (e) {
+    return null;
+  }
+}
+
+// plugins/provider-claude/src/permissionHook.ts
+function permissionHookCapability() {
+  return {
+    protocol: "claude-permission-request",
+    options: [
+      { label: "Allow", value: "allow" },
+      { label: "Deny", value: "deny" }
+    ]
+  };
 }
 
 // plugins/provider-shared/accessError.ts
@@ -2389,15 +2446,6 @@ var NOISE_FRAGMENTS = [
   "Monthly spend limit",
   "hold Space"
 ];
-var FILE_TASK_PROMPT = "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
-var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-function starterPrompt(prompt, hostText) {
-  if (hostText) return hostText;
-  if (prompt === "no_starter") return void 0;
-  if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
-  if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
-  return FILE_TASK_PROMPT;
-}
 function taskNotificationStatus(content) {
   const trimmed = content.trim();
   const start = trimmed.indexOf("<task-notification>");
@@ -2580,43 +2628,9 @@ var plugin = {
   permissionPromptResponse(toolName, prompt, screen) {
     return claudePermissionPromptResponse(toolName, prompt, screen);
   },
-  // Launch command parity for native behavior across OS-specific execution modes.
-  buildLaunchCommand(params) {
-    const p = params || {};
-    const win = host.platform() === "windows";
-    const unset = win ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
-    const parts = [unset];
-    parts.push("claude");
-    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-    if (p.agentName) {
-      parts.push("--agent");
-      parts.push(host.shell.quoteFor(p.agentName, host.platform()));
-    }
-    if (p.sessionId) {
-      parts.push("--session-id");
-      parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
-    }
-    const launchArgs = statuslineLaunchArgs(p.args || []);
-    if (!launchArgs) {
-      host.log("error", "[claude-launch] cannot compose launch settings");
-      return "";
-    }
-    if (launchArgs.length > 0) {
-      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
-    }
-    {
-      const visiblePath = writeClaudeLaunchPrompt(p.task || "");
-      if (!visiblePath) return "";
-      parts.push("--append-system-prompt-file");
-      parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      const prompt = p.task ? starterPrompt(p.starterPrompt, p.starterPromptText) : void 0;
-      if (prompt) {
-        parts.push("--");
-        const framed = p.starterPromptPrefix ? p.starterPromptPrefix + prompt + "</domios>" : prompt;
-        parts.push(quoteNativeArgument(framed, host.platform(), host.shell.quoteFor));
-      }
-    }
-    return parts.join(" ");
+  buildLaunchCommand: buildClaudeLaunchCommand,
+  buildLaunchSpec(params) {
+    return manifest()?.commands?.launchSpec ? buildClaudeLaunchSpec(params) : null;
   },
   buildResumeCommand(sessionId, skipPermissions) {
     const args = statuslineLaunchArgs([]);

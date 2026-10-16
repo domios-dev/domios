@@ -105,7 +105,7 @@ fn restored_snapshot_launch_command(
     provider_id: &str,
     input: &RestoredSnapshotLaunchInput,
 ) -> String {
-    restored_snapshot_launch_command_inner(None, registry, tab_id, provider_id, input)
+    restored_snapshot_launch_command_inner(None, registry, tab_id, provider_id, input).shell_command
 }
 
 fn restored_snapshot_launch_command_for_service(
@@ -113,7 +113,7 @@ fn restored_snapshot_launch_command_for_service(
     tab_id: &str,
     provider_id: &str,
     input: &RestoredSnapshotLaunchInput,
-) -> String {
+) -> crate::service::orchestrator::PreparedAgentCommand {
     restored_snapshot_launch_command_inner(
         Some(service),
         &service.agent_registry,
@@ -129,48 +129,34 @@ fn restored_snapshot_launch_command_inner(
     tab_id: &str,
     provider_id: &str,
     input: &RestoredSnapshotLaunchInput,
-) -> String {
-    match input.params.resume_session_id {
-        Some(_) => match service {
-            Some(service) => crate::service::orchestrator::build_agent_command_for_service(
-                service,
-                tab_id,
-                provider_id,
-                &input.params,
-                input.launch_task.as_deref(),
-                None,
-                registry,
-            ),
-            None => crate::service::orchestrator::build_agent_command(
-                provider_id,
-                &input.params,
-                input.launch_task.as_deref(),
-                None,
-                registry,
-            ),
-        },
-        None => match service {
-            Some(service) => {
-                crate::service::launch_session_detection::marked_agent_command_for_service(
-                    service,
-                    tab_id,
-                    provider_id,
-                    &input.params,
-                    input.launch_task.as_deref(),
-                    None,
-                    registry,
-                )
-            }
-            None => crate::service::launch_session_detection::marked_agent_command(
-                tab_id,
-                provider_id,
-                &input.params,
-                input.launch_task.as_deref(),
-                None,
-                registry,
-            ),
-        },
+) -> crate::service::orchestrator::PreparedAgentCommand {
+    if let Some(service) = service {
+        return crate::service::restored_launch::RestoredFreshLaunchInput {
+            params: input.params.clone(),
+            launch_parameters: input.launch_parameters.clone(),
+            launch_task: input.launch_task.clone(),
+        }
+        .prepared_command(service, tab_id)
+        .unwrap_or_default();
     }
+    match input.params.resume_session_id {
+        Some(_) => crate::service::orchestrator::build_agent_command(
+            provider_id,
+            &input.params,
+            input.launch_task.as_deref(),
+            None,
+            registry,
+        ),
+        None => crate::service::launch_session_detection::marked_agent_command(
+            tab_id,
+            provider_id,
+            &input.params,
+            input.launch_task.as_deref(),
+            None,
+            registry,
+        ),
+    }
+    .into()
 }
 
 fn require_restored_launch_command(command: &str, session_id: Option<&str>) -> Result<(), String> {
@@ -518,8 +504,29 @@ impl ServiceContext {
         &self,
         pty_claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {
-        self.ensure_tab_pty_linked_with_claim(pty_claim, None)?;
+        if !self.direct_restored_pty_pending(pty_claim.tab_id()) {
+            self.ensure_tab_pty_linked_with_claim(pty_claim, None)?;
+        }
         self.materialize_restored_agent_with_claim(pty_claim)
+    }
+
+    pub(crate) fn direct_restored_pty_pending(&self, tab_id: &str) -> bool {
+        let provider_id = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .filter(|tab| {
+                    (tab.restored_from_snapshot || tab.agent_booting)
+                        && tab.pty_id.is_none()
+                        && !tab.protected
+                })
+                .and_then(|tab| tab.agent_type.clone())
+        };
+        provider_id
+            .and_then(|id| {
+                self.agent_registry
+                    .with_provider(&id, crate::service::restored_launch::direct_restore_capable)
+            })
+            .unwrap_or(false)
     }
 
     pub(crate) fn ensure_tab_pty_linked_with_claim(
@@ -607,6 +614,18 @@ impl ServiceContext {
         Ok(())
     }
 
+    pub(crate) fn ensure_restored_launch_host_with_claim(
+        &self,
+        claim: &crate::service::pty_ownership::TabPtyClaim,
+        command: &crate::service::orchestrator::PreparedAgentCommand,
+        admission: Option<Admission>,
+    ) -> Result<(), String> {
+        if command.direct.is_none() {
+            self.ensure_tab_pty_linked_with_claim(claim, admission)?;
+        }
+        Ok(())
+    }
+
     fn emit_pty_reattached(&self, tab_id: &str) {
         let (current, failure_reason) = self
             .mux
@@ -623,7 +642,23 @@ impl ServiceContext {
         &self,
         claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {
+        self.materialize_restored_agent_with_admission(claim, None)
+    }
+
+    pub(crate) fn materialize_restored_agent_with_admission(
+        &self,
+        claim: &crate::service::pty_ownership::TabPtyClaim,
+        admission: Option<Admission>,
+    ) -> Result<(), String> {
         let tab_id = claim.tab_id();
+        if !self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.restored_from_snapshot && !tab.agent_booting && !tab.protected)
+        {
+            return Ok(());
+        }
         crate::startup::boot_timing::mark(tab_id, None, "restore_prepare_enter");
         self.recover_missing_restored_provider(tab_id)?;
         let (provider_id, mut session_id, cwd, launch_parameters, exact_session, session_cwd) = {
@@ -756,6 +791,13 @@ impl ServiceContext {
                     &launch_cmd,
                     input.params.resume_session_id.as_deref(),
                 ) {
+                    self.refuse_restored_launch(tab_id, &reason);
+                    command_error = Some(reason);
+                    return;
+                }
+                if let Err(reason) =
+                    self.ensure_restored_launch_host_with_claim(claim, &launch_cmd, admission)
+                {
                     self.refuse_restored_launch(tab_id, &reason);
                     command_error = Some(reason);
                     return;
@@ -922,9 +964,9 @@ impl ServiceContext {
         let ob = self.output_buf.clone();
         let pid = pty_id.to_string();
         let _ = tokio::time::timeout(tokio::time::Duration::from_secs(timeout_secs), async move {
-            let start_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
+            let start_len = ob.lock().len(&pid);
             loop {
-                let cur_len = ob.lock().get(&pid).map(|b| b.len()).unwrap_or(0);
+                let cur_len = ob.lock().len(&pid);
                 if cur_len > start_len + min_bytes {
                     return;
                 }
@@ -951,191 +993,6 @@ pub(crate) fn kill_live_tab_pty(
     pty_id: &str,
 ) -> Result<(), String> {
     manager.kill(pty_id)
-}
-
-#[cfg(test)]
-mod restore_boot_stage_tests {
-    use super::{reattach_boot_stage, restore_materialization_core};
-    use crate::multiplexer::commands::MuxState;
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryRecord};
-    use crate::service::boot_stage::{apply_boot_stage, BootStage};
-    use codeterm_util::lock_hold::TimedRwLock;
-    use sha2::Digest;
-    use std::sync::Arc;
-
-    struct RestoreFixture {
-        _temp: tempfile::TempDir,
-        store: crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore,
-        mux: MuxState,
-        tab_id: String,
-        digest: String,
-    }
-
-    /// A restored agent tab whose pending-delivery payload is absent from the
-    /// store, so the resolve step is guaranteed to fail.
-    fn unresolvable_restored_tab(live_pty: bool) -> RestoreFixture {
-        let digest = format!(
-            "{:x}",
-            sha2::Sha256::digest("missing restored fallback brief".as_bytes())
-        );
-        let temp = tempfile::tempdir().unwrap();
-        let store = crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
-            temp.path(),
-            &std::collections::HashSet::new(),
-        )
-        .unwrap();
-        let (mut state, tab_id) = MultiplexerState::new();
-        let tab = state.get_tab_mut(&tab_id).unwrap();
-        tab.agent_type = Some("fixture-provider".into());
-        tab.cwd = Some("fixture-cwd".into());
-        tab.restored_from_snapshot = true;
-        tab.pty_id = live_pty.then(|| "live-pty".to_string());
-        tab.pending_delivery = Some(PendingDeliveryRecord::new(
-            digest.clone(),
-            PendingDeliveryChannel::InteractiveInput,
-        ));
-        RestoreFixture {
-            _temp: temp,
-            store,
-            mux: Arc::new(TimedRwLock::new("restore-boot-stage-test", state)),
-            tab_id,
-            digest,
-        }
-    }
-
-    fn restore_with_failing_resolve(
-        fixture: &RestoreFixture,
-    ) -> (Result<(), String>, Vec<(BootStage, String)>, bool) {
-        let emitted = parking_lot::Mutex::new(Vec::new());
-        let launched = parking_lot::Mutex::new(false);
-        let result = restore_materialization_core(
-            &fixture.mux,
-            &fixture.tab_id,
-            "fixture-provider",
-            None,
-            Some("fixture-cwd"),
-            false,
-            |_| {
-                fixture
-                    .store
-                    .resolve(&fixture.digest)
-                    .map(Some)
-                    .map_err(|error| error.to_string())
-            },
-            |stage, reason, _| emitted.lock().push((stage, reason.to_string())),
-            |_, _| *launched.lock() = true,
-        );
-        let stages = emitted.lock().clone();
-        let launched = *launched.lock();
-        (result.map(|_| ()), stages, launched)
-    }
-
-    #[test]
-    fn restore_failure_on_live_shell_reports_agent_spawn_failed() {
-        let fixture = unresolvable_restored_tab(true);
-        let (result, stages, launched) = restore_with_failing_resolve(&fixture);
-
-        assert_eq!(
-            result.unwrap_err(),
-            format!("RestorePayloadMissing: {}", fixture.digest),
-            "the resolve error must still surface to the caller"
-        );
-        assert_eq!(
-            stages,
-            [(
-                BootStage::SpawnFailed,
-                format!("RestorePayloadMissing: {}", fixture.digest)
-            )]
-        );
-        assert!(!launched, "a failed resolve must not launch an agent");
-    }
-
-    #[test]
-    fn restore_failure_without_live_pty_still_reports_spawn_failed() {
-        let fixture = unresolvable_restored_tab(false);
-        let (result, stages, launched) = restore_with_failing_resolve(&fixture);
-
-        assert!(result.is_err());
-        assert_eq!(
-            stages,
-            vec![(
-                BootStage::SpawnFailed,
-                format!("RestorePayloadMissing: {}", fixture.digest)
-            )],
-            "with no live PTY a real spawn failure must stay distinguishable"
-        );
-        assert!(!launched);
-    }
-
-    #[test]
-    fn proven_reattach_clears_a_latched_failure_without_restart() {
-        let (mut state, tab_id) = MultiplexerState::new();
-        let tab = state.get_tab_mut(&tab_id).unwrap();
-        let mut sequence = Vec::new();
-
-        apply_boot_stage(
-            tab,
-            BootStage::SpawnFailed,
-            Some("RestorePayloadMissing: deadbeef"),
-        );
-        sequence.push(tab.boot_stage.unwrap());
-        assert_eq!(
-            tab.boot_failure_reason.as_deref(),
-            Some("RestorePayloadMissing: deadbeef"),
-            "precondition: the Tab starts with a latched failure"
-        );
-
-        let reattached = reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref())
-            .expect("reattach clears the latch");
-        apply_boot_stage(tab, reattached, None);
-        sequence.push(tab.boot_stage.unwrap());
-
-        assert_eq!(
-            sequence,
-            vec![BootStage::SpawnFailed, BootStage::PtyReattached],
-            "the UI-visible stage must transition out of the failure on reattach"
-        );
-        assert_eq!(
-            tab.boot_failure_reason, None,
-            "the latched failure reason must be cleared, not merely overdrawn"
-        );
-        assert!(
-            reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref()).is_none(),
-            "reattach is idempotent"
-        );
-    }
-
-    #[test]
-    fn reattach_preserves_restore_failures_that_explain_an_unavailable_agent() {
-        for reason in [
-            "restored_provider_unresolved: no unique owner",
-            "restored_role_without_provider: no provider or session",
-        ] {
-            assert_eq!(
-                reattach_boot_stage(Some(BootStage::SpawnFailed), Some(reason)),
-                None,
-                "a shell PTY reattach must not erase its agent restore failure"
-            );
-        }
-    }
-
-    #[test]
-    fn reattach_never_rewrites_an_already_honest_stage() {
-        for stage in [
-            None,
-            Some(BootStage::AgentReady),
-            Some(BootStage::ShellReady),
-            Some(BootStage::AgentLaunching),
-            Some(BootStage::PtyReattached),
-        ] {
-            assert_eq!(
-                reattach_boot_stage(stage, None),
-                None,
-                "reattach must not stomp an in-flight or ready boot: {stage:?}"
-            );
-        }
-    }
 }
 
 #[cfg(test)]

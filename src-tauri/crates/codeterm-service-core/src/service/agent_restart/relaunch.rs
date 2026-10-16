@@ -8,7 +8,7 @@ use crate::service::restored_launch::{
 use crate::service::ServiceContext;
 
 pub(super) struct Relaunch {
-    pub(super) command: String,
+    pub(super) command: crate::service::orchestrator::PreparedAgentCommand,
     pub(super) task: Option<String>,
 }
 
@@ -44,7 +44,7 @@ pub(super) fn build_relaunch(
     }
     build_relaunch_command(svc, snap, provider, session_present, task.as_deref()).map(|command| {
         Relaunch {
-            command: crate::agent::stub_launch::apply(provider, command),
+            command: command.with_stub(provider),
             task,
         }
     })
@@ -112,10 +112,10 @@ fn recorded_launch_relaunch(
         },
         launch_parameters,
     );
-    let command = input.command(svc, &snap.tab_id)?;
+    let command = input.prepared_command(svc, &snap.tab_id)?;
     // The fresh builder already wrapped its command in the dev stub.
     let command = if input.params.resume_session_id.is_some() {
-        crate::agent::stub_launch::apply(&snap.provider, command)
+        command.with_stub(&snap.provider)
     } else {
         command
     };
