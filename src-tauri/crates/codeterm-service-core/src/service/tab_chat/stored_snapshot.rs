@@ -1,4 +1,4 @@
-use super::{chatbackend_history, session_chat_snapshot, ChatMsg};
+use super::{chatbackend_history, ChatMsg};
 
 pub(super) fn read(
     svc: &crate::service::ServiceContext,
@@ -44,7 +44,7 @@ pub(super) fn read(
             };
             match (provider, session.filter(|id| !id.is_empty())) {
                 (Some(provider), Some(session)) => {
-                    session_chat_snapshot(svc, &provider, &cwd, &session, since)
+                    super::fork_history::messages(svc, tab_id, &provider, &cwd, &session, since)
                 }
                 _ => Ok((Vec::new(), 0)),
             }

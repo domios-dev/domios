@@ -14,6 +14,7 @@ pub mod chatbackend_history;
 mod content;
 pub mod context_window;
 mod file_events;
+pub mod fork_history;
 pub mod host_context;
 pub mod jsonl_kernel;
 pub mod raw_text_sink;
@@ -739,8 +740,11 @@ fn tab_transcript_snapshot(
                     .ok_or("Tab has no session_id yet")?;
                 (provider, cwd, sid)
             };
-            let result = session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)?;
-            if result.0.iter().any(|message| message.kind == "user") {
+            let result =
+                fork_history::messages(svc, tab_id, &provider_id, &cwd, &session_id, since)?;
+            if result.0.iter().any(|message| {
+                message.kind == "user" && message.inherited_from_session_id.is_none()
+            }) {
                 svc.note_session_conversation(tab_id, &session_id);
             }
             Ok(result)
