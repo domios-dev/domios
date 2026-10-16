@@ -57,6 +57,7 @@ It prints the file path and the running build SHA; open the PNG with your file-r
 ```bash
 node scripts/dev-wheel-probe.mjs                                   # sidebar: tab label, same row icon, empty space
 node scripts/dev-wheel-probe.mjs '[data-testid=tab-title]' '.sidebar-tab-badge'   # custom points
+node scripts/dev-wheel-probe.mjs '.sidebar-workspace-card[data-selected="true"] .sidebar-workspace-card-initials' '.sidebar-workspace-card-edit' '.sidebar-workspace-card[data-selected="false"] .sidebar-workspace-card-initials'
 node scripts/dev-wheel-probe.mjs --api-port 7686 --delta 480
 ```
 
