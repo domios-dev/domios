@@ -272,6 +272,9 @@ async fn ensure_locked(
             old.finish().await?;
         }
         let epoch = session.state.lock().begin();
+        session
+            .bookkeeping_failures
+            .store(0, std::sync::atomic::Ordering::Relaxed);
         {
             let mut context = session.context.lock();
             context.epoch = epoch;
