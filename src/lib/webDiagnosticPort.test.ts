@@ -17,6 +17,10 @@ test("web sender body matches shared Rust schema fixture and native sanitizer", 
   const bodies: unknown[] = [];
   runInNewContext(script, { window, document: { documentElement: { dataset: { codetermMounted: "true" } } }, fetch: (_url: string, init: { body: string }) => { bodies.push(JSON.parse(init.body)); return Promise.resolve(); } });
   const send = window.__CODETERM_SHELL_DIAGNOSTIC__ as (stage: string, failure: object) => void;
+  const identity = { buildSha: "abc1234", device: { entryAsset: "index-AbCd.js", userAgentFamily: "safari", width: 390, height: 844,
+    visualWidth: 390, visualHeight: 700, pixelRatio: 3, touch: true, displayMode: "standalone", scrollEnd: false, overflowAnchor: false } };
+  send("module-entry", identity);
+  assert.deepEqual(bodies[bodies.length - 1], JSON.parse(JSON.stringify(diagnosticBody("module-entry", identity, { ...flags, injected: true }))));
   for (const name of ["Error", "ReferenceError", "TypeError", "SyntaxError", "SecurityError", "FrontendUpdateError", "PrivateError"]) {
     for (const reason of ["invalid-client", "checkpoint-unavailable", "status-unavailable", "api-incompatible", "storage-unavailable", "boot-context-invalid", "unexpected", "native-capability-denied", "rejected-string", "rejected-value", "secret"]) {
       const failure = { name, reason, httpStatus: 700, filename: "private path.js" };

@@ -1,3 +1,6 @@
+import { DEV_BUILD } from "../../lib/devBuild";
+import { chatTraceEdge, startChatGestureTrace } from "./chatGestureTraceRuntime";
+import { packGesture } from "./chatGestureTrace";
 import { useCallback, useLayoutEffect, useRef, type MutableRefObject, type RefObject } from "react";
 import { chatInnerScrollConsumesWheel, chatUserScrollChanged } from "./chatScrollDecisions";
 import { isChatViewportAtBottom, type ChatViewportGeometry } from "./chatViewport";
@@ -13,7 +16,8 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
   const reset = useCallback(() => {
     gesture.current = idleChatScrollGesture();
     userScrolling.current = false;
-  }, [userScrolling]);
+    if (DEV_BUILD) chatTraceEdge(sessionKey, "gesture", [6, packGesture(gesture.current), 0]);
+  }, [userScrolling, sessionKey]);
 
   const recordScroll = useCallback((before: ChatViewportGeometry, viewport: ChatViewportGeometry) => {
     gesture.current = chatScrollGestureAfterEvent(gesture.current, "scroll", {
@@ -21,13 +25,15 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
       positionChanged: chatUserScrollChanged(before, viewport),
     });
     userScrolling.current = isChatUserScrolling(gesture.current);
-  }, [userScrolling]);
+    if (DEV_BUILD) chatTraceEdge(sessionKey, "gesture", [2, packGesture(gesture.current), gesture.current.stationaryFrames]);
+  }, [userScrolling, sessionKey]);
 
   useLayoutEffect(() => {
     reset();
     const el = scrollRef.current;
     if (!el || !active) return;
     supportsScrollEnd.current = "onscrollend" in el;
+    let stopTrace: (() => void) | undefined;
     let touchStartViewport: ChatViewportGeometry | null = null;
     let frame: number | null = null;
     let frameTop = el.scrollTop;
@@ -47,6 +53,10 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
       gesture.current = chatScrollGestureAfterEvent(gesture.current, event, { supportsScrollEnd: supportsScrollEnd.current,
         atBottom: isChatViewportAtBottom(el), positionChanged, towardBottom, canMove });
       userScrolling.current = isChatUserScrolling(gesture.current);
+      if (DEV_BUILD) {
+        chatTraceEdge(sessionKey, "gesture", [["touchstart", "touchend", "scroll", "wheel", "scrollend", "frame", "reset"].indexOf(event), packGesture(gesture.current), gesture.current.stationaryFrames]);
+        if (event === "touchend" || event === "scrollend") chatTraceEdge(sessionKey, event);
+      }
       if (event !== "frame" || (wasScrolling && !userScrolling.current)) chatScrollDiagnostic(sessionKey, "gesture", {
         event, supportsScrollEnd: supportsScrollEnd.current, owned: userScrolling.current, scrollTop: el.scrollTop,
       });
@@ -54,6 +64,7 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
       if (wasScrolling && !userScrolling.current) onEnd.current();
     };
     const start = () => {
+      if (DEV_BUILD) { stopTrace?.(); stopTrace = startChatGestureTrace(sessionKey, el, () => gesture.current); }
       touchStartViewport = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
       transition("touchstart");
     };
@@ -88,6 +99,7 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
       el.removeEventListener("wheel", wheel);
       el.removeEventListener("scrollend", scrollEnd);
       if (frame != null) window.cancelAnimationFrame(frame);
+      if (DEV_BUILD) stopTrace?.();
       reset();
     };
   }, [active, onEnd, onStart, reset, scrollRef, sessionKey, userScrolling]);

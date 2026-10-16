@@ -290,3 +290,52 @@ fn frontend_shell_contract_chat_scroll_diagnostic_metadata() {
     assert!(matches!(body.stage, DiagnosticStage::ChatScroll));
     assert_eq!(body.chat.unwrap()["state"]["newerCount"], 2);
 }
+
+#[tokio::test]
+async fn frontend_diagnostic_identity_route_accepts_and_bounds_metadata() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
+    let router = crate::routes::create_router(fixture::app_state(&fixture));
+    let valid = json!({"stage":"module-entry", "native":false,"injected":true,"mounted":false,
+        "buildSha":"abcdef123", "device":{"entryAsset":"index-AbCd.js", "userAgentFamily":"safari",
+        "width":390,"height":844,"visualWidth":390,"visualHeight":700,"pixelRatio":3,
+        "touch":true,"displayMode":"standalone","scrollEnd":false,"overflowAnchor":false}});
+    let mut cases = vec![(valid.clone(), StatusCode::OK)];
+    for (field, value) in [
+        ("appVersion", json!("x".repeat(65))),
+        ("entryAsset", json!("x".repeat(101))),
+        ("entryAsset", json!("private content")),
+        ("userAgentFamily", json!("raw user agent")),
+        ("displayMode", json!("private")),
+        ("width", json!(32769)),
+        ("visualHeight", json!(32769)),
+        ("pixelRatio", json!(17)),
+    ] {
+        let mut body = valid.clone();
+        body["device"][field] = value;
+        cases.push((body, StatusCode::BAD_REQUEST));
+    }
+    for sha in ["x".repeat(65), "private content".into()] {
+        let mut body = valid.clone();
+        body["buildSha"] = json!(sha);
+        cases.push((body, StatusCode::BAD_REQUEST));
+    }
+    for (body, expected) in cases {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/frontend/diagnostic")
+                    .header("authorization", "Bearer preview-test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+}
