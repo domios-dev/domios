@@ -25,6 +25,7 @@ pub struct Session {
     pub context: Mutex<RuntimeContext>,
     pub(super) controls_confirmation: Mutex<Option<RuntimeSettings>>,
     pub(super) control_changes: tokio::sync::watch::Sender<()>,
+    pub(super) reverted_thread: Mutex<Option<String>>,
     pub(super) completions: Mutex<super::completions::Completions>,
     pub state: Mutex<RuntimeState>,
     pub cache: Mutex<ItemCache>,
@@ -204,6 +205,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                     adapter: Mutex::new(None),
                     controls_confirmation: Mutex::new(None),
                     control_changes: tokio::sync::watch::channel(()).0,
+                    reverted_thread: Mutex::new(None),
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
                         epoch: 0,
@@ -706,7 +708,7 @@ async fn run_inner(
             RuntimeAction::QuestionAnswer { .. } => {
                 return Err(RuntimeFailure::Refused(
                     "Question formatting must enter the durable user submit door".into(),
-                ))
+                ));
             }
             RuntimeAction::Request { call } => {
                 log::debug!(
@@ -821,7 +823,7 @@ async fn run_inner(
                 next = plan;
             }
             RuntimeStep::Refused { reason, .. } => {
-                return Err(RuntimeFailure::Refused(reason.to_string()))
+                return Err(RuntimeFailure::Refused(reason.to_string()));
             }
             RuntimeStep::Complete {
                 result,
