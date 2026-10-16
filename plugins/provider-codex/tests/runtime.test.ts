@@ -88,6 +88,8 @@ check("captured child identities permit history plans without mutation authority
     assert.equal(snapshot.history.items[0].content,"Child history answer");
     if (snapshot.plan.action.kind !== "request") throw new Error("Expected read request");
     assert.equal(snapshot.plan.action.call.target?.threadId,child);
+    const emptyChild = hooks.runtimeResponse(context,op,{stage:"unmaterialized"},{kind:"success",value:{thread:{id:child,parentThreadId:context.threadId!,turns:[]}}});
+    assert.equal(emptyChild.kind,"complete","An authenticated child with no messages still opens read-only");
     const foreign = hooks.runtimeResponse(context,op,{stage:"snapshot"},{kind:"success",value:{thread:{id:"foreign",parentThreadId:context.threadId!,turns:[]}}});
     assert.equal(foreign.kind,"refused");
   }
