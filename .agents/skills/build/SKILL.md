@@ -1079,27 +1079,3 @@ retains the app workspace profiles and target cache without that invalid flag.
 Verify the argv fixtures with
 `node --test scripts/dev-build-configuration.test.mjs`, then run the focused
 selector in canonical and require a nonzero executed test count.
-
-
-### Lane-check reports a missing item that exists in this worktree
-
-Cargo 1.95 can assign the same workspace unit hash to matching relative package
-paths in different worktrees sharing a build directory. If the next worktree's
-sources predate the cached artifact, Cargo may mark its dependency fresh and
-supply the other worktree's metadata, producing a false E0425. No stable drive
-mapping is needed; touching the dependency only repairs one check.
-
-Lane-check sets `RUSTC_WORKSPACE_WRAPPER` to the physical worktree's passthrough
-wrapper (`scripts/lane-rustc-wrapper.cmd` on Windows, `.sh` elsewhere). Cargo
-includes that path in workspace artifact hashes. Registry dependencies still
-reuse one shared cache; lane checks retain Cargo's shared build-directory lock
-and per-worktree final targets. The setting is confined to the lane subshell;
-canonical operations keep their existing wrapper policy. Do not replace this
-with per-lane target/build directories, global Rust flags or cache cleaning.
-
-Run `node scripts/tests/lane-metadata-repro.mjs` in a Team QA shell. It creates
-two throwaway Git worktrees with different exports and deliberately old source
-timestamps, proves the former policy returns E0425, then checks A/B/A/B through
-lane-check and verifies two workspace metadata files but one registry metadata
-file. The registry fixture is local and needs no network. The same regression
-runs under `node --test scripts/tests/lane-check.test.mjs`.
