@@ -33,6 +33,16 @@ clean returns Done. The host owns pagination, exact root/descendant authority an
 termination verification. An acknowledgement never proves absence. No filesystem,
 network, subprocess or environment host function is added by this capability.
 
+`agentRuntime.goals.actions` declares goal status reads and lifecycle controls.
+Include `read`; optional actions are `cancel`, `pause`, `resume`, and `complete`.
+The host issues `control` with action `goal` and value `{action: ...}`; a
+confirmed result is `{kind:"goal",threadId,intent}` with a nullable session
+intent carrying `goal` and `goalStatus`. Mutations require host confirmation of
+the exact thread, nonce, epoch and displayed goal. Cancel must confirm removal;
+Complete is an explicit achievement action. Codex uses user-origin set/clear
+and verifies clear through get. This adds no sandbox host API, filesystem,
+network, subprocess or environment access. Use fixtures only for lifecycle tests.
+
 How to build a JS drop-in agent provider for Domios — the manifest schema, the
 JS exports the host calls, what falls back to what, and what tests you owe.
 General plugin anatomy (build pipeline, QuickJS sandbox, `host.*` API, the

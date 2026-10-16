@@ -21,6 +21,8 @@ pub struct AgentRuntimeCommand {
 pub struct AgentRuntimeCapability {
     #[serde(default)]
     pub background_processes: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goals: Option<RuntimeGoalCapability>,
     #[serde(default)]
     pub stored_history: bool,
     #[serde(default)]
@@ -50,4 +52,20 @@ pub enum RuntimeLoginMethod {
     Browser,
     Device,
     ApiKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeGoalCapability {
+    pub actions: Vec<RuntimeGoalAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeGoalAction {
+    Read,
+    Cancel,
+    Pause,
+    Resume,
+    Complete,
 }

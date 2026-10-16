@@ -401,6 +401,37 @@ function codexCommandFromSpec(spec) {
   return unset + [spec.program, ...spec.args].map((value) => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");
 }
 
+// plugins/provider-codex/src/runtimeGoal.ts
+var statuses = /* @__PURE__ */ new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
+function goalIntent(raw, thread) {
+  if (!raw || typeof raw !== "object") return null;
+  const goal = raw;
+  if (thread && goal.threadId !== thread) return null;
+  if (typeof goal.objective !== "string" || !goal.objective.trim()) return null;
+  return { goal: goal.objective, ...typeof goal.status === "string" && statuses.has(goal.status) ? { goalStatus: goal.status } : {} };
+}
+function goalPlan(threadId, value) {
+  const action = value && typeof value === "object" && !Array.isArray(value) ? value.action : void 0;
+  const status = action === "pause" ? "paused" : action === "resume" ? "active" : action === "complete" ? "complete" : void 0;
+  if (action !== "read" && action !== "cancel" && !status) throw new Error("Unsupported goal action");
+  const method = action === "read" ? "thread/goal/get" : action === "cancel" ? "thread/goal/clear" : "thread/goal/set";
+  return { action: { kind: "request", call: { method, params: { threadId, ...action !== "read" ? { origin: "user" } : {}, ...status ? { status } : {} } } }, state: { goalAction: String(action) } };
+}
+function goalResponse(threadId, state, reply) {
+  const refuse = (message) => ({ kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false });
+  if (reply.kind === "error") return refuse(reply.error.message);
+  const value = reply.value;
+  if (!value || typeof value !== "object") return refuse("Goal response is invalid");
+  if (state.goalAction === "cancel") return value.cleared === true ? { kind: "continue", plan: { ...goalPlan(threadId, { action: "read" }), state: { goalAction: "verifyCancel" } } } : refuse("Goal removal was not confirmed");
+  if (!("goal" in value)) return refuse("Goal response is missing");
+  if (state.goalAction === "verifyCancel" && value.goal !== null) return refuse("Goal still exists after removal");
+  const intent = goalIntent(value.goal, threadId);
+  if (value.goal !== null && (!intent || !intent.goalStatus)) return refuse("Goal identity or status is invalid");
+  const expected = state.goalAction === "pause" ? "paused" : state.goalAction === "resume" ? "active" : state.goalAction === "complete" ? "complete" : void 0;
+  if (expected && intent?.goalStatus !== expected) return refuse("Goal status was not confirmed");
+  return { kind: "complete", result: { kind: "goal", threadId, intent } };
+}
+
 // plugins/provider-codex/src/runtimeProtocol.ts
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -1623,7 +1654,7 @@ function pagedHistoryResponse(op, raw, reply) {
   const value = object(reply.value);
   if (state.stage === "goal") {
     const goal = text(object(value.goal).objective);
-    return finish(op, goal ? [{ id: "thread:goal", seq: 0, type: "custom", content: "", sessionIntent: { goal } }] : [], [], []);
+    return finish(op, goal ? [{ id: "thread:goal", seq: 0, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal } }] : [], [], []);
   }
   if (!Array.isArray(value.data)) failure("History page has no data array");
   const next = nextCursor(value, state.cursor);
@@ -2520,7 +2551,7 @@ function runtimeReduce(ctx, raw, frames) {
       }
       case "thread/goal/updated": {
         const goal = text(object(params.goal).objective);
-        if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: { goal } }, params) });
+        if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: goalIntent(params.goal) ?? { goal } }, params) });
         break;
       }
       case "turn/plan/updated": {
@@ -2716,6 +2747,7 @@ function planOperation(ctx, op) {
       if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
       const thread = op.threadId ?? ctx.threadId;
       if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
+      if (op.action === "goal") return goalPlan(thread, op.value);
       if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
       if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
@@ -2740,6 +2772,7 @@ function respondOperation(ctx, op, raw, reply) {
   validateBinding(ctx, op);
   if (op.kind === "backgroundProcesses") return backgroundResponse(op, reply);
   const state = object(raw);
+  if (op.kind === "control" && op.action === "goal") return goalResponse(op.threadId ?? ctx.threadId, state, reply);
   if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns" && !op.cursor && reply.error.code === -32600 && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
     return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "unmaterialized" }));
   if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
@@ -2837,7 +2870,7 @@ function historyResponse(ctx, op, state, value) {
   }
   if (state.stage === "goal") {
     const objective = text(object(sanitizeHistory(object(value.goal))).objective);
-    if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: { goal: objective } }];
+    if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal: objective } }];
     return historyComplete(op, state);
   }
   if (!Array.isArray(value.data)) return refused("Missing history page data");

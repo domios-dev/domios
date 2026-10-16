@@ -32,16 +32,23 @@ export function sessionIntentFromMessages(
 ): ChatSessionIntent | null {
   let title: string | undefined;
   let goal: string | undefined;
+  let goalStatus: string | undefined;
   for (const message of messages) {
     const intent: unknown = message.sessionIntent;
     if (!isRecord(intent)) continue;
     const nextTitle = cleanIntentText(intent.title);
     const nextGoal = cleanIntentText(intent.goal);
     if (nextTitle) title = nextTitle;
-    if (nextGoal) goal = nextGoal;
+    if (nextGoal) {
+      goal = nextGoal;
+      goalStatus = cleanIntentText(intent.goalStatus);
+    } else if (Object.keys(intent).length === 0 || intent.goal === null) {
+      goal = undefined;
+      goalStatus = undefined;
+    }
   }
   if (!title && !goal) return null;
-  return { ...(title ? { title } : {}), ...(goal ? { goal } : {}) };
+  return { ...(title ? { title } : {}), ...(goal ? { goal } : {}), ...(goalStatus ? { goalStatus } : {}) };
 }
 
 export function isSessionIntentOnlyMessage(message: ChatMessage): boolean {

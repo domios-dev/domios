@@ -1,3 +1,4 @@
+import { goalPlan, goalResponse, goalIntent } from "./runtimeGoal";
 import type {
   RuntimeContext, Operation, RuntimePlan, RuntimeStep, RpcReply, RuntimeSettings,
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
@@ -105,6 +106,7 @@ function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
       if (op.action === "auth") return request("account/read",{refreshToken:false},{stage:"auth"});
       const thread = op.threadId ?? ctx.threadId;
       if (!thread) fail("binding_mismatch","Control requires the bound thread");
+      if (op.action === "goal") return goalPlan(thread,op.value);
       if (op.action === "compact") return request("thread/compact/start",{threadId:thread});
       if (op.action === "restoreContext") return request("thread/inject_items",{threadId:thread,items:restoreContextItems(op.value)});
       if (!["model","effort","mode","settings"].includes(op.action)) fail("unsupported",`Unsupported control: ${op.action}`);
@@ -131,6 +133,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
   validateBinding(ctx,op);
   if (op.kind === "backgroundProcesses") return backgroundResponse(op,reply);
   const state = object(raw);
+  if (op.kind === "control" && op.action === "goal") return goalResponse(op.threadId ?? ctx.threadId!,state,reply);
   if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns"
     && !op.cursor && reply.error.code === -32600
     && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
@@ -226,7 +229,7 @@ function historyResponse(ctx: RuntimeContext, op: Extract<Operation,{kind:"readH
   }
   if (state.stage === "goal") {
     const objective = text(object(sanitizeHistory(object(value.goal))).objective);
-    if (objective) state.items = [...list(state.items),{id:"thread:goal",seq:Number(state.seq)+1,type:"custom",content:"",sessionIntent:{goal:objective}}];
+    if (objective) state.items = [...list(state.items),{id:"thread:goal",seq:Number(state.seq)+1,type:"custom",content:"",sessionIntent:goalIntent(value.goal) ?? {goal:objective}}];
     return historyComplete(op,state);
   }
   if (!Array.isArray(value.data)) return refused("Missing history page data");

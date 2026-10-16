@@ -141,6 +141,7 @@ export type ChatTimelineMarker =
 export interface ChatSessionIntent {
   title?: string;
   goal?: string;
+  goalStatus?: string;
 }
 
 /** Discriminated union, open for future interactive session-event kinds. */
