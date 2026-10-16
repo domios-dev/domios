@@ -572,6 +572,8 @@ async fn run_inner(
     operation: RuntimeOperation,
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let mut context = session.context.lock().clone();
+    crate::service::execution_sandbox::validate_runtime_operation(svc, &context, &operation)
+        .map_err(RuntimeFailure::Refused)?;
     super::model::validate_operation_thread(&context, &operation)?;
     if matches!(operation, RuntimeOperation::SubmitTurn { .. })
         && session.compaction.lock().held(context.epoch)

@@ -1060,6 +1060,13 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
 fn restorable_launch_parameters_round_trip_in_snapshot() {
     let (mut state, tab_id) = MultiplexerState::new();
     let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        execution_sandbox: Some(codeterm_types::plan::ExecutionSandboxPolicy {
+            intent: codeterm_types::plan::ExecutionIntent::ReadOnly,
+            cwd: "/opaque-lane".into(),
+            launch_args: vec!["opaque-read".into()],
+            runtime_mode: Some("opaque-read-mode".into()),
+            writable_roots: Vec::new(),
+        }),
         failed_provider: Some("failed-provider-fixture".into()),
         context_files: None,
         context_skills: None,

@@ -60,6 +60,10 @@ pub(crate) fn capture_tab_launch_parameters(
         )
     });
     let launch = RestorableLaunchParameters {
+        execution_sandbox: mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.restorable_launch.execution_sandbox.clone()),
         failed_provider: None,
         structured_runtime_mode: None,
         context_files: None,
@@ -197,6 +201,12 @@ pub fn restored_fresh_launch_input(
     mut launch_parameters: crate::multiplexer::types::RestorableLaunchParameters,
 ) -> RestoredFreshLaunchInput {
     let legacy_snapshot = !launch_parameters.captured;
+    if let Some(policy) = &launch_parameters.execution_sandbox {
+        params.execution_intent = Some(policy.intent.clone());
+        params.cwd = Some(policy.cwd.clone());
+        params.skip_permissions = Some(false);
+        params.permission_bypass_authorization = None;
+    }
     if launch_parameters.captured {
         params.skip_permissions = Some(
             launch_parameters.permission_bypass_requested
