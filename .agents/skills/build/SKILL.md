@@ -346,7 +346,7 @@ Bounds: a mesh tab cannot carry `--timeout` (only a local owning agent can), so 
 
 Peer `path` (in `peers.json`): mesh shells are non-login, so a peer whose node or cargo is outside the default PATH lists those directories (ubunta: `$HOME/.local/node22/bin`); the job command and the status probe export them first, and a job without node reports `outcome=bootstrap_failed stage=node_missing`.
 
-Measurements (fill from the first real runs): ROG cold first populate of `check-queue --all` — not yet measured; ROG warm lane `check-queue --lane` — not yet measured.
+Measurements: ROG (Windows) via one `check-series` on develop 7fc9cf309, area root crate `src-tauri/src/lib.rs` (`-p codeterm`, the full app dependency graph), job peer-20261016T003924Z-52b3. The first check in a never-compiled gateway check worktree (cold populate, sccache on the shared S3 cache) took 177 s: cargo `Finished` 110 s for the dev profile plus 64 s for the test profile. A no-op recheck (floor) took 4 s. A one-line edit in the root crate (warm lane check) took 11 s, 9.5 s of it cargo. eight (macOS) warm `--lane -p codeterm-sentinel` measured 32 s, and ubunta (Linux) `check-linux` workspace checks 73-94 s.
 
 Peer toolchain records: ROG (user amigo) had toolchains in `~/.rustup` but no proxies in `~/.cargo/bin`; `peer-setup ROG --install-toolchain` added rustup 1.29.1 proxies and cargo-nextest 0.9.148 there (default toolchain 1.95.0) and changed nothing under `C:\domios-ci` or the machine PATH. To remove it, delete those exes except `sccache.exe`, never `rustup self uninstall`, which deletes the `~/.rustup` other runs use. Never run `--install-toolchain` while another run uses that peer's toolchain.
 
