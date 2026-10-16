@@ -127,7 +127,7 @@ function muxActions(): MultiplexerActionsContextType {
 
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
-async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }): Promise<{
+async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
@@ -140,6 +140,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
     calls.push(command);
     if (command === "agent_runtime_retry") return { state: "loaded", epoch: 3 };
     if (command === "chat_start") {
+      if (chatError) throw new Error(chatError);
       return {
         text: "",
         offset: 0,
@@ -217,6 +218,25 @@ for (const narrow of [false, true]) {
     }
   });
 }
+
+test("removed plugin details are reachable from the composer status bubble", async () => {
+  const error = JSON.stringify({ code: "chat_backend_plugin_removed", plugin_id: "fixture-plugin" });
+  const { host, root } = await renderChat("delivery-tab", undefined, undefined, error);
+  try {
+    const composer = host.querySelector('[data-testid="composer-context-header"]');
+    const status = composer?.querySelector<HTMLButtonElement>('button[aria-label="Plugin removed"]');
+    assert(status, "composer exposes the removed plugin status");
+    assert(host.querySelectorAll('[aria-label="Plugin removed"]').length === 1, "no persistent removed plugin notice exists outside the bubble");
+    await act(async () => { status.click(); });
+    const details = composer?.querySelector('[role="dialog"][aria-label="Plugin removed"]');
+    assert(details?.querySelector('[aria-label="Plugin removed"]'), "status opens the existing error notice with its details and actions");
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+    assert(!host.querySelector('[role="dialog"][aria-label="Plugin removed"]'), "Escape dismisses plugin details");
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+  }
+});
 
 for (const touch of [false, true]) {
   for (const state of ["degraded", "unloaded", "loading"] as const) {

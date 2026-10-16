@@ -188,6 +188,7 @@ function ChatComposerImpl({
   promptDock,
   replacement,
   inlineAttachmentSink,
+  pluginError,
   sessionIntent,
   contextSlot = null,
   chatBackend = false,
@@ -219,6 +220,7 @@ function ChatComposerImpl({
   replacement?: ReactNode;
   /** Where pasted and dropped files land as capsules at the caret. */
   inlineAttachmentSink?: MutableRefObject<InlineAttachmentSink | null>;
+  pluginError?: string | null;
   sessionIntent?: ChatSessionIntent | null;
   /** Element above the status line that hosts the context header. */
   contextSlot?: HTMLElement | null;
@@ -513,6 +515,7 @@ function ChatComposerImpl({
     <ComposerDock mode={composerLayout.mode} ref={shellRef}>
       {contextSlot && createPortal(
         <ComposerContextHeader
+          pluginError={pluginError}
           sessionIntent={sessionIntent}
           tabId={tabId}
           workspaceId={workspaceId}
@@ -738,6 +741,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.replacement === b.replacement
   && a.promptDock === b.promptDock
   && a.inlineAttachmentSink === b.inlineAttachmentSink
+  && a.pluginError === b.pluginError
   && a.sessionIntent === b.sessionIntent
   && a.contextSlot === b.contextSlot
   && a.chatBackend === b.chatBackend
