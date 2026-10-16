@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { createTransportClient, decodeTransportResponse, parseSseFrame, TransportError, InvalidJsonResponseError, MAX_SSE_FRAME_BYTES } from "./transportClient";
+import { writeTerminalOutputAndWait } from "../hooks/terminal/terminalOutputWrite";
+import { TerminalOutputReplay } from "./outputReplay";
+import {
+  createTransportClient,
+  decodeTransportResponse,
+  InvalidJsonResponseError,
+  MAX_SSE_FRAME_BYTES,
+  parseSseFrame,
+  TransportError,
+} from "./transportClient";
 
 const origin = "http://127.0.0.1:7686";
 function clientWith(response: Response) {
@@ -132,6 +141,87 @@ describe("transportClient", () => {
     expect((fetch.mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(true);
     expect(cancel).toHaveBeenCalledOnce();
   });
+  it("bounds retained bytes and preserves order across 10,000 slow terminal writes", async () => {
+    const frameCount = 10_000;
+    const payloadSize = 64;
+    const encoder = new TextEncoder();
+    let produced = 0;
+    let retainedBytes = 0;
+    let maxRetainedBytes = 0;
+    let terminalBytes = 0;
+    let maxQueuedBytes = 0;
+    const written: number[] = [];
+    let releaseWrite!: () => void;
+    let nextFrame = deferred<number>();
+    let resolveEnd!: () => void;
+    const ended = new Promise<void>((resolve) => { resolveEnd = resolve; });
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (produced === frameCount) {
+          controller.close();
+          return;
+        }
+        const sequence = produced++;
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ sequence, payload: "x".repeat(payloadSize) })}\n\n`));
+      },
+    }, { highWaterMark: 0 });
+    const { client } = clientWith(new Response(stream));
+    const replay = new TerminalOutputReplay();
+    const terminalIdentity = {};
+    const terminal = {
+      write(data: string | Uint8Array, done?: () => void) {
+        const bytes = typeof data === "string" ? encoder.encode(data) : data;
+        terminalBytes += bytes.byteLength;
+        maxQueuedBytes = Math.max(maxQueuedBytes, retainedBytes + terminalBytes);
+        written.push(bytes[0] ?? 0);
+        releaseWrite = () => {
+          terminalBytes -= bytes.byteLength;
+          done?.();
+        };
+      },
+    };
+    const firstFrame = nextFrame.promise;
+    const stop = client.subscribe("/api/output/stream", (_name, data) => {
+      const payload = (data as { payload: string }).payload;
+      const sequence = (data as { sequence: number }).sequence;
+      const payloadByte = sequence % 255;
+      const bytes = new Uint8Array(payload.length).fill(payloadByte < 27 ? payloadByte : payloadByte + 1);
+      retainedBytes += bytes.byteLength;
+      maxRetainedBytes = Math.max(maxRetainedBytes, retainedBytes);
+      const current = nextFrame;
+      nextFrame = deferred<number>();
+      current.resolve(sequence);
+      const completion = replay.deliver(terminalIdentity, "tab", {
+        boot: "boot", ptyId: "pty", offset: (sequence + 1) * bytes.byteLength, bytes,
+      }, (chunk) => writeTerminalOutputAndWait(terminal, chunk));
+      return Promise.resolve(completion).finally(() => { retainedBytes -= bytes.byteLength; });
+    }, { raw: true, onEnd: () => resolveEnd() });
+    try {
+      expect(await firstFrame).toBe(0);
+      expect(produced).toBe(1);
+      expect(retainedBytes).toBe(payloadSize);
+      expect(terminalBytes).toBe(payloadSize);
+      for (let sequence = 0; sequence < frameCount; sequence++) {
+        releaseWrite();
+        if (sequence + 1 < frameCount) {
+          expect(await nextFrame.promise).toBe(sequence + 1);
+          expect(produced).toBe(sequence + 2);
+          expect(retainedBytes).toBe(payloadSize);
+          expect(terminalBytes).toBe(payloadSize);
+        }
+      }
+      await ended;
+      expect(produced).toBe(frameCount);
+      expect(maxRetainedBytes).toBe(payloadSize);
+      expect(maxQueuedBytes).toBe(payloadSize * 2);
+      expect(written).toEqual(Array.from({ length: frameCount }, (_, index) => {
+        const payloadByte = index % 255;
+        return payloadByte < 27 ? payloadByte : payloadByte + 1;
+      }));
+      expect(retainedBytes).toBe(0);
+      expect(terminalBytes).toBe(0);
+    } finally { stop(); }
+  });
   it("identifies all streams from a page with the same client header", async () => {
     const requests: string[] = [];
     let resolve!: () => void;
@@ -154,6 +244,12 @@ describe("transportClient", () => {
     expect(parseSseFrame("event: output\nid: b:2\ndata: first\ndata: second")).toEqual({ event: "output", id: "b:2", data: "first\nsecond" });
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 
 describe("SSE lifecycle", () => {
