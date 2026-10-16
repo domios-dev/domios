@@ -266,7 +266,14 @@ async fn ensure_locked(
             .await
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
             .map_err(RuntimeFailure::Refused)?;
-    session.context.lock().settings = settings;
+    let resolved_cwd = svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone());
+    {
+        let mut context = session.context.lock();
+        context.settings = settings;
+        if let Some(cwd) = resolved_cwd {
+            context.cwd = cwd;
+        }
+    }
     crate::startup::boot_timing::mark(tab, None, "runtime_options_ready");
     let process = if live {
         old.ok_or(RuntimeFailure::Superseded)?
@@ -342,6 +349,9 @@ async fn ensure_locked(
                         reason: error.to_string(),
                     })?,
             );
+            env.extend(crate::service::execution_sandbox::environment(
+                &owner, &target,
+            ));
             if !super::authority::verifies(&owner, &target, &provider_id, &nonce) {
                 return Err(RuntimeFailure::Superseded);
             }
@@ -588,6 +598,8 @@ async fn run_inner(
     operation: RuntimeOperation,
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let mut context = session.context.lock().clone();
+    crate::service::execution_sandbox::validate_runtime_operation(svc, &context, &operation)
+        .map_err(RuntimeFailure::Refused)?;
     super::model::validate_operation_thread(&context, &operation)?;
     if matches!(operation, RuntimeOperation::SubmitTurn { .. })
         && session.compaction.lock().held(context.epoch)

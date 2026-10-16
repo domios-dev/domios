@@ -10,8 +10,13 @@
 //! are intentionally not covered here — the native provider remains
 //! authoritative for them.
 
+#[path = "parity_test/execution_sandbox.rs"]
+mod execution_sandbox;
+#[path = "parity_test/inline_fixture.rs"]
+mod inline_fixture;
 #[path = "parity_test/runtime.rs"]
 mod runtime;
+use inline_fixture::load_inline_js;
 
 use std::path::PathBuf;
 
@@ -109,20 +114,6 @@ fn provider_fixture(id: &str, relative: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
-fn load_inline_js(id: &str, plugin_js: &str) -> JsProvider {
-    use std::sync::Arc;
-
-    let manifest_json = format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",
-                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
-                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
-    );
-    let manifest: super::PluginManifest = serde_json::from_str(&manifest_json).unwrap();
-    let vm = super::PluginVm::from_source_with(id, plugin_js.to_string(), Some(manifest_json))
-        .expect("fixture vm");
-    JsProvider::new(manifest, Arc::new(vm))
-}
-
 #[test]
 fn claude_update_command_native_js_parity() {
     let Some(_) = require_plugins() else {
@@ -131,6 +122,10 @@ fn claude_update_command_native_js_parity() {
     let native = crate::agent_claude::provider::ClaudeProvider::new();
     let js = load_js("claude");
     launch_spec::assert_native_js_parity(&native, &js);
+    assert_eq!(
+        native.execution_sandbox_capability(),
+        js.execution_sandbox_capability()
+    );
     for platform in ["macos", "linux", "windows", "unknown"] {
         assert_eq!(js.update_command(platform), native.update_command(platform));
     }
@@ -654,10 +649,13 @@ fn provider_readiness_native_js_parity() {
     }
 }
 
-struct NativeCodexReadiness;
+struct NativeSandbox;
 
 #[async_trait::async_trait]
-impl AgentProvider for NativeCodexReadiness {
+impl AgentProvider for NativeSandbox {
+    fn execution_sandbox_capability(&self) -> Option<crate::provider::ExecutionSandboxCapability> {
+        Some(execution_sandbox::fixture_capability())
+    }
     fn sandboxed_linux_launch_capability(
         &self,
     ) -> Option<crate::provider::SandboxedLinuxLaunchCapability> {
@@ -738,7 +736,7 @@ fn codex_composer_fingerprint_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
-    let native = NativeCodexReadiness;
+    let native = NativeSandbox;
     let js = load_js("codex");
     assert_eq!(
         js.provider_readiness_strategy(),
@@ -762,7 +760,7 @@ fn codex_linux_sandbox_codeterm_reach_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
-    let native = NativeCodexReadiness;
+    let native = NativeSandbox;
     let js = load_js("codex");
     assert_eq!(
         js.sandboxed_linux_launch_capability(),

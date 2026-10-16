@@ -1892,13 +1892,16 @@ function codexRuntimePolicy(settings) {
     "approval-required": ["untrusted", "user", "readOnly"],
     "auto-accept-edits": ["on-request", "user", "workspaceWrite"],
     "auto": ["on-request", "auto_review", "workspaceWrite"],
-    "full-access": ["never", "user", "dangerFullAccess"]
+    "full-access": ["never", "user", "dangerFullAccess"],
+    "read-only": ["never", "user", "readOnly"],
+    "workspace-write": ["never", "user", "workspaceWrite"]
   };
   const policy = policies[selected];
   if (!policy) throw { code: "unsupported", message: `Unsupported runtime mode: ${selected}` };
   return { approvalPolicy: policy[0], approvalsReviewer: policy[1], sandboxPolicy: {
     type: policy[2],
-    ...policy[2] === "workspaceWrite" && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
+    ...(policy[2] === "workspaceWrite" || selected === "read-only") && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
+    ...selected === "workspace-write" ? { writableRoots: [...settings.additionalDirectories ?? []], excludeTmpdirEnvVar: true, excludeSlashTmp: true } : {},
     ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
   } };
 }
@@ -1907,6 +1910,11 @@ function codexThreadConfig(settings) {
   return {
     check_for_update_on_startup: false,
     project_doc_max_bytes: 65536,
+    ...["read-only", "workspace-write"].includes(settings.mode ?? "") ? {
+      "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories ?? []],
+      "sandbox_workspace_write.exclude_tmpdir_env_var": true,
+      "sandbox_workspace_write.exclude_slash_tmp": true
+    } : {},
     ...workspaceWrite && settings.networkAccess !== void 0 ? { "sandbox_workspace_write.network_access": settings.networkAccess } : {},
     ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
     ...settings.effort ? { model_reasoning_effort: settings.effort } : {}
@@ -1921,7 +1929,7 @@ function codexReportedSettings(raw) {
   const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
   const approval = settings.approvalPolicy ?? thread.approvalPolicy;
   const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
-  const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
+  const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
   return { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
 }
 function codexEffectiveSettings(requested, reply) {

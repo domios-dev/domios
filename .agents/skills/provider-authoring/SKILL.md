@@ -42,6 +42,25 @@ Every claim below is transcribed from the Rust source of truth:
 
 ## The two-surface contract
 
+`spawn.executionSandbox` declares filesystem enforcement per platform and intent.
+Each `readOnly` or `mutating` mode supplies `launchArgs` and an optional
+`runtimeMode`; `{cwd}` expands to the canonical launch directory. Missing
+read-only enforcement refuses dispatch with `unsupportedReason`. Permission
+prompts or planning modes alone do not establish filesystem confinement.
+Core persists the resolved intent, cwd, arguments, mode and host-owned roots,
+revalidates them on relaunch and rejects runtime overrides. Scoped launches
+reject custom arguments; use typed model and effort controls. Read-only adds
+no writable roots. Mutating roots include the lane, its pad and required Git
+metadata. Confined mutating launches also persist canonical Cargo home, lane-check
+cache, sccache and pnpm store roots, with lane-local temp exported as TMPDIR/TEMP/TMP.
+The lane cache uses `$CODETERM_RUST_CACHE_ROOT/lanes`, falling back to
+`${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. The pnpm store uses host environment configuration, falling back to `<lane>/.codeterm-pnpm-store`.
+Task-bound Workers must explicitly declare read_only or mutating; older restored
+task tabs without a saved policy keep their existing behavior.
+Read-only reports use stdin `--from-pad -`; gates needing writes
+outside the sandbox are explicit owner-run canonical gates. Native/JS parity
+and pure intent/transport/platform tests are required; no host API is added.
+
 `spawn.paste.supportsBracketedPaste` defaults to true. Set it to false for
 plain input that cannot interpret bracketed paste; the refusal overrides live
 terminal mode, multiline TUI framing and typed prefixes. Declare

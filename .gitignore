@@ -56,6 +56,8 @@ src/components/Canvas/_realPlan.json
 .codeterm/plan-index.sqlite
 /.codeterm/plans/
 .codeterm-rem-tmp/
+.codeterm-tmp/
+.codeterm-pnpm-store/
 src-tauri/bundled-cli
 src-tauri/bundled-embed
 

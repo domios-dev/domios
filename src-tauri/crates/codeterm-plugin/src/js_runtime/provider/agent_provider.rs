@@ -14,7 +14,7 @@ use crate::provider::{
 };
 use codeterm_types::pty::PendingPrompt;
 
-use super::super::{call_json, manifest_settings_sections, IntegrationKind, SerdeModelInfo};
+use super::super::{call_json, manifest_settings_sections, IntegrationKind};
 use super::wire::{SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES};
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
@@ -171,6 +171,10 @@ impl AgentProvider for JsProvider {
 
     fn launch_permission_capability(&self) -> Option<provider::LaunchPermissionCapability> {
         self.manifest.spawn.launch_permissions.clone()
+    }
+
+    fn execution_sandbox_capability(&self) -> Option<provider::ExecutionSandboxCapability> {
+        self.manifest.spawn.execution_sandbox.clone()
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
@@ -1091,16 +1095,7 @@ impl AgentProvider for JsProvider {
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
-        if !self.has_js("discoverModels") {
-            return None;
-        }
-        let _catalogue = self.vm.catalogue_gate.lock();
-        let fingerprint = self.vm.binary_fingerprint();
-        // `null` is the plugin's honest "no genuine discovery" signal — it must
-        // not deserialize-fail into warn noise, and never falls back to a seed.
-        self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[json!(fingerprint)])
-            .flatten()
-            .map(|models| models.iter().map(ModelInfo::from).collect())
+        self.js_discover_models()
     }
 
     fn default_model(&self) -> Option<String> {

@@ -68,10 +68,18 @@ pub struct MockProvider {
     additional_writable_dir_flag: Option<String>,
     sandboxed_linux_launch: Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability>,
     launch_permissions: Option<codeterm_plugin::provider::LaunchPermissionCapability>,
+    execution_sandbox: Option<codeterm_plugin::provider::ExecutionSandboxCapability>,
     model_switch: codeterm_plugin::provider::ModelSwitchMode,
 }
 
 impl MockProvider {
+    pub fn with_execution_sandbox(
+        mut self,
+        capability: codeterm_plugin::provider::ExecutionSandboxCapability,
+    ) -> Self {
+        self.execution_sandbox = Some(capability);
+        self
+    }
     pub fn with_tool_less(mut self, tool_less: bool) -> Self {
         self.tool_less = tool_less;
         self
@@ -79,6 +87,7 @@ impl MockProvider {
 
     pub fn new(id: &str) -> Self {
         Self {
+            execution_sandbox: None,
             id: id.to_string(),
             launch_binary: None,
             supports_chat_ui: false,
@@ -429,6 +438,11 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn execution_sandbox_capability(
+        &self,
+    ) -> Option<codeterm_plugin::provider::ExecutionSandboxCapability> {
+        self.execution_sandbox.clone()
+    }
     fn is_tool_less(&self) -> bool {
         self.tool_less
     }

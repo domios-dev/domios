@@ -147,6 +147,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn execution_sandbox_capability(&self) -> Option<ExecutionSandboxCapability> {
+        None
+    }
+
     /// What THIS machine says about the launch binary, through the shared
     /// resolver. Core reads this instead of asking a provider to self-report.
     fn observe_launch_binary(&self) -> LaunchBinaryObservation {
