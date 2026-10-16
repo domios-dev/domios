@@ -3,6 +3,131 @@ use super::*;
 use crate::transport_tabs::fixture;
 
 #[test]
+fn web_diagnostic_client_id_is_bounded_log_metadata() {
+    let mut headers = HeaderMap::new();
+    assert_eq!(diagnostic_client(&headers), "unknown");
+    headers.insert("X-CodeTerm-Client-Id", "page-12_ab.cd".parse().unwrap());
+    assert_eq!(diagnostic_client(&headers), "page-12_ab.cd");
+    for invalid in ["private value".to_string(), "x".repeat(129)] {
+        headers.insert("X-CodeTerm-Client-Id", invalid.parse().unwrap());
+        assert_eq!(diagnostic_client(&headers), "unknown");
+    }
+}
+
+#[test]
+fn web_diagnostic_schema_fixture_and_drop_reason() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../../tests/fixtures/frontend-diagnostic.json"
+    ))
+    .unwrap();
+    let mut body = fixture["body"].clone();
+    assert!(serde_json::from_value::<BootDiagnostic>(body.clone()).is_ok());
+    body["reason"] = json!("unexpected; dropped=68");
+    assert!(serde_json::from_value::<BootDiagnostic>(body.clone()).is_ok());
+    for reason in [
+        "private",
+        "unexpected; dropped=-1",
+        "unexpected; dropped=4294967296",
+        "unexpected; dropped=1 secret",
+    ] {
+        body["reason"] = json!(reason);
+        assert!(serde_json::from_value::<BootDiagnostic>(body.clone()).is_err());
+    }
+}
+
+#[test]
+fn web_diagnostic_fixed_window_is_per_client_and_remote_and_bounded() {
+    let mut windows = DiagnosticWindows::default();
+    let now = std::time::Instant::now();
+    for _ in 0..60 {
+        assert!(windows.admit("page", None, now).is_ok());
+    }
+    for _ in 60..100 {
+        assert_eq!(
+            windows.admit("page", None, now),
+            Err(StatusCode::TOO_MANY_REQUESTS)
+        );
+    }
+    assert!(windows.admit("other", None, now).is_ok());
+    assert!(windows
+        .admit("page", Some("192.0.2.1".parse().unwrap()), now)
+        .is_ok());
+    assert!(windows
+        .admit("page", None, now + std::time::Duration::from_secs(60))
+        .is_ok());
+    for i in 0..MAX_DIAGNOSTIC_CLIENTS {
+        let _ = windows.admit(&format!("client-{i}"), None, now);
+    }
+    assert_eq!(windows.entries.len(), MAX_DIAGNOSTIC_CLIENTS);
+    assert_eq!(
+        windows.admit("overflow", None, now),
+        Err(StatusCode::TOO_MANY_REQUESTS)
+    );
+}
+
+#[tokio::test]
+async fn web_diagnostic_route_returns_413_and_429_with_injected_clock() {
+    use axum::http::Request;
+    use tower::ServiceExt;
+    let now = std::time::Instant::now();
+    let clock = std::sync::Arc::new(parking_lot::Mutex::new(now));
+    let read_clock = clock.clone();
+    let admission = std::sync::Arc::new(DiagnosticAdmission::new(std::sync::Arc::new(move || {
+        *read_clock.lock()
+    })));
+    let router = Router::new().route(
+        "/diagnostic",
+        bounded_diagnostic(
+            post(|Json(_): Json<Value>| async { StatusCode::NO_CONTENT }),
+            admission,
+        ),
+    );
+    let request = |body: String| {
+        Request::builder()
+            .method("POST")
+            .uri("/diagnostic")
+            .header("content-type", "application/json")
+            .header("X-CodeTerm-Client-Id", "route-page")
+            .body(Body::from(body))
+            .unwrap()
+    };
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request(format!("\"{}\"", "x".repeat(17 * 1024))))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    for _ in 1..60 {
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(request("{}".into()))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NO_CONTENT
+        );
+    }
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request("{}".into()))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    *clock.lock() = now + std::time::Duration::from_secs(60);
+    assert_eq!(
+        router.oneshot(request("{}".into())).await.unwrap().status(),
+        StatusCode::NO_CONTENT
+    );
+}
+
+#[test]
 fn transport_bootstrap_contract_router_merges_once_with_domains() {
     let _: Router<AppState> = Router::new()
         .merge(super::router())
