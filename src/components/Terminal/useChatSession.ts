@@ -46,6 +46,8 @@ import {
   commitTranscriptBatch,
   forgetTranscriptWindowCursor,
   readTranscriptWindow,
+  readTranscriptMemo,
+  retainedTranscriptMemo,
   rememberTranscriptWindow,
   markTranscriptSnapshotReady,
   reconcileTranscriptWindow,
@@ -275,7 +277,7 @@ export function useChatSession({
     if (previous?.authority === authority && previous.offset > payload.offset) return;
     resumeCursorRef.current = { token: payload.cursor!, offset: payload.offset, authority };
     if (payload.source_session_id != null) {
-      const previousWindow = readTranscriptWindow(windowKeyRef.current).knownWindow;
+      const previousWindow = readTranscriptMemo(windowKeyRef.current);
       rememberTranscriptWindow(windowKeyRef.current, {
         source_session_id: payload.source_session_id,
         session_binding_nonce: payload.session_binding_nonce,
@@ -582,7 +584,7 @@ export function useChatSession({
         if (!flight) return;
         const outcome = await flight.run(requestedSubscriptionId, () => invoke<ChatStartResult>("chat_start", {
           tabId, agentSessionId: requestedSessionId, subscriptionId: requestedSubscriptionId,
-          knownWindow: knownWindowForAuthority(readTranscriptWindow(windowKeyRef.current).knownWindow,
+          knownWindow: knownWindowForAuthority(retainedTranscriptMemo(windowKeyRef.current),
             requestedSessionId, requestedSessionBindingNonce),
         }));
         if (outcome.kind === "superseded") return;

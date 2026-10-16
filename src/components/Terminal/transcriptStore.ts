@@ -16,12 +16,12 @@ export interface TranscriptWindow {
   transcript: TranscriptState;
   anchorKey: string | null;
   snapshotBinding?: string;
-  knownWindow?: KnownChatWindow;
 }
 
 /** The only committed-history store. It outlives the hook so a Terminal <-> Chat
  *  switch restores the same window instead of building a second copy. */
 const windows = new Map<string, TranscriptWindow>();
+const knownWindows = new Map<string, KnownChatWindow>();
 const listeners = new Map<string, Set<() => void>>();
 const pendingSends = new Map<string, Map<string, { correlationId: string; sentAtMs: number }>>();
 const MAX_TRANSCRIPT_WINDOWS = 8;
@@ -43,13 +43,19 @@ export function readTranscriptWindow(key: string): TranscriptWindow {
 }
 
 export function rememberTranscriptWindow(key: string, knownWindow: KnownChatWindow): void {
-  const current = readTranscriptWindow(key);
-  publish(key, { ...current, knownWindow }, true);
+  knownWindows.set(key, knownWindow);
+}
+
+export function readTranscriptMemo(key: string): KnownChatWindow | undefined {
+  return knownWindows.get(key);
+}
+
+export function retainedTranscriptMemo(key: string): KnownChatWindow | undefined {
+  return windows.get(key)?.snapshotBinding ? knownWindows.get(key) : undefined;
 }
 
 export function forgetTranscriptWindowCursor(key: string): void {
-  const current = readTranscriptWindow(key);
-  if (current.knownWindow) publish(key, { ...current, knownWindow: undefined });
+  knownWindows.delete(key);
 }
 
 export function markTranscriptSnapshotReady(key: string, nonce: string | null | undefined): void {
@@ -134,6 +140,7 @@ export function setTranscriptAnchor(key: string, anchorKey: string | null): void
 }
 
 export function resetTranscriptWindow(key: string, preserveAnchor = false): void {
+  knownWindows.delete(key);
   pendingSends.delete(key);
   if (!windows.has(key)) return;
   const current = readTranscriptWindow(key);
@@ -148,10 +155,10 @@ export function reconcileTranscriptWindow(
   batch: TranscriptBatch,
 ): TranscriptOutcome {
   const current = readTranscriptWindow(key);
+  if (batch.kind === "snapshot") knownWindows.delete(key);
   const { state, outcome } = reduceTranscript(current.transcript, batch);
   publish(key, {
     ...current,
-    knownWindow: batch.kind === "snapshot" ? undefined : current.knownWindow,
     transcript: state,
     anchorKey: outcome === "rotated" ? null : current.anchorKey,
   });
@@ -159,6 +166,7 @@ export function reconcileTranscriptWindow(
 }
 
 export function clearTranscriptWindows(): void {
+  knownWindows.clear();
   notifications.clear();
   pendingSends.clear();
   for (const key of [...windows.keys()]) {
