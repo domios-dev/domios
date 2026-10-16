@@ -188,7 +188,6 @@ function TabSubline({ subtitle, generalAgent }: { subtitle: string | null; gener
   );
 }
 
-/** What the tab is currently busy with — subordinate to the name, above the role. */
 function TabDescriptionSubtitle({ description }: { description: string | null }) {
   const text = description?.trim() ?? "";
   if (!text) return null;
@@ -205,7 +204,7 @@ function TabDescriptionSubtitle({ description }: { description: string | null })
 function StartedByLine({ origin }: { origin: TabStartedBy }) {
   const open = origin.onOpen;
   return (
-    <span data-testid="tab-started-by" className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)] opacity-70">
+    <span data-testid="tab-started-by" className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)] opacity-[0.49]">
       started by{" "}
       {open ? (
         <span
@@ -548,10 +547,10 @@ function TabItemInner({
           </span>
         ) : attachment ? null : (
           <span className="sidebar-tab-body__sub">
-            <TabDescriptionSubtitle description={description} />
-            {startedBy && <StartedByLine origin={startedBy} />}
             <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
             <RemoteIdentityLine tab={tab} />
+            <TabDescriptionSubtitle description={description} />
+            {startedBy && <StartedByLine origin={startedBy} />}
             {!tab.remote_peer_id && managedByLabel(tab) && <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{managedByLabel(tab)}</span>}
           </span>
         )}
