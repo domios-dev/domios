@@ -383,7 +383,8 @@ test("fresh unbound PTY launch failure exposes recovery", async () => {
   assert(chat?.getAttribute("aria-busy") === "false", "fresh unbound PTY authority is not announced as recovering");
   assert(!host.querySelector('[data-testid="chat-recovering-state"]'), "fresh chat has no recovery placeholder");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "fresh chat has no empty-history placeholder");
-  assert(composer, "usable fresh chat keeps its named composer");
+  assert(!composer, "failed launch hides the named composer");
+  assert(!host.querySelector('textarea, [role="textbox"]'), "failed launch has no composer textbox");
   assert(!host.querySelector('[data-testid="chat-setup-state"]'), "an observed failure ends loading");
   assert(host.querySelector('[role="alert"]'), "the shared failure is announced");
   await act(async () => root.unmount());
@@ -400,7 +401,7 @@ test("a failed boot exposes recovery even when a saved transcript attaches", asy
     }),
   });
   const { host, root } = await renderTabSessionChat(tabId, state);
-  assert(host.querySelector('[data-testid="chat-composer"]'), "attached chat remains usable");
+  assert(!host.querySelector('textarea, [role="textbox"]'), "failed launch hides the composer even with an attached transcript");
   assert(host.querySelector('[data-testid="chat-launch-failed"]'), "saved transcript does not hide failed startup");
   await act(async () => root.unmount());
 });
