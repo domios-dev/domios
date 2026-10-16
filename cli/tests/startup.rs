@@ -1,3 +1,6 @@
+#[path = "support/codeterm_bin.rs"]
+mod codeterm_bin;
+
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::time::Instant;
@@ -31,14 +34,14 @@ fn built_binary_version_and_help_do_not_connect() {
             .unwrap();
         }
     });
-    let binary = env!("CARGO_BIN_EXE_codeterm");
+    let binary = codeterm_bin::codeterm_bin();
     for args in [
         vec!["--version"],
         vec!["agent", "report", "--help"],
         vec!["plan", "record", "--help"],
     ] {
         let start = Instant::now();
-        let output = std::process::Command::new(binary)
+        let output = std::process::Command::new(&binary)
             .args(&args)
             .env("CODETERM_SOCKET_PATH", &name)
             .env("CODETERM_TAB_ID", "tab_help")
