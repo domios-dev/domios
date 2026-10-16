@@ -62,8 +62,8 @@ export function MissionControlTeamBoard({
         <ModelsCard spend={NO_MACHINE_SPEND} teamSpend={teamSpend} />
         <NoActivePlanCard previousPlans={team.archivedPlans} onOpenPlan={onOpenPlan} />
       </div>
-      {api && teamId && <ActivityFeed api={api} teamId={teamId} />}
       <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
+      {api && teamId && <ActivityFeed api={api} teamId={teamId} />}
       <BoardEventLog log={NO_PLAN_LOG} milestoneKinds={[]} refs={refs} pager={team.events} />
     </div>
   );
