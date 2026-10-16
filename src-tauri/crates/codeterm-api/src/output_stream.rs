@@ -373,6 +373,7 @@ struct Tracked {
     pty_id: String,
     offset: u64,
     ended: bool,
+    replay_complete: bool,
 }
 
 fn tab_is_in_scope(candidate: &str, requested: Option<&str>) -> bool {
@@ -469,6 +470,7 @@ fn seed_initial_state(
                 pty_id: pty.clone(),
                 offset: resume_offset,
                 ended: false,
+                replay_complete: false,
             },
         );
         starts.push(StreamTabStart {
@@ -521,6 +523,24 @@ pub(crate) fn output_bytes_frame(
     })
 }
 
+fn output_replay_complete_frame(
+    tab: &str,
+    pty: &str,
+    boot: &str,
+    offset: u64,
+    has_more: bool,
+    completed: &mut bool,
+) -> Option<serde_json::Value> {
+    if has_more || *completed {
+        return None;
+    }
+    *completed = true;
+    Some(serde_json::json!({
+        "tab_id": tab, "pty_id": pty, "boot": boot,
+        "offset": offset, "replay_complete": true
+    }))
+}
+
 /// One blocking sweep over changed PTYs. Pure sync — safe for
 /// `spawn_blocking`; locks are acquired in order mux > output_buf >
 /// agent_tracker and each is dropped before the next, none held across `.await`.
@@ -557,6 +577,7 @@ fn sweep(
                 pty_id: live[tab].clone(),
                 offset: 0,
                 ended: false,
+                replay_complete: false,
             },
         );
     }
@@ -592,6 +613,7 @@ fn sweep(
                 pty_id: pty.clone(),
                 offset: 0,
                 ended: false,
+                replay_complete: false,
             });
             if t.ended {
                 silent.push(tab.clone());
@@ -606,18 +628,27 @@ fn sweep(
                 frames.push(serde_json::json!({ "tab_id": tab, "truncated": true, "from": from }));
             }
             if read.output.is_empty() {
-                t.offset = read.new_offset;
                 silent.push(tab.clone());
-                continue;
+            } else {
+                frames.push(output_bytes_frame(
+                    tab,
+                    pty,
+                    &boot,
+                    &read.output,
+                    read.new_offset,
+                ));
             }
-            frames.push(output_bytes_frame(
+            t.offset = read.new_offset;
+            if let Some(frame) = output_replay_complete_frame(
                 tab,
                 pty,
                 &boot,
-                &read.output,
                 read.new_offset,
-            ));
-            t.offset = read.new_offset;
+                read.has_more || read.new_offset < chunk.total,
+                &mut t.replay_complete,
+            ) {
+                frames.push(frame);
+            }
         }
     }
 
@@ -632,6 +663,7 @@ fn sweep(
                 pty_id: pty.clone(),
                 offset: 0,
                 ended: false,
+                replay_complete: false,
             });
             let dead = known.contains(pty) && tracker.get_status(pty) == TabStatus::Dead;
             if dead {

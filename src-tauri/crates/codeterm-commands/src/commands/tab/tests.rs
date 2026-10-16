@@ -41,8 +41,8 @@ fn chat_start_replays_registered_sse_history_without_a_plugin_store() {
         format!("http://{address}"),
         "/repo".into(),
     );
-    let first = super::chat_start_core(&service, tab_id.clone(), "first".into()).unwrap();
-    let replay = super::chat_start_core(&service, tab_id.clone(), "remount".into()).unwrap();
+    let first = super::chat_start_core(&service, tab_id.clone(), "first".into(), None).unwrap();
+    let replay = super::chat_start_core(&service, tab_id.clone(), "remount".into(), None).unwrap();
     let snapshot =
         codeterm_service_core::service::tab_chat::tab_chat_snapshot(&service, &tab_id, 0).unwrap();
     codeterm_service_core::service::structured_endpoint_remove(&tab_id);
@@ -70,7 +70,12 @@ fn chat_start_removed_plugin_reports_state_without_rebinding_restored_tab() {
     tab.restored_from_snapshot = true;
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(state);
     let service = Arc::new(fixture.service.clone());
-    let result = super::chat_start_core(&service, tab_id.clone(), "fixture-subscription".into());
+    let result = super::chat_start_core(
+        &service,
+        tab_id.clone(),
+        "fixture-subscription".into(),
+        None,
+    );
     let error: serde_json::Value =
         serde_json::from_str(&result.err().expect("missing plugin must be refused")).unwrap();
     assert_eq!(error["code"], "chat_backend_plugin_removed");

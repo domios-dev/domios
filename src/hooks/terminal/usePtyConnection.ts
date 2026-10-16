@@ -33,7 +33,7 @@ export interface UsePtyConnectionOptions {
   onOutputChunk: (text: string) => void;
   ioEnabled?: boolean;
   renderEnabled?: boolean;
-  onHistoryReplayStateChange?: (replaying: boolean) => void;
+  onFrameReady?: (ptyId: string) => void;
   onConnectionStateChange?: (ready: boolean) => void;
 }
 
@@ -52,7 +52,7 @@ export function usePtyConnection({
   onOutputChunk,
   ioEnabled = true,
   renderEnabled = true,
-  onHistoryReplayStateChange,
+  onFrameReady,
   onConnectionStateChange,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
   const tabCwd = useMuxSelector(
@@ -100,7 +100,6 @@ export function usePtyConnection({
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     onConnectionStateChange?.(false);
-    onHistoryReplayStateChange?.(false);
 
     const connect = async () => {
       let id = ptyId;
@@ -118,14 +117,19 @@ export function usePtyConnection({
       connectedPtyRef.current = id;
       const sink: TabOutputSink = {
         onReady() { if (!disposed) onConnectionStateChange?.(true); },
+        onReplayComplete() {
+          if (disposed) return;
+          onConnectionStateChange?.(true);
+          writeTerminalOutput(term, "", () => { if (termRef.current === term) onFrameReady?.(id); });
+        },
         onOutput: (text) => {
           if (disposed) return;
-          writeTerminalOutput(term, text);
+          writeTerminalOutput(term, text, () => { if (termRef.current === term) onFrameReady?.(id); });
           onOutputChunk(text);
         },
         onBytes: (bytes) => {
           if (disposed) return;
-          writeTerminalOutput(term, bytes);
+          writeTerminalOutput(term, bytes, () => { if (termRef.current === term) onFrameReady?.(id); });
           onOutputChunk(new TextDecoder().decode(bytes.slice(-200)));
         },
         onTruncated: (from) => {
@@ -153,7 +157,7 @@ export function usePtyConnection({
       connectedPtyRef.current = null;
       onConnectionStateChange?.(false);
     };
-  }, [ptyId, tabId, termReady, ioEnabled, onPtySpawned, onConnectionStateChange, onHistoryReplayStateChange, onShellReady, onOutputChunk, connectedPtyRef, termRef]);
+  }, [ptyId, tabId, termReady, ioEnabled, onPtySpawned, onConnectionStateChange, onFrameReady, onShellReady, onOutputChunk, connectedPtyRef, termRef]);
 
   return { writePty };
 }

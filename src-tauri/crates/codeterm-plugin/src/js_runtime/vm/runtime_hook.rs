@@ -1,6 +1,6 @@
+use super::timing;
 use super::*;
 use crate::agent_runtime::{RuntimeFailure, RuntimeFailureCode, MAX_RUNTIME_VALUE_BYTES};
-mod timing;
 
 const INVOKE: &str = r#"
 (function () {

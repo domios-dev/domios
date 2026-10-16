@@ -2,6 +2,7 @@ import { buildHash } from "./buildStamp";
 import { baseDaemonTransport, FRONTEND_BOOT_KEY } from "./daemonBootstrap";
 import { frontendApiCompatible, frontendApiContract } from "./frontendApiContract";
 import { IS_WEB } from "./webApi";
+import { reloadInterface } from "./serviceWorkerRegistration";
 import {
   clearDriftRecord, decideBuildDrift, isSignedReleasePage, persistDriftRecord, readDriftRecord,
   WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT,
@@ -25,7 +26,7 @@ export interface BuildDriftEnv {
   origin(): string;
   visible(): boolean;
   now(): number;
-  reload(): void;
+  reload(build?: string): void;
 }
 
 type MismatchListener = (m: BuildMismatch | null) => void;
@@ -45,7 +46,10 @@ const browserEnv: BuildDriftEnv = {
   origin: () => baseDaemonTransport().origin(),
   visible: () => typeof document === "undefined" || document.visibilityState !== "hidden",
   now: () => Date.now(),
-  reload: () => { void reloadWithWaitingWorker(); },
+  reload: (build = "current") => {
+    void reloadInterface(build)
+      .catch(() => { void recheckBuildDrift(); });
+  },
 };
 
 function env(): BuildDriftEnv {
@@ -122,17 +126,7 @@ function reloadOnce(record: DriftRecord, storage: Pick<Storage, "getItem" | "set
     publish(mismatchFor("build", backend, identity));
     return;
   }
-  env().reload();
-}
-
-async function reloadWithWaitingWorker(): Promise<void> {
-  try {
-    const registration = await navigator.serviceWorker?.getRegistration();
-    registration?.waiting?.postMessage({ type: "SKIP_WAITING" });
-  } catch {
-    /* no service worker: the network-first navigation still fetches the new index */
-  }
-  window.location.reload();
+  env().reload(record.build);
 }
 
 function mismatchFor(reason: BuildMismatch["reason"], backend: BackendIdentity | null, identity: DaemonIdentity): BuildMismatch {

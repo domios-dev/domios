@@ -21,6 +21,8 @@ import { runtimeHistorySettled, type RuntimeHistoryState } from "../../lib/agent
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import {
   canAdoptTranscriptAuthority,
+  chatStartBatchKind,
+  knownWindowForAuthority,
   attachmentActivity,
   attachmentStateForSnapshot,
   needsTranscriptAttachment,
@@ -42,7 +44,9 @@ import {
 } from "./chatSessionDiagnostics";
 import {
   commitTranscriptBatch,
+  forgetTranscriptWindowCursor,
   readTranscriptWindow,
+  rememberTranscriptWindow,
   markTranscriptSnapshotReady,
   reconcileTranscriptWindow,
   resetTranscriptWindow,
@@ -95,6 +99,7 @@ export function useChatSession({
   sessionBindingNonce,
   onError,
   active = true,
+  retainAttachment = false,
   diagnosticSink,
   allowUnboundAuthority = false,
   followTailRef: suppliedFollowTailRef,
@@ -104,8 +109,9 @@ export function useChatSession({
   agentSessionId: string | null;
   sessionBindingNonce: string | null | undefined;
   onError?: (msg: string) => void;
-  /** Hidden chats must not run the daemon parser: false stops the session, true restarts it. */
+  /** Visibility starts the first attachment. Retained views keep it until unmount. */
   active?: boolean;
+  retainAttachment?: boolean;
   diagnosticSink?: ChatSessionDiagnosticSink;
   /** Plugin chatBackend tabs have tab-owned backing without a PTY session id. */
   allowUnboundAuthority?: boolean;
@@ -113,6 +119,9 @@ export function useChatSession({
   /** Runtime history replay state; its completion re-reads the transcript snapshot. */
   history?: RuntimeHistoryState;
 }) {
+  const activatedRef = useRef(false);
+  if (active) activatedRef.current = true;
+  const attachmentActive = active || (retainAttachment && activatedRef.current);
   const windowKey = transcriptWindowKey(tabId, agentSessionId);
   const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey);
   const [loading, setLoading] = useState(true);
@@ -123,7 +132,7 @@ export function useChatSession({
     useState<ChatUnavailableReason | null>(null);
   const onErrorRef = useRef(onError);
   const diagnosticSinkRef = useRef(diagnosticSink);
-  const activeRef = useRef(active);
+  const activeRef = useRef(attachmentActive);
   const agentSessionIdRef = useRef(agentSessionId);
   const sessionBindingNonceRef = useRef(sessionBindingNonce);
   const allowUnboundAuthorityRef = useRef(allowUnboundAuthority);
@@ -158,7 +167,7 @@ export function useChatSession({
 
   onErrorRef.current = onError;
   diagnosticSinkRef.current = diagnosticSink;
-  activeRef.current = active;
+  activeRef.current = attachmentActive;
   agentSessionIdRef.current = agentSessionId;
   sessionBindingNonceRef.current = sessionBindingNonce;
   allowUnboundAuthorityRef.current = allowUnboundAuthority;
@@ -257,7 +266,7 @@ export function useChatSession({
     setLoading(false);
   }, []);
 
-  const rememberCursor = useCallback((payload: Pick<ChatMsgEvent, "cursor" | "offset" | "source_session_id" | "session_binding_nonce">,
+  const rememberCursor = useCallback((payload: Pick<ChatMsgEvent, "cursor" | "offset" | "source_session_id" | "session_binding_nonce"> & { file_length?: number },
     outcome: TranscriptOutcome) => {
     if (!isByteResumeCursor(payload.cursor ?? null) || payload.offset == null
       || !["adopted", "rotated", "ignored_empty"].includes(outcome)) return;
@@ -265,6 +274,16 @@ export function useChatSession({
     const previous = resumeCursorRef.current;
     if (previous?.authority === authority && previous.offset > payload.offset) return;
     resumeCursorRef.current = { token: payload.cursor!, offset: payload.offset, authority };
+    if (payload.source_session_id != null) {
+      const previousWindow = readTranscriptWindow(windowKeyRef.current).knownWindow;
+      rememberTranscriptWindow(windowKeyRef.current, {
+        source_session_id: payload.source_session_id,
+        session_binding_nonce: payload.session_binding_nonce,
+        end_offset: payload.offset,
+        file_length: Math.max(payload.file_length ?? previousWindow?.file_length ?? 0, payload.offset),
+        cursor: payload.cursor!,
+      });
+    }
   }, []);
 
   const commitLiveEvent = useCallback((payload: ChatMsgEvent): TranscriptOutcome => {
@@ -307,6 +326,7 @@ export function useChatSession({
         state: { cause, forceCold, state: attachmentStateRef.current, cursor: cursor?.token ?? null, authority } } });
       if (forceCold || attachmentStateRef.current !== "attached" || cursor == null || cursor.authority !== authority) {
         resumeCursorRef.current = null;
+        if (forceCold) forgetTranscriptWindowCursor(windowKeyRef.current);
         requestAttach(cause);
         return;
       }
@@ -366,11 +386,13 @@ export function useChatSession({
     return () => { cancelled = true; unlisten?.(); };
   }, [tabId, observeChatSendStatus, reconcileSendStatuses]);
 
-  const loadOlderPage = useCallback(async (beforeOffset: number) => {
+  const loadOlderPage = useCallback(async (beforeOffset: number, maxBytes: number) => {
+    if (agentSessionIdRef.current !== agentSessionId || sessionBindingNonceRef.current !== sessionBindingNonce) return null;
     const generationAtRequest = attachmentRef.current.generation;
+    const requestedAt = performance.now();
     try {
       const offsetKind = transcriptOffsetKind(readTranscriptWindow(windowKeyRef.current).transcript);
-      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset, offsetKind });
+      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset, offsetKind, maxBytes });
       if (
         !attachmentRef.current.isCurrent(generationAtRequest)
         || !canAdoptTranscriptAuthority(
@@ -380,10 +402,14 @@ export function useChatSession({
           allowUnboundAuthorityRef.current,
         )
       ) {
-        return false;
+        return null;
+      }
+      if (res.start_offset < 0 || res.start_offset >= beforeOffset) {
+        return { cursor: res.start_offset, consumedBytes: 0, rows: 0 };
       }
       const page = res.messages ?? [];
-      return commitBatch(
+      const receivedAt = performance.now();
+      const outcome = commitBatch(
         "backfill",
         {
           sourceSessionId: res.source_session_id,
@@ -391,12 +417,19 @@ export function useChatSession({
         },
         { start: res.start_offset, end: res.end_offset, unit: res.offset_kind },
         page,
-      ) === "adopted";
+      );
+      frontendBootDiagnostic("chat-scroll", { chat: { scope: tabId, edge: "backfill_merged", at: performance.now(),
+        state: { beforeOffset, rows: page.length, requestMs: receivedAt - requestedAt, mergeMs: performance.now() - receivedAt, outcome } } });
+      return outcome === "adopted" ? {
+        cursor: res.start_offset,
+        consumedBytes: offsetKind === "items" ? 0 : beforeOffset - res.start_offset,
+        rows: page.length,
+      } : null;
     } catch (e) {
       onErrorRef.current?.(e instanceof Error ? e.message : String(e));
-      return false;
+      return null;
     }
-  }, [commitBatch, tabId]);
+  }, [agentSessionId, commitBatch, sessionBindingNonce, tabId]);
 
   const view = useChatWindowView({
     tabId,
@@ -409,7 +442,7 @@ export function useChatSession({
   const { committedRows } = view;
 
   useEffect(() => {
-    if (!active) {
+    if (!attachmentActive) {
       pendingLiveEventsRef.current = [];
       adoptedBindingsRef.current.clear();
       setListenerReady(false);
@@ -505,7 +538,7 @@ export function useChatSession({
       adoptedBindingsRef.current.clear();
     };
   }, [
-    active,
+    attachmentActive,
     commitLiveEvent,
     emitDiagnostic,
     markAttached,
@@ -518,7 +551,7 @@ export function useChatSession({
 
   useEffect(() => {
     if (!needsTranscriptAttachment(
-      requestedAuthorityRef.current, agentSessionId, sessionBindingNonce, active, listenerReady,
+      requestedAuthorityRef.current, agentSessionId, sessionBindingNonce, attachmentActive, listenerReady,
     )) return;
     const adopted = adoptedAuthorityRef.current;
     if (adopted.sourceSessionId !== agentSessionId
@@ -526,10 +559,10 @@ export function useChatSession({
       attachmentRef.current.adopt(null);
     }
     requestAttach("authority_changed");
-  }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
+  }, [attachmentActive, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
 
   useEffect(() => {
-    if (!active || !listenerReady) return;
+    if (!attachmentActive || !listenerReady) return;
     const owner = attachmentRef.current;
     const generationAtRequest = generation;
     const requestedSessionId = agentSessionIdRef.current;
@@ -549,6 +582,8 @@ export function useChatSession({
         if (!flight) return;
         const outcome = await flight.run(requestedSubscriptionId, () => invoke<ChatStartResult>("chat_start", {
           tabId, agentSessionId: requestedSessionId, subscriptionId: requestedSubscriptionId,
+          knownWindow: knownWindowForAuthority(readTranscriptWindow(windowKeyRef.current).knownWindow,
+            requestedSessionId, requestedSessionBindingNonce),
         }));
         if (outcome.kind === "superseded") return;
         const res = outcome.value;
@@ -632,11 +667,13 @@ export function useChatSession({
         }
         snapshotOnNextLiveEventRef.current = false;
         const snapshotRange = batchRange(res.start_offset, res.offset, res.offset_kind);
-        if (snapshotRange != null || (res.messages?.length ?? 0) > 0) {
+        const batchKind = chatStartBatchKind(res.kind);
+        let recover = false;
+        if (batchKind != null && (snapshotRange != null || (res.messages?.length ?? 0) > 0)) {
           const snapshotOutcome = reconcileTranscriptWindow(
           windowKeyRef.current,
           {
-            kind: "snapshot",
+            kind: batchKind,
             authority: {
               sourceSessionId: res.source_session_id,
               sessionBindingNonce: res.session_binding_nonce,
@@ -646,16 +683,16 @@ export function useChatSession({
           },
           );
           rememberCursor(res, snapshotOutcome);
+          recover = needsRecovery(snapshotOutcome);
         } else {
           rememberCursor(res, "ignored_empty");
         }
         const pending = pendingLiveEventsRef.current.splice(0);
-        let recover = false;
         for (const event of pending) {
           if (needsRecovery(commitLiveEvent(event))) recover = true;
         }
         markAttached();
-        if (recover) requestRecoveryAttach(false, "pending_recover_gap");
+        if (recover) requestRecoveryAttach(true, "pending_recover_gap");
       } catch (e) {
         if (cancelled || !owner.isCurrent(generationAtRequest)) return;
         const msg = e instanceof Error ? e.message : String(e);
@@ -670,7 +707,7 @@ export function useChatSession({
       cancelled = true;
     };
   }, [
-    active,
+    attachmentActive,
     commitBatch,
     commitLiveEvent,
     emitDiagnostic,
@@ -688,18 +725,18 @@ export function useChatSession({
   useEffect(() => {
     const previous = historyRef.current;
     historyRef.current = history;
-    if (active && runtimeHistorySettled(previous, history)) requestRecoveryAttach(true, "history_settled");
-  }, [active, history, requestRecoveryAttach]);
+    if (attachmentActive && runtimeHistorySettled(previous, history)) requestRecoveryAttach(true, "history_settled");
+  }, [attachmentActive, history, requestRecoveryAttach]);
   const historyLoading = history === "loading";
 
   useEffect(() => {
-    if (!active) return;
+    if (!attachmentActive) return;
     return onResync(reason => {
       if (resyncRequiresTranscriptRecovery(reason, attachmentStateRef.current === "failed")) {
         requestRecoveryAttach(reason === "epoch_changed", `resync:${reason}`);
       }
     });
-  }, [active, requestRecoveryAttach]);
+  }, [attachmentActive, requestRecoveryAttach]);
 
   useEffect(() => {
     const handleReattached = (event: Event) => {
@@ -742,6 +779,7 @@ export function useChatSession({
     newerMessageCount: view.newerMessageCount,
     canBackfillOlder: view.canBackfillOlder || historyLoading,
     backfillLoading: view.backfillLoading || historyLoading,
+    backfillNotice: view.backfillNotice,
     loadOlder: view.loadOlder,
     showLatest: view.showLatest,
     prepareMessage: view.prepareMessage,

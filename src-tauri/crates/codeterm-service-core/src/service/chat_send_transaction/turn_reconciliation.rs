@@ -161,6 +161,7 @@ impl ChatSendLedger {
         .next()
     }
 
+    #[cfg(test)]
     pub(crate) fn confirm_delivered_user_turns_scoped(
         &self,
         tab_id: &str,
@@ -168,6 +169,26 @@ impl ChatSendLedger {
         source_binding_nonce: Option<&str>,
         turn_text: &str,
     ) -> Vec<ChatSendStatus> {
+        self.confirm_user_turn_with_row(
+            tab_id,
+            source_session_id,
+            source_binding_nonce,
+            turn_text,
+            None,
+        )
+    }
+
+    pub(super) fn confirm_user_turn_with_row(
+        &self,
+        tab_id: &str,
+        source_session_id: &str,
+        source_binding_nonce: Option<&str>,
+        turn_text: &str,
+        source_row: Option<&super::SourceRowRef>,
+    ) -> Vec<ChatSendStatus> {
+        if source_row.is_some_and(|row| row.source_session_id != source_session_id) {
+            return Vec::new();
+        }
         let owned_wake = {
             let state = self.state.lock();
             state.owned.iter().any(|(id, (_, active))| {
@@ -248,6 +269,9 @@ impl ChatSendLedger {
         if !still_eligible {
             return Vec::new();
         }
+        if source_row.is_some_and(|row| !Self::claim_rows_locked(&mut state, &matching_ids, row)) {
+            return Vec::new();
+        }
         let mut statuses = Vec::with_capacity(matching_ids.len());
         for send_id in &matching_ids {
             if let Some(status) = Self::mark_sent(&mut state, send_id) {
@@ -255,19 +279,24 @@ impl ChatSendLedger {
             }
         }
         drop(state);
+        self.persist_source_claims(&statuses);
         if owned_wake {
             self.wake_owner(tab_id);
         }
         statuses
     }
 
-    pub(crate) fn confirm_merged_evidence_turn(
+    pub(crate) fn confirm_merged_evidence_row(
         &self,
         tab_id: &str,
         anchor: &SendEvidenceAnchor,
         turn_text: &str,
         eligible_send_ids: &[String],
+        source_row: Option<&super::SourceRowRef>,
     ) -> Vec<ChatSendStatus> {
+        if source_row.is_some_and(|row| row.source_session_id != anchor.session_id) {
+            return Vec::new();
+        }
         let candidates = {
             let state = self.state.lock();
             state
@@ -393,6 +422,9 @@ impl ChatSendLedger {
         if !still_eligible {
             return Vec::new();
         }
+        if source_row.is_some_and(|row| !Self::claim_rows_locked(&mut state, &matching, row)) {
+            return Vec::new();
+        }
         let evidence_key = merged_turn_evidence_key(tab_id, anchor, turn_text);
         let mut statuses = Vec::with_capacity(matching.len());
         for send_id in &matching {
@@ -414,6 +446,7 @@ impl ChatSendLedger {
             *state.consumed_merged_turns.entry(evidence_key).or_default() += 1;
         }
         drop(state);
+        self.persist_source_claims(&statuses);
         self.wake_owner(tab_id);
         statuses
     }
