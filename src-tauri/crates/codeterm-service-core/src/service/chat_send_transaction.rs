@@ -841,6 +841,7 @@ impl ChatSendLedger {
 
     /// Confirm one send by id after exact append-window evidence was found in
     /// its own recorded session transcript. No-op if already sent.
+    #[cfg(test)]
     pub(crate) fn confirm_send(&self, send_id: &str) -> Option<ChatSendStatus> {
         self.confirm_send_with_row(send_id, None)
     }

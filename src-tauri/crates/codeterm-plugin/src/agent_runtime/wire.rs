@@ -456,6 +456,8 @@ pub enum AgentRuntimeEvent {
         status_line: Option<String>,
     },
     SendEvidence {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_id: Option<String>,
         thread_id: String,
         send_id: String,
         turn_id: String,

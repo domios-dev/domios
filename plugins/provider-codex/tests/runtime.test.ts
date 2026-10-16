@@ -292,6 +292,14 @@ check("delivery cannot use old text, foreign thread or unmatched client",()=> {
   assert.equal(hooks.runtimeReduce(empty,null,[genuine.frame]).events.some(e=>e.kind === "sendEvidence"),false);
   assert.deepEqual(plain(hooks.runtimeReduce({...ctx,threadId:"foreign"},null,[genuine.frame]).events),[]);
 });
+check("identical steering sends retain distinct protocol item identities",()=> {
+  const claimedSends = ["repeat-a","repeat-b"].map(sendId=>({sendId,threadId:ctx.threadId!,input:{text:"same input",attachments:[]}}));
+  const frames:RuntimeFrame[] = claimedSends.map((claim,index)=>({kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"same-turn",item:{id:`user-${index}`,type:"userMessage",clientId:claim.sendId,content:[{type:"text",text:"same input"}]}}}));
+  const events = hooks.runtimeReduce({...ctx,claimedSends},null,frames).events.filter(e=>e.kind === "sendEvidence");
+  assert.deepEqual(events,claimedSends.map((claim,index)=>({kind:"sendEvidence",threadId:ctx.threadId!,sendId:claim.sendId,turnId:"same-turn",itemId:`user-${index}`})));
+  const missingId:RuntimeFrame = {kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"same-turn",item:{type:"userMessage",clientId:"repeat-a",content:[{type:"text",text:"same input"}]}}};
+  assert.deepEqual(hooks.runtimeReduce({...ctx,claimedSends},null,[missingId]).events.filter(e=>e.kind === "sendEvidence"),[{kind:"sendEvidence",threadId:ctx.threadId!,sendId:"repeat-a",turnId:"same-turn"}]);
+});
 check("claim evidence is emitted once",()=> {
   const entry = sample.rpc.find(r=>"frame" in r && r.frame.method === "item/completed")!;
   assert.ok("frame" in entry);
