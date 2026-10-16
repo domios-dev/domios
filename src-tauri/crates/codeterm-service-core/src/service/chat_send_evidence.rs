@@ -21,9 +21,9 @@ mod pending_receipt;
 pub(crate) mod session_append;
 mod turn_window;
 
-use turn_window::window_evidence_records;
+use turn_window::structured_evidence_records;
 pub(crate) use turn_window::window_has_foreign_user_turn;
-use turn_window::{structured_evidence_records, StructuredUserTurn};
+use turn_window::{window_evidence_records, window_evidence_turns};
 
 #[cfg(test)]
 #[path = "chat_send_evidence/deferred_first_turn_tests.rs"]
@@ -181,42 +181,30 @@ pub(crate) fn scan_transcript_evidence(
     mut on_confirmed: impl FnMut(ChatSendStatus),
 ) {
     let candidates = ledger.evidence_candidates(tab_id);
-    let structured_windows = candidates
+    let evidence_windows = candidates
         .iter()
-        .map(|candidate| structured_evidence_records(registry, &candidate.anchor))
+        .map(|candidate| {
+            structured_evidence_records(registry, &candidate.anchor)
+                .unwrap_or_else(|| window_evidence_turns(registry, &candidate.anchor))
+        })
         .collect::<Vec<_>>();
     for (candidate_index, candidate) in candidates.iter().enumerate() {
-        let turns = structured_windows[candidate_index]
-            .as_ref()
-            .map(|turns| {
-                turns
-                    .iter()
-                    .cloned()
-                    .map(|turn| (turn, true))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_else(|| {
-                window_evidence_records(registry, &candidate.anchor)
-                    .into_iter()
-                    .map(|content| (StructuredUserTurn::without_identity(content), false))
-                    .collect()
-            });
+        let turns = &evidence_windows[candidate_index];
         log::debug!(
             "[session-turn-evidence] scan tab={} send={} session={} window={:?} user_turns={} payload_bytes={}",
             tab_id, candidate.send_id, candidate.anchor.session_id,
             candidate.anchor.window, turns.len(), candidate.payload.len(),
         );
-        for (turn, has_structured_identity) in turns {
-            let eligible_send_ids = if has_structured_identity && turn.id.is_some() {
+        for turn in turns {
+            let eligible_send_ids = if turn.source_row.is_some() {
                 candidates
                     .iter()
                     .enumerate()
                     .filter(|(index, other)| {
                         same_evidence_source(&candidate.anchor, &other.anchor)
-                            && structured_windows[*index].as_ref().is_some_and(|window| {
-                                window.iter().any(|other_turn| {
-                                    other_turn.id == turn.id && other_turn.content == turn.content
-                                })
+                            && evidence_windows[*index].iter().any(|other_turn| {
+                                other_turn.source_row == turn.source_row
+                                    && other_turn.content == turn.content
                             })
                     })
                     .map(|(_, other)| other.send_id.clone())
@@ -228,11 +216,12 @@ pub(crate) fn scan_transcript_evidence(
                     .map(|other| other.send_id.clone())
                     .collect::<Vec<_>>()
             };
-            let confirmed = ledger.confirm_merged_evidence_turn(
+            let confirmed = ledger.confirm_merged_evidence_row(
                 tab_id,
                 &candidate.anchor,
                 &turn.content,
                 &eligible_send_ids,
+                turn.source_row.as_ref(),
             );
             for status in confirmed {
                 on_confirmed(status);
@@ -261,7 +250,17 @@ pub(crate) fn scan_transcript_evidence(
                     .collect(),
             );
         if assignable {
-            if let Some(status) = ledger.confirm_send(&candidate.send_id) {
+            let turns = window_evidence_turns(registry, anchor);
+            let source_row = turns
+                .iter()
+                .filter(|turn| contains_written_payload(&turn.content, &candidate.payload))
+                .filter_map(|turn| turn.source_row.as_ref())
+                .find(|row| !ledger.source_row_claimed(row));
+            let has_identity = turns.iter().any(|turn| turn.source_row.is_some());
+            if has_identity && source_row.is_none() {
+                continue;
+            }
+            if let Some(status) = ledger.confirm_send_with_row(&candidate.send_id, source_row) {
                 on_confirmed(status);
             }
         }

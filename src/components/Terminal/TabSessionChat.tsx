@@ -72,6 +72,7 @@ import type { ChatOrigin } from "../../lib/chatPrefixes";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { ChatSetupState, chatSetupView } from "./ChatSetupState";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatLayoutInsets } from "./useChatLayoutInsets";
@@ -282,6 +283,7 @@ function TabSessionChatBody({
     newerMessageCount,
     canBackfillOlder,
     backfillLoading,
+    backfillNotice,
     loadOlder,
     showLatest,
     prepareMessage,
@@ -295,6 +297,7 @@ function TabSessionChatBody({
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
     active: isActive,
+    retainAttachment: true,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
@@ -876,14 +879,17 @@ function TabSessionChatBody({
                 border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 25%, transparent)",
               }}
             >
-              {hiddenMessageCount > 0
-                ? `Show older (${hiddenMessageCount})`
-                : backfillLoading
-                  ? <TabLoadingIndicator label="Loading older messages" compact deferred={false} />
-                  : "Show older"}
+              {backfillLoading
+                ? <TabLoadingIndicator label="Searching older messages" compact deferred={false} />
+                : hiddenMessageCount > 0 ? `Show older (${hiddenMessageCount})` : "Show older"}
             </button>
           </div>
         )}
+        {backfillNotice === "stalled_cursor"
+          ? <InlineErrorNotice error="Older history could not be read." operation="loading older messages" />
+          : backfillNotice && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
+            {backfillNotice === "limit" ? "No messages in this section. Show older to keep searching." : "No earlier messages."}
+          </p>}
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
         {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}

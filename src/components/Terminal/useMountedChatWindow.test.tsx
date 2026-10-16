@@ -76,7 +76,7 @@ let logicalApi: ReturnType<typeof useChatWindowView>;
 function LogicalHarness() {
   const window = useTranscriptWindow(SESSION);
   logicalApi = useChatWindowView({ tabId: SESSION, windowKey: SESSION, transcript: window.transcript,
-    anchorKey: window.anchorKey, followTailRef: followTail, loadOlderPage: async () => false });
+    anchorKey: window.anchorKey, followTailRef: followTail, loadOlderPage: async () => null });
   return null;
 }
 function scroller(): HTMLDivElement { return host.querySelector('[data-testid="scroller"]')!; }

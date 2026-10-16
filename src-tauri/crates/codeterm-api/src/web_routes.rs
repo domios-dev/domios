@@ -720,6 +720,7 @@ mod tests;
 #[serde(rename_all = "camelCase")]
 pub struct ChatSubscriptionBody {
     subscription_id: String,
+    known_window: Option<codeterm_service_core::service::tab_chat::results::KnownChatWindow>,
 }
 
 pub async fn chat_raw_start(
@@ -731,7 +732,7 @@ pub async fn chat_raw_start(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        commands::chat_start_core(&svc, tab_id, body.subscription_id)
+        commands::chat_start_core(&svc, tab_id, body.subscription_id, body.known_window)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

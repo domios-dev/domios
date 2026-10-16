@@ -1,15 +1,15 @@
 use std::time::Instant;
 
-pub(super) struct HookTiming {
-    method: &'static str,
+pub(super) struct HookTiming<'a> {
+    method: &'a str,
     started: Instant,
     stage_started: Instant,
     stage: &'static str,
     pub bytes: usize,
 }
 
-impl HookTiming {
-    pub fn new(method: &'static str) -> Self {
+impl<'a> HookTiming<'a> {
+    pub fn new(method: &'a str) -> Self {
         let started = Instant::now();
         Self {
             method,
@@ -38,7 +38,7 @@ impl HookTiming {
     }
 }
 
-impl Drop for HookTiming {
+impl Drop for HookTiming<'_> {
     fn drop(&mut self) {
         self.record();
     }

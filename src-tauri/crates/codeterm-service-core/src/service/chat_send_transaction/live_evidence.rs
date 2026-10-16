@@ -342,6 +342,12 @@ impl ChatSendLedger {
         if !still_owned || !still_current {
             return Vec::new();
         }
+        let Some(source_row) = super::SourceRowRef::jsonl(session_id, position) else {
+            return Vec::new();
+        };
+        if !Self::claim_rows_locked(&mut state, &matching_ids, &source_row) {
+            return Vec::new();
+        }
         let mut statuses = Vec::with_capacity(matching_ids.len());
         for send_id in &matching_ids {
             if let Some(status) = Self::mark_sent(&mut state, send_id) {
@@ -361,6 +367,7 @@ impl ChatSendLedger {
             },
         );
         drop(state);
+        self.persist_source_claims(&statuses);
         self.wake_owner(tab_id);
         statuses
     }

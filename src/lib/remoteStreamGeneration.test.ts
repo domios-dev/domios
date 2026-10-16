@@ -68,7 +68,7 @@ describe("remote output generation replacement", () => {
     configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: "fixture" });
     // gen1 delivers a frame (cursor set) then stays open; gen2 stays pending.
     const fetchMock = vi.fn()
-      .mockReturnValueOnce(Promise.resolve(openStream(frame({ b64: "aGk", boot: "boot-a", offset: 2 }))))
+      .mockReturnValueOnce(Promise.resolve(openStream(frame({ tab_id: "tab", b64: "aGk", boot: "boot-a", offset: 2 }))))
       .mockReturnValue(new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
     const id = "mesh:peer/tab";
