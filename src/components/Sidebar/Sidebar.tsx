@@ -34,6 +34,7 @@ import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { GeneralInventory } from "./GeneralInventory";
 import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
@@ -795,6 +796,8 @@ export function Sidebar({
                         : undefined}
                       onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(generalWorkspace.id, target) : undefined}
                     />}
+                    {generalExpanded && <GeneralInventory workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} touchMode={touchMode}
+                      onNavigate={(workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); }} />}
                   </section>
                 );
               })()}
