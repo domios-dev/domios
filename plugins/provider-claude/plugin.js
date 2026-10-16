@@ -299,6 +299,7 @@ function isImageDisplayMetadata(entry) {
 
 // plugins/provider-shared/updateCheck.ts
 function record(raw) {
+  if (raw !== null && typeof raw === "object") return raw;
   if (typeof raw !== "string") return null;
   try {
     const value = JSON.parse(raw);
@@ -346,17 +347,14 @@ function newestSupportedVersion(versions, compatibility) {
     return best === null || compare(version, best) === 1 ? version : best;
   }, null);
 }
-function checkProviderUpdate(host2, binary, metadataUrl, compatibility) {
-  const installed = record(host2.exec(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+function installedVersion(result) {
+  const installed = record(result);
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
-  const currentVersion = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
-  if (!currentVersion || !versionParts(currentVersion)) return null;
-  const response = record(host2.fetch(JSON.stringify({
-    url: metadataUrl,
-    method: "GET",
-    timeoutMs: 6e3,
-    headers: { Accept: "application/vnd.npm.install-v1+json" }
-  })));
+  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  return version && versionParts(version) ? version : null;
+}
+function availableUpdate(currentVersion, result, compatibility) {
+  const response = record(result);
   if (response?.status !== 200) return null;
   const metadata = record(response.body);
   let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
@@ -365,6 +363,26 @@ function checkProviderUpdate(host2, binary, metadataUrl, compatibility) {
     latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
   }
   return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
+}
+function startedJob(raw) {
+  const job = record(raw)?.jobId;
+  return typeof job === "string" && job !== "" ? job : null;
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (!probe) return null;
+  return host2.awaitJob(probe, (installed) => {
+    const currentVersion = parseInstalled(installed);
+    if (!currentVersion) return null;
+    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+      url: metadataUrl,
+      method: "GET",
+      timeoutMs: 6e3,
+      headers: { Accept: "application/vnd.npm.install-v1+json" }
+    })));
+    if (!metadata) return null;
+    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
+  });
 }
 
 // plugins/provider-claude/src/update.ts
