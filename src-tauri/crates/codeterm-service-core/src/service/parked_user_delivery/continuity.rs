@@ -49,6 +49,9 @@ impl super::super::ServiceContext {
         for receipt in store.receipts(tab_id)? {
             self.chat_send_ledger.restore_user_receipt(&receipt);
         }
+        for claim in store.source_claims(tab_id)? {
+            self.chat_send_ledger.restore_source_claim(&claim);
+        }
         for record in store.records(tab_id)? {
             self.chat_send_ledger.restore_user_record(&record);
         }
@@ -62,6 +65,13 @@ impl super::super::ServiceContext {
         self.restore_durable_user_statuses(tab_id)?;
         self.reconcile_chat_send_evidence(tab_id);
         let statuses = self.chat_send_ledger.reconcile(tab_id);
+        let claims = statuses
+            .iter()
+            .filter_map(crate::service::chat_send_transaction::SendRowClaim::from_status)
+            .collect::<Vec<_>>();
+        self.pending_delivery_payloads
+            .user_sends
+            .record_source_claims(tab_id, &claims)?;
         let delivered = statuses
             .iter()
             .filter(|status| status.state == ChatSendState::Sent)

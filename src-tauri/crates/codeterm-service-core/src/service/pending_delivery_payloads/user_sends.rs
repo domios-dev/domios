@@ -11,6 +11,7 @@ use std::sync::Arc;
 mod admission_evidence;
 mod admission_tokens;
 pub(crate) mod dismissal;
+mod source_claims;
 pub use dismissal::UserSendDismissal;
 mod runtime_capture;
 mod runtime_observers;
@@ -83,6 +84,8 @@ fn held_before_readiness_by_default() -> bool {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct UserIndex {
+    #[serde(default)]
+    source_claims: Vec<crate::service::chat_send_transaction::SendRowClaim>,
     version: u8,
     next_sequence: u64,
     records: Vec<UserSendRecord>,
@@ -99,6 +102,7 @@ struct UserIndex {
 impl Default for UserIndex {
     fn default() -> Self {
         Self {
+            source_claims: Vec::new(),
             version: 1,
             next_sequence: 1,
             records: Vec::new(),
@@ -859,6 +863,7 @@ impl UserTab {
 
 fn validate_index(index: &UserIndex, tab_id: &str) -> Result<(), String> {
     continuity::validate_receipts(index, tab_id)?;
+    source_claims::validate_claims(&index.source_claims, tab_id)?;
     index.runtime_observers.validate()?;
     if index.next_sequence == 0 {
         return Err("user index sequence is invalid".into());
