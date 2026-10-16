@@ -349,6 +349,9 @@ async fn ensure_locked(
                         reason: error.to_string(),
                     })?,
             );
+            env.extend(crate::service::execution_sandbox::environment(
+                &owner, &target,
+            ));
             if !super::authority::verifies(&owner, &target, &provider_id, &nonce) {
                 return Err(RuntimeFailure::Superseded);
             }

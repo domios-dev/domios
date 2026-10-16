@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn execution_environment_overrides_provider_values_and_removals() {
+    let policy = codeterm_types::plan::ExecutionSandboxPolicy {
+        intent: codeterm_types::plan::ExecutionIntent::Mutating,
+        cwd: "lane".into(),
+        launch_args: Vec::new(),
+        runtime_mode: None,
+        writable_roots: vec!["lane/temp".into()],
+        environment: std::collections::BTreeMap::from([(
+            "TMPDIR".into(),
+            "lane/quoted 'temp".into(),
+        )]),
+    };
+    let command = PreparedAgentCommand::from_spec(codeterm_types::agent::LaunchSpec {
+        program: "fixture".into(),
+        env_set: std::collections::HashMap::from([("TMPDIR".into(), "foreign".into())]),
+        env_unset: vec!["TMPDIR".into(), "UNRELATED".into()],
+        ..Default::default()
+    })
+    .with_execution_environment(Some(&policy));
+    let direct = command.direct.unwrap();
+    assert_eq!(direct.env_set["TMPDIR"], policy.environment["TMPDIR"]);
+    assert_eq!(direct.env_unset, vec!["UNRELATED"]);
+    let quoted = if cfg!(windows) {
+        "lane/quoted ''temp"
+    } else {
+        "lane/quoted '\"'\"'temp"
+    };
+    assert!(command.shell_command.contains(quoted));
+}
+
+#[test]
 fn quoted_direct_spec_retires_previous_settings_and_preserves_its_current_file() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let mut fixture = crate::service::test_fixture::ServiceFixture::new(mux);
