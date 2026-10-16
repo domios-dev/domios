@@ -396,7 +396,7 @@ function stubGeometry(host: HTMLElement): HTMLElement {
     set: (value: number) => { scrollTop = value; },
   });
   scroll.querySelectorAll<HTMLElement>("[data-message-id]").forEach((row, index) => {
-    Object.defineProperty(row, "offsetTop", { configurable: true, get: () => index * ROW_HEIGHT });
+    row.getBoundingClientRect = () => ({ top: index * ROW_HEIGHT - scrollTop, height: ROW_HEIGHT } as DOMRect);
   });
   return scroll;
 }

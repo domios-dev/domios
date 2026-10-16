@@ -9,11 +9,13 @@ const COUNT = 400;
 const ROW_HEIGHTS = [44, 44, 380, 72, 44, 640, 96, 44, 260, 52];
 const heightOf = (index: number) => ROW_HEIGHTS[(index * 7) % ROW_HEIGHTS.length] + (index % 3) * 6;
 const rows = Array.from({ length: COUNT }, (_, index) => ({ msg: { id: `m${index}` } }));
+const traceState = window as unknown as { chatScrollOwned: () => boolean };
 
 function Chat() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const followTailRef = useRef(true);
   const userScrollingRef = useRef(false);
+  traceState.chatScrollOwned = () => userScrollingRef.current;
   const win = useMountedChatWindow({ rows, scrollRef, active: true, followTailRef, sessionKey: "chat-scroll-trace",
     userScrollingRef: fixed ? userScrollingRef : undefined });
   const scroll = useChatScroll({ scrollRef, sessionKey: "chat-scroll-trace", active: true, loading: false, messageCount: COUNT,
@@ -24,6 +26,7 @@ function Chat() {
     <div ref={scrollRef} id="scroller" onScroll={scroll.handleScroll}
       style={{ height: "100vh", overflowY: "auto", position: "relative" }}>
       <div ref={win.topSpacerRef} style={{ height: win.topSpacer }} />
+      <div ref={win.rowsRef}>
       {rows.slice(win.range.start, win.range.end).map(({ msg }, offset) => {
         const index = win.range.start + offset;
         return (
@@ -33,6 +36,7 @@ function Chat() {
           </div>
         );
       })}
+      </div>
       <div style={{ height: win.range.bottom }} />
     </div>
   );
