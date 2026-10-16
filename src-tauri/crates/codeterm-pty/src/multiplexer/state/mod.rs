@@ -18,8 +18,8 @@ mod status_view;
 mod tab;
 mod tab_runtime;
 mod task_keys;
-mod workspace;
 mod wire_snapshot;
+mod workspace;
 
 pub use closed::{
     ArchivedTab, ClosedGroup, ClosedStructure, ClosedStructureView, ClosedTabView, ClosedTabsStore,
