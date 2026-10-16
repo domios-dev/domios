@@ -19,7 +19,11 @@ the `github-release` skill. Do not use `dev` output as an installer artifact.
 ./build.sh dev
 ```
 
-Builds the CLI and app, then launches the window through `dev-prebuilt`.
+Builds the CLI in its existing dev profile and the app, then launches the window through `dev-prebuilt`.
+DEV installs and bundles that exact debug CLI artifact. Production builds and
+standalone `cli` retain their release profile. The CLI's existing package-only
+opt-level 1 is unchanged; dependencies keep their existing profile settings.
+
 Vite `build --watch` refreshes the frontend bundle; Rust edits need another `dev`.
 All build logic lives in `build.sh`; `build.ps1` forwards to it.
 All Cargo work, including named `dev --wait`, owns the shared build gateway and
