@@ -517,6 +517,14 @@ impl ServiceContext {
         &self,
         pty_claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {
+        self.ensure_tab_pty_linked_with_claim(pty_claim)?;
+        self.materialize_restored_agent_with_claim(pty_claim)
+    }
+
+    pub(crate) fn ensure_tab_pty_linked_with_claim(
+        &self,
+        pty_claim: &crate::service::pty_ownership::TabPtyClaim,
+    ) -> Result<(), String> {
         let tab_id = pty_claim.tab_id();
         if self.mux.read().get_tab(tab_id).is_some_and(|tab| {
             tab.close_restore
@@ -525,9 +533,9 @@ impl ServiceContext {
         }) {
             return Err("Restored shell is stopped; use Rerun command or Start shell".into());
         }
-        if self.resolve_pty_id(tab_id).is_ok() {
+        if let Ok(pty_id) = self.resolve_pty_id(tab_id) {
             self.emit_pty_reattached(tab_id);
-            self.materialize_restored_agent_with_claim(pty_claim)?;
+            crate::startup::boot_timing::mark(tab_id, Some(&pty_id), "pty_admitted");
             return Ok(());
         }
 
@@ -587,7 +595,7 @@ impl ServiceContext {
             self.start_backend_reader_for(reader_pty_id.to_string());
         }
 
-        self.materialize_restored_agent_with_claim(pty_claim)?;
+        crate::startup::boot_timing::mark(tab_id, Some(&selection.pty_id), "pty_admitted");
         Ok(())
     }
 

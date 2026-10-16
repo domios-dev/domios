@@ -19,9 +19,13 @@ fn bounded_transports_progress_independently_without_starving_queued_tabs() {
             .collect::<Vec<_>>();
         run_transport_waves(
             &items,
-            RestoreBudgets { pty: 4, chat: 2 },
+            RestoreBudgets {
+                foreground: 1,
+                background: 4,
+                chat: 2,
+            },
             |kind| *kind,
-            || None,
+            || vec![super::Priority::Background; 13],
             |_| Ok(()),
             |kind| {
                 entered.send(*kind).unwrap();
@@ -200,4 +204,126 @@ fn four_tabs_can_start_independently_and_the_fifth_waits_for_a_slot() {
     }
     assert_eq!(worker.join().unwrap(), vec![Ok(()); 5]);
     assert_eq!(entered_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 4);
+}
+
+#[test]
+fn reserved_worker_never_takes_background_and_focus_changes_reprioritize_pending() {
+    use super::{take_prioritized, Priority};
+    let mut pending = vec![0, 1, 2, 3];
+    let mut priorities = vec![Priority::Background; 4];
+    assert_eq!(take_prioritized(&mut pending, &priorities, true), None);
+    assert_eq!(pending, [0, 1, 2, 3]);
+    priorities[3] = Priority::Focused;
+    priorities[2] = Priority::Visible;
+    assert_eq!(take_prioritized(&mut pending, &priorities, true), Some(3));
+    assert_eq!(take_prioritized(&mut pending, &priorities, false), Some(2));
+    assert_eq!(take_prioritized(&mut pending, &priorities, true), None);
+    assert_eq!(take_prioritized(&mut pending, &priorities, false), Some(0));
+}
+
+#[test]
+fn visibility_classification_preserves_focused_hidden_and_workspace_rules() {
+    use super::Priority;
+    assert_eq!(
+        Priority::from_visibility(true, false, false, true),
+        Priority::Focused
+    );
+    assert_eq!(
+        Priority::from_visibility(false, true, true, false),
+        Priority::Visible
+    );
+    for flags in [
+        (false, true, true),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        assert_eq!(
+            Priority::from_visibility(false, flags.0, flags.1, flags.2),
+            Priority::Background
+        );
+    }
+}
+
+#[test]
+fn five_workers_serve_visible_burst_before_any_completion() {
+    let (entered, observed) = mpsc::channel();
+    let (release, tokens) = mpsc::channel();
+    let tokens = Mutex::new(tokens);
+    let worker = std::thread::spawn(move || {
+        run_transport_waves(
+            &[0, 1, 2, 3, 4],
+            super::RESTORE_BUDGETS,
+            |_| RestoreTransport::Pty,
+            || vec![super::Priority::Visible; 5],
+            |_| Ok(()),
+            |item| {
+                entered.send(*item).unwrap();
+                tokens.lock().unwrap().recv().unwrap();
+                Ok(())
+            },
+        )
+    });
+    let mut admitted = (0..5)
+        .map(|_| observed.recv_timeout(Duration::from_secs(2)).unwrap())
+        .collect::<Vec<_>>();
+    admitted.sort();
+    assert_eq!(admitted, [0, 1, 2, 3, 4]);
+    for _ in 0..5 {
+        release.send(()).unwrap();
+    }
+    assert_eq!(worker.join().unwrap(), vec![Ok(()); 5]);
+}
+
+#[test]
+fn focus_event_uses_reserved_worker_while_all_shared_workers_are_busy() {
+    let focused = Arc::new(AtomicUsize::new(usize::MAX));
+    let current_focus = focused.clone();
+    let (entered, observed) = mpsc::channel();
+    let (release, tokens) = mpsc::channel();
+    let tokens = Mutex::new(tokens);
+    let worker = std::thread::spawn(move || {
+        run_transport_waves(
+            &[0, 1, 2, 3, 4, 5],
+            super::RESTORE_BUDGETS,
+            |_| RestoreTransport::Pty,
+            || {
+                (0..6)
+                    .map(|index| {
+                        if index == current_focus.load(Ordering::SeqCst) {
+                            super::Priority::Focused
+                        } else {
+                            super::Priority::Background
+                        }
+                    })
+                    .collect()
+            },
+            |_| Ok(()),
+            |item| {
+                entered.send(*item).unwrap();
+                tokens.lock().unwrap().recv().unwrap();
+                Ok(())
+            },
+        )
+    });
+    let mut background = (0..4)
+        .map(|_| observed.recv_timeout(Duration::from_secs(2)).unwrap())
+        .collect::<Vec<_>>();
+    background.sort();
+    assert_eq!(background, [0, 1, 2, 3]);
+    focused.store(4, Ordering::SeqCst);
+    super::changes().notify();
+    assert_eq!(observed.recv_timeout(Duration::from_secs(2)).unwrap(), 4);
+    for _ in 0..6 {
+        release.send(()).unwrap();
+    }
+    assert_eq!(worker.join().unwrap(), vec![Ok(()); 6]);
+}
+
+#[test]
+fn change_between_observation_and_wait_cannot_be_lost() {
+    let changes = codeterm_service_core::service::restore_admission::Changes::default();
+    let observed = changes.revision();
+    changes.notify();
+    changes.wait(observed);
+    assert_ne!(changes.revision(), observed);
 }
