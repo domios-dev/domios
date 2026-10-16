@@ -19,6 +19,7 @@ pub mod model;
 mod ownership;
 pub(crate) mod plan_warning;
 pub(crate) mod process;
+mod process_slot;
 pub(crate) mod projections;
 pub mod reset_credits;
 pub use projections::latest as projections_latest;

@@ -31,7 +31,7 @@ fn session() -> (Session, u64) {
         maps: Mutex::new(Default::default()),
         bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
         prompts: Mutex::new(HashMap::new()),
-        process: Mutex::new(None),
+        process: crate::service::agent_runtime::process_slot::ProcessSlot::new(None),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),
         compaction: Mutex::new(Default::default()),
