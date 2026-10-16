@@ -104,8 +104,11 @@ async function main() {
     assert.equal(follows.current, false, "downward scrolling at the inner bottom moves the detached transcript");
     const latest = host.querySelector<HTMLButtonElement>('button[aria-label="Scroll to latest"]')!;
     await act(async () => latest.click());
+    assert.equal(outerTop, 800, "latest cannot interrupt wheel ownership");
+    await end();
+    await act(async () => latest.click());
     assert.equal(outerTop, 900);
-    assert.equal(follows.current, true, "latest resets active wheel ownership and resumes following");
+    assert.equal(follows.current, true, "latest after quiescence resumes following");
     for (const type of ["touchstart", "touchend", "touchcancel"]) {
       const event = new Event(type, { bubbles: true, cancelable: true });
       await act(async () => body.dispatchEvent(event));

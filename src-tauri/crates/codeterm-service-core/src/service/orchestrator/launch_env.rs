@@ -37,6 +37,36 @@ impl std::fmt::Display for PreparedAgentCommand {
 }
 
 impl PreparedAgentCommand {
+    pub(crate) fn with_execution_environment(
+        mut self,
+        policy: Option<&codeterm_types::plan::ExecutionSandboxPolicy>,
+    ) -> Self {
+        if self.shell_command.is_empty() {
+            return self;
+        }
+        let Some(policy) = policy else {
+            return self;
+        };
+        if let Some(spec) = &mut self.direct {
+            spec.env_set.extend(policy.environment.clone());
+            spec.env_unset
+                .retain(|key| !policy.environment.contains_key(key));
+        }
+        let mut prefix = String::new();
+        for (key, value) in &policy.environment {
+            if cfg!(windows) {
+                prefix.push_str(&format!("$env:{key}='{}'; ", value.replace('\'', "''")));
+            } else {
+                prefix.push_str(&format!(
+                    "export {key}='{}'; ",
+                    value.replace('\'', "'\"'\"'")
+                ));
+            }
+        }
+        self.shell_command = format!("{prefix}{}", self.shell_command);
+        self
+    }
+
     pub(crate) fn from_spec(spec: codeterm_types::agent::LaunchSpec) -> Self {
         let shell_command = std::iter::once(&spec.program)
             .chain(&spec.args)

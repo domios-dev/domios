@@ -310,7 +310,14 @@ async fn ensure_locked(
             .await
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
             .map_err(RuntimeFailure::Refused)?;
-    session.context.lock().settings = settings;
+    let resolved_cwd = svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone());
+    {
+        let mut context = session.context.lock();
+        context.settings = settings;
+        if let Some(cwd) = resolved_cwd {
+            context.cwd = cwd;
+        }
+    }
     crate::startup::boot_timing::mark(tab, None, "runtime_options_ready");
     let process = if live {
         old.ok_or(RuntimeFailure::Superseded)?
@@ -386,6 +393,9 @@ async fn ensure_locked(
                         reason: error.to_string(),
                     })?,
             );
+            env.extend(crate::service::execution_sandbox::environment(
+                &owner, &target,
+            ));
             if !super::authority::verifies(&owner, &target, &provider_id, &nonce) {
                 return Err(RuntimeFailure::Superseded);
             }
@@ -632,6 +642,8 @@ async fn run_inner(
     operation: RuntimeOperation,
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let mut context = session.context.lock().clone();
+    crate::service::execution_sandbox::validate_runtime_operation(svc, &context, &operation)
+        .map_err(RuntimeFailure::Refused)?;
     super::model::validate_operation_thread(&context, &operation)?;
     if matches!(operation, RuntimeOperation::SubmitTurn { .. })
         && session.compaction.lock().held(context.epoch)
@@ -711,11 +723,16 @@ async fn run_inner(
                     RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
                     _ => None,
                 };
+                let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
+                    .then(|| operation.clone());
                 let guard: super::rpc::PrewriteGuard = Arc::new(move || {
                     if runtime.context.lock().epoch != epoch {
                         return Err(RuntimeFailure::Superseded);
                     }
                     validate_binding(&owner, &runtime)?;
+                    if let Some(read) = &captured_read {
+                        super::model::validate_operation_thread(&runtime.context.lock(), read)?;
+                    }
                     if let Some(send) = &captured_send {
                         if runtime.compaction.lock().held(epoch) {
                             return Err(RuntimeFailure::Refused(
@@ -824,6 +841,7 @@ async fn run_inner(
                     history.append(result);
                     return Ok(history.finish(thread, cursor));
                 }
+                super::owned_context::record(svc, session, &context, &operation, &result)?;
                 return Ok(result);
             }
         }

@@ -32,3 +32,12 @@ test("authentication failure offers sign-in rather than launch or folder recover
   assert.deepEqual(view.actions, ["sign-in"]);
   assert.equal(view.details, "opaque-auth");
 });
+
+test("a runtime response deadline is pending without failure actions", () => {
+  const pending = paneStateModel({ code: "runtime_deadline", raw: "opaque" });
+  assert.equal(pending.pending, true);
+  assert.deepEqual(pending.actions, []);
+  const terminal = paneStateModel("ProcessExited: runtime exited");
+  assert.equal(terminal.pending, false);
+  assert.deepEqual(terminal.actions, ["retry"]);
+});

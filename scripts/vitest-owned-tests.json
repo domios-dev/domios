@@ -1,4 +1,6 @@
 [
+  "src/lib/childTranscript.test.ts",
+  "src/components/Terminal/ChildTranscriptScope.test.tsx",
   "src/components/shared/deferredComponent.test.tsx",
   "src/components/shared/DeferredPresence.test.tsx",
   "src/components/shared/ErrorNotice.test.tsx",

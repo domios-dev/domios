@@ -156,7 +156,11 @@ pub fn validate_runtime_operation(
         }
         _ => None,
     };
-    if thread.is_some_and(|thread| ctx.thread_id.as_ref() != Some(thread)) {
+    if thread.is_some_and(|thread| {
+        ctx.thread_id.as_ref() != Some(thread)
+            && !(matches!(op, RuntimeOperation::ReadHistory { .. })
+                && runtime_descendant(ctx, thread))
+    }) {
         return Err(mismatch("operation retargets thread"));
     }
     match op {
@@ -209,6 +213,13 @@ pub fn validate_runtime_plan(
     validate_runtime_operation(ctx, op)?;
     validate_runtime_size(plan, MAX_RUNTIME_VALUE_BYTES)?;
     validate_runtime_size(&plan.state, MAX_RUNTIME_STATE_BYTES)?;
+    if let RuntimeOperation::ReadHistory { thread_id, .. } = op {
+        if runtime_descendant(ctx, thread_id)
+            && !super::children::child_history_request(&plan.action, thread_id)
+        {
+            return Err(mismatch("descendant history must be an exact read request"));
+        }
+    }
     if matches!(op, RuntimeOperation::AnswerQuestion { .. })
         && !matches!(plan.action, RuntimeAction::QuestionAnswer { .. })
     {
@@ -278,7 +289,11 @@ pub fn validate_runtime_call(
             return Err(mismatch("interrupt targets an inactive or unowned turn"));
         }
     } else if let Some(target) = &call.target {
-        if ctx.thread_id.as_ref() != Some(&target.thread_id)
+        let operation_target = match op {
+            RuntimeOperation::ReadHistory { thread_id, .. } => Some(thread_id),
+            _ => ctx.thread_id.as_ref(),
+        };
+        if operation_target != Some(&target.thread_id)
             || target
                 .turn_id
                 .as_ref()
@@ -334,6 +349,12 @@ pub fn validate_runtime_step(
             notification,
             events,
         } => {
+            if matches!(op, RuntimeOperation::ReadHistory { thread_id, .. } if runtime_descendant(ctx, thread_id))
+                && (notification.is_some()
+                    || events.as_ref().is_some_and(|events| !events.is_empty()))
+            {
+                return Err(mismatch("descendant history cannot publish side effects"));
+            }
             if let Some(events) = events {
                 if events
                     .iter()
@@ -676,6 +697,17 @@ pub fn validate_runtime_reduction(
             AgentRuntimeEvent::ChatItem { thread_id, item } => {
                 if !identifier(&item.id) {
                     return Err(invalid("invalid chat item id"));
+                }
+                if let Some(child) = runtime_child(thread_id, item) {
+                    if !parents.contains_key(&child.parent_thread_id)
+                        || parents
+                            .get(&child.thread_id)
+                            .is_some_and(|parent| parent.as_ref() != Some(&child.parent_thread_id))
+                        || (!parents.contains_key(&child.thread_id) && parents.len() >= 65)
+                    {
+                        return Err(mismatch("child metadata changes proven ancestry"));
+                    }
+                    parents.insert(child.thread_id, Some(child.parent_thread_id));
                 }
                 thread_id
             }

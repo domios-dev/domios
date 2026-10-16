@@ -5,6 +5,12 @@ pub struct PermissionBypassAuthorization {
 }
 
 impl PermissionBypassAuthorization {
+    #[cfg(test)]
+    pub(crate) fn for_test(provider: &str) -> Self {
+        Self {
+            provider_id: provider.into(),
+        }
+    }
     pub(crate) fn authorizes(&self, provider_id: &str) -> bool {
         self.provider_id == provider_id
     }

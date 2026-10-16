@@ -82,7 +82,7 @@ async function main() {
   });
 
   await test("failed launch exposes recovery and puts the raw reason in Details", async () => {
-    const p = tab("spawn_failed", "SYSTEM REMINDER: secret launch details");
+    const p = tab("spawn_failed", "ProcessExited: runtime stopped unexpectedly");
     const host = await render(
       <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" />,
     );

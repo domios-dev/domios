@@ -119,6 +119,26 @@ fn build_agent_command_inner(
     launch_marker: Option<&str>,
     direct: bool,
 ) -> PreparedAgentCommand {
+    let execution_policy = match notice_context {
+        Some((service, tab_id)) => {
+            crate::service::execution_sandbox::for_launch(service, tab_id, agent_cmd, params, false)
+        }
+        None => crate::service::execution_sandbox::resolve(
+            registry,
+            agent_cmd,
+            params.execution_intent.as_ref(),
+            params.cwd.as_deref(),
+            params.args.as_deref().unwrap_or_default(),
+            false,
+        ),
+    };
+    let execution_policy = match execution_policy {
+        Ok(policy) => policy,
+        Err(reason) => {
+            log::error!("[execution-sandbox] launch refused: {reason}");
+            return Default::default();
+        }
+    };
     if let Some((service, tab_id)) = notice_context {
         crate::service::directory_pre_trust::for_tab(
             service,
@@ -183,15 +203,17 @@ fn build_agent_command_inner(
                 tab_id, session,
             );
         }
-        if let Some(command) = crate::service::codex_rpc::launch::defer(
-            service,
-            tab_id,
-            agent_cmd,
-            &resolved_params,
-            task,
-            injected_session_id,
-        ) {
-            return command.into();
+        if execution_policy.is_none() {
+            if let Some(command) = crate::service::codex_rpc::launch::defer(
+                service,
+                tab_id,
+                agent_cmd,
+                &resolved_params,
+                task,
+                injected_session_id,
+            ) {
+                return command.into();
+            }
         }
     }
     let structured_prompt_server = params.structured_prompt_server.clone().or_else(|| {
@@ -246,7 +268,8 @@ fn build_agent_command_inner(
     let command_task = registry.with_provider(agent_cmd, |provider| {
         crate::service::launch_delivery::command_task(provider, task)
     });
-    let skip_permissions = params.permission_bypass_requested(agent_cmd);
+    let skip_permissions =
+        execution_policy.is_none() && params.permission_bypass_requested(agent_cmd);
     args.extend(crate::service::unattended_launch::grant_args(
         registry,
         &crate::service::unattended_launch::UnattendedLaunch {
@@ -259,41 +282,59 @@ fn build_agent_command_inner(
             ..Default::default()
         },
     ));
-    crate::service::launch_session_detection::append_sandbox_linux_network_args(
-        registry,
-        agent_cmd,
-        skip_permissions,
-        crate::agent::provider::current_platform_tag(),
-        &mut args,
-    );
-    let canonical_project = notice_context.and_then(|(service, tab_id)| {
-        params.cwd.as_deref().and_then(|cwd| {
-            crate::service::launch_session_detection::canonical_project_for_launch(
-                service, tab_id, params, cwd,
-            )
-        })
-    });
-    crate::service::launch_session_detection::append_sandbox_git_metadata_args(
-        registry,
-        agent_cmd,
-        skip_permissions,
-        params.cwd.as_deref(),
-        canonical_project.as_deref(),
-        notice_context
-            .map(|(_, tab_id)| tab_id)
-            .unwrap_or("unknown"),
-        &mut args,
-    );
-    if let Some((service, tab_id)) = notice_context {
-        crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
+    if execution_policy.is_none() {
+        crate::service::launch_session_detection::append_sandbox_linux_network_args(
+            registry,
+            agent_cmd,
+            skip_permissions,
+            crate::agent::provider::current_platform_tag(),
+            &mut args,
+        );
+        let canonical_project = notice_context.and_then(|(service, tab_id)| {
+            params.cwd.as_deref().and_then(|cwd| {
+                crate::service::launch_session_detection::canonical_project_for_launch(
+                    service, tab_id, params, cwd,
+                )
+            })
+        });
+        crate::service::launch_session_detection::append_sandbox_git_metadata_args(
             registry,
             agent_cmd,
             skip_permissions,
             params.cwd.as_deref(),
-            &service.agent_pad_data_dir,
-            tab_id,
+            canonical_project.as_deref(),
+            notice_context
+                .map(|(_, tab_id)| tab_id)
+                .unwrap_or("unknown"),
             &mut args,
         );
+        if let Some((service, tab_id)) = notice_context {
+            crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
+                registry,
+                agent_cmd,
+                skip_permissions,
+                params.cwd.as_deref(),
+                &service.agent_pad_data_dir,
+                tab_id,
+                &mut args,
+            );
+        }
+    }
+    if let Some(policy) = &execution_policy {
+        args.extend(policy.launch_args.clone());
+        if !policy.writable_roots.is_empty() {
+            let Some(flag) = registry
+                .with_provider(agent_cmd, |provider| {
+                    provider.additional_writable_dir_flag()
+                })
+                .flatten()
+            else {
+                return Default::default();
+            };
+            for root in &policy.writable_roots {
+                args.extend([flag.clone(), root.clone()]);
+            }
+        }
     }
 
     if let Some((service, tab_id)) = notice_context {
@@ -355,7 +396,9 @@ fn build_agent_command_inner(
                 })
                 .flatten()
         };
-        return command.unwrap_or_default();
+        return command
+            .unwrap_or_default()
+            .with_execution_environment(execution_policy.as_ref());
     }
 
     let launch_task = command_task.and_then(|task| task.text);
@@ -400,7 +443,7 @@ fn build_agent_command_inner(
             )
         })
     };
-    match command {
+    let prepared: PreparedAgentCommand = match command {
         Some(command) if command.trim().is_empty() => Default::default(),
         Some(command) => command.with_stub(agent_cmd),
         None => {
@@ -408,7 +451,8 @@ fn build_agent_command_inner(
             parts.extend(args);
             parts.join(" ").into()
         }
-    }
+    };
+    prepared.with_execution_environment(execution_policy.as_ref())
 }
 
 #[cfg(test)]

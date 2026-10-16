@@ -36,8 +36,7 @@ function contentTop(element: Element): number {
 
 function Harness() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  api = useMountedChatWindow({ rows, scrollRef, active: true, followTailRef, sessionKey: "drift", userScrollingRef: userScrolling,
-    nativeAnchoring: false });
+  api = useMountedChatWindow({ rows, scrollRef, active: true, followTailRef, sessionKey: "drift", userScrollingRef: userScrolling });
   return <div ref={(element) => {
     scrollRef.current = element;
     scroller = element;
@@ -142,4 +141,3 @@ describe("useMountedChatWindow spacer drift", () => {
     expect(api.foldDrift()).toBe(0);
   });
 });
-

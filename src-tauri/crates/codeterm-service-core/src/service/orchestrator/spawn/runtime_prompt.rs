@@ -67,7 +67,12 @@ pub fn compose_runtime_system_prompt(params: &mut SpawnAgentParams) -> Option<St
         .as_deref()
         .is_some_and(|prompt| prompt.contains(ROLE_AUTHORITY))
     {
-        return params.system_prompt.take();
+        let prompt = params.system_prompt.take();
+        return if params.execution_intent == Some(crate::plan::ExecutionIntent::ReadOnly) {
+            prompt.map(crate::prompts::with_read_only_worker_guidance)
+        } else {
+            prompt
+        };
     }
     let resolved =
         codeterm_types::agent::restore_role(params.role.as_deref(), params.role_profile.as_deref());
@@ -105,7 +110,11 @@ pub fn compose_runtime_system_prompt(params: &mut SpawnAgentParams) -> Option<St
             primer: crate::prompts::AGENT_CODETERM_PRIMER.trim(),
             plugins: plugins.as_deref(),
             context: &context,
-            pad: crate::prompts::AGENT_PAD_RULE.trim(),
+            pad: if params.execution_intent == Some(crate::plan::ExecutionIntent::ReadOnly) {
+                crate::prompts::READ_ONLY_WORKER_GUIDANCE.trim()
+            } else {
+                crate::prompts::AGENT_PAD_RULE.trim()
+            },
             rendering: crate::prompts::RICH_RENDERING_GUIDANCE.trim(),
             authority: ROLE_AUTHORITY,
         },
@@ -211,10 +220,21 @@ pub fn ensure_tab_runtime_prompt(
         .as_ref()
         .and_then(|config| config.get("systemPrompt"))
         .and_then(serde_json::Value::as_str);
-    if current.is_some_and(|prompt| prompt.contains(ROLE_AUTHORITY)) {
+    if current.is_some_and(|prompt| prompt.contains(ROLE_AUTHORITY))
+        && !tab
+            .restorable_launch
+            .execution_sandbox
+            .as_ref()
+            .is_some_and(|policy| policy.intent == crate::plan::ExecutionIntent::ReadOnly)
+    {
         return Ok(());
     }
     let mut params = SpawnAgentParams {
+        execution_intent: tab
+            .restorable_launch
+            .execution_sandbox
+            .as_ref()
+            .map(|policy| policy.intent.clone()),
         agent: tab.agent_type.clone(),
         role: tab.role.map(|role| role.label().into()),
         role_profile: tab.role_profile.clone(),

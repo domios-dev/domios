@@ -4,6 +4,7 @@ mod background;
 pub(crate) mod blocking;
 mod bootstrap;
 pub(crate) mod capture;
+pub mod children;
 mod completions;
 pub(crate) mod controls;
 pub mod engine;
@@ -16,6 +17,7 @@ mod launch_options;
 pub(crate) mod lease;
 pub mod login;
 pub mod model;
+mod owned_context;
 #[cfg(any(unix, test))]
 mod ownership;
 pub(crate) mod plan_warning;
