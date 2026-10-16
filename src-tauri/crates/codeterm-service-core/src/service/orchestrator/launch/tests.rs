@@ -11,9 +11,9 @@ mod relaunch_supervision;
 #[path = "tests/structural_wait.rs"]
 mod structural_wait;
 use super::{
-    AgentRegistry, LAUNCH_REGISTRY, LaunchFailure, LaunchGeneration, LaunchRegistry,
-    ProviderSessionBinding, build_agent_command, command_with_binding_nonce_for_shell,
-    replacement_pty_candidate, take_reader_termination, worker_brief_delivery_incident,
+    build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
+    take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
+    LaunchGeneration, LaunchRegistry, ProviderSessionBinding, LAUNCH_REGISTRY,
 };
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
@@ -167,15 +167,13 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
             ),
     ));
 
-    assert!(
-        harness
-            .service
-            .agent_registry
-            .with_provider("lazy-session-fixture", |provider| {
-                provider.provider_readiness_strategy().requires_composer()
-            })
-            .unwrap()
-    );
+    assert!(harness
+        .service
+        .agent_registry
+        .with_provider("lazy-session-fixture", |provider| {
+            provider.provider_readiness_strategy().requires_composer()
+        })
+        .unwrap());
 
     let no_task_turn = crate::service::startup_turn::resolve(
         &harness.service.agent_registry,
@@ -239,8 +237,8 @@ fn owner_prompt_cleared_on_lazy_session_launch_moves_to_agent_ready_without_firs
     use crate::agent::provider::ProviderReadinessStrategy;
     use crate::agent::test_provider::MockProvider;
     use crate::service::launch_readiness::{
-        LaunchAttempt, LaunchObservation, arm, observe, owner_prompt_cleared, owner_prompt_pending,
-        register_input_wake,
+        arm, observe, owner_prompt_cleared, owner_prompt_pending, register_input_wake,
+        LaunchAttempt, LaunchObservation,
     };
 
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -285,15 +283,13 @@ fn owner_prompt_cleared_on_lazy_session_launch_moves_to_agent_ready_without_firs
         resumed.join().unwrap(),
         "prompt clear resumes lazy readiness"
     );
-    assert!(
-        harness
-            .service
-            .agent_registry
-            .with_provider("lazy-owner-prompt-stage", |provider| {
-                provider.provider_readiness_strategy().requires_composer()
-            })
-            .unwrap()
-    );
+    assert!(harness
+        .service
+        .agent_registry
+        .with_provider("lazy-owner-prompt-stage", |provider| {
+            provider.provider_readiness_strategy().requires_composer()
+        })
+        .unwrap());
     drop(_wake);
     assert_eq!(
         observe(&attempt, std::time::Instant::now()),
@@ -926,11 +922,9 @@ fn reapply_class_resume_carries_the_composed_prompt_exactly_once() {
         .trim()
         .trim_matches(['\'', '"']);
     let delivered = std::fs::read_to_string(path).expect("prompt file the resume command names");
-    assert!(
-        delivered
-            .trim_start_matches('\u{feff}')
-            .starts_with(RESUME_COMPOSED_PROMPT)
-    );
+    assert!(delivered
+        .trim_start_matches('\u{feff}')
+        .starts_with(RESUME_COMPOSED_PROMPT));
     let rule = crate::plugin::agent_claude::launch_prompt_rule().unwrap();
     assert_eq!(delivered.matches(rule.as_str()).count(), 1);
     assert_eq!(delivered.matches(RESUME_COMPOSED_PROMPT).count(), 1);
