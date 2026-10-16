@@ -101,6 +101,13 @@ impl Coordinator {
         true
     }
 
+    /// Returns an unanswered check's claim; a newer claim from another instance stays.
+    pub fn release_check(&mut self, provider: &str, claimed_at: u64) {
+        if self.checked.get(provider) == Some(&claimed_at) {
+            self.checked.remove(provider);
+        }
+    }
+
     pub fn recover_interrupted(&mut self, alive: impl Fn(u32) -> bool) {
         for run in self.runs.values_mut() {
             if run.outcome == RunOutcome::Running && !alive(run.owner_pid) {
