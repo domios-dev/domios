@@ -11,6 +11,7 @@ import { loginPlan, loginResponse } from "./runtimeLogin";
 import { rateLimitEvents } from "./runtimeUsage";
 import {resetOutcome} from "./resetCredits";
 import { accountAuth } from "./runtimeAuth";
+import {backgroundOwns, backgroundPlan, backgroundResponse} from "./runtimeBackground";
 import { interruptTargets } from "./runtimeInterrupt";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
@@ -45,6 +46,10 @@ function turnParams(ctx: RuntimeContext, op: Extract<Operation,{kind:"submitTurn
     ...codexRuntimePolicy(op.settings),model:op.settings.model,effort:op.settings.effort};
 }
 function validateBinding(ctx: RuntimeContext, op: Operation): void {
+  if (op.kind === "backgroundProcesses") {
+    if (!backgroundOwns(ctx,op.threadId)) fail("binding_mismatch","Background thread is not owned");
+    return;
+  }
   if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId) fail("binding_mismatch","Thread differs from the bound thread");
   if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail("binding_mismatch","Active turn differs from the bound turn");
 }
@@ -52,7 +57,7 @@ function validateBinding(ctx: RuntimeContext, op: Operation): void {
 export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
   validateBinding(ctx,op);
   switch (op.kind) {
-    case "backgroundProcesses": return fail("unsupported","Background processes are unavailable");
+    case "backgroundProcesses": return backgroundPlan(ctx,op);
     case "initialize":
       return request("initialize",{clientInfo:{name:"domios",version:ctx.hostVersion},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}});
     case "openThread": return request("thread/start",settingsParams(ctx,op.settings,op.instructions));
@@ -107,6 +112,7 @@ function continuation(plan: RuntimePlan, beforeAcceptance?: boolean): RuntimeSte
 }
 export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
   validateBinding(ctx,op);
+  if (op.kind === "backgroundProcesses") return backgroundResponse(op,reply);
   const state = object(raw);
   if (op.kind === "readHistory" && state.pager === 1) {
     if (reply.kind === "error" && reply.error.code === -32601 && ["turns","items"].includes(String(state.stage)))
@@ -129,7 +135,6 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
   }
   const value = object(reply.value);
   switch (op.kind) {
-    case "backgroundProcesses": return fail("unsupported","Background processes are unavailable");
     case "initialize":
       if (state.stage === "initialize") return continuation({action:{kind:"notification",notification:{method:"initialized",params:{}}},state:{stage:"initializedNotification"}});
       if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{stage:"initializeAccount"}));

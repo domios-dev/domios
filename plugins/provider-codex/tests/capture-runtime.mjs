@@ -1,7 +1,9 @@
-import {spawn} from "node:child_process";
+import {spawn,execFileSync} from "node:child_process";
 import {mkdtempSync,writeFileSync,rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
+import {once} from "node:events";
+import {createServer} from "node:net";
 import {createInterface} from "node:readline";
 
 const destination = process.argv[2];
@@ -15,11 +17,15 @@ const environment = Object.fromEntries(Object.entries(process.env).filter(([key]
 
 async function capture(scenario) {
   const cwd = mkdtempSync(join(tmpdir(),"runtime-capture-"));
+  const background = scenario === "background-terminals";
+  const controls=new Set();
+  const control=background ? createServer(socket=>{controls.add(socket);socket.on("close",()=>controls.delete(socket));}) : undefined;
+  if(control) {control.listen(0,"127.0.0.1");await once(control,"listening");}
   const ctx = {epoch:1,cwd,hostVersion:"1.14.7",tabId:"capture-tab",bindingNonce:"capture-nonce",settings,providerSettings:{},claimedSends:[],activeTurns:[],threadParents:[]};
-  const fixture={schemaVersion:1,captured:{cliVersion:"0.160.0",model,scenario},context:structuredClone(ctx),operations:[],rpc:[],expected:{results:[],events:[]}};
+  const fixture={schemaVersion:1,captured:{cliVersion:execFileSync("codex",["--version"],{encoding:"utf8"}).trim(),model,scenario},context:structuredClone(ctx),operations:[],rpc:[],expected:{results:[],events:[]}};
   const started=performance.now();
   const record=entry=>fixture.rpc.push({...entry,receiptMs:Number((performance.now()-started).toFixed(3)),...("frame" in entry ? {context:structuredClone(ctx)} : {})});
-  const child=spawn("codex",["app-server"],{cwd,env:environment,stdio:["pipe","pipe","pipe"]});
+  const child=spawn("codex",["app-server"],{cwd,env:environment,stdio:["pipe","pipe","pipe"],detached:process.platform !== "win32"});
   let serial=0,stderr="";
   const pending=new Map(),observed=[],waiters=[];
   let failure;
@@ -58,6 +64,7 @@ async function capture(scenario) {
     return new Promise((resolve,reject)=>waiters.push({predicate,resolve,reject}));
   };
   function rpc(operation,method,params,index){
+    if(failure)return Promise.reject(failure);
     if(index===undefined){index=fixture.operations.length;fixture.operations.push({operation,context:structuredClone(ctx)});}
     const id=++serial;
     record({direction:"outbound",operation:index,action:{kind:"request",call:{method,params,...(method === "turn/interrupt" ? {target:{threadId:params.threadId,turnId:params.turnId}} : {})}}});
@@ -72,16 +79,29 @@ async function capture(scenario) {
     const account=await rpc(undefined,"account/read",{refreshToken:false},0);
     if(["chatgpt","chatgptAuthTokens"].includes(account?.account?.type)) await rpc(undefined,"account/rateLimits/read",{},0);
     const instructions="Keep responses minimal. Do only the explicitly requested trivial capture exercise.";
-    const opened=await rpc({kind:"openThread",instructions,settings},"thread/start",{cwd,model,threadSource:"user",config:{check_for_update_on_startup:false,project_doc_max_bytes:65536,model_reasoning_effort:"low"},approvalPolicy:"untrusted",approvalsReviewer:"user",sandbox:"read-only",developerInstructions:instructions});
+    const opened=await rpc({kind:"openThread",instructions,settings},"thread/start",{cwd,model,threadSource:"user",config:{check_for_update_on_startup:false,project_doc_max_bytes:65536,model_reasoning_effort:"low"},approvalPolicy:background ? "never" : "untrusted",approvalsReviewer:"user",sandbox:background ? "danger-full-access" : "read-only",developerInstructions:instructions});
     ctx.threadId=opened.thread.id;
     await rpc(undefined,"thread/inject_items",{threadId:ctx.threadId,items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]},1);
     const submit=async(text,sendId)=>{
       ctx.claimedSends.push({sendId,threadId:ctx.threadId,input:{text,attachments:[]}});
       const operation={kind:"submitTurn",threadId:ctx.threadId,sendId,input:{text,attachments:[]},settings};
-      const response=await rpc(operation,"turn/start",{threadId:ctx.threadId,clientUserMessageId:sendId,input:[{type:"text",text}],cwd,approvalPolicy:"untrusted",approvalsReviewer:"user",sandboxPolicy:{type:"readOnly"},model,effort:"low"});
+      const response=await rpc(operation,"turn/start",{threadId:ctx.threadId,clientUserMessageId:sendId,input:[{type:"text",text}],cwd,approvalPolicy:background ? "never" : "untrusted",approvalsReviewer:"user",sandboxPolicy:{type:background ? "dangerFullAccess" : "readOnly"},model,effort:"low"});
       return response.turn.id;
     };
-    if(scenario === "streaming") {
+    if(background) {
+      const port=control.address().port;
+      const turn=await submit(`Run exactly one command: node -e "const s=require('net').connect(${port},'127.0.0.1');s.on('close',()=>process.exit(0));s.on('error',()=>process.exit(1))". Use a short yield so it remains running in the background. Do not wait for it or kill it; the capture harness owns cleanup. Reply STARTED after the command yields.`,"capture-background");
+      await wait(f=>f.method === "turn/completed" && f.params?.turn?.id === turn);
+      const call=async(action)=>rpc({kind:"backgroundProcesses",threadId:ctx.threadId,action},`thread/backgroundTerminals/${action.kind}`,{threadId:ctx.threadId,...(action.kind === "list" ? {cursor:action.cursor,limit:256} : action.kind === "terminate" ? {processId:action.processId} : {})});
+      const page=await call({kind:"list",cursor:null});
+      if(!page.data?.length || page.nextCursor !== null)throw new Error("Capture must contain a running background process and a complete page");
+      for(const entry of page.data)await call({kind:"terminate",processId:entry.processId});
+      const final=await call({kind:"list",cursor:null});
+      if(final.data.length || final.nextCursor !== null)throw new Error("Background processes remain after terminate");
+      await call({kind:"clean"});
+      const prior=ctx.threadId;ctx.threadId="00000000-0000-0000-0000-000000000000";
+      await call({kind:"list",cursor:null}).catch(()=>{});ctx.threadId=prior;
+    }else if(scenario === "streaming") {
       const turn=await submit("Write about 800 words of clear prose explaining how rain forms. Use no tools. Do not ask questions. Begin writing immediately.","capture-streaming");
       await wait(f=>f.method === "turn/completed" && f.params?.turn?.id === turn);
     }else if(scenario==="multi-turn"){
@@ -113,10 +133,24 @@ async function capture(scenario) {
       record({direction:"inbound",operation:index,reply:{kind:"success",value:null}});
       await wait(f=>f.method==="turn/completed" && f.params?.turn?.id===turn);
     }
-    const content=JSON.stringify(fixture,null,2).replaceAll(cwd,"/work/capture").replaceAll(process.env.HOME??"<absent>","/home/capture");
+    const sanitize=value=>typeof value === "string" ? [cwd,process.env.HOME,process.env.USERPROFILE].filter(Boolean).reduce((text,path)=>text.replaceAll(path,path === cwd ? "/work/capture" : "/home/capture"),value) : Array.isArray(value) ? value.map(sanitize) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key,value])=>[key,sanitize(value)])) : value;
+    const content=JSON.stringify(sanitize(fixture),null,2);
     writeFileSync(resolve(destination,scenario+".json"),content+"\n");
     console.log(`CAPTURED ${scenario}: ${fixture.operations.length} operations, ${fixture.rpc.length} frames`);
   }catch(error){console.error(`CAPTURE FAILED ${scenario}: ${error.message}`);process.exitCode=1;}
-  finally{clearTimeout(deadline);child.stdin.end();child.kill();rmSync(cwd,{recursive:true,force:true});}
+  finally{
+    if(background && ctx.threadId) {
+      try {await rpc({kind:"backgroundProcesses",threadId:ctx.threadId,action:{kind:"clean"}},"thread/backgroundTerminals/clean",{threadId:ctx.threadId});} catch {}
+    }
+    if(control) {
+      for(const socket of controls)socket.destroy();
+      await new Promise(resolve=>control.close(resolve));
+    }
+    clearTimeout(deadline);
+    if(process.platform === "win32" && child.pid) {try {execFileSync("taskkill",["/PID",String(child.pid),"/T","/F"],{stdio:"ignore",windowsHide:true});} catch {}}
+    if(process.platform !== "win32" && child.pid) {try {process.kill(-child.pid,"SIGKILL");} catch {}}
+    const exited = child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : once(child,"exit");
+    child.stdin.end();child.kill();await exited;rmSync(cwd,{recursive:true,force:true});
+  }
 }
 for(const scenario of scenarios.length ? scenarios : ["multi-turn","interrupt","approval","streaming"])await capture(scenario);
