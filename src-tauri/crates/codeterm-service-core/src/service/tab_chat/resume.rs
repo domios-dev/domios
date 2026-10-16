@@ -67,7 +67,7 @@ pub fn capture_incarnation(
     }
 }
 
-fn boundary(path: &Path, offset: u64) -> Result<bool, String> {
+pub(super) fn boundary(path: &Path, offset: u64) -> Result<bool, String> {
     if offset == 0 {
         return Ok(true);
     }

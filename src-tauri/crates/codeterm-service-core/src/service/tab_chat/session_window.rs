@@ -7,8 +7,101 @@ use std::sync::Arc;
 
 use codeterm_plugin::jsonl_window::page_before;
 
+use super::results::{ChatStartKind, KnownChatWindow};
+use super::resume_cursor::{plan_resume, ChatEpoch, ResumeCursor, ResumePlan};
 use crate::agent::chat_types::{ChatMsg, RichMessage};
 use crate::agent::registry::AgentRegistry;
+
+pub fn attach_kind(
+    known: &KnownChatWindow,
+    epoch: &ChatEpoch,
+    incarnation: &str,
+    total: u64,
+) -> ChatStartKind {
+    if known.source_session_id != epoch.source_session_id
+        || known.session_binding_nonce != epoch.session_binding_nonce
+        || known.end_offset > known.file_length
+        || known.file_length > total
+        || total.saturating_sub(known.end_offset) >= SNAPSHOT_WINDOW_BYTES
+    {
+        return ChatStartKind::Snapshot;
+    }
+    let Ok(cursor) = ResumeCursor::decode(&known.cursor) else {
+        return ChatStartKind::Snapshot;
+    };
+    if !matches!(&cursor, ResumeCursor::Bytes { offset, .. } if *offset == known.end_offset)
+        || !matches!(
+            plan_resume(
+                &cursor,
+                epoch,
+                incarnation,
+                total,
+                true,
+                SNAPSHOT_WINDOW_BYTES
+            ),
+            ResumePlan::Empty | ResumePlan::Read { .. }
+        )
+    {
+        return ChatStartKind::Snapshot;
+    }
+    if total == known.file_length {
+        ChatStartKind::Unchanged
+    } else {
+        ChatStartKind::Delta
+    }
+}
+
+pub fn resume_window(
+    registry: &Arc<AgentRegistry>,
+    provider_id: &str,
+    source: &super::registry::JsonlSource,
+    path: &Path,
+    epoch: &ChatEpoch,
+    known: &KnownChatWindow,
+) -> Option<(ChatStartKind, SessionSnapshot)> {
+    let total = std::fs::metadata(path).ok()?.len();
+    let incarnation =
+        super::resume::capture_incarnation(source, epoch, path, known.end_offset, None)?;
+    let kind = attach_kind(known, epoch, &incarnation.id, total);
+    if kind == ChatStartKind::Snapshot || !super::resume::boundary(path, known.end_offset).ok()? {
+        return None;
+    }
+    if kind == ChatStartKind::Unchanged {
+        log::debug!(
+            "[chat_start.unchanged] session={} end={} total_bytes={}",
+            epoch.source_session_id,
+            known.end_offset,
+            total
+        );
+        return Some((
+            kind,
+            SessionSnapshot {
+                total,
+                start_offset: known.end_offset,
+                end_offset: known.end_offset,
+                ..Default::default()
+            },
+        ));
+    }
+    let (rich, end_offset) = parse_window(registry, provider_id, path, known.end_offset, total);
+    let current =
+        super::resume::capture_incarnation(source, epoch, path, end_offset, Some(&incarnation))?;
+    if current != incarnation {
+        return None;
+    }
+    Some((
+        kind,
+        SessionSnapshot {
+            context_usage: rich.iter().rev().find_map(|row| row.context_usage.clone()),
+            messages: super::rich_rows_to_chat_msgs(&rich, known.end_offset),
+            runtime_observations: rich,
+            total,
+            start_offset: known.end_offset,
+            end_offset,
+            bytes_read: end_offset.saturating_sub(known.end_offset),
+        },
+    ))
+}
 
 /// Above this the snapshot switches from "whole transcript" to a tail window.
 pub const SNAPSHOT_CAP_BYTES: u64 = 1024 * 1024;

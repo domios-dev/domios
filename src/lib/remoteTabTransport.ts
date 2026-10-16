@@ -118,7 +118,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
         return response.data ?? [];
       });
     }
-    case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId });
+    case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId,
+      ...(args.knownWindow != null ? { knownWindow: args.knownWindow } : {}) });
     case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
     case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes, offset_kind: args.offsetKind });
     case "chat_send_text": return call("POST", "/chat-send", {

@@ -67,6 +67,9 @@ describe("remote tab transport adapter", () => {
     const stop = remoteTransportCall("chat_stop", { tabId: "mesh:peer/shared", subscriptionId: "sub-1" });
     expect(start?.body).toEqual({ subscriptionId: "sub-1" });
     expect(stop?.body).toEqual({ subscriptionId: "sub-1" });
+    const knownWindow = { source_session_id: "own", session_binding_nonce: "nonce", end_offset: 10, file_length: 10, cursor: "opaque" };
+    expect(remoteTransportCall("chat_start", { tabId: "mesh:peer/shared", subscriptionId: "sub-1", knownWindow })?.body)
+      .toEqual({ subscriptionId: "sub-1", knownWindow });
     const claim = remoteTransportCall("claim_resize_owner", {
       tabId: "mesh:peer/shared", ptyId: "mesh:peer/pty-1", clientId: "client-1", cols: 91, rows: 33, force: true,
     });
