@@ -49,7 +49,9 @@ pub async fn logout(
     let account = state.svc.account().await.map_err(unavailable)?;
     let result = account.logout().await;
     if let Ok(billing) = state.svc.billing().await {
-        billing.snapshot(None);
+        tokio::task::spawn_blocking(move || billing.snapshot(None))
+            .await
+            .map_err(|error| unavailable(error.to_string()))?;
     }
     Ok(Json(result.map_err(|e| unavailable(e.to_string()))?))
 }

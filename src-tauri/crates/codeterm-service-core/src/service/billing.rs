@@ -5,6 +5,17 @@ use std::{sync::Arc, time::Instant};
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
 
 impl ServiceContext {
+    pub async fn installation_id(&self) -> Result<codeterm_account::InstallationId, String> {
+        tokio::task::spawn_blocking(|| {
+            codeterm_account::Account::installation_id(
+                &codeterm_account::FileInstallationStore::new(crate::paths::data_dir()),
+            )
+            .map_err(|error| format!("Installation identity unavailable: {error}"))
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+
     pub async fn billing(&self) -> Result<Arc<Billing>, String> {
         let billing = self
             .ext::<crate::service::billing::BillingCell>()
@@ -16,9 +27,11 @@ impl ServiceContext {
                     .get("provider")
                     .and_then(|v| v.as_str())
                     .unwrap_or("cloud");
+                let installation_id = self.installation_id().await?;
                 let adapter: Arc<dyn codeterm_billing::BillingProvider> = match provider {
                     "cloud" => adapters::cloud::Cloud::configured(
                         config.get("endpoint").and_then(|v| v.as_str()),
+                        installation_id.clone(),
                     )?,
                     "local" if cfg!(debug_assertions) => {
                         let origin = url::Url::parse(
@@ -50,7 +63,12 @@ impl ServiceContext {
                     "fake" if cfg!(debug_assertions) => Arc::new(adapters::fake::Fake::default()),
                     _ => return Err("Unknown or unavailable billing provider".into()),
                 };
-                let mut billing = Billing::new(adapter);
+                let mut billing = Billing::new(adapter).with_grants(
+                    &installation_id,
+                    Arc::new(codeterm_billing::FileGrantStore::new(
+                        crate::paths::data_dir(),
+                    )),
+                )?;
                 if let Ok(worker) = self.analytics_worker().await {
                     billing =
                         billing.with_observer(super::analytics::billing_observer(worker.clone()));
@@ -64,18 +82,18 @@ impl ServiceContext {
         let session = self.account().await?.session().await;
         if session.is_none() {
             if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
-                billing.snapshot(None);
+                snapshot_off_runtime(billing.clone(), None).await?;
             }
             return Ok(Snapshot::default());
         }
-        Ok(self.billing().await?.snapshot(session.as_ref()))
+        snapshot_off_runtime(self.billing().await?, session).await
     }
     pub async fn refresh_billing(&self, event: RefreshEvent) -> Result<Snapshot, String> {
         let account = self.account().await?;
         let session = account.session().await;
         if session.is_none() {
             if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
-                billing.snapshot(None);
+                snapshot_off_runtime(billing.clone(), None).await?;
             }
             return Ok(Snapshot::default());
         }
@@ -84,7 +102,7 @@ impl ServiceContext {
             .refresh(session.as_ref(), event, Instant::now())
             .await;
         let current = account.session().await;
-        Ok(billing.snapshot(current.as_ref()))
+        snapshot_off_runtime(billing, current).await
     }
     pub async fn billing_open(&self, plan: Option<&str>) -> Result<(), String> {
         let session = self
@@ -121,4 +139,13 @@ impl ServiceContext {
         }
         Ok(())
     }
+}
+
+async fn snapshot_off_runtime(
+    billing: Arc<Billing>,
+    session: Option<codeterm_account::Session>,
+) -> Result<Snapshot, String> {
+    tokio::task::spawn_blocking(move || billing.snapshot(session.as_ref()))
+        .await
+        .map_err(|error| error.to_string())
 }
