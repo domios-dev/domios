@@ -368,6 +368,7 @@ export function useChatSession({
 
   const loadOlderPage = useCallback(async (beforeOffset: number) => {
     const generationAtRequest = attachmentRef.current.generation;
+    const requestedAt = performance.now();
     try {
       const offsetKind = transcriptOffsetKind(readTranscriptWindow(windowKeyRef.current).transcript);
       const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset, offsetKind });
@@ -383,7 +384,8 @@ export function useChatSession({
         return false;
       }
       const page = res.messages ?? [];
-      return commitBatch(
+      const receivedAt = performance.now();
+      const outcome = commitBatch(
         "backfill",
         {
           sourceSessionId: res.source_session_id,
@@ -391,7 +393,10 @@ export function useChatSession({
         },
         { start: res.start_offset, end: res.end_offset, unit: res.offset_kind },
         page,
-      ) === "adopted";
+      );
+      frontendBootDiagnostic("chat-scroll", { chat: { scope: tabId, edge: "backfill_merged", at: performance.now(),
+        state: { beforeOffset, rows: page.length, requestMs: receivedAt - requestedAt, mergeMs: performance.now() - receivedAt, outcome } } });
+      return outcome === "adopted";
     } catch (e) {
       onErrorRef.current?.(e instanceof Error ? e.message : String(e));
       return false;
