@@ -1,3 +1,4 @@
+import {clearResetCreditsForTab} from "../Usage/resetCreditsModel";
 import { useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import {
@@ -40,10 +41,11 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
         active_turn_started_at_ms: snapshotStartedAt, last_turn_duration_ms: snapshotDuration,
         history: snapshotHistory, historyPages: snapshotHistoryPages } : null;
     const state = runtimeStateFromSnapshot(current.current.key === key ? current.current.state : null, next);
+    if (state?.auth === "signedOut") clearResetCreditsForTab(tabId);
     if (current.current.key === key && current.current.state === state && current.current.questions === snapshotQuestions) return;
     current.current = { key, state, questions: snapshotQuestions };
     setRecord(current.current);
-  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration, snapshotHistory, snapshotHistoryPages, snapshotQuestions, snapshotAuth, snapshotLogin, snapshotLoginMethods, snapshotLoginProviderName, snapshotLoginTerminal]);
+  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration, snapshotHistory, snapshotHistoryPages, snapshotQuestions, snapshotAuth, snapshotLogin, snapshotLoginMethods, snapshotLoginProviderName, snapshotLoginTerminal, tabId]);
 
   useEffect(() => {
     generation.current++;
@@ -55,6 +57,7 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
       if (disposed) return;
       const next = runtimeViewFromEvent(current.current, { tabId, nonce }, payload);
       if (next === current.current) return;
+      if (next.state?.auth === "signedOut") clearResetCreditsForTab(tabId);
       revision.current++;
       current.current = { ...next, key };
       setRecord(current.current);

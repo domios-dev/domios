@@ -79,6 +79,13 @@ impl AgentRuntimeCapability {
     }
 
     pub fn validate_declaration(&self) -> Result<(), RuntimeManifestError> {
+        if self
+            .reset_credits_min_version
+            .as_ref()
+            .is_some_and(|minimum| semver::Version::parse(minimum).is_err() || !self.usage)
+        {
+            return Err(RuntimeManifestError::InvalidMethods);
+        }
         let command = &self.command;
         let executable = command
             .binary

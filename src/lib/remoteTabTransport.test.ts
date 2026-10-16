@@ -158,4 +158,10 @@ describe("remote tab transport adapter", () => {
   });
 });
 
+
+it("routes reset confirmation and UUID unchanged to the owning machine", () => {
+  const request = {action:"redeem",confirmed:true,idempotencyKey:"fixture-key"};
+  expect(remoteTransportCall("agent_runtime_reset_credits",{tabId:"mesh:peer/owned",request})).toMatchObject({peerId:"peer",remoteTabId:"owned",method:"POST",suffix:"/agent/runtime/reset-credits",body:request});
+});
+
 finish();

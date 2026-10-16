@@ -25,6 +25,7 @@ export function ConfirmDialog({
   return (
     <div
       role="dialog"
+      aria-label={title}
       aria-modal="true"
       data-testid={testId}
       onMouseDown={(e) => e.preventDefault()}

@@ -23,6 +23,7 @@ import { staleBannerCopy } from "./staleBanner";
 
 interface UsageDetailProps {
   snapshot: UsageSnapshot;
+  resetSection?: import("react").ReactNode;
   flipUp: boolean;
   onRefresh: () => Promise<void>;
   onOpenHistory: () => void;
@@ -46,7 +47,7 @@ function StaleBanner({ snapshot, now }: { snapshot: UsageSnapshot; now: number }
   );
 }
 
-export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: UsageDetailProps) {
+export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory, resetSection }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   // Open-count gating is centralized in config (bounded writes: stops at MAX)
@@ -153,6 +154,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
 
       <MiniWeekBars buckets={buckets} />
 
+      {resetSection}
       <div className="ct-usage-foot">
         <span className="live">
           <span className="pulse ct-live-pulse" />
@@ -168,7 +170,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
 }
 
 // the cycle spend and reset instead of the gauge/projection machinery.
-export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailProps) {
+export function UsageSpendDetail({ snapshot, flipUp, onRefresh, resetSection }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   const now = Date.now();
@@ -231,6 +233,7 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailPro
         </span>
       </div>
 
+      {resetSection}
       <div className="ct-usage-foot">
         <span className="live">
           <span className="pulse ct-live-pulse" />
