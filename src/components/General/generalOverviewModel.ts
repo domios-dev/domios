@@ -27,8 +27,10 @@ export function projectUtilityShells(workspaces: readonly Workspace[], tabs: Rec
 }
 
 export function generalInventorySections(snapshot: InventorySnapshot, machineName: string) {
+  const schedules = buildInventoryModel(snapshot, { ...DEFAULT_INVENTORY_FILTERS, kind: "cron" }, undefined, machineName);
   return {
     services: buildInventoryModel(snapshot, { ...DEFAULT_INVENTORY_FILTERS, kind: "daemon" }, undefined, machineName),
-    schedules: buildInventoryModel(snapshot, { ...DEFAULT_INVENTORY_FILTERS, kind: "cron" }, undefined, machineName),
+    schedules,
+    remoteSchedules: schedules.rows.filter((row) => row.resource.source_peer_id || row.resource.source_peer),
   };
 }

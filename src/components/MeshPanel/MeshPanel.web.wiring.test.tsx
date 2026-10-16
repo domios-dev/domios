@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest";
 import type { AppConfig } from "../../lib/types";
 import { MeshPanel } from "./MeshPanel";
 import { webUiSnapshot } from "./webUiFixture.testdata";
-import { GeneralOverviewRail } from "../General/GeneralWorkspaceOverview";
+import { GeneralInventorySections } from "../Sidebar/GeneralInventory";
 import { daemon, schedule, shell, tabs, teams, workspaces } from "../General/generalOverview.testdata";
 import type { MeshDataResult } from "./useMeshData";
 import { ServiceDrawer } from "./ServiceDrawer";
@@ -71,11 +71,15 @@ it("renders the same daemon and schedule source in General after removing Mesh r
         <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />
         <ServiceDrawer state={{ kind: "peer", id: "Remote machine" }} services={inventory.services} peers={inventory.peers} thisMachineName="Local" onClose={() => {}} onActionDone={() => {}} />
       </section>
-      <GeneralOverviewRail workspaces={workspaces} teams={teams} tabs={tabs} inventory={inventory} onNavigate={(workspaceId, tabId) => navigated.push([workspaceId, tabId])} />
+      <GeneralInventorySections workspaces={workspaces} teams={teams} tabs={tabs} inventory={inventory} jobs={[]} onNavigate={(workspaceId, tabId) => navigated.push([workspaceId, tabId])} />
     </>));
     const mesh = host.querySelector('section[aria-label="Mesh resource source"]')!;
     expect(mesh.textContent).not.toContain(daemon.name);
     expect(mesh.textContent).not.toContain(schedule.name);
+    for (const name of ["Jobs", "Services", "Utility shells"]) {
+      const toggle = host.querySelector<HTMLButtonElement>(`section[aria-label="${name}"] button[aria-expanded]`)!;
+      if (toggle.getAttribute("aria-expanded") !== "true") await act(async () => toggle.click());
+    }
     for (const resource of [daemon, schedule]) {
       expect(host.querySelector(`button[aria-label="Open ${resource.name}, machine ${resource.machine_name}"]`)).not.toBeNull();
     }
