@@ -47,6 +47,7 @@ impl super::super::ServiceContext {
             bool,
         ) -> Result<UserWrite, DeliveryError>,
     ) -> Result<UserDrain, String> {
+        self.bind_user_send_owner();
         let store = &self.pending_delivery_payloads.user_sends;
         macro_rules! hold {
             ($head:expr, $reason:expr, $event:ident) => {
@@ -64,6 +65,9 @@ impl super::super::ServiceContext {
             let Some(mut head) = store.head(tab_id)? else {
                 return Ok(UserDrain::Idle);
             };
+            if store.claim_is_active(&head) {
+                return Ok(UserDrain::Idle);
+            }
             self.chat_send_ledger.restore_user_record(&head);
             if let Some(carried) = self.carry_held_user_send(&head)? {
                 head = carried;
@@ -211,7 +215,6 @@ impl super::super::ServiceContext {
                 None
             };
             if !store.claim(&head, session)? {
-                self.settle_ended_user_head(&head)?;
                 continue;
             }
             if !self
@@ -273,9 +276,7 @@ impl super::super::ServiceContext {
                     self.local_recordings.retire_write_ticket(&head.send_id);
                     continue;
                 }
-                if !self.hold_live_user_head(&head, &reason, UserClearingEvent::Readiness)? {
-                    continue;
-                }
+                self.pending_user_send(&head, &reason);
                 return Ok(UserDrain::ZeroWriteRefusal {
                     dispatch_generation,
                 });
