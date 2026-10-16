@@ -8,13 +8,24 @@ const dom=new Window({url:"http://localhost/"});
 Object.defineProperty(globalThis,"IS_REACT_ACT_ENVIRONMENT",{value:true,configurable:true});
 for(const key of ["window","document","navigator","HTMLElement","Element","Node","Event","MouseEvent"] as const) Object.defineProperty(globalThis,key,{value:dom[key],configurable:true});
 const bridge=await import("../../lib/bridge");
-let snapshot:UsageSnapshot;
+let snapshot!:UsageSnapshot;
 const resetRequests:Record<string,unknown>[]=[];
+let groupUsage: unknown[] = [];
+let pendingReads: ((snapshot:UsageSnapshot)=>void)[] | null = null;
 bridge.__setInvokeForTest(async <T,>(command:string,args?:Record<string,unknown>):Promise<T> => {
  if(command === "agent_runtime_reset_credits") {resetRequests.push(args?.request as Record<string,unknown>); return {outcome:"reset"} as T;}
- return (command === "usage_latest" ? snapshot : command === "provider_model_usage" ? [] : command === "get_config" ? {ui:{usage_intro_hint_opens:5}} : null) as T;
+ if(command === "usage_latest" && pendingReads) return new Promise<UsageSnapshot>(resolve => pendingReads!.push(resolve)) as Promise<T>;
+ return (command === "usage_latest" ? snapshot : command === "provider_model_usage" ? groupUsage : command === "get_config" ? {ui:{usage_intro_hint_opens:5}} : null) as T;
 });
-bridge.__setListenForTest(async ()=>()=>{});
+const listeners = new Map<string, Set<(event:{payload:unknown})=>void>>();
+bridge.__setListenForTest(async <T,>(event:string, handler:(event:{payload:T})=>void) => {
+ const handlers = listeners.get(event) ?? new Set();
+ listeners.set(event,handlers);
+ const listener = handler as (event:{payload:unknown})=>void;
+ handlers.add(listener);
+ return () => { handlers.delete(listener); };
+});
+const emit = (provider="fixture") => { for (const listener of listeners.get("usage-snapshot-updated") ?? []) listener({payload:{provider,account_id:null}}); };
 const {UsageBubble}=await import("./UsageBubble");
 const container=document.createElement("div");document.body.append(container);const root=createRoot(container);
 const reading:RuntimeUsageProjection={tab_id:"own",thread_id:"thread",billing_mode:"subscription",token_usage:null,rate_limits:{captured_at:Date.now(),value:[{window:"primary",usedPercent:2},{window:"secondary",usedPercent:0}]}};
@@ -24,6 +35,27 @@ async function render(mode:RuntimeUsageProjection){
 }
 await render(reading);
 assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 2% weekly 0%");
+snapshot = {...snapshot, parsed_ok:true, captured_at:Date.now()+1, session_pct:3, weekly_pct:11};
+await act(async()=>emit());
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 3% weekly 11%");
+pendingReads = [];
+await act(async()=>emit());
+await act(async()=>emit());
+assert.equal(pendingReads.length,2);
+const newer = {...snapshot,captured_at:snapshot.captured_at+1,weekly_pct:12};
+await act(async()=>pendingReads![1](newer));
+await act(async()=>pendingReads![0](snapshot));
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 3% weekly 12%");
+snapshot = newer;
+pendingReads = null;
+const now = Date.now;
+Date.now = () => snapshot.captured_at + 54 * 60_000;
+await act(async()=>window.dispatchEvent(new Event("focus")));
+assert.ok(container.textContent?.includes("54m ago"));
+Date.now = () => snapshot.captured_at + 55 * 60_000;
+await act(async()=>document.dispatchEvent(new Event("visibilitychange")));
+assert.ok(container.textContent?.includes("55m ago"));
+Date.now = now;
 await render({...reading,resets:{availableCount:1,nextExpiry:null,credits:null}});
 await act(async()=>container.querySelector("button")!.click());
 assert.deepEqual(resetRequests,[{action:"read"}]);
@@ -45,6 +77,15 @@ const button=container.querySelector("button")!;
 assert.equal(button.getAttribute("aria-label"),"usage 120 tokens · $0.02");
 await act(async()=>button.dispatchEvent(new MouseEvent("click",{bubbles:true})));
 assert.match(container.querySelector('[role="status"]')?.textContent ?? "",/cached input: 30/);
+const {useProviderModelUsageState} = await import("../../hooks/useProviderModelUsage");
+function GroupProbe() { const {usage} = useProviderModelUsageState("fixture"); return <output>{JSON.stringify(usage)}</output>; }
+await act(async()=>root.render(<GroupProbe/>));
+assert.equal(container.querySelector("output")?.textContent,"[]");
+groupUsage = [{group_id:"fixture-group",spend_cents:120}];
+await act(async()=>emit("foreign"));
+assert.equal(container.querySelector("output")?.textContent,"[]");
+await act(async()=>emit());
+assert.deepEqual(JSON.parse(container.querySelector("output")!.textContent!),groupUsage);
 await act(async()=>root.unmount());bridge.__setInvokeForTest(null);bridge.__setListenForTest(null);dom.happyDOM.abort();
 console.log("PASS usage chip wiring: subscription metrics and API session breakdown");
 
