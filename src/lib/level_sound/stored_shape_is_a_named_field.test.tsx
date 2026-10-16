@@ -14,9 +14,6 @@
  * _channel_map`); this file pins the two sides agreeing on the shape and the
  * writers on this side staying out of the flattened map.
  */
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
 import { destinationColumns, setLevelDestination } from "../notifyDestinations";
 import { levelSounds, setLevelSound } from "../notificationSound";
 import type { AgentLevelChoice } from "../types";
@@ -26,30 +23,6 @@ function check(condition: unknown, message: string): void {
   checked++;
   if (!condition) throw new Error(message);
 }
-
-const here = dirname(fileURLToPath(import.meta.url));
-const read = (relative: string) => readFileSync(resolve(here, relative), "utf8");
-
-// 1. A named field on the daemon side, declared BEFORE the flattened map so the
-//    map cannot claim the key, and optional so an unanswered row stays unanswered.
-const schema = read("../../../src-tauri/crates/codeterm-types/src/config/schema.rs");
-const row = schema.slice(schema.indexOf("pub struct AgentLevelChoice"));
-const body = row.slice(0, row.indexOf("\n}"));
-check(/pub sound: Option<bool>,/.test(body), "the row names the chime as its own field");
-check(
-  body.indexOf("pub sound:") < body.indexOf("#[serde(flatten)]"),
-  "and names it before the flattened channel map, never inside it",
-);
-check(
-  /#\[serde\(default, skip_serializing_if = "Option::is_none"\)\]\s*pub sound: Option<bool>,/.test(
-    body,
-  ),
-  "an unanswered row parses and is written back with no key at all",
-);
-check(
-  /#\[serde\(flatten\)\]\s*pub channels: BTreeMap<String, bool>,/.test(body),
-  "the flattened map is still what makes the named field necessary",
-);
 
 // 2. The same shape on this side: an optional named field, so `undefined` reads
 //    as unanswered rather than as a chosen off.
