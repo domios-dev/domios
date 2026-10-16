@@ -111,16 +111,17 @@ fn build_or_refuse_orchestrated_launch_command(
     params: &SpawnAgentParams,
     bg_task: Option<&str>,
     launch_session_id: Option<&str>,
-) -> Result<String, String> {
-    let launch_cmd = crate::service::launch_session_detection::marked_agent_command_for_service(
-        service,
-        tab_id,
-        agent_cmd,
-        params,
-        bg_task,
-        launch_session_id,
-        &service.agent_registry,
-    );
+) -> Result<super::PreparedAgentCommand, String> {
+    let launch_cmd =
+        crate::service::launch_session_detection::marked_prepared_agent_command_for_service(
+            service,
+            tab_id,
+            agent_cmd,
+            params,
+            bg_task,
+            launch_session_id,
+            &service.agent_registry,
+        );
     if launch_cmd.trim().is_empty() {
         return Err(service.rollback_empty_agent_launch_if_created(
             tab_id,

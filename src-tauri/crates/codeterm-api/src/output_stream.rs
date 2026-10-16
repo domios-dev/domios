@@ -122,11 +122,11 @@ fn drain_buffered_tab_output(
 ) -> Vec<TabOutputFrame> {
     let mut frames = Vec::new();
     loop {
-        let (chunk, total) = buffer.read_since(pty_id, *offset);
-        if chunk.is_empty() {
+        let chunk = buffer.read_since_limited(pty_id, *offset, PER_TAB_SWEEP_CAP);
+        if chunk.bytes.is_empty() {
             break;
         }
-        let read = plan_emit(*offset, &chunk, total, usize::MAX);
+        let read = plan_emit_limited(*offset, &chunk);
         if read.output.is_empty() {
             break;
         }
@@ -261,7 +261,37 @@ struct TabRead {
 /// Pure emit planner over a raw `read_since` result. Split out from the buffer
 /// read so the fairness cap, truncation marker, and UTF-8-boundary discipline
 /// are unit-testable without constructing an `OutputBuffer`.
+fn plan_emit_limited(offset: u64, chunk: &codeterm_pty::pty::manager::OutputRead) -> TabRead {
+    let end = chunk.start + chunk.bytes.len() as u64;
+    let mut read = plan_emit_with_boundary(
+        offset,
+        &chunk.bytes,
+        end,
+        PER_TAB_SWEEP_CAP,
+        chunk.following_continuation,
+    );
+    read.has_more |= end < chunk.total;
+    log::debug!(
+        "[OUTPUT-COPY] copied_bytes={} offset={} total={}",
+        chunk.bytes.len(),
+        chunk.start,
+        chunk.total
+    );
+    read
+}
+
+#[cfg(test)]
 fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> TabRead {
+    plan_emit_with_boundary(offset, chunk, total, cap, false)
+}
+
+fn plan_emit_with_boundary(
+    offset: u64,
+    chunk: &[u8],
+    total: u64,
+    cap: usize,
+    following_continuation: bool,
+) -> TabRead {
     if chunk.is_empty() {
         return TabRead {
             truncated_from: None,
@@ -278,7 +308,7 @@ fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> TabRead {
     } else {
         None
     };
-    let mut take = utf8_complete_prefix(chunk, cap);
+    let mut take = utf8_complete_prefix(chunk, cap, following_continuation);
     if take == 0 {
         if chunk.len() < 4 && cap >= chunk.len() {
             // Only an incomplete character so far: wait for its remaining bytes.
@@ -315,9 +345,15 @@ fn utf8_sequence_len(lead: u8) -> usize {
 
 /// Length of `chunk[..limit]` that ends on a UTF-8 character boundary, so a
 /// character split by the cap or by a partial PTY read is never decoded in halves.
-fn utf8_complete_prefix(chunk: &[u8], limit: usize) -> usize {
+fn utf8_complete_prefix(chunk: &[u8], limit: usize, following_continuation: bool) -> usize {
     let mut take = limit.min(chunk.len());
-    while take > 0 && take < chunk.len() && utf8_continuation(chunk[take]) {
+    while take > 0
+        && if take < chunk.len() {
+            utf8_continuation(chunk[take])
+        } else {
+            following_continuation
+        }
+    {
         take -= 1;
     }
     if let Some(lead) = (take.saturating_sub(4)..take)
@@ -369,11 +405,7 @@ fn seed_initial(
         .iter()
         .map(|(tab, pty)| {
             let total_written = buf.total_written(pty);
-            let retained_from = total_written.saturating_sub(
-                buf.get_full(pty)
-                    .map(|bytes| bytes.len() as u64)
-                    .unwrap_or(0),
-            );
+            let retained_from = total_written.saturating_sub(buf.full_len(pty) as u64);
             InitialTab {
                 tab_id: tab.clone(),
                 pty_id: pty.clone(),
@@ -541,11 +573,7 @@ fn sweep(
         for tab in &new_tabs {
             let pty = &live[tab];
             let total_written = buf.total_written(pty);
-            let retained_from = total_written.saturating_sub(
-                buf.get_full(pty)
-                    .map(|bytes| bytes.len() as u64)
-                    .unwrap_or(0),
-            );
+            let retained_from = total_written.saturating_sub(buf.full_len(pty) as u64);
             let replay_truncated_from = (retained_from > 0).then_some(retained_from);
             starts.push(StreamTabStart {
                 tab_id: tab.clone(),
@@ -569,8 +597,8 @@ fn sweep(
                 silent.push(tab.clone());
                 continue;
             }
-            let (chunk, total) = buf.read_since(pty, t.offset);
-            let read = plan_emit(t.offset, &chunk, total, PER_TAB_SWEEP_CAP);
+            let chunk = buf.read_since_limited(pty, t.offset, PER_TAB_SWEEP_CAP);
+            let read = plan_emit_limited(t.offset, &chunk);
             if read.has_more {
                 more_pty_ids.push(pty.clone());
             }

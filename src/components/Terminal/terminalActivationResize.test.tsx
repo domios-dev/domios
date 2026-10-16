@@ -72,6 +72,8 @@ let currentPtySize = { cols: 80, rows: 24 };
 let claims: Array<{ args: Record<string, unknown>; owner: ResizeOwner }> = [];
 let resizes: Array<Record<string, unknown>> = [];
 let holdClaims = false;
+let holdResizes = false;
+let settleResize: ((succeeded: boolean) => void) | null = null;
 let eventHandlers = new Map<string, (event: { payload: unknown }) => void>();
 let activateViewer: (() => void) | null = null;
 
@@ -190,6 +192,15 @@ function configureBridge() {
     }
     if (command === "resize_pty") {
       resizes.push(args);
+      if (holdResizes) {
+        return new Promise<T>((resolve, reject) => {
+          settleResize = (succeeded) => {
+            if (!succeeded) return reject(new Error("resize failed"));
+            currentPtySize = { cols: Number(args.cols), rows: Number(args.rows) };
+            resolve({ ok: true } as T);
+          };
+        });
+      }
       currentPtySize = { cols: Number(args.cols), rows: Number(args.rows) };
       return { ok: true } as T;
     }
@@ -208,6 +219,8 @@ beforeEach(() => {
   claims = [];
   resizes = [];
   holdClaims = false;
+  holdResizes = false;
+  settleResize = null;
   eventHandlers = new Map();
   activateViewer = null;
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
@@ -217,6 +230,59 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("terminal viewer activation resize", () => {
+  it("drains only the latest fitted geometry on actual completion", async () => {
+    holdResizes = true;
+    await mount(true);
+    assert.equal(resizes.length, 1);
+    for (const cols of [120, 100, 140]) {
+      targetSize = { cols, rows: 42 };
+      await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    }
+    assert.equal(resizes.length, 1);
+    assert.deepEqual(currentPtySize, { cols: 80, rows: 24 });
+    await act(async () => settleResize?.(true));
+    assert.equal(resizes.length, 2);
+    assert.equal(resizes[1]?.cols, 140);
+    await act(async () => settleResize?.(true));
+    assert.deepEqual(currentPtySize, { cols: terminal.cols, rows: terminal.rows });
+    assert.equal(resizes.length, 2);
+  });
+
+  it("drops the pending resize after failure", async () => {
+    holdResizes = true;
+    await mount(true);
+    targetSize = { cols: 120, rows: 40 };
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    await act(async () => settleResize?.(false));
+    assert.equal(resizes.length, 1);
+    holdResizes = false;
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    assert.equal(resizes.length, 2);
+    assert.deepEqual(currentPtySize, targetSize);
+  });
+
+  it("does not drain an in-flight viewer's pending resize after deactivation", async () => {
+    holdResizes = true;
+    await mount(true);
+    targetSize = { cols: 120, rows: 40 };
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    await renderActive(false);
+    await act(async () => settleResize?.(true));
+    assert.equal(resizes.length, 1);
+  });
+
+  it("drops queued geometry when another viewer takes ownership during a resize", async () => {
+    holdResizes = true;
+    await mount(true);
+    targetSize = { cols: 120, rows: 40 };
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    const ownerChanged = eventHandlers.get("pty-resize-owner-changed");
+    assert.ok(ownerChanged);
+    await act(async () => ownerChanged({ payload: { ...baseOwner, client_id: "web:phone" } }));
+    await act(async () => settleResize?.(true));
+    assert.equal(resizes.length, 1);
+  });
+
   it("force-claims once and sends one fitted resize after another client left a narrow PTY", async () => {
     await mount(true);
     assert.equal(claims.length, 1);

@@ -51,6 +51,8 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
   CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+  # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
+  CODETERM_BUILD_GATEWAY_MODE: queue
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
   DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
@@ -297,14 +299,10 @@ jobs:
           & .\build.ps1 cache-verify
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build release bundle inputs
-        id: compile
-        shell: pwsh
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -File build.ps1 release-inputs
-
       # A dropped upload leaves a starter asset that holds the name and makes every
       # later upload of it fail opaquely, including tauri-action's own.
       - name: Build and sign release assets
+        id: compile
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -312,9 +310,8 @@ jobs:
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Windows release runners have no bash on PATH.
         run: |
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -Command 'pnpm tauri build --target $env:TARGET --features $env:CODETERM_RELEASE_FEATURES; exit $LASTEXITCODE'
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -File build.ps1 release-bundle
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Smoke built release bundle

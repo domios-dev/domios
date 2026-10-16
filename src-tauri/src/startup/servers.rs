@@ -46,7 +46,8 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
         log::debug!(
             "[startup-pty] wave started tabs={} pty_concurrency={} chat_concurrency={}",
             queued.len(),
-            super::restored_backends::RESTORE_BUDGETS.pty,
+            super::restored_backends::RESTORE_BUDGETS.foreground
+                + super::restored_backends::RESTORE_BUDGETS.background,
             super::restored_backends::RESTORE_BUDGETS.chat,
         );
         let results = super::restored_backends::run_transport_waves(
@@ -60,12 +61,11 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                 }
             },
             || {
-                let focused = service_state
-                    .mux
-                    .read()
-                    .get_focused_tab_id()
-                    .map(str::to_owned);
-                focused.and_then(|id| queued.iter().position(|tab_id| *tab_id == id))
+                let mux = service_state.mux.read();
+                queued
+                    .iter()
+                    .map(|tab_id| service::restore_admission::priority(&mux, tab_id))
+                    .collect()
             },
             |tab_id| {
                 codeterm_service_core::startup::boot_timing::mark(tab_id, None, "cwd_check_enter");
@@ -91,18 +91,20 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                         .chatbackend_reopen_if_restored(tab_id)
                         .map(|_| ())
                 } else {
-                    service_state.ensure_tab_pty_for_send(tab_id)
+                    service::restore_admission::admit_restored_pty(&service_state, tab_id)
                 };
                 if let Err(reason) = &result {
                     publish_backend_materialization_failure(&service_state, tab_id, reason);
                     log::error!("[startup-pty] tab={tab_id} materialization failed: {reason}");
                 }
                 log::debug!(
-                    "[startup-pty] tab={tab_id} materialized elapsed_ms={} ok={}",
+                    "[startup-pty] tab={tab_id} admitted elapsed_ms={} ok={}",
                     started.elapsed().as_millis(),
                     result.is_ok()
                 );
-                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "materialized");
+                if service_state.tab_chat_backing(tab_id).is_some() {
+                    codeterm_service_core::startup::boot_timing::mark(tab_id, None, "materialized");
+                }
                 result
             },
         );

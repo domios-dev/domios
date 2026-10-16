@@ -226,7 +226,7 @@ test("a frontend-only release builds and publishes only the frontend after the f
 
 test("heavy Rust and build jobs end by removing their own targets and archives", () => {
   const heavy = [
-    ...["rust-tests", "rust-platform", "clippy-linux", "ts-types"].map(id => tests.jobs[id]),
+    ...["rust-tests", "rust-platform", "rust-embeddings", "clippy-linux", "ts-types"].map(id => tests.jobs[id]),
     ...["release-macos-build", "release-linux", "release-linux-arm64", "release-windows"].map(name => workflow(name).jobs.build),
   ];
   for (const job of heavy) {
@@ -262,4 +262,10 @@ test("platform tests expand to one job per OS", () => {
   assert.deepEqual(Object.keys(axes), [], "added include keys on a base combination overwrite each other");
   assert.deepEqual(include.map(row => [row.suite, row.os]), [["platform", "Linux"], ["platform", "macOS"], ["platform", "Windows"]]);
   for (const row of include) assert.ok(row.label, row.os);
+});
+
+test("CI jobs queue for a shared builder's gateway slot instead of failing busy", () => {
+  for (const name of ["tests", "release-windows", "release-macos-build", "release-linux"]) {
+    assert.equal(workflow(name).env.CODETERM_BUILD_GATEWAY_MODE, "queue", name);
+  }
 });
