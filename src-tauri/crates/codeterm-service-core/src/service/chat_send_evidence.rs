@@ -177,6 +177,7 @@ pub(crate) struct CapturedSendEvidence {
 pub(crate) fn scan_transcript_evidence(
     registry: &AgentRegistry,
     ledger: &ChatSendLedger,
+    source: &JsonlSource,
     tab_id: &str,
     mut on_confirmed: impl FnMut(ChatSendStatus),
 ) {
@@ -185,7 +186,7 @@ pub(crate) fn scan_transcript_evidence(
         .iter()
         .map(|candidate| {
             structured_evidence_records(registry, &candidate.anchor)
-                .unwrap_or_else(|| window_evidence_turns(registry, &candidate.anchor))
+                .unwrap_or_else(|| window_evidence_turns(registry, &candidate.anchor, Some(source)))
         })
         .collect::<Vec<_>>();
     for (candidate_index, candidate) in candidates.iter().enumerate() {
@@ -250,7 +251,7 @@ pub(crate) fn scan_transcript_evidence(
                     .collect(),
             );
         if assignable {
-            let turns = window_evidence_turns(registry, anchor);
+            let turns = window_evidence_turns(registry, anchor, Some(source));
             let source_row = turns
                 .iter()
                 .filter(|turn| contains_written_payload(&turn.content, &candidate.payload))
@@ -430,6 +431,7 @@ impl ServiceContext {
         scan_transcript_evidence(
             &self.agent_registry,
             &self.chat_send_ledger,
+            &self.chat_registry.jsonl_source(tab_id),
             tab_id,
             |status| {
                 let session_id = self
