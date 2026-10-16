@@ -2218,7 +2218,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  dev-link-measure|feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2237,7 +2237,8 @@ CodeTerm build commands
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
-  lane-check <package> [--tests]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
+  lane-check <package> [--tests] [--timings]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
+  dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
   check-queue <sha> --peer <name|auto> [--lane] [--os OS]  Same check in a mesh peer's gateway; result returns as one message
@@ -2452,7 +2453,42 @@ EOF
     esac
     ;;
   lane-check)
+    if [ "$CODETERM_BUILD_GATEWAY_MODE" = queue ]; then
+      enter_cargo_gateway "$CMD ${*:2}"
+    fi
     lane_check "${@:2}"
+    ;;
+  dev-link-measure)
+    if [ "${CODETERM_LINK_TIMING:-0}" = 1 ]; then
+      case "$OSTYPE" in
+        msys*|cygwin*|win32)
+          export LINK="${LINK:+$LINK }/TIME"
+          export MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+$MSYS2_ENV_CONV_EXCL;}LINK"
+          export RUSTC_LOG="${RUSTC_LOG:+$RUSTC_LOG,}rustc_codegen_ssa::back::link=info"
+          ;;
+      esac
+    fi
+    case "${2:-app}" in
+      cli-release|cli-dev)
+        measure_cli_args=(--manifest-path cli/Cargo.toml --timings)
+        [ "$2" != cli-release ] || measure_cli_args+=(--release)
+        cargo build "${measure_cli_args[@]}"
+        exit $?
+        ;;
+      app) ;;
+      *) echo 'Usage: ./build.sh dev-link-measure [app|cli-release|cli-dev]' >&2; exit 2 ;;
+    esac
+    export CODETERM_DEV=1
+    export CODETERM_WEB_DIST="$(pwd -P)/dist"
+    configure_dev_cargo
+    prepare_dev_frontend_dist
+    prepare_bundle_stubs
+    measure_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
+      --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --timings)
+    if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
+      measure_args+=(--features "$CT_DEV_CARGO_FEATURES")
+    fi
+    TAURI_CONFIG="$(cat "$(dev_conf_path)")" cargo build "${measure_args[@]}"
     ;;
   embedding-parity)
     CARGO_BUILD_JOBS=4 cargo build --release --manifest-path src-tauri/Cargo.toml \
