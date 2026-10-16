@@ -3,7 +3,9 @@ import { act } from "react";
 import { test } from "vitest";
 import { GeneralInventorySections } from "./GeneralInventory";
 import { useGeneralJobs } from "./useGeneralJobs";
-import { OPEN_JOB_EVENT, type OpenJobDetail } from "../Jobs/openJobEvent";
+import { cronSelectionStore } from "../Cron/cronSelectionStore";
+import { SidebarCronRow } from "./SidebarResourceRow";
+import { __setInvokeForTest } from "../../lib/bridge";
 import { graphA, installBridge, machine, mount, named, settle, teamCron, workspaces as jobsWorkspaces } from "../Jobs/jobsEntry.testdata";
 import { daemon, schedule, shell, tabs, teams, workspaces } from "../General/generalOverview.testdata";
 import { mergeJobs, NO_JOBS_FILTER } from "../Jobs/jobsModel";
@@ -11,12 +13,12 @@ import { mergeJobs, NO_JOBS_FILTER } from "../Jobs/jobsModel";
 test("General sidebar disclosures persist, navigate to original shells and open job details and service refusals", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
-  const opened: OpenJobDetail[] = [];
-  const onOpen = (event: Event) => opened.push((event as CustomEvent<OpenJobDetail>).detail);
-  window.addEventListener(OPEN_JOB_EVENT, onOpen);
+  cronSelectionStore.close();
+  let opened = 0;
+  const unsubscribe = cronSelectionStore.subscribe(() => { opened += 1; });
   const navigated: string[][] = [];
   const props = {
-    workspaces, teams, tabs, touchMode: true,
+    workspaces, teams, tabs, touchMode: true, onCloseTab: () => {}, onRenameTab: () => {},
     onNavigate: (workspaceId: string, tabId: string) => navigated.push([workspaceId, tabId]),
     jobs: mergeJobs(NO_JOBS_FILTER, [teamCron], []),
     inventory: { services: [daemon, schedule], peers: [], thisMachine: { name: "Local", ip: "127.0.0.1" }, loading: false, error: null, refresh: () => {} },
@@ -32,8 +34,9 @@ test("General sidebar disclosures persist, navigate to original shells and open 
     }
     assert.equal(toggle("Jobs").getAttribute("aria-label"), "Jobs, 2");
     await act(async () => named(view.host, `Open job ${teamCron.name}`)!.click());
-    assert.deepEqual(opened, [{ workspaceId: teamCron.workspace_id, returnTo: undefined, target: { teamId: null, cronId: teamCron.id } }]);
-    await act(async () => named(view.host, `Open utility shell ${shell.title}`)!.click());
+    assert.equal(opened, 1);
+    assert.deepEqual(cronSelectionStore.get(), { workspaceId: teamCron.workspace_id, cronId: teamCron.id });
+    await act(async () => named(view.host, `Open tab qa shell, ${shell.title}`)!.click());
     assert.deepEqual(navigated, [[workspaces[0].id, shell.id]]);
     await act(async () => named(view.host, `Open ${daemon.name}, machine ${daemon.machine_name}`)!.click());
     const dialog = document.querySelector('[role="dialog"]');
@@ -51,7 +54,8 @@ test("General sidebar disclosures persist, navigate to original shells and open 
     }
   } finally {
     await view.close();
-    window.removeEventListener(OPEN_JOB_EVENT, onOpen);
+    unsubscribe();
+    cronSelectionStore.close();
   }
 });
 
@@ -71,5 +75,27 @@ test("General jobs read machine crons and workspace graphs through existing jobs
   } finally {
     await view.close();
     cleanup();
+  }
+});
+
+test("shared Cron actions delete once and refresh their source", async () => {
+  const deleted: unknown[] = [];
+  let refreshed = 0;
+  __setInvokeForTest(async (command, args) => {
+    assert.equal(command, "cron_delete");
+    deleted.push(args);
+    return undefined as never;
+  });
+  const view = await mount(<SidebarCronRow job={teamCron} tabs={{}} onDeleted={() => { refreshed += 1; }} />);
+  try {
+    await act(async () => named(view.host, `Cron actions for ${teamCron.name}`)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const remove = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((button) => button.textContent?.includes("Delete cron"));
+    assert.ok(remove);
+    await act(async () => remove.click());
+    assert.deepEqual(deleted, [{ id: teamCron.id }]);
+    assert.equal(refreshed, 1);
+  } finally {
+    await view.close();
+    __setInvokeForTest(null);
   }
 });
