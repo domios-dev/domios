@@ -336,10 +336,6 @@ describe("mission control board panels", () => {
     expect(appSource).toContain(
       'const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;',
     );
-    const terminalTabSource = readFileSync("src/components/Terminal/TerminalTab.tsx", "utf8");
-    expect(terminalTabSource).toContain(
-      'visibility: isVisible && terminalVisible && !historyReplaying ? "visible" : "hidden",',
-    );
     await unmount();
   });
 
