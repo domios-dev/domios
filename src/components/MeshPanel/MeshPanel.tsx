@@ -14,6 +14,7 @@ import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { deriveWebUiView } from "./meshWebUi";
+import { WebNodeCard } from "./WebNodeCard";
 import { WebAccessPanel, generateWebQr, type WebUiAction } from "./WebAccessPanel";
 import { UI_PANEL, UI_TEXT } from "../shared/design";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
@@ -215,6 +216,12 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         {activeTab === "inventory" && (
           <div ref={mapRef} className="absolute inset-0">
             <MeshCanvas
+              webCard={(qrSize) => <WebNodeCard onDetails={() => setWebUiOpen(true)} qrSize={qrSize} config={config} network={network} serve={serve} loading={serveLoading}
+                actions={WEB_ACTIONS} onAction={runWebUiAction}
+                onSetup={async () => {
+                  await startWebAccessSetupHelper(serve, buildWebUiTarget(config, network, serve).port, config.api);
+                  onClose();
+                }} />}
               onWebClick={() => setWebUiOpen(true)}
               webSelected={webUiOpen}
               webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
