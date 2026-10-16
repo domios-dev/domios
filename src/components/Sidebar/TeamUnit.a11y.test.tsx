@@ -107,6 +107,11 @@ async function main() {
     assert(ring, "the status ring is a named native button");
     await act(async () => ring.click());
     assert(opened.length === 1 && opened[0] === FIXTURE_PLAN.id, "ring activation opens its own plan once");
+    const name = host.querySelector('[data-testid="team-name"]') as HTMLElement;
+    const tally = host.querySelector('[data-testid="team-status-tally"]') as HTMLElement;
+    await act(async () => name.click());
+    await act(async () => tally.click());
+    assert(opened.join("|") === Array(3).fill(FIXTURE_PLAN.id).join("|"), "title and counter activation each open the same plan once");
     await act(async () => root.unmount());
     host.remove();
   }
