@@ -734,6 +734,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_tab_focus_changed(&self, tab_id: &str) {
+        restore_admission::notify_changed();
         self.events
             .publish(codeterm_events::SystemEvent::TabFocused {
                 tab_id: tab_id.to_string(),
