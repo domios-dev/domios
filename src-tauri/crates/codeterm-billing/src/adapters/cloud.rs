@@ -97,9 +97,10 @@ impl Cloud {
 }
 #[async_trait]
 impl BillingProvider for Cloud {
-    async fn entitlements(&self, session: &Session) -> Result<Entitlements> {
-        self.call(session, "getEntitlements", serde_json::json!({}))
+    async fn entitlements(&self, session: &Session) -> Result<Reading> {
+        self.call::<ApplicationEnvelope>(session, "getEntitlements", serde_json::json!({}))
             .await
+            .map(Reading::from)
     }
     async fn checkout_url(&self, session: &Session, plan: &str) -> Result<url::Url> {
         self.browser_url(
@@ -132,7 +133,7 @@ mod tests {
         };
         assert_eq!(
             local.entitlements(&session).await.unwrap(),
-            Entitlements::default()
+            Reading::current(Entitlements::default())
         );
         assert!(local
             .portal_url(&session)
