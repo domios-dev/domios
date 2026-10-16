@@ -32,7 +32,7 @@ function descriptor(model_switch: ProviderDescriptor["model_switch"]): ProviderD
   } as ProviderDescriptor;
 }
 
-async function mount(provider: ProviderDescriptor | undefined) {
+async function mount(provider: ProviderDescriptor | undefined, currentFastMode?: boolean) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -46,6 +46,7 @@ async function mount(provider: ProviderDescriptor | undefined) {
       label="Vendor · deep · high"
       modelCandidates={["deep"]}
       currentEffort="high"
+      currentFastMode={currentFastMode}
       pendingSelection={pendingSelection}
     />
     </MultiplexerActionsContext.Provider>,
@@ -499,4 +500,31 @@ test("the protected General Agent exposes the shared model picker and switch han
     setAgentDescriptors([]);
     __setTabModelApiForTest(null);
   }
+});
+
+
+test("Fast mode reads the current tier and Apply carries both toggle directions with model and effort", async () => {
+  for (const current of [true, false]) {
+    const calls = recordSwitches();
+    const provider = { ...descriptor("next_turn"), agent_runtime: { fastMode: true } };
+    const view = await mount(provider, current);
+    try {
+      await act(async () => view.trigger()!.click());
+      const toggle = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Fast mode"]')!;
+      assert.ok(toggle);
+      assert.equal(toggle.getAttribute("aria-checked"), String(current));
+      await act(async () => toggle.click());
+      assert.equal(calls.length, 0);
+      await act(async () => button("Apply").click());
+      assert.deepEqual(calls, [["tab", "deep", "high", undefined, !current]]);
+    } finally { await view.unmount(); __setTabModelApiForTest(null); }
+  }
+});
+
+test("providers without the Fast mode capability have no control", async () => {
+  const view = await mount(descriptor("next_turn"), true);
+  try {
+    await act(async () => view.trigger()!.click());
+    assert.equal(document.body.querySelector('[role="switch"][aria-label="Fast mode"]'), null);
+  } finally { await view.unmount(); }
 });

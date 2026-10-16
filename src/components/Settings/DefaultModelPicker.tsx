@@ -4,15 +4,16 @@ import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { ModelPickerPopover } from "../Terminal/StatusLineModelPicker";
 import { currentModelId } from "../Terminal/statusLinePickerModel";
 
-export function DefaultModelPicker({ providerId, value, onChange }: {
+export function DefaultModelPicker({ providerId, value, fastMode, onChange }: {
   providerId: string;
   value: string;
-  onChange: (model: string) => void;
+  fastMode?: boolean;
+  onChange: (model: string, fastMode?: boolean) => void;
 }) {
   const descriptor = useAgentDescriptor(providerId);
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  const current = currentModelId(descriptor, [value]);
+  const current = currentModelId(descriptor, [value, descriptor?.default_model]);
   const label = descriptor?.available_models.find((model) => model.id === current)?.display_name ?? value;
   const close = () => {
     setOpen(false);
@@ -26,7 +27,7 @@ export function DefaultModelPicker({ providerId, value, onChange }: {
     </button>
     {open && descriptor && <ModelPickerPopover descriptor={descriptor}
       gate={{ interactive: true, timing: "live", confirmRestart: false, note: "Used for new sessions" }}
-      triggerRef={trigger} currentModel={current} currentEffort={undefined} showReasoning={false} busy={false} failure={null}
-      onCommit={(selection) => { onChange(selection.model); close(); }} onClose={close} />}
+      triggerRef={trigger} currentModel={current} currentEffort={undefined} currentFastMode={fastMode} showReasoning={false} busy={false} failure={null}
+      onCommit={(selection) => { onChange(selection.model, selection.fastMode); close(); }} onClose={close} />}
   </div>;
 }

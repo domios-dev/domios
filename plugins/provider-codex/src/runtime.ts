@@ -18,7 +18,7 @@ import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings } from "./runtimeSettings";
+import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexReportedSettings } from "./runtimeSettings";
 export { runtimeReduce } from "./runtimeReduce";
 
 function fail(code: RuntimeFailure["code"], message: string): never {
@@ -31,7 +31,7 @@ function request(method: string, params: unknown, state: unknown = {stage:method
 function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instructions?: string): Record<string,unknown> {
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
-  return {cwd:ctx.cwd,model:settings.model,threadSource:"user",config:codexThreadConfig(settings),
+  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:codexThreadConfig(settings),
     approvalPolicy:policies.approvalPolicy,approvalsReviewer:policies.approvalsReviewer,
     sandbox:({readOnly:"read-only",workspaceWrite:"workspace-write",dangerFullAccess:"danger-full-access"} as Record<string,string>)[String(sandbox)],
     ...(instructions !== undefined ? {developerInstructions:instructions} : {})};
@@ -45,7 +45,7 @@ function turnParams(ctx: RuntimeContext, op: Extract<Operation,{kind:"submitTurn
     else fail("invalid_schema","Attachment has no image source");
   }
   return {threadId:op.threadId,clientUserMessageId:op.sendId,input,cwd:ctx.cwd,
-    ...codexRuntimePolicy(op.settings),model:op.settings.model,effort:op.settings.effort};
+    ...codexRuntimePolicy(op.settings),...codexServiceTier(op.settings),model:op.settings.model,effort:op.settings.effort};
 }
 function validateBinding(ctx: RuntimeContext, op: Operation): void {
   if (op.kind === "backgroundProcesses") {
@@ -112,8 +112,9 @@ function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
       if (!["model","effort","mode","settings"].includes(op.action)) fail("unsupported",`Unsupported control: ${op.action}`);
       const settings = op.action === "settings" ? {...ctx.settings,...object(op.value)} : {...ctx.settings,[op.action]:op.value};
       for (const key of ["model","effort","mode"] as const) if (settings[key] !== undefined && typeof settings[key] !== "string") fail("invalid_schema",`Invalid ${key}`);
+      if (settings.fastMode !== undefined && typeof settings.fastMode !== "boolean") fail("invalid_schema","Invalid fastMode");
       const parsed = settings as RuntimeSettings;
-      return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
+      return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),...codexServiceTier(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
     }
   }
 }
@@ -210,7 +211,9 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       }
       if (op.action === "login") return loginResponse(state,value);
       if (state.stage === "auth") return {kind:"complete",result:{kind:"done"},events:[accountAuth(value)]};
-      return {kind:"complete",result:{kind:"done"},...(state.stage === "thread/settings/update" ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
+      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).fastMode !== undefined
+        && codexReportedSettings(value).fastMode === undefined;
+      return {kind:"complete",result:{kind:"done"},...(state.stage === "thread/settings/update" && !awaitingTier ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
     }
     case "answer": case "answerQuestion": return {kind:"complete",result:{kind:"done"}};
   }

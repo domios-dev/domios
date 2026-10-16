@@ -48,6 +48,8 @@ pub enum RuntimeFrame {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,

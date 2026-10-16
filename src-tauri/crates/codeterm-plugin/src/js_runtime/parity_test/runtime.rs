@@ -65,7 +65,7 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
         .iter()
         .map(|kind| ((*kind).into(), json!([kind])))
         .collect();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"backgroundProcesses":true,"usage":true,"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"fastMode":true,"backgroundProcesses":true,"usage":true,"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
@@ -116,6 +116,11 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
     let native = native::NativeRuntime(js.agent_runtime().unwrap());
     assert_eq!(js.agent_runtime(), native.agent_runtime());
     assert!(js.agent_runtime().unwrap().usage);
+    assert!(js.agent_runtime().unwrap().fast_mode);
+    assert_eq!(
+        serde_json::to_value(native.describe()).unwrap()["agent_runtime"]["fastMode"],
+        true
+    );
     assert!(js.agent_runtime().unwrap().background_processes);
     assert_eq!(
         js.agent_runtime()
@@ -129,6 +134,41 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
         native.describe().settings_schema
     );
     assert_eq!(js.describe().agent_runtime, native.describe().agent_runtime);
+    for value in [true, false] {
+        let operation = RuntimeOperation::OpenThread {
+            instructions: String::new(),
+            settings: RuntimeSettings {
+                fast_mode: Some(value),
+                ..Default::default()
+            },
+        };
+        let native_plan = native
+            .runtime_plan(&fixture.context, &operation)
+            .await
+            .unwrap();
+        let js_plan = js.runtime_plan(&fixture.context, &operation).await.unwrap();
+        assert_eq!(native_plan, js_plan);
+        let reply = RpcReply::Success {
+            value: json!({"threadId":"fixture-thread"}),
+        };
+        let native_reply = native
+            .runtime_response(&fixture.context, &operation, &native_plan.state, &reply)
+            .await
+            .unwrap();
+        let js_reply = js
+            .runtime_response(&fixture.context, &operation, &js_plan.state, &reply)
+            .await
+            .unwrap();
+        assert_eq!(native_reply, js_reply);
+        let RuntimeStep::Complete {
+            result: RuntimeResult::ThreadLoaded { settings, .. },
+            ..
+        } = js_reply
+        else {
+            panic!()
+        };
+        assert_eq!(settings.fast_mode, Some(value));
+    }
     for case in &fixture.operations {
         let ctx = case.context.as_ref().unwrap_or(&fixture.context);
         let a = native.runtime_plan(ctx, &case.operation).await.unwrap();

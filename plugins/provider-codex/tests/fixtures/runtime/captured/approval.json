@@ -1815,7 +1815,8 @@
             "settings": {
               "model": "gpt-6-luna",
               "effort": "low",
-              "mode": "approval-required"
+              "mode": "approval-required",
+              "fastMode": true
             }
           }
         }
