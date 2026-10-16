@@ -12,6 +12,7 @@ pub mod engine;
 mod envelope_delivery;
 mod environment;
 mod events;
+pub mod goals;
 mod initialize;
 mod launch_options;
 #[cfg(unix)]

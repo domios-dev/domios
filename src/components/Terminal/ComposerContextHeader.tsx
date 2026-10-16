@@ -1,11 +1,12 @@
+import { SessionGoalDetails } from "./SessionGoalDetails";
 import { ComposerContextChip } from "./ComposerContextChip";
 import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { removedChatPluginId } from "./removedChatPluginError";
 import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useEffect, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { ChevronUp, CircleCheck, Clock3, Target, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { ChevronUp, CircleCheck, Clock3, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Target, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -16,8 +17,11 @@ import { formatScheduledTime, type DelayedMessage } from "./delayedSend";
 import { isSystemDelayedMessage } from "./systemHeartbeatProjection";
 import { useResolvedTabActivity, useTabHasPlan } from "./useTabPlanActivity";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
+import { useMuxSelector } from "../../store/multiplexer";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
+import { goalVisible } from "./goalModel";
 
-export type ContextKind = "blueprints" | "crons" | "delayed";
+export type ContextKind = "blueprints" | "crons" | "delayed" | "goal";
 
 interface ComposerContextHeaderProps {
   pluginError?: string | null;
@@ -36,9 +40,9 @@ interface ComposerContextHeaderProps {
 
 type OwnedBlueprint = ReturnType<typeof useTabJobs>["blueprints"][number];
 
-const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer } as const;
-const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages" } as const;
-const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed" } as const;
+const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer, goal: Target } as const;
+const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages", goal: "Session goal" } as const;
+const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed", goal: "Goal" } as const;
 
 const keepComposerFocus = (event: MouseEvent) => event.preventDefault();
 
@@ -79,13 +83,6 @@ function ContextPopoverBubble({ label, tone, title, children, details }: {
     {open && <div ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
       className="ct-menu absolute bottom-full right-0 z-40 mb-2 w-64 max-w-[calc(100vw-2rem)] whitespace-pre-wrap break-words p-3 text-xs text-[var(--ct-fg)]">{details}</div>}
   </div>;
-}
-
-function SessionGoalBubble({ intent }: { intent: ChatSessionIntent }) {
-  const details = [intent.title, intent.goal].filter(Boolean).join("\n\n");
-  return <ContextPopoverBubble tone="scheduled" label="Session goal" title={(intent.goal || intent.title || "").split("\n")[0]} details={details}>
-    <Target size={13} aria-hidden="true" />
-  </ContextPopoverBubble>;
 }
 
 function RemovedPluginBubble({ error }: { error: string }) {
@@ -134,14 +131,34 @@ function PlannedContextHeader(props: ComposerContextHeaderProps) {
 }
 
 function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter, plan }: ComposerContextHeaderProps & { plan: ResolvedPlan | null }) {
+  const providerId = useMuxSelector(state => {
+    const tab = state.tabs[tabId];
+    return tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null);
+  });
+  const descriptor = useAgentDescriptor(providerId);
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
-  const [shown, setShown] = useState<ContextKind | null>(null);
+  const goalTriggerRef = useRef<HTMLButtonElement>(null);
+  const [unavailableGoal, setUnavailableGoal] = useState<string | null>(null);
+  const goalKey = JSON.stringify([tabId, providerId, sessionIntent?.goal]);
+  const hasGoal = goalVisible(descriptor?.agent_runtime, sessionIntent) && unavailableGoal !== goalKey;
   const [confirming, setConfirming] = useState<MergedJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const phone = usePhoneViewport();
+  const linkedGroupId = useId();
   const [unfolded, setUnfolded] = useState(false);
+
+  useEffect(() => {
+    if (requested !== "goal") return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.code !== "Escape" || event.defaultPrevented) return;
+      setRequested(null);
+      goalTriggerRef.current?.focus();
+    };
+    document.addEventListener("keydown", dismiss);
+    return () => document.removeEventListener("keydown", dismiss);
+  }, [requested]);
 
   useEffect(() => {
     if (!draftActive) return;
@@ -155,23 +172,23 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     blueprints: blueprintChips.length + blueprints.length,
     crons: cronChips.length,
     delayed: delayed.length,
+    goal: Number(hasGoal),
   };
   const alerts: Record<ContextKind, boolean> = {
     blueprints: blueprintChips.some((chip) => chip.state === "waiting on you"),
     crons: cronChips.some((chip) => chip.state === "waiting on you"),
     delayed: delayed.some((message) => message.state === "failed"),
+    goal: false,
   };
   const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0);
   const open = requested && counts[requested] > 0 ? requested : null;
 
-  const hasGoal = Boolean(sessionIntent?.title || sessionIntent?.goal);
   const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
   if (!hasGoal && !hasPluginError && !plan && kinds.length === 0) return null;
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
     setUnfolded(true);
-    setShown(kind);
   };
 
   const confirmDelete = async () => {
@@ -223,6 +240,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   );
 
   const strip: Record<ContextKind, () => ReactNode> = {
+    goal: () => sessionIntent && <SessionGoalDetails key={goalKey} tabId={tabId} intent={sessionIntent} triggerRef={goalTriggerRef} onUnavailable={() => { setUnavailableGoal(goalKey); setRequested(null); }} />,
     blueprints: () => <>{blueprints.map(blueprintBubble)}{blueprintChips.map(jobBubble)}</>,
     crons: () => <>{[...cronChips].sort((a, b) => Number(b.state === "waiting on you") - Number(a.state === "waiting on you")).map(jobBubble)}</>,
     delayed: () => (
@@ -262,13 +280,14 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     return next ? <ContextTitle kind="delayed" prefix="Next:" primary={delayedWhen(next)} secondary={next.text} /> : null;
   };
 
-  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0);
-  const PillIcon = plan ? Map : KIND_ICON[kinds[0]];
-  const pill = phone && (plan || kinds.length > 0) && (
+  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0) + Number(hasPluginError);
+  const PillIcon = plan ? Map : kinds.length > 0 ? KIND_ICON[kinds[0]] : hasGoal ? Target : TriangleAlert;
+  const pill = phone && (
     <button
       type="button"
       className="ct-ctx-pill"
       data-testid="composer-context-pill"
+      aria-controls={total > 0 ? linkedGroupId : undefined}
       aria-expanded={unfolded}
       aria-label={unfolded ? "Hide plan and linked items" : "Show plan and linked items"}
       onMouseDown={keepComposerFocus}
@@ -278,58 +297,61 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       }}
     >
       <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={plan ? "plan" : kinds[0]} />
-      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]]}</span>
+      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (hasGoal ? "Session goal" : "Plugin removed")}</span>
       {total > 0 && <span className="ct-ctx-pill__count">+{total}</span>}
       <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />
       {Object.values(alerts).some(Boolean) && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
     </button>
   );
 
-  const body = (
+  const body = open && (
     <>
       <div className="ct-ctx__reveal" data-open={open !== null || undefined}>
         <div className="ct-ctx__reveal-inner">
-          {shown && (
-            <div className="ct-ctx__strip" data-kind={shown} role="group" aria-label={KIND_LABEL[shown]}>
-              {strip[shown]()}
-            </div>
-          )}
+          <div className="ct-ctx__strip" data-kind={open} role={open === "goal" ? "dialog" : "group"} aria-label={KIND_LABEL[open]}>
+            {strip[open]()}
+          </div>
         </div>
       </div>
     </>
+  );
+
+  const linkedChips = (
+    (hasGoal || hasPluginError || kinds.length > 0) && (
+      <div id={linkedGroupId} hidden={phone && !unfolded} className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
+        {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
+        {kinds.map((kind) => {
+          const Icon = KIND_ICON[kind];
+          return (
+            <ComposerContextChip
+              key={kind}
+              ref={kind === "goal" ? goalTriggerRef : undefined}
+              kind={kind}
+              open={open === kind}
+              aria-pressed={open === kind}
+              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
+              title={KIND_LABEL[kind]}
+              onClick={() => toggle(kind)}
+            >
+              <Icon size={13} aria-hidden="true" />
+              {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
+              {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
+              {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
+            </ComposerContextChip>
+          );
+        })}
+      </div>
+    )
   );
 
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined} data-phone={phone || undefined}>
       <div className="ct-ctx__head ct-ctx__compact">
         {phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
-        {(hasGoal || hasPluginError || kinds.length > 0) && (
-          <div className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
-            {hasGoal && sessionIntent && <SessionGoalBubble intent={sessionIntent} />}
-            {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
-            {kinds.map((kind) => {
-              const Icon = KIND_ICON[kind];
-              return (
-                <ComposerContextChip
-                  key={kind}
-                  kind={kind}
-                  open={open === kind}
-                  aria-pressed={open === kind}
-                  aria-label={`${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
-                  title={KIND_LABEL[kind]}
-                  onClick={() => toggle(kind)}
-                >
-                  <Icon size={13} aria-hidden="true" />
-                  {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
-                  {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
-                  {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
-                </ComposerContextChip>
-              );
-            })}
-          </div>
-        )}
+        {!phone && linkedChips}
       </div>
-      {(plan || kinds.length > 0) && (phone ? (
+      {phone && linkedChips}
+      {open && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>
           <div className="ct-ctx__reveal-inner">{body}</div>
         </div>

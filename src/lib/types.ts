@@ -1064,7 +1064,7 @@ export interface ModelCatalogueCapability {
 export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
-  agent_runtime?: { usage?: boolean };
+  agent_runtime?: { usage?: boolean; goals?: { actions: readonly string[] } };
   supports_session_fork?: boolean;
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;

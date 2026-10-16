@@ -41,10 +41,10 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | mcpServer/elicitation/request | MCP form/URL elicitation | Limited empty form | Existing empty-form prompt/reply retained | Rich forms and URL launch require UI/contract decision |
 | serverRequest/resolved | Remove live request | Yes | promptResolved with exact ID | String and numeric IDs remain distinct |
 | async agentMessage.questions | Nonblocking questions | Not supported | question event, response message, native values; answerQuestion formatting action; typed historyPage.questions | A9; durable itemId resolution and ordinary send ledger belong core |
-| thread/goal/updated | Provider goal text | Yes | Stable sessionIntent item | Durable goal lifecycle/commands deliberately deferred |
-| thread/goal/cleared | Clear provider goal | Not mapped | Clear stable sessionIntent item | Same thread accepts subsequent goal-native turns |
+| thread/goal/updated | Provider goal text | Yes | Stable sessionIntent item | Status projected; lifecycle controls use provider capability |
+| thread/goal/cleared | Clear provider goal | Yes | Clear stable sessionIntent item | Same thread accepts subsequent goal-native turns |
 | thread/goal/get | Read current goal during history | Yes, optional | Optional final-page history enrichment to sessionIntent | Unsupported optional probe does not fail history |
-| thread/goal/set / clear | Autonomous goal commands | No | Deferred | Owner decision required; goal state/UI/run ownership |
+| thread/goal/set / clear | Confirmed goal lifecycle controls | Set only; clear uses declared runtime contract | Set paused/active/complete; clear then read-back absence | Explicit user origin; fixture tests only |
 | error | Retry/failure notification | Yes | System row with classified metadata | Retry notices never settle turn or replay payload |
 | account/read / account/login/completed | Authentication observation | Yes | initialize/account-read and auth refresh emit auth; account/updated maps directly | A11/A11b maps auth without account identifiers |
 | account/rateLimits/read | Usage refresh | Existing provider fetchUsage surface | Existing provider usage probe unchanged | Runtime account windows arrive through notification |
@@ -80,7 +80,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 
 Canonical must regenerate the shared InteractiveOption generated TypeScript after the Rust value field lands. This lane fills source native values structurally and never edits generated artifacts.
 
-Codex 0.160 experimental history divergence: installed app-server acknowledges experimentalApi=true yet thread/items/list returns -32601 "not supported yet". On that correlated method-not-found response only, history falls back to the exact bound thread/read includeTurns:true snapshot, following the reference adapter.ts readThreadSnapshot. It reuses item/question normalization, validates thread identity and complete turn/item arrays, never emits sendEvidence, and remains subject to host snapshot size bounds. Other RPC errors remain failures. All consumed notifications, including turn/diff/updated, stay subscribed.
+Unsupported history pagination completes the bounded startup window without a full-thread RPC. The stored-history byte-window reader owns older records on demand. Other RPC errors remain failures. Oversized paged replies retry smaller item limits before entering QuickJS; at one item, the host projects oversized content to an identity-preserving truncated row.
 
 Effective settings: start/resume replies report model and reasoningEffort separately from the requested values. Following the reference adapter.ts decodeCodexChildModel/updateSubagentSelection and the old Codex lifecycle effective settings, these replies override the request only for reported model/effort/mode; omitted values retain the request. Start returns them directly; continuation state carries them through resume identity verification. Controls replies and settings notifications share the same decoder. Host-authorized directories/network settings are retained, never inferred from provider permission output.
 

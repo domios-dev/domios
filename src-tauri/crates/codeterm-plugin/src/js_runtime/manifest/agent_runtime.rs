@@ -86,6 +86,18 @@ impl AgentRuntimeCapability {
         {
             return Err(RuntimeManifestError::InvalidMethods);
         }
+        if self.goals.as_ref().is_some_and(|goals| {
+            !goals
+                .actions
+                .contains(&crate::agent_runtime::RuntimeGoalAction::Read)
+                || goals
+                    .actions
+                    .iter()
+                    .enumerate()
+                    .any(|(index, action)| goals.actions[..index].contains(action))
+        }) {
+            return Err(RuntimeManifestError::InvalidMethods);
+        }
         let command = &self.command;
         let executable = command
             .binary

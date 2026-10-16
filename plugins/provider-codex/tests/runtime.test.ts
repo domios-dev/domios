@@ -82,15 +82,16 @@ check("captured child identities permit history plans without mutation authority
       {kind:"control",threadId:child,action:"compact",value:null},
     ];
     for (const mutation of mutations) assert.throws(()=>hooks.runtimePlan(context,mutation));
-    const snapshot = hooks.runtimeResponse(context,op,{stage:"snapshot"},{kind:"success",value:{thread:{id:child,parentThreadId:context.threadId!,turns:[{id:"child-turn",status:"completed",items:[{id:"child-answer",type:"agentMessage",text:"Child history answer"}]}]}}});
-    if (snapshot.kind !== "continue" || !snapshot.history) throw new Error("Expected child history chunk");
-    assert.equal(snapshot.history.threadId,child);
-    assert.equal(snapshot.history.items[0].content,"Child history answer");
-    if (snapshot.plan.action.kind !== "request") throw new Error("Expected read request");
-    assert.equal(snapshot.plan.action.call.target?.threadId,child);
+    const turns = hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:{data:[{id:"child-turn",status:"completed"}],nextCursor:null}});
+    if (turns.kind !== "continue" || turns.plan.action.kind !== "request") throw new Error("Expected child items");
+    assert.equal(turns.plan.action.call.target?.threadId,child);
+    const history = hooks.runtimeResponse(context,op,turns.plan.state,{kind:"success",value:{data:[{item:{id:"child-answer",type:"agentMessage",text:"Child history answer"}}],nextCursor:null}});
+    if (history.kind !== "complete" || history.result.kind !== "historyPage") throw new Error("Expected child history");
+    assert.equal(history.result.threadId,child);
+    assert.equal(history.result.items[0].content,"Child history answer");
     const emptyChild = hooks.runtimeResponse(context,op,{stage:"unmaterialized"},{kind:"success",value:{thread:{id:child,parentThreadId:context.threadId!,turns:[]}}});
     assert.equal(emptyChild.kind,"complete","An authenticated child with no messages still opens read-only");
-    const foreign = hooks.runtimeResponse(context,op,{stage:"snapshot"},{kind:"success",value:{thread:{id:"foreign",parentThreadId:context.threadId!,turns:[]}}});
+    const foreign = hooks.runtimeResponse(context,op,{stage:"unmaterialized"},{kind:"success",value:{thread:{id:"foreign",parentThreadId:context.threadId!,turns:[]}}});
     assert.equal(foreign.kind,"refused");
   }
 });
@@ -629,25 +630,13 @@ check("history without a requested order stays ascending and echoes no order",()
   assert.deepEqual(page.items,["older-reply","newer-reply"]);
   assert.equal(Object.prototype.hasOwnProperty.call(page.result,"order"),false);
 });
-check("unsupported item pagination uses bound snapshot history without delivery evidence",()=> {
+check("unsupported item pagination completes startup without requesting full history",()=> {
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
   const plan=hooks.runtimePlan(ctx,op);
-  const page=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data:[{id:"turn",status:"completed"}],nextCursor:null}});
-  if(page.kind !== "continue")throw new Error("Expected item page");
-  const fallback=plain(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32601,message:"thread/items/list is not supported yet"}}));
-  if(fallback.kind !== "continue")throw new Error("Expected snapshot fallback");
-  assert.deepEqual(fallback.plan.action,{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId!,includeTurns:true}}});
-  const snapshot={thread:{id:ctx.threadId!,turns:[{id:"turn",status:"completed",items:[{type:"userMessage",id:"user",content:[{type:"text",text:"hello"}]},{type:"agentMessage",id:"assistant",text:"hi"}]}]}};
-  const step=hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"success",value:snapshot});
-  if(step.kind !== "continue")throw new Error("Expected goal reconciliation");
-  const complete=plain(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported goal"}}));
-  if(complete.kind !== "complete" || complete.result.kind !== "historyPage")throw new Error("Expected history snapshot");
-  assert.deepEqual(collectHistory([step.history!,complete.result]).items.map(item=>item.id),["user","assistant"]);
-  assert.equal(complete.events,undefined);
-  for(const value of [{thread:{id:"foreign",turns:[]}},{thread:{id:ctx.threadId!}},{thread:{id:ctx.threadId!,turns:[{id:"turn"}]}}])
-    assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"success",value}).kind,"refused");
-  assert.equal(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32600,message:"invalid request"}}).kind,"refused");
-  assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"unsupported read"}}).kind,"refused");
+  const turns=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data:[{id:"turn",status:"completed"}],nextCursor:null}});
+  if(turns.kind !== "continue")throw new Error("Expected item request");
+  const step=plain(hooks.runtimeResponse(ctx,op,turns.plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
+  assert.deepEqual(step,{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId!,items:[],openItems:[]}});
 });
 check("default model and effective effort survive thread start and resume verification",()=> {
   const context={...ctx,settings:{},providerSettings:{model:null}};
@@ -734,15 +723,12 @@ check("turn start reconciles effective model and effort after control acknowledg
 });
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);
 
-check("unsupported turn pagination falls back only on method absence",()=> {
+check("unsupported turn pagination completes startup only on method absence",()=> {
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
   const plan=hooks.runtimePlan(ctx,op);
-  const fallback=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32601,message:"Unknown method"}}));
-  assert.equal(fallback.kind,"continue");
-  if(fallback.kind !== "continue")throw new Error("Expected snapshot fallback");
-  assert.deepEqual(fallback.plan.action,{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId!,includeTurns:true}}});
+  const step=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
+  assert.deepEqual(step,{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId!,items:[],openItems:[]}});
   assert.equal(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32000,message:"Permission denied"}}).kind,"refused");
-  assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"Unknown method"}}).kind,"refused");
 });
 check("archived resume recovery is case insensitive and bounded",()=> {
   const op:Operation={kind:"resumeThread",threadId:ctx.threadId!,settings:ctx.settings};
@@ -931,27 +917,6 @@ check("multi-MiB history emits bounded hook outputs and explicit attachment mark
 });
 console.log(`runtime byte budget regressions: ${count} checks passed`);
 
-check("snapshot fallback splits by bytes without losing turns or rows",()=> {
-  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
-  const first=hooks.runtimePlan(ctx,op);
-  let step=hooks.runtimeResponse(ctx,op,first.state,{kind:"error",error:{code:-32601,message:"unsupported"}});
-  const turns=Array.from({length:3},(_,turn)=>({id:`turn-${turn}`,status:"completed",items:Array.from({length:30},(_,index)=>({id:`${turn}-${index}`,type:"agentMessage",text:"x".repeat(16000)}))}));
-  const chunks:OperationResult[]=[];
-  let reads=0;
-  while(step.kind === "continue" && step.plan.action.kind === "request" && step.plan.action.call.method === "thread/read") {
-    assert.ok(++reads < 100);
-    step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread:{id:op.threadId,source:"cli",turns}}});
-    assert.ok(Buffer.byteLength(JSON.stringify(step)) < 1024*1024);
-    if(step.kind === "continue" && step.history)chunks.push(step.history);
-  }
-  assert.ok(reads > 1);
-  if(step.kind !== "continue")throw new Error("Expected goal");
-  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{goal:null}});
-  if(step.kind !== "complete")throw new Error("Expected completion");
-  const history=collectHistory([...chunks,step.result]);
-  assert.deepEqual(history.items.map(item=>item.id),turns.flatMap(turn=>turn.items.map(item=>item.id)));
-  assert.ok(history.items.every(item=>item.content.length === 16000));
-});
 check("all historical tool image shapes retain byte markers without inline payloads",()=> {
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
   const first=hooks.runtimePlan(ctx,op);
@@ -1144,11 +1109,9 @@ check("reset credit reads and consume outcomes stay inside declared runtime meth
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"control",action:"redeemResetCredit",value:{}}));
 });
 
-check("descending bounded history preserves correlated method-absence snapshot recovery",()=> {
+check("descending bounded history never falls back to a full-thread read",()=> {
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!,order:"desc"};
-  const first=hooks.runtimePlan(ctx,op);
-  const fallback=plain(hooks.runtimeResponse(ctx,op,first.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
-  if(fallback.kind!=="continue" || fallback.plan.action.kind!=="request")throw new Error("Missing snapshot recovery");
-  assert.equal(fallback.plan.action.call.method,"thread/read");
-  assert.equal((fallback.plan.action.call.params as Record<string,JsonValue>).threadId,ctx.threadId);
+  const plan=hooks.runtimePlan(ctx,op);
+  const step=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
+  assert.deepEqual(step,{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId!,items:[],openItems:[],order:"desc"}});
 });

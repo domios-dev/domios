@@ -169,4 +169,8 @@ it("routes reset confirmation and UUID unchanged to the owning machine", () => {
   expect(remoteTransportCall("agent_runtime_reset_credits",{tabId:"mesh:peer/owned",request})).toMatchObject({peerId:"peer",remoteTabId:"owned",method:"POST",suffix:"/agent/runtime/reset-credits",body:request});
 });
 
+it("routes goal confirmation with its exact session binding", () => {
+  const request = {action:"cancel",confirmed:true,binding:{threadId:"thread",bindingNonce:"nonce",epoch:3},expectedIntent:{goal:"fixture",goalStatus:"active"}};
+  expect(remoteTransportCall("agent_runtime_goal",{tabId:"mesh:peer/owned",request})).toMatchObject({peerId:"peer",remoteTabId:"owned",method:"POST",suffix:"/agent/runtime/goal",body:request});
+});
 finish();

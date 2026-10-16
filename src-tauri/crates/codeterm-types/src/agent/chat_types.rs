@@ -75,6 +75,8 @@ pub struct ChatSessionIntent {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub goal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub goal_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
