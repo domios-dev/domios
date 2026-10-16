@@ -57,6 +57,14 @@ pub fn chat_start_core(
 ) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
     let mut result = chat_start_inner(svc, tab_id.clone(), subscription_id)?;
+    if let Some(messages) = &result.messages {
+        codeterm_service_core::service::tab_chat::structured_sink::seed_snapshot(
+            &tab_id,
+            result.source_session_id.as_deref(),
+            result.session_binding_nonce.as_deref(),
+            messages,
+        );
+    }
     log::debug!(
         "[chat-attach] tab={tab_id} phase=inner_result elapsed_ms={}",
         started.elapsed().as_millis()
@@ -300,6 +308,12 @@ fn chat_start_inner(
             );
         }
         let cursor = delta.cursor.clone();
+        codeterm_service_core::service::tab_chat::structured_sink::seed_snapshot(
+            &tab_id,
+            Some(&session_id),
+            session_binding_nonce.as_deref(),
+            &delta.messages,
+        );
         if !svc.chat_registry.acquire(
             &tab_id,
             &session_id,
