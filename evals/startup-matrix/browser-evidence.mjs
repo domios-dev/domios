@@ -1,4 +1,4 @@
-import { assetIdentity, diagnosticVerdict, safeUrl, sha256 } from './evidence-model.mjs';
+import { assetIdentity, diagnosticVerdict, safeUrl, sha256, tabAuthority } from './evidence-model.mjs';
 import { snapshotOutputEvidence, WireCapture } from './output-evidence.mjs';
 import { artifacts, options, devEvidence, assertSameListener, Cdp } from './evidence-runtime.mjs';
 import { captureBounded } from './phase-collector.mjs';
@@ -36,6 +36,7 @@ await captureBounded({ signal, persist: outcome => {
   result.listener = dev.listener;
   const state = await dev.api('/api/mux/state', { signal });
   if (!state.tabs[args['--tab']]) throw Error('Selected DEV tab absent');
+  result.fixture = { tabId: args['--tab'], authority: tabAuthority(state.tabs[args['--tab']]) };
   cdp = await Cdp.connect(args['--cdp'], args['--target'], signal);
   result.target = cdp.target;
   if (args['--dry-run']) {
