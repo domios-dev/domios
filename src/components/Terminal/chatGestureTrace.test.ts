@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ChatGestureTrace, packGesture, unpackGesture } from "./chatGestureTrace";
+import { ChatGestureTrace, continueChatGestureTrace, packGesture, unpackGesture } from "./chatGestureTrace";
 
 test("gesture flags round trip", () => {
   for (let bits = 0; bits < 16; bits++) {
@@ -44,4 +44,22 @@ test("trace identity and tuple widths remain bounded for malformed inputs", () =
   assert.equal(chunk.frames[0].length, 17);
   assert.equal(chunk.edges[0].length, 36);
   assert.ok(JSON.stringify(chunk).length < 4000);
+});
+
+
+test("bounded segments preserve the seam frame and all emitted evidence", () => {
+  const trace = new ChatGestureTrace("long", 42);
+  for (let i = 0; i < 600; i++) trace.sample([i, 5000, 800, 2, 0, 0, 0, 0, 10, 42, -i], true);
+  for (let i = 0; i < 400; i++) trace.edge("gesture", [2, 2, 0]);
+  const emitted = trace.chunks();
+  assert.equal(emitted[0].droppedFrames, 0);
+  assert.equal(emitted[0].droppedEdges, 0);
+  assert.equal(emitted.flatMap(chunk => chunk.frames).length, 600);
+  assert.equal(emitted.flatMap(chunk => chunk.edges).length, 400);
+  const next = continueChatGestureTrace(trace, "long.1");
+  assert.equal(next.scopeId, 42);
+  assert.deepEqual(next.frames[0].slice(1), trace.frames[trace.frames.length - 1].slice(1));
+  next.sample([600], true);
+  assert.equal(next.droppedFrames, 0);
+  assert.equal(next.droppedEdges, 0);
 });
