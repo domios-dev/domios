@@ -124,7 +124,10 @@ export function workflowErrors(workflow, catalogue, overlay, plugins, exceptions
     }
     const expected = new Set(projected.flatMap(entry => entry.ci.filter(owner => owner.startsWith("tests.yml:"))
       .map(owner => owner.slice("tests.yml:".length)).filter(id => context.jobs.includes(id))
-      .filter(id => !(id === "plugin-metadata" && entry.id === "node-script-tests"))
+      .filter(id => {
+        const recorded = exceptions.find(item => item.job === id && item.entry === entry.id);
+        return recorded?.if == null || [false, true].some(failed => prCondition(recorded.if, { ...context, failed }));
+      })
       .map(id => `${id}:${entry.id}`)));
     for (const entry of expected) if (!actual.has(entry)) errors.add(`missing PR catalogue command ${entry} for ${files.join(",") || "docs-only"}`);
     for (const entry of actual) if (!expected.has(entry)) errors.add(`unexpected PR catalogue command ${entry}`);
@@ -183,14 +186,13 @@ test("heavy Rust jobs are not PR-reachable, including a Rust change", t => {
   const reached = prReachability(workflow, ["cli/src/main.rs"], plugins);
   assert.equal(reached.scope.heavy, false);
   for (const id of ["rust-tests", "rust-platform", "rust-receipts", "clippy-linux"]) assert.ok(!reached.jobs.includes(id), id);
-  assert.ok(reached.jobs.includes("fmt"));
-  assert.ok(reached.jobs.includes("release-contracts"));
+  assert.ok(reached.jobs.includes("guards"));
   t.diagnostic(`GREEN heavy=false; PR jobs for Rust: ${reached.jobs.join(", ")}`);
 });
 
 test("red demo: an unlisted PR command is rejected", t => {
   const copy = structuredClone(workflow);
-  copy.jobs["plugin-metadata"].steps.push({ run: "echo unlisted" });
+  copy.jobs.guards.steps.push({ run: "echo unlisted" });
   const errors = check(copy);
   assert.ok(errors.some(error => error.includes("unlisted PR command echo unlisted")));
   t.diagnostic(`RED ${errors[0]}`);
@@ -203,16 +205,16 @@ test("red demos: live, instance and Playwright entries cannot run on PR", () => 
     assert.ok(check(workflow, copy).some(error => error.includes("forbidden live/instance/Playwright entry ts-unit")));
   }
   const copy = structuredClone(workflow);
-  copy.jobs["plugin-metadata"].steps.push({ run: "node scripts/test-catalogue.mjs run --entry e2e-api" });
+  copy.jobs.guards.steps.push({ run: "node scripts/test-catalogue.mjs run --entry e2e-api" });
   assert.ok(check(copy).some(error => error.includes("forbidden live/instance/Playwright entry e2e-api")));
 });
 
 test("red demos: missing and excessive PR timeouts are rejected", t => {
   for (const timeout of [undefined, 20]) {
     const copy = structuredClone(workflow);
-    copy.jobs["plugin-metadata"]["timeout-minutes"] = timeout;
+    copy.jobs.guards["timeout-minutes"] = timeout;
     const errors = check(copy);
-    assert.ok(errors.some(error => error.includes("plugin-metadata: PR timeout-minutes")));
+    assert.ok(errors.some(error => error.includes("guards: PR timeout-minutes")));
     t.diagnostic(`RED timeout=${timeout}: ${errors[0]}`);
   }
   const copy = structuredClone(workflows);
