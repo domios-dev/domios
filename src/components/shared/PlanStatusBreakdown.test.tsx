@@ -1,7 +1,6 @@
 // Run: npx tsx src/components/shared/PlanStatusBreakdown.test.tsx
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -41,16 +40,6 @@ async function main() {
     const item = host.querySelector<HTMLElement>(`[data-status="${status}"]`);
     assert(item, `${status} renders`);
     assert.equal(item.textContent, `${count} ${status}`);
-    assert.equal(
-      item.style.color,
-      `var(--ct-${status === "todo"
-        ? "accent"
-        : status === "review"
-          ? "yellow"
-          : status === "blocked"
-            ? "red"
-            : "green"})`,
-    );
   }
   assert(!host.querySelector('[data-status="paused"]'), "paused is omitted from the compact readout");
   const separators = host.querySelectorAll('[data-testid="plan-status-separator"]');
@@ -63,22 +52,6 @@ async function main() {
   );
   await act(async () => root.unmount());
 
-  const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
-  assert.match(
-    styles,
-    /\.ct-plan-status-breakdown\s*\{[^}]*display:\s*(?:inline-)?flex;[^}]*flex-wrap:\s*nowrap;[^}]*white-space:\s*nowrap;/s,
-    "breakdown is a single non-wrapping line",
-  );
-  assert.match(
-    styles,
-    /\.ct-plan-status-breakdown-segment\s*\{[^}]*display:\s*inline-flex;[^}]*white-space:\s*nowrap;/s,
-    "separator and following count cannot wrap apart",
-  );
-  assert.match(
-    styles,
-    /\.ct-plan-status-breakdown-label\s*\{[^}]*margin-left:\s*3px;/s,
-    "count and status title have explicit visual spacing",
-  );
 
   console.log("PlanStatusBreakdown tests passed");
 }

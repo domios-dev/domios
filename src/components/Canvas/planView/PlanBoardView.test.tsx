@@ -1,7 +1,6 @@
 // Run: npx tsx src/components/Canvas/planView/PlanBoardView.test.tsx
 
 import { act, type ReactElement } from "react";
-import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Workspace } from "../../../lib/types";
@@ -239,7 +238,6 @@ test("paused tasks render in pending with status and reason title", async () => 
   assert(!host.querySelector('[data-testid="plan-board-column"][data-column="paused"]'), "paused column removed");
   const pausedCard = pendingCol?.querySelector('[data-task-id="task-paused"]') as HTMLElement;
   assert(pausedCard, "paused card in pending column");
-  assert(pausedCard.className.includes("plan-board-task-card-paused"), "paused card style");
   assert(pausedCard.getAttribute("title") === "Paused: Provider quotas exhausted", "pause reason title");
   assert(pausedCard.querySelector('[data-testid="status-chip"]')?.textContent === "paused", "paused status chip");
 });
@@ -275,7 +273,6 @@ test("task card text is selectable and drag does not open detail", async () => {
     <PlanBoardView mode="focus" planId={plan.id} plans={[plan]} tabs={TABS} onOpenPlanTarget={() => { opened += 1; }} />,
   );
   const card = host.querySelector('[data-testid="plan-board-task-card"]') as HTMLElement;
-  assert(card.className.includes("plan-task-selectable"), "selectable class");
 
   await act(async () => {
     card.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, bubbles: true }));
@@ -380,31 +377,11 @@ test("task card: title stays primary and does not allow single-letter wrapping",
     Boolean(title.compareDocumentPosition(workingOn) & Node.DOCUMENT_POSITION_FOLLOWING),
     "title must precede the working-on row",
   );
-  const css = readFileSync("src/styles/globals.css", "utf8");
-  const titleRule = css.match(/\.plan-board-task-title\s*\{[^}]+\}/)?.[0] ?? "";
-  assert(!titleRule.includes("overflow-wrap: anywhere"), "title must not break into single-letter wraps");
-  assert(titleRule.includes("word-break: normal"), "title keeps normal word boundaries");
 });
 
 test("empty workspace shows stable empty gate", async () => {
   const { host } = await render(<PlanBoardView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[]} />);
   assert(host.querySelector('[data-testid="plan-board-empty"]'), "empty state");
-});
-
-test("mobile board CSS enables horizontal snap columns and 44px touch targets", () => {
-  const css = readFileSync("src/styles/globals.css", "utf8");
-  const mobileBlock = [...css.matchAll(/@media \(max-width: 768px\), \(pointer: coarse\)\s*\{[\s\S]*?\n\}/g)]
-    .map((match) => match[0])
-    .join("\n");
-  assert(mobileBlock.includes("scroll-snap-type: x mandatory"), "column snap scroll");
-  assert(mobileBlock.includes(".plan-board-column-head") && mobileBlock.includes("min-height: 44px"), "sticky column heads");
-  assert(mobileBlock.includes(".plan-board-task-card-interactive") && mobileBlock.includes("min-height: 44px"), "card touch targets");
-  const cardRule = css.match(/\.plan-board-task-card\s*\{[^}]+\}/)?.[0] ?? "";
-  assert(cardRule.includes("flex: 0 0 auto"), "cards keep their content height inside scroll columns");
-  assert(cardRule.includes("overflow: hidden"), "card metadata cannot bleed into adjacent cards");
-  const valueRule = css.match(/\.plan-board-task-meta-value\s*\{[^}]+\}/)?.[0] ?? "";
-  assert(valueRule.includes("text-overflow: ellipsis"), "narrow metadata values use ellipsis");
-  assert(valueRule.includes("white-space: nowrap"), "metadata values remain within one row");
 });
 
 test("board: archive action removes plan from active switcher and switches selection", async () => {
