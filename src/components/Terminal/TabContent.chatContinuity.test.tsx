@@ -359,7 +359,7 @@ async function main(): Promise<void> {
   assert(terminalControl.getAttribute("aria-selected") === "true", "Terminal selection was not retained");
   const frame = host.querySelector<HTMLElement>('[data-testid="terminal-frame"]');
   assert(frame?.getAttribute("data-terminal-visible") === "true", "remote terminal frame stayed inactive");
-  assert(frame.style.visibility === "visible", "remote terminal frame stayed hidden");
+  assert(frame.style.visibility === "hidden", "remote terminal frame revealed before its own output arrived");
 
   await act(async () => {
     root.unmount();
