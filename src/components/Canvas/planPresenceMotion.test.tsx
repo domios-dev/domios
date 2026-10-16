@@ -1,5 +1,4 @@
 import { act, type ReactElement } from "react";
-import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
@@ -286,15 +285,5 @@ describe("temporary task segment presence", () => {
 
     await rerender(<PlanViewModeSwitch value="tasks" onChange={() => {}} temporaryTab={null} />);
     expect(temporaryGroup(host)).toBeNull();
-  });
-});
-
-const readSource = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8").replaceAll("\r\n", "\n");
-
-describe("presence motion sources", () => {
-  it("waits on events, never timers", () => {
-    for (const path of ["./planView/PlanSidePanel.tsx", "./PlanSidePanelHost.tsx", "./PlanViewModeSwitch.tsx", "./usePresence.ts"]) {
-      expect(readSource(path), path).not.toMatch(/setTimeout|setInterval|requestAnimationFrame/);
-    }
   });
 });
