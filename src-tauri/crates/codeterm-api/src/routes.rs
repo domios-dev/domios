@@ -1,8 +1,8 @@
 use axum::{
-    Router,
     http::{HeaderMap, StatusCode},
     middleware,
     routing::{delete, get, patch, post},
+    Router,
 };
 use tower_http::{
     catch_panic::CatchPanicLayer,

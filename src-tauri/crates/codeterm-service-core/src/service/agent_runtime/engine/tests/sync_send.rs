@@ -176,12 +176,10 @@ fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
                 fixture.service.chat_send_ledger.status(id).unwrap().state,
                 ChatSendState::Pending
             );
-            assert!(
-                !fixture
-                    .service
-                    .chat_send_ledger
-                    .user_payload_may_have_been_written(id)
-            );
+            assert!(!fixture
+                .service
+                .chat_send_ledger
+                .user_payload_may_have_been_written(id));
         }
         assert!(queued.iter().all(|record| record.held_before_readiness));
         let nonce = {
@@ -225,33 +223,29 @@ fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
                 fixture.service.chat_send_ledger.status(id).unwrap().state,
                 ChatSendState::Written
             );
-            assert!(
-                fixture
-                    .service
-                    .chat_send_ledger
-                    .confirm_rpc_send(
-                        &tab_id,
-                        "own-thread",
-                        &nonce,
-                        id,
-                        Some(&format!("own-item-{index}")),
-                    )
-                    .is_some()
-            );
+            assert!(fixture
+                .service
+                .chat_send_ledger
+                .confirm_rpc_send(
+                    &tab_id,
+                    "own-thread",
+                    &nonce,
+                    id,
+                    Some(&format!("own-item-{index}")),
+                )
+                .is_some());
             assert_eq!(
                 fixture.service.chat_send_ledger.status(id).unwrap().state,
                 ChatSendState::Sent
             );
         }
-        assert!(
-            fixture
-                .service
-                .pending_delivery_payloads
-                .user_sends
-                .queued(&tab_id)
-                .unwrap()
-                .is_empty()
-        );
+        assert!(fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .queued(&tab_id)
+            .unwrap()
+            .is_empty());
         fixture.service.prepare_user_send_target(&tab_id).unwrap();
         fixture.service.drain_user_owner(&tab_id).unwrap();
         use std::{
@@ -337,13 +331,11 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
             .binding_nonce
             .clone();
         if restart_failure {
-            assert!(
-                fixture
-                    .service
-                    .authorize_runtime_restart_binding(&tab_id, PROVIDER, &own_nonce, false,)
-                    .unwrap()
-                    .is_none()
-            );
+            assert!(fixture
+                .service
+                .authorize_runtime_restart_binding(&tab_id, PROVIDER, &own_nonce, false,)
+                .unwrap()
+                .is_none());
         } else {
             fixture
                 .service
@@ -352,11 +344,9 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
         }
         let current = for_tab(&tab_id).unwrap();
         assert!(matches!(current.state.lock().phase, RuntimePhase::Ready));
-        assert!(
-            current
-                .thread_loaded
-                .load(std::sync::atomic::Ordering::Acquire)
-        );
+        assert!(current
+            .thread_loaded
+            .load(std::sync::atomic::Ordering::Acquire));
         assert_eq!(
             fixture
                 .service
@@ -517,19 +507,17 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
         .session_binding_nonce
         .clone()
         .unwrap();
-    assert!(
-        fixture
-            .service
-            .chat_send_ledger
-            .confirm_rpc_send(
-                &tab_id,
-                "other-thread",
-                &nonce,
-                &send_id,
-                Some("provider-item")
-            )
-            .is_none()
-    );
+    assert!(fixture
+        .service
+        .chat_send_ledger
+        .confirm_rpc_send(
+            &tab_id,
+            "other-thread",
+            &nonce,
+            &send_id,
+            Some("provider-item")
+        )
+        .is_none());
     let authority = fixture.service.user_send_authority(&tab_id).unwrap();
     let mut foreign_provider = authority.clone();
     foreign_provider.provider_id = "foreign-provider".into();
@@ -541,40 +529,32 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
     let session = for_tab(&tab_id).unwrap();
     let epoch = session.state.lock().epoch;
     session.state.lock().epoch = epoch + 1;
-    assert!(
-        !fixture
-            .service
-            .user_authority_is_current_session(&authority, "own-thread", &nonce)
-    );
+    assert!(!fixture
+        .service
+        .user_authority_is_current_session(&authority, "own-thread", &nonce));
     session.state.lock().epoch = epoch;
-    assert!(
-        !fixture
-            .service
-            .user_authority_is_current_session(&authority, "other-thread", &nonce)
-    );
+    assert!(!fixture
+        .service
+        .user_authority_is_current_session(&authority, "other-thread", &nonce));
     assert!(!fixture.service.user_authority_is_current_session(
         &authority,
         "own-thread",
         "foreign-nonce"
     ));
-    assert!(
-        fixture
-            .service
-            .user_authority_is_current_session(&authority, "own-thread", &nonce)
-    );
-    assert!(
-        fixture
-            .service
-            .chat_send_ledger
-            .confirm_rpc_send(
-                &tab_id,
-                "own-thread",
-                &nonce,
-                &send_id,
-                Some("provider-item")
-            )
-            .is_some()
-    );
+    assert!(fixture
+        .service
+        .user_authority_is_current_session(&authority, "own-thread", &nonce));
+    assert!(fixture
+        .service
+        .chat_send_ledger
+        .confirm_rpc_send(
+            &tab_id,
+            "own-thread",
+            &nonce,
+            &send_id,
+            Some("provider-item")
+        )
+        .is_some());
     let delivery = fixture
         .service
         .gateway_deliver_with_pad_file(
