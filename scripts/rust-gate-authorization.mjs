@@ -44,7 +44,13 @@ export function readGateProof(env, read = fs.readFileSync, list = fs.readdirSync
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const [current, canonical, ...args] = process.argv.slice(2);
-    const proof = readGateProof(process.env);
-    process.exitCode = proof && authorizedRustGate({ env: process.env, current, canonical, args, ...proof }) ? 0 : 2;
+    const env = process.env;
+    if (current && current === canonical && !env.CODETERM_TASK_ID && !env.CODETERM_ATTEMPT_ID &&
+        env.CODETERM_ROLE !== 'Worker') {
+      process.exitCode = 0;
+    } else {
+      const proof = readGateProof(env);
+      process.exitCode = proof && authorizedRustGate({ env, current, canonical, args, ...proof }) ? 0 : 2;
+    }
   } catch { process.exitCode = 2; }
 }
