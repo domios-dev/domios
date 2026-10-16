@@ -25,6 +25,7 @@ const knownWindows = new Map<string, KnownChatWindow>();
 const listeners = new Map<string, Set<() => void>>();
 const pendingSends = new Map<string, Map<string, { correlationId: string; sentAtMs: number }>>();
 const MAX_TRANSCRIPT_WINDOWS = 8;
+const MAX_TRANSCRIPT_MEMOS = 256;
 
 const EMPTY_WINDOW: TranscriptWindow = { transcript: createTranscriptState(), anchorKey: null };
 const notifications = frameNotifications((key) => {
@@ -43,15 +44,19 @@ export function readTranscriptWindow(key: string): TranscriptWindow {
 }
 
 export function rememberTranscriptWindow(key: string, knownWindow: KnownChatWindow): void {
+  knownWindows.delete(key);
   knownWindows.set(key, knownWindow);
+  if (knownWindows.size > MAX_TRANSCRIPT_MEMOS) knownWindows.delete(knownWindows.keys().next().value!);
 }
 
 export function readTranscriptMemo(key: string): KnownChatWindow | undefined {
-  return knownWindows.get(key);
+  const known = knownWindows.get(key);
+  if (known) rememberTranscriptWindow(key, known);
+  return known;
 }
 
 export function retainedTranscriptMemo(key: string): KnownChatWindow | undefined {
-  return windows.get(key)?.snapshotBinding ? knownWindows.get(key) : undefined;
+  return windows.get(key)?.snapshotBinding ? readTranscriptMemo(key) : undefined;
 }
 
 export function forgetTranscriptWindowCursor(key: string): void {

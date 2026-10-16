@@ -465,15 +465,15 @@ fn chat_start_inner(
         None,
     );
     let read_started = std::time::Instant::now();
-    let cached = incarnation.as_ref().and_then(|held| {
+    let attached = incarnation.as_ref().and_then(|held| {
         let total = std::fs::metadata(&path).ok()?.len();
-        let entry = svc
-            .chat_registry
-            .row_cache
-            .get(&tab_id, &resume_epoch, &held.id, total)?;
-        let refresh = entry.file_length() != total;
-        entry
-            .resume(&resume_epoch, &held.id, total, |known| {
+        svc.chat_registry.row_cache.attach(
+            &tab_id,
+            &resume_epoch,
+            &held.id,
+            total,
+            known_window.as_ref(),
+            |known| {
                 codeterm_service_core::service::tab_chat::session_window::resume_window(
                     &svc.agent_registry,
                     &provider_id,
@@ -482,31 +482,16 @@ fn chat_start_inner(
                     &resume_epoch,
                     known,
                 )
-                .map(|(_, snapshot)| snapshot)
-            })
-            .map(|snapshot| (snapshot, refresh))
+            },
+        )
     });
     if incarnation.is_none() {
         svc.chat_registry.row_cache.drop_tab(&tab_id);
     }
-    let cache_hit = cached.is_some();
-    let cache_refresh = cached.as_ref().is_some_and(|(_, refresh)| *refresh);
-    let resumed = cached
-        .map(|(snapshot, _)| (ChatStartKind::Snapshot, snapshot))
-        .or_else(|| {
-            known_window.as_ref().and_then(|known| {
-                codeterm_service_core::service::tab_chat::session_window::resume_window(
-                    &svc.agent_registry,
-                    &provider_id,
-                    &source,
-                    &path,
-                    &resume_epoch,
-                    known,
-                )
-            })
-        });
-    let (kind, snap) = if let Some((kind, snapshot)) = resumed {
-        (kind, std::sync::Arc::new(snapshot))
+    let cache_hit = attached.as_ref().is_some_and(|attach| attach.cache_hit);
+    let cache_refresh = attached.as_ref().is_some_and(|attach| attach.cache_refresh);
+    let (kind, snap) = if let Some(attach) = attached {
+        (attach.kind, std::sync::Arc::new(attach.snapshot))
     } else {
         (
             ChatStartKind::Snapshot,
@@ -558,16 +543,36 @@ fn chat_start_inner(
             )
         })
     });
-    if kind == ChatStartKind::Snapshot && (!cache_hit || cache_refresh) {
+    if kind == ChatStartKind::Delta
+        || (kind == ChatStartKind::Snapshot && (!cache_hit || cache_refresh))
+    {
         if let Some(cursor) = cursor.as_ref() {
-            let mux = svc.mux.read();
-            if mux.get_tab(&tab_id).is_some_and(|tab| {
-                tab.agent_session_id.as_deref() == Some(session_id.as_str())
-                    && tab.session_binding_nonce == session_binding_nonce
-            }) {
-                svc.chat_registry
-                    .row_cache
-                    .insert(&tab_id, &resume_epoch, cursor.clone(), &snap);
+            let authority_matches = {
+                let mux = svc.mux.read();
+                mux.get_tab(&tab_id).is_some_and(|tab| {
+                    tab.agent_session_id.as_deref() == Some(session_id.as_str())
+                        && tab.session_binding_nonce == session_binding_nonce
+                })
+            };
+            if authority_matches {
+                if kind == ChatStartKind::Delta {
+                    if let Some(held) = incarnation.as_ref() {
+                        svc.chat_registry.row_cache.extend_delta(
+                            &tab_id,
+                            &resume_epoch,
+                            &held.id,
+                            cursor.clone(),
+                            &snap,
+                        );
+                    }
+                } else {
+                    svc.chat_registry.row_cache.insert(
+                        &tab_id,
+                        &resume_epoch,
+                        cursor.clone(),
+                        &snap,
+                    );
+                }
             }
         }
     }
