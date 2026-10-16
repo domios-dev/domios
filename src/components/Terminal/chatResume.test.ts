@@ -55,3 +55,33 @@ test("only a typed byte cursor enables the JSONL resume slice", () => {
     assert.equal(isByteResumeCursor(value), false);
   }
 });
+
+test("a long replay gap falls back to attachment after eight pages", async () => {
+  let reads = 0;
+  const outcome = await resumeChatCursor("0", async () => {
+    reads++;
+    return { kind: "resumed", deltas: [delta(String(reads))], caught_up: reads === 20 };
+  }, () => {}, () => true);
+  assert.equal(outcome, "attach");
+  assert.equal(reads, 8);
+});
+
+test("the byte budget stops oversized replay before another page is read", async () => {
+  let reads = 0;
+  const outcome = await resumeChatCursor("0", async () => {
+    reads++;
+    return { kind: "resumed", deltas: [{ ...delta(String(reads)), start_offset: 0, offset: 9 * 1024 * 1024 }], caught_up: reads === 2 };
+  }, () => {}, () => true);
+  assert.equal(outcome, "attach");
+  assert.equal(reads, 1);
+});
+
+test("a caught-up response at the replay budget keeps the existing lease", async () => {
+  let reads = 0;
+  const outcome = await resumeChatCursor("0", async () => {
+    reads++;
+    return { kind: "resumed", deltas: [delta(String(reads))], caught_up: reads === 8 };
+  }, () => {}, () => true);
+  assert.equal(outcome, "caught_up");
+  assert.equal(reads, 8);
+});

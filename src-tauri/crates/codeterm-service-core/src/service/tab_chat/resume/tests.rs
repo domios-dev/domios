@@ -35,6 +35,36 @@ fn caught_up_resume_never_invokes_the_transcript_parser() {
 }
 
 #[test]
+fn growth_after_the_page_read_is_left_for_the_live_tailer_without_resetting() {
+    use std::io::Write;
+    let record = format!("{}\n", "x".repeat(100));
+    let (file, source, epoch, cursor) = fixture(record.repeat(2).as_bytes(), record.len() as u64);
+    let result = read_page_with(&source, file.path(), &epoch, &cursor, |from, budget| {
+        let chunk =
+            codeterm_plugin::jsonl_window::read_records_from(file.path(), from, budget).unwrap();
+        let mut writer = std::fs::OpenOptions::new()
+            .append(true)
+            .open(file.path())
+            .unwrap();
+        writer.write_all(record.as_bytes()).unwrap();
+        Some(crate::agent::chat_types::SessionDelta {
+            new_offset: chunk.new_offset,
+            messages: vec![],
+        })
+    })
+    .unwrap();
+    let ChatResumeResult::Resumed {
+        deltas,
+        caught_up: true,
+    } = result
+    else {
+        panic!("growth must not reset the lease");
+    };
+    assert_eq!(deltas[0].offset, record.len() as u64 * 2);
+    assert!(deltas[0].offset < std::fs::metadata(file.path()).unwrap().len());
+}
+
+#[test]
 fn forward_resume_uses_one_budgeted_read_and_reports_the_true_end() {
     let body = "{}\n".repeat(RESUME_PAGE_BYTES as usize);
     let (file, source, epoch, cursor) = fixture(body.as_bytes(), 3);
