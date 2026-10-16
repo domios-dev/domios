@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { mapCheckouts, orphanCandidates, trimBuildDirectories, worktrees } from './cargo-build-gc.mjs';
+import { mapCheckouts, orphanCandidates, resolveStableBuilds, trimBuildDirectories, worktrees } from './cargo-build-gc.mjs';
 
 const python = ['python3', 'python'].find((name) => spawnSync(name, ['--version']).status === 0);
 const helper = path.resolve('scripts/cargo-build-gc.py');
@@ -61,6 +61,29 @@ test('live checkouts including old caches and stable gateway remain protected', 
   const orphan = f.create('ef', '3');
   fs.utimesSync(live, new Date(0), new Date(0));
   assert.deepEqual(orphanCandidates(f.root, [{ build: live }, { build: gateway }]), [orphan]);
+});
+
+test('unmapped stable gateway stays protected through its recorded build directory', (t) => {
+  const f = fixture(t);
+  const gateway = f.create('cd', '2');
+  const orphan = f.create('ef', '3');
+  const gatewayState = fs.mkdtempSync(path.join(os.tmpdir(), 'cargo-gc-gateway-'));
+  t.after(() => fs.rmSync(gatewayState, { recursive: true, force: true }));
+  const record = path.join(gatewayState, 'stable-build-dirs.json');
+  const stable = path.join(gatewayState, 'stable');
+  assert.deepEqual(resolveStableBuilds(true, [{ checkout: stable, build: gateway }], stable, record), [gateway]);
+  const recorded = resolveStableBuilds(false, [], stable, record);
+  assert.deepEqual(recorded, [gateway]);
+  assert.deepEqual(orphanCandidates(f.root, recorded.map((build) => ({ build }))), [orphan]);
+});
+
+test('unmapped stable gateway without a record refuses collection', (t) => {
+  const f = fixture(t);
+  const record = path.join(f.root, 'stable-build-dirs.json');
+  assert.throws(() => resolveStableBuilds(false, [], 'X:/', record), /no gateway build directory is recorded/);
+  fs.writeFileSync(record, JSON.stringify({ builds: ['relative'] }));
+  assert.throws(() => resolveStableBuilds(false, [], 'X:/', record));
+  assert.throws(() => resolveStableBuilds(true, [], 'X:/', record), /mapping is missing/);
 });
 
 test('dry run preserves artifacts; real collection removes only selected orphan', (t) => {
