@@ -61,16 +61,51 @@ pub fn observe_tab_liveness(svc: &ServiceContext, tab_id: &str) -> AgentLiveness
         .unwrap_or(AgentLiveness::Unobserved)
 }
 
-fn classify_restore_liveness(
-    tab: &crate::multiplexer::types::Tab,
+/// The restore-only facts a liveness verdict needs beyond [`LivenessEvidence`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RestoreFacts {
     evidence: LivenessEvidence,
-) -> AgentLiveness {
+    snapshot_pending: bool,
+    authenticated: bool,
+    /// The existing startup binding deadline for this boot's launch has passed,
+    /// or that launch already latched its bounded deadline stage.
+    binding_deadline_elapsed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestoreVerdict {
+    Observed(AgentLiveness),
+    /// Launched this boot but never bound a session within the binding deadline:
+    /// counted absent by the report, while its identity is left for explicit recovery.
+    Unbound,
+}
+
+impl RestoreVerdict {
+    fn liveness(self) -> AgentLiveness {
+        match self {
+            RestoreVerdict::Observed(liveness) => liveness,
+            RestoreVerdict::Unbound => AgentLiveness::Absent,
+        }
+    }
+
+    fn reconciles(self) -> bool {
+        self == RestoreVerdict::Observed(AgentLiveness::Absent)
+    }
+}
+
+fn classify_restore_facts(facts: RestoreFacts) -> RestoreVerdict {
     use codeterm_types::pty::BootStage;
 
+    let evidence = facts.evidence;
+    if evidence.declares_agent
+        && !evidence.boot_in_flight
+        && evidence.boot_stage == Some(BootStage::SpawnFailed)
+    {
+        return RestoreVerdict::Observed(AgentLiveness::Absent);
+    }
     let terminal = !evidence.declares_agent
         || evidence.provider_exit_observed
-        || (!evidence.boot_in_flight && evidence.boot_stage == Some(BootStage::SpawnFailed))
-        || (!tab.restored_from_snapshot
+        || (!facts.snapshot_pending
             && !evidence.boot_in_flight
             && matches!(
                 evidence.backing,
@@ -79,16 +114,33 @@ fn classify_restore_liveness(
                 }
             ));
     if terminal || matches!(evidence.backing, AgentBacking::ChatBackend { .. }) {
-        return classify_agent_liveness(evidence);
+        return RestoreVerdict::Observed(classify_agent_liveness(evidence));
     }
-    if tab.restored_from_snapshot
-        || !tab.launch_session_authenticated()
+    if !facts.snapshot_pending
+        && !evidence.boot_in_flight
+        && !facts.authenticated
+        && facts.binding_deadline_elapsed
+        && matches!(
+            evidence.boot_stage,
+            Some(
+                BootStage::LaunchWritten
+                    | BootStage::ProviderReady
+                    | BootStage::AgentReady
+                    | BootStage::LaunchDeadlineElapsed
+                    | BootStage::LaunchBindingUnconfirmed
+            )
+        )
+    {
+        return RestoreVerdict::Unbound;
+    }
+    if facts.snapshot_pending
+        || !facts.authenticated
         || !matches!(
             evidence.boot_stage,
             Some(BootStage::ProviderReady | BootStage::AgentReady | BootStage::PtyReattached)
         )
     {
-        return AgentLiveness::Unobserved;
+        return RestoreVerdict::Observed(AgentLiveness::Unobserved);
     }
     if evidence.boot_stage == Some(BootStage::PtyReattached)
         && !evidence.boot_in_flight
@@ -99,15 +151,39 @@ fn classify_restore_liveness(
             }
         )
     {
-        return AgentLiveness::Live;
+        return RestoreVerdict::Observed(AgentLiveness::Live);
     }
-    classify_agent_liveness(evidence)
+    RestoreVerdict::Observed(classify_agent_liveness(evidence))
+}
+
+fn restore_facts(svc: &ServiceContext, tab: &crate::multiplexer::types::Tab) -> RestoreFacts {
+    restore_facts_from(tab, evidence_for_snapshot(svc, tab))
+}
+
+fn restore_facts_from(
+    tab: &crate::multiplexer::types::Tab,
+    evidence: LivenessEvidence,
+) -> RestoreFacts {
+    use codeterm_types::pty::BootStage;
+
+    let binding_deadline_elapsed = matches!(
+        tab.boot_stage,
+        Some(BootStage::LaunchDeadlineElapsed | BootStage::LaunchBindingUnconfirmed)
+    ) || tab.agent_set_at.is_some_and(|set_at| {
+        set_at.elapsed() >= crate::service::worker_ack::STARTUP_BINDING_DEADLINE
+    });
+    RestoreFacts {
+        evidence,
+        snapshot_pending: tab.restored_from_snapshot,
+        authenticated: tab.launch_session_authenticated(),
+        binding_deadline_elapsed,
+    }
 }
 
 fn observe_restore_tabs(
     svc: &ServiceContext,
     tab_ids: &[String],
-) -> BTreeMap<String, AgentLiveness> {
+) -> BTreeMap<String, RestoreVerdict> {
     tab_ids
         .iter()
         .map(|tab_id| {
@@ -115,7 +191,7 @@ fn observe_restore_tabs(
             let observed = tab
                 .as_ref()
                 .map(|tab| {
-                    let liveness = classify_restore_liveness(tab, evidence_for_snapshot(svc, tab));
+                    let verdict = classify_restore_facts(restore_facts(svc, tab));
                     log::debug!(
                         "[restore-liveness] tab={} session={:?} stage={:?} snapshot_pending={} authenticated={} liveness={}",
                         tab.id,
@@ -123,11 +199,11 @@ fn observe_restore_tabs(
                         tab.boot_stage,
                         tab.restored_from_snapshot,
                         tab.launch_session_authenticated(),
-                        liveness.as_str(),
+                        verdict.liveness().as_str(),
                     );
-                    liveness
+                    verdict
                 })
-                .unwrap_or(AgentLiveness::Unobserved);
+                .unwrap_or(RestoreVerdict::Observed(AgentLiveness::Unobserved));
             (tab_id.clone(), observed)
         })
         .collect()
@@ -153,15 +229,19 @@ impl ServiceContext {
                 .map(|tab| tab.id.clone())
                 .collect()
         };
-        let observed = observe_restore_tabs(self, &tab_ids);
-        if !crate::crash::restore_report::settle(&restored_ids, observed.clone()) {
+        let verdicts = observe_restore_tabs(self, &tab_ids);
+        let observed = verdicts
+            .iter()
+            .map(|(tab_id, verdict)| (tab_id.clone(), verdict.liveness()))
+            .collect();
+        if !crate::crash::restore_report::settle(&restored_ids, observed) {
             return;
         }
         if crate::crash::restore_report::wave_is_settled() {
             crate::service::supporter_notify::restore_complete(self);
         }
-        for (tab_id, liveness) in observed {
-            if liveness == AgentLiveness::Absent {
+        for (tab_id, verdict) in verdicts {
+            if verdict.reconciles() {
                 self.reconcile_tab_restored_without_agent(&tab_id);
             }
         }
