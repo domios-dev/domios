@@ -371,6 +371,7 @@ impl ChatRegistry {
     }
 
     pub fn shutdown_tab(&self, tab_id: &str) {
+        super::structured_sink::clear_tab(tab_id);
         self.sources.lock().remove(tab_id);
         let h = self.inner.lock().remove(tab_id).map(|entry| entry.handle);
         if let Some(handle) = h {
