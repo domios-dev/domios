@@ -5,6 +5,8 @@ description: Run Domios's verification gates without burning a session on them. 
 
 # Gates
 
+Workers never run Rust tests, nextest, test-one, check-queue, or anything that compiles beyond their touched library crate. One small crate in isolation is the most a lane ever compiles, and only through `./build.sh lane-check <crate> [--tests]`. Run changed TS/JS test files in the lane and hand exact Rust module selectors to the Orchestrator in canonical. Full or reverse-dependency regressions run only in the Orchestrator's single release run. `CODETERM_ALLOW_LANE_RUST_TESTS=1` is an explicit Orchestrator-only override; Workers never set it.
+
 For file-backed QA summaries and agent-tab delivery, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
 
 Set `QA_NOTIFY_TAB` to receive one immediate alert per failing step while the
@@ -19,7 +21,7 @@ Two shapes, and picking the wrong one is what costs hours.
 | The branch is releasable | Delegate the broad gate, get a summary |
 | A release | Delegate, then verify its SHA yourself |
 
-A per-task Rust test-profile change uses `.\build.ps1 check-tests`, which
+In canonical, a per-task Rust test-profile change uses `.\build.ps1 check-tests`, which
 compiles all test targets in both the app and CLI workspaces without running
 them. A following `test-one app` or `test-one cli` reuses those artifacts.
 It uses the shared Cargo gateway entry and accepts `--wait-build`.
@@ -37,7 +39,7 @@ Rust `test-one` calls default to a 600-second process-group cap. `test` and
 and `TEST_CAP_SECS=0` disables the execution cap. Expiry exits 124 and prints
 active libtest case names captured from the execution output.
 
-## Focused, run here
+## Focused checks (Rust commands are canonical only)
 
 ```bash
 .\build.ps1 check                      # cargo check, ~2s incremental
@@ -54,7 +56,7 @@ node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
-In a Worker lane, type-check each touched Rust library before committing with `./build.sh lane-check <crate> [--tests]` on every platform; add `--tests` for changed tests. The helper loads the toolchain, stages resources and selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. Run affected non-Rust checks, rustfmt and boundary guards, then commit and run one `./build.sh check-queue --lane <sha>` for integration Clippy. Defer Rust execution tests, app builds and broad gates to the Orchestrator's canonical batch.
+In a Worker lane, type-check each touched Rust library before committing with `./build.sh lane-check <crate> [--tests]` on every platform; add `--tests` for changed tests. The helper loads the toolchain, stages resources and selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. Run affected non-Rust checks, rustfmt and boundary guards, then commit and hand integration Clippy selectors to the Orchestrator in canonical. Defer Rust execution tests, app builds and broad gates to the Orchestrator's canonical batch.
 
 ## Check before tests
 
@@ -66,7 +68,7 @@ Canonical QA always starts with `./build.sh check`; tests (`check-tests`,
 `test-one`) run only after it is green, so a name or type error costs seconds
 instead of a multi-minute test-profile rebuild.
 
-A Worker proves a committed Rust change with `./build.sh check-queue --lane [<sha>]`
+The Orchestrator checks a committed Rust change in canonical with `./build.sh check-queue --lane [<sha>]`
 (default: lane HEAD). It checks the SHA out in the per-machine check worktree
 (`<gateway dir>/check-worktree`, own warm `target/app` and `target/cli`, never
 canonical or a lane target), runs incremental
@@ -78,7 +80,7 @@ Core test targets stay at the batch. It prints at most `--max-errors` (default
 most `--max-warnings` (default 40) warning lines, one `warnings crate=<name>
 count=N` line per warned crate and `warnings=N shown=M failing=<crates>`.
 Warnings count as errors: any rustc or clippy warning in a touched crate fails
-the run, and a Worker reports only with `errors=0` and `warnings=0`.
+the run; canonical QA requires `errors=0` and `warnings=0`.
 check-queue, check-tests and clippy --all-targets type-check the bin against MockRuntime.
 The Wry world is checked by product library Clippy in check-queue and by every dev and production build.
 `--all` lints the whole app workspace and the CLI and fails on any warning.
@@ -237,6 +239,6 @@ Focused collector verification: `node --test scripts/tests/collect-rust-warnings
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
 
-Lane verification runs touched libraries with Clippy, root bins only when touched, and touched leaf test targets; service-core tests stay at the batch. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` without default features. Root dev/default and core defaults remain aligned for the product; ordinary tests explicitly disable defaults. A batch failure in a lane's files is a bounce naming the integration SHA.
+Lane verification uses only lane-check for one touched library crate and changed TS/JS test files. Canonical integration verification owns Clippy and focused Rust tests. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` without default features. Root dev/default and core defaults remain aligned for the product; ordinary tests explicitly disable defaults. A batch failure in a lane's files is a bounce naming the integration SHA.
 
 Product DEV and check-queue library Clippy retain embeddings. Ordinary test profiles disable default features, including archives and CI. The required `rust-embeddings` CI job alone runs memory tests with embeddings enabled (`./build.sh ci-tests embeddings`). Full check-queue checks the ordinary service-core test profile and no longer repeats a dev-lib cargo check.

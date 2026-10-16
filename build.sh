@@ -29,6 +29,8 @@ source scripts/dev-notify.sh
 dev_notify_capture_parent
 
 CMD="${1:-dev}"
+source scripts/lane-rust-guard.sh
+require_canonical_rust_tests "$CMD" || exit $?
 CT_DEV_WAIT=0
 DEV_NOTIFY_TAB=""
 
