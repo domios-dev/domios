@@ -2,7 +2,7 @@ use crate::agent_runtime::*;
 use crate::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use crate::provider::AgentProvider;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -65,7 +65,7 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
         .iter()
         .map(|kind| ((*kind).into(), json!([kind])))
         .collect();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"fastMode":true,"backgroundProcesses":true,"usage":true,"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"fastMode":true,"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
@@ -98,12 +98,15 @@ fn runtime_stored_history_native_quickjs_parity_and_capability_gate() {
                 content.as_bytes()
             );
         }
-        assert!(native
-            .runtime_stored_history("foreign-session", &records)
-            .is_err());
-        assert!(js
-            .runtime_stored_history("foreign-session", &records)
-            .is_err());
+        assert!(
+            native
+                .runtime_stored_history("foreign-session", &records)
+                .is_err()
+        );
+        assert!(
+            js.runtime_stored_history("foreign-session", &records)
+                .is_err()
+        );
     }
 }
 
@@ -417,6 +420,60 @@ async fn runtime_goal_native_quickjs_parity() {
         assert_eq!(Some(thread_id), ctx.thread_id);
         assert_eq!(serde_json::to_value(actual).unwrap(), intent);
     }
+}
+
+#[tokio::test]
+async fn thread_history_capability_native_quickjs_parity() {
+    let js = generic_provider(&generic_paths());
+    let native = native::NativeRuntime(js.agent_runtime().unwrap());
+    let mut ctx = RuntimeContext::default();
+    ctx.epoch = 1;
+    ctx.tab_id = "fixture-tab".into();
+    ctx.binding_nonce = "fixture-nonce".into();
+    ctx.cwd = "/fixture".into();
+    ctx.host_version = "1.0.0".into();
+    ctx.thread_id = Some("source-thread".into());
+    let op = RuntimeOperation::Control {
+        thread_id: ctx.thread_id.clone(),
+        action: "threadHistory".into(),
+        value: json!({"action":"fork","turnId":"turn-two"}),
+    };
+    let reply = RpcReply::Success {
+        value: json!({"thread":{"id":"fork-thread"}}),
+    };
+    let native_step = native
+        .runtime_response(&ctx, &op, &Value::Null, &reply)
+        .await
+        .unwrap();
+    let quickjs_step = js
+        .runtime_response(&ctx, &op, &Value::Null, &reply)
+        .await
+        .unwrap();
+    assert_eq!(native_step, quickjs_step);
+    assert!(matches!(
+        native_step,
+        RuntimeStep::Complete {
+            result: RuntimeResult::ThreadForked { .. },
+            ..
+        }
+    ));
+
+    let event = AgentRuntimeEvent::ThreadReverted {
+        thread_id: "source-thread".into(),
+    };
+    let frame = RuntimeFrame::Notification {
+        method: "item".into(),
+        params: json!({"usageEvent":event}),
+    };
+    let native_reduction = native
+        .runtime_reduce(&ctx, &Value::Null, std::slice::from_ref(&frame))
+        .await
+        .unwrap();
+    let quickjs_reduction = js
+        .runtime_reduce(&ctx, &Value::Null, &[frame])
+        .await
+        .unwrap();
+    assert_eq!(native_reduction, quickjs_reduction);
 }
 
 #[tokio::test]

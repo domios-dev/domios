@@ -34,7 +34,7 @@ export interface TransportClient {
   json<T>(method: HttpMethod, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number; callerTabId?: string }): Promise<T>;
   localJson<T>(method: string, path: string, body?: unknown, opts?: { signal?: AbortSignal; callerTabId?: string }): Promise<T>;
   upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T>;
-  subscribe(stream: string, onEvent: (name: string, data: unknown) => void, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; onActivity?: () => void; onReady?: () => void }): Unsubscribe;
+  subscribe(stream: string, onEvent: (name: string, data: unknown) => void | Promise<void>, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; onActivity?: () => void; onReady?: () => void }): Unsubscribe;
   currentToken(): string | null;
   origin(): string;
 }
@@ -104,7 +104,7 @@ class SseAccumulator {
   private bytes = 0;
   private tail = 0;
 
-  push(chunk: Uint8Array, deliver: (frame: string) => void): void {
+  async push(chunk: Uint8Array, deliver: (frame: string) => void | Promise<void>): Promise<void> {
     for (const byte of chunk) {
       if (this.bytes === this.buffer.length) {
         const grown = new Uint8Array(Math.min(this.buffer.length * 2, MAX_SSE_FRAME_BYTES + 4));
@@ -121,7 +121,7 @@ class SseAccumulator {
         const frame = new TextDecoder().decode(this.buffer.subarray(0, this.bytes - separator));
         this.bytes = 0;
         this.tail = 0;
-        deliver(frame);
+        await deliver(frame);
       } else {
         const suffix = lastThree === 0x0d0a0d ? 3
           : (this.tail & 0xffff) === 0x0d0a || (this.tail & 0xffff) === 0x0a0d ? 2
@@ -255,14 +255,14 @@ export function createTransportClient(options: TransportOptions): TransportClien
             const chunk = await reader.read();
             if (chunk.done || controller.signal.aborted) break;
             init.onActivity?.();
-            accumulator.push(chunk.value, (frame) => {
+            await accumulator.push(chunk.value, async (frame) => {
               const message = parseSseFrame(frame);
               if (message && !controller.signal.aborted) {
                 let data: unknown = message.data;
                 try { data = JSON.parse(message.data); } catch {}
                 if (!init.raw && typeof data === "object" && data !== null && "event_type" in data && typeof data.event_type === "string" && "data" in data) {
-                  handler(data.event_type, data.data);
-                } else handler(message.event, data);
+                  await handler(data.event_type, data.data);
+                } else await handler(message.event, data);
               }
             });
           }

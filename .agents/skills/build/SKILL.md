@@ -1094,6 +1094,20 @@ Verify the argv fixtures with
 selector in canonical and require a nonzero executed test count.
 
 
+### macOS lane-check fails in the sccache workspace wrapper
+
+With `rustc-wrapper = "sccache"` in Cargo's user config, sccache 0.16 can
+mis-probe the lane `RUSTC_WORKSPACE_WRAPPER` passthrough with `-E` and report
+`Compiler not supported` before compilation. Scope the workaround to that lane
+check:
+
+```sh
+RUSTC_WRAPPER= CODETERM_USE_SCCACHE=0 ./build.sh lane-check <package> [--tests]
+```
+
+This leaves Cargo configuration and the machine cache unchanged.
+
+
 ### Lane-check reports a missing item that exists in this worktree
 
 Cargo 1.95 can assign the same workspace unit hash to matching relative package

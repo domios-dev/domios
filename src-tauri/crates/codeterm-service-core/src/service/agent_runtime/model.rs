@@ -408,6 +408,31 @@ impl ItemCache {
     pub fn snapshot(&self) -> Vec<ChatMsg> {
         self.items.iter().cloned().collect()
     }
+    pub fn has_turn(&self, turn: &str) -> bool {
+        self.items
+            .iter()
+            .any(|item| item.tool_flow_id.as_deref() == Some(turn))
+    }
+    pub fn truncate_after_turn(&mut self, turn: &str) -> bool {
+        let Some(end) = self
+            .items
+            .iter()
+            .rposition(|item| item.tool_flow_id.as_deref() == Some(turn))
+        else {
+            return false;
+        };
+        while self.items.len() > end + 1 {
+            if let Some(item) = self.items.pop_back() {
+                self.positions.remove(&item.id);
+                self.history_origin.remove(&item.id);
+                self.live_during_backfill.remove(&item.id);
+                if self.rereadable {
+                    self.cached_bytes = self.cached_bytes.saturating_sub(Self::row_bytes(&item));
+                }
+            }
+        }
+        true
+    }
     pub fn tail(&self, limit: usize) -> Vec<ChatMsg> {
         self.items
             .range(self.items.len().saturating_sub(limit)..)

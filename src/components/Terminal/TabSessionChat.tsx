@@ -11,6 +11,7 @@ import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
+import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -61,6 +62,7 @@ import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./Permissi
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
 import { useTabActivity } from "../../lib/useTabActivity";
+import { ComposerBackgroundWorkProvider } from "./ComposerBackgroundWorkContext";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
 import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
@@ -407,8 +409,26 @@ function TabSessionChatBody({
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
+  const [pendingThreadRevertTurn, setPendingThreadRevertTurn] = useState<string | null>(null);
   const [contextSlot, setContextSlot] = useState<HTMLDivElement | null>(null);
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
+  const runThreadHistory = useLatestCallback(async (action: "fork" | "revert", turnId: string, confirmed = false) => {
+    const threadId = tab?.agent_session_id;
+    const bindingNonce = tab?.session_binding_nonce;
+    const epoch = runtime.state?.epoch;
+    if (!threadId || !bindingNonce || !epoch) {
+      showComposerError("Runtime thread binding is unavailable");
+      return;
+    }
+    try {
+      await invoke("agent_runtime_thread_history", {
+        tabId,
+        request: { action, turnId, confirmed, binding: { threadId, bindingNonce, epoch } },
+      });
+    } catch (error) {
+      showComposerError(error instanceof Error ? error.message : String(error));
+    }
+  }, [runtime.state?.epoch, showComposerError, tab?.agent_session_id, tab?.session_binding_nonce, tabId]);
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
@@ -916,6 +936,10 @@ function TabSessionChatBody({
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
               onDelete={deliverySend && canDeleteChatSend(deliverySend)
                 ? () => { void deleteTrackedChatMessage(tabId, deliverySend.id).catch((error: unknown) => showComposerError(error instanceof Error ? error.message : String(error))); } : undefined}
+              onForkFromHere={msg.toolFlowId && descriptor?.agent_runtime?.threadHistory?.actions.includes("fork")
+                ? () => { void runThreadHistory("fork", msg.toolFlowId!); } : undefined}
+              onRevertToHere={msg.toolFlowId && descriptor?.agent_runtime?.threadHistory?.actions.includes("revert")
+                ? () => setPendingThreadRevertTurn(msg.toolFlowId!) : undefined}
               selected={messageSelection.selected.has(msg.id)}
               joinNext={nextId !== undefined && following.length === 0 && messageSelection.selected.has(nextId)}
               selecting={messageSelection.active}
@@ -1055,30 +1079,40 @@ function TabSessionChatBody({
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
       {uploadStatus}
-      {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
-        tabId={tabId}
-        tabProvider={tabProvider}
-        currentPtyId={currentPtyId}
-        chatBackend={effectiveChatBackend}
-        isActive={isActive}
-        promptDock={runtimeBadge}
-        pendingPrompt={pendingPrompt}
-        attachments={attachments}
-        addAttachments={addAttachments}
-        removeAttachment={removeAttachment}
-        clearAttachments={clearAttachments}
-        handlePasteEvent={handlePasteEvent}
-        inlineAttachmentSink={inlineSinkRef}
-        pluginError={!runtimeUnavailable && effectiveChatBackend ? error : null}
-        sessionIntent={sessionIntent}
-        contextSlot={contextSlot}
-        onWillSendMessage={willSendMessage}
-        addOptimistic={addOptimistic}
-        updateOptimistic={updateOptimistic}
-        observeChatSendStatus={observeChatSendStatus}
-        showComposerError={showComposerError}
-        onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+      {pendingThreadRevertTurn && <ThreadRevertConfirmation
+        turnId={pendingThreadRevertTurn}
+        onCancel={() => setPendingThreadRevertTurn(null)}
+        onConfirm={(turnId) => {
+          setPendingThreadRevertTurn(null);
+          void runThreadHistory("revert", turnId, true);
+        }}
       />}
+      <ComposerBackgroundWorkProvider messages={allMessages}>
+        {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
+          tabId={tabId}
+          tabProvider={tabProvider}
+          currentPtyId={currentPtyId}
+          chatBackend={effectiveChatBackend}
+          isActive={isActive}
+          promptDock={runtimeBadge}
+          pendingPrompt={pendingPrompt}
+          attachments={attachments}
+          addAttachments={addAttachments}
+          removeAttachment={removeAttachment}
+          clearAttachments={clearAttachments}
+          handlePasteEvent={handlePasteEvent}
+          inlineAttachmentSink={inlineSinkRef}
+          pluginError={!runtimeUnavailable && effectiveChatBackend ? error : null}
+          sessionIntent={sessionIntent}
+          contextSlot={contextSlot}
+          onWillSendMessage={willSendMessage}
+          addOptimistic={addOptimistic}
+          updateOptimistic={updateOptimistic}
+          observeChatSendStatus={observeChatSendStatus}
+          showComposerError={showComposerError}
+          onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+        />}
+      </ComposerBackgroundWorkProvider>
       </>
       )}
       </ChatComposerSurface>

@@ -339,6 +339,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         RuntimeEvent::CompactionUpdated { thread_id, item_id } if owned(&thread_id) => {
             let _ = super::compaction::schedule(svc, session, epoch, &thread_id, &item_id);
         }
+        RuntimeEvent::ThreadReverted { .. } => {}
         _ => {}
     }
     if !matches!(session.state.lock().phase, RuntimePhase::Loading) {

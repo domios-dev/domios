@@ -35,7 +35,7 @@ export function archivedResume(message: string): boolean {
 
 export const notificationMethods = [
   "account/updated", "account/login/completed", "thread/started", "thread/status/changed", "thread/settings/updated", "thread/tokenUsage/updated",
-  "thread/compacted", "thread/goal/updated", "thread/goal/cleared", "model/rerouted", "turn/diff/updated", "account/rateLimits/updated", "turn/started", "turn/completed", "turn/plan/updated",
+  "thread/compacted", "thread/goal/updated", "thread/goal/cleared", "thread/reverted", "model/rerouted", "turn/diff/updated", "account/rateLimits/updated", "turn/started", "turn/completed", "turn/plan/updated",
   "item/started", "item/completed", "item/agentMessage/delta", "item/plan/delta",
   "item/reasoning/textDelta", "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded", "item/commandExecution/outputDelta",
   "item/fileChange/outputDelta", "item/fileChange/patchUpdated", "item/mcpToolCall/progress", "serverRequest/resolved", "error",
