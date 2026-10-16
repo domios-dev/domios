@@ -1,10 +1,12 @@
 //! `host.sqliteQueryAllJson`: a read-only query streamed into one JSON array
 //! whose size, and every value SQLite materialises for it, stay under a cap.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use parking_lot::Mutex;
 use rusqlite::limits::Limit;
 use rusqlite::types::ValueRef;
 
@@ -53,12 +55,34 @@ pub(super) fn host_query_start(
     if !query_allowed(sandbox, observation, &db) {
         return QUERY_JOB_NO_ROWS.to_string();
     }
-    let plugin_id = sandbox.plugin_id().to_string();
-    let started = super::super::host_exec::start_json_job(sandbox.plugin_id(), move || {
+    #[cfg(test)]
+    if let Some(refused) = async_query_tests::start_refused(&sql) {
+        return refused;
+    }
+    let plugin_id = sandbox.plugin_id();
+    let key = (db, sql, params_json);
+    let mut in_flight = IN_FLIGHT.lock();
+    let jobs = in_flight.entry(plugin_id.to_string()).or_default();
+    jobs.retain(|_, job| super::super::host_exec::retained_job_live(plugin_id, job));
+    if let Some(job) = jobs.get(&key) {
+        if super::super::host_exec::attach_retained(plugin_id, job) {
+            return serde_json::json!({ "jobId": job }).to_string();
+        }
+        jobs.remove(&key);
+    }
+    if jobs.len() >= MAX_IN_FLIGHT_QUERIES_PER_PLUGIN {
+        return serde_json::json!({
+            "error": format!("plugin {plugin_id} reached the in-flight sqlite query limit ({MAX_IN_FLIGHT_QUERIES_PER_PLUGIN})")
+        })
+        .to_string();
+    }
+    let (db, sql, params_json) = key.clone();
+    let worker_plugin = plugin_id.to_string();
+    let started = super::super::host_exec::start_retained_json_job(plugin_id, move || {
         #[cfg(test)]
         async_query_tests::park_on_test_gate(&sql);
         let result = POOL.query(
-            &plugin_id,
+            &worker_plugin,
             &db,
             &sql,
             params_json.as_deref(),
@@ -67,10 +91,23 @@ pub(super) fn host_query_start(
         query_job_result(&db, result)
     });
     match started {
-        Ok(job_id) => serde_json::json!({ "jobId": job_id }).to_string(),
+        Ok(job_id) => {
+            #[cfg(test)]
+            async_query_tests::record_start(plugin_id);
+            jobs.insert(key, job_id.clone());
+            serde_json::json!({ "jobId": job_id }).to_string()
+        }
         Err(error) => serde_json::json!({ "error": error }).to_string(),
     }
 }
+
+/// One job per distinct (db, sql, params): a call arriving while that query is
+/// still running, or after its waiter timed out, awaits the same job.
+const MAX_IN_FLIGHT_QUERIES_PER_PLUGIN: usize = 32;
+type QueryKey = (String, String, Option<String>);
+/// Taken before `host_exec`'s job map, never while holding it.
+static IN_FLIGHT: LazyLock<Mutex<HashMap<String, HashMap<QueryKey, String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 const QUERY_JOB_NO_ROWS: &str = "{\"rows\":null}";
 
