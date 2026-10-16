@@ -4,7 +4,7 @@ use codeterm_types::agent::chat_types::ChatMsg;
 pub use input::sanitize_history_input;
 use serde::Deserialize;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct RuntimeHistory {
     items: Vec<ChatMsg>,
     open_items: Vec<OpenItem>,

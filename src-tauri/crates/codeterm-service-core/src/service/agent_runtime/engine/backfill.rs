@@ -20,6 +20,7 @@ pub(super) trait HistoryPort {
 
 /// History replay of one epoch: requested newest first; a plugin that answers ascending
 /// is replayed whole before Ready and lands as one block.
+#[derive(Clone)]
 pub(super) struct Replay {
     epoch: u64,
     generation: u64,
@@ -116,9 +117,17 @@ impl Replay {
                 "History order changed between pages".into(),
             ));
         }
-        self.pages += 1;
-        self.answers
-            .extend(items.iter().filter(|item| item.kind == "user").cloned());
+        self.answers.extend(
+            items
+                .iter()
+                .filter(|item| {
+                    item.kind == "user"
+                        && serde_json::from_str::<serde_json::Value>(&item.content).is_ok_and(
+                            |answer| answer["itemId"].is_string() && answer["answers"].is_array(),
+                        )
+                })
+                .cloned(),
+        );
         self.history.reconcile_questions(&self.answers, questions);
         if !self.history.questions().is_empty() {
             port.questions(self.history.questions()).await?;
@@ -126,6 +135,15 @@ impl Replay {
                 return Err(RuntimeFailure::Superseded);
             }
         }
+        if next_cursor
+            .as_ref()
+            .is_some_and(|next| self.cursors.contains(next))
+        {
+            return Err(RuntimeFailure::HookFailed(
+                "History cursor did not advance".into(),
+            ));
+        }
+        self.pages += 1;
         let mut rows = items;
         for open in &open_items {
             if !rows.iter().any(|row| row.id == open.item.id) {
@@ -147,9 +165,7 @@ impl Replay {
         match next_cursor {
             None => self.done = true,
             Some(next) => {
-                if !self.cursors.insert(next.clone()) {
-                    return Err(RuntimeFailure::HookFailed("History cursor limit".into()));
-                }
+                self.cursors.insert(next.clone());
                 self.cursor = Some(next);
             }
         }
@@ -281,6 +297,7 @@ pub(super) fn finish(
         Ok(()) => HistoryBackfill::Complete,
         Err(_) => HistoryBackfill::Failed,
     };
+    let mut checkpoint = port.session.history_retry.lock();
     if !port
         .session
         .cache
@@ -290,6 +307,15 @@ pub(super) fn finish(
         return;
     }
     let tab = port.tab.as_str();
+    *checkpoint = outcome
+        .as_ref()
+        .err()
+        .filter(|reason| !matches!(reason, RuntimeFailure::Superseded))
+        .map(|reason| FailedReplay {
+            replay: replay.clone(),
+            error: format!("History page {}: {reason}", replay.pages + 1),
+        });
+    drop(checkpoint);
     match outcome {
         Ok(()) => {
             crate::startup::boot_timing::mark(tab, None, "history_complete");
@@ -328,3 +354,49 @@ pub(super) fn continue_in_background(mut port: RpcPort, mut replay: Replay, reop
 #[cfg(test)]
 #[path = "backfill/tests.rs"]
 mod tests;
+
+pub(crate) struct FailedReplay {
+    replay: Replay,
+    pub error: String,
+}
+
+pub(crate) fn retry(
+    svc: &ServiceContext,
+    tab: &str,
+    session: &Arc<Session>,
+) -> Result<bool, RuntimeFailure> {
+    let checkpoint = session.history_retry.lock().take();
+    let Some(checkpoint) = checkpoint else {
+        return Ok(false);
+    };
+    let process = session.process.lock().clone();
+    let Some(process) = process else {
+        *session.history_retry.lock() = Some(checkpoint);
+        return Err(RuntimeFailure::Superseded);
+    };
+    let replay = checkpoint.resume(session)?;
+    let thread = replay.thread.clone();
+    let port = RpcPort::new(svc, session, &process, tab, &thread);
+    let reopen = Reopen {
+        started: Instant::now(),
+        spawned_ms: None,
+        initialized_ms: 0,
+        resumed_ms: 0,
+        first_page_ms: 0,
+        ready_ms: 0,
+    };
+    super::publish(svc, tab, session);
+    continue_in_background(port, replay, reopen);
+    Ok(true)
+}
+
+impl FailedReplay {
+    fn resume(self, session: &Session) -> Result<Replay, RuntimeFailure> {
+        if !self.replay.current(session, true)
+            || !session.cache.lock().resume_backfill(self.replay.generation)
+        {
+            return Err(RuntimeFailure::Superseded);
+        }
+        Ok(self.replay)
+    }
+}

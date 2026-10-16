@@ -38,6 +38,7 @@ pub struct Session {
     pub(super) initialization: super::initialize::Initialization,
     pub(super) compaction: Mutex<super::subscriber::CompactionState>,
     pub(super) abort_note: Mutex<Option<String>>,
+    pub(super) history_retry: Mutex<Option<backfill::FailedReplay>>,
 }
 static SESSIONS: LazyLock<Mutex<HashMap<String, Arc<Session>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -73,7 +74,7 @@ pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bo
 }
 
 #[path = "engine/backfill.rs"]
-mod backfill;
+pub(super) mod backfill;
 
 #[cfg(test)]
 #[path = "engine/test_support.rs"]
@@ -187,6 +188,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                     initialization: super::initialize::Initialization::default(),
                     compaction: Mutex::new(Default::default()),
                     abort_note: Mutex::new(None),
+                    history_retry: Mutex::new(None),
                 })
             })
             .clone()
@@ -475,7 +477,11 @@ async fn ensure_locked(
     .map_err(RuntimeFailure::HookFailed)?;
     super::question_delivery::publish(svc, tab, session, questions)
         .map_err(RuntimeFailure::HookFailed)?;
-    let generation = session.cache.lock().begin_backfill();
+    let generation = {
+        let mut checkpoint = session.history_retry.lock();
+        *checkpoint = None;
+        session.cache.lock().begin_backfill()
+    };
     let mut port = backfill::RpcPort::new(svc, session, &process, tab, &thread_id);
     let mut replay = backfill::Replay::new(context.epoch, generation, &thread_id);
     if let Err(reason) = replay.first(session, &mut port).await {
@@ -850,11 +856,25 @@ fn commit_runtime_binding(
     Ok(())
 }
 
+pub(super) fn snapshot(session: &Session) -> model::RuntimeSnapshot {
+    let mut snapshot = session.state.lock().snapshot();
+    {
+        let cache = session.cache.lock();
+        snapshot.history = Some(cache.backfill());
+        snapshot.history_pages = Some(cache.history_pages());
+    }
+    snapshot.history_error = session
+        .history_retry
+        .lock()
+        .as_ref()
+        .map(|failure| failure.error.clone());
+    snapshot
+}
+
 pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
     session.control_changes.send_replace(());
     let context = session.context.lock().clone();
-    let state = session.state.lock().clone();
-    let mut value = serde_json::to_value(state.snapshot()).unwrap_or(Value::Null);
+    let mut value = serde_json::to_value(snapshot(session)).unwrap_or(Value::Null);
     if let Some(snapshot) = value.as_object_mut() {
         snapshot.insert(
             "auth".into(),
@@ -913,7 +933,7 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
             target.record_activity();
         }
         target.agent_runtime_state = Some(value.clone());
-        target.agent_booting = matches!(state.phase, RuntimePhase::Loading);
+        target.agent_booting = value["state"] == "loading";
     }
     svc.notify_event(
         "agent-runtime-state",
