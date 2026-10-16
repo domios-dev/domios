@@ -24,6 +24,7 @@ Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value:
 
 let hook: UseChatScrollResult;
 let drift = 0;
+let foldLayout = () => {};
 let nextFrame = 0;
 const frames = new Map<number, FrameRequestCallback>();
 Object.defineProperties(testWindow, {
@@ -42,7 +43,7 @@ const userScrolling = { current: false };
 function Fixture({ active, revision }: { active: boolean; revision: number }) {
   hook = useChatScroll({ sessionKey: "gesture-wiring", active, loading: false, messageCount: 3,
     contentVersion: revision, prependVersion: "first", followTailRef: followTail, userScrollingRef: userScrolling,
-    foldLayoutDrift: () => { const value = drift; drift = 0; return value; } });
+    foldLayoutDrift: () => { foldLayout(); const value = drift; drift = 0; return value; } });
   return <><div ref={hook.scrollRef} onScroll={hook.handleScroll} />
     <ScrollToLatestButton testId="latest" gestureOwned={hook.gestureOwned} userScrollingRef={userScrolling} onClick={hook.scrollToBottom} />
   </>;
@@ -59,11 +60,13 @@ async function main() {
   let nativeTop = 0;
   let height = 1000;
   let writes = 0;
+  let writeBefore = 0;
   Object.defineProperties(scroll, {
     scrollHeight: { configurable: true, get: () => height },
     clientHeight: { configurable: true, get: () => 400 },
     scrollTop: { configurable: true, get: () => nativeTop, set: (value: number) => {
       writes++;
+      writeBefore = nativeTop;
       nativeTop = Math.max(0, Math.min(value, height - 400));
     } },
   });
@@ -164,6 +167,7 @@ async function main() {
     await act(async () => fire("scroll"));
     assert.equal(followTail.current, false, "the released gesture cannot repair a moved reader back to bottom");
     drift = 50;
+    foldLayout = () => { if (drift !== 0 && scroll.style.overflowAnchor !== "none") nativeTop += drift; };
     for (let index = 0; index < 4; index++) {
       nativeTop -= 10;
       await act(async () => { fire("scroll"); repair(); });
@@ -176,9 +180,11 @@ async function main() {
     await frame();
     await frame();
     assert.equal(writes, 0, "two unchanged animation frames cannot release momentum");
+    const lastOwnedTop = nativeTop;
     await frame();
     assert.equal(drift, 0);
     assert.equal(writes, 1, "quiescence folds the held deviation in exactly one write");
+    assert.equal(writeBefore, lastOwnedTop, "fold starts at the last owned position before native anchoring resumes");
     await frame();
     assert.equal(writes, 1);
     console.log("8 chat gesture wiring checks passed");
