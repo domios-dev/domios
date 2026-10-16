@@ -1041,3 +1041,17 @@ Lane-check prompt additions affect both the 5000-byte worker suffix and the 1450
 workspace, while this verb selects the app manifest. No CLI compilation ran.
 For a CLI contract change, `./build.sh cli` compiles the checkout CLI and
 regenerates its artifacts; committed check-queue includes CLI test targets.
+
+### Focused tests for external path dependencies
+
+`test-one paths tests::strip_verbatim_prefix` and `nextest paths` select
+`codeterm-paths` through the app manifest without feature-selection flags.
+The same applies to `mem-store` and both `codeterm-*` aliases: these packages
+are external path dependencies, and neither declares Cargo features. Passing
+`--no-default-features` while selecting only one external package fails with
+"cannot specify features for packages outside of workspace" before any test runs.
+Release archives select these alongside workspace packages; focused routing
+retains the app workspace profiles and target cache without that invalid flag.
+Verify the argv fixtures with
+`node --test scripts/dev-build-configuration.test.mjs`, then run the focused
+selector in canonical and require a nonzero executed test count.
