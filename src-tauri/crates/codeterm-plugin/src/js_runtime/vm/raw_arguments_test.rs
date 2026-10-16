@@ -37,6 +37,7 @@ fn session_parser_argument_channels_preserve_rows() {
                     json: serde_json::to_string(&args).unwrap(),
                     raw: None,
                     objects: None,
+                    window: None,
                 };
                 let raw = Arguments::prepare(method, &args).unwrap();
                 assert!(raw.raw.is_some());
@@ -77,6 +78,7 @@ fn stored_history_argument_measurement() {
                     json: serde_json::to_string(&args).unwrap(),
                     raw: None,
                     objects: None,
+                    window: None,
                 }
             };
             prepare += start.elapsed();

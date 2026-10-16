@@ -94,6 +94,8 @@ pub struct ParsedRecord {
     pub offset: u64,
     pub row: usize,
     pub value: Value,
+    #[serde(skip)]
+    pub(crate) ordered_value: Option<super::ordered::OrderedValue>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub oversized: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -216,11 +218,12 @@ pub fn parse_records_with_limit(
                     .iter()
                     .map(|predicate| predicate.path.clone()),
             );
-            super::projection::project(&text, &paths, limit as usize)
+            super::projection::project_ordered(&text, &paths, limit as usize)
         } else {
-            serde_json::from_str(&text).map_err(|error| error.to_string())
+            serde_json::from_str::<super::ordered::OrderedValue>(&text)
+                .map_err(|error| error.to_string())
         };
-        let value: Value = match parsed {
+        let ordered = match parsed {
             Ok(value) => value,
             Err(error) => {
                 if oversized {
@@ -231,6 +234,7 @@ pub fn parse_records_with_limit(
                 continue;
             }
         };
+        let value = ordered.to_value();
         if !source.filter.matches(&value, session) {
             continue;
         }
@@ -239,10 +243,16 @@ pub fn parse_records_with_limit(
         } else {
             value
         };
+        let ordered_value = Some(if oversized {
+            ordered.retain_shape(&value)
+        } else {
+            ordered
+        });
         window.records.push(ParsedRecord {
             offset,
             row,
             value,
+            ordered_value,
             oversized,
             bytes: oversized.then_some(line.len() as u64),
         });

@@ -47,6 +47,54 @@ fn fixture(filters: Value) -> JsProvider {
 }
 
 #[test]
+fn kernel_object_key_order_matches_json_parse() {
+    let provider = load_inline_js(
+        "record-key-order",
+        r#"
+        function project(value) {
+            return [Object.keys(value), Object.keys(value.paths), JSON.stringify(value)];
+        }
+        module.exports = {
+            textKeys(text) { return project(JSON.parse(text)); },
+            parseSessionRecords(records, meta) {
+                JSON.parse = () => { throw new Error('record arguments must already be objects'); };
+                return project(records[0].value);
+            }
+        };
+    "#,
+    );
+    let input = concat!(
+        r#"{"z":0,"paths":{"src/z.ts":1,"src/a.ts":2,"10":3,"2":4,"__proto__":5},"a":[{"z":3,"a":1}],"z":2}"#,
+        "\n"
+    );
+    let expected: Value =
+        super::super::vm::call_json(provider.vm(), "textKeys", &[json!(input)]).unwrap();
+    for limit in [None, Some(1)] {
+        let source = serde_json::from_value(json!({
+            "format":"jsonl", "filter":{}, "maxRecordBytes":limit,
+            "oversized":{"keep":[["a"],["paths"],["z"]]}
+        }))
+        .unwrap();
+        let window =
+            crate::jsonl_window::records::parse_records(input.as_bytes(), 0, &source, None);
+        assert_eq!(window.records.len(), 1);
+        let actual: Value = super::super::vm::call_records(
+            provider.vm(),
+            "parseSessionRecords",
+            &[json!(window.records), json!(window.meta)],
+            &window,
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(actual[0], json!(["z", "paths", "a"]));
+        assert_eq!(
+            actual[1],
+            json!(["2", "10", "src/z.ts", "src/a.ts", "__proto__"])
+        );
+    }
+}
+
+#[test]
 fn native_text_and_kernel_columns_keep_rows_and_byte_identity() {
     let text = fixture(json!({}));
     let kernel = fixture(

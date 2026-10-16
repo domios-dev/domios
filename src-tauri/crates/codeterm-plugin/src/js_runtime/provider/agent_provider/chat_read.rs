@@ -57,9 +57,10 @@ impl JsProvider {
         if let Some(error) = &window.projection_error {
             return Err(error.clone());
         }
-        self.try_call(
+        self.try_call_records(
             "runtimeStoredRecords",
             &[json!(session_id), json!(window.records), json!(window.meta)],
+            window,
         )
         .ok_or_else(|| "Stored runtime record projection failed".into())
     }
