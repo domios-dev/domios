@@ -24,7 +24,6 @@ fn eligible() -> SleepFacts {
         external_chat_subscriber: false,
         mesh_relay: false,
         last_activity_ms: Some(0),
-        last_output_ms: Some(0),
         last_open_ms: Some(0),
         exact_resume_capability: true,
         persisted_session: Some(PersistedSession {
@@ -185,7 +184,6 @@ macro_rules! refuses_clock {
         #[test]
         fn $name() {
             for clock in [
-                None,
                 Some(NOW + 1),
                 Some(NOW),
                 Some(NOW - 3_600_000),
@@ -207,8 +205,37 @@ macro_rules! refuses_clock {
 }
 
 refuses_clock!(activity_clock, last_activity_ms, ActivityNotOldEnough);
-refuses_clock!(output_clock, last_output_ms, OutputNotOldEnough);
 refuses_clock!(open_clock, last_open_ms, OpenNotOldEnough);
+
+#[test]
+fn available_clocks_fall_back_and_missing_both_stays_awake() {
+    for (activity, opened, expected) in [
+        (Some(0), None, SleepDecision::Sleep),
+        (None, Some(0), SleepDecision::Sleep),
+        (
+            Some(0),
+            Some(NOW),
+            SleepDecision::Stay(StayReason::OpenNotOldEnough),
+        ),
+        (
+            Some(NOW),
+            Some(0),
+            SleepDecision::Stay(StayReason::ActivityNotOldEnough),
+        ),
+        (
+            None,
+            None,
+            SleepDecision::Stay(StayReason::ActivityNotOldEnough),
+        ),
+    ] {
+        let facts = SleepFacts {
+            last_activity_ms: activity,
+            last_open_ms: opened,
+            ..eligible()
+        };
+        assert_eq!(decision(&facts), expected);
+    }
+}
 
 #[test]
 fn sleeps_with_exact_persisted_session_and_all_proofs() {
