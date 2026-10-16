@@ -32,6 +32,7 @@ import {
 } from "./chatWindow";
 import { deliveryProjectionSends, visibleDeliveryRows } from "./chatDeliveryModel";
 import { useChatSendDismissals } from "./useChatSendDismissals";
+import { cancelChatStartPaintTiming, paintChatStartTiming } from "./chatStartTiming";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { setTranscriptAnchor } from "./transcriptStore";
 import { searchOlderChatHistory, type OlderChatPage } from "./chatHistorySearch";
@@ -136,6 +137,13 @@ export function useChatWindowView({
     () => enrichTimelineItems(windowProjection.items, enrichmentCacheRef.current),
     [windowProjection],
   );
+
+  useLayoutEffect(() => {
+    if (enrichedMessages.length === 0) return;
+    paintChatStartTiming(tabId);
+  });
+
+  useLayoutEffect(() => () => cancelChatStartPaintTiming(tabId), [tabId]);
 
   const hiddenMessageCount = transcript.evictedOlder + windowRange.start;
   const backfillCursor = transcriptBackfillCursor(transcript);

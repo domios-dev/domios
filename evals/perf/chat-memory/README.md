@@ -39,6 +39,27 @@ verdict: compare equivalent warm cycles and cleanup, distinguish JS retention
 from native renderer allocation, and account for profiler perturbation. A flat
 DEV run alone does not establish that a different PROD workload is fixed.
 
+Add `--bundle production` to open the daemon-served bundle at
+`http://127.0.0.1:7686/` in an owned CDP page instead of the native Vite page.
+The dev-locked bench library supplies the bearer token; credentials never enter
+URLs or result files. The owned page closes during cleanup. Run both modes with
+separate `--out` directories and the same fixture options for comparison.
+
+Each visit records renderer clock boundaries (`rendererStartTime` and
+`rendererEndTime`), `clientTiming.measures`, and stages grouped by request id.
+Subtract the visit start from a request measure's `startTime` to see client work
+before dispatch. The stages are:
+`response` (request to arrival), `adopted` (arrival to store adoption), `painted`
+(adoption to the first frame after a committed row has had a paint opportunity),
+and `total` (request to that frame). `responseBytes` is the UTF-8 byte size of the
+JSON-serialized decoded response, not compressed wire bytes. Two animation frames
+observe a paint opportunity; they do not prove compositor presentation. Retained
+visits without a request have empty measures. Instrumentation uses `DEV_BUILD`:
+a daemon-served development bundle retains these marks with production React;
+a release bundle strips them and reports empty client timing.
+
+Pure aggregation check: `node --test evals/perf/chat-memory/measures.test.mjs`.
+
 ## Pure markdown allocation benchmark
 
 Run in separate Node processes from the repository root:
