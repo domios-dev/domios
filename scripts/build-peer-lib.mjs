@@ -9,7 +9,9 @@ const SHA = /^[0-9a-f]{40}$/;
 export const VERBS = {
   'check-queue': { deadline: '45m', os: null, remote: 'check-queue' },
   nextest: { deadline: '30m', os: null, remote: 'nextest' },
+  'test-one': { deadline: '30m', os: null, remote: 'test-one' },
   'check-linux': { deadline: '45m', os: 'linux', remote: 'check-workspace' },
+  'check-series': { deadline: '4h', os: null, remote: null },
   setup: { deadline: '20m', os: null, remote: null },
 };
 
@@ -25,11 +27,14 @@ export function loadPeers(config, env = {}) {
     if (!NAME.test(name)) throw new Error(`peer name '${name}' is not a plain name`);
     if (!['windows', 'macos', 'linux'].includes(peer.os)) throw new Error(`peer ${name} has unknown os '${peer.os}'`);
     if (!SHELL_SAFE_PATH.test(peer.checkout ?? '')) throw new Error(`peer ${name} checkout '${peer.checkout}' is not a plain path`);
+    const extraPath = peer.path ?? [];
+    if (!Array.isArray(extraPath) || !extraPath.every((dir) => SHELL_SAFE_PATH.test(dir))) throw new Error(`peer ${name} path must be plain directories`);
     return {
       name,
       os: peer.os,
       checkout: peer.checkout,
       shell: peer.shell ?? null,
+      path: extraPath,
       routable: peer.routable !== false || enabled.has(name.toLowerCase()),
       note: peer.note ?? null,
     };
@@ -44,7 +49,7 @@ export function findPeer(peers, name) {
   return peer;
 }
 
-const VALUE_FLAGS = new Set(['--peer', '--os', '--deadline', '--reply-tab', '--sha', '--max-errors', '--max-warnings']);
+const VALUE_FLAGS = new Set(['--peer', '--os', '--deadline', '--reply-tab', '--sha', '--max-errors', '--max-warnings', '--spec', '--prereq']);
 const PASS_FLAGS = new Set(['--max-errors', '--max-warnings']);
 const PASS_SWITCHES = new Set(['--touched-only', '--all']);
 
@@ -64,6 +69,8 @@ export function parseDispatchArgs(verb, argv) {
       else if (arg === '--deadline') opts.deadline = value;
       else if (arg === '--reply-tab') opts.replyTab = value;
       else if (arg === '--sha') opts.sha = value;
+      else if (arg === '--spec' && verb === 'check-series') opts.spec = value;
+      else if (arg === '--prereq' && verb !== 'check-series') opts.prereq = value;
       else throw new Error(`${arg} is not valid for ${verb}`);
     } else if (arg === '--lane' && verb === 'check-queue') { opts.lane = true; opts.passthrough.push(arg); }
     else if (arg === '--force') opts.force = true;
@@ -75,8 +82,11 @@ export function parseDispatchArgs(verb, argv) {
   if (!opts.peer) throw new Error(`${verb} peer dispatch requires --peer <name|auto>`);
   if (opts.os && !['windows', 'macos', 'linux'].includes(opts.os)) throw new Error(`unknown --os '${opts.os}'`);
   if (opts.lane && opts.passthrough.includes('--all')) throw new Error('--lane and --all are exclusive');
-  if (verb === 'nextest') {
-    if (opts.positionals.length < 1 || opts.positionals.length > 2) throw new Error('usage: ./build.sh nextest <scope> [filterset] --peer <name|auto> [--sha SHA]');
+  if (verb === 'check-series') {
+    if (!opts.spec || opts.positionals.length || opts.sha) throw new Error('usage: ./build.sh check-series --spec FILE --peer <name|auto>');
+    opts.remoteArgs = [];
+  } else if (verb === 'nextest' || verb === 'test-one') {
+    if (opts.positionals.length < 1 || opts.positionals.length > 2) throw new Error(`usage: ./build.sh ${verb} <scope> [filter] --peer <name|auto> [--sha SHA]`);
     opts.remoteArgs = [...opts.positionals];
   } else {
     if (opts.positionals.length > 1) throw new Error(`usage: ./build.sh ${verb} [sha] --peer <name|auto>`);
@@ -139,24 +149,30 @@ function checkoutWord(checkout) {
   return `"${checkout}"`;
 }
 
+// Mesh shells are non-login, so a peer whose node or cargo lives outside the default PATH lists it in peers.json.
+export function pathPrefix(peer) {
+  return peer.path?.length ? `export PATH="${peer.path.join(':')}:$PATH"; ` : '';
+}
+
 export function eventHeader({ jobId, peer, verb, sha }) {
   return `[peer-job ${jobId}] peer=${peer} verb=${verb} sha=${sha}`;
 }
 
 // One POSIX command line for the peer's shell: lock, fetch the SHA, then the job runner from that SHA.
-export function remoteCommand({ peer, repository, jobId, verb, sha, clone, runner, reply }) {
+export function remoteCommand({ peer, repository, jobId, verb, sha, clone, runner, reply, prereqB64 = null }) {
   if (!SHA.test(sha)) throw new Error(`remote commands need a full SHA, got '${sha}'`);
+  if (prereqB64 !== null && !/^[A-Za-z0-9+/]+=*$/.test(prereqB64)) throw new Error('prerequisite patch must be base64');
   if (!NAME.test(jobId) || !NAME.test(reply.tab) || !NAME.test(reply.peer)) throw new Error('job id and reply route must be plain names');
   const header = eventHeader({ jobId, peer: peer.name, verb, sha });
   const send = `codeterm send --require-agent --tab ${reply.tab} --mesh ${reply.peer}`;
   const lock = `.git/${LOCK_NAME}`;
   const parts = [
-    `ct_rc=0; ct_stage=start`,
+    `${pathPrefix(peer)}ct_rc=0; ct_stage=start`,
     `ct_step() { ct_stage=$1; shift; "$@" || { ct_rc=$?; return 1; }; }`,
     `ct_fail() { rm -rf ${lock}; ${send} "${header} outcome=$1 exit=$ct_rc stage=$ct_stage"; }`,
   ];
   if (clone) {
-    parts.push(`ct_clone() { [ -d ${checkoutWord(`${peer.checkout}/.git`)} ] || { mkdir -p ${checkoutWord(peer.checkout.replace(/\/[^/]+$/, ''))} && git clone --quiet --no-tags ${shellQuote(repository)} ${checkoutWord(peer.checkout)}; }; }`);
+    parts.push(`ct_clone() { [ -d ${checkoutWord(`${peer.checkout}/.git`)} ] || { mkdir -p ${checkoutWord(peer.checkout.replace(/\/[^/]+$/, ''))} && git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 clone --quiet --no-tags ${shellQuote(repository)} ${checkoutWord(peer.checkout)}; }; }`);
   }
   parts.push(
     `if ! { ${clone ? 'ct_step clone ct_clone && ' : ''}ct_step checkout_dir cd ${checkoutWord(peer.checkout)}; }; then ${send} "${header} outcome=not_setup exit=$ct_rc stage=$ct_stage"`
@@ -165,7 +181,12 @@ export function remoteCommand({ peer, repository, jobId, verb, sha, clone, runne
     + `; elif ! ct_step detach git checkout --quiet --detach; then ct_fail bootstrap_failed`
     + `; elif ! ct_step fetch git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 fetch --quiet --no-tags origin +refs/heads/develop:refs/heads/develop ${sha}; then ct_fail bootstrap_failed`
     + `; elif ! ct_step checkout git checkout --quiet --detach ${sha}; then ct_fail bootstrap_failed`
+    + (prereqB64 === null ? '' : `; elif ! ct_step prereq sh -c 'printf %s "$1" | base64 -d | git apply --index' prereq ${prereqB64}; then git reset --quiet --hard; ct_fail bootstrap_failed`
+      + `; elif ! ct_step prereq_commit git -c user.name=codeterm-peer -c user.email=peer@codeterm.invalid commit --quiet -m 'scratch prerequisite, never pushed'; then git reset --quiet --hard; ct_fail bootstrap_failed`)
+    + `; elif ! ct_step runner_missing test -f scripts/build-peer.mjs; then ct_fail bootstrap_failed`
+    + `; elif ! ct_step node_missing command -v node; then ct_fail bootstrap_failed`
     + `; else node scripts/build-peer.mjs ${runner.map(shellQuote).join(' ')}; fi`,
+    'exit',
   );
   return parts.join('; ');
 }
@@ -178,6 +199,9 @@ const SUMMARY_PATTERNS = [
   /^warnings crate=/,
   /^peer-toolchain: /,
   /^Summary \[/,
+  /^tests: runs=\d+ /,
+  /^Slow unit ratchet (PASS|FAIL|ADVISORY)/,
+  /^Build gateway job \S+ exit: /,
   /^test result: /,
   /^DEADLOCK \/ HANG: /,
 ];
@@ -221,4 +245,85 @@ export function jobEvent({ jobId, peer, verb, sha, outcome, exitCode, wallSecs, 
 export function newJobId(now = new Date(), random = Math.random) {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
   return `peer-${stamp}-${Math.floor(random() * 0xffff).toString(16).padStart(4, '0')}`;
+}
+
+const REPO_FILE = /^[A-Za-z0-9_][A-Za-z0-9_./-]*$/;
+
+export function parseSeriesSpec(spec) {
+  const fail = (message) => { throw new Error(`series spec: ${message}`); };
+  if (!spec || typeof spec !== 'object') fail('not a JSON object');
+  const { marker, probe0, probe1, bases } = spec;
+  if (typeof marker !== 'string' || !/^\w+$/.test(marker)) fail('marker must be one word');
+  for (const probe of [probe0, probe1]) {
+    if (typeof probe !== 'string' || /[\r\n]/.test(probe) || !probe.includes(marker)) fail('probe0 and probe1 must be single lines containing the marker');
+  }
+  if (probe0 === probe1) fail('probe0 and probe1 must differ');
+  if (!Array.isArray(bases) || !bases.length) fail('bases must be a non-empty list');
+  const patches = (spec.patches ?? []).map((patch) => {
+    if (!REPO_FILE.test(patch?.file ?? '') || patch.file.split('/').includes('..')) fail('patch file must be a repository-relative path');
+    if (typeof patch.find !== 'string' || !patch.find || typeof patch.replace !== 'string' || patch.find === patch.replace) fail('patch needs distinct find and replace text');
+    return { file: patch.file, find: patch.find, replace: patch.replace };
+  });
+  return {
+    marker, probe0, probe1, patches,
+    bases: bases.map((base) => {
+      if (!SHA.test(base?.sha ?? '')) fail(`base ${base?.label ?? '?'} needs a full SHA`);
+      if (!Array.isArray(base.areas) || !base.areas.length) fail(`base ${base.sha} has no areas`);
+      return {
+        label: NAME.test(base.label ?? '') ? base.label : base.sha.slice(0, 9),
+        sha: base.sha,
+        areas: base.areas.map((area) => {
+          if (!NAME.test(area?.name ?? '')) fail('area names must be plain names');
+          if (!REPO_FILE.test(area.file ?? '') || area.file.split('/').includes('..')) fail(`area ${area.name} file must be a repository-relative path`);
+          return { name: area.name, file: area.file };
+        }),
+      };
+    }),
+  };
+}
+
+function cargoSeconds(text) {
+  const match = /^(?:(\d+)m )?([\d.]+)s$/.exec(text);
+  return match ? Number(match[1] ?? 0) * 60 + Number(match[2]) : null;
+}
+
+// One check-queue run: its own line, every cargo `Finished` time (full log first, else stdout) and the gateway job.
+export function parseCheckRun(output, fullLog = '') {
+  const text = stripAnsi(output);
+  const line = text.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('check-queue: sha=')).pop() ?? null;
+  const finishedIn = (source) => [...stripAnsi(source).matchAll(/Finished `[^`]+` profile \[[^\]]*\] target\(s\) in ((?:\d+m )?[\d.]+s)/g)]
+    .map((m) => cargoSeconds(m[1]));
+  const fromLog = finishedIn(fullLog);
+  return {
+    line,
+    skipped: /check-queue: no Rust changes/.test(text),
+    exit: line ? Number(line.match(/ exit=(\d+)/)?.[1]) : null,
+    wall: line ? Number(line.match(/ wall=(\d+)s/)?.[1]) : null,
+    packages: line?.match(/ packages=(.*?) cli=/)?.[1] ?? null,
+    fullLog: line?.match(/ full-log=(.+)$/)?.[1] ?? null,
+    gatewayJob: text.match(/Build gateway job (\S+) log: /)?.[1] ?? null,
+    finished: fromLog.length ? fromLog : finishedIn(text),
+  };
+}
+
+function runCell(run) {
+  if (!run) return 'not-run';
+  return `${run.wall ?? '?'}s[${run.finished.join('+') || '-'}]`;
+}
+
+function scopeOf(result) {
+  const lists = ['warm', 'floor', 'edit'].map((k) => result.runs[k]?.packages).filter((p) => p != null);
+  if (!lists.length) return 'none';
+  return new Set(lists).size === 1 ? `same(${lists[0].replace(/ /g, '_')})` : `DIFF(${lists.map((p) => p.replace(/ /g, '_')).join('|')})`;
+}
+
+export function seriesSummary(results, { expected, stopped, resultsPath, otherGatewayJobs }) {
+  const lines = [`series: areas=${results.length}/${expected} stopped=${stopped ?? 'none'} results=${resultsPath}`];
+  for (const r of results) {
+    lines.push(`${r.base_label} ${r.area} seed=${r.seed?.slice(0, 9) ?? '-'} edit=${r.edit?.slice(0, 9) ?? '-'} warm=${runCell(r.runs.warm)} floor=${runCell(r.runs.floor)} `
+      + `edit=${runCell(r.runs.edit)} exit=${['warm', 'floor', 'edit'].map((k) => r.runs[k]?.exit ?? '-').join('/')} `
+      + `jobs=${['warm', 'floor', 'edit'].map((k) => r.runs[k]?.gatewayJob ?? '-').join(',')} scope=${scopeOf(r)}`);
+  }
+  lines.push(`gateway-other=${otherGatewayJobs.length ? otherGatewayJobs.join(' ') : 'none'}`);
+  return lines;
 }

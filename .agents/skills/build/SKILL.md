@@ -103,6 +103,27 @@ cases also run on Linux/Windows; Raw Input cases compile only on Windows.
 `./build.sh test-one input-macos|input-windows <selector>` targets one crate;
 select Windows only on Windows. Workers defer Rust execution to canonical.
 
+## Frontend warning collection
+
+`pnpm build` runs TypeScript, then Vite, through `scripts/frontend-build.mjs`.
+It preserves compiler failures and writes `ci-rust-warnings/frontend.log`,
+`frontend-warnings.md` and `rust-warnings-<platform>-frontend.json` even when
+the type check fails. Failed stages mark collection incomplete. New Vite warnings
+fail the shared identity ratchet against `scripts/frontend-warnings-baseline.json`.
+Its initial entries record the Vite plugin-timing and chunk-size diagnostics
+observed at the recorded dispatch SHA; subsequent entries may only shrink. The summary
+checks both baselines independently, keeping Rust accounting separate. Never
+raise the chunk warning threshold to make a failing build pass.
+
+For a frontend build failure, inspect that log first. Repair TypeScript errors
+before rerunning the bundle; for oversized chunks, defer unused surfaces and
+check their runtime loading. Focused collector proof:
+`node --test scripts/tests/frontend-warnings.test.mjs scripts/tests/collect-rust-warnings.test.mjs`.
+
+Use `node scripts/frontend-bundle-metrics.mjs dist` before and after frontend
+splitting. Compare `initialBytes` (the static import closure) as well as
+`entryBytes`; a smaller entry alone does not prove less startup JavaScript.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.
@@ -330,25 +351,36 @@ Mesh peers run the same verbs in their own gateway, with their own warm cache an
 
 | Verb | What happens |
 |---|---|
-| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `rollacode/codeterm` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop`, runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. |
+| `./build.sh peer-setup <peer>` | One bounded build tab on the peer clones `rollacode/codeterm` into the configured checkout if missing, sets the push URL to `fetch-only.invalid`, detaches at the pushed `origin/develop` (or `--sha REF`, which must be pushed and contain `scripts/build-peer.mjs`), runs `./build.sh peer-toolchain` (rustc must equal `rust-toolchain.toml`, plus MSVC on Windows, Xcode CLT on macOS, `cc` on Linux, node, cargo-nextest, sccache) and opens the peer's `Buildpeer` status shell. `--install-toolchain` first runs `peer-toolchain --install`: a user-scope rustup (`rustup-init -y --no-modify-path --profile minimal`, the pinned toolchain with clippy and rustfmt) and the prebuilt cargo-nextest into `~/.cargo/bin`; no machine PATH or env change. |
 | `./build.sh check-queue <sha> --peer <name\|auto> [--lane] [--os OS]` | The peer fetches `develop` and the SHA, detaches its checkout at the SHA and runs `./build.sh check-queue <sha> [flags] --wait-build` in its gateway. `--lane`, `--all`, `--touched-only`, `--max-errors` and `--max-warnings` pass through unchanged. |
 | `./build.sh nextest <scope> [filterset] --peer <name\|auto> [--sha SHA]` | Same, running `./build.sh nextest <scope> [filterset] --wait-build` at the SHA (default HEAD). |
 | `./build.sh check-linux [sha] [--force]` | Once per batch: `./build.sh check-workspace <sha>` (`cargo check --workspace --all-targets` for the app workspace and the CLI, any warning fails) on the idle Linux peer, so `cfg(unix)` paths compile. A second call for the same SHA prints the existing receipt; `--force` dispatches again. |
+| `./build.sh check-series --spec FILE --peer <name>` | Build-speed measurement in one serial peer job. The spec JSON has `marker`, `probe0`, `probe1`, optional `patches: [{file, find, replace}]` and `bases: [{label, sha, areas: [{name, file}]}]`, and every base must be pushed. Each patch is an identical prerequisite committed on every base first; `find` must occur exactly once (for example, a unix compile fix the bases predate). For each area the runner builds never-pushed scratch commits with git plumbing on a private index, so the peer checkout stays at the runner SHA and one `build.sh` drives every base. The commits are a seed (probe0 appended), an edit (probe0 changed to probe1) and a revert, which must restore the base tree. The runner then runs `check-queue <seed>` twice (warm, then the no-op floor) and `check-queue <edit>` once. It stops at the first failed, busy, deadline or `no Rust changes` run. The event has one line per area: wall time with cargo `Finished` seconds for each run, exit codes and gateway job ids, plus other gateway jobs in the window. Full receipts are in `<checkout>/.git/codeterm-peer-jobs/<id>.series.json`. The scratch commits have no refs. |
+| `./build.sh test-one <scope> <name> --peer <name>` and `--prereq DIFF` on any peer verb | `test-one` runs the same focused test in the peer's gateway. `--prereq DIFF` ships a unified diff (base64 in the job command) that the peer applies with `git apply --index` and commits locally on top of the job SHA before the runner starts. Use it for an identical prerequisite such as a unix compile fix the SHA predates. The commit is never pushed, the next job's checkout discards it, and check-queue then checks `HEAD`. The dispatcher prints and records the diff's name and sha256. A diff that does not apply reports `outcome=bootstrap_failed stage=prereq` and leaves the checkout clean at the SHA. |
 | `./build.sh peer-route [--os OS]` | Shows what `--peer auto` would choose. |
 
 Dispatch returns at once with `peer-job: id=... peer=... remote-tab=... deadline=...` and writes a record under `<gateway dir>/peer-jobs/`. The SHA must be on a remote-tracking branch (push first). Completion is one message to the calling agent tab (`CODETERM_TAB_ID`, or `--reply-tab`) through `codeterm send --require-agent --mesh <origin instance id>`; nothing polls. The message starts `[peer-job <id>] peer=<peer> verb=<verb> sha=<sha> outcome=passed|failed|busy|deadline exit=N wall=Ns`, then the same summary lines the local verb prints (`errors=`, `warnings=... failing=`, `app-test ...` receipts, `check-queue: sha=...`, nextest `Summary [...] N tests run: ...`, `check-workspace: ...`), up to 12 error or failing-test lines, and `remote-log=<peer path> gateway-log=<peer gateway log>`. Bootstrap failures report `outcome=not_setup|busy|bootstrap_failed stage=<step>` instead.
 
-`--peer auto` reads each OS-matching routable peer's load over mesh: `codeterm tab list --mesh <peer>` finds its `Buildpeer` tab and `codeterm tab exec --mesh <peer>` runs `./build.sh peer-status`, which prints one lock-free `PEER_STATUS {json}` line (gateway state, active job, queue length, last job end, peer job lock). The least-loaded idle peer wins, ties going to the peer idle longest; a peer that is unreachable, not set up or slower than the 20 s probe deadline is skipped, and when no peer is idle the dispatch exits 75 with each peer's state.
+`--peer auto` reads each OS-matching routable peer's load over mesh: `codeterm tab list --mesh <peer>` finds its `Buildpeer` tab and `codeterm tab exec --mesh <peer>` runs `./build.sh peer-status`, which first reaps a dead gateway owner or queue ticket exactly as `gateway-status` does (so a cancelled CI job's orphaned lock never reads as busy), then prints one `PEER_STATUS {json}` line (gateway state, active job, queue length, last job end, peer job lock). The least-loaded idle peer wins, ties going to the peer idle longest; a peer that is unreachable, not set up or slower than the 20 s probe deadline is skipped, and when no peer is idle the dispatch exits 75 with each peer's state.
 
-Bounds: each job tab has `--timeout` = verb deadline + 10 min (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`); the peer runner kills the build tree at the deadline and still reports `outcome=deadline`; fetch aborts below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab for its own job identity; `tab restart` renews a shell's previous lifetime.
+Bounds: a mesh tab cannot carry `--timeout` (only a local owning agent can), so each job tab is `--eager` and stays open after the job for inspection (close finished ones with `codeterm tab close --mesh <peer>`); the verb deadline (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`) is enforced by the peer runner, which kills the build tree at the deadline and still reports `outcome=deadline`; clone and fetch abort below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab for its own job identity; `tab restart` renews a shell's previous lifetime.
 
-Measurements (fill from the first real runs): ROG cold first populate of `check-queue --all` — not yet measured; ROG warm lane `check-queue --lane` — not yet measured.
+Peer `path` (in `peers.json`): mesh shells are non-login, so a peer whose node or cargo is outside the default PATH lists those directories (ubunta: `$HOME/.local/node22/bin`); the job command and the status probe export them first, and a job without node reports `outcome=bootstrap_failed stage=node_missing`.
+
+Measurements: ROG (Windows) via one `check-series` on develop 7fc9cf309, area root crate `src-tauri/src/lib.rs` (`-p codeterm`, the full app dependency graph), job peer-20261016T003924Z-52b3. The first check in a never-compiled gateway check worktree (cold populate, sccache on the shared S3 cache) took 177 s: cargo `Finished` 110 s for the dev profile plus 64 s for the test profile. A no-op recheck (floor) took 4 s. A one-line edit in the root crate (warm lane check) took 11 s, 9.5 s of it cargo. eight (macOS) warm `--lane -p codeterm-sentinel` measured 32 s, and ubunta (Linux) `check-linux` workspace checks 73-94 s.
+
+Peer toolchain records: ROG (user amigo) had toolchains in `~/.rustup` but no proxies in `~/.cargo/bin`; `peer-setup ROG --install-toolchain` added rustup 1.29.1 proxies and cargo-nextest 0.9.148 there (default toolchain 1.95.0) and changed nothing under `C:\domios-ci` or the machine PATH. To remove it, delete those exes except `sccache.exe`, never `rustup self uninstall`, which deletes the `~/.rustup` other runs use. Never run `--install-toolchain` while another run uses that peer's toolchain.
 
 Troubleshooting:
-- No completion message arrives and the remote tab is gone: the tab timeout fired before the runner started (the shell never ran the command, for example a Windows peer without the `git-bash` profile). Check `codeterm tab list --mesh <peer>` and the peer's `peers.json` `shell`.
+- No completion message arrives and the remote tab is gone: the shell exited before the runner started (for example a Windows peer without the `git-bash` profile). Check `codeterm tab list --mesh <peer>` and the peer's `peers.json` `shell`.
 - `outcome=not_setup stage=checkout_dir`: run `./build.sh peer-setup <peer>` first.
+- `outcome=bootstrap_failed stage=runner_missing`: the SHA predates the peer runner; dispatch a SHA that contains `scripts/build-peer.mjs`.
 - `outcome=bootstrap_failed stage=checkout`: the peer checkout has local changes; it is fetch-only and must stay clean.
-- `peer routing: busy; X=unknown(not_setup)`: the peer has no `Buildpeer` tab; rerun `peer-setup`.
+- `peer routing: busy; X=unknown(not_setup)`: the peer has no `Buildpeer` tab (a peer reboot closes it); rerun `peer-setup`.
+- Windows peer, `outcome=busy exit=75` with `check-worktree git worktree failed (128): ... Filename too long` in the gateway log: provider fixture paths exceed MAX_PATH. `peer-setup` sets repo-local `core.longpaths=true`, which the gateway check worktree inherits; rerun it.
+- `Slow unit ratchet FAIL: added baseline: ...` on a peer nextest of a lane behind develop: the ratchet compares the checkout's baselines against `origin/develop`, so baselines develop has since dropped read as added. The tests themselves passed (see the `tests:` line); merge develop into the lane to clear it.
+- `resource path ../dist doesn't exist` from the `codeterm` build script on a fresh peer checkout: a nextest selection that reaches the app crate (for example `rdeps(...)`) needs the frontend dist placeholder and bundle stubs; `nextest` prepares both, so dispatch a SHA that contains that step.
+- A job's runner comes from the dispatched SHA, so a lane SHA older than a runner fix behaves like the old runner (no `tests:` summary line in the event, lock released after the event, which makes the next dispatch report `busy` at `peer_lock`).
 
 ## Cache retention and troubleshooting
 
@@ -360,21 +392,33 @@ At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tau
 
 Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `.\build.ps1 gc --dry-run` / `.\build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
 
-Manual GC also maps every existing Git worktree of this repository and the sibling
+Orphan build-directory GC runs in manual GC and in the hourly automatic retention.
+It maps every existing Git worktree of this repository and the sibling
 `codeterm-plugins` repository, plus the gateway's stable `X:` checkout, through
 `cargo metadata --format-version 1 --offline --no-deps`. Cargo 1.95 exposes
 `build_directory`; no hash approximation is used. Set `CODETERM_PLUGINS_CHECKOUT`
-when the plugin repository is elsewhere. Missing repositories, failed metadata,
-or a missing gateway mapping refuse deletion. Each workspace mapping is printed.
-The configured two-level `{workspace-path-hash}` cache roots are discovered from
-these paths, rather than hardcoding BLACKSTAR's RustCaches location.
+when the plugin repository is elsewhere. Missing repositories or failed metadata
+refuse deletion. Each workspace mapping is printed. The configured two-level
+`{workspace-path-hash}` cache roots are discovered from these paths, rather than
+hardcoding BLACKSTAR's RustCaches location.
 
-Only unmapped build directories are removed, regardless of age. A live checkout's
-old build directory remains protected; `CODETERM_CACHE_MAX_AGE_DAYS` continues to
-govern exceptional targets and cargo-sweep, not deletion of live build directories.
+`X:` exists only inside a gateway job. Whenever GC sees it mapped it records the
+gateway build directory in `stable-build-dirs.json` in the machine gateway dir;
+when `X:` is unmapped (for example during `check-queue`) that record protects it,
+and with neither the mapping nor a record GC refuses. Automatic retention runs
+after the job's stable mapping so the record stays fresh. A worktree created or
+removed mid-run triggers a remap; a directory that became live is skipped.
+Automatic orphan-GC refusals are logged and the build continues.
+
+**Protection rule.** Never delete the build directory of the canonical checkout,
+of the gateway (`X:`), or of any live checkout, regardless of idle time: cold
+rebuilds of those stall every agent on the machine. Only unmapped build
+directories (whose checkout no longer exists) are removed. Directory mtime is
+not a usage signal: Cargo writes deep inside the hash directory, so a live
+directory can look idle for days. `CODETERM_CACHE_MAX_AGE_DAYS` governs
+exceptional targets and cargo-sweep, not deletion of live build directories.
 `codeterm plan lanes --clean` removes worktrees upstream: their build directories
-become orphans on the next manual GC. Automatic hourly retention keeps its existing
-scope because the stable drive may not yet be mapped when that hook runs.
+become orphans on the next hourly retention.
 
 GC takes nonblocking exclusive locks on every `.cargo-lock` below each orphan and
 holds them through removal; a busy or unreadable lock protects the entire directory.
@@ -519,6 +563,8 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Lane dispatch fixture exits 127 at `configure_product_cargo` | Its extracted dispatch fragment omitted the real product feature helper. | Load the helper from build.sh and assert selected features with `node --test scripts/check-queue-plan.test.mjs`. |
+| Lock-storm fixture reports a null child exit with empty output on Linux | The child never launched: Linux runners have `python3`, not bare `python`. | Select `python3` on Unix and `python` on Windows; assert launch errors and report signals before diagnosing a runtime crash. Run `node --test scripts/tests/qa-lock-storm.test.mjs`. |
 | `install-local` fails in seconds with rustfmt `Diff in ...` | The cheap gates run before the gateway | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all` (and `cli/`), commit, rerun; with `--notify-tab` the receipt names the step and log. |
 | `install-local` refuses with `release source is not clean (N paths)` | Tracked edits or untracked files in the checkout; the first 20 paths follow the ERROR line | Commit or remove them. `src-tauri/gen/schemas/*.json` are LF-pinned in `.gitattributes`, so `check` and `dev` no longer dirty the tree. |
 | Release preparation and Tauri packaging compile Tauri and the app dependency graph twice | Preparation omitted `tauri/custom-protocol`, which packaging enables | Keep the packaging feature in `prepare_release_bundle_inputs`; inspect its Cargo timings and the gateway log after a serialized canonical build. |
@@ -531,9 +577,9 @@ Sign out and back in for a repaired PATH to reach new processes.
 | `release-preflight` reports TS2347 on OpenCode `sqliteQuery<T>` calls or TS6133 for imports in `provider-opencode/src/plugin.ts` | The helper declared the injected SDK host as `any`, so its generic query signature was unavailable, and obsolete helper imports remained | Type the injected host as the plugin SDK `Host`, remove unused imports, regenerate `plugins/provider-opencode/plugin.js` with `node scripts/build-plugin.mjs provider-opencode`, and commit the source and bundle together before rerunning preflight. |
 | Release PR `comment-length` check lists changed source files | The release diff contains inline `//` comment blocks of three or more lines | Reduce each flagged block to two lines without losing its invariant, then rerun `scripts/check-comment-length.sh --fail --changed <changed-files.txt>` and PR checks. Get the explicit approval required by `AGENTS.md` before editing PTY delivery logic. |
 | `registered_documents_have_one_title_and_fit_the_reading_boundary` rejects a CLI document | A contract addition exceeds the 240-line reading boundary | Integrate the clarification into its owning contract section and remove duplicate explanation, or move a separate concern to its linked reference. Run the focused CLI document test before the full preflight. |
-| Windows `test-one` fails in `prepare-embed-stub.js` with `spawnSync rustc ENOENT` | The shell PATH contains a Cargo bin directory without Rust proxies | Add the installed Rust toolchain bin directory to this shell PATH, verify `rustc -V`, then rerun `build.ps1 test-one`. If PowerShell blocks scripts, invoke it with `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1`. |
 | The CLI docs test reports `API exceeds 24 KiB` | The API index repeats adoption details already owned by `API-ADOPT.md` | Keep `API.md` to the endpoint summary and move the full contract to `API-ADOPT.md`; bump the production doc revision and run `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. Never raise the 24 KiB limit. |
 | The CLI docs test reports `API-TABS exceeds 24 KiB` | The tab API's notification contract repeats channel policy wording | Preserve every contract statement while compacting redundant prose; move a passage to a registered linked doc only if it cannot fit. Bump the production doc revision and rerun the focused docs test; never raise the 24 KiB limit. |
+| Embedded docs differ across platforms or exceed 24 KiB only on Windows | CRLF checkout conversion enlarged the bytes embedded by `include_str!` | Keep `prod-docs/*.md text eol=lf` in `.gitattributes`, refresh clean doc files in existing checkouts, and compile the CLI again. The boundary test measures the actual embedded bytes without normalizing them; never raise the limit. |
 | Several registered docs exceed 240 lines or 24 KiB after parallel lanes merge | Each lane appended prose, often hard-wrapped, and restated contracts another doc owns | Reflow hard-wrapped paragraphs to one line each, remove statements owned by another doc, then split a coherent section into a new registered doc (`cli/src/cmd/docs.rs`) with a `codeterm docs <NAME>` pointer; bump each changed doc's revision. Never raise the limits. |
 | `essence_map_contract_committed_artifacts_are_fresh` reports a stale source digest | `essences/capabilities.md` or `essences/core.md` changed after `essences/map.jsonl` was generated | Run `codeterm essence-map generate --root .`, validate with `codeterm essence-map validate --root .`, and commit the generated map. Never edit generated nodes by hand. |
 | A release-time test fails in `#[cfg(test)]` code while `check` is green | `check` compiles non-test targets and does not compile the Rust test profile | Run `./build.ps1 check-tests` on Windows or `./build.sh check-tests` on Unix, fix the test-profile compile error, then rerun the same gate. |
@@ -541,6 +587,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | `release-preflight` fails the action-card or Web fork inventory suite after a transport/presentation change | A card fixture bypassed the batch router, or a new platform branch lacked its required transport classification | Test single help invocations in the action card and multi-action batches through `ToolCallBubble`; register the exact Web transport branch in `webForks.test.ts`. Run both focused suites, then repeat preflight. |
 | `build.ps1 verify` fails only `cli_manifest_is_fresh` with sccache `os error 10055` / socket buffer exhaustion | The freshness test launched a nested `cargo run` when no standalone debug CLI binary existed, competing with the parent Cargo test process for compiler/socket resources | Keep freshness generation in-process through `manifest::to_json()` / `to_markdown()`. Run `build.ps1 test-one cli cli_manifest_is_fresh`, then rerun `build.ps1 verify`; do not regenerate committed CLI artifacts for this infrastructure error. |
 | `release-preflight` prints a Rust formatting diff and exits before lock validation | One or both Rust workspaces were not formatted with the repository toolchain | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all` and `cargo fmt --manifest-path cli/Cargo.toml --all`, inspect the changed files, then rerun `release-preflight`. |
+| CI `guards` or `scripts/check-rustfmt.sh` flags a file that `cargo fmt --check` on Windows reported clean | On Windows, cargo fmt's module discovery skipped tracked test modules; the guard lists files from git instead | Run `rustfmt --edition 2021 <file>` on each flagged file, commit, rerun `bash scripts/check-rustfmt.sh`. |
 | `release-preflight` reports a source file one or two lines over 1200 | Test responsibilities accumulated in an inline or monolithic test module until formatting crossed the hard limit | Move a cohesive test group into a child module, verify both focused suites, then rerun `release-preflight`; do not hide the overflow by compacting whitespace. |
 | `release-preflight` fails under `-D warnings` for an enum field read only by tests | Production already logs the diagnostic, but an outcome variant retained a duplicate payload solely for a test assertion | Make the production outcome carry only consumed state and assert that state in the focused test; do not suppress `dead_code`. |
 | macOS `release-preflight` fails under `-D warnings` because a PE/ELF byte reader is unused | A platform-specific image parser helper was compiled on macOS even though only Windows and Linux extractors call it | Gate the helper to the exact target OSes that consume it, then rerun `release-preflight`; do not suppress `dead_code`. |
@@ -550,7 +597,6 @@ Sign out and back in for a repaired PATH to reach new processes.
 | PR `source-of-truth` reports prompt files missing from `.agents/skills/prompts/inventory.md` | A new runtime or frozen-reference Markdown file was added under `src-tauri/prompts/` without registering its constant and ownership in the prompt inventory | Add every reported path to the prompt table, explain any frozen never-edit contract, bump the doc revision, then run `bash scripts/check-prompts-doc.sh` before pushing. |
 | `Release lock version mismatch` during a version bump | An older preflight checked lock versions before Cargo refreshed the workspace packages | Use the current `release-preflight`, which checks both manifests before verifying both lockfiles; commit the refreshed lockfiles, then retry. |
 | A direct `npm run` or `pnpm build` reports `'node' is not recognized` while `node --version` works | The package manager selected `cmd.exe` for lifecycle scripts in a shell whose effective command lookup differs from the parent PowerShell session | Use the named build operation (`build.ps1 frontend` for the production UI gate). For standalone version validation, run `npm run check:versions --script-shell pwsh.exe`. |
-| `release-preflight` reports `'rustc' is not recognized` from `prepare-embed-stub.js` even though Git Bash finds rustc | Native Node launched `cmd.exe` with Git Bash's colon-delimited PATH, so shell lookup could not resolve Cargo tools | Update the stub generator to invoke rustc directly from `CARGO_HOME`/the user Cargo directory, then rerun `release-preflight`. Do not rewrite PATH or bypass the stub. |
 | `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
 | `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs, or rewrote an identical LF-only manifest and left Git's Windows stat cache reporting a false name-only change | Do not install when the patch is non-empty. Current provenance hashes the binary patch plus working-tree bytes, so a metadata-only rewrite is accepted; rerun `install-local` from a clean tree. |
 | Self-install logs `starting` and the window never returns | A helper inherited the calling PTY Job and died when `taskkill` closed that Job | Rebuild the current CLI; it creates the helper through the out-of-job Windows process broker. Re-run `install-local`, inspect `%LOCALAPPDATA%\codeterm\self-install.log`, and verify port 7685 health. |
@@ -563,11 +609,11 @@ Sign out and back in for a repaired PATH to reach new processes.
 | PowerShell drops the standalone `--` before `--nocapture`, so Cargo rejects `--nocapture` as its own option | Native argument forwarding consumed the test-harness separator before Git Bash received it | Run the exact wrapper command through `bash -lc 'scripts/test-capped.sh ... <filter> -- --nocapture'` so the separator reaches Cargo's test binary. |
 | `verify` fails `daemon_windows_spawns_use_no_window_helper` after adding a Rust test fixture that invokes Git | The fixture constructed `std::process::Command` directly, so Windows could flash a console and the repository spawn audit rejected it | Build the command in a mutable variable and call `crate::process_util::no_window_std(&mut command)` before execution; run the spawn audit and the owning focused test, then retry `verify`. |
 | A fresh lane's focused Rust test reports missing `../dist` or `bundled-cli/*` | Ignored Tauri resource directories have not been staged in that worktree | Run `node scripts/dev-resource-preflight.mjs` and `node scripts/prepare-cli-stub.js`, then rerun the same focused test. Do not substitute a frontend build. |
-| Direct `bash scripts/clippy-gate.sh` fails in a fresh lane with a missing `bundled-embed/codeterm-embed-<target>` resource | The direct gate assumes Tauri's ignored compile resources are staged. | Run authorized `./build.sh check-tests` first; its resource preflight prepares frontend, CLI and embed stubs. Then rerun the direct clippy gate. |
+| Direct `bash scripts/clippy-gate.sh` fails in a fresh lane with a missing `bundled-cli` resource | The direct gate assumes Tauri's ignored compile resources are staged. | Run authorized `./build.sh check-tests` first; its resource preflight prepares frontend and CLI stubs. Then rerun the direct clippy gate. |
 | macOS `local-install-cache.test.mjs` refuses ordinary fixtures under `/var` as redirected | `realpath` expands macOS's standard `/var` alias to `/private/var`, so comparing the whole lexical target to its real path mistakes an ancestor alias for a redirected cache leaf | Compare the real target with the real parent plus the expected cache basename, retain an explicit redirected-leaf refusal test, then rerun the focused Node test and `release-preflight`. |
 | `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
 | Release-signing negative test passes despite a missing fixture key | The shell inherited `TAURI_SIGNING_PRIVATE_KEY` from the canonical `.env` | Run the repository check; its missing-key fixture explicitly removes the inherited key before asserting failure. |
-| Push unexpectedly starts compilation or formatting checks | A stale local hook predates the non-blocking push policy | Run any `build.ps1` command to restore `.githooks`, then retry; verification belongs to explicit gates and CI. |
+| Push unexpectedly starts compilation or formatting checks | A stale local `core.hooksPath` still points at a removed hook directory | Run `git config --unset core.hooksPath`; the repository has no hooks, verification belongs to explicit gates and CI. |
 | `Build gateway job id already exists` immediately from a fresh command | The calling Domios tab inherited a completed gateway job id from an earlier build | Update the build scripts; production gateway entry now always creates a fresh job id and ignores inherited internal ids. |
 | `pnpm build` fails only in focused TSX test files during `install-local` | A test mock violates the generic bridge signature or imports an unused JSX runtime symbol | Run `pnpm build`, fix the test type/import at the source, then retry `install-local` from the same clean canonical checkout. |
 | `pnpm build` reports stale role literals or duplicate fixture fields during `install-local` | A role-model refactor left TypeScript-only production or fixture surfaces outside the Rust gate | Run `pnpm build`, converge each surface on `Manager` plus `role_profile`, and retry `install-local` from a clean canonical checkout. |
@@ -601,9 +647,10 @@ automation that needs a detached health gate and does not prove a visible window
 | A redirected `build.ps1 test-one` exits with `NativeCommandError` on a gateway diagnostic while its gate keeps running | PowerShell 5 converts captured native stderr into an error under `ErrorActionPreference=Stop` | Capture the PowerShell process at the OS boundary, for example `cmd.exe /d /c "powershell.exe -NoProfile -File build.ps1 test-one app <selector> --wait-build > qa.log 2>&1"`. Recover the original gate's log and exit receipt with `build.ps1 gateway-status` before launching anything else; never repeat a successful gate. |
 | A focused RPC handshake test fails with E0308 at `tungstenite::Error::Http` | The fixture passed an HTTP response directly, but the error variant owns a boxed response. | Wrap the fixture response with `Box::new`, then rerun the same `test-one app` selector. |
 | A native cwd regression accepts the resolved path, but its `cmd.exe` child exits 1 with `The directory or file cannot be created` | Shell startup introduces an uncontrolled dependency after native process creation; literal command-line syntax did not remove it. | Run the current Rust test executable with `--list --exact opaque-filter` instead, retaining the empty-cwd raw error assertion and a successful native child exit. Rerun the focused launch selector. |
-| `test-one app` stops before compilation with `prepare-embed-stub.js: spawnSync rustc ENOENT` | The utility process cannot resolve Rust, and its user Cargo bin has no compiler proxy, although the pinned toolchain is installed. | Prepend the existing `~/.rustup/toolchains/1.95.0-x86_64-pc-windows-msvc/bin` only to that Team utility process PATH; verify `Get-Command rustc,cargo` resolves there and `rustc --version` reports the repository pin. Preserve the failed zero-selected receipt, then run the same focused wrapper from clean canonical with a fresh idle gateway check. Do not install tools or change persistent PATH, runner environment, caches, or production. |
 | The focused wrapper reports `exceptional worktree compilation requires sccache` before selecting tests | The utility cannot discover the existing machine cache executable. | Add only its verified existing directory to the utility process PATH, confirm exact executable resolution and that `sccache --show-stats` reaches the prestarted shared server, then use the same focused wrapper with a fresh idle gateway. Preserve the failed receipt; never disable, replace, clear, or restart the shared cache to bypass this prerequisite. |
 | Multiple crate compilations fail with `sccache: caused by: Failed to read response header` or `error reading compile response from server` (`os error 10054`) | The machine-level cache server reset compiler connections during the build; it may answer again after the failed job exits. | With the gateway idle, check `sccache --show-stats`. If it responds, retry the same bounded operation once; if it does not, use the sccache restart recovery above. Never bypass the shared cache or raise the test cap. |
+| nextest reports Unknown nextest scope: api before compiling | The short api alias belongs to test-one, while nextest accepts the package name through its codeterm-* scope. | Use ./build.sh nextest codeterm-api with the same focused filter. Preserve the refused run; do not repeat a successful check. |
+| Multiple cache-fronted crate checks fail with sccache socket address-in-use (os error 10048), while cache stats still respond | TCP address allocation failed; inspect local ephemeral-port pressure instead of assuming the cache server is wedged. A recorded incident had 15045 TIME_WAIT sockets against a 16384-port dynamic range, mostly to the local app HTTP port. | Preserve the failed job. At an idle gateway inspect cache stats and socket counts; keep a responsive shared server running. One CARGO_BUILD_JOBS=1 invocation can test a reduced connection burst; the recorded serial attempt also failed, so further attempts require the host pressure to be resolved. Do not repeat successful selectors, change system port ranges or kill production. Only on an explicit owner request, one process-local diagnostic check may use CODETERM_USE_SCCACHE=0 RUSTC_WRAPPER= ./build.sh check; this leaves the shared cache server and machine configuration untouched. Both variables are required because the opt-out does not clear an inherited wrapper. This recipe does not bypass exceptional test/dev paths, which explicitly require or restore sccache; do not claim those paths were uncached. |
 | `test-one app` fails with `expected item after attributes` in `report_plan_ctx/tests.rs`, and the moved desktop reporter is unused | The test split left a trailing `#[test]` in the shared module and omitted it from the first moved function in `tests/desktop_reports.rs`. | Move `#[test]` onto that function, remove the trailing attribute, and rerun the same focused app filter. |
 
 ### Visible Windows dev session
@@ -803,6 +850,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Gateway exits with `Cannot establish publication helper identity` under load | A one-shot Windows process lookup was unknown, and publication guard construction threw before the bounded mutex refusal handler. | The current guard waits on ownership filesystem events before trying the lookup again. Its deadline returns retry-safe exit 75 with no helper ownership published. Verify the transient helper-identity regression in `scripts/build-gateway-mutex.test.mjs`; unknown identity never authorizes reclamation. |
 | Tracked modules or CLI manifests vanish through `X:` while another fixture runs | Fake gateway jobs held an isolated fixture slot but remapped the global production `subst` drive. Production release could also unmap that fixture's alias. | Fixture scope now skips both mapping and release; mapping requires the exact production job/pid/start owner, and release checks the mapped job still owns the slot. Verify the stable-drive isolation regression in `scripts/build-gateway-cache.test.mjs`. Never repair a live drive manually. |
 | Warm check reports E0583 for tracked modules or a missing `cli/Cargo.toml` after a rename wave | In-place `git checkout --force` published no verified physical-tree boundary before Cargo. An interrupted switch could leave HEAD/index and disk inconsistent. | The current check prepares a detached staging worktree, verifies requested HEAD tree, index tree and tracked files, then publishes under the exact gateway owner. Its journal recovers interrupted publication on the next job and retains warm target caches. Verify `node --test scripts/check-worktree.test.mjs`; any tree mismatch refuses Cargo with exit 75. |
+| Every `check-queue` exits 75 with `check-worktree publication incomplete; Cargo refused ... check-worktree git worktree failed (128): fatal: '<gateway dir>/check-worktree' is not a working tree` | The live `check-worktree/.git` points at a worktree registration that a `git worktree prune` in the source repository removed, so journal recovery cannot move it and the next job fails the same way | With no gateway job running, move `<gateway dir>/check-worktree` aside (`check-worktree.broken-<ts>`), move its `target/` into the `check-worktree.pending-*` directory named by `check-worktree-publication.json` to keep the warm cache, and rerun `check-queue`; delete the broken copy after a green run |
 | `test-one` fails before compiling with `[cache-policy] ERROR: external CARGO_TARGET_DIR rejected: /x/target-check` while DEV is live | Under the gateway's `X:` mapping `test-capped.sh` places the isolated Windows test target at `$ROOT/target-check` = `/x/target-check`; `pwd -P` keeps the subst drive while `git rev-parse --show-toplevel` returns the real checkout, so the path comparison saw an external target | `ct_verify_target_dir` also accepts a target whose git worktree root is the checkout (`ct_target_in_worktree`); verify with `bash scripts/check-shared-sccache.sh`. Never work around it with `CODETERM_ALLOW_EXTERNAL_TARGET` |
 | Queue updates time out during cache retention | Retention held gateway metadata while measuring/deleting caches and running cargo-sweep. | Retention and target marking now share a separate per-machine mutex. Verify `cache retention holds its own mutex while gateway metadata stays available`; the normal queue can update while cache work owns its lock. |
 | A warm check starts with one guard implementation and finishes with another | Helper paths followed cwd after checking out the requested SHA. | Gateway/cache helper paths are pinned to the launching scripts. Verify `gateway helpers stay pinned to the launching scripts after checkout cwd changes`. |
@@ -850,8 +898,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | `build.sh dev` appears idle at dependency installation until Enter is pressed | pnpm opened an interactive confirmation prompt in the visible dev terminal while its diagnostic stream was suppressed. | Use the current build operation, which always runs dependency installation non-interactively, then restart dev. |
 | Tauri dev starts from PowerShell but its `beforeDevCommand` reports `node is not recognized` | The nested Tauri hook re-resolved Node through a child Windows shell and lost the launcher environment. | Run dev preparation directly in `build.sh` with the already-resolved Node process, then launch Tauri with the generated runtime config that disables the duplicate hook. |
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
-| Semantic-search tests execute a zero-byte `codeterm-embed` | A compile stub reached a real embedding test. | Build the debug sidecar before Rust library tests. |
-| `verify` downloads FastEmbed into a temporary test data directory and fails on a model-host outage | The Rust test wrapper let fixture-owned `CODETERM_DATA_DIR` choose the immutable model cache. | Use the current wrapper, which exports one machine-shared `CODETERM_EMBED_CACHE_DIR`; override it explicitly only for cache diagnostics. |
+| `verify` downloads model weights into a temporary test data directory and fails on a model-host outage | The Rust test wrapper let fixture-owned `CODETERM_DATA_DIR` choose the immutable model cache. | Use the current wrapper, which exports one machine-shared `CODETERM_EMBED_CACHE_DIR`; override it explicitly only for cache diagnostics. |
 | CLI essence-map test fails after a capability status wording update | The test pinned source prose rather than the status preservation mechanism. | Inject opaque statuses into fixture capability rows and assert those supplied values round-trip; retain node/edge assertions. |
 | Nextest metadata reuse exits 2 with `--manifest-path cannot be used with --cargo-metadata` before selecting tests | The reuse invocation retained a Cargo build selector. | Pass only the saved binaries/Cargo metadata and runtime/filter options to the capped execution phase; keep manifest/package/feature selectors exclusively on the inventory compilation. Rerun the same bounded selector, preserving the zero-executed receipt. |
 | macOS task-authority tests panic creating a Tauri `EventLoop` | The fixture built Wry on a libtest thread. | Use `app_runtime::builder()` and runtime aliases so `cfg(test)` constructs MockRuntime; remove fixture-only desktop ignores. Keep real native window oracles explicitly platform-gated. |
@@ -865,7 +912,6 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Prompt tests fail a composed contract or launch byte ceiling | Shared fragments and the embedded manual accumulated beyond the whole launch budget. | Compact repetition without weakening authority or raising limits; rerun `test-one app prompts::tests` and the matching composed prompt comparison. |
 | Source-size gate counts downloaded SDK declarations in `target-check/` | The traversal included ignored generated benchmark artifacts. | Prune that root output tree only when Git confirms ignored/untracked ownership; all authored source stays guarded. Use a scalar prune path: Bash3.2 with `set -u` rejects empty array expansion inside the traversal. Preserve fixture bytes; rerun the guard controls and size gate. |
 | Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition and rely on the test process exit. |
-| Linux semantic search gets `Permission denied` or `Exec format error` for `codeterm-embed` | Clippy replaced the built runtime sidecar's mode or bytes. | Preserve the verified ELF before clippy, then restore its bytes and executable mode before tests. |
 | `check-tests` emits allocation failures, rustc `0xc0000409`, then missing-rlib cascades while another app build is active | Concurrent app compilation exhausted available host memory; the later rlib errors are secondary until proven otherwise. | Preserve the first allocation failure and raw exits. Defer the app checks to the owner's canonical batch with dev stopped; use `CARGO_BUILD_JOBS=1` for the named operation if memory pressure persists. Never kill production or clean shared targets from a Worker lane. |
 | Windows PowerShell QA capture throws `NativeCommandError` on ordinary Cargo progress and records no exit | Caller-level `*>` redirection turns native stderr into PowerShell errors under `build.ps1` strict error handling. | Run a child `powershell -NoProfile -File .\build.ps1 ...` with OS-level `cmd /d /c` redirection (`> run.log 2>&1`), then record the child exit code. Do not classify the progress line as a compiler failure. |
 | `test-one` fails with sccache socket error 10048 and has no build-history row | A scope bypassed gateway acquisition and configured sccache before owning the build slot. | Use the shared cargo gateway entry for every scope and cargo-running verb, including CLI, check-tests, CI inputs and named dev. Check `build-history` for each invocation; run the mixed-verb fixture in `scripts/build-gateway-cache.test.mjs`. After merge, run two focused `test-one` and two `check-queue` calls concurrently with `--wait-build`, and retain all four exits and history rows. |
@@ -938,7 +984,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 41 -->
+<!-- revision: 43 -->
 
 ### Lane and batch scopes
 
@@ -977,11 +1023,27 @@ its staging is complete before provenance is written under the gateway.
 
 ## Product and test feature sets
 
+If `codeterm-mem` lib tests fail without defaults on unused `open_with_embedder`
+or `submit_chunks`, their test helpers lack the embeddings gate used by their
+callers. Gate the helpers with `cfg(all(test, feature = "embeddings"))`; retain
+the tests and denied warnings. After `source build.sh env`, compile both with
+`cargo test --manifest-path src-tauri/Cargo.toml -p codeterm-mem --lib --no-default-features --no-run`
+and the same command without `--no-default-features` in a Team build shell.
+
+For a CPU embedding parity measurement, retain an old embedding executable before
+removing its build artifacts, then run `./build.sh embedding-parity --old-binary
+<old-executable> --baseline <baseline.json> --output <report.json>`. The standalone
+memory example builds in the checkout target and uses the production embedding worker; the Python oracle compares
+25 fixed English/Russian cases, including truncation and Unicode, and fails below cosine 0.999. To reuse a saved
+baseline, omit `--old-binary`. It reports cold/warm process RSS and warm p95 CPU
+latency; these process measurements do not replace a canonical daemon search
+measurement. Windows uses `build.ps1 embedding-parity` with the same arguments.
+
 DEV and check-queue library Clippy retain default product features, including embeddings. Ordinary `test-one`, `nextest`, `check-tests`, archives and CI use `--no-default-features`. Check-queue does not repeat the separate dev-lib check; its library Clippy pass type-checks the product configuration. Full check-queue also checks service-core tests in the test profile without defaults. The CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, covering the memory crate and service-core memory tests with embeddings enabled. Receipt validation requires this job. Archives use `app-no-embeddings.tar.zst` so old feature-enabled archives cannot be reused.
 
 ## Lane crate checks and shared intermediates
 
-Before committing, run `./build.sh lane-check <touched crate> [--tests]` on every platform. It loads the machine toolchain and stages frontend/sidecar resources without building them. Binary-only crates use their owning manifest and `--bins` in place of `--lib`. These type checks take no gateway slot and do not start or reconfigure sccache.
+Before committing, run `./build.sh lane-check <touched crate> [--tests]` on every platform. It loads the machine toolchain and stages frontend/sidecar resources without building them. `codeterm-cli` selects `cli/Cargo.toml` and `--bin codeterm`; library packages select the app manifest and `--lib`. These type checks take no gateway slot and do not start or reconfigure sccache.
 
 `lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. Cargo serializes lane checks with its build-directory lock; final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
 
@@ -993,7 +1055,7 @@ A tracked repo-root `.cargo/config.toml` applies to every Cargo invocation benea
 
 | Dedicated CI mode fails at catalogue inventory with ENOENT on the Windows stable drive root | Git reports the physical checkout while discovery compared it to a subst alias, then tried walking the drive root. | Catalogue discovery resolves the root with `realpathSync.native` before Git identity and file enumeration. Verify the temporary-subst regression with `node --test scripts/tests/test-catalogue.test.mjs`, then run the dedicated CI mode under the normal gateway alias. |
 
-Product check-queue Clippy disables Cargo defaults and explicitly enables the selected root/core/mem package product features. This keeps embeddings enabled while avoiding the extra synthetic `default` feature marker that direct core selection otherwise adds. Ordinary tests still disable defaults without product features. The embedding-worker imports, protocol types and ORT setup are feature-gated so shell test targets compile without embeddings under denied warnings.
+Product check-queue Clippy disables Cargo defaults and explicitly enables the selected root/core/mem package product features. This keeps embeddings enabled while avoiding the extra synthetic `default` feature marker that direct core selection otherwise adds. Ordinary tests still disable defaults without product features. The candle engine and its model dependencies are feature-gated so shell test targets compile without embeddings under denied warnings.
 
 ## Repeatable core feature measurements
 
@@ -1005,13 +1067,75 @@ On Cargo 1.95 the measured service-core result is four to three `.rmeta` hashes 
 
 One equivalent two-package cycle on Rust SHA `b6d0ef3e14b3787a9678ff436a6ce6739e0df91e` measured queue phases at 294 seconds before and 181 seconds after (38% lower). This excludes queue wait, initial dev checking and final focused test compilation; it is not a full check-queue timing pair or a general speed guarantee.
 
-Queued build invocations parse the entire driver inside `codeterm_build_main` before waiting for a gateway slot. Editing build.sh while an older shell waited previously changed the unread tail of that shell's script, producing an EOF syntax error after a successful Cargo check. The driver snapshot regression waits on an explicit input event, replaces only a temporary script, and requires its already-parsed dispatch to complete. App nextest configurations also replace the initial target arguments so `--no-default-features` appears once; nextest rejects duplicate occurrences.
+Queued build invocations parse the entire driver inside `codeterm_build_main` before waiting for a gateway slot. Editing build.sh while an older shell waited previously changed the unread tail of that shell's script, producing an EOF syntax error after a successful Cargo check. The driver snapshot regression waits on an explicit input event, replaces only a temporary script, and requires its already-parsed dispatch to complete. App nextest configurations also replace the initial target arguments so `--no-default-features` appears once; nextest rejects duplicate occurrences. The final shell entry call can still be affected when a running driver is edited in place: a successful Cargo phase followed by `ld_main: command not found` is a harness failure, not a compile verdict. Finish driver edits before launching checks, then rerun the affected focused operation from the final file.
 
 Lane-check prompt additions affect both the 5000-byte worker suffix and the 1450-byte worker charter. The charter includes testing_discipline without worker_suffix, so keep the raw check command in that shared fragment while compressing it. Preserve both ceilings and verify all composed surfaces with the focused core prompts selector.
 
 ### CLI package absent from lane-check workspace
 
-`lane-check codeterm-cli --tests` exits 101 because the CLI has its own Cargo
-workspace, while this verb selects the app manifest. No CLI compilation ran.
-For a CLI contract change, `./build.sh cli` compiles the checkout CLI and
-regenerates its artifacts; committed check-queue includes CLI test targets.
+`lane-check codeterm-cli --tests` formerly exited 101 before compiling because
+it selected the app workspace and a library target for the binary-only CLI.
+The verb now selects the CLI manifest and binary. Run
+`node --test scripts/tests/lane-check.test.mjs` to verify routing, then rerun
+the lane check. Committed check-queue also includes CLI test targets.
+
+### Focused tests for external path dependencies
+
+`test-one paths tests::strip_verbatim_prefix` and `nextest paths` select
+`codeterm-paths` through the app manifest without feature-selection flags.
+The same applies to `mem-store` and both `codeterm-*` aliases: these packages
+are external path dependencies, and neither declares Cargo features. Passing
+`--no-default-features` while selecting only one external package fails with
+"cannot specify features for packages outside of workspace" before any test runs.
+Release archives select these alongside workspace packages; focused routing
+retains the app workspace profiles and target cache without that invalid flag.
+Verify the argv fixtures with
+`node --test scripts/dev-build-configuration.test.mjs`, then run the focused
+selector in canonical and require a nonzero executed test count.
+
+
+### Lane-check reports a missing item that exists in this worktree
+
+Cargo 1.95 can assign the same workspace unit hash to matching relative package
+paths in different worktrees sharing a build directory. If the next worktree's
+sources predate the cached artifact, Cargo may mark its dependency fresh and
+supply the other worktree's metadata, producing a false E0425. No stable drive
+mapping is needed; touching the dependency only repairs one check.
+
+Lane-check sets `RUSTC_WORKSPACE_WRAPPER` to the physical worktree's passthrough
+wrapper (a native executable on Windows, `scripts/lane-rustc-wrapper.sh` elsewhere). Cargo
+includes that path in workspace artifact hashes. Registry dependencies still
+reuse one shared cache; lane checks retain Cargo's shared build-directory lock
+and per-worktree final targets. The setting is confined to the lane subshell;
+canonical operations keep their existing wrapper policy. Do not replace this
+with per-lane target/build directories, global Rust flags or cache cleaning.
+
+Run `node scripts/tests/lane-metadata-repro.mjs` in a Team QA shell. It creates
+two throwaway Git worktrees with different exports and deliberately old source
+timestamps, proves the former policy returns E0425, then checks A/B/A/B through
+lane-check and verifies two workspace metadata files but one registry metadata
+file. The registry fixture is local and needs no network. The same regression
+runs under `node --test scripts/tests/lane-check.test.mjs`.
+
+
+### Windows lane-check fails with "The command line is too long"
+
+A `.cmd` workspace wrapper passes the compiler invocation through cmd.exe's
+8191-character limit. Service-core library and test targets exceed it before
+rustc starts. Windows lane-check now compiles `scripts/lane-rustc-wrapper.c`
+with the MSVC environment already loaded by build.sh. The small native launcher
+forwards the original Unicode command line with `CreateProcessW`, inherits
+standard handles, waits for compiler exit and propagates its exit code.
+
+`scripts/lane-native-wrapper.mjs` caches that executable beside the shared lane
+build directory in `codeterm-lane-wrappers`, keyed by physical source path,
+source bytes and host architecture. Compilation uses a temporary directory and
+publishes only a finished executable. Different worktrees retain different
+wrapper paths; no Cargo target directory is added. Unix keeps the shell wrapper.
+
+On Windows, run focused tests with the build toolchain loaded in a Team QA shell:
+`bash -c 'source build.sh env; CODETERM_LANE_REAL_CRATE_TEST=1 node --test scripts/tests/lane-check.test.mjs'`.
+Run this opt-in regression from a lane: it includes the two-worktree E0425
+reproduction, a 12000-character Unicode/quotes/exit-code forwarding check, and
+real `./build.sh lane-check codeterm-service-core --tests`. Require exit 0 from
+the real crate check; a tiny fixture alone does not cover Windows argument limits.

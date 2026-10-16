@@ -2,6 +2,8 @@ use super::results::{ChatBackfillResult, ChatOffsetKind, ChatStartResult};
 use crate::{agent::chat_types::ChatMsg, service::ServiceContext};
 use std::{collections::HashSet, path::Path, sync::LazyLock};
 
+mod projection;
+
 const WINDOW_BYTES: u64 = super::session_window::SNAPSHOT_WINDOW_BYTES;
 static STARTING: LazyLock<parking_lot::Mutex<HashSet<(String, String)>>> =
     LazyLock::new(Default::default);
@@ -68,21 +70,30 @@ struct Window {
     frozen: bool,
 }
 
+enum StoredInput {
+    Text(String, u64, u64),
+    Records(codeterm_plugin::jsonl_window::records::RecordWindow),
+}
+
 fn read_window(path: &Path, before: Option<u64>) -> Result<(String, u64, u64), String> {
     let total = std::fs::metadata(path)
         .map_err(|error| error.to_string())?
         .len();
     let end = before.unwrap_or(total).min(total);
-    let start = codeterm_plugin::jsonl_window::tail_window_start(path, end, WINDOW_BYTES);
-    let (mut bytes, start) = codeterm_plugin::jsonl_window::read_range(path, start, end)
+    let page = codeterm_plugin::jsonl_window::page_before(path, end, WINDOW_BYTES)
         .map_err(|error| error.to_string())?;
-    let complete = bytes
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map_or(0, |last| last + 1);
-    bytes.truncate(complete);
+    if page.end > 0 && page.start >= page.end {
+        return Err("Stored history record exceeds backward scan limit".into());
+    }
+    let (bytes, start) = codeterm_plugin::jsonl_window::read_range(path, page.start, page.end)
+        .map_err(|error| error.to_string())?;
     let records = String::from_utf8(bytes).map_err(|error| error.to_string())?;
-    Ok((records, start, start + complete as u64))
+    let records = if records.len() as u64 > WINDOW_BYTES {
+        projection::oversized_record(&records, WINDOW_BYTES as usize)?
+    } else {
+        records
+    };
+    Ok((records, start, page.end))
 }
 
 fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Option<Window>, String> {
@@ -115,9 +126,39 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
     let path = provider
         .session_file_path(tab.cwd.as_deref().unwrap_or_default(), session)
         .ok_or("Provider has no recorded runtime session")?;
+    if !path.try_exists().map_err(|error| error.to_string())?
+        && crate::service::agent_runtime::engine::has_live_bound_session(&tab)
+    {
+        return Ok(None);
+    }
     let started = std::time::Instant::now();
-    let (records, start, end) = read_window(&path, before)?;
-    let messages = provider.runtime_stored_history(session, &records)?;
+    let input = if provider.record_source("storedHistory").is_some() {
+        StoredInput::Records(super::jsonl_kernel::stored_window(
+            provider.as_ref(),
+            session,
+            &path,
+            before,
+            WINDOW_BYTES,
+        )?)
+    } else {
+        let (records, start, end) = read_window(&path, before)?;
+        StoredInput::Text(records, start, end)
+    };
+    let read_us = started.elapsed().as_micros();
+    let projecting = std::time::Instant::now();
+    let (messages, start, end) = match input {
+        StoredInput::Text(records, start, end) => (
+            provider.runtime_stored_history(session, &records)?,
+            start,
+            end,
+        ),
+        StoredInput::Records(window) => (
+            provider.runtime_stored_records(session, &window)?,
+            window.meta.from_offset,
+            window.meta.new_offset,
+        ),
+    };
+    let projection_us = projecting.elapsed().as_micros();
     let current = svc.mux.read().get_tab(tab_id).is_some_and(|current| {
         current.agent_type == tab.agent_type
             && current.agent_session_id == tab.agent_session_id
@@ -127,9 +168,9 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
         return Err("Transcript binding changed during stored read".into());
     }
     log::debug!(
-        "[chat-attach] tab={tab_id} phase=stored_snapshot elapsed_ms={} bytes={} rows={}",
+        "[chat-attach] tab={tab_id} phase=stored_snapshot elapsed_ms={} read_us={read_us} projection_us={projection_us} bytes={} rows={}",
         started.elapsed().as_millis(),
-        records.len(),
+        end.saturating_sub(start),
         messages.len()
     );
     Ok(Some(Window {
@@ -147,20 +188,21 @@ pub fn start(
     tab_id: &str,
     subscription: &str,
 ) -> Result<Option<ChatStartResult>, String> {
-    let tab = { svc.mux.read().get_tab(tab_id).cloned() };
-    let live = tab.is_some_and(|tab| {
-        !tab.frozen && crate::service::agent_runtime::engine::has_live_bound_session(&tab)
-    });
-    if live {
-        return Ok(None);
-    }
     let Some(window) = read(svc, tab_id, None)? else {
         return Ok(None);
     };
+    super::structured_sink::seed_snapshot(
+        tab_id,
+        Some(&window.session),
+        window.nonce.as_deref(),
+        &window.messages,
+    );
     if !window.frozen {
         start_runtime(svc, tab_id, window.nonce.as_deref());
     }
     Ok(Some(ChatStartResult {
+        kind: Default::default(),
+        file_length: None,
         text: String::new(),
         offset_kind: ChatOffsetKind::Bytes,
         start_offset: window.start,

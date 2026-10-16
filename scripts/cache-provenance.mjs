@@ -116,7 +116,6 @@ function generatedState(kind) {
   };
   if (kind === "full-build") {
     state.bundled_cli = hashDir(path.join(repo, "src-tauri", "bundled-cli"));
-    state.bundled_embed = hashDir(path.join(repo, "src-tauri", "bundled-embed"));
   }
   return state;
 }

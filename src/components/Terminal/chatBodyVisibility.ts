@@ -11,6 +11,7 @@ export type ChatBodyView =
 
 export interface ChatBodyInput {
   snapshotReady?: boolean;
+  hasHeldWindow?: boolean;
   hasTranscript: boolean;
   chatLoading: boolean;
   unavailable: ChatUnavailableReason | null;
@@ -19,6 +20,7 @@ export interface ChatBodyInput {
 
 export function chatBodyView(input: ChatBodyInput): ChatBodyView {
   if (input.bootView.kind === "launch_failed") return input.bootView;
+  if (input.hasHeldWindow) return { kind: "none" };
   if (input.snapshotReady === false) {
     return input.unavailable ? { kind: "failed", reason: input.unavailable } : { kind: "starting", label: "Loading conversation" };
   }
@@ -34,8 +36,8 @@ export function chatRailsVisible(view: ChatBodyView): boolean {
   return view.kind === "none";
 }
 
-export function chatChannelLoadingRow(loading: boolean, view: ChatBodyView, snapshotReady: boolean): "model" | null {
-  return loading && !snapshotReady && view.kind === "none" ? "model" : null;
+export function chatChannelLoadingRow(loading: boolean, view: ChatBodyView, snapshotReady: boolean, hasHeldWindow = false): "model" | null {
+  return loading && (!snapshotReady || hasHeldWindow) && view.kind === "none" ? "model" : null;
 }
 
 function emptyPlacement(): OutboundReportPlacement {
@@ -68,4 +70,8 @@ export function railRowCount(placement: OutboundReportPlacement): number {
   let rows = placement.trailing.length;
   for (const bucket of placement.afterIndex.values()) rows += bucket.length;
   return rows;
+}
+
+export function composerVisible(view: ChatBodyView): boolean {
+  return view.kind !== "launch_failed";
 }

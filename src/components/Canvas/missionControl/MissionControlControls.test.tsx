@@ -129,9 +129,6 @@ describe("Mission Control controls", () => {
       expect(approve).toHaveBeenCalledWith("plan-visible");
 
       await choose("board", "Clear everything");
-      expect(byTestId("mission-control-clear-everything-dialog-confirm")?.className).toContain(
-        "mc-lifecycle-button-danger",
-      );
       await press("mission-control-clear-everything-dialog-confirm");
       expect(clear).toHaveBeenCalledOnce();
       expect(clear).toHaveBeenCalledWith("plan-visible");

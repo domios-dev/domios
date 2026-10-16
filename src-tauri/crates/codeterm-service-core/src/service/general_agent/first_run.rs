@@ -1,6 +1,7 @@
 //! First-run General Agent provider picker — tab marker + completion flow.
 
 use crate::multiplexer::types::TabType;
+use crate::service::MuxEmitCause;
 
 use super::workspace::{default_chat_view_for_provider, ensure_general_workspace};
 use super::{generate_instructions, start_general_agent, GENERAL_ALIAS};
@@ -173,7 +174,7 @@ pub fn complete_first_run_core(
         // workspaces; persist it with intent so the guard has nothing to refuse.
         crate::service::session_persist::persist_session_after_close(svc.as_ref());
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::GeneralAgent);
 
     let provider_owned = provider_id.to_string();
     let config = config.clone();
@@ -358,6 +359,7 @@ mod tests {
                 sort_order: 0,
                 tabs: vec![TabSnapshot {
                     last_active_at_ms: None,
+                    last_opened_at_ms: None,
                     id: "tab-picker".into(),
                     title: "Get started".into(),
                     description: Some(FIRST_RUN_TAB_MARKER.into()),

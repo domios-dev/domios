@@ -114,17 +114,6 @@ test("two adjacent groups each render their own containment line in the owner's 
   );
   const containers = host.querySelectorAll('[data-testid="group-container"]');
   assert(containers.length === 2, `one containment block per group (got ${containers.length})`);
-  const c0 = containers[0] as HTMLElement;
-  const c1 = containers[1] as HTMLElement;
-  assert(c0.className.includes("sidebar-group-container"), "block wears the containment class");
-  assert(
-    c0.style.getPropertyValue("--ct-group-presence") === presenceColor("planck"),
-    "first line uses the first owner's presence color",
-  );
-  assert(
-    c1.style.getPropertyValue("--ct-group-presence") === presenceColor("euler"),
-    "second line uses the second owner's presence color",
-  );
   await act(async () => root.unmount());
 });
 

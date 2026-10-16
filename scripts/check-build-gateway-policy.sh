@@ -178,12 +178,6 @@ verify_coverage_runs_cli_tests() {
 verify_coverage_checks_typescript
 verify_coverage_runs_cli_tests
 
-embed_bundle_flow="$(sed -n '/^ensure_real_embed_bundle()/,/^}/p' build.sh)"
-expect_log 'CODETERM_DEV=1 node scripts/bundle-embed.js' <<< "$embed_bundle_flow" || {
-  echo "dev must ad-hoc sign codeterm-embed without a Developer ID identity" >&2
-  exit 1
-}
-
 ./build.sh gateway-status > "$TEST_ROOT/status.json"
 node - <<'JS' "$TEST_ROOT/status.json"
 const status = require(process.argv[2]);

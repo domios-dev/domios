@@ -9,7 +9,7 @@ import { listenerIdentity } from '../core-journeys/lib/listener.mjs';
 import { focusedPaneScript } from '../core-journeys/lib/cdp.mjs';
 import { retainedSendReceipt } from '../restart-endurance/send-receipt.mjs';
 import { chatMessages, replyVerdict, newAssistantText } from '../core-journeys/lib/oracle.mjs';
-import { inventory, matrix, lockSites, render, evaluateSla, replyWindow, remainingDeadline } from './model.mjs';
+import { inventory, matrix, lockSites, render, evaluateSla, replyWindow, remainingDeadline, probeMarker } from './model.mjs';
 import { healthPreflight, assertDevHealth } from './preflight.mjs';
 
 const args = process.argv.slice(2);
@@ -176,12 +176,12 @@ async function reply(t, signal, send, baseline) {
     const following = window.following;
     if (t.first_reply_ms == null && newAssistantText(following, baselineIds).length)
       t.first_reply_ms = Date.now() - at;
-    const verdict = replyVerdict({ messages: following, baselineIds, marker: 'PONG',
+    const verdict = replyVerdict({ messages: following, baselineIds, marker: t.marker,
       record: value.record, boundSession: record.agent_session_id });
     if (verdict.fail) throw new Error(verdict.fail);
     return Boolean(verdict.done);
   }, signal, 'PONG transcript');
-  const file = `transcript-${t.id}.json`; saveJson(file, { prompt: t.prompt, baseline_ids: [...baselineIds], session_before: record.agent_session_id, ...outcome });
+  const file = `transcript-${t.id}.json`; saveJson(file, { prompt: t.prompt, marker: t.marker, baseline_ids: [...baselineIds], session_before: record.agent_session_id, ...outcome });
   t.completed_ms = Date.now() - at; t.reply_ms = t.first_reply_ms; t.reply_ok = true; t.reply_evidence = file;
 }
 async function main() {
@@ -245,13 +245,14 @@ async function main() {
   });
   const frozen = result.tabs.filter(t => t.boot?.frozen);
   const attempted = new Map(attach ? previous.tabs.filter(t => t.send_at != null).map(t => [t.id, t]) : []);
-  const wakeEligible = frozen.filter(t => !attempted.has(t.id) && !preservedInputIds.has(t.id));
+  const wakeEligible = frozen.filter(t => !preservedInputIds.has(t.id));
   const agentWake = [...wakeEligible].sort((a, b) => a.title.localeCompare(b.title)).find(t => t.backing !== 'chat_backend') ?? wakeEligible[0];
   const pending = [...bootPending];
   const ordered = [...result.tabs].sort((a, b) => Number(b.backing === 'chat_backend') - Number(a.backing === 'chat_backend') || a.title.localeCompare(b.title));
   for (const t of ordered) {
     let started = Date.now();
-    t.prompt = `Reply with the single word PONG. Do not run tools. Probe ${result.started_at.toString(36)}:${t.id}.`;
+    t.marker = probeMarker(result.started_at, t.id);
+    t.prompt = `Reply with exactly ${t.marker} and nothing else. Do not run tools.`;
     console.log(`PROBE ${t.title} ${t.id} ${t.observed}`);
     t.wake_method = t === agentWake ? 'agent-send' : t.boot?.frozen ? 'sidebar-open' : 'already-awake';
     try {
@@ -263,14 +264,9 @@ async function main() {
         continue;
       }
       if (attempted.has(t.id)) {
-        t.carried_send = attempted.get(t.id).send;
-        t.notes.push('Prior attempted send preserved across crash; no new payload or replay');
-        t.click = await select(t);
-        if (t.boot?.frozen) pending.push(ready(t, started, AbortSignal.timeout(deadlineMs)).then(r => {
-          t.wake_ms = r.ms; t.wake_event = r.event;
-        }).catch(e => t.notes.push(`wake failed: ${e.message}`)).finally(save));
-        t.screenshot = await screenshot(t.id);
-        continue;
+        const prior = attempted.get(t.id);
+        t.prior_probe = { directory: resolve(attach), prompt: prior.prompt, marker: prior.marker,
+          send: prior.send, reply_ok: prior.reply_ok === true };
       }
       if (t === agentWake) {
         const signal = AbortSignal.timeout(deadlineMs);

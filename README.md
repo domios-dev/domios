@@ -114,4 +114,6 @@ For a production build, run `./build.sh build`. On Windows PowerShell, use `.\bu
 
 Inside Domios, run `codeterm docs` to discover the help embedded in your installed version, then `codeterm docs <NAME>` to read a document.
 
-Contributions welcome: open an issue to discuss the change. Licensed under [MIT](LICENSE).
+Contributions welcome: open an issue to discuss the change. Licensed under [PolyForm Shield 1.0.0](LICENSE).
+
+2026-10-16: All versions of this software, including every prior revision in this repository's history, are licensed solely under the PolyForm Shield License 1.0.0. No revision was ever distributed under the MIT License.

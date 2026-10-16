@@ -523,6 +523,7 @@ impl ServiceFixture {
                 data_dir.join("receiver-targets.json"),
             ),
         )));
+        extensions.insert(crate::service::mux_emitter::MuxEmitter::default());
         extensions.insert(crate::service::MuxEmitPending(Arc::new(AtomicBool::new(
             false,
         ))));

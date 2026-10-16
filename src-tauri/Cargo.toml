@@ -1,4 +1,5 @@
 [package]
+license = "PolyForm-Shield-1.0.0"
 name = "codeterm"
 version = "1.14.9"
 edition = "2021"
@@ -6,7 +7,7 @@ default-run = "codeterm"
 
 [workspace]
 members = ["crates/codeterm-crash", "crates/codeterm-host-runtime", "crates/codeterm-worker-services", "crates/codeterm-local-preview", "crates/codeterm-lanes", "crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-surface", "crates/codeterm-notifications",
-    "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model"]
+    "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model", "crates/codeterm-entitlements"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
@@ -39,12 +40,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 codeterm-types = { path = "crates/codeterm-types" }
 codeterm-decision = { path = "crates/codeterm-decision" }
-codeterm-mem = { path = "crates/codeterm-mem", default-features = false }
 codeterm-bridge = { path = "crates/codeterm-bridge" }
 axum = { version = "0.8", features = ["multipart"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-fastembed = { version = "5", optional = true }
 
 codeterm-billing = { path = "crates/codeterm-billing" }
 codeterm-plan = { path = "crates/codeterm-plan" }
@@ -70,15 +69,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 
 [features]
 default = ["embeddings"]
-embeddings = ["codeterm-service-core/embeddings", "dep:fastembed"]
+embeddings = ["codeterm-service-core/embeddings"]
 dev-updater-allowlocal = ["codeterm-commands/dev-updater-allowlocal"]
-
-# x86_64 macOS: pyke does not ship an ort prebuilt for this target, so we
-# enable fastembed's `ort-load-dynamic` feature and dlopen libonnxruntime
-# at runtime from a dylib bundled next to the app binary. arm64 keeps
-# static linking via the default `download-binaries` path.
-[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
-fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
 
 [dev-dependencies]
 codeterm-host-runtime = { path = "crates/codeterm-host-runtime", features = ["test-support"] }
@@ -113,13 +105,6 @@ test = false
 [[bin]]
 name = "mem-bench"
 path = "src/bin/mem_bench.rs"
-
-# Isolated embedding worker — fastembed/ort runs here so its Windows
-# memory leak is bounded by periodic child restart (parent kills and
-# respawns after N inferences or memory threshold).
-[[bin]]
-name = "codeterm-embed"
-path = "src/bin/codeterm_embed.rs"
 
 # Fast parser-iteration harness: run a provider's usage parser against
 # a raw text fixture and print extracted fields. ~2s rebuild vs full dev.

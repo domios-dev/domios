@@ -40,6 +40,7 @@ const PROVIDER: &str = "settings-fixture";
 const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
+    if (op.kind === 'control' && op.value.fastMode !== undefined) return {action:{kind:'request',call:{method:'fixture/settings',params:op}},state:null};
     const target = op.kind === 'interrupt' ? {threadId:op.threadId,turnId:op.activeTurnId} : undefined;
     return {action:{kind:'request',call:{method:op.kind,params:op,...(target ? {target} : {})}},state:null};
   },
@@ -52,11 +53,11 @@ module.exports = {
     if (op.kind === 'interrupt') events = [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}];
     if (op.kind === 'control') {
       if (op.value.model === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'settings refused'}};
-      events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
+      if (op.value.fastMode === undefined) events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
     }
     return {kind:'complete',result,events};
   },
-  runtimeReduce(ctx, state, frames) { return {state:null,events:[]}; }
+  runtimeReduce(ctx, state, frames) { return {state:null,events:frames.map(frame=>({kind:'controlsConfirmed',threadId:frame.params.threadId,settings:frame.params.settings}))}; }
 };
 "#;
 
@@ -76,7 +77,7 @@ impl std::ops::Deref for RuntimeFixture {
 
 impl Drop for RuntimeFixture {
     fn drop(&mut self) {
-        engine::stop(&self.tab);
+        engine::stop_blocking(&self.fixture.service, &self.tab).unwrap();
         crate::service::session_persist::stop_worker(&self.fixture.service)
             .expect("stop runtime fixture persistence worker");
     }
@@ -111,12 +112,21 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
         "interrupt",
     ]
     .into_iter()
-    .map(|kind| (kind.to_owned(), json!([kind])))
+    .map(|kind| {
+        (
+            kind.to_owned(),
+            if kind == "control" {
+                json!([kind, "fixture/settings"])
+            } else {
+                json!([kind])
+            },
+        )
+    })
     .collect::<serde_json::Map<String, serde_json::Value>>();
     let manifest = PluginManifest::from_json_str(&json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-            "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":[]}},
+            "agentRuntime":{"fastMode":true,"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
         "permissions":{"subprocess":{"allow":["node"]}}
     }).to_string()).unwrap();
     fixture
@@ -148,6 +158,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             Some("high"),
             Some(RuntimeMode::Auto),
             crate::service::agent_runtime::model::ModelSwitchOptions {
+                fast_mode: Some(false),
                 force: false,
                 restart_resume: false,
             },
@@ -169,6 +180,10 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             Some("high")
         );
         assert_eq!(tab.structured_runtime_mode.as_deref(), Some("auto"));
+        assert_eq!(
+            tab.agent_runtime_config.as_ref().unwrap()["fastMode"],
+            false
+        );
         assert!(tab.pending_model_selection.is_none());
         assert_eq!(tab.restorable_launch.model.as_deref(), Some("target"));
         assert_eq!(
@@ -191,7 +206,17 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             .as_deref(),
         Some("target")
     );
+    assert_eq!(
+        restored
+            .get_tab(&id)
+            .unwrap()
+            .agent_runtime_config
+            .as_ref()
+            .unwrap()["fastMode"],
+        false
+    );
     let session = engine::for_tab(&id).unwrap();
+    assert_eq!(session.context.lock().settings.fast_mode, Some(false));
     session.context.lock().active_turn_id = Some("working-turn".into());
     fixture
         .service
@@ -224,7 +249,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
         session.context.lock().settings.model.as_deref(),
         Some("mid-turn")
     );
-    engine::stop(&id);
+    engine::stop_blocking(&fixture.service, &id).unwrap();
 }
 
 #[test]
@@ -292,4 +317,23 @@ fn tab_stop_interrupts_a_working_runtime_and_keeps_the_tab_open() {
         assert_eq!(idle["stopped"], false);
         assert_eq!(idle["reason"], "not_working");
     });
+}
+
+#[test]
+fn fast_mode_requires_explicit_matching_runtime_confirmation() {
+    for value in [true, false] {
+        let requested = RuntimeSettings {
+            fast_mode: Some(value),
+            ..Default::default()
+        };
+        assert!(!confirms(&requested, &RuntimeSettings::default()));
+        assert!(!confirms(
+            &requested,
+            &RuntimeSettings {
+                fast_mode: Some(!value),
+                ..Default::default()
+            }
+        ));
+        assert!(confirms(&requested, &requested));
+    }
 }

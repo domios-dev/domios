@@ -1,6 +1,6 @@
 use codeterm_types::agent::chat_types::ChatMsg;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -13,6 +13,7 @@ pub enum RuntimeMode {
 }
 
 pub struct ModelSwitchOptions {
+    pub fast_mode: Option<bool>,
     pub force: bool,
     pub restart_resume: bool,
 }
@@ -118,6 +119,12 @@ pub struct RuntimeSnapshot {
     pub active_turn_started_at_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_turn_duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history: Option<HistoryBackfill>,
+    #[serde(rename = "historyPages", skip_serializing_if = "Option::is_none")]
+    pub history_pages: Option<u32>,
+    #[serde(rename = "historyError", skip_serializing_if = "Option::is_none")]
+    pub history_error: Option<String>,
 }
 
 impl RuntimeState {
@@ -129,6 +136,9 @@ impl RuntimeState {
             RuntimePhase::Degraded { reason } => ("degraded", Some(reason.clone())),
         };
         RuntimeSnapshot {
+            history: None,
+            history_pages: None,
+            history_error: None,
             state: state.into(),
             epoch: self.epoch,
             reason,
@@ -207,18 +217,158 @@ impl RuntimeState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HistoryBackfill {
+    Loading,
+    #[default]
+    Complete,
+    Failed,
+}
+
+pub const REREADABLE_CACHE_ROWS: usize = 400;
+pub const REREADABLE_CACHE_BYTES: usize = 4 * 1024 * 1024;
+
 #[derive(Default)]
 pub struct ItemCache {
-    items: Vec<ChatMsg>,
-    positions: HashMap<String, usize>,
+    items: VecDeque<ChatMsg>,
+    rereadable: bool,
+    cached_bytes: usize,
+    positions: HashMap<String, i64>,
+    head: i64,
+    backfill_generation: u64,
+    backfill: HistoryBackfill,
+    history_pages: u32,
+    live_during_backfill: HashSet<String>,
+    history_origin: HashSet<String>,
 }
 impl ItemCache {
+    pub fn bound_rereadable(&mut self) {
+        self.rereadable = true;
+        self.cached_bytes = self.items.iter().map(Self::row_bytes).sum();
+        self.evict();
+    }
+    pub fn retained(&self) -> (usize, usize) {
+        (self.items.len(), self.cached_bytes)
+    }
+    fn row_bytes(row: &ChatMsg) -> usize {
+        serde_json::to_vec(row).map_or(usize::MAX, |bytes| bytes.len())
+    }
+    fn evict(&mut self) {
+        while self.rereadable
+            && (self.items.len() > REREADABLE_CACHE_ROWS
+                || self.cached_bytes > REREADABLE_CACHE_BYTES)
+        {
+            let Some(row) = self.items.pop_front() else {
+                break;
+            };
+            self.cached_bytes = self.cached_bytes.saturating_sub(Self::row_bytes(&row));
+            self.positions.remove(&row.id);
+            self.history_origin.remove(&row.id);
+            self.live_during_backfill.remove(&row.id);
+            self.head += 1;
+        }
+    }
+
+    fn index(&self, id: &str) -> Option<usize> {
+        self.positions
+            .get(id)
+            .map(|slot| (slot - self.head) as usize)
+    }
+    /// Starts a replay and drops rows a previous replay landed, keeping live and host rows,
+    /// so every history row of this replay can sit below the surviving minimum.
+    pub fn begin_backfill(&mut self) -> u64 {
+        self.backfill_generation = self.backfill_generation.wrapping_add(1);
+        self.backfill = HistoryBackfill::Loading;
+        self.history_pages = 0;
+        self.live_during_backfill.clear();
+        if !self.history_origin.is_empty() {
+            let origin = std::mem::take(&mut self.history_origin);
+            self.items.retain(|row| !origin.contains(&row.id));
+            self.head = 0;
+            self.positions = self
+                .items
+                .iter()
+                .enumerate()
+                .map(|(index, row)| (row.id.clone(), index as i64))
+                .collect();
+        }
+        if self.rereadable {
+            self.cached_bytes = self.items.iter().map(Self::row_bytes).sum();
+        }
+        self.backfill_generation
+    }
+    pub fn backfill_current(&self, generation: u64) -> bool {
+        self.backfill_generation == generation
+    }
+    pub fn finish_backfill(&mut self, generation: u64, outcome: HistoryBackfill) -> bool {
+        if self.backfill_generation != generation {
+            return false;
+        }
+        self.backfill = outcome;
+        if outcome == HistoryBackfill::Complete {
+            self.live_during_backfill.clear();
+        }
+        true
+    }
+    pub fn resume_backfill(&mut self, generation: u64) -> bool {
+        if !self.backfill_current(generation) || self.backfill != HistoryBackfill::Failed {
+            return false;
+        }
+        self.backfill = HistoryBackfill::Loading;
+        true
+    }
+    pub fn backfill(&self) -> HistoryBackfill {
+        self.backfill
+    }
+    pub fn history_pages(&self) -> u32 {
+        self.history_pages
+    }
+    pub fn note_history_page(&mut self) {
+        self.history_pages = self.history_pages.saturating_add(1);
+    }
+    /// Lands history rows older than every cached row without renumbering: known rows update
+    /// in place unless a live delta superseded them, unknown rows take seqs below the minimum.
+    pub fn reconcile_backfill(&mut self, page: Vec<ChatMsg>) -> usize {
+        let mut landed = 0;
+        let mut block: Vec<ChatMsg> = Vec::new();
+        for mut item in page {
+            if self.live_during_backfill.contains(&item.id) {
+                continue;
+            }
+            if self.positions.contains_key(&item.id) {
+                self.history_origin.insert(item.id.clone());
+                self.reconcile(item);
+                landed += 1;
+                continue;
+            }
+            item.refresh_segments();
+            match block.iter_mut().find(|row| row.id == item.id) {
+                Some(row) => *row = item,
+                None => block.push(item),
+            }
+        }
+        landed += block.len();
+        let base = self.items.front().map_or(0, |row| row.seq) - block.len() as i64;
+        for (offset, mut item) in block.into_iter().enumerate().rev() {
+            item.seq = base + offset as i64;
+            self.head -= 1;
+            self.positions.insert(item.id.clone(), self.head);
+            self.history_origin.insert(item.id.clone());
+            if self.rereadable {
+                self.cached_bytes = self.cached_bytes.saturating_add(Self::row_bytes(&item));
+            }
+            self.items.push_front(item);
+        }
+        self.evict();
+        landed
+    }
     pub fn reconcile_live(&mut self, mut item: ChatMsg, at: u64) -> ChatMsg {
+        if self.backfill != HistoryBackfill::Complete {
+            self.live_during_backfill.insert(item.id.clone());
+        }
         if let Some(status) = item.tool_status.as_deref() {
-            let previous = self
-                .positions
-                .get(&item.id)
-                .map(|index| &self.items[*index]);
+            let previous = self.index(&item.id).map(|index| &self.items[index]);
             item.tool_started_at_ms = item
                 .tool_started_at_ms
                 .or_else(|| previous.and_then(|row| row.tool_started_at_ms))
@@ -234,21 +384,35 @@ impl ItemCache {
     }
     pub fn reconcile(&mut self, mut item: ChatMsg) -> ChatMsg {
         item.refresh_segments();
-        if let Some(index) = self.positions.get(&item.id).copied() {
+        if let Some(index) = self.index(&item.id) {
             item.seq = self.items[index].seq;
+            if self.rereadable {
+                self.cached_bytes = self
+                    .cached_bytes
+                    .saturating_sub(Self::row_bytes(&self.items[index]))
+                    .saturating_add(Self::row_bytes(&item));
+            }
             self.items[index] = item.clone();
         } else {
-            item.seq = self.items.len() as i64;
-            self.positions.insert(item.id.clone(), self.items.len());
-            self.items.push(item.clone());
+            item.seq = self.items.back().map_or(0, |row| row.seq + 1);
+            self.positions
+                .insert(item.id.clone(), self.head + self.items.len() as i64);
+            if self.rereadable {
+                self.cached_bytes = self.cached_bytes.saturating_add(Self::row_bytes(&item));
+            }
+            self.items.push_back(item.clone());
         }
+        self.evict();
         item
     }
     pub fn snapshot(&self) -> Vec<ChatMsg> {
-        self.items.clone()
+        self.items.iter().cloned().collect()
     }
     pub fn tail(&self, limit: usize) -> Vec<ChatMsg> {
-        self.items[self.items.len().saturating_sub(limit)..].to_vec()
+        self.items
+            .range(self.items.len().saturating_sub(limit)..)
+            .cloned()
+            .collect()
     }
 }
 
@@ -258,6 +422,12 @@ pub fn validate_operation_thread(
 ) -> Result<(), RuntimeFailure> {
     use codeterm_plugin::agent_runtime::RuntimeOperation;
     let target = match operation {
+        RuntimeOperation::BackgroundProcesses { thread_id, .. } => {
+            if !codeterm_plugin::agent_runtime::owns_runtime_thread(context, thread_id) {
+                return Err(RuntimeFailure::Superseded);
+            }
+            None
+        }
         RuntimeOperation::ResumeThread { thread_id, .. }
         | RuntimeOperation::AnswerQuestion { thread_id, .. }
         | RuntimeOperation::ReadHistory { thread_id, .. }
@@ -268,7 +438,13 @@ pub fn validate_operation_thread(
         | RuntimeOperation::OpenThread { .. }
         | RuntimeOperation::Answer { .. } => None,
     };
-    if target.is_some() && target != context.thread_id.as_deref() {
+    if target.is_some()
+        && target != context.thread_id.as_deref()
+        && !(matches!(operation, RuntimeOperation::ReadHistory { .. })
+            && target.is_some_and(|thread| {
+                codeterm_plugin::agent_runtime::runtime_descendant(context, thread)
+            }))
+    {
         return Err(RuntimeFailure::Superseded);
     }
     let active = match operation {
@@ -297,6 +473,7 @@ pub fn settings_from_config(
     config: &serde_json::Value,
 ) -> codeterm_plugin::agent_runtime::RuntimeSettings {
     codeterm_plugin::agent_runtime::RuntimeSettings {
+        fast_mode: config["fastMode"].as_bool(),
         model: config["model"].as_str().map(str::to_string),
         effort: config["effort"].as_str().map(str::to_string),
         mode: config["mode"].as_str().map(str::to_string),
@@ -376,17 +553,17 @@ pub fn validate_prompt_answer(
 pub fn validated_evidence(
     claims: &[codeterm_plugin::agent_runtime::ClaimedSend],
     events: &[codeterm_plugin::agent_runtime::AgentRuntimeEvent],
-) -> std::collections::HashSet<String> {
+) -> std::collections::HashSet<(String, Option<String>)> {
     use codeterm_plugin::agent_runtime::AgentRuntimeEvent;
     events.iter().filter_map(|event| {
-        let AgentRuntimeEvent::SendEvidence { thread_id, send_id, turn_id } = event else { return None };
-        if turn_id.is_empty() { return None; }
+        let AgentRuntimeEvent::SendEvidence { thread_id, send_id, turn_id, item_id } = event else { return None };
+        if turn_id.is_empty() || item_id.as_ref().is_some_and(|id| id.is_empty()) { return None; }
         let claim = claims.iter().find(|claim| claim.send_id == *send_id && claim.thread_id == *thread_id)?;
-        let exact = events.iter().any(|item| matches!(item,
+        let exact = item_id.is_none() || events.iter().any(|item| matches!(item,
             AgentRuntimeEvent::ChatItem { thread_id: own, item }
-                if own == thread_id && item.kind == "user" && item.content == claim.input.text
+                if own == thread_id && item_id.as_ref().is_none_or(|id| item.id == *id) && item.kind == "user" && item.content == claim.input.text
                     && item.attachments.as_deref().unwrap_or_default() == claim.input.attachments.as_slice()));
-        exact.then(|| send_id.clone())
+        exact.then(|| (send_id.clone(), item_id.clone()))
     }).collect()
 }
 

@@ -52,7 +52,7 @@ function makeHost(opts: {
   const explicitExec = opts.explicitExec || {};
   const execCalls: string[] = [];
 
-  return {
+  const fixture = {
     execCalls,
     host: {
       platform: () => platform,
@@ -98,6 +98,11 @@ function makeHost(opts: {
       },
     },
   };
+  Object.assign(fixture.host.exec, {
+    async: <T>(opts: unknown, then: (result: unknown) => T): T =>
+      then(JSON.parse(fixture.host.exec(JSON.stringify(opts)))),
+  });
+  return fixture;
 }
 
 async function loadPlugin(host: unknown) {
@@ -107,7 +112,9 @@ async function loadPlugin(host: unknown) {
     __test_discoverGitRepos: (cwd: string) => Array<{ path: string; name: string; branch: string | null }>;
     __test_gitRepoConstants: { maxDepth: number; maxVisited: number; maxEmitted: number };
     __test_isSafeChildName: (name: string) => boolean;
-    statusBubble: (ctx: { cwd?: string | null }) => { label: string } | null;
+    statusBubble: (ctx: { cwd?: string | null }) => {
+      label: string; tone: string; icon: string; tooltip: string; action: string;
+    } | null;
   };
 }
 
@@ -283,6 +290,41 @@ console.log("\n--- statusBubble reflects the current branch, never a stale one (
 
   eq(before?.label, "main", "first computation resolves the branch at that time");
   eq(after?.label, "feature", "a later computation reflects the current branch, not a cached one");
+}
+
+{
+  const pending: Array<{ opts: { bin: string; args: string[]; env: Record<string, string>; timeoutMs: number }; then: (result: unknown) => unknown }> = [];
+  const marker = { pending: true };
+  const plugin = await loadPlugin({
+    exec: Object.assign(() => { throw new Error("status must not call synchronous exec"); }, {
+      async: (opts: typeof pending[number]["opts"], then: (result: unknown) => unknown) => {
+        pending.push({ opts, then });
+        return marker;
+      },
+    }),
+  });
+  eq(plugin.statusBubble({}), null, "missing cwd hides status without spawning");
+  eq(plugin.statusBubble({ cwd: "/repo" }), marker, "branch lookup yields to the host");
+  eq(pending[0].opts, {
+    bin: "git", args: ["-C", "/repo", "rev-parse", "--abbrev-ref", "HEAD"],
+    env: { GIT_OPTIONAL_LOCKS: "0" }, timeoutMs: 4000,
+  }, "branch lookup preserves optional-lock policy and has a process deadline");
+  eq(pending[0].then({ code: 128 }), null, "non-repository hides status");
+  eq(pending[0].then({ error: "exec denied" }), null, "denied branch lookup hides status");
+  eq(pending[0].then({ code: 0, stdout: "\n" }), null, "empty branch hides status");
+  eq(pending[0].then({ code: 0, stdout: " main\n" }), marker, "porcelain lookup also yields");
+  eq(pending[1].opts.args, ["-C", "/repo", "status", "--porcelain"], "status command is unchanged");
+  const pill = (tooltip: string) => ({ label: "main", tone: "default", icon: "git", tooltip, action: "openPanel:view:git" });
+  eq(pending[1].then({ code: 0, stdout: " M a\n?? b\n" }), pill("2 changed — open Git"), "dirty status preserves every pill field");
+  eq(pending[1].then({ code: 0, stdout: "" }), pill("clean — open Git"), "clean status preserves every pill field");
+  eq(pending[1].then({ code: 1, error: "timed out" }), pill("clean — open Git"), "timeout retains the last successful bubble");
+  eq(pending[1].then({ code: 0, stdout: " M partial\n", truncated: true }), pill("clean — open Git"), "truncated porcelain retains the last successful bubble");
+  eq(pending[0].then({ error: "timed out" }), pill("clean — open Git"), "branch timeout retains the last successful bubble");
+  eq(pending[0].then({ code: 0, stdout: "partial", truncated: true }), pill("clean — open Git"), "truncated branch retains the last successful bubble");
+  plugin.statusBubble({ cwd: "/other" });
+  eq(pending[2].then({ error: "timed out" }), null, "fallback never leaks another cwd's bubble");
+  eq(pending[0].then({ code: 128 }), null, "repository removal clears the last successful bubble");
+  eq(pending[0].then({ error: "timed out" }), null, "removed repository cannot revive a cached bubble");
 }
 
 console.log("\nResidual review note: lexical containment is enforced in QuickJS, but junction/symlink identity cannot be proven here without a safe host stat/realpath surface.\n");

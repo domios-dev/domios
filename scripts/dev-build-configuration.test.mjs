@@ -158,3 +158,46 @@ test('app test checks share both runner configurations and persist per-pass rece
     assert.ok(result.stdout.includes('aggregate=42'), 'the shared test pass must preserve its failure');
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+
+test('external path dependency test scopes omit workspace-only feature selection', () => {
+  const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
+  const nextest = source.match(/^run_nextest_scope\(\) \{[\s\S]*?^\}/m)[0];
+  const focused = source.slice(source.indexOf('  test-one)'));
+  const arms = ['paths|codeterm-paths', 'mem-store|codeterm-mem-store'].map(scope =>
+    focused.split('\n').find(line => line.trimStart().startsWith(`${scope})`))).join('\n');
+  const scopes = ['paths', 'codeterm-paths', 'mem-store', 'codeterm-mem-store'];
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'external-test-scope-'));
+  try {
+    fs.writeFileSync(path.join(directory, 'fixture.sh'), `
+      set -euo pipefail
+      ${nextest}
+      cargo() { printf '%s\\n' "$*" >> calls.log; return 71; }
+      scripts/test-capped.sh() { printf 'focused %s\\n' "$*" >> calls.log; }
+      test_filter=opaque-filter
+      for scope in ${scopes.join(' ')}; do
+        run_nextest_scope "$scope" || [ "$?" = 71 ]
+        case "$scope" in
+          ${arms}
+        esac
+      done
+    `);
+    const result = spawnSync(bash, ['fixture.sh'], { cwd: directory, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const calls = fs.readFileSync(path.join(directory, 'calls.log'), 'utf8').trim().split('\n');
+    assert.equal(calls.length, scopes.length * 2);
+    for (const [index, scope] of scopes.entries()) {
+      const pkg = scope.startsWith('codeterm-') ? scope : `codeterm-${scope}`;
+      const [nextestArgs, focusedArgs] = calls.slice(index * 2, index * 2 + 2);
+      assert.ok(nextestArgs.startsWith('nextest list '));
+      assert.ok(focusedArgs.startsWith('focused '));
+      assert.ok(focusedArgs.endsWith(' opaque-filter'));
+      for (const args of [nextestArgs, focusedArgs]) {
+        assert.ok(args.includes('--manifest-path src-tauri/Cargo.toml'));
+        assert.ok(args.includes(`-p ${pkg}`));
+        assert.ok(args.includes('--lib'));
+        assert.doesNotMatch(args, /--no-default-features|--features|--all-features/);
+      }
+    }
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});

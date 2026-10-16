@@ -1,23 +1,7 @@
-//! Vector embeddings + sqlite-vec semantic recall.
-//!
-//! Gated behind `embeddings` feature flag to avoid pulling onnxruntime
-//! (~50MB binary) into the default build. When the feature is off, this
-//! module compiles to no-op stubs and `mem search` falls back to FTS5
-//! hybrid search (which delivers 96.6% on LongMemEval per MemPalace).
-//!
-//! When the feature is on:
-//! - sqlite-vec extension loaded into the existing knowledge.db connection
-//! - mem_vectors virtual table 1:1 with mem_items
-//! - fastembed-rs runs multilingual MiniLM locally (384-dim, no API key)
-//! - search formula: vector_dist × (1 − 0.30 × keyword_overlap) × (1 − temporal_boost)
-
 use serde::{Deserialize, Serialize};
 
 pub const EMBEDDER_MODEL_ID: &str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2";
 pub const EMBEDDING_DIMENSION: usize = 384;
-
-#[doc(hidden)]
-pub const EMBED_CHILD_CALL_BUDGET: u64 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingsConfig {
@@ -40,130 +24,10 @@ impl Default for EmbeddingsConfig {
 
 #[cfg(feature = "embeddings")]
 pub mod inner {
-    use parking_lot::Mutex;
     use rusqlite::{ffi::sqlite3_auto_extension, params, Connection};
-    use serde::{Deserialize, Serialize};
-    use std::io::{BufRead, BufReader, Write};
-    use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-    use std::sync::{Once, OnceLock};
+    use std::sync::Once;
 
     static EXT_REGISTERED: Once = Once::new();
-
-    // Keep the known ONNX leak below a single-process memory budget between child restarts.
-    const CHILD_MAX_CALLS: u64 = super::EMBED_CHILD_CALL_BUDGET;
-
-    #[cfg(test)]
-    pub(super) const EMBED_CHILD_MAX_CALLS: u64 = CHILD_MAX_CALLS;
-
-    pub(super) fn recycle_required(calls: u64) -> bool {
-        calls >= CHILD_MAX_CALLS
-    }
-
-    #[derive(Serialize)]
-    struct EmbedRequest<'a> {
-        id: &'a str,
-        text: &'a str,
-    }
-
-    #[derive(Deserialize)]
-    struct EmbedResponse {
-        #[allow(dead_code)]
-        id: String,
-        embedding: Option<Vec<f32>>,
-        error: Option<String>,
-    }
-
-    struct EmbedChild {
-        child: Child,
-        stdin: ChildStdin,
-        stdout: BufReader<ChildStdout>,
-        calls: u64,
-    }
-
-    impl EmbedChild {
-        fn spawn() -> Result<Self, String> {
-            let exe = codeterm_embed_path()?;
-            let mut cmd = Command::new(&exe);
-            cmd.stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit());
-            codeterm_util::process_util::no_window_std(&mut cmd);
-            let mut child = cmd
-                .spawn()
-                .map_err(|e| format!("spawn {}: {}", exe.display(), e))?;
-            let stdin = child.stdin.take().ok_or("no stdin")?;
-            let stdout = BufReader::new(child.stdout.take().ok_or("no stdout")?);
-            log::info!("[embed] spawned child pid={}", child.id());
-            Ok(Self {
-                child,
-                stdin,
-                stdout,
-                calls: 0,
-            })
-        }
-
-        fn request(&mut self, id: &str, text: &str) -> Result<Vec<f32>, String> {
-            let req = EmbedRequest { id, text };
-            let line = serde_json::to_string(&req).map_err(|e| e.to_string())?;
-            writeln!(self.stdin, "{}", line).map_err(|e| format!("write: {}", e))?;
-            self.stdin.flush().map_err(|e| format!("flush: {}", e))?;
-
-            let mut resp_line = String::new();
-            self.stdout
-                .read_line(&mut resp_line)
-                .map_err(|e| format!("read: {}", e))?;
-            if resp_line.is_empty() {
-                return Err("child closed stdout".into());
-            }
-            let resp: EmbedResponse = serde_json::from_str(resp_line.trim())
-                .map_err(|e| format!("parse response: {}", e))?;
-            self.calls += 1;
-            if let Some(err) = resp.error {
-                return Err(err);
-            }
-            resp.embedding.ok_or_else(|| "no embedding".into())
-        }
-    }
-
-    impl Drop for EmbedChild {
-        fn drop(&mut self) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-    }
-
-    fn codeterm_embed_path() -> Result<std::path::PathBuf, String> {
-        // Try the Tauri externalBin location first (sidecar next to main exe), then fall back to a sibling binary in the cargo target dir for `cargo run` / dev scenarios.
-        let exe_name = if cfg!(windows) {
-            "codeterm-embed.exe"
-        } else {
-            "codeterm-embed"
-        };
-        let current = std::env::current_exe().map_err(|e| format!("current_exe: {}", e))?;
-        let dir = current.parent().ok_or("no parent dir")?;
-        let parent = dir.parent();
-
-        let mut candidates = vec![
-            dir.join(exe_name),
-            dir.join("codeterm-embed"),
-            dir.join("bundled-embed").join(exe_name),
-        ];
-        if let Some(parent) = parent {
-            candidates.push(parent.join(exe_name));
-            candidates.push(parent.join("codeterm-embed"));
-        }
-        for path in &candidates {
-            if path.exists() {
-                return Ok(path.clone());
-            }
-        }
-        Err(format!("codeterm-embed not found near {}", dir.display()))
-    }
-
-    fn child_handle() -> &'static Mutex<Option<EmbedChild>> {
-        static CELL: OnceLock<Mutex<Option<EmbedChild>>> = OnceLock::new();
-        CELL.get_or_init(|| Mutex::new(None))
-    }
 
     /// Register sqlite-vec as an auto-extension. This installs it into the
     /// global auto-extension list — every Connection opened after this call
@@ -236,29 +100,13 @@ pub mod inner {
         result.trim().to_string()
     }
 
-    /// Compute an embedding for `text`. Delegates to the `codeterm-embed`
-    /// subprocess so the fastembed/ort memory leak on Windows is isolated
-    /// and bounded by periodic child recycling.
+    /// Blocking inference for background threads and spawn_blocking callers.
     pub fn embed(text: &str) -> Result<Vec<f32>, String> {
-        let normalized = preprocess(text);
-        match codeterm_util::child_slot::request_with_idle(
-            child_handle(),
-            EmbedChild::spawn,
-            |child| {
-                let required = recycle_required(child.calls);
-                if required {
-                    log::info!("[embed] recycling child after {} calls", child.calls);
-                }
-                required
-            },
-            |child| child.request("", &normalized),
-        ) {
-            Ok(v) => Ok(v),
-            Err(e) => {
-                log::warn!("[embed] child operation failed ({}), dropping", e);
-                Err(e)
-            }
-        }
+        crate::embedding_worker::embed(&preprocess(text))
+    }
+
+    pub fn query_embed(text: &str) -> Result<Vec<f32>, String> {
+        crate::embedding_worker::query_embed(&preprocess(text))
     }
 
     /// Preprocess and split `text` into the chunks `index` embeds, one vector each.
@@ -302,12 +150,22 @@ pub mod inner {
         log::info!("[mem.index] {} chunks={}", mem_id, chunks.len());
         for (i, chunk) in chunks.iter().enumerate() {
             let vec = embed(chunk)?;
-            conn.execute(
-                "INSERT INTO mem_vectors (mem_id, embedding) VALUES (?1, ?2)",
-                params![vector_id(mem_id, i), encode_vector(&vec)],
-            )
-            .map_err(|e| format!("insert vector chunk {}: {}", i, e))?;
+            write_vector(conn, mem_id, i, &vec)?;
         }
+        Ok(())
+    }
+
+    fn write_vector(
+        conn: &Connection,
+        mem_id: &str,
+        chunk: usize,
+        vector: &[f32],
+    ) -> Result<(), String> {
+        conn.execute(
+            "INSERT INTO mem_vectors (mem_id, embedding) VALUES (?1, ?2)",
+            params![vector_id(mem_id, chunk), encode_vector(vector)],
+        )
+        .map_err(|e| format!("insert vector chunk {chunk}: {e}"))?;
         Ok(())
     }
 
@@ -332,10 +190,7 @@ pub mod inner {
         vec.iter().flat_map(|f| f.to_le_bytes()).collect()
     }
 
-    /// Insert one chunk vector only while its mem_item row exists. Chunk 0 opens
-    /// a new generation and first clears the item's older vectors. The check and
-    /// the writes share one write transaction, so a concurrent delete either
-    /// commits first and the insert is skipped, or removes the inserted vector.
+    /// Insert a chunk only while its memory item or graph entity still exists.
     pub fn insert_vector_if_item_live(
         conn: &Connection,
         mem_id: &str,
@@ -347,7 +202,7 @@ pub mod inner {
                 .map_err(|e| format!("begin vector insert: {}", e))?;
         let live: bool = tx
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM mem_items WHERE id = ?1)",
+                "SELECT EXISTS(SELECT 1 FROM mem_items WHERE id = ?1 UNION ALL SELECT 1 FROM entities WHERE id = ?1)",
                 params![mem_id],
                 |r| r.get(0),
             )
@@ -381,7 +236,15 @@ pub mod inner {
     /// to their parent mem_item, keeping the best (lowest) distance.
     pub fn recall(conn: &Connection, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
         let qvec = embed(query)?;
-        let bytes: Vec<u8> = qvec.iter().flat_map(|f| f.to_le_bytes()).collect();
+        recall_vector(conn, &qvec, k)
+    }
+
+    pub fn recall_vector(
+        conn: &Connection,
+        qvec: &[f32],
+        k: usize,
+    ) -> Result<Vec<(String, f64)>, String> {
+        let bytes = encode_vector(qvec);
         let overfetch = k * 3;
         let mut stmt = conn
             .prepare(
@@ -441,7 +304,9 @@ pub mod inner {
 }
 
 #[cfg(feature = "embeddings")]
-pub use inner::{chunk_text, clear_vectors, insert_vector_if_item_live};
+pub use inner::{
+    chunk_text, clear_vectors, insert_vector_if_item_live, query_embed, recall_vector,
+};
 pub use inner::{
     embed, embeddable_text_for_entity, ensure_extension_registered, index, init_extension, recall,
 };
@@ -455,13 +320,6 @@ mod tests {
         let cfg = EmbeddingsConfig::default();
         assert!(!cfg.enabled);
         assert_eq!(cfg.dimension, 384);
-    }
-
-    #[test]
-    #[cfg(feature = "embeddings")]
-    fn embedding_child_recycles_before_the_memory_budget_is_exceeded() {
-        assert!(!inner::recycle_required(inner::EMBED_CHILD_MAX_CALLS - 1));
-        assert!(inner::recycle_required(inner::EMBED_CHILD_MAX_CALLS));
     }
 
     #[test]

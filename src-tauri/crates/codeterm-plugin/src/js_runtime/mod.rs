@@ -44,6 +44,7 @@ pub use converter::JsConverter;
 pub use decision_model::JsDecisionModel;
 pub use event_source::JsEventSource;
 pub use glance::JsGlanceProvider;
+pub use host_api::sqlite::{lease_plugin_sqlite, PluginSqliteLease};
 pub use transcriber::JsTranscriber;
 pub use view::JsViewProvider;
 pub use webhook::JsWebhookReceiver;

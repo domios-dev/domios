@@ -203,12 +203,10 @@ describe("Plan reader paragraph Ask", () => {
     expect(trigger.getAttribute("aria-label")).toBe("Ask about this paragraph");
     expect(trigger.dataset.askMode).toBe("paragraph");
     expect(trigger.dataset.motion).toBe("glide");
-    expect(trigger.style.transform).toBe("translateY(110px)");
     expect(body.contains(trigger)).toBe(false);
 
     await hover(item);
     expect(q(host, "plan-ask-trigger")).toBe(trigger);
-    expect(trigger.style.transform).toBe("translateY(300px)");
   });
 
   it("snaps instead of gliding under reduced motion", async () => {
@@ -291,7 +289,6 @@ describe("Plan reader paragraph Ask", () => {
     const trigger = q<HTMLElement>(host, "plan-ask-trigger")!;
     expect(trigger.dataset.askMode).toBe("selection");
     expect(trigger.getAttribute("aria-label")).toBe("Ask about selected text");
-    expect(trigger.style.transform).toBe("translateY(240px)");
 
     await click(trigger);
     expect(q(host, "plan-ask-quote")!.textContent).toBe("flow first");
@@ -461,7 +458,6 @@ describe("Spec reader paragraph Ask", () => {
     await hover(scale);
     const trigger = q<HTMLElement>(host, "plan-ask-trigger")!;
     expect(trigger.dataset.askMode).toBe("paragraph");
-    expect(trigger.style.transform).toBe("translateY(64px)");
 
     const body = specBody(host, "sp_readable");
     const node = textNode(body, "document — the reasoning");

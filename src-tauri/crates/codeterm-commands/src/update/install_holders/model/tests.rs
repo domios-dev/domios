@@ -35,10 +35,10 @@ fn standalone_installed_cli_is_owned_but_names_and_other_installs_are_not() {
 }
 
 #[test]
-fn consoles_and_embedders_require_both_exact_path_and_current_instance_parent() {
+fn consoles_require_both_exact_path_and_current_instance_parent() {
     let helpers = [
         PathBuf::from(r"C:\Domios\conpty\x64\OpenConsole.exe"),
-        PathBuf::from(r"C:\Domios\codeterm-embed.exe"),
+        PathBuf::from(r"C:\Domios\conpty\arm64\OpenConsole.exe"),
     ];
     for path in &helpers {
         let path = path.to_str().unwrap();

@@ -68,14 +68,12 @@ via Keychain Access → export `.p12`.)
 its unchanged notarize/staple/spctl verification in the background, and compiles the x86_64 Mac
 build while Apple processes the first DMG. Both architectures use `src-tauri/target`,
 `CARGO_INCREMENTAL=0`, and the `embeddings` feature set; `release-inputs` prepares both the app
-and embed bins in one Cargo invocation before Tauri bundles the already-built graph. Each
+bin before Tauri bundles the already-built graph. Each
 architecture still verifies Developer-ID + hardened-runtime + arch, notarizes + staples the DMG,
 packs the `.app.tar.gz` updater bundle, and minisign-signs it.
-x86_64 goes through `scripts/release-macos-x86_64.sh` (ONNX Runtime 1.23.2 Intel dylib + `CARGO_BUILD_TARGET`
-plumbing — see the `macos-x86_64-release` skill).
-The x86_64 embedder also bundles LLVM `libc++.1.dylib` from
-`CODETERM_MONTEREY_LIBCXX_DIR` so ONNX Runtime does not depend on the newer
-system libc++ float `std::to_chars` symbols missing on macOS 12 Monterey.
+x86_64 goes through `scripts/release-macos-x86_64.sh` with `CARGO_BUILD_TARGET`
+set for the target-correct CLI and application. CPU embeddings use candle on both
+architectures and require no bundled inference runtime dylibs.
 
 ---
 
@@ -288,8 +286,7 @@ SIGKILLs `rustc`.
   endless "cannot find … inside /sysroot" / "gdk-3.0 not found" whack-a-mole. Installing the amd64
   `-dev` libs into the real system (with `--force-overwrite` past multiarch arch-indep file
   conflicts) gives genuine system paths and resolves cleanly.
-- **Cross builds need embed/cli stubs pre-created** (`touch bundled-embed/codeterm-embed-<triple>`,
-  `bundled-cli/codeterm`) before `tauri build`, or its build-script glob validation aborts.
+- **Cross builds need CLI resource stubs pre-created** (`touch bundled-cli/codeterm`) before `tauri build`, or its build-script glob validation aborts.
 - **x86_64 AppImage cannot be built on an arm64 host** — `linuxdeploy-x86_64` is an x86_64 binary
   that can't run here. x86_64 → `.deb` only; AppImage only natively (arm64) or on a real x86_64 box.
   Hence `latest.json`'s `linux-x86_64` (an AppImage URL) needs a real x86_64 Linux runner.

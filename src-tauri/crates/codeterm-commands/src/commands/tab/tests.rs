@@ -1,6 +1,6 @@
 use super::backfill_window_slice;
 use codeterm_service_core::service::tab_chat::session_window::{
-    self, SNAPSHOT_ANCHOR_STRIDE_BYTES, SNAPSHOT_CAP_BYTES, SNAPSHOT_WINDOW_BYTES,
+    self, SNAPSHOT_CAP_BYTES, SNAPSHOT_WINDOW_BYTES,
 };
 use std::sync::Arc;
 
@@ -41,8 +41,8 @@ fn chat_start_replays_registered_sse_history_without_a_plugin_store() {
         format!("http://{address}"),
         "/repo".into(),
     );
-    let first = super::chat_start_core(&service, tab_id.clone(), "first".into()).unwrap();
-    let replay = super::chat_start_core(&service, tab_id.clone(), "remount".into()).unwrap();
+    let first = super::chat_start_core(&service, tab_id.clone(), "first".into(), None).unwrap();
+    let replay = super::chat_start_core(&service, tab_id.clone(), "remount".into(), None).unwrap();
     let snapshot =
         codeterm_service_core::service::tab_chat::tab_chat_snapshot(&service, &tab_id, 0).unwrap();
     codeterm_service_core::service::structured_endpoint_remove(&tab_id);
@@ -70,7 +70,12 @@ fn chat_start_removed_plugin_reports_state_without_rebinding_restored_tab() {
     tab.restored_from_snapshot = true;
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(state);
     let service = Arc::new(fixture.service.clone());
-    let result = super::chat_start_core(&service, tab_id.clone(), "fixture-subscription".into());
+    let result = super::chat_start_core(
+        &service,
+        tab_id.clone(),
+        "fixture-subscription".into(),
+        None,
+    );
     let error: serde_json::Value =
         serde_json::from_str(&result.err().expect("missing plugin must be refused")).unwrap();
     assert_eq!(error["code"], "chat_backend_plugin_removed");
@@ -289,7 +294,7 @@ fn oversized_claude_session_snapshots_a_bounded_tail() {
     let filler = serde_json::json!({
         "type": "user",
         "uuid": "filler",
-        "message": {"role": "user", "content": "f".repeat(4096)}
+        "message": {"role": "user", "content": "supplied tail context"}
     })
     .to_string();
     let tail_marker = serde_json::json!({
@@ -302,10 +307,15 @@ fn oversized_claude_session_snapshots_a_bounded_tail() {
     {
         use std::io::Write;
         let mut f = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
-        let mut written = 0u64;
-        while written <= SNAPSHOT_CAP_BYTES + SNAPSHOT_WINDOW_BYTES {
+        // The unread head proves window selection; parser parity uses only the small tail.
+        f.write_all(&vec![
+            b' ';
+            (SNAPSHOT_CAP_BYTES + SNAPSHOT_WINDOW_BYTES) as usize
+        ])
+        .unwrap();
+        writeln!(f, "{{}}").unwrap();
+        for _ in 0..2 {
             writeln!(f, "{filler}").unwrap();
-            written += filler.len() as u64 + 1;
         }
         writeln!(f, "{tail_marker}").unwrap();
         f.flush().unwrap();
@@ -319,7 +329,7 @@ fn oversized_claude_session_snapshots_a_bounded_tail() {
         "oversized session must use the tail window"
     );
     assert!(
-        snap.bytes_read <= SNAPSHOT_WINDOW_BYTES + SNAPSHOT_ANCHOR_STRIDE_BYTES,
+        snap.bytes_read <= SNAPSHOT_WINDOW_BYTES,
         "read {} bytes",
         snap.bytes_read
     );

@@ -1,4 +1,5 @@
 use super::ServiceContext;
+use crate::service::MuxEmitCause;
 use codeterm_types::agent::chat_types::RichMessage;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
@@ -199,7 +200,7 @@ fn set_initialized(svc: &ServiceContext, id: &str, session: &str, nonce: &str, c
         before != tab.provider_signals.background
     };
     if changed {
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::BackgroundWork);
         super::provider_update::background_work_changed(svc, id);
     }
 }
@@ -279,7 +280,7 @@ fn mark_unavailable(svc: &ServiceContext, id: &str, session: &str, nonce: &str) 
         changed
     };
     if changed {
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::BackgroundWork);
         super::provider_update::background_work_changed(svc, id);
     }
 }

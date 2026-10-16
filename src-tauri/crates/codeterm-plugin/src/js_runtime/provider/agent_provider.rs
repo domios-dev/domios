@@ -1,4 +1,3 @@
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -14,11 +13,8 @@ use crate::provider::{
 };
 use codeterm_types::pty::PendingPrompt;
 
-use super::super::{call_json, manifest_settings_sections, IntegrationKind, SerdeModelInfo};
-use super::command_template::{launch_command_from_template, resume_command_from_template};
-use super::wire::{
-    launch_params_to_json, SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
-};
+use super::super::{call_json, manifest_settings_sections, IntegrationKind};
+use super::wire::{SerdeSessionMetadata, VmUsageParser};
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
 mod chat_read;
@@ -32,6 +28,32 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn record_source(&self, source: &str) -> Option<&crate::jsonl_window::records::RecordSource> {
+        let hook = match source {
+            "sessionTranscript" => "parseSessionRecords",
+            "storedHistory" => "runtimeStoredRecords",
+            _ => return None,
+        };
+        if !self.has_js(hook) {
+            return None;
+        }
+        self.manifest.capabilities.record_sources.get(source)
+    }
+
+    fn parse_session_records(
+        &self,
+        window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Result<codeterm_types::agent::chat_types::SessionDelta, String> {
+        self.js_parse_session_records(window)
+    }
+
+    fn runtime_stored_records(
+        &self,
+        session: &str,
+        window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
+        self.js_runtime_stored_records(session, window)
+    }
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
         self.manifest.capabilities.agent_runtime.clone()
     }
@@ -176,14 +198,23 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.launch_permissions.clone()
     }
 
+    fn execution_sandbox_capability(&self) -> Option<provider::ExecutionSandboxCapability> {
+        self.manifest.spawn.execution_sandbox.clone()
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
-        if !self.has_js("buildLaunchCommand") {
-            if let Some(command) = launch_command_from_template(&self.manifest, params) {
-                return command;
-            }
-        }
-        self.try_call::<String>("buildLaunchCommand", &[launch_params_to_json(params)])
-            .unwrap_or_default()
+        super::command_template::build_launch_command(self, params)
+    }
+
+    fn declares_launch_spec(&self) -> bool {
+        self.manifest.commands.launch_spec.is_some() || self.vm.declares_launch_spec()
+    }
+
+    fn launch_spec(
+        &self,
+        params: &crate::provider::LaunchSpecParams<'_>,
+    ) -> Option<codeterm_types::agent::LaunchSpec> {
+        super::command_template::launch_spec(self, params)
     }
 
     fn release_tab_launch_artifacts(
@@ -298,6 +329,10 @@ impl AgentProvider for JsProvider {
     fn screen_has_tui(&self, screen_text: &str) -> bool {
         self.try_call::<bool>("screenHasTui", &[json!(screen_text)])
             .unwrap_or(false)
+    }
+
+    fn supports_session_name_detection(&self) -> bool {
+        self.has_js("extractSessionName")
     }
 
     fn extract_session_name(&self, screen: &str) -> Option<String> {
@@ -705,36 +740,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {
-        if !self.has_js("parseSessionMessages") {
-            return match self.native() {
-                Some(n) => n.parse_session_messages(file_path),
-                None => Vec::new(),
-            };
-        }
-        let Ok(file) = std::fs::File::open(file_path) else {
-            return Vec::new();
-        };
-        let mut reader = BufReader::new(file);
-        let mut out = Vec::new();
-        let mut chunk = String::new();
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match reader.read_line(&mut line) {
-                Ok(0) => break,
-                Ok(_) => {}
-                Err(_) => break,
-            }
-            chunk.push_str(&line);
-            if chunk.len() >= SESSION_PARSE_CHUNK_BYTES {
-                self.extend_parsed_session_chunk(&mut out, &chunk);
-                chunk.clear();
-            }
-        }
-        if !chunk.is_empty() {
-            self.extend_parsed_session_chunk(&mut out, &chunk);
-        }
-        out
+        self.js_parse_session_messages(file_path)
     }
 
     fn session_content_source(&self) -> provider::SessionContentSource {
@@ -792,7 +798,16 @@ impl AgentProvider for JsProvider {
         path: &std::path::Path,
         from_offset: u64,
     ) -> codeterm_types::agent::chat_types::SessionDelta {
-        self.js_parse_session_delta(path, from_offset)
+        self.js_parse_session_delta(path, from_offset, crate::jsonl_window::DELTA_CHUNK_BYTES)
+    }
+
+    fn parse_session_delta_bounded(
+        &self,
+        path: &std::path::Path,
+        from_offset: u64,
+        byte_budget: u64,
+    ) -> Option<codeterm_types::agent::chat_types::SessionDelta> {
+        (byte_budget > 0).then(|| self.js_parse_session_delta(path, from_offset, byte_budget))
     }
 
     fn parse_interactive_events(
@@ -803,18 +818,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
-        if !self.has_js("buildResumeCommand") {
-            if let Some(command) =
-                resume_command_from_template(&self.manifest, session_id, skip_permissions)
-            {
-                return Some(command);
-            }
-        }
-        self.try_call::<Option<String>>(
-            "buildResumeCommand",
-            &[json!(session_id), json!(skip_permissions)],
-        )
-        .flatten()
+        super::command_template::build_resume_command(self, session_id, skip_permissions)
     }
 
     fn build_resume_command_with_context(
@@ -955,6 +959,10 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.idle_restart_termination
     }
 
+    fn supports_exact_session_resume(&self) -> bool {
+        self.js_supports_exact_session_resume()
+    }
+
     fn stop_keystroke(&self) -> Option<&str> {
         self.manifest.commands.stop_key.as_deref()
     }
@@ -1087,11 +1095,7 @@ impl AgentProvider for JsProvider {
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
-        // `null` is the plugin's honest "no genuine discovery" signal — it must
-        // not deserialize-fail into warn noise, and never falls back to a seed.
-        self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[])
-            .flatten()
-            .map(|models| models.iter().map(ModelInfo::from).collect())
+        self.js_discover_models()
     }
 
     fn default_model(&self) -> Option<String> {

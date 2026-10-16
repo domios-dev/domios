@@ -141,18 +141,11 @@ function build() {
       const manifest = lane === 'workspace' ? 'src-tauri/Cargo.toml' : 'cli/Cargo.toml';
       const workspace = path.resolve(path.dirname(manifest));
       const metadata = commandJson('cargo', ['metadata', '--locked', '--manifest-path', manifest, '--format-version', '1']);
-      const runtime = 'codeterm-embed' + (os === 'Windows' ? '.exe' : '');
-      if (lane === 'workspace') {
-        execFileSync('cargo', ['build', '--locked', '--manifest-path', manifest, '--bin', 'codeterm-embed'], { stdio: 'inherit' });
-        if (!fs.statSync(path.join(metadata.target_directory, 'debug', runtime)).size) throw new Error('Runtime embed sidecar is empty');
-      }
       const config = path.resolve('ci-rust-archives', lane + '.toml');
-      const include = lane === 'workspace' ? '\narchive.include = [{ path = ' + JSON.stringify('debug/' + runtime) + ', relative-to = "target", on-missing = "error" }]\n' : '\n';
-      fs.writeFileSync(config, '[profile.default]\ndefault-filter = "all()"' + include);
+      fs.writeFileSync(config, '[profile.default]\ndefault-filter = "all()"\n');
       const archive = path.resolve('ci-rust-archives', lane + '.tar.zst');
       const messages = archiveMessages(['nextest', 'archive', '--manifest-path', manifest, ...archiveTargets(lane, runners), '--locked', '--config-file', config, '--archive-file', archive, '--cargo-message-format', 'json']);
       const generated = generatedDirectories(messages);
-      if (lane === 'workspace' && !fs.statSync(path.join(metadata.target_directory, 'debug', runtime)).size) throw new Error('Runtime embed sidecar was overwritten while archiving');
       const extract = path.resolve(process.env.RUNNER_TEMP, 'rust-archive-classify', lane);
       fs.mkdirSync(extract, { recursive: true });
       const inventory = commandJson('cargo-nextest', ['nextest', 'list', '--archive-file', archive, '--workspace-remap', workspace, '--extract-to', extract, '--extract-overwrite', '--ignore-default-filter', '--message-format', 'json']);

@@ -112,9 +112,9 @@ test('Mac jobs provision secret material before building and always clean up', (
 
 test('builds on machines no fast check uses overlap the fast checks; the rest wait for them', () => {
   for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'windows-x64', 'windows-arm64']) {
-    assert.deepEqual(release.jobs[build].needs, ['prepare', 'fast-gate']);
+    assert.equal(release.jobs[build].needs, 'prepare');
   }
-  for (const id of ['linux-x86_64', 'tests']) assert.deepEqual(release.jobs[id].needs, ['prepare', 'quick-checks', 'fast-gate']);
+  for (const id of ['linux-x86_64', 'tests']) assert.deepEqual(release.jobs[id].needs, ['prepare', 'quick-checks']);
   assert.equal(release.jobs.tests.with.phase, 'long');
   assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
 });
@@ -126,7 +126,7 @@ test('native release processes share a job wrapper and verify before compiling',
     assert.equal(job.env.RUSTC_WRAPPER, 'sccache');
     const commands = job.steps.map(step => step.run || '');
     const verify = commands.findIndex(command => /build\.(?:sh|ps1) cache-verify/.test(command));
-    const compile = commands.findIndex(command => /mac-bundle|build\.(?:sh|ps1) release-inputs/.test(command));
+    const compile = commands.findIndex(command => /mac-bundle|build\.(?:sh|ps1) release-(?:inputs|bundle)/.test(command));
     assert.ok(verify >= 0 && compile > verify, name);
     const stats = job.steps.at(-2);
     assert.equal(stats.if, "${{ always() && steps.compile.outcome != 'skipped' }}");

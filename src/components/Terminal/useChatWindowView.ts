@@ -1,4 +1,5 @@
-import { type MutableRefObject, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLatestCallback } from "../../hooks/useLatestCallback";
+import { type MutableRefObject, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   lastSessionResetIndex,
   projectContextEpochs,
@@ -26,13 +27,16 @@ import {
   chatWindowRange,
   rekeyedChatWindowAnchor,
   slideChatWindowOlder,
+  olderChatAction,
   timelineItemKey,
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
 import { deliveryProjectionSends, visibleDeliveryRows } from "./chatDeliveryModel";
 import { useChatSendDismissals } from "./useChatSendDismissals";
+import { cancelChatStartPaintTiming, paintChatStartTiming } from "./chatStartTiming";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { setTranscriptAnchor } from "./transcriptStore";
+import { searchOlderChatHistory, type OlderChatPage } from "./chatHistorySearch";
 
 /** Viewport projection over the committed transcript and the tab's sends: window anchor
  *  and enriched rows. It reads both stores and never keeps a copy of either. */
@@ -49,15 +53,16 @@ export function useChatWindowView({
   transcript: TranscriptState;
   anchorKey: string | null;
   followTailRef: MutableRefObject<boolean>;
-  loadOlderPage: (beforeOffset: number) => Promise<boolean>;
+  loadOlderPage: (beforeOffset: number, maxBytes: number) => Promise<OlderChatPage | null>;
 }) {
   const sends = useChatSends(tabId);
   useChatSendDismissals(tabId);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const backfillInFlightRef = useRef(false);
-  const pendingRevealRef = useRef(false);
+  const [pendingReveal, setPendingReveal] = useState(false);
+  const [backfillNotice, setBackfillNotice] = useState<"limit" | "exhausted" | "stalled_cursor" | null>(null);
 
-  const updateWindowAnchor = useCallback((next: string | null) => {
+  const updateWindowAnchor = useLatestCallback((next: string | null) => {
     setTranscriptAnchor(windowKey, next);
   }, [windowKey]);
 
@@ -134,21 +139,33 @@ export function useChatWindowView({
     [windowProjection],
   );
 
+  useLayoutEffect(() => {
+    if (enrichedMessages.length === 0) return;
+    paintChatStartTiming(tabId);
+  });
+
+  useLayoutEffect(() => () => cancelChatStartPaintTiming(tabId), [tabId]);
+
   const hiddenMessageCount = transcript.evictedOlder + windowRange.start;
   const backfillCursor = transcriptBackfillCursor(transcript);
   const canBackfillOlder = backfillCursor != null && backfillCursor > 0;
 
-  const loadOlder = useCallback(async () => {
+  const loadOlder = useLatestCallback(async () => {
     followTailRef.current = false;
-    if (windowAnchorIsLoaded && windowRange.start > 0) {
-      updateWindowAnchor(slideChatWindowOlder(allTimelineItems, loadedAnchorKey));
+    setBackfillNotice(null);
+    const action = olderChatAction(allTimelineItems, loadedAnchorKey, windowAnchorIsLoaded, backfillCursor, backfillInFlightRef.current);
+    if (action.kind === "reveal") {
+      updateWindowAnchor(action.anchorKey);
       return;
     }
-    if (backfillCursor == null || backfillCursor <= 0 || backfillInFlightRef.current) return;
+    if (action.kind !== "backfill") return;
     backfillInFlightRef.current = true;
     setBackfillLoading(true);
     try {
-      if (await loadOlderPage(backfillCursor)) pendingRevealRef.current = true;
+      const result = await searchOlderChatHistory(action.beforeOffset, loadOlderPage);
+      if (result.kind === "reveal") setPendingReveal(true);
+      else if (result.kind === "stop") setBackfillNotice(result.reason);
+      else if (result.kind === "error") setBackfillNotice(result.reason);
     } finally {
       backfillInFlightRef.current = false;
       setBackfillLoading(false);
@@ -161,23 +178,22 @@ export function useChatWindowView({
     loadOlderPage,
     updateWindowAnchor,
     windowAnchorIsLoaded,
-    windowRange.start,
   ]);
 
   // Reveal a merged backfill page as soon as it lands in the timeline —
   // state-change driven, never timer driven.
   useLayoutEffect(() => {
-    if (!pendingRevealRef.current) return;
-    pendingRevealRef.current = false;
+    if (!pendingReveal) return;
+    setPendingReveal(false);
     updateWindowAnchor(slideChatWindowOlder(allTimelineItems, loadedAnchorKey));
-  }, [allTimelineItems, loadedAnchorKey, updateWindowAnchor]);
+  }, [allTimelineItems, loadedAnchorKey, pendingReveal, updateWindowAnchor]);
 
-  const showLatest = useCallback(() => {
+  const showLatest = useLatestCallback(() => {
     followTailRef.current = true;
     updateWindowAnchor(null);
   }, [followTailRef, updateWindowAnchor]);
 
-  const prepareMessage = useCallback((messageId: string) => {
+  const prepareMessage = useLatestCallback((messageId: string) => {
     const anchor = chatMessageAnchor(allTimelineItems, messageId);
     if (!anchor || loadedAnchorKey === anchor) return false;
     followTailRef.current = false;
@@ -191,7 +207,7 @@ export function useChatWindowView({
     else updateWindowAnchor(loadedAnchorKey);
   }, [anchorKey, loadedAnchorKey, showLatest, updateWindowAnchor]);
 
-  const setHistoryReading = useCallback((reading: boolean) => {
+  const setHistoryReading = useLatestCallback((reading: boolean) => {
     if (!reading) {
       showLatest();
       return;
@@ -203,7 +219,7 @@ export function useChatWindowView({
   }, [allTimelineItems, anchorKey, followTailRef, readingAnchorKey, showLatest, updateWindowAnchor, windowRange.end]);
 
   // The send key is captured here, once, when the composer accepts the send.
-  const addOptimistic = useCallback((content: string) => {
+  const addOptimistic = useLatestCallback((content: string) => {
     const sentAtMs = Date.now();
     const id = `opt-${sentAtMs}-${Math.floor(Math.random() * 1e6)}`;
     // The bubble's own id doubles as its send-correlation token.
@@ -211,7 +227,7 @@ export function useChatWindowView({
     return id;
   }, [tabId]);
 
-  const updateOptimistic = useCallback((id: string, content: string) => {
+  const updateOptimistic = useLatestCallback((id: string, content: string) => {
     updateChatSendContent(tabId, id, content);
   }, [tabId]);
 
@@ -219,6 +235,7 @@ export function useChatWindowView({
     addOptimistic,
     allMessages,
     backfillLoading,
+    backfillNotice,
     canBackfillOlder,
     committedRows,
     enrichedMessages,

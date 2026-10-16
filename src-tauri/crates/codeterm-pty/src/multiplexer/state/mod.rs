@@ -18,6 +18,7 @@ mod status_view;
 mod tab;
 mod tab_runtime;
 mod task_keys;
+mod wire_snapshot;
 mod workspace;
 
 pub use closed::{
@@ -129,6 +130,7 @@ pub struct TeamResolution {
 #[derive(Debug, Clone, Serialize)]
 pub struct MultiplexerSnapshot {
     pub workspaces: Vec<Workspace>,
+    #[serde(serialize_with = "wire_snapshot::tabs")]
     pub tabs: HashMap<String, Tab>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub teams: Vec<Team>,
@@ -397,7 +399,10 @@ impl MultiplexerState {
             show_in_tabbar: true,
             worker_id: None,
             frozen: false,
+            slept_at_ms: None,
+            sleep_reason: None,
             last_active_at_ms: None,
+            last_opened_at_ms: None,
             restored_from_snapshot: false,
             scrollback_seed_pending: false,
             pending_scrollback_tail: None,

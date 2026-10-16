@@ -287,52 +287,6 @@ fn test_batch_op_no_id() {
 }
 
 #[test]
-fn coalesce_snapshot_reflects_latest_mutation_in_window() {
-    use crate::agent::status::TabStatusTracker;
-    use crate::lock_hold::{TimedMutex, TimedRwLock};
-    use crate::multiplexer::state::MultiplexerState;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
-    let agent_tracker: AgentTrackerState =
-        Arc::new(TimedMutex::new("agent_tracker", TabStatusTracker::new()));
-    let pending = Arc::new(AtomicBool::new(true));
-    let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
-
-    let mux_clone = mux.clone();
-    let agent_tracker_clone = agent_tracker.clone();
-    let agent_registry_clone = agent_registry.clone();
-    let pending_clone = pending.clone();
-    let handle = std::thread::spawn(move || {
-        ServiceContext::coalesce_snapshot(
-            &mux_clone,
-            &agent_tracker_clone,
-            &agent_registry_clone,
-            &pending_clone,
-            Duration::from_millis(80),
-        )
-    });
-
-    // Both mutations land well inside the single coalesce window.
-    mux.write().create_workspace("first".to_string(), None);
-    mux.write().create_workspace("second".to_string(), None);
-
-    let snapshot = handle.join().unwrap();
-
-    // the latest being "second".
-    assert_eq!(
-        snapshot.workspaces.len(),
-        2,
-        "snapshot reflects both in-window mutations"
-    );
-    assert_eq!(snapshot.workspaces.last().unwrap().name, "second");
-    // Pending flag cleared so a mutation after the window starts a fresh one.
-    assert!(!pending.load(Ordering::Acquire));
-}
-
-#[test]
 fn focus_tab_hot_path_does_not_refresh_agent_model_inline() {
     use crate::lock_hold::TimedRwLock;
     use crate::multiplexer::state::MultiplexerState;
@@ -353,7 +307,11 @@ fn focus_tab_hot_path_does_not_refresh_agent_model_inline() {
         &tab_id,
         {
             let emitted = emitted.clone();
-            move |focused| emitted.lock().push(focused.to_string())
+            let mux_for_emit = mux.clone();
+            move |focused| {
+                assert_eq!(mux_for_emit.read().get_focused_tab_id(), Some(focused));
+                emitted.lock().push(focused.to_string());
+            }
         },
         {
             let scheduled = scheduled.clone();

@@ -1,4 +1,32 @@
 use super::*;
+
+#[test]
+fn direct_launch_applies_cwd_and_removes_environment_without_shell_integration() {
+    let launch = super::super::shell_profiles::ShellLaunch {
+        executable: "fixture".into(),
+        args: vec!["raw value; $x 😀".into()],
+        cwd: Some("/fixture/cwd".into()),
+    };
+    let mut command = CommandBuilder::new(&launch.executable);
+    command.args(&launch.args);
+    command.env("REMOVE_ME", "inherited");
+    command.env("KEEP_ME", "raw; $value 😀");
+    apply_launch_overrides(&mut command, launch.cwd.as_deref(), &["REMOVE_ME".into()]);
+    assert_eq!(
+        command.get_cwd().unwrap(),
+        &std::ffi::OsString::from("/fixture/cwd")
+    );
+    assert_eq!(
+        command.get_argv(),
+        &vec![
+            std::ffi::OsString::from("fixture"),
+            std::ffi::OsString::from("raw value; $x 😀")
+        ]
+    );
+    let env: HashMap<_, _> = command.iter_full_env_as_str().collect();
+    assert!(!env.contains_key("REMOVE_ME"));
+    assert_eq!(env["KEEP_ME"], "raw; $value 😀");
+}
 #[cfg(target_os = "windows")]
 use crate::pty::windows_test_support::{
     conpty_host_children_of_current_process, exclusive_conpty_test, legacy_conhost_children,
@@ -283,26 +311,46 @@ fn conpty_shell_does_not_spawn_legacy_child_conhost() {
         })
         .expect("openpty");
     let mut reader = pair.master.try_clone_reader().expect("clone reader");
-    let child = pair
+    let mut child = pair
         .slave
         .spawn_command(CommandBuilder::new("cmd.exe"))
         .expect("spawn cmd.exe");
     drop(pair.slave);
 
     let (tx, rx) = mpsc::channel();
+    let (drained_tx, drained_rx) = mpsc::channel();
     std::thread::spawn(move || {
         let mut buf = vec![0u8; 4096];
         let n = reader.read(&mut buf).unwrap_or(0);
         buf.truncate(n);
         let _ = tx.send(buf);
+        // ClosePseudoConsole can block until the output pipe has been drained.
+        let _ = std::io::copy(&mut reader, &mut std::io::sink());
+        drop(reader);
+        let _ = drained_tx.send(());
     });
     let got = rx
         .recv_timeout(std::time::Duration::from_secs(8))
         .unwrap_or_default();
-    assert!(!got.is_empty(), "ConPTY child produced no output");
 
     let child_pid = child.process_id().expect("child pid");
-    let legacy = legacy_conhost_children(child_pid).expect("observe legacy conhost children");
+    let legacy = legacy_conhost_children(child_pid);
+    let (closed_tx, closed_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = child.kill_tree().and_then(|_| child.wait());
+        drop(child);
+        drop(pair.master);
+        let _ = closed_tx.send(result);
+    });
+    closed_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("ConPTY child exit and console close before cleanup deadline")
+        .expect("terminate and reap ConPTY child");
+    drained_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("ConPTY output drain finishes before cleanup deadline");
+    assert!(!got.is_empty(), "ConPTY child produced no output");
+    let legacy = legacy.expect("observe legacy conhost children");
     assert!(
         legacy.is_empty(),
         "ConPTY child {} spawned legacy conhost children {:?}; only the headless ConPTY host should exist",

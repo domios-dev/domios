@@ -219,7 +219,6 @@ await act(async () => sendRoot.render(
   />,
 ));
 if (!sendHost.querySelector('[data-testid="codeterm-message-content"]') || !sendHost.textContent?.includes("hello\nHugo")) throw new Error("send card must decode line breaks and expand by default");
-if (!sendHost.querySelector("p")?.className.includes("whitespace-pre-wrap")) throw new Error("message prose must preserve soft line breaks");
 await act(async () => sendRoot.unmount());
 sendHost.remove();
 

@@ -9,8 +9,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8').replaceAll('\r\n', '\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const functions = ['dev_provenance_record', 'write_dev_provenance', 'validate_dev_provenance',
-  'tauri_debug_dir', 'dev_app_path', 'dev_cli_path'].map(name =>
-  source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0]).join('\n');
+  'tauri_debug_dir', 'dev_app_path', 'dev_cli_path'].map(sourceFunction).join('\n');
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -21,7 +20,7 @@ function run(command, args, options = {}) {
 function fixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-provenance-'));
   const checkout = path.join(directory, 'checkout');
-  for (const dir of ['scripts', 'target/debug', 'data/bin', 'src-tauri/bundled-embed', 'dist']) {
+  for (const dir of ['scripts', 'target/debug', 'data/bin', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
   for (const name of ['dev-prep.mjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'build-identity.cjs']) {
@@ -29,7 +28,7 @@ function fixture() {
   }
   const exe = process.platform === 'win32' ? '.exe' : '';
   for (const file of [`target/debug/codeterm${exe}`, `data/bin/codeterm${exe}`,
-    'src-tauri/bundled-embed/codeterm-embed-fixture', 'dist/index.html']) {
+    'dist/index.html']) {
     fs.writeFileSync(path.join(checkout, file), `opaque artifact: ${file}`, { mode: 0o755 });
   }
   fs.writeFileSync(path.join(checkout, 'package.json'), '{"private":true}');
@@ -41,18 +40,88 @@ function fixture() {
   return { directory, checkout, sha };
 }
 
-function provenance(checkout, cwd, target, sha, operation) {
+function provenance(checkout, cwd, target, sha, operation, launchSha = '') {
   return spawnSync(bash, ['-c', `set -euo pipefail
 ${functions}
 cd "$1"
 CT_DATA_DIR="$2/data"
 CARGO_TARGET_DIR="$3/target"
 CARGO_BUILD_TARGET=
-CT_DEV_EMBED_BUNDLE=src-tauri/bundled-embed/codeterm-embed-fixture
 CT_INSTANCE=fixture CT_PORT=7786 CT_VITE_PORT=1520 CT_CDP_PORT=9323 CT_IDENTIFIER=fixture.dev
+CODETERM_BUILD_SHA="$4"
+CT_DEV_PROVENANCE_SHA="$5"
 ${operation} "$4"
-`, '--', cwd, checkout, target, sha], { encoding: 'utf8' });
+`, '--', cwd, checkout, target, sha, launchSha], { encoding: 'utf8' });
 }
+
+test('utility identity capture tolerates non-Git directories and unavailable Git; stamping refuses', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-identity-no-git-'));
+  try {
+    for (const missingGit of [false, true]) {
+      const result = spawnSync(bash, ['-c', `set -euo pipefail
+${sourceFunction('initialize_build_identity')}
+${missingGit ? 'git() { return 127; }' : ''}
+for CMD in env help kill; do
+  export CODETERM_BUILD_SHA=stale CODETERM_BUILD_HASH=stale CODETERM_FRONTEND_BUILD_HASH=stale
+  initialize_build_identity
+  [ -z "\${CODETERM_BUILD_SHA+x}" ]
+  [ -z "\${CODETERM_BUILD_HASH+x}" ]
+  [ -z "\${CODETERM_FRONTEND_BUILD_HASH+x}" ]
+done
+for CMD in dev dev-prebuilt build install-local; do
+  if initialize_build_identity; then exit 42; fi
+done
+`, '--'], { cwd: directory, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('commit during build preserves launch identity across prebuilt handoff', () => {
+  const { directory, checkout, sha } = fixture();
+  try {
+    const initialized = spawnSync(bash, ['-c', `set -euo pipefail
+${sourceFunction('initialize_build_identity')}
+CMD=dev
+initialize_build_identity
+original_short="$CODETERM_BUILD_HASH"
+git -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null commit --allow-empty -qm later
+CT_DEV_HANDOFF_SHA="$CODETERM_BUILD_SHA"
+CT_DEV_HANDOFF_HASH="$CODETERM_BUILD_HASH"
+export CT_DEV_HANDOFF_SHA CT_DEV_HANDOFF_HASH
+export -f initialize_build_identity
+bash -c '
+set -euo pipefail
+CMD=dev-prebuilt
+initialize_build_identity
+[ "$CODETERM_BUILD_SHA" = "$1" ]
+[ "$CODETERM_BUILD_HASH" = "$2" ]
+[ "$CODETERM_FRONTEND_BUILD_HASH" = "$2" ]
+[ "$CT_DEV_PROVENANCE_SHA" = "$1" ]
+[ -z "\${CT_DEV_HANDOFF_SHA+x}" ]
+[ -z "\${CT_DEV_HANDOFF_HASH+x}" ]
+' -- "$1" "$original_short"
+node -e 'const {resolveBuildIdentity}=require("./scripts/build-identity.cjs"); if(resolveBuildIdentity()!==process.env.CODETERM_BUILD_HASH) process.exit(1)'
+`, '--', sha], { cwd: checkout, encoding: 'utf8' });
+    assert.equal(initialized.status, 0, initialized.stderr);
+    assert.notEqual(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }), sha);
+    const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance');
+    assert.equal(written.status, 0, written.stderr);
+    const internal = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', sha);
+    assert.equal(internal.status, 0, internal.stderr);
+    const standalone = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
+    assert.equal(standalone.status, 1);
+    assert.match(standalone.stderr, /recorded build commit does not match/);
+    fs.appendFileSync(path.join(checkout, 'dist/index.html'), 'changed');
+    const tampered = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', sha);
+    assert.equal(tampered.status, 1);
+    assert.match(tampered.stderr, /frontend artifact content mismatch/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 for (const aliasKind of process.platform === 'win32' ? ['junction', 'subst'] : ['symlink']) {
   test(`gateway write then standalone prebuilt verifies after ${aliasKind} removal`, () => {
@@ -94,21 +163,90 @@ for (const aliasKind of process.platform === 'win32' ? ['junction', 'subst'] : [
   });
 }
 
-const preflight = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)')));
-for (const refusal of ['provenance', 'runtime', 'none']) {
-  test(`prebuilt restart preflight refusal=${refusal} preserves stop ordering`, () => {
+function sourceFunction(name) {
+  return source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0];
+}
+
+test('frontend rewritten with identical bytes is accepted; different bytes still refuse', () => {
+  const { directory, checkout, sha } = fixture();
+  try {
+    const dist = path.join(checkout, 'dist');
+    const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance');
+    assert.equal(written.status, 0, written.stderr);
+    const original = fs.readFileSync(path.join(dist, 'index.html'));
+    fs.rmSync(dist, { recursive: true });
+    fs.mkdirSync(dist);
+    fs.writeFileSync(path.join(dist, 'index.html'), original);
+    const same = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
+    assert.equal(same.status, 0, same.stderr);
+    fs.writeFileSync(path.join(dist, 'index.html'), Buffer.concat([original, Buffer.from('rebuilt')]));
+    const changed = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
+    assert.equal(changed.status, 1);
+    assert.match(changed.stderr, /frontend artifact content mismatch/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('prebuilt web watcher rebuilds dist in place instead of emptying it under the static server', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-web-watch-'));
+  try {
     const result = spawnSync(bash, ['-c', `set -euo pipefail
-CT_INSTANCE= CARGO_TARGET_DIR= CT_SUFFIX= DEV_NOTIFY_TAB=
-validate_dev_provenance() { echo provenance; ${refusal === 'provenance' ? 'return 1' : ':'}; }
-preflight_dev_prebuilt_runtime() { echo runtime; ${refusal === 'runtime' ? 'return 1' : ':'}; }
+${sourceFunction('start_web_watch')}
+cd "$1"
+CT_SUFFIX="-watch-test-$$"
+kill_web_watch() { :; }
+node() { printf '%s|%s\\n' "$CODETERM_FRONTEND_DEV" "$*" > args.txt; }
+nohup() { "$@"; }
+process_pid_for_cleanup() { echo "$1"; }
+web_watch_pidfile() { echo pid.txt; }
+start_web_watch > /dev/null
+wait
+rm -f "/tmp/codeterm-web-watch$CT_SUFFIX.log"
+cat args.txt
+`, '--', directory], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const [frontendDev, args] = result.stdout.trim().split('|');
+    assert.equal(frontendDev, '1');
+    assert.match(args, /build --watch\b/);
+    assert.match(args, /--emptyOutDir false/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+const preflight = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)')));
+const preflightHelpers = ['run_prebuilt_preflight', 'refuse_prebuilt'].map(sourceFunction).join('\n');
+for (const refusal of ['provenance', 'runtime', 'none']) {
+  test(`prebuilt restart preflight refusal=${refusal} preserves stop ordering and logs refusals`, () => {
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${preflightHelpers}
+CT_INSTANCE= CARGO_TARGET_DIR= CT_SUFFIX="-provenance-test-$$" DEV_NOTIFY_TAB=
+validate_dev_provenance() { ${refusal === 'provenance' ? 'echo "[dev-prep] frontend artifact content mismatch" >&2; return 1' : 'echo provenance'}; }
+preflight_dev_prebuilt_runtime() { ${refusal === 'runtime' ? 'echo "ERROR: prebuilt dev cannot execute pnpm" >&2; return 1' : 'echo runtime'}; }
 kill_dev() { echo stopped; }
+set +e
+(
 case dev-prebuilt in
 ${preflight}
 ;;
 esac
+)
+status=$?
+echo "--- log"
+cat "/tmp/codeterm-dev-prebuilt$CT_SUFFIX.log" 2>/dev/null
+rm -f "/tmp/codeterm-dev-prebuilt$CT_SUFFIX.log"
+exit "$status"
 `], { encoding: 'utf8' });
     assert.equal(result.status, refusal === 'none' ? 0 : 2, result.stderr);
-    assert.equal(result.stdout.trim(), refusal === 'provenance' ? 'provenance' :
-      refusal === 'runtime' ? 'provenance\nruntime' : 'provenance\nruntime\nstopped');
+    const [stdout, log] = result.stdout.split('--- log\n');
+    assert.equal(stdout.trim(), refusal === 'provenance' ? '' :
+      refusal === 'runtime' ? 'provenance' : 'provenance\nruntime\nstopped');
+    if (refusal === 'provenance') {
+      assert.match(log, /\[dev-prep\] frontend artifact content mismatch\nERROR: prebuilt dev provenance/);
+    } else if (refusal === 'runtime') {
+      assert.match(log, /cannot execute pnpm\nERROR: prebuilt dev runtime prerequisites/);
+    }
+    if (refusal !== 'none') assert.match(result.stderr, /refusing before stopping dev/);
   });
 }

@@ -8,6 +8,7 @@ import type { AgentRuntime, RuntimeContext, Operation, RuntimeAction, RpcReply, 
 import { collectHistory } from "./runtimeHistoryHost";
 import { notificationMethods } from "../src/runtimeProtocol";
 import { agentActivityOf, buildAgentTree } from "../../../packages/chat-core/src/agentActivity";
+import { descendantThread, historyThread } from "../src/runtimeBinding";
 
 interface Fixture {
   schemaVersion: 1;
@@ -40,6 +41,71 @@ hooks.runtimeReduce = (...args) => {
 const plain = <T>(value:T): T => JSON.parse(JSON.stringify(value));
 let count = 0;
 function check(name:string, run:()=>void) {run();count++;console.log(`  ✓ runtime ${name}`);}
+check("descendant reads require an unambiguous chain to the current root",()=> {
+  const fixture = JSON.parse(fs.readFileSync(new URL("captured/subagent.json",root),"utf8")) as Fixture;
+  const context = {...fixture.context,threadParents:[{threadId:"child",parentThreadId:fixture.context.threadId!},
+    {threadId:"grandchild",parentThreadId:"child"}]};
+  assert.equal(descendantThread(context,"grandchild"),true);
+  for (const parents of [[],[{threadId:"child",parentThreadId:"foreign"}],
+    [{threadId:"child",parentThreadId:"child"}],
+    [...context.threadParents,{threadId:"child",parentThreadId:"foreign"}]]) {
+    assert.equal(descendantThread({...context,threadParents:parents},"child"),false);
+  }
+  assert.equal(historyThread(context,{thread:{id:"child",parentThreadId:context.threadId}},"child"),true);
+  assert.equal(historyThread(context,{thread:{id:"child",parentThreadId:"foreign"}},"child"),false);
+  assert.equal(historyThread(context,{thread:{id:"foreign",parentThreadId:context.threadId}},"child"),false);
+  assert.equal(historyThread(context,{thread:{id:"child",parentThreadId:context.threadId,source:{subAgent:{thread_spawn:{parent_thread_id:"foreign"}}}}},"child"),false);
+});
+check("captured child identities permit history plans without mutation authority",()=> {
+  for (const name of ["subagent","subagent_v2"]) {
+    const fixture = JSON.parse(fs.readFileSync(new URL(`captured/${name}.json`,root),"utf8")) as Fixture;
+    const result = hooks.runtimeReduce(fixture.context,null,fixture.rpc.flatMap(record=>"frame" in record ? [record.frame] : []));
+    const rows = result.events.flatMap(event=>event.kind === "chatItem" && event.item.toolKind === "agent" ? [event.item] : []);
+    assert.ok(rows.length > 0);
+    const input = rows[0].toolInput as Record<string,JsonValue>;
+    const child = String(input.agent_id);
+    assert.equal(typeof input.agent_ordinal,"number");
+    const context = {...fixture.context,threadParents:[{threadId:child,parentThreadId:fixture.context.threadId!}]};
+    const op:Operation = {kind:"readHistory",threadId:child,order:"desc"};
+    const plan = hooks.runtimePlan(context,op);
+    assert.equal(plan.action.kind,"request");
+    if (plan.action.kind !== "request") throw new Error("Expected history request");
+    assert.equal(plan.action.call.method,"thread/turns/list");
+    assert.equal((plan.action.call.params as Record<string,JsonValue>).threadId,child);
+    assert.throws(()=>hooks.runtimePlan(context,{...op,threadId:"foreign"}));
+    assert.throws(()=>hooks.runtimePlan({...context,threadParents:[]},op));
+    assert.throws(()=>hooks.runtimeResponse({...context,threadParents:[]},op,plan.state,{kind:"success",value:{data:[]}}));
+    const mutations:Operation[] = [
+      {kind:"resumeThread",threadId:child,instructions:"",settings:{}},
+      {kind:"submitTurn",threadId:child,sendId:"send",input:{text:"hello",attachments:[]},settings:{}},
+      {kind:"interrupt",threadId:child},
+      {kind:"control",threadId:child,action:"compact",value:null},
+    ];
+    for (const mutation of mutations) assert.throws(()=>hooks.runtimePlan(context,mutation));
+    const turns = hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:{data:[{id:"child-turn",status:"completed"}],nextCursor:null}});
+    if (turns.kind !== "continue" || turns.plan.action.kind !== "request") throw new Error("Expected child items");
+    assert.equal(turns.plan.action.call.target?.threadId,child);
+    const history = hooks.runtimeResponse(context,op,turns.plan.state,{kind:"success",value:{data:[{item:{id:"child-answer",type:"agentMessage",text:"Child history answer"}}],nextCursor:null}});
+    if (history.kind !== "complete" || history.result.kind !== "historyPage") throw new Error("Expected child history");
+    assert.equal(history.result.threadId,child);
+    assert.equal(history.result.items[0].content,"Child history answer");
+    const emptyChild = hooks.runtimeResponse(context,op,{stage:"unmaterialized"},{kind:"success",value:{thread:{id:child,parentThreadId:context.threadId!,turns:[]}}});
+    assert.equal(emptyChild.kind,"complete","An authenticated child with no messages still opens read-only");
+    const foreign = hooks.runtimeResponse(context,op,{stage:"unmaterialized"},{kind:"success",value:{thread:{id:"foreign",parentThreadId:context.threadId!,turns:[]}}});
+    assert.equal(foreign.kind,"refused");
+  }
+});
+check("only authenticated descendant spawn frames publish nested child metadata",()=>{
+  const fixture = JSON.parse(fs.readFileSync(new URL("captured/subagent.json",root),"utf8")) as Fixture;
+  const context = {...fixture.context,threadParents:[{threadId:"child",parentThreadId:fixture.context.threadId!}]};
+  const frame:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:"child",turnId:"turn",item:{type:"collabAgentToolCall",id:"nested",tool:"spawnAgent",receiverThreadIds:["grandchild"],prompt:"Inspect nested",model:"fixture",reasoningEffort:"high"}}};
+  const rows=hooks.runtimeReduce(context,null,[frame]).events;
+  assert.equal(rows.length,1);
+  const row=rows[0];if(row.kind!=="chatItem")throw new Error("Expected child metadata");
+  assert.equal(row.threadId,context.threadId);
+  assert.equal((row.item.toolInput as Record<string,JsonValue>).agent_parent_thread_id,"child");
+  assert.equal(hooks.runtimeReduce({...context,threadParents:[]},null,[frame]).events.length,0);
+});
 function allowed(op:Operation, action:RuntimeAction) {
   if (action.kind === "questionAnswer") {assert.equal(op.kind,"answerQuestion");return;}
   if (action.kind === "reply") {assert.equal(op.kind,"answer"); return;}
@@ -74,7 +140,9 @@ function replay(fixture:Fixture) {
       }
       else assert.ok(ready.has(record.operation),"Next call follows a continuation");
       allowed(entry.operation,plan.action);
-      assert.deepEqual(plain(plan.action),record.action);
+      const expected = record.action.kind === "request" && record.action.call.method === "account/rateLimits/read"
+        ? {...record.action,call:{...record.action.call,params:{exclude_reset_credit_details:true}}} : record.action;
+      assert.deepEqual(plain(plan.action),expected);
       if (plan.action.kind === "questionAnswer") plans.delete(record.operation);
       else plans.set(record.operation,plan);
       ready.delete(record.operation); continue;
@@ -110,6 +178,33 @@ for (const name of fs.readdirSync(new URL("captured/",root)).filter(n=>n.endsWit
 const sample = JSON.parse(fs.readFileSync(new URL("multi-turn.json",root),"utf8")) as Fixture;
 const ctx = sample.context;
 const submit = sample.operations[0].operation;
+check("recorded first replies follow binding without an injected developer item",()=> {
+  const captured=JSON.parse(fs.readFileSync(new URL("captured/multi-turn.json",root),"utf8")) as Fixture;
+  const opening=captured.operations.findIndex(entry=>entry.operation.kind === "openThread");
+  const requests=captured.rpc.filter(record=>"operation" in record && record.operation === opening && record.direction === "outbound");
+  assert.equal(requests.length,1);
+  assert.ok("action" in requests[0] && requests[0].action.kind === "request");
+  if (!("action" in requests[0]) || requests[0].action.kind !== "request")throw new Error("Expected start");
+  assert.equal(requests[0].action.call.method,"thread/start");
+  const replies=captured.rpc.flatMap(record=> {
+    if (!("frame" in record) || record.frame.method !== "item/completed")return [];
+    const params=record.frame.params as {item?:{type?:string;text?:string}};
+    return params.item?.type === "agentMessage" ? [params.item.text] : [];
+  });
+  assert.deepEqual(replies,["ONE","TWO"]);
+});
+check("recorded compaction restores application context before the next input",()=> {
+  const captured=JSON.parse(fs.readFileSync(new URL("captured/compaction.json",root),"utf8")) as Fixture;
+  const controls=captured.operations.map(entry=>entry.operation).filter((op):op is Extract<Operation,{kind:"control"}>=>op.kind === "control");
+  assert.deepEqual(controls.map(op=>op.action),["restoreContext","compact","restoreContext"]);
+  assert.deepEqual(controls[0].value,controls[2].value);
+  const replies=captured.rpc.flatMap(record=> {
+    if (!("frame" in record) || record.frame.method !== "item/completed")return [];
+    const params=record.frame.params as {item?:{type?:string;text?:string}};
+    return params.item?.type === "agentMessage" ? [params.item.text] : [];
+  });
+  assert.deepEqual(replies,["ONE","SABLE"]);
+});
 check("manifest inbound notification roster",()=>assert.deepEqual(descriptor.agentRuntime.notificationMethods,[...notificationMethods]));
 check("live activation matches the tested runtime declaration",()=> {
   const manifest = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
@@ -125,6 +220,29 @@ check("exact steer refusal only",()=> {
     assert.equal(hooks.runtimeResponse(context,steer,plan.state,{kind:"error",error}).kind,"refused");
   assert.equal(hooks.runtimeResponse(context,steer,plan.state,{kind:"success",value:{}}).kind,"complete");
 });
+check("taskless read-only verification turn maps through completion",()=> {
+  const context:RuntimeContext = {...ctx,settings:{mode:"full-access"},providerSettings:{execution_intent:"read_only"},claimedSends:[],activeTurns:[],threadParents:[]};
+  const threadId=context.threadId!;
+  const frames:RuntimeFrame[] = [
+    {kind:"notification",method:"turn/started",params:{threadId,turn:{id:"verify-turn",startedAt:100}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"intro",type:"agentMessage",text:"opaque-intro"}}},
+    {kind:"notification",method:"item/started",params:{threadId,turnId:"verify-turn",item:{id:"exec",type:"dynamicToolCall",tool:"exec",arguments:{cmd:"git status --short"},status:"inProgress"}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"exec",type:"dynamicToolCall",tool:"exec",arguments:{cmd:"git status --short"},status:"completed",success:true,contentItems:[{type:"inputText",text:"opaque-result"}]}}},
+    {kind:"notification",method:"item/started",params:{threadId,turnId:"verify-turn",item:{id:"command",type:"commandExecution",command:"git status --short",status:"inProgress"}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"command",type:"commandExecution",command:"git status --short",status:"completed",exitCode:0,aggregatedOutput:"opaque-command-result"}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"answer",type:"agentMessage",text:"opaque-answer"}}},
+    {kind:"notification",method:"turn/completed",params:{threadId,turn:{id:"verify-turn",status:"completed",completedAt:101}}},
+  ];
+  let state:JsonValue=null;
+  const events:AgentEvent[]=[];
+  for(const frame of frames) {
+    const reduced=hooks.runtimeReduce(context,state,[frame]);
+    state=reduced.state;events.push(...reduced.events);
+  }
+  assert.ok(events.some(event=>event.kind === "chatItem" && event.item.id === "answer" && event.item.content === "opaque-answer"));
+  assert.ok(events.some(event=>event.kind === "chatItem" && event.item.id === "command" && event.item.toolResult === "opaque-command-result"));
+  assert.ok(events.some(event=>event.kind === "turnState" && event.turnId === "verify-turn" && event.state === "idle"));
+});
 check("wrong thread and active turn refuse",()=> {
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"interrupt",threadId:"foreign",activeTurnId:"active"}));
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"wrong"}));
@@ -137,21 +255,33 @@ check("unsupported controls and modes refuse",()=> {
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"control",action:"globalConfig",value:{}}));
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"openThread",instructions:"",settings:{mode:"unknown"}}));
 });
-check("fresh thread materializes before loaded",()=> {
+check("fresh thread binds from verified start without model input",()=> {
   const operation:Operation = {kind:"openThread",instructions:"Own instructions",settings:ctx.settings};
   const plan = hooks.runtimePlan(ctx,operation);
   assert.equal(plan.action.kind,"request");
   const step = hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread:{id:"fresh"}}});
-  assert.equal(step.kind,"continue");
-  if (step.kind !== "continue") return;
-  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"thread/inject_items",params:{threadId:"fresh",items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]}}});
-  assert.equal(hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"error",error:{code:-32000,message:"failed"}}).kind,"refused");
+  assert.deepEqual(plain(step),{kind:"complete",result:{kind:"threadLoaded",threadId:"fresh",settings:ctx.settings}});
+  for (const thread of [{}, {id:"foreign",parentThreadId:"parent"}, {id:"child",source:{subAgent:{}}}])
+    assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread}}).kind,"refused");
+  assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"error",error:{code:-32000,message:"failed"}}).kind,"refused");
 });
 check("resume never accepts another thread",()=> {
   const operation:Operation = {kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:ctx.settings};
   const plan = hooks.runtimePlan(ctx,operation);
   for (const thread of [{id:"foreign"},{id:ctx.threadId,parentThreadId:"parent"},{id:ctx.threadId,source:{subAgent:{}}}])
     assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread}}).kind,"refused");
+});
+check("unmaterialized history verifies an empty own thread without injecting input",()=> {
+  for (const order of ["asc","desc"] as const) {
+    const op:Operation={kind:"readHistory",threadId:ctx.threadId!,order};
+    const plan=hooks.runtimePlan(ctx,op);
+    const step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32600,message:`thread ${ctx.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`}});
+    if(step.kind !== "continue")throw new Error("Expected identity verification");
+    assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId,includeTurns:false}}});
+    for(const thread of [{id:"foreign",turns:[]},{id:ctx.threadId},{id:ctx.threadId,turns:[{id:"existing"}]}])
+      assert.equal(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread}}).kind,"refused");
+    assert.deepEqual(plain(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread:{id:ctx.threadId,turns:[]}}})),{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId,items:[],openItems:[],order}});
+  }
 });
 check("delivery cannot use old text, foreign thread or unmatched client",()=> {
   const frame:RuntimeFrame = {kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"user",type:"userMessage",clientId:"send-a",content:[{type:"text",text:"Wrong text"}]}}};
@@ -161,6 +291,14 @@ check("delivery cannot use old text, foreign thread or unmatched client",()=> {
   assert.ok("frame" in genuine);
   assert.equal(hooks.runtimeReduce(empty,null,[genuine.frame]).events.some(e=>e.kind === "sendEvidence"),false);
   assert.deepEqual(plain(hooks.runtimeReduce({...ctx,threadId:"foreign"},null,[genuine.frame]).events),[]);
+});
+check("identical steering sends retain distinct protocol item identities",()=> {
+  const claimedSends = ["repeat-a","repeat-b"].map(sendId=>({sendId,threadId:ctx.threadId!,input:{text:"same input",attachments:[]}}));
+  const frames:RuntimeFrame[] = claimedSends.map((claim,index)=>({kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"same-turn",item:{id:`user-${index}`,type:"userMessage",clientId:claim.sendId,content:[{type:"text",text:"same input"}]}}}));
+  const events = hooks.runtimeReduce({...ctx,claimedSends},null,frames).events.filter(e=>e.kind === "sendEvidence");
+  assert.deepEqual(events,claimedSends.map((claim,index)=>({kind:"sendEvidence",threadId:ctx.threadId!,sendId:claim.sendId,turnId:"same-turn",itemId:`user-${index}`})));
+  const missingId:RuntimeFrame = {kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"same-turn",item:{type:"userMessage",clientId:"repeat-a",content:[{type:"text",text:"same input"}]}}};
+  assert.deepEqual(hooks.runtimeReduce({...ctx,claimedSends},null,[missingId]).events.filter(e=>e.kind === "sendEvidence"),[{kind:"sendEvidence",threadId:ctx.threadId!,sendId:"repeat-a",turnId:"same-turn"}]);
 });
 check("claim evidence is emitted once",()=> {
   const entry = sample.rpc.find(r=>"frame" in r && r.frame.method === "item/completed")!;
@@ -453,34 +591,68 @@ check("initialize negotiates experimental history before planning item paginatio
   if(step.kind !== "continue" || step.plan.action.kind !== "request")throw new Error("Expected experimental item pagination");
   assert.equal(step.plan.action.call.method,"thread/items/list");
 });
-check("unsupported item pagination uses bound snapshot history without delivery evidence",()=> {
+function readTurnPage(op:Extract<Operation,{kind:"readHistory"}>, turns:string[], nextCursor:string|null) {
+  const plan=plain(hooks.runtimePlan(ctx,op));
+  if(plan.action.kind !== "request")throw new Error("Expected turn page request");
+  assert.equal(plan.action.call.method,"thread/turns/list");
+  const params=plan.action.call.params as Record<string,JsonValue>;
+  let step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data:turns.map(id=>({id,status:"completed"})),nextCursor}});
+  const requested:JsonValue[]=[];
+  const chunks:OperationResult[]=[];
+  while(step.kind === "continue") {
+    if(step.history)chunks.push(step.history);
+    const action=plain(step.plan.action);
+    if(action.kind !== "request")throw new Error("Expected page request");
+    if(action.call.method === "thread/goal/get") {
+      step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported goal"}});
+      continue;
+    }
+    assert.equal(action.call.method,"thread/items/list");
+    const turn=(action.call.params as Record<string,JsonValue>).turnId;
+    requested.push(turn);
+    step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{data:[{type:"agentMessage",id:`${String(turn)}-reply`,text:String(turn)}],nextCursor:null}});
+  }
+  const complete=plain(step);
+  if(complete.kind !== "complete" || complete.result.kind !== "historyPage")throw new Error("Expected history page");
+  return {params,requested,result:complete.result,items:collectHistory([...chunks,complete.result]).items.map(item=>item.id)};
+}
+check("history reads bounded newest turn pages and echoes descending order",()=> {
+  const op:Extract<Operation,{kind:"readHistory"}>={kind:"readHistory",threadId:ctx.threadId!,order:"desc"};
+  const first=readTurnPage(op,["newer"],"page-2");
+  assert.equal(first.params.sortDirection,"desc");
+  assert.equal(first.params.limit,1);
+  assert.deepEqual(first.requested,["newer"]);
+  assert.deepEqual(first.items,["newer-reply"]);
+  assert.ok(first.result.nextCursor);
+  assert.equal(first.result.order,"desc");
+  const next=readTurnPage({...op,cursor:first.result.nextCursor!},["older"],null);
+  assert.equal(next.params.cursor,"page-2");
+  assert.equal(next.params.sortDirection,"desc");
+  assert.equal(next.result.order,"desc");
+});
+check("history without a requested order stays ascending and echoes no order",()=> {
+  const op:Extract<Operation,{kind:"readHistory"}>={kind:"readHistory",threadId:ctx.threadId!};
+  const page=readTurnPage(op,["older","newer"],null);
+  assert.equal(page.params.sortDirection,"asc");
+  assert.deepEqual(page.requested,["older","newer"]);
+  assert.deepEqual(page.items,["older-reply","newer-reply"]);
+  assert.equal(Object.prototype.hasOwnProperty.call(page.result,"order"),false);
+});
+check("unsupported item pagination completes startup without requesting full history",()=> {
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
   const plan=hooks.runtimePlan(ctx,op);
-  const page=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data:[{id:"turn",status:"completed"}],nextCursor:null}});
-  if(page.kind !== "continue")throw new Error("Expected item page");
-  const fallback=plain(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32601,message:"thread/items/list is not supported yet"}}));
-  if(fallback.kind !== "continue")throw new Error("Expected snapshot fallback");
-  assert.deepEqual(fallback.plan.action,{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId!,includeTurns:true}}});
-  const snapshot={thread:{id:ctx.threadId!,turns:[{id:"turn",status:"completed",items:[{type:"userMessage",id:"user",content:[{type:"text",text:"hello"}]},{type:"agentMessage",id:"assistant",text:"hi"}]}]}};
-  const step=hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"success",value:snapshot});
-  if(step.kind !== "continue")throw new Error("Expected goal reconciliation");
-  const complete=plain(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported goal"}}));
-  if(complete.kind !== "complete" || complete.result.kind !== "historyPage")throw new Error("Expected history snapshot");
-  assert.deepEqual(collectHistory([step.history!,complete.result]).items.map(item=>item.id),["user","assistant"]);
-  assert.equal(complete.events,undefined);
-  for(const value of [{thread:{id:"foreign",turns:[]}},{thread:{id:ctx.threadId!}},{thread:{id:ctx.threadId!,turns:[{id:"turn"}]}}])
-    assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"success",value}).kind,"refused");
-  assert.equal(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32600,message:"invalid request"}}).kind,"refused");
-  assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"unsupported read"}}).kind,"refused");
+  const turns=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data:[{id:"turn",status:"completed"}],nextCursor:null}});
+  if(turns.kind !== "continue")throw new Error("Expected item request");
+  const step=plain(hooks.runtimeResponse(ctx,op,turns.plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
+  assert.deepEqual(step,{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId!,items:[],openItems:[]}});
 });
-check("default model and effective effort survive thread launch continuations",()=> {
+check("default model and effective effort survive thread start and resume verification",()=> {
   const context={...ctx,settings:{},providerSettings:{model:null}};
   const op:Operation={kind:"openThread",instructions:"task",settings:{additionalDirectories:["/work/shared"],networkAccess:false}};
   const plan=hooks.runtimePlan(context,op);
   const effective={thread:{id:ctx.threadId!},model:"provider-default",reasoningEffort:"medium",approvalPolicy:"on-request",approvalsReviewer:"user",sandbox:{type:"workspaceWrite"}};
   const step=hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:effective});
-  if(step.kind !== "continue")throw new Error("Expected materialization");
-  const complete=plain(hooks.runtimeResponse(context,op,step.plan.state,{kind:"success",value:{}}));
+  const complete=plain(step);
   assert.deepEqual(complete,{kind:"complete",result:{kind:"threadLoaded",threadId:ctx.threadId!,settings:{additionalDirectories:["/work/shared"],networkAccess:false,model:"provider-default",effort:"medium",mode:"auto-accept-edits"}}});
   const resume:Operation={kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:{model:"requested-alias",effort:"high",mode:"full-access",additionalDirectories:["/work/shared"],networkAccess:false}};
   const resumed=hooks.runtimeResponse(context,resume,hooks.runtimePlan(context,resume).state,{kind:"success",value:effective});
@@ -531,6 +703,7 @@ check("restoreContext validates and injects developer and user context without e
     {type:"message",role:"user",content:[{type:"input_text",text:"user-context"}]},
   ]}}});
   assert.deepEqual(plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}})),{kind:"complete",result:{kind:"done"}});
+  assert.deepEqual(plain(hooks.runtimePlan(ctx,{...op,value:{...value,additionalContext:[...value.additionalContext,...value.additionalContext]}})),plan);
   for(const invalid of [null,{},[],{instructions:null,additionalContext:[]},{instructions:"",additionalContext:[]},{instructions:42,additionalContext:[]},{instructions:"x",additionalContext:{}},{instructions:"x",additionalContext:[{key:"k",kind:"system",value:"x"}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x",extra:true}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x"},{key:"k",kind:"user",value:"y"}]}]) {
     assert.throws(()=>hooks.runtimePlan(ctx,{...op,value:invalid} as Operation),error=>objectError(error).code === "invalid_schema");
   }
@@ -558,15 +731,12 @@ check("turn start reconciles effective model and effort after control acknowledg
 });
 console.log(`runtime canonical JSON hooks: ${count} checks passed`);
 
-check("unsupported turn pagination falls back only on method absence",()=> {
+check("unsupported turn pagination completes startup only on method absence",()=> {
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
   const plan=hooks.runtimePlan(ctx,op);
-  const fallback=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32601,message:"Unknown method"}}));
-  assert.equal(fallback.kind,"continue");
-  if(fallback.kind !== "continue")throw new Error("Expected snapshot fallback");
-  assert.deepEqual(fallback.plan.action,{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId!,includeTurns:true}}});
+  const step=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
+  assert.deepEqual(step,{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId!,items:[],openItems:[]}});
   assert.equal(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32000,message:"Permission denied"}}).kind,"refused");
-  assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"Unknown method"}}).kind,"refused");
 });
 check("archived resume recovery is case insensitive and bounded",()=> {
   const op:Operation={kind:"resumeThread",threadId:ctx.threadId!,settings:ctx.settings};
@@ -755,27 +925,6 @@ check("multi-MiB history emits bounded hook outputs and explicit attachment mark
 });
 console.log(`runtime byte budget regressions: ${count} checks passed`);
 
-check("snapshot fallback splits by bytes without losing turns or rows",()=> {
-  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
-  const first=hooks.runtimePlan(ctx,op);
-  let step=hooks.runtimeResponse(ctx,op,first.state,{kind:"error",error:{code:-32601,message:"unsupported"}});
-  const turns=Array.from({length:3},(_,turn)=>({id:`turn-${turn}`,status:"completed",items:Array.from({length:30},(_,index)=>({id:`${turn}-${index}`,type:"agentMessage",text:"x".repeat(16000)}))}));
-  const chunks:OperationResult[]=[];
-  let reads=0;
-  while(step.kind === "continue" && step.plan.action.kind === "request" && step.plan.action.call.method === "thread/read") {
-    assert.ok(++reads < 100);
-    step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread:{id:op.threadId,source:"cli",turns}}});
-    assert.ok(Buffer.byteLength(JSON.stringify(step)) < 1024*1024);
-    if(step.kind === "continue" && step.history)chunks.push(step.history);
-  }
-  assert.ok(reads > 1);
-  if(step.kind !== "continue")throw new Error("Expected goal");
-  step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{goal:null}});
-  if(step.kind !== "complete")throw new Error("Expected completion");
-  const history=collectHistory([...chunks,step.result]);
-  assert.deepEqual(history.items.map(item=>item.id),turns.flatMap(turn=>turn.items.map(item=>item.id)));
-  assert.ok(history.items.every(item=>item.content.length === 16000));
-});
 check("all historical tool image shapes retain byte markers without inline payloads",()=> {
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
   const first=hooks.runtimePlan(ctx,op);
@@ -806,7 +955,7 @@ check("captured spawn metadata reaches the shared Chat model",()=> {
   const tree = buildAgentTree(records);
   assert.equal(tree.agents.length,2);
   assert.deepEqual(tree.agents.map(agent=>[agent.model,agent.reasoningEffort,agent.ordinal,agent.state]),[
-    ["gpt-5.6-luna","medium",1,"completed"],["gpt-5.6-luna","medium",1,"completed"],
+    ["gpt-5.6-luna","medium",1,"completed"],["gpt-5.6-luna","medium",2,"completed"],
   ]);
   assert.equal(tree.agents[0].description,"Read package.json in the current workspace. Report its relevant contents and key scripts/dependencies. Do not modify files.");
   assert.ok(tree.agents[0].result?.startsWith("`package.json` summary:"));
@@ -822,7 +971,7 @@ check("activity updates a spawn receiver without losing its identity or metadata
   const event=finished.events[0];assert.equal(event.kind,"chatItem");if(event.kind !== "chatItem")return;
   assert.equal(event.item.id,"spawn:child-b");assert.equal(event.item.seq,2);
   assert.equal(event.item.toolFlowId,"parent-turn");
-  assert.deepEqual(plain(event.item.toolInput),{agent_id:"child-b",agent_call_id:"spawn:child-b",agent_description:"Inspect inputs",agent_model:"fixture-model",agent_reasoning_effort:"high",agent_ordinal:2,agent_state:"completed",agent_path:"/root/inspect"});
+  assert.deepEqual(plain(event.item.toolInput),{agent_id:"child-b",agent_parent_thread_id:ctx.threadId!,agent_call_id:"spawn:child-b",agent_description:"Inspect inputs",agent_model:"fixture-model",agent_reasoning_effort:"high",agent_ordinal:2,agent_state:"completed",agent_path:"/root/inspect"});
   const late={...activity,params:{...activity.params as Record<string,JsonValue>,item:{id:"late-start",type:"subAgentActivity",agentThreadId:"child-b",kind:"started"}}} satisfies RuntimeFrame;
   const lateEvent=hooks.runtimeReduce(ctx,finished.state,[late]).events[0];
   if(lateEvent.kind !== "chatItem")throw new Error("Expected receiver update");
@@ -881,7 +1030,7 @@ check("subscription initialization reads the recorded current limits",()=> {
   const step = hooks.runtimeResponse(ctx,operation,{stage:"initializeAccount"},{kind:"success",value:{account:{type:"chatgpt"}}});
   assert.equal(step.kind,"continue");
   if(step.kind !== "continue") return;
-  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{}}});
+  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{exclude_reset_credit_details:true}}});
   const value = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime-rate-limits-read.json",import.meta.url),"utf8"));
   const done = hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value});
   assert.equal(done.kind,"complete");
@@ -935,3 +1084,79 @@ check("explicit turn completion interrupts unfinished calls without inventing ou
   assert.ok(last?.kind === "turnState");assert.equal(last.state,"idle");
 });
 console.log(`runtime lifecycle regressions: ${count} checks passed`);
+
+check("reset credit reads and consume outcomes stay inside declared runtime methods",()=> {
+  const operation:Operation={kind:"control",action:"readResetCredits",value:{details:true}};
+  const plan=hooks.runtimePlan(ctx,operation);
+  allowed(operation,plan.action);
+  assert.deepEqual(plain(plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{exclude_reset_credit_details:false}}});
+  const background=hooks.runtimePlan(ctx,{...operation,value:{details:false}});
+  assert.equal(background.action.kind,"request");
+  if(background.action.kind === "request") assert.equal((background.action.call.params as Record<string,JsonValue>).exclude_reset_credit_details,true);
+  const read=hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{rate_limit_reset_credits:{available_count:5,credits:null}}});
+  assert.equal(read.kind,"complete");
+  if(read.kind === "complete") assert.deepEqual(plain(read.events),[{kind:"rateLimits",rateLimits:[],resets:{availableCount:5,nextExpiry:null,credits:null}}]);
+  const consume:Operation={kind:"control",action:"redeemResetCredit",value:{idempotencyKey:"12345678-1234-4123-8123-123456789abc"}};
+  const consumePlan=hooks.runtimePlan(ctx,consume);
+  allowed(consume,consumePlan.action);
+  assert.deepEqual(plain(hooks.runtimePlan(ctx,consume)),plain(consumePlan));
+  assert.deepEqual(plain(consumePlan.action),{kind:"request",call:{method:"account/rateLimitResetCredit/consume",params:{idempotency_key:"12345678-1234-4123-8123-123456789abc"}}});
+  for(const outcome of ["nothingToReset","noCredit","alreadyRedeemed"]) {
+    const done=hooks.runtimeResponse(ctx,consume,consumePlan.state,{kind:"success",value:{outcome}});
+    assert.deepEqual(plain(done),{kind:"complete",result:{kind:"resetCreditConsumed",outcome}});
+  }
+  const reset=hooks.runtimeResponse(ctx,consume,consumePlan.state,{kind:"success",value:{outcome:"reset"}});
+  assert.equal(reset.kind,"continue");
+  if(reset.kind !== "continue") return;
+  allowed(consume,reset.plan.action);
+  const refreshed=hooks.runtimeResponse(ctx,consume,reset.plan.state,{kind:"success",value:{rate_limit_reset_credits:{available_count:0}}});
+  assert.equal(refreshed.kind,"complete");
+  if(refreshed.kind === "complete") assert.deepEqual(plain(refreshed.result),{kind:"resetCreditConsumed",outcome:"reset"});
+  const refreshFailed=hooks.runtimeResponse(ctx,consume,reset.plan.state,{kind:"error",error:{code:-1,message:"offline"}});
+  assert.deepEqual(plain(refreshFailed),{kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"}});
+  assert.throws(()=>hooks.runtimePlan(ctx,{kind:"control",action:"redeemResetCredit",value:{}}));
+});
+
+check("descending bounded history never falls back to a full-thread read",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!,order:"desc"};
+  const plan=hooks.runtimePlan(ctx,op);
+  const step=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
+  assert.deepEqual(step,{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId!,items:[],openItems:[],order:"desc"}});
+});
+
+check("Fast mode maps both values through thread settings and the next turn with runtime readback",()=> {
+  for (const fastMode of [true,false]) {
+    const serviceTier = fastMode ? "priority" : null;
+    const context = {...ctx,settings:{...ctx.settings,fastMode:!fastMode}};
+    const op:Operation = {kind:"control",threadId:ctx.threadId!,action:"settings",value:{model:"selected",effort:"high",fastMode}};
+    const plan = hooks.runtimePlan(context,op);
+    assert.equal(plan.action.kind,"request");
+    if (plan.action.kind !== "request") throw new Error("Expected settings request");
+    assert.equal(plan.action.call.method,"thread/settings/update");
+    assert.equal((plan.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
+    const step = plain(hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:{threadSettings:{model:"selected",effort:"high",serviceTier}}}));
+    if (step.kind !== "complete") throw new Error("Expected confirmation");
+    const event = step.events?.find(event=>event.kind === "controlsConfirmed");
+    assert.ok(event?.kind === "controlsConfirmed");
+    assert.equal(event.settings.fastMode,fastMode);
+    const turn = hooks.runtimePlan(context,{...submit,kind:"submitTurn",settings:event.settings} as Operation);
+    assert.equal(turn.action.kind,"request");
+    if (turn.action.kind !== "request") throw new Error("Expected turn request");
+    assert.equal((turn.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
+    const missing = hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:{}});
+    if (missing.kind !== "complete") throw new Error("Expected completion");
+    assert.equal(missing.events?.find(event=>event.kind === "controlsConfirmed"),undefined);
+    for (const kind of ["openThread","resumeThread"] as const) {
+      const launch = hooks.runtimePlan(context,{kind,instructions:"",...(kind === "resumeThread" ? {threadId:ctx.threadId!} : {}),settings:{...ctx.settings,fastMode}} as Operation);
+      assert.equal(launch.action.kind,"request");
+      if (launch.action.kind !== "request") throw new Error("Expected thread request");
+      assert.equal((launch.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
+    }
+    const notification = hooks.runtimeReduce(context,null,[{kind:"notification",method:"thread/settings/updated",params:{threadId:ctx.threadId!,threadSettings:{serviceTier}}}]);
+    const reported = notification.events.find(event=>event.kind === "controlsConfirmed");
+    assert.ok(reported?.kind === "controlsConfirmed");
+    assert.equal(reported.settings.fastMode,fastMode);
+  }
+});
+
+console.log(`runtime Fast mode regressions: ${count} checks passed`);

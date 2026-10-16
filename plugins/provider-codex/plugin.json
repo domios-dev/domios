@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.12",
+  "version": "1.14.32",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -13,6 +13,7 @@
       "minVersion": "0.159.0"
     },
     "agentRuntime": {
+      "fastMode": true,
       "storedHistory": true,
       "runtime": "stdio-jsonrpc",
       "command": {
@@ -60,7 +61,17 @@
           "thread/inject_items",
           "account/read",
           "account/login/start",
-          "account/login/cancel"
+          "account/login/cancel",
+          "account/rateLimits/read",
+          "account/rateLimitResetCredit/consume",
+          "thread/goal/get",
+          "thread/goal/set",
+          "thread/goal/clear"
+        ],
+        "backgroundProcesses": [
+          "thread/backgroundTerminals/list",
+          "thread/backgroundTerminals/terminate",
+          "thread/backgroundTerminals/clean"
         ]
       },
       "notificationMethods": [
@@ -101,12 +112,99 @@
         ],
         "terminalCommand": "codex login"
       },
-      "usage": true
+      "usage": true,
+      "resetCreditsMinVersion": "0.162.1",
+      "backgroundProcesses": true,
+      "goals": {
+        "actions": [
+          "read",
+          "cancel",
+          "pause",
+          "resume",
+          "complete"
+        ]
+      }
     },
     "chatBackend": {
       "spawnable": true,
       "sessionConfig": true,
       "agentTasks": true
+    },
+    "recordSources": {
+      "sessionTranscript": {
+        "format": "jsonl",
+        "filter": {}
+      },
+      "storedHistory": {
+        "format": "jsonl",
+        "filter": {
+          "type": {
+            "path": [
+              "type"
+            ],
+            "in": [
+              "session_meta",
+              "event_msg"
+            ]
+          }
+        },
+        "oversized": {
+          "keep": [
+            [
+              "type"
+            ],
+            [
+              "payload",
+              "type"
+            ],
+            [
+              "payload",
+              "id"
+            ],
+            [
+              "payload",
+              "thread_id"
+            ],
+            [
+              "payload",
+              "turn_id"
+            ],
+            [
+              "payload",
+              "started_at_ms"
+            ],
+            [
+              "payload",
+              "completed_at_ms"
+            ],
+            [
+              "payload",
+              "item",
+              "id"
+            ],
+            [
+              "payload",
+              "item",
+              "type"
+            ],
+            [
+              "payload",
+              "item",
+              "status"
+            ],
+            [
+              "payload",
+              "item",
+              "startedAt"
+            ],
+            [
+              "payload",
+              "item",
+              "started_at"
+            ]
+          ]
+        }
+      }
     }
   },
   "iconColor": "var(--ct-fg)",
@@ -214,7 +312,69 @@
         "verdict": "waiting"
       }
     ],
-    "usageProbeCommand": "/status"
+    "usageProbeCommand": "/status",
+    "executionSandbox": {
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "readOnly": {
+        "launchArgs": [
+          "--sandbox",
+          "read-only",
+          "-a",
+          "never",
+          "--cd",
+          "{cwd}",
+          "-c",
+          "sandbox_workspace_write.writable_roots=[]",
+          "-c",
+          "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+          "-c",
+          "sandbox_workspace_write.exclude_slash_tmp=true",
+          "-c",
+          "sandbox_workspace_write.network_access=false"
+        ],
+        "runtimeMode": "read-only"
+      },
+      "mutating": {
+        "launchArgs": [
+          "--sandbox",
+          "workspace-write",
+          "-a",
+          "never",
+          "--cd",
+          "{cwd}",
+          "-c",
+          "sandbox_workspace_write.writable_roots=[]",
+          "-c",
+          "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+          "-c",
+          "sandbox_workspace_write.exclude_slash_tmp=true",
+          "-c",
+          "sandbox_workspace_write.network_access=false"
+        ],
+        "runtimeMode": "workspace-write"
+      },
+      "forbiddenArgumentPrefixes": [
+        "-c",
+        "--config",
+        "--sandbox",
+        "-s",
+        "-a",
+        "--ask-for-approval",
+        "--danger",
+        "--yolo",
+        "--full-auto",
+        "--add-dir",
+        "--cd",
+        "-C",
+        "--profile",
+        "-p",
+        "--"
+      ]
+    }
   },
   "models": [
     {

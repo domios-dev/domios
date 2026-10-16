@@ -31,24 +31,20 @@ trap 'ct_sccache_stats' EXIT
 
 # Fast compile gate: cargo check only, no frontend/bundle/sign. Catches
 # target-gated compile breaks in ~1 min. Stub tauri-build resources so its glob
-# validation passes without a real dist/cli/embed.
+# validation passes without a real dist/cli.
 if [ "${CHECK:-0}" = "1" ]; then
-  mkdir -p dist src-tauri/bundled-embed src-tauri/bundled-cli
+  mkdir -p dist src-tauri/bundled-cli
   touch dist/index.html src-tauri/bundled-cli/codeterm
-  touch "src-tauri/bundled-embed/codeterm-embed-$(rustc -vV | awk '/^host:/{print $2}')"
-  [ -n "${CARGO_BUILD_TARGET:-}" ] && touch "src-tauri/bundled-embed/codeterm-embed-${CARGO_BUILD_TARGET}"
   cargo check --manifest-path src-tauri/Cargo.toml ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"}
   echo "CHECK_LINUX_DONE tag=$TAG target=${CARGO_BUILD_TARGET:-native}"
   exit 0
 fi
 
 corepack prepare pnpm@10.32.1 --activate >/dev/null 2>&1 || true
-# Cross builds need externalBin/resource stubs pre-created (tauri-build glob validation runs
-# during the embed/cli cargo builds, before bundle scripts stage the real cross binaries).
+# Cross builds need CLI resource stubs pre-created (tauri-build glob validation runs
+# during cargo builds, before bundle scripts stage the real cross binaries).
 if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
-  mkdir -p src-tauri/bundled-embed src-tauri/bundled-cli
-  touch "src-tauri/bundled-embed/codeterm-embed-${CARGO_BUILD_TARGET}"
-  touch "src-tauri/bundled-embed/codeterm-embed-$(rustc -vV | awk '/^host:/{print $2}')"
+  mkdir -p src-tauri/bundled-cli
   touch src-tauri/bundled-cli/codeterm
 fi
 pnpm install --frozen-lockfile

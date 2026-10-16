@@ -55,6 +55,8 @@ export function attachmentActivity(
 export type ChatUnavailableReason = "no_transcript_source" | "authority_mismatch";
 
 export interface ChatStartResult extends TranscriptAuthority {
+  kind?: "snapshot" | "unchanged" | "delta";
+  file_length?: number;
   text: string;
   offset: number;
   offset_kind?: "bytes" | "items";
@@ -66,6 +68,25 @@ export interface ChatStartResult extends TranscriptAuthority {
   messages?: ChatMessage[];
   cursor?: string;
   subscription_id?: string | null;
+}
+
+export interface KnownChatWindow extends TranscriptAuthority {
+  source_session_id: string;
+  end_offset: number;
+  file_length: number;
+  cursor: string;
+}
+
+export function chatStartBatchKind(kind: ChatStartResult["kind"]): "snapshot" | "delta" | null {
+  return kind === "unchanged" ? null : kind === "delta" ? "delta" : "snapshot";
+}
+
+export function knownWindowForAuthority(
+  known: KnownChatWindow | undefined,
+  sessionId: string | null,
+  nonce: string | null | undefined,
+): KnownChatWindow | undefined {
+  return known && transcriptAuthorityMatches(known, sessionId, nonce) ? known : undefined;
 }
 
 export interface ChatBackfillResult extends TranscriptAuthority {

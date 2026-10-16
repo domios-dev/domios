@@ -162,6 +162,7 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<Arc<crate::service::local_recording::RecordingSelectionStore>>(),
         key::<LocalRecordingTargets>(),
         key::<MuxEmitPending>(),
+        key::<crate::service::mux_emitter::MuxEmitter>(),
         key::<PublishedTabStatuses>(),
         key::<Arc<crate::service::PublishedMuxState>>(),
         key::<Arc<crate::service::MuxEmitStats>>(),

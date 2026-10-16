@@ -71,6 +71,8 @@ The tests.yml projection is selected by catalogue `ci: [tests.yml:<job>]` owners
 
 The plugin-metadata two-file command is an explicit subset exception to node-script-tests: `plugin-releases.test.mjs` and `ci-scope.test.mjs` run on every PR, including plugin-only changes. The full Node runner stays Rust-scoped in release-contracts; selecting the full runner in plugin-metadata would widen existing skips. `plugins` substitutes only the selected plugin id into the catalogue command. Generated types retain the warning-capture wrapper.
 
+The table above is the pre-catalogue baseline. Since then `file-sizes`, `plugin-metadata`, `fmt` and `release-contracts` merged into one `guards` job; its Rust-scoped steps carry `needs.changed.outputs.rust == 'true'`, and an entry's recorded step condition decides in which change classes the drift guard expects it.
+
 The JSON below is the exact infrastructure/subset exception set used by the drift guard. Run text and step conditions must match; adding arbitrary run steps is rejected. Catalogue commands are compared separately in both directions for every change class, including plugin-only and docs-only PRs.
 
 ```json
@@ -97,25 +99,76 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "job_if": "${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}"
   },
   {
-    "job": "plugin-metadata",
+    "job": "guards",
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,
     "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.result == 'success') }}"
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
   },
   {
-    "job": "plugin-metadata",
-    "run": "node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs",
+    "job": "guards",
+    "run": "bash scripts/check-file-sizes.sh --fail",
     "if": null,
-    "reason": "Explicit two-file plugin-metadata subset",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.result == 'success') }}"
+    "reason": "Source size gate; first guard, and guards gate every other fast check",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
   },
   {
-    "job": "plugin-metadata",
-    "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
-    "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
-    "reason": "Release cancellation (unreachable on PR)",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.result == 'success') }}"
+    "job": "guards",
+    "run": "node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs",
+    "if": "${{ !cancelled() }}",
+    "reason": "Explicit two-file plugin-metadata subset",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+  },
+  {
+    "job": "guards",
+    "run": "if command -v cargo >/dev/null 2>&1; then exit 0; fi\nfor dir in \"${CARGO_HOME:-}/bin\" \"$HOME/.cargo/bin\" /home/*/.cargo/bin /Users/*/.cargo/bin; do\n  if [ -x \"$dir/cargo\" ]; then echo \"$dir\" >> \"$GITHUB_PATH\"; exit 0; fi\ndone\necho \"cargo not found; restore Rust on the runner\" >&2\nexit 1",
+    "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}",
+    "reason": "Runner Rust PATH preparation",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+  },
+  {
+    "job": "guards",
+    "run": "node scripts/check-archive-portable-test-paths.mjs",
+    "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}",
+    "reason": "Rust test paths stay portable across runners",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+  },
+  {
+    "job": "guards",
+    "run": "pnpm install --frozen-lockfile --store-dir \"$RUNNER_TOOL_CACHE/pnpm-store\"",
+    "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}",
+    "reason": "Frozen dependency installation",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+  },
+  {
+    "job": "guards",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "entry": "plugin-release-contracts",
+    "if": "${{ !cancelled() }}"
+  },
+  {
+    "job": "guards",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "entry": "rust-fmt",
+    "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}"
+  },
+  {
+    "job": "guards",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "entry": "node-script-tests",
+    "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}"
+  },
+  {
+    "job": "guards",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "entry": "python-script-tests",
+    "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}"
+  },
+  {
+    "job": "guards",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "entry": "core-journeys-offline",
+    "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "plugins",
@@ -137,27 +190,6 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
     "reason": "Release cancellation (unreachable on PR)",
     "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}"
-  },
-  {
-    "job": "fmt",
-    "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
-    "if": null,
-    "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
-  },
-  {
-    "job": "fmt",
-    "run": "if command -v cargo >/dev/null 2>&1; then exit 0; fi\nfor dir in \"${CARGO_HOME:-}/bin\" \"$HOME/.cargo/bin\" /home/*/.cargo/bin /Users/*/.cargo/bin; do\n  if [ -x \"$dir/cargo\" ]; then echo \"$dir\" >> \"$GITHUB_PATH\"; exit 0; fi\ndone\necho \"cargo not found; restore Rust on the runner\" >&2\nexit 1",
-    "if": null,
-    "reason": "Runner Rust PATH preparation",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
-  },
-  {
-    "job": "fmt",
-    "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
-    "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
-    "reason": "Release cancellation (unreachable on PR)",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
   },
   {
     "job": "ts-static",
@@ -279,27 +311,6 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
   },
   {
-    "job": "release-contracts",
-    "run": "pnpm install --frozen-lockfile --store-dir \"$RUNNER_TOOL_CACHE/pnpm-store\"",
-    "if": null,
-    "reason": "Frozen dependency installation",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
-  },
-  {
-    "job": "release-contracts",
-    "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
-    "if": null,
-    "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
-  },
-  {
-    "job": "release-contracts",
-    "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
-    "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
-    "reason": "Release cancellation (unreachable on PR)",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
-  },
-  {
     "job": "rust-warnings → report",
     "run": "node scripts/rust-warnings-report.mjs ci-rust-warnings",
     "if": null,
@@ -321,21 +332,9 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "job_if": "always()"
   },
   {
-    "job": "plugin-metadata",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.result == 'success') }}",
-    "entry": "plugin-release-contracts",
-    "if": null
-  },
-  {
     "job": "plugins",
     "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}",
     "entry": "plugin-check",
-    "if": null
-  },
-  {
-    "job": "fmt",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}",
-    "entry": "rust-fmt",
     "if": null
   },
   {
@@ -405,43 +404,11 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "if": "${{ !cancelled() }}"
   },
   {
-    "job": "release-contracts",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}",
-    "entry": "node-script-tests",
-    "if": null
-  },
-  {
-    "job": "release-contracts",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}",
-    "entry": "python-script-tests",
-    "if": "${{ !cancelled() }}"
-  },
-  {
-    "job": "release-contracts",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}",
-    "entry": "core-journeys-offline",
-    "if": "${{ !cancelled() }}"
-  },
-  {
-    "job": "file-sizes",
-    "run": "bash scripts/check-file-sizes.sh --fail",
-    "if": null,
-    "reason": "Source size gate; runs first and gates every other fast check",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
-  },
-  {
     "job": "ts-types",
     "run": "node scripts/ci-workspace-cleanup.mjs",
     "if": "always()",
     "reason": "Removes job outputs and sweeps old Rust targets",
     "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
-  },
-  {
-    "job": "release-contracts",
-    "run": "node scripts/check-archive-portable-test-paths.mjs",
-    "if": null,
-    "reason": "Rust test paths stay portable across runners",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
   },
   {
     "job": "frontend-windows",
@@ -455,6 +422,20 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}",
     "entry": "frontend-windows-build",
     "if": null
+  },
+  {
+    "job": "rust-warnings → report",
+    "run": "bash scripts/ci-artifact.sh get-prefix \"$GITHUB_RUN_ID/rust-warnings/\" ci-rust-warnings",
+    "if": null,
+    "reason": "Warning collections from the MinIO ci-artifacts bucket",
+    "job_if": "always()"
+  },
+  {
+    "job": "frontend-windows",
+    "run": "bash scripts/ci-artifact.sh put \"$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json\" ci-rust-warnings/rust-warnings-win32-frontend.json",
+    "if": "always()",
+    "reason": "Warning collection to the MinIO ci-artifacts bucket",
+    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
   }
 ]
 ```

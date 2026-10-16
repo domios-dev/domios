@@ -139,7 +139,7 @@ export function PluginBubbles({
       {visible.map((p) => {
         const b = pills[p.id] as BubbleData;
         const base = b.tooltip || p.display_name || p.id;
-        const c = watchReason ? TONE.muted : TONE[b.tone ?? "default"];
+        const c = TONE[b.tone ?? "default"];
         const tooltip = watchReason
           ? `${base} — repository watch unavailable (${watchReason})`
           : watchState === "watching"

@@ -2,6 +2,7 @@
 //! send/write/batch ServiceContext methods.
 use crate::agent::provider::PasteCapability;
 use crate::service::delivery_error::DeliveryError;
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_pty::pty::ansi::sanitize_agent_prompt_input;
 
@@ -1107,7 +1108,7 @@ impl ServiceContext {
                 tab_id,
             );
             self.set_and_lock_tab_agent_type(&tab_id, provider_id);
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::AgentIdentity);
         }
     }
 }

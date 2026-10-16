@@ -101,50 +101,40 @@ run_stages() {
   echo "[qa-prep] dist: ok ($(du -sh "$REPO/dist" 2>/dev/null | cut -f1))"
 
   # ================================================================
-  # Stage 2: sidecars (bundled-cli + bundled-embed)
+  # Stage 2: bundled CLI
   # ================================================================
-  echo "[qa-prep] 2/2  sidecars (bundled-cli + bundled-embed)..."
+  echo "[qa-prep] 2/2  bundled CLI..."
 
   HOST_TRIPLE=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
   CLI_DIR="$REPO/src-tauri/bundled-cli"
-  EMBED_DIR="$REPO/src-tauri/bundled-embed"
   CLI_BIN="$CLI_DIR/codeterm${EXE_EXT}"
-  EMBED_BIN="$EMBED_DIR/codeterm-embed-${HOST_TRIPLE}${EXE_EXT}"
-  mkdir -p "$CLI_DIR" "$EMBED_DIR"
+  mkdir -p "$CLI_DIR"
 
   CAN_CLI="${CANONICAL:+$CANONICAL/src-tauri/bundled-cli/codeterm${EXE_EXT}}"
-  CAN_EMBED="${CANONICAL:+$CANONICAL/src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${EXE_EXT}}"
   CAN_CLI_PROV="${CAN_CLI:+$CAN_CLI.provenance.json}"
-  CAN_EMBED_PROV="${CAN_EMBED:+$CAN_EMBED.provenance.json}"
 
   USE_CANONICAL=0
   if [ "$WARM_CANONICAL" = "1" ] && [ -n "$CANONICAL" ] \
-      && sidecar_valid "${CAN_CLI}" && sidecar_valid "${CAN_EMBED}" \
-      && [ -f "$CAN_CLI_PROV" ] && [ -f "$CAN_EMBED_PROV" ] \
-      && ct_check_provenance "bundled-cli" "release" "$HOST_TRIPLE" "" "" "$CAN_CLI_PROV" \
-      && ct_check_provenance "bundled-embed" "release" "$HOST_TRIPLE" "" "" "$CAN_EMBED_PROV"; then
+      && sidecar_valid "${CAN_CLI}" \
+      && [ -f "$CAN_CLI_PROV" ] \
+      && ct_check_provenance "bundled-cli" "release" "$HOST_TRIPLE" "" "" "$CAN_CLI_PROV"; then
     USE_CANONICAL=1
   fi
 
   if [ "$USE_CANONICAL" = "1" ]; then
     cp "$CAN_CLI"   "$CLI_BIN"
-    cp "$CAN_EMBED" "$EMBED_BIN"
     cp "$CAN_CLI_PROV" "$CLI_BIN.provenance.json"
-    cp "$CAN_EMBED_PROV" "$EMBED_BIN.provenance.json"
     # Ad-hoc sign for macOS dev; errors are non-fatal (devs may lack Xcode tools).
     if [[ "$OSTYPE" == darwin* ]]; then
       codesign --force --sign - "$CLI_BIN"   2>/dev/null || true
-      codesign --force --sign - "$EMBED_BIN" 2>/dev/null || true
     fi
     CLI_SIZE=$(du -sh "$CLI_BIN"   | cut -f1)
-    EMB_SIZE=$(du -sh "$EMBED_BIN" | cut -f1)
-    echo "[qa-prep] sidecars: reused from canonical (CLI ${CLI_SIZE}, embed ${EMB_SIZE})"
+    echo "[qa-prep] sidecars: reused from canonical (CLI ${CLI_SIZE})"
   else
     echo "[qa-prep] sidecars: building from source (warm-canonical=$WARM_CANONICAL, provenance missing or mismatched)"
     ct_configure_sccache
 
     node scripts/prepare-cli-stub.js
-    node scripts/prepare-embed-stub.js
 
     touch cli/src/main.rs
     CODETERM_DEV=1 cargo build --release --manifest-path cli/Cargo.toml \
@@ -153,13 +143,6 @@ run_stages() {
     ct_write_provenance "bundled-cli" "release" "$HOST_TRIPLE" "" "" \
       "src-tauri/bundled-cli/codeterm${EXE_EXT}" \
       "src-tauri/bundled-cli/codeterm${EXE_EXT}.provenance.json"
-
-    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed \
-      || fail_stage "sidecars:embed-build"
-    CODETERM_DEV=1 node scripts/bundle-embed.js
-    ct_write_provenance "bundled-embed" "release" "$HOST_TRIPLE" "" "" \
-      "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${EXE_EXT}" \
-      "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${EXE_EXT}.provenance.json"
 
     echo "[qa-prep] sidecars: built ok"
   fi

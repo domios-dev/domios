@@ -1,4 +1,4 @@
-//! Dev-only hold-time instrumentation for the ordered hot locks.
+//! Dev-only hold-time instrumentation for hot locks.
 //! Debug builds wrap guards and log `[LOCK-HOLD]` when a guard is held past the
 //! threshold; release builds compile to transparent parking_lot wrappers (zero overhead).
 
@@ -47,6 +47,18 @@ mod imp {
                 inner,
             }
         }
+
+        pub(super) fn report_held(&self, held: Duration, report: impl FnOnce(String)) {
+            if should_report(held) {
+                report(format_report(
+                    self.name,
+                    self.kind,
+                    held,
+                    self.waited,
+                    self.site,
+                ));
+            }
+        }
     }
 
     impl<G: Deref> Deref for TimedGuard<G> {
@@ -64,13 +76,7 @@ mod imp {
 
     impl<G> Drop for TimedGuard<G> {
         fn drop(&mut self) {
-            let held = self.start.elapsed();
-            if should_report(held) {
-                log::debug!(
-                    "{}",
-                    format_report(self.name, self.kind, held, self.waited, self.site)
-                );
-            }
+            self.report_held(self.start.elapsed(), |report| log::debug!("{report}"));
         }
     }
 
@@ -246,6 +252,19 @@ pub use imp::{TimedMutex, TimedRwLock};
 #[cfg(all(test, debug_assertions))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_mutex_reports_through_guard_hold_seam_without_waiting() {
+        let mutex = TimedMutex::new("launch_registry", ());
+        let guard = mutex.lock();
+        let mut reports = Vec::new();
+        guard.report_held(Duration::from_millis(49), |report| reports.push(report));
+        assert!(reports.is_empty());
+        guard.report_held(LOCK_HOLD_THRESHOLD, |report| reports.push(report));
+        assert_eq!(reports.len(), 1);
+        assert!(reports[0].starts_with("[LOCK-HOLD] launch_registry.lock() held 50ms (waited "));
+        assert!(reports[0].contains(file!()));
+    }
 
     #[test]
     fn lock_hold_report_names_test_location_and_wait() {

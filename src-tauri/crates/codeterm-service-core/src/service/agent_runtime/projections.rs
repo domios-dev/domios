@@ -27,6 +27,7 @@ struct UsageProjection {
     captured_at: u64,
     token_usage: Option<Reading<TokenUsage>>,
     rate_limits: Option<Reading<Vec<RuntimeRateLimit>>>,
+    resets: Option<codeterm_plugin::agent_runtime::ResetCredits>,
 }
 
 static USAGE: LazyLock<Mutex<HashMap<String, UsageProjection>>> =
@@ -38,10 +39,12 @@ pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettin
     *session.controls_confirmation.lock() = Some(settings.clone());
     let settings = merge_settings(&context.settings, settings);
     session.context.lock().settings = settings;
+    session.control_changes.send_replace(());
 }
 
 fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> RuntimeSettings {
     RuntimeSettings {
+        fast_mode: confirmed.fast_mode.or(previous.fast_mode),
         model: confirmed.model.or_else(|| previous.model.clone()),
         effort: confirmed.effort.or_else(|| previous.effort.clone()),
         mode: confirmed.mode.or_else(|| previous.mode.clone()),
@@ -66,6 +69,7 @@ fn projection<'a>(
             captured_at: 0,
             token_usage: None,
             rate_limits: None,
+            resets: None,
         });
     if reading.provider != provider || reading.nonce != context.binding_nonce {
         reading.provider = provider.into();
@@ -74,6 +78,7 @@ fn projection<'a>(
         reading.billing_mode = Default::default();
         reading.token_usage = None;
         reading.rate_limits = None;
+        reading.resets = None;
     }
     if reading.thread_id != context.thread_id {
         reading.thread_id = context.thread_id.clone();
@@ -109,6 +114,7 @@ pub fn billing(
     reading.captured_at = at;
     if mode != codeterm_usage::contract::BillingMode::Subscription {
         reading.rate_limits = None;
+        reading.resets = None;
     }
     if mode == codeterm_usage::contract::BillingMode::Unknown {
         reading.token_usage = None;
@@ -140,11 +146,13 @@ pub async fn rate_limits(
     svc: &ServiceContext,
     session: &Session,
     limits: Vec<RuntimeRateLimit>,
+    resets: Option<codeterm_plugin::agent_runtime::ResetCredits>,
     at: u64,
 ) -> Result<(), RuntimeFailure> {
     if !publishes_usage(svc, session) {
         return Ok(());
     }
+    let supported = super::reset_credits::supported(session).await;
     let context = session.context.lock().clone();
     let sample = rate_sample(&session.provider, &limits, at);
     let store = svc.usage_store.clone();
@@ -155,6 +163,7 @@ pub async fn rate_limits(
     let mut readings = USAGE.lock();
     let reading = projection(&mut readings, &session.provider, &context);
     reading.captured_at = at;
+    reading.resets = if supported { resets } else { None };
     reading.rate_limits = Some(Reading {
         captured_at: at,
         value: limits,
@@ -335,6 +344,7 @@ mod tests {
                 },
             }),
             rate_limits: None,
+            resets: None,
         };
         let wire = enrich_latest(serde_json::Value::Null, "fixture", vec![reading]).unwrap();
         assert_eq!(
@@ -364,6 +374,11 @@ mod tests {
             captured_at: 10,
             value: vec![window("primary", 20.0, 300)],
         });
+        first.resets = Some(codeterm_plugin::agent_runtime::ResetCredits {
+            available_count: 3,
+            next_expiry: None,
+            credits: None,
+        });
         context.thread_id = Some("thread".into());
         let loaded = projection(&mut readings, "fixture", &context);
         assert_eq!(
@@ -374,12 +389,14 @@ mod tests {
             loaded.rate_limits.as_ref().unwrap().value[0].used_percent,
             20.0
         );
+        assert_eq!(loaded.resets.as_ref().unwrap().available_count, 3);
         context.binding_nonce = "new".into();
         let rebound = projection(&mut readings, "fixture", &context);
         assert_eq!(
             rebound.billing_mode,
             codeterm_usage::contract::BillingMode::Unknown
         );
+        assert!(rebound.resets.is_none());
         assert!(rebound.rate_limits.is_none());
         assert!(rebound.token_usage.is_none());
     }

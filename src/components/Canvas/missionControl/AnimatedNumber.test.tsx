@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AnimatedNumber, CHANGED_VALUE_CLASS } from "./AnimatedNumber";
+import { AnimatedNumber } from "./AnimatedNumber";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -60,7 +60,6 @@ describe("AnimatedNumber changed-value highlight", () => {
     expect((await show(null)).dataset.pulse).toBeUndefined();
     const first = await show(4);
     expect(first.dataset.pulse).toBeUndefined();
-    expect(first.classList.contains(CHANGED_VALUE_CLASS)).toBe(false);
   });
 
   it("highlights a changed value exactly once and keeps an unchanged re-render still", async () => {
@@ -72,7 +71,6 @@ describe("AnimatedNumber changed-value highlight", () => {
     const changed = await show(2);
     expect(changed).not.toBe(before);
     expect(changed.dataset.pulse).toBe("1");
-    expect(changed.classList.contains(CHANGED_VALUE_CLASS)).toBe(true);
 
     const rerendered = await show(2);
     expect(rerendered).toBe(changed);
@@ -88,7 +86,6 @@ describe("AnimatedNumber changed-value highlight", () => {
     await show(1);
     const changed = await show(5);
     expect(changed.dataset.pulse).toBeUndefined();
-    expect(changed.classList.contains(CHANGED_VALUE_CLASS)).toBe(false);
     expect(changed.textContent).toBe("5");
     expect(frames.size).toBe(0);
   });

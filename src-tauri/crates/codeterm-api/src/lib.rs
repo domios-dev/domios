@@ -7,6 +7,8 @@ pub mod blueprint_portable_routes;
 #[cfg(debug_assertions)]
 mod cors_diagnostics;
 pub mod events;
+#[cfg(debug_assertions)]
+mod request_census;
 pub mod routes;
 mod runtime_login;
 pub mod secrets_routes;

@@ -41,6 +41,11 @@ export function tabBootOverlayView(
       canKeepShell: failure.actions.keepShell,
     };
   }
+  if (failure.view === "pending") {
+    if (!tab) return { kind: "none" };
+    const pendingTab = { ...tab, boot_stage: "launch_binding_unconfirmed" as const };
+    return { kind: "starting", label: tabStartingLabel(pendingTab), activity: tabActivity(pendingTab) };
+  }
   const activity = tabActivity(tab);
   return activity.launching
     ? { kind: "starting", label: tab ? tabStartingLabel(tab) : activity.label, activity }
@@ -90,7 +95,7 @@ export function TabBootOverlay({
       }}
     >
       {view.kind === "failed" ? (
-        <div className="absolute bottom-6 left-1/2 w-[min(34rem,calc(100%-2rem))] -translate-x-1/2" data-testid="tab-boot-failed">
+        <div className="absolute inset-0 flex flex-col items-center justify-center overflow-auto" data-testid="tab-boot-failed">
           <TabLaunchFailure tabId={tabId} workspace={workspace} cwd={cwd} reason={view.reason} actions={bootActions(view, {
               onRetry, onStartFreshAgent, onStartNewSession, onKeepShell, startingNewSession,
             })} />

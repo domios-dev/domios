@@ -125,26 +125,6 @@ configure_windows_test_target() {
     return 0
 }
 
-ensure_embed_sidecar() {
-    local extension=""
-    local sidecar
-
-    [[ "$HOST_TRIPLE" == *-windows-* ]] && extension=".exe"
-    sidecar="$ROOT/src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${extension}"
-
-    [ -e "$sidecar" ] && return
-
-    printf '[test-capped] missing bundled embed sidecar; creating test-only stub.\n'
-    (
-        cd "$ROOT"
-        node scripts/prepare-embed-stub.js >/dev/null
-    )
-    [ -e "$sidecar" ] || {
-        printf 'error: bundled embed stub was not created: %s\n' "$sidecar" >&2
-        exit 2
-    }
-}
-
 ARGS_JOINED=" $* "
 if [[ "$ARGS_JOINED" == *" --manifest-path cli/Cargo.toml "* && "$ARGS_JOINED" == *" --lib "* ]]; then
     printf 'error: cli/Cargo.toml is a binary crate and has no --lib test target.\n' >&2
@@ -160,7 +140,6 @@ if [ "$EXEC_MODE" -eq 0 ]; then
     fi
     configure_embed_cache
     isolate_conpty_test_dir
-    ensure_embed_sidecar
 fi
 
 if [ "$TEST_CAP_SECS" -eq 0 ]; then

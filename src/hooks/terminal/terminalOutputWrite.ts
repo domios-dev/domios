@@ -62,8 +62,15 @@ export function writeTerminalOutput(term: OutputTerminal, payload: Payload, done
   enqueueTerminalOutput(term, payload, done);
 }
 
-export function writeTerminalOutputAndWait(term: OutputTerminal, payload: Payload): Promise<void> {
-  return new Promise((resolve) => enqueueTerminalOutput(term, payload, resolve));
+export function writeTerminalOutputAndWait(term: OutputTerminal, payload: Payload, onComplete?: () => void): Promise<void> {
+  return new Promise((resolve, reject) => enqueueTerminalOutput(term, payload, () => {
+    try {
+      onComplete?.();
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  }));
 }
 
 function enqueueTerminalOutput(term: OutputTerminal, payload: Payload, done?: () => void): void {

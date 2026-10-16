@@ -67,6 +67,16 @@ impl AgentProvider for NativeRuntime {
     ) -> Result<RuntimePlan, RuntimeFailure> {
         validate_runtime_operation(ctx, op)?;
         let action = match op {
+            RuntimeOperation::BackgroundProcesses { thread_id, .. } => RuntimeAction::Request {
+                call: RpcCall {
+                    target: Some(RuntimeCallTarget {
+                        thread_id: thread_id.clone(),
+                        turn_id: None,
+                    }),
+                    method: op.kind().into(),
+                    params: json!(op),
+                },
+            },
             RuntimeOperation::AnswerQuestion { answers, .. } => RuntimeAction::QuestionAnswer {
                 input: TurnInput {
                     text: answers
@@ -128,6 +138,37 @@ impl AgentProvider for NativeRuntime {
             },
             RpcReply::Success { value } => {
                 let result = match op {
+                    RuntimeOperation::BackgroundProcesses {
+                        thread_id,
+                        action: RuntimeBackgroundProcessAction::List { .. },
+                    } => RuntimeResult::BackgroundProcesses {
+                        thread_id: thread_id.clone(),
+                        processes: serde_json::from_value(value["processes"].clone()).map_err(
+                            |error| {
+                                RuntimeFailure::new(
+                                    RuntimeFailureCode::InvalidSchema,
+                                    error.to_string(),
+                                )
+                            },
+                        )?,
+                        next_cursor: serde_json::from_value(
+                            value.get("nextCursor").cloned().unwrap_or(Value::Null),
+                        )
+                        .map_err(|error| {
+                            RuntimeFailure::new(
+                                RuntimeFailureCode::InvalidSchema,
+                                error.to_string(),
+                            )
+                        })?,
+                    },
+                    RuntimeOperation::BackgroundProcesses {
+                        thread_id,
+                        action: RuntimeBackgroundProcessAction::Terminate { process_id },
+                    } => RuntimeResult::BackgroundProcessTermination {
+                        thread_id: thread_id.clone(),
+                        process_id: process_id.clone(),
+                        acknowledged: value["acknowledged"] == true,
+                    },
                     RuntimeOperation::Initialize => RuntimeResult::Initialized,
                     RuntimeOperation::OpenThread { settings, .. } => RuntimeResult::ThreadLoaded {
                         thread_id: value["threadId"]
@@ -157,6 +198,7 @@ impl AgentProvider for NativeRuntime {
                         next_cursor: None,
                         open_items: Vec::new(),
                         questions: None,
+                        order: None,
                     },
                     RuntimeOperation::SubmitTurn {
                         thread_id, send_id, ..
@@ -165,6 +207,33 @@ impl AgentProvider for NativeRuntime {
                         send_id: send_id.clone(),
                         turn_id: None,
                     },
+                    RuntimeOperation::Control {
+                        thread_id: Some(thread_id),
+                        action,
+                        ..
+                    } if action == "goal" => RuntimeResult::Goal {
+                        thread_id: thread_id.clone(),
+                        intent: serde_json::from_value(value["intent"].clone()).map_err(
+                            |error| {
+                                RuntimeFailure::new(
+                                    RuntimeFailureCode::InvalidSchema,
+                                    error.to_string(),
+                                )
+                            },
+                        )?,
+                    },
+                    RuntimeOperation::Control { action, .. } if action == "redeemResetCredit" => {
+                        RuntimeResult::ResetCreditConsumed {
+                            outcome: serde_json::from_value(value["outcome"].clone()).map_err(
+                                |error| {
+                                    RuntimeFailure::new(
+                                        RuntimeFailureCode::InvalidSchema,
+                                        error.to_string(),
+                                    )
+                                },
+                            )?,
+                        }
+                    }
                     _ => RuntimeResult::Done,
                 };
                 if value["more"] == true && matches!(op, RuntimeOperation::ReadHistory { .. }) {

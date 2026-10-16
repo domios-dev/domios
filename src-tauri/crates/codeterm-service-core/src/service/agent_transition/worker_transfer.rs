@@ -1,6 +1,7 @@
 use super::*;
 use crate::service::plan::mutations::agent_lifecycle::VerifiedWorkerTransferBinding;
 use crate::service::AuthenticatedPlanCaller;
+use crate::service::MuxEmitCause;
 use codeterm_types::team::TeamLifecycle;
 use serde::Serialize;
 
@@ -276,7 +277,7 @@ impl ServiceContext {
         );
         self.record_role_transition(worker_tab_id);
         self.schedule_session_persist_debounced();
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::PlanTask);
         Ok(outcome)
     }
 }

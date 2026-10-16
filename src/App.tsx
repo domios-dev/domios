@@ -1,4 +1,4 @@
-import { WorkspaceFolderError } from "./components/Sidebar/WorkspaceFolderError";
+import { WorkspacePaneState } from "./components/shared/FolderPaneState";
 import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
@@ -17,18 +17,15 @@ import { TabContent } from "./components/Terminal/TabContent";
 import { LocalRecordingCaptureStatus } from "./components/Terminal/voice/LocalRecordingCaptureStatus";
 import { LocalRecordingSetup } from "./components/Terminal/voice/LocalRecordingSetup";
 import { useLocalRecordingCapture } from "./components/Terminal/voice/useLocalRecordingCapture";
-import { SettingsPanel } from "./components/Settings/SettingsPanel";
+import { deferredComponent } from "./components/shared/deferredComponent";
 import { isSettingsLinkId, type SettingsLinkId } from "./components/Settings/sections";
 import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
 import { appChatBlockHost } from "./lib/chatBlocks/appChatBlockHost";
 import { AppChatBlockServices } from "./lib/chatBlocks/AppChatBlockServices";
 import { GUIDE_SECTIONS, guideRequest, type GuideRequest } from "./help/guideNavigation";
 import type { AgentLevelChoice } from "./lib/types";
-import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
-import { MeshPanel } from "./components/MeshPanel/MeshPanel";
+import type { MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { PluginConsentDialog } from "./components/Extensions/PluginConsentDialog";
-import { ExtensionsView } from "./components/Extensions/ExtensionsView";
-import { AnalyticsSupporterSection } from "./components/Supporter/AnalyticsSupporterSection";
 import { PluginView } from "./components/Extensions/PluginView";
 import { ANALYTICS_PLUGIN_ID, isAnalyticsAvailable } from "./components/Titlebar/analyticsTrayLogic";
 import { usePluginSnapshotStore } from "./lib/pluginSnapshotStore";
@@ -39,23 +36,22 @@ import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
-import { CanvasView } from "./components/Canvas/CanvasView";
-import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
-import { JobsView, type JobsTarget } from "./components/Jobs/JobsView";
+import type { JobsTarget } from "./components/Jobs/JobsView";
 import { useReturnToChat } from "./hooks/useReturnToChat";
 import type { ReturnTo } from "./lib/returnTo";
 import { OPEN_JOB_EVENT, type OpenJobDetail } from "./components/Jobs/openJobEvent";
 import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components/Jobs/jobsLayout";
-import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
+import { PageDataProvider } from "./hooks/PageDataProvider";
 import { useConfig } from "./hooks/useConfig";
 import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
+import { workspacePrewarmInput } from "./hooks/terminal/workspacePrewarmModel";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
@@ -81,6 +77,16 @@ import { DEV_BUILD } from "./lib/devBuild";
 /** One stable empty list, so a config still loading does not hand the chime a
  *  fresh array on every render. */
 const EMPTY_LEVELS: AgentLevelChoice[] = [];
+
+const SettingsPanel = deferredComponent(async () => ({ default: (await import("./components/Settings/SettingsPanel")).SettingsPanel }));
+const MemoryPanel = deferredComponent(async () => ({ default: (await import("./components/MemoryPanel/MemoryPanel")).MemoryPanel }));
+const MeshPanel = deferredComponent(async () => ({ default: (await import("./components/MeshPanel/MeshPanel")).MeshPanel }));
+const ExtensionsView = deferredComponent(async () => ({ default: (await import("./components/Extensions/ExtensionsView")).ExtensionsView }));
+const AnalyticsSupporterSection = deferredComponent(async () => ({ default: (await import("./components/Supporter/AnalyticsSupporterSection")).AnalyticsSupporterSection }));
+const CanvasView = deferredComponent(async () => ({ default: (await import("./components/Canvas/CanvasView")).CanvasView }));
+const EssenceMapCanvas = deferredComponent(async () => ({ default: (await import("./components/Canvas/EssenceMapCanvas")).EssenceMapCanvas }));
+const JobsView = deferredComponent(async () => ({ default: (await import("./components/Jobs/JobsView")).JobsView }));
+const CronWorkspaceView = deferredComponent(async () => ({ default: (await import("./components/Cron/CronWorkspaceView")).CronWorkspaceView }));
 
 const MemoizedTabContent = memo(TabContent);
 
@@ -416,15 +422,7 @@ function AppInner() {
     });
   }, []);
   const prewarmTabIds = useTabPrewarm({
-    workspaceId: activeWs?.id ?? null,
-    activeTabId: activeTab?.id ?? null,
-    tabIds:
-      activeWs?.tabs
-        .filter((tabId) => {
-          const tab = state.tabs[tabId];
-          return tab && !(activeWs.protected === true && tab.protected === true);
-        })
-        ?? [],
+    ...workspacePrewarmInput(activeWs, activeTab?.id ?? null, state.tabs),
     liveTabIds: state.workspaces.flatMap((ws) => ws.tabs),
     prewarmTab: prewarmBackendTab,
   });
@@ -863,15 +861,15 @@ function AppInner() {
               Storage unavailable, your data is preserved, see the incident.
             </div>
           ) : state.workspaces.length > 0 ? (
-            state.workspaces.flatMap((ws) =>
-              ws.tabs.map((tabId) => {
+            state.workspaces.map((ws) => <WorkspacePaneState key={ws.id} workspace={ws} visible={mainView === "workspace" && !pluginViewId && ws.id === state.active_workspace_id}>
+              {ws.tabs.map((tabId) => {
                 const tab = state.tabs[tabId];
                 if (!tab) return null;
                 const isActiveTab = ws.id === state.active_workspace_id && tabId === state.activeTabIds[ws.id];
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
                   ws.protected === true && tab.protected === true;
-                const shouldMountTab = !ws.cwd_missing && (isActiveTab || isMainTab || prewarmTabIds.has(tabId));
+                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId);
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;
                 return (
@@ -883,7 +881,7 @@ function AppInner() {
                   zIndex: isVisible ? 1 : 0,
                   opacity: isVisible ? 1 : 0,
                   pointerEvents: isVisible ? "auto" : "none",
-                  transition: "opacity 200ms ease",
+                  visibility: isVisible ? "visible" : "hidden",
                 }}
               >
                 <MemoizedTabContent
@@ -903,14 +901,11 @@ function AppInner() {
                 />
               </div>
                 );
-              })
+              })}</WorkspacePaneState>
             )
           ) : mainView === "workspace" ? (
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
-          {mainView === "workspace" && !pluginViewId && activeWs?.cwd_missing && (
-            <div className="absolute inset-0 z-30"><WorkspaceFolderError workspace={activeWs} /></div>
-          )}
           <PlanSidePanelHost api={stableApiConfig} />
         </main>
         </div>
@@ -934,9 +929,11 @@ function AppInner() {
 export function App() {
   return (
     <MultiplexerProvider>
+      <PageDataProvider>
       <UpdateProvider>
         <UpdatePanelProvider><AppInner /></UpdatePanelProvider>
       </UpdateProvider>
+      </PageDataProvider>
     </MultiplexerProvider>
   );
 }

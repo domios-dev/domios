@@ -3,6 +3,7 @@ use super::{
     model::{RuntimeFailure, RuntimePhase},
     process::Process,
 };
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use std::sync::Arc;
@@ -94,6 +95,27 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             }
         }
         if session.context.lock().epoch == epoch {
+            let permit = session.gate.try_acquire().ok();
+            let cleanup = super::background::cleanup(
+                &svc,
+                &session,
+                &process,
+                super::background::Mode::Shutdown,
+                Vec::new(),
+                permit.is_some(),
+            )
+            .await;
+            if session.context.lock().epoch != epoch {
+                return;
+            }
+            if let Err(reason) = cleanup {
+                session.state.lock().degrade(epoch, &reason);
+                let tab = session.context.lock().tab_id.clone();
+                engine::publish(&svc, &tab, &session);
+                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
+                log::error!("[agent-runtime] tab={tab} owned process cleanup failed: {reason}");
+                return;
+            }
             let reason = exited
                 .borrow()
                 .clone()
@@ -126,7 +148,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     );
                 }
                 engine::publish(&svc, &context.tab_id, &session);
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
             }
             let owner = svc.clone();
             let ending = expired;
@@ -137,7 +159,6 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     .runtime_process_exited(&owner, &ending, detail);
             })
             .await;
-            process.stop();
         }
     });
 }

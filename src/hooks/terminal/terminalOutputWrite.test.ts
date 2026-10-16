@@ -108,12 +108,15 @@ test("ordinary OSC output and partial non-marker escape sequences pass through u
 test("awaitable output completes only after the terminal parser callback", async () => {
   let finish!: () => void;
   const term = { write(_data: string | Uint8Array, done?: () => void) { finish = done!; } };
-  const completion = writeTerminalOutputAndWait(term, Uint8Array.of(65));
+  let notified = false;
+  const completion = writeTerminalOutputAndWait(term, Uint8Array.of(65), () => { notified = true; });
   let completed = false;
   void completion.then(() => { completed = true; });
   await Promise.resolve();
   assert.equal(completed, false);
+  assert.equal(notified, false);
   finish();
+  assert.equal(notified, true);
   await completion;
   assert.equal(completed, true);
 });

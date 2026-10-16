@@ -7,7 +7,6 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 mkdir -p dist
-node scripts/prepare-embed-stub.js
 # Resource-glob stub: tauri_build only needs bundled-cli/* to match a file;
 # unit tests never execute the bundled CLI.
 mkdir -p src-tauri/bundled-cli

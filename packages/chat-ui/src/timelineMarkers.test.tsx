@@ -234,3 +234,12 @@ describe("timeline markers", () => {
     }
   });
 });
+
+it("projects goal status and clears a removed goal while retaining the title",()=>{
+  const row=(id:string,sessionIntent:NormalizedChatMessage["sessionIntent"]):NormalizedChatMessage=>({id,seq:0,type:"custom",content:"",sessionIntent});
+  const title=row("title",{title:"Fixture"});
+  const goal=row("goal",{goal:"Opaque",goalStatus:"paused"});
+  expect(sessionIntentFromMessages([title,goal])).toEqual({title:"Fixture",goal:"Opaque",goalStatus:"paused"});
+  expect(sessionIntentFromMessages([title,goal,row("clear",{})])).toEqual({title:"Fixture"});
+  expect(sessionIntentFromMessages([goal,row("clear",{})])).toBeNull();
+});

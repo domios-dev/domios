@@ -21,5 +21,16 @@ mod tests {
         mux.get_tab_mut(&tab_id).unwrap().last_active_at_ms = None;
         mux.set_active_tab(&workspace, &tab_id).unwrap();
         assert!(mux.get_tab(&tab_id).unwrap().last_active_at_ms.is_some());
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.last_opened_at_ms, tab.last_active_at_ms);
+    }
+
+    #[test]
+    fn activity_does_not_change_the_last_opened_clock() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.last_opened_at_ms = Some(7);
+        tab.record_activity();
+        assert_eq!(tab.last_opened_at_ms, Some(7));
     }
 }

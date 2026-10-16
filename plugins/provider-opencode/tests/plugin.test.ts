@@ -9,6 +9,8 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 import { enrichTimelineItems } from "../../../src/components/Terminal/chatEnrichment";
+import type { MessageSegment } from "@codeterm/chat-core";
+import { ocHost } from "./hostFixture.testdata";
 import {
   isCurrentOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
@@ -161,25 +163,6 @@ function loadOpencodeWithHost(host: unknown) {
   return context.module.exports.default;
 }
 
-const ocHost = (over: Record<string, unknown>) => ({
-  manifestJson: () => JSON.stringify({
-    models: [
-      { id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" },
-    ],
-  }),
-  homeDir: () => "/tmp",
-  platform: () => "linux",
-  expandHome: (v: string) => v,
-  envGet: () => null,
-  exec: () => JSON.stringify({ code: 1, stdout: "", stderr: "not available" }),
-  unixNowMs: () => 1_000_000,
-  fetch: () => JSON.stringify({ error: "no network in tests" }),
-  log: () => {},
-  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
-  fs: { fileExists: () => false, readJson: () => null, readFile: () => null },
-  ...over,
-});
-
 console.log("\n--- cwd-scoped session detection ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
@@ -284,7 +267,9 @@ console.log("\n--- structured transcript preserves routed text ---\n");
   const dbPath = "~/.local/share/opencode/opencode.db";
   const windowsPath = "C:\\Users\\User\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\utilities\\update.txt";
   const context = "sentinel:sentinel_394d9ce12d30";
-  const frame = `<domios from="system" context="${context}"></domios>${windowsPath}`;
+  const fixture = (JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as
+    Array<{ name: string; raw: string; segments: MessageSegment[] }>).find(({ name }) => name === "system header with trailing Windows path")!;
+  const frame = fixture.raw;
   const p = loadOpencodeWithHost(ocHost({
     fs: {
       fileExists: (pth: string) => pth === dbPath,
@@ -304,7 +289,8 @@ console.log("\n--- structured transcript preserves routed text ---\n");
     "the OpenCode part record retains literal Windows path escapes");
   const [entry] = enrichTimelineItems([{
     kind: "message",
-    message: { id: "part-system-1", type: "user", content: result.messages[0].content },
+    // The Rust structured-chat boundary supplies these shared, parser-verified segments.
+    message: { id: "part-system-1", type: "user", content: result.messages[0].content, segments: fixture.segments },
   }], new WeakMap());
   eq([entry.origin, entry.msg.content], [
     { kind: "system", context },
@@ -618,96 +604,6 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
     [{ id: "xai/grok-4.6", displayName: "Grok 4.6", group: "xai" }],
     "image/video generation models are filtered; the chat model is kept",
   );
-}
-
-// Per-group usage is read from opencode's store and keyed by providerID.
-{
-  const dbPath = "~/.local/share/opencode/opencode.db";
-  const p = loadOpencodeWithHost(ocHost({
-    fs: {
-      fileExists: (pth: string) => pth === dbPath,
-      sqliteQuery: () => [
-        { g: "deepseek", messages: 2, input: 100, output: 40, cache_read: 10, cache_write: 0, cost: 1.9425 },
-        { g: null, messages: 9, input: 1, output: 1, cache_read: 0, cache_write: 0, cost: 0 },
-      ],
-    },
-  }));
-  eq(
-    p.modelGroupUsage(),
-    [{
-      group: "deepseek",
-      messages: 2,
-      input_tokens: 100,
-      output_tokens: 40,
-      cache_read_tokens: 10,
-      cache_write_tokens: 0,
-      cost_micros: 1_942_500,
-      spend_cents: 194,
-    }],
-    "modelGroupUsage maps rows to snake_case groups, adds observed spend, and drops a null provider",
-  );
-}
-
-// A group with a live balance endpoint carries remaining credit; the limit is
-// left absent because the endpoint exposes no included allowance.
-{
-  const dbPath = "~/.local/share/opencode/opencode.db";
-  let fetched = "";
-  const p = loadOpencodeWithHost(ocHost({
-    fs: {
-      fileExists: (pth: string) => pth === dbPath,
-      sqliteQuery: () => [
-        { g: "deepseek", messages: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, cost: 3.39 },
-        { g: "xai", messages: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, cost: 118.75 },
-      ],
-    },
-    fetch: (opts: string) => {
-      fetched = opts;
-      return JSON.stringify({
-        status: 200,
-        body: JSON.stringify({
-          is_available: true,
-          balance_infos: [{ currency: "USD", total_balance: "0.62", topped_up_balance: "0.62" }],
-        }),
-      });
-    },
-  }));
-  const rows = p.modelGroupUsage() as Array<Record<string, unknown>>;
-  const deepseek = rows.find((r) => r.group === "deepseek");
-  const xai = rows.find((r) => r.group === "xai");
-  assert(
-    fetched.indexOf("api.deepseek.com") !== -1 &&
-      fetched.indexOf("opencodeAuth") !== -1 &&
-      fetched.indexOf("deepseekKey") !== -1,
-    "the balance read names its own URL and the declared credential secret",
-  );
-  eq(deepseek?.spend_remaining_cents, 62, "deepseek remaining credit is read live");
-  eq(deepseek?.spend_limit_cents, undefined, "no included limit is invented");
-  eq(xai?.spend_cents, 11875, "xai spend comes from its own observed cost");
-  eq(xai?.spend_remaining_cents, undefined, "a group without a balance endpoint has no remaining");
-  eq(xai?.spend_limit_cents, undefined, "a group without a live limit reports null, never a guess");
-}
-
-// A failed balance read still reports the observed spend, with no fabricated limit.
-{
-  const dbPath = "~/.local/share/opencode/opencode.db";
-  const p = loadOpencodeWithHost(ocHost({
-    fs: {
-      fileExists: (pth: string) => pth === dbPath,
-      sqliteQuery: () => [
-        { g: "deepseek", messages: 1, input: 10, output: 5, cache_read: 0, cache_write: 0, cost: 1.0 },
-      ],
-    },
-    fetch: () => JSON.stringify({ error: "request failed: timed out" }),
-  }));
-  const rows = p.modelGroupUsage() as Array<Record<string, unknown>>;
-  eq(rows[0].spend_cents, 100, "observed spend survives a failed balance read");
-  eq(rows[0].spend_remaining_cents, undefined, "an unreadable balance leaves remaining absent");
-}
-
-{
-  const p = loadOpencodeWithHost(ocHost({ fs: { fileExists: () => false } }));
-  eq(p.modelGroupUsage(), [], "no session store ⇒ no usage, never a guess");
 }
 
 // The manifest declares the balance credential secret and the network host the

@@ -25,6 +25,7 @@ import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { useHeaderTabMenu } from "./useHeaderTabMenu";
 import { SurfaceTabHost } from "./SurfaceTabHost";
 import { surfaceBacking } from "../../lib/surfaceTab";
+import { hasSleepingTranscript } from "../../lib/tabSleep";
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -72,9 +73,10 @@ export function TabContent({
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
   const restore = restoreStageView(tab, wake);
-  const showRestore = restorePanelOwnsBody(tab, wake, restore);
+  const sleepingTranscript = hasSleepingTranscript(tab) && restore.phase !== "ready";
+  const showRestore = !sleepingTranscript && restorePanelOwnsBody(tab, wake, restore);
   const restorePanel = <RestoreStatePanel providerId={tab.agent_type ?? (tab.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null)}
-    view={restore} onRetry={wake.retry} retrying={wake.pending} />;
+    view={restore} />;
 
   if (isFirstRunGeneralTab(tab)) {
     return (
@@ -109,11 +111,12 @@ export function TabContent({
     tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
-  const body = tab.frozen && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : isChatBackend ? (
+  const body = tab.frozen && !sleepingTranscript && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : isChatBackend ? (
     <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalTab
       key={tab.id}
+      wakingTranscript={sleepingTranscript}
       tabId={tab.id}
       ptyId={tab.pty_id}
       isFocused={isFocused}
@@ -152,8 +155,11 @@ export function TabContent({
             {loading ? "Loading agent capabilities…" : <InlineErrorNotice error={error} operation="loading agent capabilities" />}
           </div>
         )}
-        <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
-          <div className="h-full" inert={showRestore || undefined} aria-hidden={showRestore || undefined}>{body}</div>
+        <div className="relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
+          {sleepingTranscript && <div role="status" aria-live="polite" className="shrink-0 px-3 py-2 text-xs text-[var(--ct-muted-fg)]">
+            {restore.phase === "failed" ? <InlineErrorNotice error={restore.detail} operation="resuming this session" /> : "Waking…"}
+          </div>}
+          <div className="min-h-0 flex-1" inert={showRestore || undefined} aria-hidden={showRestore || undefined}>{body}</div>
           <DeferredPresence present={showRestore && isVisible} className="absolute inset-0 z-20">{restorePanel}</DeferredPresence>
         </div>
       </div>

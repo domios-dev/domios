@@ -1328,7 +1328,6 @@ jobs:
             cat "$native_log"
             stub_dirs=()
             [[ -d src-tauri/bundled-cli ]] && stub_dirs+=(src-tauri/bundled-cli)
-            [[ -d src-tauri/bundled-embed ]] && stub_dirs+=(src-tauri/bundled-embed)
             if (( ${#stub_dirs[@]} > 0 )); then
               find "${stub_dirs[@]}" -maxdepth 1 -type f -size 0 -delete 2> "$receipt_dir/stub-cleanup.stderr"
               stub_cleanup_status=$?
@@ -1757,17 +1756,15 @@ jobs:
             fi
             printf '%s\t%s\n' "${hash_line%% *}" "$path" >> "$receipt_dir/source-hashes.tsv"
           done
-          # Build-owned stubs are exactly the Linux paths of scripts/prepare-cli-stub.js and prepare-embed-stub.js.
+          # Build-owned stubs are exactly the Linux paths of scripts/prepare-cli-stub.js.
           stub_host="$(printf '%s\n' "$rustc_identity" | sed -n 's/^host: //p')"
           known_stubs=('src-tauri/bundled-cli/codeterm')
-          if [[ "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-            known_stubs+=("src-tauri/bundled-embed/codeterm-embed-$stub_host")
-          else
+          if [[ ! "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
             refuse_preflight rust_host_unavailable
           fi
           list_stub_entries() {
             local dir
-            for dir in src-tauri/bundled-cli src-tauri/bundled-embed; do
+            for dir in src-tauri/bundled-cli; do
               if [[ -L "$dir" || ( -e "$dir" && ! -d "$dir" ) ]]; then return 1; fi
               if [[ -d "$dir" ]]; then find "$dir" -mindepth 1 -maxdepth 1 -print || return 1; fi
             done
@@ -2395,14 +2392,12 @@ jobs:
           done
           stub_host="$(printf '%s\n' "$rustc_identity" | sed -n 's/^host: //p')"
           known_stubs=('src-tauri/bundled-cli/codeterm')
-          if [[ "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-            known_stubs+=("src-tauri/bundled-embed/codeterm-embed-$stub_host")
-          else
+          if [[ ! "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
             refuse_preflight rust_host_unavailable
           fi
           list_stub_entries() {
             local dir
-            for dir in src-tauri/bundled-cli src-tauri/bundled-embed; do
+            for dir in src-tauri/bundled-cli; do
               if [[ -L "$dir" || ( -e "$dir" && ! -d "$dir" ) ]]; then return 1; fi
               if [[ -d "$dir" ]]; then find "$dir" -mindepth 1 -maxdepth 1 -print || return 1; fi
             done

@@ -24,7 +24,7 @@ use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
 mod filesystem;
-mod sqlite;
+pub(super) mod sqlite;
 
 use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
@@ -771,6 +771,14 @@ pub(super) fn install(
             sqlite::host_query(&ctx, &sb, &observation, &db, &sql, params_json.as_deref())
         }
     );
+    let sb = sandbox.clone();
+    let observation = provider_observation.clone();
+    bind!("sqliteQueryStart", move |db: String,
+                                    sql: String,
+                                    params_json: Option<String>|
+          -> String {
+        sqlite::host_query_start(&sb, &observation, db, sql, params_json)
+    });
 
     bind!("log", |level: String, msg: String| {
         match level.as_str() {

@@ -79,6 +79,25 @@ impl AgentRuntimeCapability {
     }
 
     pub fn validate_declaration(&self) -> Result<(), RuntimeManifestError> {
+        if self
+            .reset_credits_min_version
+            .as_ref()
+            .is_some_and(|minimum| semver::Version::parse(minimum).is_err() || !self.usage)
+        {
+            return Err(RuntimeManifestError::InvalidMethods);
+        }
+        if self.goals.as_ref().is_some_and(|goals| {
+            !goals
+                .actions
+                .contains(&crate::agent_runtime::RuntimeGoalAction::Read)
+                || goals
+                    .actions
+                    .iter()
+                    .enumerate()
+                    .any(|(index, action)| goals.actions[..index].contains(action))
+        }) {
+            return Err(RuntimeManifestError::InvalidMethods);
+        }
         let command = &self.command;
         let executable = command
             .binary
@@ -149,6 +168,7 @@ impl AgentRuntimeCapability {
             }
         }
         let kinds = [
+            "backgroundProcesses",
             "initialize",
             "openThread",
             "resumeThread",
@@ -159,7 +179,12 @@ impl AgentRuntimeCapability {
             "answerQuestion",
             "control",
         ];
-        if self.request_methods.is_empty()
+        if (self.background_processes
+            && self
+                .request_methods
+                .get("backgroundProcesses")
+                .is_none_or(|methods| methods.is_empty()))
+            || self.request_methods.is_empty()
             || self
                 .request_methods
                 .iter()

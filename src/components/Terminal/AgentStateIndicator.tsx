@@ -106,7 +106,6 @@ export function AgentStateIndicator({
         </>
       ) : (
         <>
-          {dots}
           <span
             className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
             style={{ fontFamily: "var(--ct-font-mono)" }}
@@ -114,6 +113,7 @@ export function AgentStateIndicator({
           >
             {compactStatusMessage(text)}
           </span>
+          {dots}
         </>
       )}
       {onStop && (!isQuiet && !isQuestion) && (

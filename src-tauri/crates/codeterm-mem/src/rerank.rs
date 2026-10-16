@@ -34,43 +34,19 @@ impl Default for RerankConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            provider: "auto".into(), // when enabled, picks claude-cli → codex-cli → API → noop
+            provider: "auto".into(),
             api_key_env: None,
             model: None,
         }
     }
 }
 
-/// Build a Reranker from config. Falls back to Noop on misconfiguration.
-///
-/// Provider precedence ("auto" is the default and Just Works for most users):
-/// - **"auto"** — tries the local fastembed cross-encoder first (truly free,
-///   no network, ~100-300ms per rerank), then `claude --bare -p` if
-///   ANTHROPIC_API_KEY is set, then OpenAI API, then Noop.
-/// - **"local"** — local fastembed cross-encoder (BAAI/bge-reranker-base by
-///   default; downloads ~280MB once on first use, then offline forever).
-///   This is the default for "auto" because it's the only path that costs
-///   nothing per query.
-/// - **"claude-cli"** — `claude --bare --print --model haiku ...` subprocess.
-///   Requires ANTHROPIC_API_KEY (--bare disables oauth/keychain). Without
-///   --bare, claude loads CLAUDE.md + plugins + hooks → 42K input tokens
-///   cached, ~$0.05/call, 2.5s latency. With --bare it's ~$0.001/call.
-///   Use only if you specifically want a model rerank and have the key.
-/// - **"codex-cli"** — `codex exec --model gpt-5-mini ...` subprocess.
-///   Same trade-off; requires the user's codex login to be active.
-/// - **"haiku" | "sonnet" | "anthropic"** — direct Anthropic API
-///   (needs ANTHROPIC_API_KEY).
-/// - **"openai" | "gpt"** — direct OpenAI API (needs OPENAI_API_KEY).
-/// - anything else → Noop
+/// Build an API or CLI reranker, falling back to input order when unavailable.
 pub fn build(config: &RerankConfig) -> Box<dyn Reranker> {
     if !config.enabled {
         return Box::new(NoopReranker);
     }
     match config.provider.as_str() {
-        "local" | "fastembed" | "bge" | "jina" => build_local(config).unwrap_or_else(|| {
-            log::warn!("[mem.rerank] local fastembed reranker unavailable, falling back to Noop");
-            Box::new(NoopReranker)
-        }),
         "claude-cli" | "claude" => build_claude_cli(config).unwrap_or_else(|| {
             log::warn!("[mem.rerank] claude CLI not on PATH, falling back to Noop");
             Box::new(NoopReranker)
@@ -88,10 +64,6 @@ pub fn build(config: &RerankConfig) -> Box<dyn Reranker> {
             Box::new(NoopReranker)
         }),
         "auto" | "" => {
-            // Local first: free, fast, offline. Then API paths if user opted in.
-            if let Some(r) = build_local(config) {
-                return r;
-            }
             if let Some(r) = build_anthropic(config) {
                 return r;
             }
@@ -103,25 +75,6 @@ pub fn build(config: &RerankConfig) -> Box<dyn Reranker> {
         }
         _ => Box::new(NoopReranker),
     }
-}
-
-#[cfg(feature = "embeddings")]
-fn build_local(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
-    let model_name = local_model_name(config);
-    Some(Box::new(LocalReranker { model_name }))
-}
-
-#[cfg(feature = "embeddings")]
-fn local_model_name(config: &RerankConfig) -> String {
-    config
-        .model
-        .clone()
-        .unwrap_or_else(|| "bge-reranker-base".into())
-}
-
-#[cfg(not(feature = "embeddings"))]
-fn build_local(_config: &RerankConfig) -> Option<Box<dyn Reranker>> {
-    None
 }
 
 fn build_anthropic(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
@@ -353,115 +306,6 @@ impl Reranker for OpenAIReranker {
                 h
             }
         }
-    }
-}
-
-/// Local cross-encoder reranker via fastembed-rs. Truly offline: model
-/// downloads once (~280MB for BGE base, less for Jina turbo), then runs
-/// inference in-process via ONNX. ~100-300ms per rerank for 20 candidates.
-/// This is the default rerank backend — costs nothing per query.
-#[cfg(feature = "embeddings")]
-pub struct LocalReranker {
-    model_name: String,
-}
-
-#[cfg(feature = "embeddings")]
-impl Reranker for LocalReranker {
-    fn rerank(&self, query: &str, hits: Vec<SearchHit>, top_k: usize) -> Vec<SearchHit> {
-        if hits.is_empty() {
-            return hits;
-        }
-        let limited: Vec<SearchHit> = hits.into_iter().take(20).collect();
-        let docs: Vec<String> = limited
-            .iter()
-            .map(|h| {
-                // Use title + summary + body snippet — same shape that other rerankers see in their text prompt.
-                let summary = h.item.summary.as_deref().unwrap_or("");
-                let snip: String = h.item.body.chars().take(400).collect();
-                format!("{} | {} | {}", h.item.title, summary, snip)
-            })
-            .collect();
-
-        match self.score_candidates(query, &docs) {
-            Ok(scores) => {
-                let mut paired: Vec<(f32, SearchHit)> = scores.into_iter().zip(limited).collect();
-                paired.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-                let mut out: Vec<SearchHit> = paired
-                    .into_iter()
-                    .map(|(score, mut hit)| {
-                        // Replace fused FTS score with reranker score (lower=better convention is preserved by negating, since reranker gives higher=better).
-                        hit.score = -score as f64;
-                        hit
-                    })
-                    .collect();
-                out.truncate(top_k);
-                out
-            }
-            Err(e) => {
-                log::warn!(
-                    "[mem.rerank] local fastembed failed: {} — falling back to local order",
-                    e
-                );
-                let mut h = limited;
-                h.truncate(top_k);
-                h
-            }
-        }
-    }
-}
-
-#[cfg(feature = "embeddings")]
-impl LocalReranker {
-    fn score_candidates(&self, query: &str, docs: &[String]) -> Result<Vec<f32>, String> {
-        use fastembed::{RerankInitOptions, RerankerModel, TextRerank};
-        use parking_lot::Mutex;
-        use std::sync::OnceLock;
-
-        // Cache the loaded reranker model across calls (model load is the expensive part). Indexed by model name.
-        static MODEL_CACHE: OnceLock<Mutex<std::collections::HashMap<String, TextRerank>>> =
-            OnceLock::new();
-        let cache = MODEL_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-        let mut guard = cache.lock();
-        let model = match guard.get_mut(&self.model_name) {
-            Some(m) => m,
-            None => {
-                let resolved = match self.model_name.as_str() {
-                    "bge-reranker-base" | "BAAI/bge-reranker-base" => {
-                        RerankerModel::BGERerankerBase
-                    }
-                    "bge-reranker-v2-m3" | "rozgo/bge-reranker-v2-m3" => {
-                        RerankerModel::BGERerankerV2M3
-                    }
-                    "jina-v1-turbo-en" | "jinaai/jina-reranker-v1-turbo-en" => {
-                        RerankerModel::JINARerankerV1TurboEn
-                    }
-                    "jina-v2-multilingual" | "jinaai/jina-reranker-v2-base-multilingual" => {
-                        RerankerModel::JINARerankerV2BaseMultiligual
-                    }
-                    other => return Err(format!("unknown reranker model: {}", other)),
-                };
-                let opts =
-                    RerankInitOptions::new(resolved).with_cache_dir(crate::model_cache_dir());
-                let new_model =
-                    TextRerank::try_new(opts).map_err(|e| format!("load reranker: {}", e))?;
-                guard.insert(self.model_name.clone(), new_model);
-                guard.get_mut(&self.model_name).unwrap()
-            }
-        };
-
-        let owned: Vec<String> = docs.to_vec();
-        let results = model
-            .rerank(query.to_string(), owned, false, None)
-            .map_err(|e| format!("rerank: {}", e))?;
-
-        // results contains RerankResult { index, score, document } sorted by score desc. We need scores in the original document order.
-        let mut scores = vec![0f32; docs.len()];
-        for r in results {
-            if r.index < scores.len() {
-                scores[r.index] = r.score;
-            }
-        }
-        Ok(scores)
     }
 }
 
@@ -746,15 +590,22 @@ mod tests {
     }
 
     #[test]
-    fn auto_default_uses_lazy_local_backend() {
+    fn auto_without_a_configured_key_preserves_input_order() {
         let cfg = RerankConfig {
             enabled: true,
             provider: "".into(),
             api_key_env: Some("DEFINITELY_UNSET_KEY".into()),
             model: None,
         };
-        assert!(build_local(&cfg).is_some());
-        assert_eq!(local_model_name(&cfg), "bge-reranker-base");
+        let hits = vec![hit("a"), hit("b")];
+        let result = build(&cfg).rerank("q", hits, 1);
+        assert_eq!(
+            result
+                .iter()
+                .map(|hit| hit.item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a"]
+        );
     }
 
     #[test]
@@ -771,15 +622,15 @@ mod tests {
     }
 
     #[test]
-    fn explicit_local_model_is_selected_without_loading_weights() {
+    fn unsupported_provider_preserves_input_order_without_loading_weights() {
         let cfg = RerankConfig {
             enabled: true,
             provider: "local".into(),
             api_key_env: None,
             model: Some("jina-v1-turbo-en".into()),
         };
-        assert!(build_local(&cfg).is_some());
-        assert_eq!(local_model_name(&cfg), "jina-v1-turbo-en");
+        let result = build(&cfg).rerank("q", vec![hit("a"), hit("b")], 1);
+        assert_eq!(result[0].item.id, "a");
     }
 
     #[test]

@@ -10,6 +10,7 @@ import {
 } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { frameNotifications } from "./frameNotifications";
+import type { KnownChatWindow } from "./chatSessionAuthority";
 
 export interface TranscriptWindow {
   transcript: TranscriptState;
@@ -20,9 +21,11 @@ export interface TranscriptWindow {
 /** The only committed-history store. It outlives the hook so a Terminal <-> Chat
  *  switch restores the same window instead of building a second copy. */
 const windows = new Map<string, TranscriptWindow>();
+const knownWindows = new Map<string, KnownChatWindow>();
 const listeners = new Map<string, Set<() => void>>();
 const pendingSends = new Map<string, Map<string, { correlationId: string; sentAtMs: number }>>();
 const MAX_TRANSCRIPT_WINDOWS = 8;
+const MAX_TRANSCRIPT_MEMOS = 256;
 
 const EMPTY_WINDOW: TranscriptWindow = { transcript: createTranscriptState(), anchorKey: null };
 const notifications = frameNotifications((key) => {
@@ -38,6 +41,26 @@ export function transcriptWindowKey(tabId: string, agentSessionId: string | null
 
 export function readTranscriptWindow(key: string): TranscriptWindow {
   return windows.get(key) ?? EMPTY_WINDOW;
+}
+
+export function rememberTranscriptWindow(key: string, knownWindow: KnownChatWindow): void {
+  knownWindows.delete(key);
+  knownWindows.set(key, knownWindow);
+  if (knownWindows.size > MAX_TRANSCRIPT_MEMOS) knownWindows.delete(knownWindows.keys().next().value!);
+}
+
+export function readTranscriptMemo(key: string): KnownChatWindow | undefined {
+  const known = knownWindows.get(key);
+  if (known) rememberTranscriptWindow(key, known);
+  return known;
+}
+
+export function retainedTranscriptMemo(key: string): KnownChatWindow | undefined {
+  return windows.get(key)?.snapshotBinding ? readTranscriptMemo(key) : undefined;
+}
+
+export function forgetTranscriptWindowCursor(key: string): void {
+  knownWindows.delete(key);
 }
 
 export function markTranscriptSnapshotReady(key: string, nonce: string | null | undefined): void {
@@ -65,7 +88,7 @@ function publish(key: string, next: TranscriptWindow, coalesce = false): void {
 }
 
 /** Reduce one batch into the stored window and report what the reducer decided;
- *  `recover_gap` / `recover_overlap` / `rotated` are the recovery signals. */
+ *  `recover_gap` / `rotated` are the recovery signals. */
 export function commitTranscriptBatch(key: string, batch: TranscriptBatch): TranscriptOutcome {
   const current = readTranscriptWindow(key);
   const { state, outcome } = reduceTranscript(current.transcript, batch);
@@ -122,6 +145,7 @@ export function setTranscriptAnchor(key: string, anchorKey: string | null): void
 }
 
 export function resetTranscriptWindow(key: string, preserveAnchor = false): void {
+  knownWindows.delete(key);
   pendingSends.delete(key);
   if (!windows.has(key)) return;
   const current = readTranscriptWindow(key);
@@ -136,6 +160,7 @@ export function reconcileTranscriptWindow(
   batch: TranscriptBatch,
 ): TranscriptOutcome {
   const current = readTranscriptWindow(key);
+  if (batch.kind === "snapshot") knownWindows.delete(key);
   const { state, outcome } = reduceTranscript(current.transcript, batch);
   publish(key, {
     ...current,
@@ -146,6 +171,7 @@ export function reconcileTranscriptWindow(
 }
 
 export function clearTranscriptWindows(): void {
+  knownWindows.clear();
   notifications.clear();
   pendingSends.clear();
   for (const key of [...windows.keys()]) {

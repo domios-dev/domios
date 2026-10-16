@@ -66,6 +66,18 @@ pub(super) fn apply_prepared(
     Ok(config)
 }
 
+pub(super) fn apply_fast_mode_default(
+    config: &mut serde_json::Value,
+    supported: bool,
+    default: Option<bool>,
+) {
+    if supported && config.get("fastMode").is_none() {
+        if let Some(value) = default {
+            config["fastMode"] = value.into();
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "launch_options/tests.rs"]
 mod tests;

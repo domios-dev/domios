@@ -1,4 +1,5 @@
 use super::ServiceContext;
+use crate::service::MuxEmitCause;
 
 impl ServiceContext {
     pub(crate) fn provider_update_task_state_changed(&self) {
@@ -50,7 +51,7 @@ impl ServiceContext {
             self.observe_worker_idle_without_report(tab_id);
             self.nudge_stalled_teams_for_idle_orchestrator(tab_id);
             crate::service::folder_trust_carryover::tab_became_idle(self.clone(), tab_id);
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabStatus);
             self.schedule_planner_replay(tab_id);
             self.heal_recovery_state_if_ready();
         }

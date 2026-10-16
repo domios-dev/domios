@@ -259,6 +259,22 @@ ct_gateway_status() {
   return "$rc"
 }
 
+ct_gateway_reap_stale() {
+  local dir rc=0
+  dir="$(ct_gateway_dir)"
+  mkdir -p "$dir/jobs" "$dir/queue"
+  ct_gateway_mutex_acquire "$dir" || return $?
+  ct_gateway_reap_stale_owner_locked "$dir" && ct_gateway_reap_stale_queue_locked "$dir" || rc=$?
+  ct_gateway_mutex_release "$dir"
+  return "$rc"
+}
+
+# A cancelled CI job leaves its dead owner's lock; reap it as gateway-status does so routing never sees a phantom busy slot.
+ct_gateway_peer_status() {
+  ct_gateway_reap_stale || echo "peer-status: stale owner reap failed (exit $?); reporting the lock as found" >&2
+  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-peer.mjs" status --gateway-dir "$(ct_gateway_dir)"
+}
+
 ct_gateway_first_ticket() {
   local dir="$1" ticket
   for ticket in "$dir"/queue/*; do

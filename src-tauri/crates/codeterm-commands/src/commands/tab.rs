@@ -1,5 +1,5 @@
 use codeterm_service_core::service::tab_chat::results::{
-    ChatBackfillResult, ChatOffsetKind, ChatStartResult,
+    ChatBackfillResult, ChatOffsetKind, ChatStartKind, ChatStartResult, KnownChatWindow,
 };
 use codeterm_service_core::service::ServiceState;
 
@@ -54,9 +54,25 @@ pub fn chat_start_core(
     svc: &ServiceState,
     tab_id: String,
     subscription_id: String,
+    known_window: Option<KnownChatWindow>,
 ) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
-    let mut result = chat_start_inner(svc, tab_id.clone(), subscription_id)?;
+    let mut result = chat_start_inner(svc, tab_id.clone(), subscription_id, known_window)?;
+    if result.kind == ChatStartKind::Unchanged {
+        return Ok(result);
+    }
+    if let Some(messages) = result
+        .messages
+        .as_ref()
+        .filter(|_| result.kind == ChatStartKind::Snapshot)
+    {
+        codeterm_service_core::service::tab_chat::structured_sink::seed_snapshot(
+            &tab_id,
+            result.source_session_id.as_deref(),
+            result.session_binding_nonce.as_deref(),
+            messages,
+        );
+    }
     log::debug!(
         "[chat-attach] tab={tab_id} phase=inner_result elapsed_ms={}",
         started.elapsed().as_millis()
@@ -76,11 +92,13 @@ pub fn chat_start_core(
         evidence_at.elapsed().as_millis()
     );
     let notice_at = std::time::Instant::now();
-    codeterm_service_core::service::tab_chat::append_restore_notice(
-        &svc.lifecycle_journal,
-        &tab_id,
-        result.messages.get_or_insert_default(),
-    );
+    if result.kind == ChatStartKind::Snapshot {
+        codeterm_service_core::service::tab_chat::append_restore_notice(
+            &svc.lifecycle_journal,
+            &tab_id,
+            result.messages.get_or_insert_default(),
+        );
+    }
     log::debug!(
         "[chat-attach] tab={tab_id} phase=restore_notice elapsed_ms={} total_ms={}",
         notice_at.elapsed().as_millis(),
@@ -93,6 +111,7 @@ fn chat_start_inner(
     svc: &ServiceState,
     tab_id: String,
     subscription_id: String,
+    known_window: Option<KnownChatWindow>,
 ) -> Result<ChatStartResult, String> {
     let attached_at = std::time::Instant::now();
     let runtime_requested =
@@ -119,6 +138,8 @@ fn chat_start_inner(
             attached_at.elapsed().as_millis()
         );
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Items,
             start_offset: start as u64,
@@ -163,6 +184,8 @@ fn chat_start_inner(
             return Err("Transcript binding changed during attach".into());
         }
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
@@ -188,6 +211,8 @@ fn chat_start_inner(
             codeterm_service_core::service::tab_chat::tab_chat_snapshot(svc, &tab_id, 0)
                 .unwrap_or_default();
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
@@ -208,6 +233,8 @@ fn chat_start_inner(
         let Some(provider) = tab.agent_type.clone() else {
             if tab.agent_booting || tab.boot_stage.is_some() {
                 return Ok(ChatStartResult {
+                    kind: Default::default(),
+                    file_length: None,
                     text: String::new(),
                     offset_kind: ChatOffsetKind::Bytes,
                     start_offset: 0,
@@ -227,6 +254,8 @@ fn chat_start_inner(
         let Some(sid) = tab.agent_session_id.clone() else {
             if let Some(content) = tab.pending_greeting.clone() {
                 return Ok(ChatStartResult {
+                    kind: Default::default(),
+                    file_length: None,
                     text: String::new(),
                     offset_kind: ChatOffsetKind::Bytes,
                     start_offset: 0,
@@ -247,6 +276,8 @@ fn chat_start_inner(
                 });
             }
             return Ok(ChatStartResult {
+                kind: Default::default(),
+                file_length: None,
                 text: String::new(),
                 offset_kind: ChatOffsetKind::Bytes,
                 start_offset: 0,
@@ -300,6 +331,12 @@ fn chat_start_inner(
             );
         }
         let cursor = delta.cursor.clone();
+        codeterm_service_core::service::tab_chat::structured_sink::seed_snapshot(
+            &tab_id,
+            Some(&session_id),
+            session_binding_nonce.as_deref(),
+            &delta.messages,
+        );
         if !svc.chat_registry.acquire(
             &tab_id,
             &session_id,
@@ -338,6 +375,8 @@ fn chat_start_inner(
         let mut messages = archived_messages;
         messages.extend(delta.messages);
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
@@ -396,6 +435,8 @@ fn chat_start_inner(
             handle.register(&svc.chat_registry, subscription_id.clone());
         }
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
@@ -411,22 +452,142 @@ fn chat_start_inner(
     };
     let path_ms = path_started.elapsed().as_millis();
 
-    let read_started = std::time::Instant::now();
-    let snap = codeterm_service_core::service::tab_chat::session_window::snapshot(
-        &svc.agent_registry,
-        &provider_id,
+    let source = svc.chat_registry.jsonl_source(&tab_id);
+    let resume_epoch = codeterm_service_core::service::tab_chat::resume_cursor::ChatEpoch {
+        source_session_id: session_id.clone(),
+        session_binding_nonce: session_binding_nonce.clone(),
+    };
+    let incarnation = codeterm_service_core::service::tab_chat::resume::capture_incarnation(
+        &source,
+        &resume_epoch,
         &path,
+        0,
+        None,
     );
+    let read_started = std::time::Instant::now();
+    let attached = incarnation.as_ref().and_then(|held| {
+        let total = std::fs::metadata(&path).ok()?.len();
+        svc.chat_registry.row_cache.attach(
+            &tab_id,
+            &resume_epoch,
+            &held.id,
+            total,
+            known_window.as_ref(),
+            |known| {
+                codeterm_service_core::service::tab_chat::session_window::resume_window(
+                    &svc.agent_registry,
+                    &provider_id,
+                    &source,
+                    &path,
+                    &resume_epoch,
+                    known,
+                )
+            },
+        )
+    });
+    if incarnation.is_none() {
+        svc.chat_registry.row_cache.drop_tab(&tab_id);
+    }
+    let cache_hit = attached.as_ref().is_some_and(|attach| attach.cache_hit);
+    let cache_refresh = attached.as_ref().is_some_and(|attach| attach.cache_refresh);
+    let (kind, snap) = if let Some(attach) = attached {
+        (attach.kind, std::sync::Arc::new(attach.snapshot))
+    } else {
+        (
+            ChatStartKind::Snapshot,
+            svc.chat_registry.snapshot_flights.run(
+                codeterm_service_core::service::tab_chat::snapshot_flight::SnapshotKey {
+                    tab_id: tab_id.clone(),
+                    provider_id: provider_id.clone(),
+                    session_id: session_id.clone(),
+                    binding_nonce: session_binding_nonce.clone(),
+                    path: path.clone(),
+                    incarnation: incarnation.as_ref().map(|current| current.id.to_string()),
+                },
+                || {
+                    codeterm_service_core::service::tab_chat::fork_history::snapshot(
+                        svc,
+                        &tab_id,
+                        &provider_id,
+                        &cwd,
+                        &session_id,
+                        &path,
+                    )
+                },
+            )?,
+        )
+    };
     // Scope carries the attach that asked, so a second bounded line in the log
     // is decidable: a new subscription is a re-attach, a repeat is a double read.
-    codeterm_service_core::service::tab_chat::session_window::log_bounded_snapshot(
-        &format!("tab:{tab_id}/{subscription_id}"),
-        &provider_id,
-        &snap,
+    if kind == ChatStartKind::Snapshot {
+        codeterm_service_core::service::tab_chat::session_window::log_bounded_snapshot(
+            &format!("tab:{tab_id}/{subscription_id}"),
+            &provider_id,
+            &snap,
+        );
+    }
+    let cursor = incarnation.as_ref().and_then(|held| {
+        codeterm_service_core::service::tab_chat::resume::capture_incarnation(
+            &source,
+            &resume_epoch,
+            &path,
+            snap.end_offset,
+            Some(held),
+        )
+        .and_then(|current| {
+            if current != *held {
+                svc.chat_registry.row_cache.drop_tab(&tab_id);
+                return None;
+            }
+            codeterm_service_core::service::tab_chat::resume::encode_cursor(
+                resume_epoch.clone(),
+                &current,
+                snap.end_offset,
+            )
+        })
+    });
+    if kind == ChatStartKind::Delta
+        || (kind == ChatStartKind::Snapshot && (!cache_hit || cache_refresh))
+    {
+        if let Some(cursor) = cursor.as_ref() {
+            let authority_matches = {
+                let mux = svc.mux.read();
+                mux.get_tab(&tab_id).is_some_and(|tab| {
+                    tab.agent_session_id.as_deref() == Some(session_id.as_str())
+                        && tab.session_binding_nonce == session_binding_nonce
+                })
+            };
+            if authority_matches {
+                if kind == ChatStartKind::Delta {
+                    if let Some(held) = incarnation.as_ref() {
+                        svc.chat_registry.row_cache.extend_delta(
+                            &tab_id,
+                            &resume_epoch,
+                            &held.id,
+                            cursor.clone(),
+                            &snap,
+                        );
+                    }
+                } else {
+                    svc.chat_registry.row_cache.insert(
+                        &tab_id,
+                        &resume_epoch,
+                        cursor.clone(),
+                        &snap,
+                    );
+                }
+            }
+        }
+    }
+    log::debug!(
+        "[chat_start.row_cache] tab={} hit={} bytes_read={}",
+        tab_id,
+        cache_hit,
+        snap.bytes_read
     );
     let read_ms = read_started.elapsed().as_millis();
     if let Some(nonce) = session_binding_nonce.as_deref() {
-        if snap.truncated() {
+        if kind == ChatStartKind::Snapshot && snap.truncated() && !cache_hit {
             codeterm_service_core::service::incomplete_snapshot(svc, &tab_id, &session_id, nonce);
         }
         codeterm_service_core::service::provider_signals_apply(
@@ -444,21 +605,27 @@ fn chat_start_inner(
             &snap.runtime_observations,
         );
     }
-    codeterm_service_core::service::context_feed::apply_snapshot(
-        svc,
-        &tab_id,
-        &session_id,
-        session_binding_nonce.as_deref(),
-        snap.context_usage.as_ref(),
-    );
+    if kind != ChatStartKind::Unchanged {
+        codeterm_service_core::service::context_feed::apply_snapshot(
+            svc,
+            &tab_id,
+            &session_id,
+            session_binding_nonce.as_deref(),
+            snap.context_usage.as_ref(),
+        );
+    }
     // Resume at the parsed end, not the file size: a held-back partial record
     // must be consumed once by the tailer rather than skipped.
     let (total, tailer_start_offset, bytes_read) = (snap.total, snap.end_offset, snap.bytes_read);
     // Backfill cursor: >0 means the bounded snapshot truncated older history.
     let snapshot_start = snap.start_offset;
     let msg_count = snap.messages.len();
-    let mut messages = archived_messages;
-    messages.extend(snap.messages);
+    let mut messages = if kind == ChatStartKind::Snapshot {
+        archived_messages
+    } else {
+        vec![]
+    };
+    messages.extend(snap.messages.iter().cloned());
 
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
@@ -516,6 +683,8 @@ fn chat_start_inner(
     }
 
     Ok(ChatStartResult {
+        kind,
+        file_length: Some(total),
         // `[start_offset, offset)` is the record-bounded snapshot range the
         // client reconciles from; it pages older below start_offset.
         offset_kind: ChatOffsetKind::Bytes,
@@ -524,8 +693,12 @@ fn chat_start_inner(
         offset: tailer_start_offset,
         pending: false,
         source_missing: false,
-        messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
-        cursor: None,
+        messages: Some(if kind == ChatStartKind::Snapshot {
+            prepend_pending_greeting(svc, &tab_id, messages)
+        } else {
+            messages
+        }),
+        cursor,
         source_session_id: Some(session_id),
         session_binding_nonce,
         subscription_id: Some(subscription_id),
@@ -604,25 +777,20 @@ pub(crate) fn backfill_page(
     path: &std::path::Path,
     before_offset: u64,
 ) -> Result<ChatBackfillResult, String> {
-    let page_bytes = codeterm_service_core::service::tab_chat::session_window::BACKFILL_PAGE_BYTES;
-    let (text, aligned_start) = backfill_window_slice(path, before_offset, page_bytes)
-        .map_err(|e| format!("read jsonl: {e}"))?;
     let page = codeterm_service_core::service::tab_chat::session_window::parse_page_before(
         registry,
         provider_id,
         path,
         before_offset,
-    );
+    )?;
     Ok(ChatBackfillResult {
-        text,
-        // `aligned_start` is the first complete record read, so the next page
-        // ends there and parses the partial head this read dropped.
+        text: String::new(),
         offset_kind: ChatOffsetKind::Bytes,
-        start_offset: aligned_start,
+        start_offset: page.start_offset,
         end_offset: page.end_offset,
         messages: codeterm_service_core::service::tab_chat::rich_rows_to_chat_msgs(
             &page.messages,
-            aligned_start,
+            page.start_offset,
         ),
         source_session_id: None,
         session_binding_nonce: None,
@@ -631,6 +799,7 @@ pub(crate) fn backfill_page(
 
 /// Seek one backfill page and align it forward to the first complete record.
 /// A read already on a boundary keeps it, so no emitted record falls outside.
+#[cfg(test)]
 fn backfill_window_slice(
     path: &std::path::Path,
     before_offset: u64,
@@ -657,6 +826,7 @@ fn backfill_window_slice(
 
 /// True when `offset` is itself a record start (the byte before it terminates
 /// the previous record).
+#[cfg(test)]
 fn record_starts_at(path: &std::path::Path, offset: u64) -> bool {
     use std::io::{Read, Seek, SeekFrom};
     let Ok(mut file) = std::fs::File::open(path) else {

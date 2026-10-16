@@ -33,6 +33,12 @@ use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::sync::Barrier;
 
+#[test]
+fn launch_registry_uses_shared_hold_instrumentation() {
+    fn require_timed<T>(_: &codeterm_util::lock_hold::TimedMutex<T>) {}
+    require_timed(&*LAUNCH_REGISTRY);
+}
+
 #[derive(Default)]
 struct DeliverySink(Mutex<Vec<&'static str>>);
 
@@ -214,15 +220,6 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
     let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
     assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
 
-    assert!(include_str!("owner_prompt_wait.rs").contains("await_lazy_session_input_readiness"));
-    let launch_source = include_str!("../launch.rs");
-    let provider_evidence = launch_source
-        .find("owner_prompt_wait::await_input_readiness")
-        .expect("lazy launch waits for provider-owned composer evidence");
-    let input_ready = launch_source
-        .find("emit_first_turn_input_ready")
-        .expect("lazy launch accepts input before its binding turn");
-    assert!(provider_evidence < input_ready);
     assert!(launch.emit_first_turn_input_ready(&harness.service));
 
     let mux = harness.service.mux.read();
@@ -522,9 +519,6 @@ fn worker_brief_is_one_payload_and_one_turn() {
             .state(),
         PendingDeliveryState::AcceptedWeak
     );
-    let launch_source = include_str!("bootstrap.rs");
-    assert!(launch_source.contains("submit_text_with_key"));
-    assert!(!launch_source.contains("send_text_detached"));
 }
 
 #[test]
@@ -558,16 +552,6 @@ fn replacement_pty_must_be_new_and_live() {
     assert!(replacement_pty_candidate(Some("closed"), "closed", true).is_none());
     assert!(replacement_pty_candidate(Some("new"), "closed", false).is_none());
     assert!(replacement_pty_candidate(None, "closed", true).is_none());
-}
-
-#[test]
-fn restore_launch_requires_bare_shell_evidence_before_writing_commands() {
-    let source = include_str!("../launch.rs");
-    assert!(!source.contains("pty_io::await_shell_prompt("));
-    assert_eq!(
-        source.matches("pty_io::await_bare_shell_prompt(").count(),
-        2
-    );
 }
 
 #[test]

@@ -24,7 +24,8 @@ import {
   type ChatContentAnchor,
 } from "./chatScrollAnchor";
 
-import { chatLayoutScrollTarget, chatOverflowAnchor, chatScrollWriteTarget, chatViewportLayoutChanged, shouldCaptureChatAnchor } from "./chatScrollDecisions";
+import { chatLayoutScrollTarget, chatScrollWriteTarget, chatViewportLayoutChanged, shouldCaptureChatAnchor } from "./chatScrollDecisions";
+import { chatOverflowAnchorFor } from "./chatAnchorAuthority";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { chatRevealIndex } from "./chatAnchorModel";
 import { useChatScrollGesture } from "./useChatScrollGesture";
@@ -65,6 +66,7 @@ export interface UseChatScrollOptions {
 export interface UseChatScrollResult {
   scrollRef: RefObject<HTMLDivElement | null>;
   showScrollDown: boolean;
+  gestureOwned: boolean;
   scrollToBottom: () => void;
   followSend: () => void;
   prepareForHistoryPrepend: () => void;
@@ -110,7 +112,10 @@ export function useChatScroll({
   const [showScrollDown, setShowScrollDown] = useState(false);
   const gestureEndRef = useRef<() => void>(() => {});
   const gestureStartRef = useRef<() => void>(() => {});
-  gestureStartRef.current = () => { hookScrollTopRef.current = null; };
+  gestureStartRef.current = () => {
+    hookScrollTopRef.current = null;
+    if (scrollRef.current) scrollRef.current.style.overflowAnchor = chatOverflowAnchorFor(modeRef.current, true);
+  };
   const gesture = useChatScrollGesture(scrollRef, active, sessionKey, gestureEndRef, gestureStartRef, sharedUserScrollingRef);
   const userScrollingRef = gesture.userScrolling;
   const resetGesture = gesture.reset;
@@ -154,14 +159,17 @@ export function useChatScroll({
     const before = el.scrollTop;
     if (target != null) el.scrollTop = target;
     lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
-    if (el.scrollTop !== before) hookScrollTopRef.current = el.scrollTop;
+    if (target != null) chatScrollDiagnostic(sessionKeyRef.current, "write", { before, after: el.scrollTop, owned: userScrollingRef.current });
+    if (el.scrollTop !== before) {
+      hookScrollTopRef.current = el.scrollTop;
+    }
     onViewportChange?.();
   }, [onViewportChange, userScrollingRef]);
 
   const setMode = useCallback((mode: ChatViewportMode, el: HTMLDivElement) => {
     const changed = modeRef.current !== mode;
     modeRef.current = mode;
-    if (el.style.overflowAnchor !== chatOverflowAnchor(mode)) el.style.overflowAnchor = chatOverflowAnchor(mode);
+    if (el.style.overflowAnchor !== chatOverflowAnchorFor(mode, userScrollingRef.current)) el.style.overflowAnchor = chatOverflowAnchorFor(mode, userScrollingRef.current);
     contentAnchorRef.current = mode === "detached" ? captureChatContentAnchor(el) : null;
     if (followTailRef) followTailRef.current = mode === "pinned";
     if (changed) {
@@ -180,9 +188,13 @@ export function useChatScroll({
   }, [active, loading, messageCount, setMode, userScrollingRef, writeScrollTop]);
 
   const scrollToBottom = useCallback(() => {
+    if (userScrollingRef.current) {
+      chatScrollDiagnostic(sessionKeyRef.current, "jump_ignored_owned", { owned: true });
+      return;
+    }
     resetGesture();
     pinToBottom();
-  }, [pinToBottom, resetGesture]);
+  }, [pinToBottom, resetGesture, userScrollingRef]);
 
   // A detached viewport on the bottom edge cannot produce a scroll event to reattach, so it offers the jump.
   const updateScrollDown = useCallback((el: HTMLDivElement) => {
@@ -209,8 +221,9 @@ export function useChatScroll({
   }, [persist, updateScrollDown, userScrollingRef, writeScrollTop]);
 
   const followSend = useCallback(() => {
-    scrollToBottom();
-  }, [scrollToBottom]);
+    resetGesture();
+    pinToBottom();
+  }, [pinToBottom, resetGesture]);
 
   const handleContentLayout = useCallback(() => {
     if (active && modeRef.current === "pinned") pinToBottom();
@@ -260,7 +273,7 @@ export function useChatScroll({
     const row = rows[index];
     if (!row) return false;
     resetGesture();
-    writeScrollTop(el, row.offsetTop);
+    writeScrollTop(el, row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop);
     // Detached, so a pinned tail cannot pull the revealed row back out of view.
     setMode("detached", el);
     updateScrollDown(el);
@@ -313,7 +326,7 @@ export function useChatScroll({
     const el = scrollRef.current;
     if (!active) { restoredKeyRef.current = ""; return; }
     if (!el || el.clientHeight === 0 || !isChatScrollReady(modeRef.current, loading, messageCount) || userScrollingRef.current) return;
-    if (el.style.overflowAnchor !== chatOverflowAnchor(modeRef.current)) el.style.overflowAnchor = chatOverflowAnchor(modeRef.current);
+    if (el.style.overflowAnchor !== chatOverflowAnchorFor(modeRef.current, userScrollingRef.current)) el.style.overflowAnchor = chatOverflowAnchorFor(modeRef.current, userScrollingRef.current);
 
     if (shouldRestoreChatViewport(active, loading, messageCount, sessionKey, restoredKeyRef.current)) {
       restoredKeyRef.current = sessionKey;
@@ -381,10 +394,11 @@ export function useChatScroll({
   gestureEndRef.current = () => {
     const el = scrollRef.current;
     if (el) {
-      const mode = chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el, true);
-      if (mode !== modeRef.current || shouldCaptureChatAnchor(lastViewportRef.current, el, true)) setMode(mode, el);
       const scrollBy = foldLayoutDrift?.() ?? 0;
       if (scrollBy !== 0) writeScrollTop(el, el.scrollTop + scrollBy);
+      el.style.overflowAnchor = chatOverflowAnchorFor(modeRef.current, false);
+      const mode = chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el, true);
+      if (mode !== modeRef.current || shouldCaptureChatAnchor(lastViewportRef.current, el, true)) setMode(mode, el);
     }
     repairViewport();
   };
@@ -399,6 +413,7 @@ export function useChatScroll({
   return {
     scrollRef,
     showScrollDown,
+    gestureOwned: gesture.owned,
     scrollToBottom,
     followSend,
     prepareForHistoryPrepend,

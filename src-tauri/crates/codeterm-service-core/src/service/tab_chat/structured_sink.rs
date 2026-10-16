@@ -12,6 +12,10 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::chat_send_transaction::{LiveProvenance, TurnPosition};
 use crate::session::lifecycle::TabLifecycleJournal;
 
+mod sequence;
+pub(super) use sequence::clear_tab;
+pub use sequence::seed_snapshot;
+
 pub trait StructuredSink: Send + Sync {
     fn observe(&self, _tab: &str, _records: &[crate::agent::chat_types::RichMessage]) {}
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>);
@@ -38,11 +42,17 @@ pub fn emit_chat_msgs(
     source_session_id: Option<&str>,
     session_binding_nonce: Option<&str>,
 ) {
-    let messages: Vec<_> = messages
+    let mut messages: Vec<_> = messages
         .iter()
         .cloned()
         .map(ChatMsg::with_segments)
         .collect();
+    sequence::assign(
+        tab_id,
+        source_session_id,
+        session_binding_nonce,
+        &mut messages,
+    );
     let event = format!("tab-chat-msg-{}", tab_id);
     let payload = ChatMsgEvent {
         tab_id,
@@ -313,6 +323,17 @@ impl FlattenDeltaSink {
                 &out,
             );
         }
+        let cursor = source_range.as_ref().and_then(|range| {
+            let incarnation = range.incarnation.as_ref()?;
+            super::resume::encode_cursor(
+                super::resume_cursor::ChatEpoch {
+                    source_session_id: self.source_session_id.clone()?,
+                    session_binding_nonce: self.session_binding_nonce.clone(),
+                },
+                incarnation,
+                offset,
+            )
+        });
         let provenance = source_range.map(|range| LiveProvenance {
             source_session_id: self.source_session_id.clone().unwrap_or_default(),
             source_binding_nonce: self.session_binding_nonce.clone(),
@@ -334,7 +355,7 @@ impl FlattenDeltaSink {
         let payload = ChatMsgEvent {
             tab_id,
             messages: &out,
-            cursor: None,
+            cursor: cursor.as_deref(),
             start_offset: Some(start_offset),
             offset: Some(offset),
             source_session_id: self.source_session_id.as_deref(),

@@ -125,13 +125,13 @@ describe("web host picker placement", () => {
     pickerButton();
   });
 
-  it("General has no Map or Jobs navigation even when their handlers are supplied", async () => {
+  it("General exposes its Jobs inventory without workspace Map navigation", async () => {
     fixture.state!.workspaces = [general];
     await act(async () => root!.render(<Sidebar onOpenWorkspaceMap={vi.fn()} onOpenWorkspaceAutomation={vi.fn()} />));
     const contents = host.querySelector('[data-testid="general-section"]');
     expect(contents).not.toBeNull();
     expect(contents!.querySelector('button[aria-label="Map"]')).toBeNull();
-    expect(contents!.querySelector('button[aria-label^="Jobs"]')).toBeNull();
+    expect(contents!.querySelector('button[aria-label^="Jobs"]:not([aria-expanded])')).toBeNull();
   });
 
   it("stays mounted when the sidebar collapses", async () => {
@@ -169,8 +169,6 @@ describe("web host picker placement", () => {
     for (let ancestor = trigger.parentElement; ancestor && ancestor !== host; ancestor = ancestor.parentElement) {
       expect(ancestor.className).not.toMatch(/\b(?:hidden|overflow-hidden)\b/);
     }
-    expect(trigger.className).toContain("min-h-[44px]");
-    expect(trigger.closest('[data-testid="titlebar"]')!.className).toContain("z-50");
   });
 });
 

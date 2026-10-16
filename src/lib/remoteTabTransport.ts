@@ -1,4 +1,6 @@
 import type { ApiConfig } from "./types";
+import { childHistorySuffix, type ChildTranscriptAuthority } from "./childTranscript";
+import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "./backgroundProcesses";
 import { daemonAuthToken, daemonHttpBase, isPromptNotOnScreenResponse } from "./webApi";
 
 export interface RemoteTransportCall {
@@ -77,7 +79,12 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     ...identity, method, suffix, body, select,
   });
   switch (command) {
+    case "agent_runtime_child_history": return call("GET", childHistorySuffix(String(args.threadId), args.request as ChildTranscriptAuthority & {cursor?:string}));
+    case "agent_runtime_background_processes": return call("GET", backgroundProcessesSuffix(args.request as BackgroundProcessAuthority));
+    case "agent_runtime_stop_background_process": return call("POST", "/agent/runtime/background-processes", args.request);
     case "agent_runtime_answer_question": return call("POST", `/agent/runtime/questions/${encodeURIComponent(String(args.itemId))}/answer`, { answers: args.answers });
+    case "agent_runtime_goal": return call("POST", "/agent/runtime/goal", args.request);
+    case "agent_runtime_reset_credits": return call("POST", "/agent/runtime/reset-credits", args.request);
     case "agent_runtime_login": return call("POST", "/agent/runtime/login", args.request);
     case "agent_runtime_retry": return call("POST", "/agent/runtime/retry");
     case "read_local_preview_file": return call("POST", "/preview/read", { path: args.path, kind: args.kind });
@@ -114,7 +121,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
         return response.data ?? [];
       });
     }
-    case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId });
+    case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId,
+      ...(args.knownWindow != null ? { knownWindow: args.knownWindow } : {}) });
     case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
     case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes, offset_kind: args.offsetKind });
     case "chat_send_text": return call("POST", "/chat-send", {
@@ -140,7 +148,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       (value) => (value as { enabled?: boolean })?.enabled === true,
     );
     case "restart_agent_tab": return call("POST", "/agent/restart", { fresh: args.fresh === true });
-    case "switch_agent_model": return call("POST", "/agent/model", { model: args.model, reasoning_effort: args.reasoningEffort, runtime_mode: args.runtimeMode, ...(args.restartResume === true ? { restart_resume: true } : {}), ...(args.cancel === true ? { cancel: true } : {}) });
+    case "switch_agent_model": return call("POST", "/agent/model", { model: args.model, reasoning_effort: args.reasoningEffort, runtime_mode: args.runtimeMode, ...(typeof args.fastMode === "boolean" ? { fast_mode: args.fastMode } : {}), ...(args.restartResume === true ? { restart_resume: true } : {}), ...(args.cancel === true ? { cancel: true } : {}) });
     default: return null;
   }
 }

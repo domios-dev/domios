@@ -243,8 +243,7 @@ impl SocketClient {
             std::env::var("CODETERM_INSTANCE").ok().as_deref(),
             std::env::var("CODETERM_API_PORT").ok().as_deref(),
         )?;
-        let resolved = discover_socket_resolution()?;
-        Self::connect(&resolved.path).map(|client| (client, resolved))
+        discover_socket_resolution()
     }
 
     pub fn connect_local() -> Result<(Self, ResolvedSocket), String> {
@@ -257,15 +256,14 @@ impl SocketClient {
         let fallback_socket = ResolvedSocket {
             path: discovered
                 .as_ref()
-                .map(|resolved| resolved.path.clone())
+                .map(|(_, resolved)| resolved.path.clone())
                 .unwrap_or_else(|_| std::env::var("CODETERM_SOCKET_PATH").unwrap_or_default()),
             source: discovered
                 .as_ref()
-                .map(|resolved| resolved.source)
+                .map(|(_, resolved)| resolved.source)
                 .unwrap_or(ResolutionSource::Absent),
         };
-        let socket_result = discovered
-            .and_then(|resolved| Self::connect(&resolved.path).map(|client| (client, resolved)));
+        let socket_result = discovered;
         let socket_error = socket_result.as_ref().err().cloned().unwrap_or_default();
         match select_transport(socket_result, http_fallback_config)? {
             TransportChoice::Socket(connection) => Ok(connection),
@@ -558,7 +556,7 @@ impl RpcClient for SocketClient {
 ///    new daemon listens on a fresh pid-suffixed pipe, so any subprocess
 ///    that blindly trusts the env var ends up with `Failed to connect to
 ///    'codeterm-{old-pid}.sock'` on every invocation.
-pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
+pub fn discover_socket_resolution() -> Result<(SocketClient, ResolvedSocket), String> {
     let explicit_socket = std::env::var("CODETERM_SOCKET_PATH").ok();
     let instance = std::env::var("CODETERM_INSTANCE").ok();
     let api_port = std::env::var("CODETERM_API_PORT").ok();
@@ -569,8 +567,8 @@ pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
     )?;
 
     if let Some(resolved) = selected {
-        if socket_is_live(&resolved.path) {
-            return Ok(resolved);
+        if let Ok(client) = SocketClient::connect(&resolved.path) {
+            return Ok((client, resolved));
         }
         if resolved.source == ResolutionSource::CodeTermSocketPath {
             return Err(format!(
@@ -586,29 +584,23 @@ pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
 
     #[cfg(target_os = "windows")]
     {
-        discover_windows_pipe().map(|path| ResolvedSocket {
-            path,
-            source: ResolutionSource::Scan,
+        discover_windows_pipe().and_then(|path| {
+            SocketClient::connect(&path).map(|client| {
+                (
+                    client,
+                    ResolvedSocket {
+                        path,
+                        source: ResolutionSource::Scan,
+                    },
+                )
+            })
         })
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        discover_unix_socket().map(|path| ResolvedSocket {
-            path,
-            source: ResolutionSource::Scan,
-        })
+        discover_unix_socket()
     }
-}
-
-/// Return true when the named socket exists and is reachable. Used by
-/// `discover_socket_resolution` to decide whether to trust `CODETERM_SOCKET_PATH`.
-fn socket_is_live(name: &str) -> bool {
-    normalize_socket_path(name)
-        .to_ns_name::<GenericNamespaced>()
-        .ok()
-        .and_then(|name| interprocess::local_socket::Stream::connect(name).ok())
-        .is_some()
 }
 
 /// Normalize a socket path to the bare namespaced name that `GenericNamespaced` expects.
@@ -915,31 +907,26 @@ fn is_daemon_socket_name(name: &str) -> bool {
         && !name.starts_with("codeterm-gateway-mutex-")
 }
 
-/// Resolve a scanned socket name from raw `/tmp` entry names.
-///
-/// Liveness, selection and the process probe are injected so the fall-through
-/// order can be exercised without a running daemon.
 #[cfg(not(target_os = "windows"))]
-fn resolve_scanned_socket(
+fn resolve_scanned_socket<T>(
     entry_names: impl Iterator<Item = String>,
-    is_live: &dyn Fn(&str) -> bool,
+    connect: &dyn Fn(&str) -> Option<T>,
     select: &dyn Fn(&[String]) -> Option<String>,
-    probe_running_daemon: &dyn Fn() -> Option<String>,
-) -> Result<String, String> {
+    probe_running_daemon: &dyn Fn() -> Option<(T, String)>,
+) -> Result<(T, String), String> {
     let mut candidates: Vec<String> = entry_names.filter(|n| is_daemon_socket_name(n)).collect();
     candidates.sort();
-    // A socket file outlives its daemon, and returning a dead one here would
-    // shadow the process probe that still finds the live one.
-    candidates.retain(|name| is_live(name));
-    if let Some(name) = select(&candidates) {
-        return Ok(name);
+    while let Some(path) = select(&candidates) {
+        if let Some(client) = connect(&path) {
+            return Ok((client, path));
+        }
+        candidates.retain(|candidate| *candidate != path);
     }
-
     probe_running_daemon().ok_or_else(|| "No Domios socket found. Is Domios running?".to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn pgrep_daemon_socket() -> Option<String> {
+fn pgrep_daemon_socket() -> Option<(SocketClient, String)> {
     let output = std::process::Command::new("pgrep")
         .arg("-f")
         .arg("codeterm")
@@ -950,11 +937,15 @@ fn pgrep_daemon_socket() -> Option<String> {
         .lines()
         .filter_map(|line| line.trim().parse::<u32>().ok())
         .map(|pid| format!("codeterm-{}.sock", pid))
-        .find(|name| socket_is_live(name))
+        .find_map(|name| {
+            SocketClient::connect(&name)
+                .ok()
+                .map(|client| (client, name))
+        })
 }
 
 #[cfg(not(target_os = "windows"))]
-fn discover_unix_socket() -> Result<String, String> {
+fn discover_unix_socket() -> Result<(SocketClient, ResolvedSocket), String> {
     use std::fs;
 
     // Bare names only: GenericNamespaced prepends /tmp/ when connecting.
@@ -969,10 +960,19 @@ fn discover_unix_socket() -> Result<String, String> {
 
     resolve_scanned_socket(
         entry_names.into_iter(),
-        &socket_is_live,
+        &|path| SocketClient::connect(path).ok(),
         &|candidates| pick_preferred_socket(candidates, prefers_dev_socket()),
         &pgrep_daemon_socket,
     )
+    .map(|(client, path)| {
+        (
+            client,
+            ResolvedSocket {
+                path,
+                source: ResolutionSource::Scan,
+            },
+        )
+    })
 }
 
 /// An agent sandbox that denies the daemon pipe must not read as a dead daemon.

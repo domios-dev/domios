@@ -12,7 +12,7 @@ fn indexed_conversation_hit_does_not_wait_for_the_journal_cursor() {
         .note_conversation_started(key(), "own-session")
         .unwrap();
     let observed = std::thread::scope(|scope| {
-        let guard = journal.cursor.lock().unwrap();
+        let guard = journal.cursor.lock();
         let (done, received) = std::sync::mpsc::channel();
         let writer = &journal;
         let child = scope.spawn(move || {
@@ -73,7 +73,7 @@ fn published_restore_index_keeps_the_latest_own_record_after_compaction_and_reop
     journal.compact().unwrap();
     let reopened = TabLifecycleJournal::for_dir(dir.path().into());
     std::fs::rename(reopened.path(), dir.path().join("detached.jsonl")).unwrap();
-    let _guard = reopened.cursor.lock().unwrap();
+    let _guard = reopened.cursor.lock();
     assert_eq!(
         reopened.latest_empty_session_restore("own-tab").as_deref(),
         Some("new")

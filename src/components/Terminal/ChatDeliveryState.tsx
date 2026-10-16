@@ -2,7 +2,7 @@ import type { DeliveryState } from "./chatDeliveryModel";
 
 const LABEL: Record<Exclude<DeliveryState, "delivered">, string> = {
   sending: "Sending",
-  queued: "Queued until the agent is ready",
+  queued: "Queued for the agent",
   uncertain: "Submission unconfirmed",
   failed: "Not delivered",
 };

@@ -2,6 +2,7 @@
 //!
 //! Extracted from `commands::read_pty` to keep that function focused on I/O.
 
+use crate::service::MuxEmitCause;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::Mutex as StdMutex;
@@ -253,7 +254,10 @@ impl ServiceContext {
                 .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
-            let has_agent_markers = self.agent_registry.detect_from_output(&screen).is_some();
+            let has_agent_markers = self
+                .agent_registry
+                .detect_from_output_for(agent_type.as_deref(), &screen)
+                .is_some();
             if matches!(
                 decide_agent_output_lifecycle(&screen, has_agent_markers),
                 AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame
@@ -757,7 +761,7 @@ impl ServiceContext {
             }
         };
         if changed {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabStatus);
             self.schedule_planner_replay(&tab_id);
             if resume_mark_changed {
                 self.schedule_session_persist_debounced();
@@ -1000,7 +1004,7 @@ impl ServiceContext {
                     }))
                     .unwrap_or_default(),
                 );
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::Prompt);
                 if pending_prompt_changed && route_owner_prompt {
                     let _ = self.route_pending_prompt(tab_id, prompt, prompt_kind);
                 }
@@ -1033,7 +1037,7 @@ impl ServiceContext {
                     }))
                     .unwrap_or_default(),
                 );
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::Prompt);
             }
         }
     }

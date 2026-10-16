@@ -11,6 +11,7 @@ import {
   pickerHasPrimaryModels,
   statusLineModelName,
   planSelection,
+  pickerSelection,
   statusLineSwitchGate,
 } from "./statusLinePickerModel";
 
@@ -187,4 +188,17 @@ test("anchor opens upward and stays inside the viewport", () => {
   assert.deepEqual(pickerAnchor({ left: 40, top: 500 }, { width: 1000, height: 800 }, 300), { left: 40, bottom: 306 });
   assert.deepEqual(pickerAnchor({ left: 900, top: 500 }, { width: 1000, height: 800 }, 300), { left: 692, bottom: 306 });
   assert.deepEqual(pickerAnchor({ left: -20, top: 900 }, { width: 320, height: 800 }, 300), { left: 8, bottom: 8 });
+});
+
+
+test("Fast mode is capability gated and a tier-only change applies for the next turn", () => {
+  const capable = provider({ id: "arbitrary", agent_runtime: { fastMode: true } });
+  const base = pickerSelection(capable, "deep", "high", true);
+  assert.deepEqual(base, { model: "deep", effort: "high", fastMode: true });
+  assert.deepEqual(pickerSelection(provider({ id: "codex" }), "deep", "high", true), { model: "deep", effort: "high" });
+  const gate = statusLineSwitchGate(capable, live);
+  assert.deepEqual(planSelection(gate, base, { ...base, fastMode: false }), {
+    action: "apply", selection: { model: "deep", effort: "high", fastMode: false },
+  });
+  assert.deepEqual(planSelection(gate, base, base), { action: "none" });
 });

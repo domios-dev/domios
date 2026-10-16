@@ -8,7 +8,7 @@ pub(crate) struct LiveRuntime {
 
 impl Drop for LiveRuntime {
     fn drop(&mut self) {
-        stop(&self.tab_id);
+        stop_test(&self.tab_id);
     }
 }
 
@@ -48,15 +48,25 @@ pub(crate) fn live_runtime(tab: &Tab) -> LiveRuntime {
         maps: Mutex::new(super::super::events::RuntimeMaps::default()),
         bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
         prompts: Mutex::new(HashMap::new()),
-        process: Mutex::new(Some(process)),
+        process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),
         compaction: Mutex::new(Default::default()),
         abort_note: Mutex::new(None),
+        history_retry: Mutex::new(None),
     });
     SESSIONS.lock().insert(tab.id.clone(), session);
     LiveRuntime {
         tab_id: tab.id.clone(),
         _peer: peer,
+    }
+}
+
+pub(super) fn stop_test(tab: &str) {
+    let session = SESSIONS.lock().remove(tab);
+    if let Some(session) = session {
+        if let Some(process) = session.process.close() {
+            crate::async_runtime::block_on(process.finish()).unwrap();
+        }
     }
 }

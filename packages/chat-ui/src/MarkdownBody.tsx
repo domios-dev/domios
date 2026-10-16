@@ -7,6 +7,7 @@ import { localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkCachedParse } from "./markdownParse";
 import { remarkBareDomains, remarkCodeMetadata } from "./remarkBareDomains";
 import { CompactCode } from "./CompactCode";
 import rehypeRaw from "rehype-raw";
@@ -361,7 +362,7 @@ export function RichMarkdown({
   return rendered;
 }
 
-const REMARK_PLUGINS = [remarkGfm, remarkBareDomains, remarkCodeMetadata];
+const REMARK_PLUGINS = [remarkGfm, remarkCachedParse, remarkBareDomains, remarkCodeMetadata];
 const MARKDOWN_RENDER_CACHE_ENTRIES = 3000;
 const MARKDOWN_RENDER_CACHE_CHARS = 500_000;
 const markdownRenderCache = new Map<string, { element: React.ReactElement; chars: number }>();

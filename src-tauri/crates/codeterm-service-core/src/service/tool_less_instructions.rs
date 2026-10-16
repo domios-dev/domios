@@ -1,6 +1,14 @@
 use crate::agent::provider::{AgentLaunchParams, AgentProvider, SystemPromptDelivery};
 
 pub(crate) fn build(provider: &dyn AgentProvider, params: &AgentLaunchParams) -> String {
+    build_prepared(provider, params, false).shell_command
+}
+
+pub(crate) fn build_prepared(
+    provider: &dyn AgentProvider,
+    params: &AgentLaunchParams,
+    direct: bool,
+) -> crate::service::orchestrator::PreparedAgentCommand {
     let Some(params) = prepare(
         provider.is_tool_less(),
         provider.system_prompt_delivery(),
@@ -9,9 +17,16 @@ pub(crate) fn build(provider: &dyn AgentProvider, params: &AgentLaunchParams) ->
         || codeterm_util::task_files::write(crate::prompts::TOOL_LESS, Some(".tool-less.md")),
     ) else {
         log::error!("[launch] mandatory tool-less instructions could not be materialized");
-        return String::new();
+        return Default::default();
     };
-    provider.build_launch_command(&params)
+    if direct {
+        if let Some(spec) =
+            provider.launch_spec(&crate::agent::provider::LaunchSpecParams::Fresh(&params))
+        {
+            return crate::service::orchestrator::PreparedAgentCommand::from_spec(spec);
+        }
+    }
+    provider.build_launch_command(&params).into()
 }
 
 fn prepare(

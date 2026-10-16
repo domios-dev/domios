@@ -1,3 +1,4 @@
+use codeterm_service_core::service::MuxEmitCause;
 use codeterm_service_core::service::{boot_stage::BootStage, ServiceState};
 use codeterm_service_core::service::{
     restored_fresh_launch_input, restored_resume_session_id, RestoredFreshLaunchInput,
@@ -279,7 +280,7 @@ pub async fn spawn_pty_core(
             codeterm_service_core::session::lifecycle::AgentTypeWriteOrigin::Restore,
             None,
         );
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::TabLifecycle);
 
         // Resume only restored snapshots; direct spawn uses backend start.
         if let Some(session_id) = session_id {
@@ -308,7 +309,7 @@ pub async fn spawn_pty_core(
                     session_id, pid, tab_cwd
                 );
                 svc.set_agent_session_id(pid, None);
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::TabLifecycle);
             } else {
                 // Build the resume command from the persisted launch inputs.
                 let permission_bypass_authorization =
@@ -341,7 +342,7 @@ pub async fn spawn_pty_core(
                         pid
                     );
                     svc.set_agent_session_id(pid, None);
-                    svc.emit_state_changed();
+                    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
                 }
             }
         }
@@ -447,6 +448,32 @@ fn dispatch_restored_snapshot_launch(
     input: &RestoredFreshLaunchInput,
     launch_cmd: String,
 ) {
+    dispatch_restored_snapshot_launch_with(svc, tab_id, provider_id, input, |origin| {
+        codeterm_service_core::service::launch_agent_in_background_with_env(
+            svc.clone(),
+            tab_id.to_string(),
+            launch_cmd,
+            provider_id.to_string(),
+            origin,
+            false,
+            None,
+            input.launch_task.clone(),
+            None,
+            Default::default(),
+            None,
+            None,
+            input.params.resume_session_id.clone(),
+        );
+    });
+}
+
+fn dispatch_restored_snapshot_launch_with<R>(
+    svc: &codeterm_service_core::service::ServiceContext,
+    tab_id: &str,
+    provider_id: &str,
+    input: &RestoredFreshLaunchInput,
+    dispatch: impl FnOnce(codeterm_service_core::service::AgentLaunchOrigin) -> R,
+) -> R {
     codeterm_service_core::service::persist_restored_launch_identity(
         &svc.mux,
         tab_id,
@@ -454,21 +481,7 @@ fn dispatch_restored_snapshot_launch(
         &input.params,
         &input.launch_parameters,
     );
-    codeterm_service_core::service::launch_agent_in_background_with_env(
-        svc.clone(),
-        tab_id.to_string(),
-        launch_cmd,
-        provider_id.to_string(),
-        codeterm_service_core::service::AgentLaunchOrigin::RestoredSnapshot,
-        false,
-        None,
-        input.launch_task.clone(),
-        None,
-        Default::default(),
-        None,
-        None,
-        input.params.resume_session_id.clone(),
-    );
+    dispatch(codeterm_service_core::service::AgentLaunchOrigin::RestoredSnapshot)
 }
 
 /// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/write.
@@ -553,7 +566,7 @@ fn parse_pty_input(
             tab_id,
         );
         svc.set_and_lock_tab_agent_type(&tab_id, provider_id);
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::AgentIdentity);
     }
 }
 

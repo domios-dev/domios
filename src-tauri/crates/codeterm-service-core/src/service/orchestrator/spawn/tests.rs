@@ -366,7 +366,15 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("task-pending-failure")
-            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary())
+            .with_execution_sandbox(crate::plugin::provider::ExecutionSandboxCapability {
+                platforms: vec![crate::agent::provider::current_platform_tag().into()],
+                read_only: Some(crate::plugin::provider::ExecutionSandboxMode {
+                    launch_args: vec!["--read-only".into()],
+                    runtime_mode: None,
+                }),
+                ..Default::default()
+            }),
     ));
     let mut plan = fixture
         .service
@@ -413,6 +421,7 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
     let attempt_id = launch_authority.attempt_id.clone();
     let params = SpawnAgentParams {
         agent: Some("task-pending-failure".into()),
+        cwd: Some(fixture.temp.path().display().to_string()),
         task: Some("assigned work".into()),
         role: Some("Worker".into()),
         parent_tab_id: Some(parent_tab_id),

@@ -1,6 +1,7 @@
 use super::{engine, RuntimeFailure, ServiceContext, Session};
+use crate::service::MuxEmitCause;
 use codeterm_plugin::agent_runtime::{RuntimeContext, RuntimeOperation, RuntimeResult};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::{collections::HashSet, sync::Arc};
 
 #[derive(Default)]
@@ -53,10 +54,6 @@ fn should_restore(
         && expected.thread_id == current.thread_id
 }
 
-fn restore_value(instructions: Option<&str>) -> Value {
-    json!({"instructions":instructions,"additionalContext":[]})
-}
-
 pub(super) fn schedule(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -89,7 +86,7 @@ pub(super) fn schedule(
             if let Err(reason) = result {
                 session.state.lock().degrade(epoch, &reason);
                 engine::publish(&owner, &expected.tab_id, &session);
-                owner.emit_state_changed();
+                owner.emit_state_changed(MuxEmitCause::RuntimeSignal);
                 log::debug!(
                     "[agent-runtime] tab={} context restore failed: {reason}; sends held",
                     expected.tab_id
@@ -122,16 +119,20 @@ async fn restore(
         let tab = mux
             .get_tab(&expected.tab_id)
             .ok_or(RuntimeFailure::Superseded)?;
-        restore_value(
-            tab.agent_runtime_config
-                .as_ref()
-                .and_then(|config| config.get("systemPrompt"))
-                .and_then(Value::as_str),
+        crate::service::agent_runtime::owned_context::restore_value(
+            tab.agent_runtime_config.as_ref().unwrap_or(&Value::Null),
+            expected
+                .thread_id
+                .as_deref()
+                .ok_or(RuntimeFailure::Superseded)?,
         )
     };
     let has_content = value["instructions"]
         .as_str()
-        .is_some_and(|text| !text.is_empty());
+        .is_some_and(|text| !text.is_empty())
+        || value["additionalContext"]
+            .as_array()
+            .is_some_and(|entries| !entries.is_empty());
     if !should_restore(expected, &current, true, has_content) {
         return Ok(());
     }

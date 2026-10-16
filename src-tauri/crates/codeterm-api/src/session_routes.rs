@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_service_core::service::MuxEmitCause;
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
@@ -449,7 +450,7 @@ pub async fn resume_session_api(
                 if let Err(e) = state.svc.mux.write().set_active_workspace(&id) {
                     log::warn!("[session_resume] set_active_workspace({id}) failed: {e}; workspace may have been concurrently closed");
                 }
-                state.svc.emit_state_changed();
+                state.svc.emit_state_changed(MuxEmitCause::SessionRestore);
                 id
             } else {
                 let ws_name = body.workspace_name.unwrap_or_else(|| {
@@ -564,7 +565,7 @@ pub async fn resume_session_api(
             codeterm_service_core::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        state.svc.emit_state_changed();
+        state.svc.emit_state_changed(MuxEmitCause::SessionRestore);
 
         let identity_json = match identity {
             Some(identity) => serde_json::json!({

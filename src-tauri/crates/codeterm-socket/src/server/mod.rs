@@ -46,6 +46,8 @@ mod plan_time;
 pub(crate) mod protocol;
 mod receiver_target;
 mod remote_worker_policy;
+#[cfg(test)]
+mod request_arrival_tests;
 pub(crate) mod rest_api;
 mod safety_nudge;
 mod services;
@@ -80,6 +82,7 @@ use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
 use codeterm_service_core::multiplexer::commands::MuxState;
 use codeterm_service_core::notification::NotifState;
 use codeterm_service_core::service::ServiceState;
+use codeterm_service_core::startup::boot_timing;
 use codeterm_service_core::{OutputBufferState, PtyState};
 
 // ── JSON-RPC types ──────────────────────────────────────────────────
@@ -486,14 +489,35 @@ fn handle_connection(
         match reader.read_line(&mut line) {
             Ok(0) => break, // EOF
             Ok(_) => {
+                let received_at_us = boot_timing::timestamp_us();
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
                     continue;
                 }
 
                 let mut response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
-                    Ok(req) => respond_to_request(req, mux, pty, notif, app, output_buf, svc),
-                    Err(e) => JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e)),
+                    Ok(req) => {
+                        log::debug!(
+                            "[socket-request] id={} method={} received_at_us={}",
+                            req.id.as_ref().unwrap_or(&serde_json::Value::Null),
+                            req.method,
+                            received_at_us,
+                        );
+                        respond_to_request(
+                            req,
+                            received_at_us,
+                            mux,
+                            pty,
+                            notif,
+                            app,
+                            output_buf,
+                            svc,
+                        )
+                    }
+                    Err(e) => {
+                        log::debug!("[socket-request] id=null method=invalid received_at_us={received_at_us}");
+                        JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e))
+                    }
                 };
 
                 let after_response = response.after_response.take();
@@ -521,6 +545,7 @@ fn handle_connection(
 /// Gate the request on the control-plane protocol integer, then dispatch.
 fn respond_to_request(
     req: JsonRpcRequest,
+    received_at_us: u128,
     mux: &MuxState,
     pty: &PtyState,
     notif: &NotifState,
@@ -555,6 +580,7 @@ fn respond_to_request(
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _arrival = boot_timing::enter_request(id.as_ref(), &req.method, received_at_us);
         dispatch::dispatch_with_post_response(
             &req.method,
             local_params,

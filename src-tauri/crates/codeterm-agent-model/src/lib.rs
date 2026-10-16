@@ -8,11 +8,12 @@ pub(crate) use codeterm_pty::{multiplexer, session};
 pub mod cron;
 pub mod restore_report;
 pub mod storage;
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) use codeterm_paths as paths;
 pub(crate) use codeterm_plan::plan;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use codeterm_util::persisted_state;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(crate) use codeterm_util::process_util;
 mod message_kind;
 pub use message_kind::MessageKind;

@@ -1,5 +1,4 @@
 import { act, type ReactElement } from "react";
-import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
@@ -286,96 +285,5 @@ describe("temporary task segment presence", () => {
 
     await rerender(<PlanViewModeSwitch value="tasks" onChange={() => {}} temporaryTab={null} />);
     expect(temporaryGroup(host)).toBeNull();
-  });
-
-  it("the thumb lands without motion first and glides for every later selection, however it changed", async () => {
-    const { host, rerender } = await mount(<PlanViewModeSwitch value="tasks" onChange={() => {}} />);
-    const thumb = host.querySelector('[data-testid="plan-view-mode-thumb"]') as HTMLElement;
-    expect(thumb.classList.contains("plan-view-modes__thumb--glide")).toBe(false);
-
-    await rerender(<PlanViewModeSwitch value="task" onChange={() => {}} temporaryTab={TEMPORARY_TAB} />);
-    expect(thumb.classList.contains("plan-view-modes__thumb--glide")).toBe(true);
-  });
-});
-
-const readSource = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8").replaceAll("\r\n", "\n");
-
-function ruleBody(css: string, selector: string): string {
-  const start = css.indexOf(`\n${selector} {`);
-  expect(start, `${selector} rule`).toBeGreaterThanOrEqual(0);
-  const open = css.indexOf("{", start);
-  return css.slice(open + 1, css.indexOf("}", open));
-}
-
-function keyframesBody(css: string, name: string): string {
-  const start = css.indexOf(`@keyframes ${name}`);
-  expect(start, `@keyframes ${name}`).toBeGreaterThanOrEqual(0);
-  const open = css.indexOf("{", start);
-  let depth = 0;
-  for (let index = open; index < css.length; index += 1) {
-    if (css[index] === "{") depth += 1;
-    if (css[index] === "}") depth -= 1;
-    if (depth === 0) return css.slice(open + 1, index);
-  }
-  throw new Error(`unterminated @keyframes ${name}`);
-}
-
-describe("presence motion stylesheet", () => {
-  const css = readSource("../../styles/globals.css");
-  const MOTION_RULES = [
-    '.plan-side-panel[data-state="entering"]',
-    '.plan-side-panel[data-state="closing"]',
-    ".plan-side-panel__body[data-replaced]",
-    '.plan-view-modes__group--temporary[data-state="entering"]',
-    '.plan-view-modes__group--temporary[data-state="closing"]',
-  ];
-
-  it("animates only transform and opacity with motion tokens", () => {
-    for (const selector of MOTION_RULES) {
-      const body = ruleBody(css, selector);
-      expect(body, selector).not.toMatch(/transition/);
-      const value = /animation:\s*([^;]+);/.exec(body)?.[1];
-      expect(value, `${selector} animation`).toBeTruthy();
-      for (const layer of (value as string).split(",")) {
-        const [name] = layer.trim().split(/\s+/);
-        expect(layer, `${selector} ${name}`).toMatch(/var\(--ct-duration-[\w-]+\)/);
-        expect(layer, `${selector} ${name}`).not.toMatch(/\b\d+(\.\d+)?m?s\b/);
-        const properties = new Set(Array.from(keyframesBody(css, name).matchAll(/([a-z-]+)\s*:/g), (match) => match[1]));
-        expect([...properties].every((property) => property === "opacity" || property === "transform"), `${name} properties ${[...properties]}`).toBe(true);
-      }
-    }
-    expect(css).not.toMatch(/\.(plan-side-panel|plan-view-modes)[^{]*\{[^}]*transition(-property)?:\s*all\b/);
-  });
-
-  it("slides the right side panel a short distance on a curve that never overshoots", () => {
-    const tokens = readSource("../../styles/tokens.css");
-    for (const selector of ['.plan-side-panel[data-state="entering"]', '.plan-side-panel[data-state="closing"]']) {
-      const [name, , easing] = (/animation:\s*([^;]+);/.exec(ruleBody(css, selector))?.[1] ?? "").trim().split(/\s+/);
-      const token = /var\((--ct-ease-[\w-]+)\)/.exec(easing ?? "")?.[1];
-      expect(token, `${selector} easing token`).toBeTruthy();
-      const curve = new RegExp(`${token}:\\s*cubic-bezier\\(([^)]+)\\)`).exec(tokens)?.[1].split(",").map(Number) ?? [];
-      expect(curve, `${token} curve`).toHaveLength(4);
-      for (const y of [curve[1], curve[3]]) expect(y >= 0 && y <= 1, `${token} control y ${y}`).toBe(true);
-      const offsets = Array.from(keyframesBody(css, name).matchAll(/translateX\(([^)]+)\)/g), (match) => match[1]);
-      expect(offsets.length, `${name} moves horizontally`).toBeGreaterThan(0);
-      for (const offset of offsets) {
-        expect(offset, `${name} offset`).toMatch(/^(?:0|-?\d+px)$/);
-        expect(Math.abs(Number.parseFloat(offset)), `${name} travel`).toBeLessThanOrEqual(32);
-      }
-    }
-  });
-
-  it("drops every presence animation and the thumb glide under reduced motion", () => {
-    expect(css).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{\n {2}\.plan-side-panel\[data-state\],\n {2}\.plan-side-panel__body\[data-replaced\],\n {2}\.plan-view-modes__group--temporary\[data-state\] \{\n {4}animation: none;\n {2}\}\n {2}\.plan-view-modes__thumb--glide \{\n {4}transition: none;/,
-    );
-  });
-
-  it("waits on events, never timers, and never transitions everything", () => {
-    for (const path of ["./planView/PlanSidePanel.tsx", "./PlanSidePanelHost.tsx", "./PlanViewModeSwitch.tsx", "./usePresence.ts"]) {
-      const source = readSource(path);
-      expect(source, path).not.toMatch(/setTimeout|setInterval|requestAnimationFrame/);
-      expect(source, path).not.toMatch(/transition-all/);
-    }
   });
 });

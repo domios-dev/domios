@@ -656,7 +656,7 @@ export function DropdownSelect({
       disabled={disabled}
       aria-haspopup="listbox"
       aria-label={ariaLabel ?? (prefix ? `${prefix}: ${label}` : undefined)}
-      className={`flex items-center gap-1.5 w-full min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
+      className={`flex items-center gap-2 w-full min-w-0 px-3 py-1.5 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
     >
       {leading}
       {prefix && (

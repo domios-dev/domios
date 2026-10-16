@@ -13,6 +13,10 @@ pub const LIVE_ITEM_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub enum RuntimeEvent {
+    BackgroundProcessesUpdated {
+        thread_id: String,
+        processes: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
+    },
     SessionUpdated {
         login: Option<RuntimeLoginState>,
         auth: Option<RuntimeAuthState>,
@@ -48,6 +52,7 @@ pub enum RuntimeEvent {
         resolved: bool,
     },
     EvidenceUpdated {
+        item_id: Option<String>,
         thread_id: String,
         send_id: String,
         turn_id: String,
@@ -59,6 +64,7 @@ pub enum RuntimeEvent {
     RateLimitsUpdated {
         thread_id: Option<String>,
         rate_limits: Vec<RuntimeRateLimit>,
+        resets: Option<codeterm_plugin::agent_runtime::ResetCredits>,
     },
     CompactionUpdated {
         thread_id: String,
@@ -79,17 +85,29 @@ struct StoredItem {
 
 #[derive(Default)]
 pub struct RuntimeMaps {
+    pub background_processes:
+        HashMap<String, Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>>,
     epoch: u64,
     items: Vec<StoredItem>,
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
-    evidence: HashMap<String, (String, String)>,
+    evidence: HashMap<String, (String, String, Option<String>)>,
     usage: HashMap<String, TokenUsage>,
     rate_limits: HashMap<String, Vec<RuntimeRateLimit>>,
     auth: Option<RuntimeAuthState>,
+    children: HashMap<String, codeterm_plugin::agent_runtime::RuntimeChild>,
 }
 
 impl RuntimeMaps {
+    pub fn child(
+        &self,
+        epoch: u64,
+        thread: &str,
+    ) -> Option<codeterm_plugin::agent_runtime::RuntimeChild> {
+        (self.epoch == epoch)
+            .then(|| self.children.get(thread).cloned())
+            .flatten()
+    }
     pub fn reset(&mut self, epoch: u64) {
         *self = Self {
             epoch,
@@ -97,13 +115,20 @@ impl RuntimeMaps {
         };
     }
 
-    pub fn take_evidence(&mut self, send_id: &str) -> Option<(String, String)> {
+    pub fn take_evidence(&mut self, send_id: &str) -> Option<(String, String, Option<String>)> {
         self.evidence.remove(send_id)
     }
 }
 
 pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
     match event {
+        AgentRuntimeEvent::BackgroundProcesses {
+            thread_id,
+            processes,
+        } => RuntimeEvent::BackgroundProcessesUpdated {
+            thread_id: thread_id.clone(),
+            processes: processes.clone(),
+        },
         AgentRuntimeEvent::AuthLogin { login } => RuntimeEvent::SessionUpdated {
             login: Some(login.clone()),
             auth: None,
@@ -137,9 +162,11 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
         AgentRuntimeEvent::RateLimits {
             thread_id,
             rate_limits,
+            resets,
         } => RuntimeEvent::RateLimitsUpdated {
             thread_id: thread_id.clone(),
             rate_limits: rate_limits.clone(),
+            resets: resets.clone(),
         },
         AgentRuntimeEvent::ChatItem { thread_id, item } => RuntimeEvent::ItemUpdated {
             thread_id: thread_id.clone(),
@@ -165,10 +192,12 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             parent_thread_id: parent_thread_id.clone(),
         },
         AgentRuntimeEvent::SendEvidence {
+            item_id,
             thread_id,
             send_id,
             turn_id,
         } => RuntimeEvent::EvidenceUpdated {
+            item_id: item_id.clone(),
             thread_id: thread_id.clone(),
             send_id: send_id.clone(),
             turn_id: turn_id.clone(),
@@ -224,6 +253,13 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         maps.reset(epoch);
     }
     match event {
+        RuntimeEvent::BackgroundProcessesUpdated {
+            thread_id,
+            processes,
+        } => {
+            maps.background_processes
+                .insert(thread_id.clone(), processes.clone());
+        }
         RuntimeEvent::SessionUpdated { auth, .. } => {
             if let Some(auth) = auth {
                 maps.auth = Some(auth.clone());
@@ -237,8 +273,20 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             maps.threads
                 .insert(thread_id.clone(), parent_thread_id.clone());
         }
+        RuntimeEvent::TurnUpdated {
+            thread_id,
+            state: RuntimeTurnState::Idle,
+            ..
+        } => {
+            maps.background_processes.remove(thread_id);
+        }
         RuntimeEvent::TurnUpdated { .. } => {}
         RuntimeEvent::ItemUpdated { thread_id, item } => {
+            if let Some(child) = codeterm_plugin::agent_runtime::runtime_child(thread_id, item) {
+                if maps.children.len() < 64 || maps.children.contains_key(&child.thread_id) {
+                    maps.children.insert(child.thread_id.clone(), child);
+                }
+            }
             upsert_item(maps, thread_id, item.clone());
         }
         RuntimeEvent::RequestUpdated {
@@ -257,13 +305,14 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             }
         }
         RuntimeEvent::EvidenceUpdated {
+            item_id,
             thread_id,
             send_id,
             turn_id,
         } => {
             maps.evidence
                 .entry(send_id.clone())
-                .or_insert_with(|| (thread_id.clone(), turn_id.clone()));
+                .or_insert_with(|| (thread_id.clone(), turn_id.clone(), item_id.clone()));
         }
         RuntimeEvent::UsageUpdated { thread_id, usage } => {
             maps.usage.insert(thread_id.clone(), usage.clone());
@@ -271,6 +320,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         RuntimeEvent::RateLimitsUpdated {
             thread_id,
             rate_limits,
+            ..
         } => {
             maps.rate_limits
                 .insert(thread_id.clone().unwrap_or_default(), rate_limits.clone());
@@ -302,6 +352,30 @@ pub fn reconcile_history(maps: &mut RuntimeMaps, epoch: u64, thread_id: &str, it
 }
 
 pub fn observe(context: &mut RuntimeContext, event: &RuntimeEvent) {
+    if let RuntimeEvent::ItemUpdated { thread_id, item } = event {
+        if context.thread_id.as_ref() == Some(thread_id) {
+            if let Some(child) = codeterm_plugin::agent_runtime::runtime_child(thread_id, item) {
+                if context.thread_parents.len() < 64
+                    && (context.thread_id.as_ref() == Some(&child.parent_thread_id)
+                        || context
+                            .thread_parents
+                            .iter()
+                            .any(|parent| parent.thread_id == child.parent_thread_id))
+                    && !context
+                        .thread_parents
+                        .iter()
+                        .any(|parent| parent.thread_id == child.thread_id)
+                {
+                    context.thread_parents.push(
+                        codeterm_plugin::agent_runtime::RuntimeThreadParent {
+                            thread_id: child.thread_id,
+                            parent_thread_id: child.parent_thread_id,
+                        },
+                    );
+                }
+            }
+        }
+    }
     use codeterm_plugin::agent_runtime::{RuntimeActiveTurn, RuntimeThreadParent};
     let RuntimeEvent::TurnUpdated {
         thread_id,

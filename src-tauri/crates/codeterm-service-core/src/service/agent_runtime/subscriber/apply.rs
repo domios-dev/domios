@@ -1,6 +1,7 @@
 use super::super::engine::{self, Session};
 use super::super::events::{self, RuntimeEvent};
 use super::super::model::{RuntimeFailure, RuntimePhase};
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use std::sync::Arc;
@@ -27,7 +28,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
     let mut run_completed = false;
     let mut run_chat_item = false;
     for event in enriched {
-        if matches!(&event.event, AgentRuntimeEvent::SendEvidence { send_id, .. } if !evidence.contains(send_id))
+        if matches!(&event.event, AgentRuntimeEvent::SendEvidence { send_id, item_id, .. } if !evidence.contains(&(send_id.clone(), item_id.clone())))
         {
             continue;
         }
@@ -63,8 +64,20 @@ pub(in crate::service::agent_runtime) async fn publish_events(
             super::super::question_delivery::publish(svc, &context.tab_id, session, questions)
                 .map_err(RuntimeFailure::HookFailed)?;
         }
-        if let RuntimeEvent::RateLimitsUpdated { rate_limits, .. } = &runtime {
-            super::super::projections::rate_limits(svc, session, rate_limits.clone(), at).await?;
+        if let RuntimeEvent::RateLimitsUpdated {
+            rate_limits,
+            resets,
+            ..
+        } = &runtime
+        {
+            super::super::projections::rate_limits(
+                svc,
+                session,
+                rate_limits.clone(),
+                resets.clone(),
+                at,
+            )
+            .await?;
         }
         events::observe(&mut session.context.lock(), &runtime);
         super::super::controls::observe_event(session, &runtime);
@@ -179,6 +192,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
             );
         }
         RuntimeEvent::EvidenceUpdated {
+            item_id,
             thread_id,
             send_id,
             turn_id,
@@ -195,6 +209,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                 &thread_id,
                 &context.binding_nonce,
                 &send_id,
+                item_id.as_deref(),
             ) {
                 session
                     .context
@@ -327,6 +342,6 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         _ => {}
     }
     if !matches!(session.state.lock().phase, RuntimePhase::Loading) {
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
     }
 }

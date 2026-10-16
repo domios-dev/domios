@@ -151,7 +151,7 @@ async function renderTabSessionChat(
         source_session_id: state.tabs[tabId]?.agent_session_id ?? null,
         session_binding_nonce: state.tabs[tabId]?.session_binding_nonce ?? null,
         subscription_id: "test-subscription",
-        ...(chatStart() as object),
+        ...((await chatStart()) as object),
       };
     }
     if (cmd === "delayed_send_list") return [];
@@ -305,7 +305,6 @@ test("normal chat_backend Tab keeps composer and hides read-only bar", async () 
   assert(chat?.getAttribute("aria-label") === "Tab chat: chat-tab", "chat region is named");
   assert(messages?.getAttribute("role") === "log", "conversation is an accessible log");
   assert(messages?.getAttribute("aria-label") === "Conversation", "conversation log is named");
-  assert(messages?.classList.contains("select-text"), "conversation text remains selectable");
   assert(composer?.getAttribute("aria-label") === "Message composer", "composer is named");
   assert(composer?.getAttribute("data-tab-id") === tabId, "composer exposes stable Tab scope");
   assert(!host.querySelector('[data-testid="watcher-readonly-bar"]'), "read-only bar absent");
@@ -383,7 +382,8 @@ test("fresh unbound PTY launch failure exposes recovery", async () => {
   assert(chat?.getAttribute("aria-busy") === "false", "fresh unbound PTY authority is not announced as recovering");
   assert(!host.querySelector('[data-testid="chat-recovering-state"]'), "fresh chat has no recovery placeholder");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "fresh chat has no empty-history placeholder");
-  assert(composer, "usable fresh chat keeps its named composer");
+  assert(!composer, "failed launch hides the named composer");
+  assert(!host.querySelector('textarea, [role="textbox"]'), "failed launch has no composer textbox");
   assert(!host.querySelector('[data-testid="chat-setup-state"]'), "an observed failure ends loading");
   assert(host.querySelector('[role="alert"]'), "the shared failure is announced");
   await act(async () => root.unmount());
@@ -400,7 +400,7 @@ test("a failed boot exposes recovery even when a saved transcript attaches", asy
     }),
   });
   const { host, root } = await renderTabSessionChat(tabId, state);
-  assert(host.querySelector('[data-testid="chat-composer"]'), "attached chat remains usable");
+  assert(!host.querySelector('textarea, [role="textbox"]'), "failed launch hides the composer even with an attached transcript");
   assert(host.querySelector('[data-testid="chat-launch-failed"]'), "saved transcript does not hide failed startup");
   await act(async () => root.unmount());
 });
@@ -698,6 +698,53 @@ test("Tab header does not repeat the mobile top safe area", async () => {
   await act(async () => root.unmount());
   host.remove();
   document.documentElement.style.removeProperty("--ct-safe-top");
+});
+
+test("a cached authority window paints before a revisit attach resolves", async () => {
+  const { clearTranscriptWindows, commitTranscriptBatch, transcriptWindowKey } = await import("./transcriptStore");
+  clearTranscriptWindows();
+  const tabId = "cached-revisit";
+  const tab = tabBase(tabId, { agent_session_id: "held-session", session_binding_nonce: "held-nonce" });
+  const row = { id: "held-row", type: "assistant" as const, content: "cached answer", timestamp: "1700000000000" };
+  commitTranscriptBatch(transcriptWindowKey(tabId, tab.agent_session_id ?? null), {
+    kind: "snapshot", authority: { sourceSessionId: "held-session", sessionBindingNonce: "held-nonce" },
+    range: null, rows: [row],
+  });
+  let resolveAttach!: (value: unknown) => void;
+  const attach = new Promise((resolve) => { resolveAttach = resolve; });
+  const rendered = await renderTabSessionChat(tabId, muxStateFor({ [tabId]: tab }), () => attach);
+  try {
+    assert(rendered.commands.includes("chat_start"), "revisit attach started");
+    assert(rendered.host.querySelector('[role="log"]')?.textContent?.includes(row.content), "held rows visible while attach is unresolved");
+    await act(async () => { resolveAttach({ text: "", offset: 0, messages: [row] }); });
+    assert(rendered.host.querySelector('[role="log"]')?.textContent?.includes(row.content), "rows remain after reconciliation");
+  } finally {
+    await act(async () => { resolveAttach({ text: "", offset: 0, messages: [row] }); rendered.root.unmount(); });
+    rendered.host.remove();
+    clearTranscriptWindows();
+  }
+});
+
+test("a held window from an older binding stays hidden during attach", async () => {
+  const { clearTranscriptWindows, commitTranscriptBatch, transcriptWindowKey } = await import("./transcriptStore");
+  clearTranscriptWindows();
+  const tabId = "rebound-revisit";
+  const tab = tabBase(tabId, { agent_session_id: "held-session", session_binding_nonce: "new-nonce" });
+  commitTranscriptBatch(transcriptWindowKey(tabId, tab.agent_session_id ?? null), {
+    kind: "snapshot", authority: { sourceSessionId: "held-session", sessionBindingNonce: "old-nonce" },
+    range: null, rows: [{ id: "stale-row", type: "assistant", content: "stale answer", timestamp: "1700000000000" }],
+  });
+  let resolveAttach!: (value: unknown) => void;
+  const attach = new Promise((resolve) => { resolveAttach = resolve; });
+  const rendered = await renderTabSessionChat(tabId, muxStateFor({ [tabId]: tab }), () => attach);
+  try {
+    assert(rendered.commands.includes("chat_start"), "new binding attach started");
+    assert(!rendered.host.querySelector('[role="log"]')?.textContent?.includes("stale answer"), "old binding rows remain hidden");
+  } finally {
+    await act(async () => { resolveAttach({ text: "", offset: 0, messages: [] }); rendered.root.unmount(); });
+    rendered.host.remove();
+    clearTranscriptWindows();
+  }
 });
 
 async function main() {

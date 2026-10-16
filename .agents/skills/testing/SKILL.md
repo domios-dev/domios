@@ -3,6 +3,8 @@ name: testing
 description: "Choose, author, and run Domios unit, integration, REST, and cross-platform tests."
 ---
 
+Workers without an exact dispatch grant never run Rust tests, nextest, test-one or check-queue, including from canonical. Ordinary lane work never compiles beyond its touched library crate. One small crate in isolation is the most a lane ever compiles, and only through `./build.sh lane-check <crate> [--tests]`. Run changed TS/JS test files in the lane and hand exact Rust module selectors to the Orchestrator in canonical. Full or reverse-dependency regressions run only in the Orchestrator's single release run. Rust test/check-queue execution requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. The guard reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
+
 ## Domios — Testing Guide
 
 ## Test-layer taxonomy
@@ -61,30 +63,23 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 | Layer | Exact command | When required |
 |---|---|---|
-| Narrow Rust or TS unit | `scripts/test-capped.sh … <filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
-| All implemented layers | `./build.sh test:all` | Before claiming done |
-| PR gate | `./build.sh test:all` | Before opening a PR |
+| Canonical Rust or lane TS unit | `scripts/test-capped.sh … <filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
+| All implemented layers | `./build.sh test:all` | Orchestrator release run only |
+| PR gate | Focused selectors | Orchestrator in canonical |
 | CI gate | Rust unit + TS unit + plugin tests (+ pytest spike) | CI on PR — task D7 |
 
 ## Affected-test map
 
 Use `node scripts/affected-tests.mjs` to print exact commands for the current
 diff. Set the base with `--base <ref>` or `AFFECTED_TESTS_BASE`; it defaults to
-`origin/master`. Rust changes currently require an explicit strategy while
-canonical timing compares the options:
+`origin/master`. Use `--rust-mode module-filters` for Rust changes.
+The mapper prints the narrowest module filters for touched crates, marked
+`canonical (Orchestrator)`. Missing module paths require a focused selector
+from the Orchestrator; the mapper never selects reverse dependencies or the
+workspace. `--metadata FILE` accepts saved Cargo metadata for offline mapping.
+Non-Rust commands run in the lane.
 
-```bash
-node scripts/affected-tests.mjs --base origin/master --rust-mode module-filters
-node scripts/affected-tests.mjs --base origin/master --rust-mode whole-crate
-```
-
-The mapper uses Cargo metadata to identify touched packages. Module-filter mode
-uses nextest filtersets for app modules and `rdeps(<package>)` for smaller
-crates. Whole-crate mode runs the complete touched Rust package. The output
-prints one command per crate, the reason for each filter, and a rough compile
-cost. Non-Rust commands are grouped for parallel execution during Rust compile.
-
-`./build.sh nextest <scope> [filterset]` compiles test targets before applying
+Canonical only: `./build.sh nextest <scope> [filterset]` compiles test targets before applying
 the capped execution deadline, and `--no-tests=fail` rejects empty selections.
 TypeScript selections use the existing runner's related-file mode for tsx-runner
 tests and `pnpm exec vitest related <files>` for Vitest-owned tests. Plugin
@@ -135,6 +130,28 @@ Candidate JSON contains exact validated binary/test IDs and a nextest filter,
 never shell commands. No candidates means no rerun; missing/incomplete timing
 logs or missing candidate confirmations fail closed. A plain log-only guard
 works when no serial confirmations are required.
+
+### QuickJS frame-mapping performance check
+
+`runtime_quickjs_frame_mapping_benchmark` is ignored in ordinary suites because
+its absolute wall-clock throughput varies with host load. Run it alone in a
+canonical Team QA shell under Orchestrator authority, from the repository root:
+
+```bash
+source build.sh env
+scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml \
+  -p codeterm-plugin --lib \
+  js_runtime::parity_test::runtime::replay::runtime_quickjs_frame_mapping_benchmark \
+  -- --exact --ignored --nocapture
+```
+
+On Windows, open Git Bash in that Team shell for this recipe. `test-one` does
+not forward libtest harness arguments, so use the capped runner explicitly.
+The check retains its 2x measured-stream-rate assertion and prints QuickJS and
+native baseline throughput, p99 latency, first-call latency, and peak headroom.
+A failure is performance evidence to investigate on an otherwise idle host;
+it is not an ordinary correctness gate. The native baseline only maps frames
+and counts them, so it does not justify a relative runtime-reducer threshold.
 
 ### Unified entrypoint: `./build.sh test:all`
 
@@ -248,9 +265,8 @@ either deadline; `TEST_CAP_SECS=0` disables it. On expiry the wrapper kills the
 execution process group, exits 124, and repeats libtest's active case names from
 its captured output. Stable Rust cannot use `--ensure-time`: it is nightly-only
 and reports a long test only after it finishes, so the process deadline owns hang
-recovery. In a fresh worktree, the wrapper also creates the ignored, zero-byte
-`bundled-embed` sidecar only when absent. The bundle script rejects empty
-sidecars.
+recovery. Embedding inference runs in-process; the test wrapper does not stage an
+embedding executable.
 
 The TypeScript scheduler still waits for every file and the full suite by
 default. Set `TS_UNIT_TIMEOUT_SECONDS=<positive-seconds>` or
@@ -686,10 +702,10 @@ JDK may be absent from `PATH`. Discover its installed path before running the
 same focused test with `JAVA_HOME` pointing to its JDK home and that JDK's `bin`
 prepended to `PATH`; no system Java registration or emulator bypass is needed.
 
-Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
+Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, including the explicit golden-vector oracle after ordinary unit tests. The oracle downloads the MiniLM safetensors into the shared model cache on its first run; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
 
-Worker pre-commit Rust feedback uses `./build.sh lane-check <touched crate> [--tests]` on every platform; add `--tests` when tests changed. Its subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway. Run integration Clippy through check-queue after committing; Rust execution tests remain in canonical.
+Worker pre-commit Rust feedback uses `./build.sh lane-check <touched crate> [--tests]` on every platform; add `--tests` when tests changed. Its subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway. Hand integration Clippy and Rust execution selectors to the Orchestrator in canonical.
 
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

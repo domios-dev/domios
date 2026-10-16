@@ -1,3 +1,4 @@
+import { isGeneralAgent } from "../../lib/roleKind";
 import { pluginTabMenuEntries, type PluginTabMenuEntry, type PluginTabMenuState } from "../../lib/pluginTabMenu";
 import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
 import { isPlanner } from "../../lib/roleKind";
@@ -64,6 +65,7 @@ export type TabMenuAction =
 
 export type TabMenuGlyph =
   | "rename"
+  | "fork"
   | "role"
   | "model"
   | "provider"
@@ -356,12 +358,14 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
       action: { type: "makePlanner", planId: activity.planId },
     });
   }
-  for (const submenu of [modelSubmenu(input), providerSubmenu(input), recoverySubmenu(input)]) {
+  // Other tabs switch the model inside the chat picker, and a provider cannot continue another provider's history.
+  const agentSubmenus = isGeneralAgent(tab) ? [modelSubmenu(input), providerSubmenu(input)] : [];
+  for (const submenu of [...agentSubmenus, recoverySubmenu(input)]) {
     if (submenu) entries.push(submenu);
   }
   entries.push(...sessionItems(input, session), ...autoConfirmEntries(input));
   if (session.sessionId && input.descriptor?.supports_session_fork === true && !tab.remote_peer_id) {
-    entries.push({kind:"item",id:"fork",label:"Fork session",icon:"restart",action:{type:"fork"}});
+    entries.push({kind:"item",id:"fork",label:"Fork session",icon:"fork",action:{type:"fork"}});
   }
   const plugins = pluginsSubmenu(input);
   if (plugins) entries.push(plugins);

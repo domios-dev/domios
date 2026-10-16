@@ -10,8 +10,7 @@ impl MemManager {
     /// for maximum recall quality (typo-tolerant + keyword-precise).
     /// Falls back to FTS5-only when embeddings feature is off.
     pub fn recall(&self, q: &SearchQuery) -> Result<Vec<SearchHit>, String> {
-        let conn = self.conn.lock();
-        search::hybrid_rrf(&conn, q, &self.blobs_dir)
+        self.recall_with_config(q, &search::SearchConfig::default())
     }
 
     /// A/B-testable hybrid recall with custom ranking config.
@@ -20,29 +19,50 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
+        let embedding = search::query_embedding(&q.query);
         let conn = self.conn.lock();
-        search::hybrid_rrf_with_config(&conn, q, &self.blobs_dir, cfg)
+        search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_deref())
     }
 
     pub fn vector_recall(&self, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
-        let conn = self.conn.lock();
-        embeddings::recall(&conn, query, k)
+        #[cfg(feature = "embeddings")]
+        {
+            let vector = embeddings::query_embed(query)?;
+            embeddings::recall_vector(&self.conn.lock(), &vector, k)
+        }
+        #[cfg(not(feature = "embeddings"))]
+        {
+            embeddings::recall(&self.conn.lock(), query, k)
+        }
     }
 
     pub fn index_embedding(&self, id: &str, body: &str) -> Result<(), String> {
-        let conn = self.conn.lock();
-        embeddings::index(&conn, id, body)
+        #[cfg(feature = "embeddings")]
+        {
+            embeddings::clear_vectors(&self.conn.lock(), id);
+            for (i, chunk) in embeddings::chunk_text(body).iter().enumerate() {
+                let vector = embeddings::embed(chunk)?;
+                if !embeddings::insert_vector_if_item_live(&self.conn.lock(), id, i, &vector)? {
+                    break;
+                }
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "embeddings"))]
+        {
+            embeddings::index(&self.conn.lock(), id, body)
+        }
     }
 
     /// Bulk re-embed mem_items and/or graph entities. Used after embedder
     /// model swap, or to backfill entities that pre-date the auto-embed-on-
     /// create wiring (everything before v1.1.23 if the bug fix landed there).
     pub fn reembed_bulk(&self, do_items: bool, do_entities: bool) -> Result<ReembedReport, String> {
-        let conn = self.conn.lock();
         let mut report = ReembedReport::default();
 
         if do_items {
             let rows: Vec<(String, String)> = {
+                let conn = self.conn.lock();
                 let mut stmt = conn
                     .prepare("SELECT id, COALESCE(body_inline, '') FROM mem_items")
                     .map_err(|e| e.to_string())?;
@@ -59,7 +79,7 @@ impl MemManager {
                 if body.trim().is_empty() {
                     continue;
                 }
-                match embeddings::index(&conn, &id, &body) {
+                match self.index_embedding(&id, &body) {
                     Ok(_) => report.items += 1,
                     Err(e) => report.errors.push(format!("item {}: {}", id, e)),
                 }
@@ -68,6 +88,7 @@ impl MemManager {
 
         if do_entities {
             let rows: Vec<(String, String, String)> = {
+                let conn = self.conn.lock();
                 let mut stmt = conn
                     .prepare("SELECT id, entity_type, properties_json FROM entities")
                     .map_err(|e| e.to_string())?;
@@ -88,7 +109,7 @@ impl MemManager {
             };
             for (id, entity_type, props_json) in rows {
                 let text = embeddings::embeddable_text_for_entity(&id, &entity_type, &props_json);
-                match embeddings::index(&conn, &id, &text) {
+                match self.index_embedding(&id, &text) {
                     Ok(_) => report.entities += 1,
                     Err(e) => report.errors.push(format!("entity {}: {}", id, e)),
                 }
@@ -117,9 +138,10 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
+        let embedding = search::query_embedding(&q.query);
         let conn = self.conn.lock();
         let _read = UntouchedRead::begin(&conn)?;
-        search::hybrid_rrf_with_config(&conn, q, &self.blobs_dir, cfg)
+        search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_deref())
     }
 
     /// `search_with_rerank` that records no access for its overfetched candidates.

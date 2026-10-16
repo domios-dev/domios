@@ -136,7 +136,7 @@ impl EmbedQueue {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "embeddings"))]
     pub(crate) fn submit_chunks(&self, id: &str, chunks: Vec<String>) {
         let shared = self.shared().expect("embed queue enabled");
         shared.state.lock().schedule.submit(id, chunks, usize::MAX);

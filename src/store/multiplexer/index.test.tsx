@@ -281,6 +281,20 @@ test("owner pair creation never inherits a selected Manager or a claimed picker 
   }
 });
 
+test("generation-only mux events reuse cached snapshots and fetch changed generations", async () => {
+  const harness = await mountProvider({ pairedPeerCount: 0 });
+  try {
+    const before = harness.muxGetStateCalls;
+    await harness.act(async () => harness.emit("mux-state-changed", { generation: 1 }));
+    assert(harness.muxGetStateCalls === before, "cached generation must skip mux_get_state");
+    await harness.act(async () => harness.emit("mux-state-changed", { generation: 2 }));
+    assert(harness.muxGetStateCalls === before + 1, "new generation must fetch mux_get_state");
+    await harness.settleMuxGetState();
+  } finally {
+    await harness.unmount();
+  }
+});
+
 test("a cancelled rebind waits for the next accepted peer snapshot", async () => {
   const harness = await mountProvider();
   const receipts: Array<{ success: boolean }> = [];

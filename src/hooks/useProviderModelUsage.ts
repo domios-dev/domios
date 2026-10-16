@@ -1,12 +1,7 @@
-/**
- * Per-model-group usage for the picker and the usage capsule, as declared by
- * the provider plugin. The backend command carries the provider's own answer,
- * so a new provider needs no change here. Fetches on provider change and after
- * an explicit refresh.
- */
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "../lib/bridge";
+import { invoke, listen } from "../lib/bridge";
 import type { ModelGroupUsage } from "../lib/types";
+import type { UsageSnapshotEvent } from "../types/usage";
 
 const EMPTY_USAGE: ModelGroupUsage[] = [];
 
@@ -26,6 +21,16 @@ export function useProviderModelUsageState(
 ): ProviderModelUsageState {
   const [usage, setUsage] = useState<ModelGroupUsage[]>(EMPTY_USAGE);
   const [refreshToken, setRefreshToken] = useState(0);
+
+  useEffect(() => {
+    if (!providerId || !enabled) return;
+    let active = true;
+    let stop: (() => void) | undefined;
+    void listen<UsageSnapshotEvent>("usage-snapshot-updated", ({payload}) => {
+      if (active && payload.provider === providerId) setRefreshToken(value => value + 1);
+    }).then(unlisten => { if (active) stop = unlisten; else unlisten(); });
+    return () => { active = false; stop?.(); };
+  }, [providerId, enabled]);
 
   useEffect(() => {
     let active = true;

@@ -1,6 +1,9 @@
 import { parseCompositeTabId } from "../remoteTabTransport";
+import { childHistorySuffix, type ChildTranscriptAuthority } from "../childTranscript";
+import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "../backgroundProcesses";
 import type { ShellCommandSnapshot } from "@codeterm/chat-core";
 import type { ChatStartResult, ChatBackfillResult } from "../../components/Terminal/chatSessionAuthority";
+import type { ChatResumeResult } from "../../components/Terminal/chatResume";
 import type { ChatSendStatus } from "../../components/Terminal/chatSendStatus";
 import type { SessionBindingFact } from "../../components/Terminal/sessionBindingSurface";
 import type { ResizeOwnerClaim } from "../resizeOwner";
@@ -28,8 +31,13 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         wake_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/wake`),
         mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"),
         agent_runtime_answer_question: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/questions/${enc(s(a, "itemId"))}/answer`, { answers: a.answers }),
+        agent_runtime_goal: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/goal`, a.request),
+        agent_runtime_reset_credits: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/reset-credits`, a.request),
         agent_runtime_login: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/login`, a.request),
         agent_runtime_retry: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/retry`),
+        agent_runtime_child_history: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}${childHistorySuffix(s(a,"threadId"), a.request as ChildTranscriptAuthority & {cursor?:string})}`),
+        agent_runtime_background_processes: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}${backgroundProcessesSuffix(a.request as BackgroundProcessAuthority)}`),
+        agent_runtime_stop_background_process: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/background-processes`, a.request),
         session_binding_state: (a: Args) => clientFor(a).json<SessionBindingFact>("GET", `/api/tabs/${enc(s(a, "tabId"))}/session/binding-state`),
         rebind_tab_session: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/session/rebind`, {
             session_id: s(a, "sessionId"),
@@ -106,6 +114,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         shell_command_snapshot: (a: Args) => clientFor(a).json<ShellCommandSnapshot>("GET", `/api/tabs/${enc(s(a, "tabId"))}/shell-commands`),
         chat_start: (a: Args) => clientFor(a).json<ChatStartResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/start`, {
             subscriptionId: s(a, "subscriptionId"),
+            ...(a.knownWindow != null ? { knownWindow: a.knownWindow } : {}),
         }),
         chat_stop: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/stop`, {
             subscriptionId: s(a, "subscriptionId"),
@@ -113,6 +122,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         chat_backfill: (a: Args) => clientFor(a).json<ChatBackfillResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/backfill`, {
             before_offset: a.beforeOffset,
             offset_kind: a.offsetKind,
+        }),
+        chat_resume: (a: Args) => clientFor(a).json<ChatResumeResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/resume`, {
+            cursor: s(a, "cursor"),
         }),
         chat_send_text: (a: Args) => clientFor(a).json<ChatSendStatus>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`, {
             text: a.text,
@@ -279,6 +291,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             model: s(a, "model"),
             reasoning_effort: a.reasoningEffort,
             runtime_mode: a.runtimeMode,
+            ...(typeof a.fastMode === "boolean" ? { fast_mode: a.fastMode } : {}),
             ...(a.cancel === true ? { cancel: true } : {}),
             ...(a.restartResume === true ? { restart_resume: true } : {}),
         }),

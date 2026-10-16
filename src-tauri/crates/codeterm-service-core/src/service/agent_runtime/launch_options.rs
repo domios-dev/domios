@@ -1,4 +1,5 @@
 use crate::multiplexer::types::RestorableRuntimeLaunchOptions;
+use crate::service::MuxEmitCause;
 use crate::service::{
     launch_session_detection, permission_policy, ServiceContext, SpawnAgentParams,
 };
@@ -88,30 +89,46 @@ impl ServiceContext {
             return Err("Runtime launch capability or provider changed".into());
         }
         let skip = params.permission_bypass_requested(&provider);
-        let mode = authorized_mode(params.skip_permissions, skip)?;
+        let policy =
+            crate::service::execution_sandbox::for_launch(self, tab_id, &provider, params, true)?;
+        let mode = match &policy {
+            Some(policy) => policy
+                .runtime_mode
+                .as_deref()
+                .ok_or("Execution sandbox runtime mapping absent")?,
+            None => authorized_mode(params.skip_permissions, skip)?,
+        };
         self.ensure_agent_pad(tab_id)?;
         let project =
             launch_session_detection::canonical_project_for_launch(self, tab_id, params, &cwd);
-        let roots = launch_session_detection::host_writable_roots(
-            &self.agent_registry,
-            &provider,
-            skip,
-            Some(&cwd),
-            project.as_deref(),
-            &self.agent_pad_data_dir,
-            tab_id,
-        )?;
+        let roots = if let Some(policy) = &policy {
+            policy.writable_roots.iter().map(PathBuf::from).collect()
+        } else {
+            launch_session_detection::host_writable_roots(
+                &self.agent_registry,
+                &provider,
+                skip,
+                Some(&cwd),
+                project.as_deref(),
+                &self.agent_pad_data_dir,
+                tab_id,
+            )?
+        };
         let options = RestorableRuntimeLaunchOptions {
             provider_id: provider.clone(),
             binding_nonce: nonce.clone(),
             mode: mode.into(),
             additional_directories: validate_host_directories(roots)?,
-            network_access: launch_session_detection::host_network_access(
-                &self.agent_registry,
-                &provider,
-                skip,
-                crate::agent::provider::current_platform_tag(),
-            ),
+            network_access: if policy.is_some() {
+                Some(false)
+            } else {
+                launch_session_detection::host_network_access(
+                    &self.agent_registry,
+                    &provider,
+                    skip,
+                    crate::agent::provider::current_platform_tag(),
+                )
+            },
         };
         let settings = runtime_settings(&options);
         validate_runtime_settings(&settings).map_err(|reason| reason.to_string())?;
@@ -173,7 +190,7 @@ fn publish_failure(svc: &ServiceContext, tab_id: &str, scope: &(String, String),
         serde_json::json!({"tab_id":tab_id, "session_binding_nonce":tab.session_binding_nonce, "state":snapshot})
     };
     svc.notify_event("agent-runtime-state", event);
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::BootStage);
 }
 
 fn runtime_settings(options: &RestorableRuntimeLaunchOptions) -> RuntimeSettings {
@@ -205,7 +222,14 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
         )
     };
     let requested = requested && permission_policy::configured_full_access_for(&svc)?;
+    let intent = svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        tab.restorable_launch
+            .execution_sandbox
+            .as_ref()
+            .map(|policy| policy.intent.clone())
+    });
     let params = SpawnAgentParams {
+        execution_intent: intent,
         agent: Some(provider.clone()),
         skip_permissions: Some(requested),
         permission_bypass_authorization: permission_policy::authorize_permission_bypass(
@@ -222,6 +246,7 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
         .and_then(|tab| tab.restorable_launch.runtime_launch_options.as_ref())
         .ok_or("Runtime launch options unavailable")?;
     Ok(RuntimeSettings {
+        fast_mode: settings.fast_mode,
         model: settings.model,
         effort: settings.effort,
         ..runtime_settings(options)

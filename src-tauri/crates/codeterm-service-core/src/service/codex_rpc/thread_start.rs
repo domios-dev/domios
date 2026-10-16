@@ -5,6 +5,7 @@ use super::{
     transcript::History,
 };
 use crate::service::agent_runtime::model::RuntimeMode;
+use crate::service::MuxEmitCause;
 use serde_json::{json, Value};
 
 pub(super) fn parameters(spawn: &Spawn, mode: RuntimeMode) -> Value {
@@ -132,7 +133,7 @@ pub(super) fn refresh_account(
                 .is_some_and(|current| std::sync::Arc::ptr_eq(&current, &sidecar))
             {
                 *sidecar.auth.lock() = super::auth::account_state(&response);
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::ProviderSignal);
             }
         }
     });

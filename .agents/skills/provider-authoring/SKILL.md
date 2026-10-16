@@ -5,7 +5,52 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`agentRuntime.fastMode` declares a boolean Fast mode control in the shared model
+picker and provider defaults. `RuntimeSettings.fastMode` carries the requested
+value; runtime confirmation must report it explicitly, including false. Providers
+map it to their own protocol and must preserve omission versus an explicit off.
+This adds no host API or sandbox access; native/JS descriptor parity is required.
+
+`capabilities.recordSources` opts JSONL sources into parsed records. Declare
+`sessionTranscript` for `parseSessionRecords(records, meta)` (delta rows) and
+`parseSessionMessageRecords(records, meta)` (search rows), or `storedHistory`
+for `runtimeStoredRecords(sessionId, records, meta)`. Each hook independently
+falls back to its text sibling when absent. Records are host-built JS objects,
+never JSON text, shaped `{offset,row,value,oversized?,bytes?}`. Preserve `row`
+as returned delta rows' `recordIndex`, and return `new_offset: meta.newOffset`.
+Meta carries `fromOffset`, `toOffset`, `newOffset`, `truncatedTail` and counts
+`{total,matched,invalid,oversized}`. The host owns byte advancement.
+`sourceKey` is an optional opaque source identity, stable across windows;
+compare it for per-source state, never parse it or use it as filesystem authority.
+
+A source declares `{format:"jsonl",filter:{type:{path:["type"],in:["user"]},
+where:[{path:["payload","thread_id"],equals:{placeholder:"sessionId"}}]}}`.
+Type and where are optional; missing paths never satisfy equality. Only
+`sessionId` is a placeholder; other equality values are literal JSON. No new
+filesystem, environment, sqlite or subprocess host function is exposed.
+`maxRecordBytes` may lower the existing source threshold; omitted retains it.
+`oversized.keep` lists paths whose bounded metadata survives in oversized
+records; the plugin owns its truncation rows. Invalid JSON records are counted
+and dropped. Keep text/records sibling fixture parity, including offsets and
+oversized metadata. Measure the 1 MiB marshalling oracle in canonical before
+claiming a speedup; live VM timing remains a separate end-to-end gate.
+
+`sessionResume()` returns `{exact: boolean}`. Declare `true` only when relaunching
+the same session id restores its conversation and identity while preserving the
+tab's transcript source. Missing, malformed or false declarations disable idle
+sleep. This pure declaration adds no host API or sandbox access; native providers
+implement `supports_exact_session_resume()`, with native/JS parity coverage.
+
+JSONL cursor recovery calls the host's `parse_session_delta_bounded` capability.
+The JS host owns the byte budget and complete-record offsets; `parseSessionDelta`
+still receives the same line-aligned chunk and gains no filesystem access.
+Unsupported native parsers return `None`, never an unbounded fallback. A record
+larger than the budget is returned alone under the existing oversized-record guard.
+Pin host/JS budget and record-identity parity before extending another parser.
+
 `agentRuntime.storedHistory` declares that `runtimeStoredHistory(sessionId, records)` projects bounded native session records to the same item ids and row order as runtime history. It is pure: no process, filesystem or new sandbox host API. Reject foreign session metadata, ignore foreign-thread events, and test offline/runtime projection parity. The host keeps stored byte cursors separate from runtime item cursors.
+
+Runtime agent rows may carry `agent_parent_thread_id` beside `agent_id`, `agent_ordinal`, `agent_state`, `agent_description`, `agent_model` and `agent_reasoning_effort` in `toolInput`. Emit the parent marker only for provider-authenticated spawn/activity receivers. The host records those children under the current root binding and permits descendant `readHistory` requests with an exact `call.target.threadId`, never child sends, rebinds, notifications or response side effects. Ordinary references to another thread grant no inspection authority.
 
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
 with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
@@ -17,6 +62,22 @@ For model-bound update responses, a JS `buildPromptResponse` implementation
 declares live-focus navigation; native providers declare it through
 `live_prompt_response`. The generic arrow-down default is unsupported
 for this automatic path. The host consumes one returned step, then re-observes.
+
+`agentRuntime.backgroundProcesses` declares pure `backgroundProcesses` operations:
+list returns a bounded page and next cursor; terminate returns an acknowledgement;
+clean returns Done. The host owns pagination, exact root/descendant authority and
+termination verification. An acknowledgement never proves absence. No filesystem,
+network, subprocess or environment host function is added by this capability.
+
+`agentRuntime.goals.actions` declares goal status reads and lifecycle controls.
+Include `read`; optional actions are `cancel`, `pause`, `resume`, and `complete`.
+The host issues `control` with action `goal` and value `{action: ...}`; a
+confirmed result is `{kind:"goal",threadId,intent}` with a nullable session
+intent carrying `goal` and `goalStatus`. Mutations require host confirmation of
+the exact thread, nonce, epoch and displayed goal. Cancel must confirm removal;
+Complete is an explicit achievement action. Codex uses user-origin set/clear
+and verifies clear through get. This adds no sandbox host API, filesystem,
+network, subprocess or environment access. Use fixtures only for lifecycle tests.
 
 How to build a JS drop-in agent provider for Domios — the manifest schema, the
 JS exports the host calls, what falls back to what, and what tests you owe.
@@ -34,6 +95,25 @@ Every claim below is transcribed from the Rust source of truth:
   (`AgentProvider` trait)
 
 ## The two-surface contract
+
+`spawn.executionSandbox` declares filesystem enforcement per platform and intent.
+Each `readOnly` or `mutating` mode supplies `launchArgs` and an optional
+`runtimeMode`; `{cwd}` expands to the canonical launch directory. Missing
+read-only enforcement refuses dispatch with `unsupportedReason`. Permission
+prompts or planning modes alone do not establish filesystem confinement.
+Core persists the resolved intent, cwd, arguments, mode and host-owned roots,
+revalidates them on relaunch and rejects runtime overrides. Scoped launches
+reject custom arguments; use typed model and effort controls. Read-only adds
+no writable roots. Mutating roots include the lane, its pad and required Git
+metadata. Confined mutating launches also persist canonical Cargo home, lane-check
+cache, sccache and pnpm store roots, with lane-local temp exported as TMPDIR/TEMP/TMP.
+The lane cache uses `$CODETERM_RUST_CACHE_ROOT/lanes`, falling back to
+`${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. The pnpm store uses host environment configuration, falling back to `<lane>/.codeterm-pnpm-store`.
+Task-bound Workers must explicitly declare read_only or mutating; older restored
+task tabs without a saved policy keep their existing behavior.
+Read-only reports use stdin `--from-pad -`; gates needing writes
+outside the sandbox are explicit owner-run canonical gates. Native/JS parity
+and pure intent/transport/platform tests are required; no host API is added.
 
 `spawn.paste.supportsBracketedPaste` defaults to true. Set it to false for
 plain input that cannot interpret bracketed paste; the refusal overrides live
@@ -569,3 +649,13 @@ confirmation reader and native/JS model-label detection share that parser;
 shared command fixtures cover native/QuickJS parity.
 
 `agentRuntime.usage: true` declares live usage publication and earns the shared Usage Tracking setting. Runtime auth events declare `billingMode`; account rate windows reach the subscription meter and exact-thread token events reach the session chip. `TokenUsage.cost_micros` is optional reported USD cost, never an estimate. These pure data extensions grant no host filesystem, environment, network or subprocess access.
+
+`agentRuntime.resetCreditsMinVersion` declares account rate-limit reset support
+and the minimum installed provider CLI version. The host hides reset data and
+refuses redemption below that version or when the version is unknown. Runtime
+`rateLimits` events may include provider-neutral `resets` with authoritative
+`availableCount`, millisecond `nextExpiry`, and nullable credit details. A capped
+list never replaces the count. Explicit popover opens request details; background
+reads omit them. `redeemResetCredit` returns `resetCreditConsumed` with one of the
+four typed outcomes. Confirmation creates a UUID once; retries preserve it.
+Never invoke a live redemption during testing: credits are irreversible.

@@ -236,9 +236,17 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 ## Troubleshooting log (grow this as things break)
 
+- **2026-10-16: utility verbs abort while capturing identity outside a Git checkout.** Identity lookup ran under `set -e` before verb dispatch. Capture now tolerates unavailable Git and clears inherited stamps; stamping launches still refuse without a valid identity. Use the corrected script for utility operations; run builds from a Git checkout.
+
+- **2026-10-16: DEV keeps showing the newer-interface pill after reload.** A commit during compilation let the internal `dev-prebuilt` re-entry recapture HEAD for the web watcher after Rust had stamped the earlier commit. `build.sh` now freezes full and short identities once and passes them to Rust, frontend builds, readiness checks and the internal provenance handoff. Standalone `dev-prebuilt` still refuses provenance from a different HEAD. Recovery: the instance owner rebuilds through `dev`, preserving its instance and port settings, then verifies health and `/build-identity.json` identify the same launch. Reloading the mismatched bundle alone cannot repair it.
+
 - **2026-10-15: DEV panics during service state construction after a host-port split.** A late `SessionState` extension was set twice, once by service construction and again by desktop setup. Keep initialization in service construction; extension-set failures log the exact type. Rebuild with `dev` and require setup to proceed past service state construction before live probes.
 
 - **2026-10-15: DEV loads stale installed providers after a successful build.** The gateway releases its temporary build drive before launch; compiled workspace paths on that drive no longer exist. `dev-prep.mjs` passes the physical checkout as `CODETERM_DEV_WORKSPACE_ROOT` and resets `CODETERM_WEB_DIST` from that same root. Rebuild with `dev`, then verify the startup plugin paths name the physical checkout and the expected manifest version. Never repair this by copying installed plugins or keeping the build drive mapped.
+
+- **2026-10-16: `dev-prebuilt` refuses with `frontend artifact content mismatch` right after a successful `dev`.** `dev` hashed whatever `dist/` a previous watcher session left (an older HEAD's build identity), then the prebuilt watcher rebuilt `dist/` for the current HEAD, so the record no longer matched the served bundle. `dev` now runs one `CODETERM_FRONTEND_DEV=1 vite build` (`build_dev_frontend`) before `write_dev_provenance`; the watcher's same-HEAD rebuild is byte-identical, so the next `dev-prebuilt` matches. Preflight output and refusals are appended to `/tmp/codeterm-dev-prebuilt<suffix>.log`. Recovery on an older checkout: run `dev` once; a refusal after that is a genuine mismatch (edited `dist/` or sources), so never rewrite the record.
+
+- **2026-10-16: the DEV WebView shows only `dist/index.html missing` after a same-SHA restart.** That text is the 404 body of `scripts/dev-static-server.mjs`. The prebuilt `vite build --watch` emptied `dist/` at the start of its first rebuild (~12s) while the static server and WebView were already up, so the first navigation hit the empty directory. The watcher now runs with `--emptyOutDir false` and overwrites in place; `dev` still builds a clean `dist/` before recording provenance. Recovery on an older checkout: reload the window once the watcher log shows `files generated`, then restart through the fixed `dev`.
 
 - **`dev-prebuilt` refuses a recorded build commit that differs from HEAD** —
   saved provenance belongs to another source revision. Run the normal `dev`
@@ -299,7 +307,7 @@ well as the immediate environment before declaring recovery complete.
 - **Health endpoint returns empty after `kill && dev`** — Rust is still linking. Poll the health endpoint for up to 40s before concluding the restart failed.
 - **`caffeinate` stays running after dev crashes** — if a session used `codeterm keepawake start`, the caffeinate child is owned by the dev process and should die with it. If it doesn't: `pkill -x caffeinate` (safe — targets only the literal binary name).
 - **Port 7686 already in use but no dev window** — stale process from a previous crash. `./build.sh kill` then start. If still occupied, `lsof -nP -iTCP:7686 -sTCP:LISTEN -t | xargs kill` and retry.
-- **2026-09-30: first named `dev --wait` exits 1 silently after "codeterm-embed bundled"** — `record_dev_target` ran `cd` into `<instance>/target/debug`, which a fresh named target does not have yet (only `release/`), and `set -e` aborted without a message. `record_dev_target` now creates the directory; on an older checkout, `mkdir -p ~/.codeterm-dev-<name>/target/debug` and rerun.
+- **2026-09-30: first named `dev --wait` exits 1 silently after bundle preparation** — `record_dev_target` ran `cd` into `<instance>/target/debug`, which a fresh named target does not have yet (only `release/`), and `set -e` aborted without a message. `record_dev_target` now creates the directory; on an older checkout, `mkdir -p ~/.codeterm-dev-<name>/target/debug` and rerun.
 - **`~/.codeterm-dev/mem/` corrupted / mem commands 500** — back it up and restart: `mv ~/.codeterm-dev ~/.codeterm-dev.bak-$(date +%s) && ./build.sh dev`.
 
 ### Windows

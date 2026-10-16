@@ -138,7 +138,6 @@ fn inspect_directory(
         .collect::<Vec<_>>();
     clis.push(codeterm_service_core::paths::data_dir().join("bin/codeterm.exe"));
     let helpers = [
-        root.join("codeterm-embed.exe"),
         root.join("conpty/x64/OpenConsole.exe"),
         root.join("conpty/arm64/OpenConsole.exe"),
     ];

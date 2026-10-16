@@ -14,7 +14,7 @@ const BASELINE: Record<string, number> = {
   "src/components/Canvas": 16,
   "src/components/Extensions": 8,
   "src/components/FrontendCrashBoundary.css": 5,
-  "src/components/MemoryPanel": 46,
+  "src/components/MemoryPanel": 42,
   "src/components/MeshPanel": 2,
   "src/components/Snake": 101,
   "src/components/Terminal": 25,

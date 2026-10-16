@@ -25,12 +25,14 @@ export function AgentsOverview({
   onOpenProvider,
   onOpenGuide,
   focusCard,
+  onSwitchGeneralProvider,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenProvider: (providerId: string) => void;
   onOpenGuide: (section: HelpSectionId) => void;
   focusCard?: SettingsCardAnchorId;
+  onSwitchGeneralProvider?: (provider: string) => Promise<void>;
 }) {
   const { providers, loading, error } = useAgentProviders();
   const authToken = daemonAuthToken(config.api);
@@ -74,7 +76,7 @@ export function AgentsOverview({
         />
       </SettingsCard>
 
-      <ModelDefaultsCard config={config} />
+      <ModelDefaultsCard config={config} onUpdate={onUpdate} onSwitchGeneralProvider={onSwitchGeneralProvider} onOpenGuide={onOpenGuide} />
 
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
 

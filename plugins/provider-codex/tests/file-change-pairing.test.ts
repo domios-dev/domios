@@ -2,13 +2,20 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import plugin from "../src/plugin";
+import { recordInput } from "../../provider-shared/tests/recordHookFixture";
+import type { PluginModule } from "@codeterm/plugin-sdk";
 
 interface Block { kind: string; data: Record<string, any> }
 interface Row { blocks: Block[] }
 interface Parser { parseSessionDelta(chunk: string, context?: {session_key: string; from_offset: number}): {messages: Row[]} }
 const context = { module: { exports: {} as {default: Parser} }, exports: {}, console };
 new vm.Script(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
-for (const parser of [plugin as unknown as Parser, context.module.exports.default]) {
+const recordsParser = (provider: PluginModule): Parser => ({parseSessionDelta(text, context) {
+  const input = recordInput(text,context?.from_offset,context?.session_key);
+  return provider.parseSessionRecords!(input.records,input.meta) as {messages:Row[]};
+}});
+for (const parser of [plugin as unknown as Parser, context.module.exports.default,
+  recordsParser(plugin), recordsParser(context.module.exports.default as unknown as PluginModule)]) {
 const patch = "*** Begin Patch\n*** Update File: /repo/a.ts\n@@\n-oldA\n+newA\n@@\n-oldB\n+newB\n*** End Patch";
 const call = (id = "call-a", turn = "turn-a") => ({ type: "response_item", payload: {
   type: "custom_tool_call", name: "exec", call_id: id,

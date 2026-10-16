@@ -1,4 +1,16 @@
 use super::*;
+
+#[test]
+fn direct_exit_recovery_has_a_spawn_host_without_a_surviving_shell() {
+    for (live, direct, expected) in [
+        (false, false, false),
+        (true, false, true),
+        (false, true, true),
+        (true, true, true),
+    ] {
+        assert_eq!(recovery_has_launch_host(live, direct), expected);
+    }
+}
 use crate::session::lifecycle::{
     CommittedAuthority, LifecycleCheckpoint, LifecycleEntry, LifecycleEpoch, LifecycleKey,
     TabLifecycleJournal,

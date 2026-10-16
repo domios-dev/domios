@@ -25,7 +25,7 @@ import { ModeCards } from "./NewSessionPickerParts";
 import { useAnimatedHeight } from "../shared/useAnimatedHeight";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
-import { WorkspaceFolderError } from "../Sidebar/WorkspaceFolderError";
+import { FolderPaneState } from "../shared/FolderPaneState";
 import { createPortal } from "react-dom";
 
 export function NewSessionPicker({
@@ -335,7 +335,7 @@ export function NewSessionPicker({
           <X aria-hidden size={14} />
         </button>
 
-        {selectedWorkspace?.cwd_missing ? <WorkspaceFolderError workspace={selectedWorkspace} /> : <>
+        {selectedWorkspace?.cwd_missing ? <FolderPaneState workspace={selectedWorkspace} /> : <>
         <div className="relative mb-4" role="group" aria-label="Session mode">
           <ModeCards mode={choice.mode} allowedModes={allowedModes} onSelect={handleModeSelect} />
         </div>

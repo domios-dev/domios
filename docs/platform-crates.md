@@ -128,7 +128,6 @@ canonical execution; this document makes no numerical speed claim.
 | 181 | `src-tauri/src/service/health/process.rs` |
 | 169 | `src-tauri/src/api/fs_routes.rs` |
 | 162 | `src-tauri/src/crash/native.rs` |
-| 155 | `src-tauri/src/bin/codeterm_embed.rs` |
 | 154 | `src-tauri/src/service/capability_probe/process.rs` |
 | 146 | `src-tauri/src/sentinel/probe/test_readiness.rs` |
 | 143 | `src-tauri/src/commands/clipboard.rs` |

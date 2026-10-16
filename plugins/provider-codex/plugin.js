@@ -30,6 +30,428 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/sessionRecords.ts
+function* sessionRecords(input, accepts) {
+  if (typeof input !== "string") {
+    for (const record6 of input) yield { row: record6.row, value: record6.value };
+    return;
+  }
+  const lines = String(input || "").split("\n");
+  for (let row2 = 0; row2 < lines.length; row2++) {
+    const line = lines[row2];
+    if (!line || accepts && !accepts(line)) continue;
+    let value;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    yield { row: row2, value };
+  }
+}
+
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
+// plugins/provider-codex/src/sessions.ts
+var sessionStoreOverrides = {
+  root: "CODETERM_CODEX_SESSIONS_ROOT",
+  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
+  state: "CODETERM_CODEX_STATE_DB_PATH"
+};
+var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
+function foldSessionIndex(contents) {
+  const folded = /* @__PURE__ */ new Map();
+  const lines = String(contents || "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
+    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
+    const current = folded.get(entry.id);
+    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
+      folded.set(entry.id, {
+        id: entry.id,
+        thread_name: entry.thread_name,
+        updated_at: entry.updated_at
+      });
+    }
+  }
+  return Array.from(folded.values());
+}
+function sessionFilePath(_cwd, sessionId) {
+  const path = trimmedField(threadRow(sessionId), "rollout_path");
+  return path && host.fs.fileExists(path) ? path : null;
+}
+function sessionExists(_cwd, sessionId) {
+  if (!sessionId) return false;
+  if (threadRow(sessionId) !== null) return true;
+  const store = codexSessionStore();
+  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
+}
+function detectSessionId(cwd, exclude, maxAgeMs) {
+  if (!cwd || !host.fs.fileExists(cwd)) return null;
+  const store = codexSessionStore();
+  if (!store) return null;
+  const entries = readSessionIndex(store.indexPath);
+  if (entries.length === 0) return null;
+  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
+  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
+  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
+  const matching = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (excluded.has(entry.id)) continue;
+    const updatedMs = sessionTimestamp(entry.updated_at);
+    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
+    const project = readThreadCwd(entry.id);
+    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
+  }
+  return matching.length === 1 ? matching[0] : null;
+}
+function enumerateSessions() {
+  const store = codexSessionStore();
+  if (!store) return [];
+  const entries = readSessionIndex(store.indexPath);
+  return entries.map((entry) => ({
+    sessionId: entry.id,
+    provider: "codex",
+    projectPath: readThreadCwd(entry.id),
+    title: entry.thread_name || null,
+    summary: null,
+    filePath: store.indexPath,
+    createdTs: null,
+    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
+  }));
+}
+function findSession(sessionId) {
+  const row2 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+  if (!row2) return null;
+  const store = codexSessionStore();
+  return {
+    sessionId,
+    provider: "codex",
+    projectPath: resolveThreadCwd(sessionId, row2),
+    title: trimmedField(row2, "name") || trimmedField(row2, "title"),
+    summary: null,
+    filePath: store ? store.indexPath : codexStateDbPath() || "",
+    createdTs: unixSeconds(row2.created_at),
+    modifiedTs: unixSeconds(row2.updated_at)
+  };
+}
+function detectSessionModel(_cwd, sessionId) {
+  return trimmedField(threadRow(sessionId), "model");
+}
+function detectSessionReasoningEffort(_cwd, sessionId) {
+  const path = sessionFilePath(_cwd, sessionId);
+  if (!path) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (typeof contents !== "string") return null;
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[index]);
+    } catch (_) {
+      continue;
+    }
+    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
+    const effort = entry.payload.effort.trim();
+    if (effort) return effort;
+  }
+  return null;
+}
+function threadRow(sessionId) {
+  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
+}
+function queryThreadRow(sessionId, sql) {
+  if (!sessionId) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
+  try {
+    const rows = host.fs.sqliteQuery(db, sql, [sessionId]);
+    return rows.length > 0 ? rows[0] : null;
+  } catch (_) {
+    return null;
+  }
+}
+function unixSeconds(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+function trimmedField(row2, field) {
+  const value = row2 ? row2[field] : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function codexStateDbPath() {
+  const override = host.envGet(sessionStoreOverrides.state);
+  if (override) return override;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  let entries;
+  try {
+    entries = host.fs.readDir(root);
+  } catch (_) {
+    return null;
+  }
+  let best = null;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || !entry.isFile) continue;
+    const match = STATE_DB_NAME.exec(entry.name);
+    if (!match) continue;
+    const version = parseInt(match[1], 10);
+    if (!best || version > best.version) best = { name: entry.name, version };
+  }
+  return best ? root + sep + best.name : null;
+}
+function extractSessionUuid(stem) {
+  if (typeof stem !== "string") return null;
+  const prefix = "rollout-";
+  if (stem.indexOf(prefix) !== 0) return null;
+  const rest = stem.substring(prefix.length);
+  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
+  return rest.substring(20);
+}
+function codexSessionStore() {
+  const indexOverride = host.envGet(sessionStoreOverrides.index);
+  if (indexOverride) return { indexPath: indexOverride };
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  return {
+    indexPath: indexOverride || root + sep + "session_index.jsonl"
+  };
+}
+function trimTrailingSeparators(path) {
+  let end = path.length;
+  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
+  return path.substring(0, end);
+}
+function codexSessionsRoot(sep) {
+  const override = host.envGet(sessionStoreOverrides.root);
+  if (override) return trimTrailingSeparators(override);
+  const home = host.homeDir();
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
+}
+function readSessionIndex(path) {
+  if (!host.fs.fileExists(path)) return [];
+  const contents = host.fs.readFile(path);
+  return typeof contents === "string" ? foldSessionIndex(contents) : [];
+}
+function sessionIndexEntry(path, sessionId) {
+  const entries = readSessionIndex(path);
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].id === sessionId) return entries[i];
+  }
+  return null;
+}
+var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
+function readThreadCwd(sessionId) {
+  return resolveThreadCwd(sessionId, threadRow(sessionId));
+}
+function resolveThreadCwd(sessionId, row2) {
+  if (!row2) {
+    logUnresolvedCwd(sessionId, "no_row");
+    return null;
+  }
+  const cwd = trimmedField(row2, "cwd");
+  if (!cwd) {
+    logUnresolvedCwd(sessionId, "no_cwd");
+    return null;
+  }
+  if (!host.fs.fileExists(cwd)) {
+    logUnresolvedCwd(sessionId, "cwd_absent");
+    return null;
+  }
+  return cwd;
+}
+function logUnresolvedCwd(sessionId, cause) {
+  const key = sessionId + "\0" + cause;
+  if (unresolvedCwdDiagnostics.has(key)) return;
+  unresolvedCwdDiagnostics.add(key);
+  host.log("warn", JSON.stringify({
+    provider: "codex",
+    event: "session_cwd_unresolved",
+    sessionId,
+    cause
+  }));
+}
+function sessionTimestamp(value) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// plugins/provider-codex/src/launchSession.ts
+var MARKER_PREFIX = "codeterm-launch-marker:";
+var MIN_MARKER_LENGTH = 16;
+var ROLLOUT_HEAD_BYTES = 262144;
+var EARLY_RECORDS = 24;
+var CANDIDATE_THREADS = 64;
+function withLaunchMarker(instructions, marker) {
+  if (!marker) return instructions;
+  return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
+}
+function detectCodexLaunchSession(evidence) {
+  const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
+  if (marker.length < MIN_MARKER_LENGTH) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
+  const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
+  const rows = host.fs.sqliteQuery(
+    db,
+    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
+    [since]
+  );
+  const matches = [];
+  for (let i = 0; i < rows.length; i++) {
+    const id = typeof rows[i].id === "string" ? rows[i].id : "";
+    const path = typeof rows[i].rollout_path === "string" ? rows[i].rollout_path : "";
+    if (!id || !path || matches.indexOf(id) !== -1) continue;
+    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
+  }
+  return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
+}
+function rolloutCarriesMarker(path, id, marker) {
+  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
+  if (typeof head !== "string") return false;
+  const lines = head.split("\n");
+  let records = 0;
+  for (let i = 0; i < lines.length && records < EARLY_RECORDS; i++) {
+    if (!lines[i].trim()) continue;
+    records++;
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch (_) {
+      if (records === 1) return false;
+      continue;
+    }
+    const payload = entry && entry.payload;
+    if (records === 1) {
+      if (entry.type !== "session_meta" || !payload || payload.id !== id) return false;
+      continue;
+    }
+    if (entry.type !== "response_item" || !payload || payload.type !== "message") continue;
+    if (payload.role !== "developer" && payload.role !== "user") continue;
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    for (let j = 0; j < content.length; j++) {
+      const text6 = content[j] && content[j].text;
+      if (typeof text6 === "string" && text6.indexOf(marker) !== -1) return true;
+    }
+  }
+  return false;
+}
+
+// plugins/provider-codex/src/launchSpec.ts
+var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
+var POSIX_ARGV_BUDGET = 256 * 1024;
+function utf8Bytes(value) {
+  let bytes = 0;
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    bytes += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+  }
+  return bytes;
+}
+function supportsDirectResume() {
+  try {
+    const manifest = JSON.parse(host.manifestJson() || "null");
+    const minimum = manifest?.capabilities?.structuredControl?.minVersion;
+    const observed = JSON.parse(host.providerVersionJson());
+    if (observed?.status !== "detected" || typeof minimum !== "string") return false;
+    const parse = (value) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
+    const version = parse(String(observed.version));
+    const bound = parse(minimum);
+    if (!version || !bound) return false;
+    for (let index = 0; index < 3; index++) {
+      if (version[index] !== bound[index]) return version[index] > bound[index];
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+function buildCodexLaunchSpec(input, starter) {
+  const platform = host.platform();
+  if (platform === "windows") return null;
+  const args = [...CODEX_LAUNCH_CONFIG];
+  if ("resume" in input) {
+    const resume = input.resume;
+    if (!resume || typeof resume.sessionId !== "string" || !supportsDirectResume()) return null;
+    args.push("resume");
+    if (resume.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
+    args.push(extractSessionUuid(resume.sessionId) || resume.sessionId, "--no-daemon", ...resume.args || []);
+  } else {
+    if (input.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
+    args.push(...input.args || []);
+    if (input.task?.trim()) {
+      const instructions = withLaunchMarker(input.task, input.launchMarker).replace(/\n+$/, "");
+      args.push("-c", "developer_instructions=" + instructions);
+      const prompt = starter(input);
+      if (prompt) args.push("--", prompt);
+    }
+  }
+  const values = ["codex", ...args];
+  if (values.some((value) => value.includes("\0"))) return null;
+  if (values.reduce((bytes, value) => bytes + utf8Bytes(value) + 1, 0) > POSIX_ARGV_BUDGET) return null;
+  if (platform === "linux" && values.some((value) => utf8Bytes(value) + 1 > 128 * 1024)) return null;
+  let exclusions;
+  try {
+    exclusions = JSON.parse(host.manifestJson() || "null")?.capabilities?.agentRuntime?.inheritedEnvironmentExclusions;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(exclusions) || exclusions.some((value) => typeof value !== "string")) return null;
+  return { program: "codex", args, envSet: {}, envUnset: [...exclusions] };
+}
+function codexCommandFromSpec(spec) {
+  const quote = (value) => host.shell.quoteFor(value, host.platform());
+  const unset = spec.envUnset.length ? "unset " + spec.envUnset.map(quote).join(" ") + " && " : "";
+  return unset + [spec.program, ...spec.args].map((value) => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");
+}
+
+// plugins/provider-codex/src/runtimeGoal.ts
+var statuses = /* @__PURE__ */ new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
+function goalIntent(raw, thread) {
+  if (!raw || typeof raw !== "object") return null;
+  const goal = raw;
+  if (thread && goal.threadId !== thread) return null;
+  if (typeof goal.objective !== "string" || !goal.objective.trim()) return null;
+  return { goal: goal.objective, ...typeof goal.status === "string" && statuses.has(goal.status) ? { goalStatus: goal.status } : {} };
+}
+function goalPlan(threadId, value) {
+  const action = value && typeof value === "object" && !Array.isArray(value) ? value.action : void 0;
+  const status = action === "pause" ? "paused" : action === "resume" ? "active" : action === "complete" ? "complete" : void 0;
+  if (action !== "read" && action !== "cancel" && !status) throw new Error("Unsupported goal action");
+  const method = action === "read" ? "thread/goal/get" : action === "cancel" ? "thread/goal/clear" : "thread/goal/set";
+  return { action: { kind: "request", call: { method, params: { threadId, ...action !== "read" ? { origin: "user" } : {}, ...status ? { status } : {} } } }, state: { goalAction: String(action) } };
+}
+function goalResponse(threadId, state, reply) {
+  const refuse = (message) => ({ kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false });
+  if (reply.kind === "error") return refuse(reply.error.message);
+  const value = reply.value;
+  if (!value || typeof value !== "object") return refuse("Goal response is invalid");
+  if (state.goalAction === "cancel") return value.cleared === true ? { kind: "continue", plan: { ...goalPlan(threadId, { action: "read" }), state: { goalAction: "verifyCancel" } } } : refuse("Goal removal was not confirmed");
+  if (!("goal" in value)) return refuse("Goal response is missing");
+  if (state.goalAction === "verifyCancel" && value.goal !== null) return refuse("Goal still exists after removal");
+  const intent = goalIntent(value.goal, threadId);
+  if (value.goal !== null && (!intent || !intent.goalStatus)) return refuse("Goal identity or status is invalid");
+  const expected = state.goalAction === "pause" ? "paused" : state.goalAction === "resume" ? "active" : state.goalAction === "complete" ? "complete" : void 0;
+  if (expected && intent?.goalStatus !== expected) return refuse("Goal status was not confirmed");
+  return { kind: "complete", result: { kind: "goal", threadId, intent } };
+}
+
 // plugins/provider-codex/src/runtimeProtocol.ts
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -65,23 +487,22 @@ var serverRequestMethods = [
 var HISTORY_CHUNK_BYTES = 512 * 1024;
 var ITEM_BYTES = 64 * 1024;
 var STRING_BYTES = 16 * 1024;
-function utf8Bytes(value) {
-  let bytes = 0;
-  for (const char of value) {
-    const point = char.codePointAt(0);
-    bytes += point <= 127 ? 1 : point <= 2047 ? 2 : point <= 65535 ? 3 : 4;
+function utf8Bytes2(value) {
+  try {
+    return unescape(encodeURIComponent(value)).length;
+  } catch {
+    return value.length + (value.match(/[\u0080-\u07ff]/g)?.length ?? 0) + 2 * (value.match(/[\u0800-\uffff]/g)?.length ?? 0) - 2 * (value.match(/[\ud800-\udbff][\udc00-\udfff]/g)?.length ?? 0);
   }
-  return bytes;
 }
 function serializedBytes(value) {
-  return utf8Bytes(JSON.stringify(value));
+  return utf8Bytes2(JSON.stringify(value));
 }
 function boundedString(value) {
   const scrubbed = value.replace(
     /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
-    (image) => `[image omitted: ${utf8Bytes(image)} bytes]`
+    (image) => `[image omitted: ${utf8Bytes2(image)} bytes]`
   );
-  const bytes = utf8Bytes(scrubbed);
+  const bytes = utf8Bytes2(scrubbed);
   if (bytes <= STRING_BYTES) return scrubbed;
   return `${scrubbed.slice(0, 2048)}
 [content truncated: ${bytes} bytes total]`;
@@ -93,10 +514,10 @@ function sanitizeHistory(value) {
       const item = entry;
       if (item.type === "image" && typeof item.data === "string" && !item.data.startsWith("[image omitted:")) {
         const { data, ...rest } = item;
-        return { ...rest, data: `[image omitted: ${utf8Bytes(data)} bytes]` };
+        return { ...rest, data: `[image omitted: ${utf8Bytes2(data)} bytes]` };
       }
       if (item.type === "imageGeneration" && typeof item.result === "string" && !item.result.startsWith("[image omitted:")) {
-        return { ...item, result: `[image omitted: ${utf8Bytes(item.result)} bytes]` };
+        return { ...item, result: `[image omitted: ${utf8Bytes2(item.result)} bytes]` };
       }
     }
     return entry;
@@ -1158,7 +1579,8 @@ function completedActivity(value, ts, timestamp, turnId) {
 
 // plugins/provider-codex/src/runtimeStoredHistory.ts
 function projectHistoryItem(raw, seq, turn, timestamp) {
-  const rows = boundHistoryRows(runtimeItems(historyItem(raw), seq));
+  const source = object(raw);
+  const rows = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
   for (const row2 of rows) {
     row2.toolFlowId = turn;
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
@@ -1184,16 +1606,46 @@ function recordedItem(raw) {
     const value = object(part);
     return { ...value, ...typeof value.type === "string" ? { type: value.type.replace(/^./, (letter) => letter.toLowerCase()) } : {} };
   });
+  if (item.type === "agentMessage" && typeof item.text !== "string" && Array.isArray(item.content)) {
+    item.text = item.content.map(object).filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n");
+  }
   return item;
 }
+function storedRecordType(line) {
+  const tokens = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
+  const opening = tokens.exec(line);
+  if (opening?.[0] !== "{") return void 0;
+  for (let token = tokens.exec(line); token; token = tokens.exec(line)) {
+    if (token[1] !== void 0) return token[1];
+    if (token[0] === "{" || token[0] === "[") return void 0;
+  }
+  return void 0;
+}
 function runtimeStoredHistory(sessionId, records) {
-  const rows = /* @__PURE__ */ new Map();
+  return projectStoredRecords(sessionId, textRecords(records));
+}
+function* textRecords(records) {
   for (const line of records.split("\n")) {
     if (!line.trim()) continue;
-    const record5 = object(JSON.parse(line));
-    const payload = object(record5.payload);
-    if (record5.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
-    if (record5.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
+    const type = storedRecordType(line);
+    if (type !== void 0 && type !== "event_msg" && type !== "session_meta") continue;
+    yield JSON.parse(line);
+  }
+}
+function runtimeStoredRecords(sessionId, records) {
+  return projectStoredRecords(sessionId, records.map((record6) => {
+    if (!record6.oversized) return record6.value;
+    const value = object(record6.value), payload = object(value.payload);
+    return { ...value, payload: { ...payload, item: { ...object(payload.item), historyTruncated: true } } };
+  }));
+}
+function projectStoredRecords(sessionId, records) {
+  const rows = /* @__PURE__ */ new Map();
+  for (const raw of records) {
+    const record6 = object(raw);
+    const payload = object(record6.payload);
+    if (record6.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
+    if (record6.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
     const turn = text(payload.turn_id);
     if (!turn || !text(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
     const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms);
@@ -1203,6 +1655,100 @@ function runtimeStoredHistory(sessionId, records) {
     }
   }
   return [...rows.values()];
+}
+
+// plugins/provider-codex/src/runtimeHistoryPager.ts
+var PREFIX = "history:";
+function failure(message) {
+  throw { code: "provider_refused", message };
+}
+function encode(position) {
+  return PREFIX + JSON.stringify(position);
+}
+function decode(op) {
+  if (!op.cursor) return { pager: 1, thread: op.threadId, stage: "turns", cursor: null, historyItemLimit: 16 };
+  if (!op.cursor.startsWith(PREFIX) || op.cursor.length > 128 * 1024) failure("Invalid history checkpoint");
+  const position = JSON.parse(op.cursor.slice(PREFIX.length));
+  if (position.pager !== 1 || position.thread !== op.threadId || !["turns", "items", "goal"].includes(position.stage) || position.cursor !== null && typeof position.cursor !== "string" || position.stage === "items" && !text(object(position.turn).id)) failure("History checkpoint differs from bound thread");
+  position.historyItemLimit ?? (position.historyItemLimit = 16);
+  if (!Number.isSafeInteger(position.historyItemLimit) || position.historyItemLimit < 1 || position.historyItemLimit > 16) failure("Invalid history item limit");
+  return position;
+}
+function pagedHistoryPlan(op) {
+  const state = decode(op);
+  const params = { threadId: op.threadId, sortDirection: "desc", cursor: state.cursor };
+  const call = state.stage === "items" ? { method: "thread/items/list", params: { ...params, turnId: state.turn.id, limit: state.historyItemLimit } } : state.stage === "goal" ? { method: "thread/goal/get", params: { threadId: op.threadId } } : { method: "thread/turns/list", params: { ...params, itemsView: "notLoaded", limit: 1 } };
+  return { action: { kind: "request", call: { ...call, params: call.params } }, state };
+}
+function nextCursor(value, previous) {
+  const next = text(value.nextCursor) ?? null;
+  if (next && (next.length > 4096 || next === previous)) failure("History RPC cursor did not advance");
+  return next;
+}
+function finish(op, items, openItems, questions, next) {
+  return { kind: "complete", result: {
+    kind: "historyPage",
+    threadId: op.threadId,
+    order: "desc",
+    items,
+    openItems,
+    ...questions.length ? { questions } : {},
+    ...next ? { nextCursor: encode(next) } : {}
+  } };
+}
+function pagedHistoryResponse(op, raw, reply) {
+  const state = raw;
+  if (state.thread !== op.threadId) failure("History checkpoint differs from bound thread");
+  if (reply.kind === "error") {
+    const smaller = object(reply.error.data).historyPageLimit;
+    if (state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < (state.historyItemLimit ?? 16)) {
+      return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode({ ...state, historyItemLimit: smaller }) }) };
+    }
+    if (state.stage === "goal") return finish(op, [], [], []);
+    failure(`History ${state.stage} read failed (${reply.error.code}): ${reply.error.message}`);
+  }
+  const value = object(reply.value);
+  if (state.stage === "goal") {
+    const goal = text(object(value.goal).objective);
+    return finish(op, goal ? [{ id: "thread:goal", seq: 0, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal } }] : [], [], []);
+  }
+  if (!Array.isArray(value.data)) failure("History page has no data array");
+  const next = nextCursor(value, state.cursor);
+  if (state.stage === "turns") {
+    if (value.data.length > 1) failure("History turn page exceeds requested limit");
+    const turn = object(value.data[0]);
+    if (!value.data.length) return finish(op, [], [], [], next ? { ...state, cursor: next } : { ...state, stage: "goal", cursor: null });
+    if (!text(turn.id) || String(turn.id).length > 4096) failure("History turn identity missing or oversized");
+    const position2 = {
+      pager: 1,
+      thread: op.threadId,
+      stage: "items",
+      cursor: null,
+      nextTurn: next,
+      turn: { id: String(turn.id), status: turn.status === "inProgress" ? "inProgress" : "completed", startedAt: typeof turn.startedAt === "number" && Number.isFinite(turn.startedAt) ? turn.startedAt : null }
+    };
+    return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode(position2) }) };
+  }
+  if (value.data.length > (state.historyItemLimit ?? 16)) failure("History item page exceeds requested limit");
+  const items = [], openItems = [];
+  let questions = [], bytes = 0;
+  const offset = state.offset ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
+  for (let index = offset; index < value.data.length; index++) {
+    const record6 = object(value.data[index]), item = record6.item ?? record6;
+    const rows = projectHistoryItem(item, 0, state.turn.id, record6.startedAtMs ?? record6.completedAtMs);
+    const nextQuestions = reconcileHistoryQuestions(op.threadId, item, questions);
+    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
+    const opened = active ? rows.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
+    const used = serializedBytes({ rows, opened, questions: nextQuestions });
+    if (bytes + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
+    bytes += used;
+    items.unshift(...rows);
+    openItems.unshift(...opened);
+    questions = nextQuestions;
+  }
+  const position = next ? { ...state, cursor: next, offset: 0 } : { pager: 1, thread: op.threadId, stage: state.nextTurn ? "turns" : "goal", cursor: state.nextTurn ?? null };
+  return finish(op, items, openItems, questions, position);
 }
 
 // plugins/provider-codex/src/runtimeLogin.ts
@@ -1236,8 +1782,37 @@ function loginCompleted(value) {
   return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
 }
 
+// plugins/provider-codex/src/resetCredits.ts
+function expiry(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 864e10 ? value * 1e3 : null;
+}
+function resetCredits(raw) {
+  const summary = object(raw);
+  const count = summary.available_count;
+  if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return void 0;
+  const credits = Array.isArray(summary.credits) ? summary.credits.flatMap((rawCredit) => {
+    const credit = object(rawCredit);
+    const id = text(credit.id);
+    if (!id) return [];
+    const status = credit.status === "available" || credit.status === "redeeming" || credit.status === "redeemed" ? credit.status : "unknown";
+    return [{
+      id,
+      status,
+      expiresAt: expiry(credit.expires_at),
+      ...text(credit.title) ? { title: text(credit.title) } : {},
+      ...text(credit.description) ? { description: text(credit.description) } : {}
+    }];
+  }) : null;
+  const expiries = credits?.filter((credit) => credit.status === "available" && credit.expiresAt !== null).map((credit) => credit.expiresAt) ?? [];
+  return { availableCount: count, nextExpiry: expiries.length ? Math.min(...expiries) : null, credits };
+}
+function resetOutcome(raw) {
+  const outcome2 = object(raw).outcome;
+  return outcome2 === "reset" || outcome2 === "nothingToReset" || outcome2 === "noCredit" || outcome2 === "alreadyRedeemed" ? outcome2 : void 0;
+}
+
 // plugins/provider-codex/src/runtimeUsage.ts
-function rateLimitEvents(raw) {
+function rateLimitEvents(raw, rawResets) {
   const limits = object(raw);
   if (limits.limitId && limits.limitId !== "codex") return [];
   const windows = ["primary", "secondary"].flatMap((window) => {
@@ -1250,7 +1825,8 @@ function rateLimitEvents(raw) {
       ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
     }];
   });
-  return windows.length ? [{ kind: "rateLimits", rateLimits: windows }] : [];
+  const resets = resetCredits(rawResets);
+  return windows.length || resets ? [{ kind: "rateLimits", rateLimits: windows, ...resets ? { resets } : {} }] : [];
 }
 
 // plugins/provider-codex/src/runtimeAuth.ts
@@ -1266,6 +1842,60 @@ function notificationAuth(value) {
   if (params.authMode === null) return { kind: "auth", state: "signedOut" };
   if (text(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
+}
+
+// plugins/provider-codex/src/runtimeBackground.ts
+var identifier = (value) => typeof value === "string" && value.length > 0 && value.length <= 4096 && !value.includes("\0");
+function invalid(message) {
+  throw { code: "invalid_schema", message };
+}
+function backgroundOwns(ctx, thread) {
+  const seen = /* @__PURE__ */ new Set();
+  while (thread !== ctx.threadId) {
+    if (seen.has(thread)) return false;
+    seen.add(thread);
+    const parent = ctx.threadParents.find((parent2) => parent2.threadId === thread);
+    if (!parent) return false;
+    thread = parent.parentThreadId;
+  }
+  return !!ctx.threadId;
+}
+function backgroundPlan(ctx, op) {
+  if (!backgroundOwns(ctx, op.threadId)) throw { code: "binding_mismatch", message: "Background thread is not owned" };
+  const params = { threadId: op.threadId };
+  if (op.action.kind === "list") {
+    params.cursor = op.action.cursor;
+    params.limit = 256;
+  }
+  if (op.action.kind === "terminate") params.processId = op.action.processId;
+  if (op.action.kind === "terminate" && !identifier(op.action.processId)) invalid("Invalid background process id");
+  if (op.action.kind === "list" && op.action.cursor !== null && !identifier(op.action.cursor)) invalid("Invalid background cursor");
+  return { action: { kind: "request", call: { method: `thread/backgroundTerminals/${op.action.kind}`, params, target: { threadId: op.threadId } } }, state: null };
+}
+function backgroundResponse(op, reply) {
+  if (reply.kind === "error" && reply.error.code === -32600 && reply.error.data == null && reply.error.message === `thread not found: ${op.threadId}`) {
+    if (op.action.kind === "list") return { kind: "complete", result: { kind: "backgroundProcesses", threadId: op.threadId, processes: [], nextCursor: null } };
+    if (op.action.kind === "terminate") return { kind: "complete", result: { kind: "backgroundProcessTermination", threadId: op.threadId, processId: op.action.processId, acknowledged: false } };
+    return { kind: "complete", result: { kind: "done" } };
+  }
+  if (reply.kind === "error") return { kind: "refused", reason: { code: "provider_refused", message: reply.error.message }, beforeAcceptance: false };
+  const value = object(reply.value);
+  if (op.action.kind === "clean") return { kind: "complete", result: { kind: "done" } };
+  if (op.action.kind === "terminate") {
+    if (typeof value.terminated !== "boolean") invalid("Missing termination acknowledgement");
+    return { kind: "complete", result: { kind: "backgroundProcessTermination", threadId: op.threadId, processId: op.action.processId, acknowledged: value.terminated } };
+  }
+  if (!Array.isArray(value.data) || value.data.length > 256) invalid("Invalid background process page");
+  if (value.nextCursor !== null && !identifier(value.nextCursor)) invalid("Missing or invalid background cursor");
+  if (value.nextCursor !== null && value.nextCursor === op.action.cursor) invalid("Repeated background cursor");
+  const seen = /* @__PURE__ */ new Set();
+  const processes = value.data.map((raw) => {
+    const entry = object(raw);
+    if (!identifier(entry.processId) || !identifier(entry.itemId) || !identifier(entry.cwd) || typeof entry.command !== "string" || entry.command.length > 65536 || entry.command.includes("\0") || entry.osPid !== null && (!Number.isInteger(entry.osPid) || Number(entry.osPid) < 1 || Number(entry.osPid) > 4294967295) || seen.has(entry.processId)) invalid("Invalid background process entry");
+    seen.add(entry.processId);
+    return { processId: entry.processId, itemId: entry.itemId, command: entry.command, cwd: entry.cwd, osPid: entry.osPid };
+  });
+  return { kind: "complete", result: { kind: "backgroundProcesses", threadId: op.threadId, processes, nextCursor: value.nextCursor } };
 }
 
 // plugins/provider-codex/src/runtimeInterrupt.ts
@@ -1286,6 +1916,31 @@ function interruptTargets(ctx, root) {
     return count;
   };
   return turns.map((turn) => ({ turn, depth: depth(turn.threadId) })).filter((entry) => entry.depth >= 0).sort((a, b) => b.depth - a.depth || a.turn.threadId.localeCompare(b.turn.threadId)).map((entry) => entry.turn);
+}
+
+// plugins/provider-codex/src/runtimeBinding.ts
+function descendantThread(ctx, threadId) {
+  if (!ctx.threadId || threadId === ctx.threadId) return false;
+  const seen = /* @__PURE__ */ new Set();
+  let current = threadId;
+  while (current !== ctx.threadId) {
+    if (seen.has(current)) return false;
+    seen.add(current);
+    const parents = ctx.threadParents.filter((parent) => parent.threadId === current);
+    if (parents.length !== 1) return false;
+    current = parents[0].parentThreadId;
+  }
+  return true;
+}
+function historyThread(ctx, value, expected) {
+  if (expected === ctx.threadId) return userThread(value, expected) !== void 0;
+  if (!descendantThread(ctx, expected)) return false;
+  const thread = object(object(value).thread);
+  if (text(thread.id) !== expected) return false;
+  const parent = ctx.threadParents.find((entry) => entry.threadId === expected)?.parentThreadId;
+  const declared = text(thread.parentThreadId);
+  const source = text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+  return (declared !== void 0 || source !== void 0) && (declared === void 0 || declared === parent) && (source === void 0 || source === parent);
 }
 
 // plugins/provider-codex/src/runtimePrompts.ts
@@ -1367,48 +2022,55 @@ function runtimeAnswer(method, params, id, answer) {
 }
 
 // plugins/provider-codex/src/runtimeContext.ts
-function invalid(message) {
+function invalid2(message) {
   throw { code: "invalid_schema", message };
 }
 function exactObject(raw, keys) {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) invalid("Invalid restoreContext object");
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) invalid2("Invalid restoreContext object");
   const value = object(raw);
-  if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) invalid("Invalid restoreContext fields");
+  if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) invalid2("Invalid restoreContext fields");
   return value;
 }
 function restoreContextItems(raw) {
   const value = exactObject(raw, ["instructions", "additionalContext"]);
-  if (value.instructions !== null && typeof value.instructions !== "string") invalid("Invalid restoreContext instructions");
-  if (!Array.isArray(value.additionalContext)) invalid("Invalid restoreContext additionalContext");
-  const keys = /* @__PURE__ */ new Set();
+  if (value.instructions !== null && typeof value.instructions !== "string") invalid2("Invalid restoreContext instructions");
+  if (!Array.isArray(value.additionalContext)) invalid2("Invalid restoreContext additionalContext");
+  const entries = /* @__PURE__ */ new Map();
   for (const rawEntry of value.additionalContext) {
     const entry = exactObject(rawEntry, ["key", "kind", "value"]);
-    if (typeof entry.key !== "string" || typeof entry.value !== "string" || entry.kind !== "application" && entry.kind !== "user") invalid("Invalid restoreContext entry");
-    if (keys.has(entry.key)) invalid("Duplicate restoreContext key");
-    keys.add(entry.key);
+    if (typeof entry.key !== "string" || typeof entry.value !== "string" || entry.kind !== "application" && entry.kind !== "user") invalid2("Invalid restoreContext entry");
+    const previous = entries.get(entry.key);
+    if (previous && (previous.kind !== entry.kind || previous.value !== entry.value)) invalid2("Conflicting restoreContext key");
+    entries.set(entry.key, entry);
   }
   const context = value;
   const item = (role, text6) => ({ type: "message", role, content: [{ type: "input_text", text: text6 }] });
   const items = context.instructions ? [item("developer", context.instructions)] : [];
-  for (const entry of context.additionalContext) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
-  if (!items.length) invalid("Empty restoreContext");
+  for (const entry of entries.values()) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
+  if (!items.length) invalid2("Empty restoreContext");
   return items;
 }
 
 // plugins/provider-codex/src/runtimeSettings.ts
+function codexServiceTier(settings) {
+  return settings.fastMode === void 0 ? {} : { serviceTier: settings.fastMode ? "priority" : null };
+}
 function codexRuntimePolicy(settings) {
   const selected = settings.mode ?? "auto-accept-edits";
   const policies = {
     "approval-required": ["untrusted", "user", "readOnly"],
     "auto-accept-edits": ["on-request", "user", "workspaceWrite"],
     "auto": ["on-request", "auto_review", "workspaceWrite"],
-    "full-access": ["never", "user", "dangerFullAccess"]
+    "full-access": ["never", "user", "dangerFullAccess"],
+    "read-only": ["never", "user", "readOnly"],
+    "workspace-write": ["never", "user", "workspaceWrite"]
   };
   const policy = policies[selected];
   if (!policy) throw { code: "unsupported", message: `Unsupported runtime mode: ${selected}` };
   return { approvalPolicy: policy[0], approvalsReviewer: policy[1], sandboxPolicy: {
     type: policy[2],
-    ...policy[2] === "workspaceWrite" && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
+    ...(policy[2] === "workspaceWrite" || selected === "read-only") && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
+    ...selected === "workspace-write" ? { writableRoots: [...settings.additionalDirectories ?? []], excludeTmpdirEnvVar: true, excludeSlashTmp: true } : {},
     ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
   } };
 }
@@ -1417,6 +2079,11 @@ function codexThreadConfig(settings) {
   return {
     check_for_update_on_startup: false,
     project_doc_max_bytes: 65536,
+    ...["read-only", "workspace-write"].includes(settings.mode ?? "") ? {
+      "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories ?? []],
+      "sandbox_workspace_write.exclude_tmpdir_env_var": true,
+      "sandbox_workspace_write.exclude_slash_tmp": true
+    } : {},
     ...workspaceWrite && settings.networkAccess !== void 0 ? { "sandbox_workspace_write.network_access": settings.networkAccess } : {},
     ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
     ...settings.effort ? { model_reasoning_effort: settings.effort } : {}
@@ -1426,16 +2093,19 @@ function codexReportedSettings(raw) {
   const root = object(raw);
   const settings = root.threadSettings ? object(root.threadSettings) : root;
   const thread = object(settings.thread);
+  const tier = settings.serviceTier !== void 0 ? settings.serviceTier : thread.serviceTier;
+  const fastMode = tier === void 0 ? void 0 : tier === "priority" || tier === "fast";
   const model = text(settings.model) ?? text(thread.model);
   const effort = text(settings.reasoningEffort) ?? text(settings.effort) ?? text(thread.reasoningEffort) ?? text(thread.effort);
   const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
   const approval = settings.approvalPolicy ?? thread.approvalPolicy;
   const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
-  const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
-  return { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
+  const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
+  return { ...fastMode !== void 0 ? { fastMode } : {}, ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
 }
 function codexEffectiveSettings(requested, reply) {
-  return { ...requested, ...codexReportedSettings(reply) };
+  const { fastMode: _requestedFastMode, ...other } = requested;
+  return { ...other, ...codexReportedSettings(reply) };
 }
 
 // plugins/provider-codex/src/runtimeErrors.ts
@@ -1548,7 +2218,7 @@ function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
     state.rows[agent] = row2.id;
     parents[agent] = parent;
     state.ordinal += 1;
-    row2.toolInput = { ...object(row2.toolInput), agent_ordinal: spawn ? object(row2.toolInput).agent_ordinal : state.ordinal };
+    row2.toolInput = { ...object(row2.toolInput), agent_parent_thread_id: parent, agent_ordinal: state.ordinal };
     return [row2];
   });
 }
@@ -1657,7 +2327,7 @@ function compactState(state) {
   state.childCompleted = tail(state.childCompleted);
   fitTotal(state);
 }
-function utf8Bytes2(value) {
+function utf8Bytes3(value) {
   let bytes = 0;
   for (let index = 0; index < value.length; index++) {
     const unit = value.charCodeAt(index);
@@ -1672,15 +2342,15 @@ function utf8Bytes2(value) {
 }
 var MIN_RUNNING_CAP = 1024;
 function fitTotal(state) {
-  if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+  if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
   const retiredOrder = () => (state.retired ?? []).filter((id) => state.items[id]);
-  while (retiredOrder().length > 0 && utf8Bytes2(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
+  while (retiredOrder().length > 0 && utf8Bytes3(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
     const drop = retiredOrder().slice(0, Math.max(1, Math.ceil(retiredOrder().length / 4)));
     for (const id of drop) delete state.items[id];
     state.retired = retiredOrder();
   }
   for (let cap = STATE_TEXT_CAP / 2; cap >= MIN_RUNNING_CAP; cap = Math.floor(cap / 2)) {
-    if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+    if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
     for (const [id, row2] of Object.entries(state.items)) state.items[id] = capRow(row2, cap);
     for (const parts of Object.values(state.reasoning ?? {})) {
       parts.summary = parts.summary.map((part) => capText(part, cap));
@@ -1741,7 +2411,7 @@ function sendEvidence(ctx, item, turnId) {
     if (expected.url) return image.type === "image" && image.url === expected.url;
     return !!expected.path && image.type === "localImage" && image.path === expected.path;
   })) return void 0;
-  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId };
+  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId, ...text(item.id) ? { itemId: text(item.id) } : {} };
 }
 function stamp(state, row2, params) {
   const previous = state.items[row2.id];
@@ -1823,6 +2493,11 @@ function runtimeReduce(ctx, raw, frames) {
       continue;
     }
     if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId) && frame.method !== "serverRequest/resolved") {
+      if ((frame.method === "item/started" || frame.method === "item/completed") && ctx.threadId) {
+        state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
+        const agents = reduceRuntimeAgents(state.agents, state.items, state.parents, params.threadId, params.item, state.seq + 1);
+        if (agents) for (const activity of agents) events.push({ kind: "chatItem", threadId: ctx.threadId, item: stamp(state, activity, params) });
+      }
       const threadId2 = params.threadId;
       const turnId2 = text(object(params.turn).id) ?? text(params.turnId);
       if (!turnId2) continue;
@@ -1843,7 +2518,7 @@ function runtimeReduce(ctx, raw, frames) {
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
-      events.push(...rateLimitEvents(state.rateLimitSnapshot));
+      events.push(...rateLimitEvents(state.rateLimitSnapshot, params.rate_limit_reset_credits));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
@@ -1880,9 +2555,9 @@ function runtimeReduce(ctx, raw, frames) {
         events.push(...interruptPendingCalls(state, threadId, turnId));
         delete state.activeTurnId;
         delete state.compacting;
-        const failure = object(object(params.turn).error);
-        if (text(failure.message)) {
-          const error = runtimeError(failure);
+        const failure2 = object(object(params.turn).error);
+        if (text(failure2.message)) {
+          const error = runtimeError(failure2);
           events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
         }
         const outcome2 = turnOutcome(params.turn);
@@ -1938,7 +2613,7 @@ function runtimeReduce(ctx, raw, frames) {
       }
       case "thread/goal/updated": {
         const goal = text(object(params.goal).objective);
-        if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: { goal } }, params) });
+        if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: goalIntent(params.goal) ?? { goal } }, params) });
         break;
       }
       case "turn/plan/updated": {
@@ -2046,6 +2721,7 @@ function settingsParams(ctx, settings, instructions) {
   return {
     cwd: ctx.cwd,
     model: settings.model,
+    ...codexServiceTier(settings),
     threadSource: "user",
     config: codexThreadConfig(settings),
     approvalPolicy: policies.approvalPolicy,
@@ -2068,17 +2744,32 @@ function turnParams(ctx, op) {
     input,
     cwd: ctx.cwd,
     ...codexRuntimePolicy(op.settings),
+    ...codexServiceTier(op.settings),
     model: op.settings.model,
     effort: op.settings.effort
   };
 }
 function validateBinding(ctx, op) {
-  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId) fail2("binding_mismatch", "Thread differs from the bound thread");
+  if (op.kind === "backgroundProcesses") {
+    if (!backgroundOwns(ctx, op.threadId)) fail2("binding_mismatch", "Background thread is not owned");
+    return;
+  }
+  if (op.kind === "readHistory" && !ctx.threadId) fail2("binding_mismatch", "History requires a bound root thread");
+  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId && !(op.kind === "readHistory" && descendantThread(ctx, op.threadId))) fail2("binding_mismatch", "Thread differs from the bound thread");
   if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail2("binding_mismatch", "Active turn differs from the bound turn");
 }
+function historyTarget(ctx, op, plan) {
+  if (op.kind !== "readHistory" || op.threadId === ctx.threadId || plan.action.kind !== "request") return plan;
+  return { ...plan, action: { ...plan.action, call: { ...plan.action.call, target: { threadId: op.threadId } } } };
+}
 function runtimePlan(ctx, op) {
+  return historyTarget(ctx, op, planOperation(ctx, op));
+}
+function planOperation(ctx, op) {
   validateBinding(ctx, op);
   switch (op.kind) {
+    case "backgroundProcesses":
+      return backgroundPlan(ctx, op);
     case "initialize":
       return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
     case "openThread":
@@ -2086,9 +2777,10 @@ function runtimePlan(ctx, op) {
     case "resumeThread":
       return request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true });
     case "readHistory":
+      if (op.order === "desc") return pagedHistoryPlan(op);
       return request(
         "thread/turns/list",
-        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "asc", limit: 8, cursor: op.cursor },
+        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: op.order ?? "asc", limit: 8, cursor: op.cursor },
         { stage: "turns", turns: [], cursor: null, seq: 0 }
       );
     case "submitTurn": {
@@ -2109,17 +2801,25 @@ function runtimePlan(ctx, op) {
       return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(pending.method, pending.params, op.requestId, op.answer) } }, state: null };
     }
     case "control": {
+      if (op.action === "readResetCredits") return request("account/rateLimits/read", { exclude_reset_credit_details: object(op.value).details !== true });
+      if (op.action === "redeemResetCredit") {
+        const key = text(object(op.value).idempotencyKey);
+        if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail2("invalid_schema", "A confirmation UUID is required");
+        return request("account/rateLimitResetCredit/consume", { idempotency_key: key });
+      }
       if (op.action === "login") return loginPlan(op.value);
       if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
       const thread = op.threadId ?? ctx.threadId;
       if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
+      if (op.action === "goal") return goalPlan(thread, op.value);
       if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
       if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
       const settings = op.action === "settings" ? { ...ctx.settings, ...object(op.value) } : { ...ctx.settings, [op.action]: op.value };
       for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
+      if (settings.fastMode !== void 0 && typeof settings.fastMode !== "boolean") fail2("invalid_schema", "Invalid fastMode");
       const parsed = settings;
-      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
+      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), ...codexServiceTier(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
     }
   }
 }
@@ -2130,14 +2830,37 @@ function continuation(plan, beforeAcceptance) {
   return { kind: "continue", plan, ...beforeAcceptance ? { beforeAcceptance } : {} };
 }
 function runtimeResponse(ctx, op, raw, reply) {
+  const step = respondOperation(ctx, op, raw, reply);
+  return step.kind === "continue" ? { ...step, plan: historyTarget(ctx, op, step.plan) } : step;
+}
+function respondOperation(ctx, op, raw, reply) {
   validateBinding(ctx, op);
+  if (op.kind === "backgroundProcesses") return backgroundResponse(op, reply);
   const state = object(raw);
+  if (op.kind === "control" && op.action === "goal") return goalResponse(op.threadId ?? ctx.threadId, state, reply);
+  if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns" && !op.cursor && reply.error.code === -32600 && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
+    return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "unmaterialized" }));
+  if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
+    const thread = object(object(reply.value).thread);
+    if (!historyThread(ctx, reply.value, op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
+      return refused("Empty thread identity unverified");
+    return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: [], openItems: [], ...op.order ? { order: op.order } : {} } };
+  }
+  if (op.kind === "readHistory" && state.pager === 1) {
+    if (reply.kind === "error" && reply.error.code === -32601 && ["turns", "items"].includes(String(state.stage)))
+      return historyComplete(op, { items: [], openItems: [] });
+    return pagedHistoryResponse(op, state, reply);
+  }
   if (reply.kind === "error") {
+    const smaller = object(reply.error.data).historyPageLimit;
+    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
+      return historyItems(op, { ...state, historyItemLimit: smaller }, text(state.cursor));
+    if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" } };
     if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: { kind: "initialized" }, events: [state.auth] };
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
     if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
-      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", seq: 0 }));
+      return historyComplete(op, { items: [], openItems: [] });
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
       return continuation(request("turn/start", turnParams(ctx, op)), true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
@@ -2151,19 +2874,14 @@ function runtimeResponse(ctx, op, raw, reply) {
       if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
       if (state.stage === "initializeAccount") {
         const auth = accountAuth(value);
-        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", {}, { stage: "initializeLimits", auth }));
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", { exclude_reset_credit_details: true }, { stage: "initializeLimits", auth }));
         return { kind: "complete", result: { kind: "initialized" }, events: [auth] };
       }
-      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits)] };
+      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits)] };
     case "openThread": {
-      if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: state.settings } };
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
-      return continuation(request(
-        "thread/inject_items",
-        { threadId, items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: "Domios thread binding marker." }] }] },
-        { stage: "materialize", threadId, settings: codexEffectiveSettings(op.settings, value) }
-      ));
+      return { kind: "complete", result: { kind: "threadLoaded", threadId, settings: codexEffectiveSettings(op.settings, value) } };
     }
     case "resumeThread": {
       if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
@@ -2183,9 +2901,18 @@ function runtimeResponse(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "done" } };
     }
     case "control": {
+      if (op.action === "readResetCredits") return { kind: "complete", result: { kind: "done" }, events: rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits) };
+      if (op.action === "redeemResetCredit") {
+        if (state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" }, events: rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits) };
+        const outcome2 = resetOutcome(value);
+        if (!outcome2) return refused("Unknown reset credit outcome");
+        if (outcome2 === "reset") return continuation(request("account/rateLimits/read", { exclude_reset_credit_details: false }, { stage: "refreshResetCredits" }));
+        return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: outcome2 } };
+      }
       if (op.action === "login") return loginResponse(state, value);
       if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
-      return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
+      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).fastMode !== void 0 && codexReportedSettings(value).fastMode === void 0;
+      return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" && !awaitingTier ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
     }
     case "answer":
     case "answerQuestion":
@@ -2193,33 +2920,16 @@ function runtimeResponse(ctx, op, raw, reply) {
   }
 }
 function historyResponse(op, state, value) {
-  if (state.stage === "snapshot") {
-    if (!userThread(value, op.threadId)) return refused("History snapshot thread identity unverified");
-    const turns2 = object(value.thread).turns;
-    if (!Array.isArray(turns2)) return refused("Missing history snapshot turns");
-    let collected2 = { ...state, items: [], openItems: [], questions: [] };
-    for (const raw of turns2.slice(Number(state.snapshotTurn ?? 0))) {
-      const turn2 = object(raw);
-      if (!text(turn2.id) || !Array.isArray(turn2.items)) return refused("Missing history snapshot turn items");
-      collected2 = collectHistoryItems(op, collected2, turn2, turn2.items);
-      if (collected2.offset != null) return streamHistory(op, continuation(request(
-        "thread/read",
-        { threadId: op.threadId, includeTurns: true },
-        { ...collected2, stage: "snapshot", snapshotTurn: turns2.indexOf(raw) }
-      )), collected2);
-    }
-    return historyGoal(op, collected2);
-  }
   if (state.stage === "goal") {
     const objective = text(object(sanitizeHistory(object(value.goal))).objective);
-    if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: { goal: objective } }];
+    if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal: objective } }];
     return historyComplete(op, state);
   }
   if (!Array.isArray(value.data)) return refused("Missing history page data");
   if (state.stage === "turns") {
     const source = list(value.data).map(object);
     if (source.length > 8 || source.some((turn2) => typeof turn2.id !== "string" || !turn2.id || turn2.id.length > 4096)) return refused("Invalid history turn page");
-    const turns2 = source.map((turn2) => ({
+    const turns2 = (op.order === "desc" ? [...source].reverse() : source).map((turn2) => ({
       id: turn2.id,
       status: turn2.status === "inProgress" ? "inProgress" : "completed",
       startedAt: typeof turn2.startedAt === "number" && Number.isFinite(turn2.startedAt) ? turn2.startedAt : null
@@ -2251,12 +2961,12 @@ function collectHistoryItems(op, state, turn, entries) {
   let questions = list(state.questions);
   let bytes = serializedBytes({ items, openItems, questions });
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
-    const record5 = object(entries[index]);
-    const rawItem = historyItem(record5.item ?? record5);
+    const record6 = object(entries[index]);
+    const rawItem = historyItem(record6.item ?? record6);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const timestamp = record5.startedAtMs ?? record5.completedAtMs;
+    const timestamp = record6.startedAtMs ?? record6.completedAtMs;
     const rows = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp);
-    const active = turn.status === "inProgress" && turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
     if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
@@ -2271,7 +2981,7 @@ function collectHistoryItems(op, state, turn, entries) {
 function historyItems(op, state, cursor) {
   const turn = object(list(state.turns)[Number(state.index)]);
   if (!text(turn.id)) return refused("Missing history turn id");
-  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: 100, cursor }, { ...state, cursor: cursor ?? null }));
+  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: Number(state.historyItemLimit ?? 100), cursor }, { ...state, historyItemLimit: Number(state.historyItemLimit ?? 100), cursor: cursor ?? null }));
 }
 function historyGoal(op, state) {
   if (text(state.nextCursor)) return historyComplete(op, state);
@@ -2284,7 +2994,8 @@ function historyComplete(op, state) {
     items: list(state.items),
     openItems: list(state.openItems),
     ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
-    ...list(state.questions).length ? { questions: list(state.questions) } : {}
+    ...list(state.questions).length ? { questions: list(state.questions) } : {},
+    ...op.order ? { order: op.order } : {}
   } };
 }
 function streamHistory(op, step, state) {
@@ -2338,7 +3049,7 @@ function statusCode2(value) {
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
   return null;
 }
-function classifyAccessError(error, record5) {
+function classifyAccessError(error, record6) {
   const detail = object2(error);
   const info = detail?.codexErrorInfo;
   const infoObject = object2(info);
@@ -2353,11 +3064,11 @@ function classifyAccessError(error, record5) {
     typeof info === "string" ? info : null,
     ...Object.keys(infoObject ?? {}),
     ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
-    record5.status,
-    record5.statusCode,
-    record5.status_code,
-    record5.apiErrorStatus,
-    record5.apiErrorCode
+    record6.status,
+    record6.statusCode,
+    record6.status_code,
+    record6.apiErrorStatus,
+    record6.apiErrorCode
   ];
   const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
   const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
@@ -2381,15 +3092,15 @@ function readRetry(value) {
   }
   return null;
 }
-function retryAfterSecs(error, record5) {
-  return readRetry(object2(error)) ?? readRetry(record5);
+function retryAfterSecs(error, record6) {
+  return readRetry(object2(error)) ?? readRetry(record6);
 }
-function observationTurnId(record5) {
+function observationTurnId(record6) {
   for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
-    const value = record5[key];
+    const value = record6[key];
     if (typeof value === "string" && value) return value;
   }
-  const payload = object2(record5.payload);
+  const payload = object2(record6.payload);
   if (!payload) return null;
   for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
     const value = payload[key];
@@ -2397,32 +3108,32 @@ function observationTurnId(record5) {
   }
   return null;
 }
-function observationRetrying(error, record5) {
-  return record5.willRetry === true || object2(error)?.willRetry === true;
+function observationRetrying(error, record6) {
+  return record6.willRetry === true || object2(error)?.willRetry === true;
 }
-function observationExtras(error, record5) {
+function observationExtras(error, record6) {
   const extras = {};
-  const retry = retryAfterSecs(error, record5);
+  const retry = retryAfterSecs(error, record6);
   if (retry != null) extras.retry_after_secs = retry;
-  const turn = observationTurnId(record5);
+  const turn = observationTurnId(record6);
   if (turn) extras.turn_id = turn;
-  if (observationRetrying(error, record5)) extras.retrying = true;
+  if (observationRetrying(error, record6)) extras.retrying = true;
   return extras;
 }
 
 // plugins/provider-codex/src/signals.ts
 function parseSessionObservations(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record5 = value;
-  if (record5.type !== "event_msg" || !record5.payload || typeof record5.payload !== "object" || Array.isArray(record5.payload)) return null;
-  const payload = record5.payload;
+  const record6 = value;
+  if (record6.type !== "event_msg" || !record6.payload || typeof record6.payload !== "object" || Array.isArray(record6.payload)) return null;
+  const payload = record6.payload;
   if (payload.type === "error") {
     const error = payload.error ?? payload;
     return {
       api_error: classifyAccessError(error, payload),
       permission_mode: null,
       clears_api_error: false,
-      ...observationExtras(error, record5)
+      ...observationExtras(error, record6)
     };
   }
   if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
@@ -2442,13 +3153,6 @@ function updatePromptSafeChoice(prompt) {
   if (!value || /\bupdate\b/i.test(label)) return null;
   if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
   return value;
-}
-
-// plugins/provider-shared/readHome.ts
-function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
-  if (!inheritedHome) return fallback;
-  if (!subpath) return inheritedHome;
-  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
 }
 
 // plugins/provider-codex/src/models.ts
@@ -2529,302 +3233,6 @@ function displayNameFromId(id) {
 }
 function capitalizeToken(token) {
   return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
-}
-
-// plugins/provider-codex/src/sessions.ts
-var sessionStoreOverrides = {
-  root: "CODETERM_CODEX_SESSIONS_ROOT",
-  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
-  state: "CODETERM_CODEX_STATE_DB_PATH"
-};
-var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
-function foldSessionIndex(contents) {
-  const folded = /* @__PURE__ */ new Map();
-  const lines = String(contents || "").split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch (_) {
-      continue;
-    }
-    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
-    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
-    const current = folded.get(entry.id);
-    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
-      folded.set(entry.id, {
-        id: entry.id,
-        thread_name: entry.thread_name,
-        updated_at: entry.updated_at
-      });
-    }
-  }
-  return Array.from(folded.values());
-}
-function sessionFilePath(_cwd, sessionId) {
-  const path = trimmedField(threadRow(sessionId), "rollout_path");
-  return path && host.fs.fileExists(path) ? path : null;
-}
-function sessionExists(_cwd, sessionId) {
-  if (!sessionId) return false;
-  if (threadRow(sessionId) !== null) return true;
-  const store = codexSessionStore();
-  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
-}
-function detectSessionId(cwd, exclude, maxAgeMs) {
-  if (!cwd || !host.fs.fileExists(cwd)) return null;
-  const store = codexSessionStore();
-  if (!store) return null;
-  const entries = readSessionIndex(store.indexPath);
-  if (entries.length === 0) return null;
-  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
-  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
-  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
-  const matching = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (excluded.has(entry.id)) continue;
-    const updatedMs = sessionTimestamp(entry.updated_at);
-    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
-    const project = readThreadCwd(entry.id);
-    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
-  }
-  return matching.length === 1 ? matching[0] : null;
-}
-function enumerateSessions() {
-  const store = codexSessionStore();
-  if (!store) return [];
-  const entries = readSessionIndex(store.indexPath);
-  return entries.map((entry) => ({
-    sessionId: entry.id,
-    provider: "codex",
-    projectPath: readThreadCwd(entry.id),
-    title: entry.thread_name || null,
-    summary: null,
-    filePath: store.indexPath,
-    createdTs: null,
-    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
-  }));
-}
-function findSession(sessionId) {
-  const row2 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
-  if (!row2) return null;
-  const store = codexSessionStore();
-  return {
-    sessionId,
-    provider: "codex",
-    projectPath: resolveThreadCwd(sessionId, row2),
-    title: trimmedField(row2, "name") || trimmedField(row2, "title"),
-    summary: null,
-    filePath: store ? store.indexPath : codexStateDbPath() || "",
-    createdTs: unixSeconds(row2.created_at),
-    modifiedTs: unixSeconds(row2.updated_at)
-  };
-}
-function detectSessionModel(_cwd, sessionId) {
-  return trimmedField(threadRow(sessionId), "model");
-}
-function detectSessionReasoningEffort(_cwd, sessionId) {
-  const path = sessionFilePath(_cwd, sessionId);
-  if (!path) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
-  if (typeof contents !== "string") return null;
-  const lines = contents.split("\n");
-  for (let index = lines.length - 1; index >= 0; index--) {
-    let entry;
-    try {
-      entry = JSON.parse(lines[index]);
-    } catch (_) {
-      continue;
-    }
-    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
-    const effort = entry.payload.effort.trim();
-    if (effort) return effort;
-  }
-  return null;
-}
-function threadRow(sessionId) {
-  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
-}
-function queryThreadRow(sessionId, sql) {
-  if (!sessionId) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
-  try {
-    const rows = host.fs.sqliteQuery(db, sql, [sessionId]);
-    return rows.length > 0 ? rows[0] : null;
-  } catch (_) {
-    return null;
-  }
-}
-function unixSeconds(value) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
-}
-function trimmedField(row2, field) {
-  const value = row2 ? row2[field] : null;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-function codexStateDbPath() {
-  const override = host.envGet(sessionStoreOverrides.state);
-  if (override) return override;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  let entries;
-  try {
-    entries = host.fs.readDir(root);
-  } catch (_) {
-    return null;
-  }
-  let best = null;
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!entry || !entry.isFile) continue;
-    const match = STATE_DB_NAME.exec(entry.name);
-    if (!match) continue;
-    const version = parseInt(match[1], 10);
-    if (!best || version > best.version) best = { name: entry.name, version };
-  }
-  return best ? root + sep + best.name : null;
-}
-function extractSessionUuid(stem) {
-  if (typeof stem !== "string") return null;
-  const prefix = "rollout-";
-  if (stem.indexOf(prefix) !== 0) return null;
-  const rest = stem.substring(prefix.length);
-  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
-  return rest.substring(20);
-}
-function codexSessionStore() {
-  const indexOverride = host.envGet(sessionStoreOverrides.index);
-  if (indexOverride) return { indexPath: indexOverride };
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  return {
-    indexPath: indexOverride || root + sep + "session_index.jsonl"
-  };
-}
-function trimTrailingSeparators(path) {
-  let end = path.length;
-  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
-  return path.substring(0, end);
-}
-function codexSessionsRoot(sep) {
-  const override = host.envGet(sessionStoreOverrides.root);
-  if (override) return trimTrailingSeparators(override);
-  const home = host.homeDir();
-  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
-}
-function readSessionIndex(path) {
-  if (!host.fs.fileExists(path)) return [];
-  const contents = host.fs.readFile(path);
-  return typeof contents === "string" ? foldSessionIndex(contents) : [];
-}
-function sessionIndexEntry(path, sessionId) {
-  const entries = readSessionIndex(path);
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].id === sessionId) return entries[i];
-  }
-  return null;
-}
-var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
-function readThreadCwd(sessionId) {
-  return resolveThreadCwd(sessionId, threadRow(sessionId));
-}
-function resolveThreadCwd(sessionId, row2) {
-  if (!row2) {
-    logUnresolvedCwd(sessionId, "no_row");
-    return null;
-  }
-  const cwd = trimmedField(row2, "cwd");
-  if (!cwd) {
-    logUnresolvedCwd(sessionId, "no_cwd");
-    return null;
-  }
-  if (!host.fs.fileExists(cwd)) {
-    logUnresolvedCwd(sessionId, "cwd_absent");
-    return null;
-  }
-  return cwd;
-}
-function logUnresolvedCwd(sessionId, cause) {
-  const key = sessionId + "\0" + cause;
-  if (unresolvedCwdDiagnostics.has(key)) return;
-  unresolvedCwdDiagnostics.add(key);
-  host.log("warn", JSON.stringify({
-    provider: "codex",
-    event: "session_cwd_unresolved",
-    sessionId,
-    cause
-  }));
-}
-function sessionTimestamp(value) {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-// plugins/provider-codex/src/launchSession.ts
-var MARKER_PREFIX = "codeterm-launch-marker:";
-var MIN_MARKER_LENGTH = 16;
-var ROLLOUT_HEAD_BYTES = 262144;
-var EARLY_RECORDS = 24;
-var CANDIDATE_THREADS = 64;
-function withLaunchMarker(instructions, marker) {
-  if (!marker) return instructions;
-  return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
-}
-function detectCodexLaunchSession(evidence) {
-  const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
-  if (marker.length < MIN_MARKER_LENGTH) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
-  const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
-  const rows = host.fs.sqliteQuery(
-    db,
-    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
-    [since]
-  );
-  const matches = [];
-  for (let i = 0; i < rows.length; i++) {
-    const id = typeof rows[i].id === "string" ? rows[i].id : "";
-    const path = typeof rows[i].rollout_path === "string" ? rows[i].rollout_path : "";
-    if (!id || !path || matches.indexOf(id) !== -1) continue;
-    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
-  }
-  return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
-}
-function rolloutCarriesMarker(path, id, marker) {
-  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
-  if (typeof head !== "string") return false;
-  const lines = head.split("\n");
-  let records = 0;
-  for (let i = 0; i < lines.length && records < EARLY_RECORDS; i++) {
-    if (!lines[i].trim()) continue;
-    records++;
-    let entry;
-    try {
-      entry = JSON.parse(lines[i]);
-    } catch (_) {
-      if (records === 1) return false;
-      continue;
-    }
-    const payload = entry && entry.payload;
-    if (records === 1) {
-      if (entry.type !== "session_meta" || !payload || payload.id !== id) return false;
-      continue;
-    }
-    if (entry.type !== "response_item" || !payload || payload.type !== "message") continue;
-    if (payload.role !== "developer" && payload.role !== "user") continue;
-    const content = Array.isArray(payload.content) ? payload.content : [];
-    for (let j = 0; j < content.length; j++) {
-      const text6 = content[j] && content[j].text;
-      if (typeof text6 === "string" && text6.indexOf(marker) !== -1) return true;
-    }
-  }
-  return false;
 }
 
 // plugins/provider-codex/src/prompt.ts
@@ -3280,6 +3688,95 @@ function codexParseWeeklyResets(raw, nowMs) {
   return cand.getTime();
 }
 
+// plugins/provider-shared/updateCheck.ts
+function record4(raw) {
+  if (raw !== null && typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function installedVersion(result) {
+  const installed = record4(result);
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  return version && versionParts(version) ? version : null;
+}
+function availableUpdate(currentVersion, result, compatibility) {
+  const response = record4(result);
+  if (response?.status !== 200) return null;
+  const metadata = record4(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (!compatibility && !latestVersion) return null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
+}
+function startedJob(raw) {
+  const job = record4(raw)?.jobId;
+  return typeof job === "string" && job !== "" ? job : null;
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (!probe) return null;
+  return host2.awaitJob(probe, (installed) => {
+    const currentVersion = parseInstalled(installed);
+    if (!currentVersion) return null;
+    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+      url: metadataUrl,
+      method: "GET",
+      timeoutMs: 6e3,
+      headers: { Accept: "application/vnd.npm.install-v1+json" }
+    })));
+    if (!metadata) return null;
+    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
+  });
+}
+
 // plugins/provider-codex/src/update.ts
 function parseVersion(value) {
   if (typeof value !== "string") return null;
@@ -3287,16 +3784,8 @@ function parseVersion(value) {
   if (!match) return null;
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
-function updateAvailable(current, latest) {
-  const installed = parseVersion(current);
-  const offered = parseVersion(latest);
-  if (!installed || !offered) return false;
-  for (let i = 0; i < 3; i += 1) {
-    if (offered[i] !== installed[i]) return offered[i] > installed[i];
-  }
-  return false;
-}
-function record4(value) {
+function record5(value) {
+  if (value !== null && typeof value === "object") return value;
   if (typeof value !== "string") return null;
   try {
     const parsed = JSON.parse(value);
@@ -3305,24 +3794,20 @@ function record4(value) {
     return null;
   }
 }
-function checkCodexUpdate(host2) {
-  const installed = record4(host2.exec(JSON.stringify({
-    bin: "codex",
-    args: ["--version"],
-    timeoutMs: 5e3
-  })));
+function installedCodexVersion(result) {
+  const installed = record5(result);
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
   const current = installed.stdout.match(/\d+\.\d+\.\d+/)?.[0];
-  if (!current) return null;
-  const response = record4(host2.fetch(JSON.stringify({
-    url: "https://registry.npmjs.org/@openai%2Fcodex/latest",
-    method: "GET",
-    timeoutMs: 6e3
-  })));
-  if (response?.status !== 200 || typeof response.body !== "string") return null;
-  const metadata = record4(response.body);
-  const latest = metadata?.version;
-  return updateAvailable(current, latest) && typeof latest === "string" ? { currentVersion: current, latestVersion: latest } : null;
+  return current && parseVersion(current) ? current : null;
+}
+function checkCodexUpdate(host2) {
+  return checkProviderUpdate(
+    host2,
+    "codex",
+    "https://registry.npmjs.org/@openai%2Fcodex/latest",
+    void 0,
+    installedCodexVersion
+  );
 }
 
 // plugins/provider-codex/src/patchEdits.ts
@@ -3723,24 +4208,24 @@ function collectExistingPaths(config) {
   let currentTable = [];
   let rootInline = null;
   let projectsTableSeen = false;
-  let invalid2 = false;
+  let invalid3 = false;
   for (const line of lines) {
     const parts = headerParts(line);
     if (parts) {
       currentTable = parts;
       if (parts[0] === "projects") {
-        if (rootInline) invalid2 = true;
+        if (rootInline) invalid3 = true;
         if (parts.length === 1) {
-          if (projectsTableSeen) invalid2 = true;
+          if (projectsTableSeen) invalid3 = true;
           projectsTableSeen = true;
         } else {
           const key = normalizedPath(parts[1]);
           const headerKey = JSON.stringify([key, ...parts.slice(2)]);
-          if (projectHeaders.has(headerKey)) invalid2 = true;
+          if (projectHeaders.has(headerKey)) invalid3 = true;
           projectHeaders.add(headerKey);
           paths.add(key);
           if (parts.length === 2) {
-            if (directTables.has(key) || parentKeys.has(key)) invalid2 = true;
+            if (directTables.has(key) || parentKeys.has(key)) invalid3 = true;
             directTables.add(key);
           } else {
             nestedTables.add(key);
@@ -3751,33 +4236,33 @@ function collectExistingPaths(config) {
     }
     const relevantHeader = withoutComment(line).trim();
     if (relevantHeader.startsWith("[")) {
-      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid2 = true;
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid3 = true;
       currentTable = [];
       continue;
     }
     const assignment = assignmentParts(line);
     if (!assignment) {
-      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid2 = true;
-      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid2 = true;
+      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid3 = true;
+      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid3 = true;
       continue;
     }
     if (currentTable.length === 0 && assignment.key[0] === "projects") {
       if (assignment.key.length === 1) {
         const keys = inlineTableKeys(assignment.value);
         if (!keys || rootInline) {
-          invalid2 = true;
+          invalid3 = true;
           continue;
         }
         rootInline = /* @__PURE__ */ new Set();
         for (const key of keys) {
           const normalized = normalizedPath(key);
-          if (rootInline.has(normalized)) invalid2 = true;
+          if (rootInline.has(normalized)) invalid3 = true;
           rootInline.add(normalized);
           paths.add(normalized);
         }
       } else {
         const key = normalizedPath(assignment.key[1]);
-        if (parentKeys.has(key) || directTables.has(key)) invalid2 = true;
+        if (parentKeys.has(key) || directTables.has(key)) invalid3 = true;
         parentKeys.add(key);
         paths.add(key);
       }
@@ -3785,16 +4270,16 @@ function collectExistingPaths(config) {
     }
     if (currentTable.length === 1 && currentTable[0] === "projects") {
       const key = normalizedPath(assignment.key[0]);
-      if (parentKeys.has(key) || directTables.has(key)) invalid2 = true;
+      if (parentKeys.has(key) || directTables.has(key)) invalid3 = true;
       parentKeys.add(key);
       paths.add(key);
     }
   }
   for (const key of parentKeys) {
-    if (nestedTables.has(key)) invalid2 = true;
+    if (nestedTables.has(key)) invalid3 = true;
   }
-  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid2 = true;
-  return { paths, rootInline, invalid: invalid2 };
+  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid3 = true;
+  return { paths, rootInline, invalid: invalid3 };
 }
 function mergeTrustedProjectEntries(profile, config) {
   const entries = collectProfileEntries(profile);
@@ -5333,7 +5818,6 @@ var OUTPUT_FINGERPRINTS = [
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
 function starterPrompt(params) {
   if (params.starterPromptText) return params.starterPromptText;
   if (params.starterPrompt === "no_starter") return void 0;
@@ -5369,7 +5853,9 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
+  runtimeStoredRecords,
   runtimePlan,
   runtimeResponse,
   runtimeReduce,
@@ -5467,7 +5953,12 @@ var plugin = {
       request2.goneInstanceIds
     );
   },
+  buildLaunchSpec(input) {
+    return buildCodexLaunchSpec(input, starterPrompt);
+  },
   buildLaunchCommand(params) {
+    const spec = buildCodexLaunchSpec(params || {}, starterPrompt);
+    if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG];
     if (p.skipPermissions) {
@@ -5505,6 +5996,8 @@ var plugin = {
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
+    const spec = buildCodexLaunchSpec({ resume: { sessionId, skipPermissions } }, starterPrompt);
+    if (spec) return codexCommandFromSpec(spec);
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
@@ -5515,6 +6008,8 @@ var plugin = {
     return requireDirectResume(parts.join(" "));
   },
   buildResumeCommandWithContext(params) {
+    const spec = buildCodexLaunchSpec({ resume: params }, starterPrompt);
+    if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const platform = host.platform();
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
@@ -5552,244 +6047,9 @@ var plugin = {
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
   parseSessionObservations,
-  parseSessionDelta(chunk, context) {
-    const out = [];
-    const commandPairing = commandPairingState(context);
-    const activityIds = /* @__PURE__ */ new Set();
-    const pushOnce = (row2) => {
-      if (!row2 || row2.uuid && activityIds.has(row2.uuid)) return;
-      if (row2.uuid) activityIds.add(row2.uuid);
-      out.push(row2);
-    };
-    const lines = String(chunk || "").split("\n");
-    let stamped = 0;
-    const stampRows = (lineIndex) => {
-      for (; stamped < out.length; stamped++) {
-        out[stamped].recordIndex = lineIndex;
-      }
-    };
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      stampRows(i - 1);
-      if (!lines[i]) continue;
-      let v;
-      try {
-        v = JSON.parse(lines[i]);
-      } catch (_) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!validateEntry(v)) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      let ts = null;
-      const tsIso = typeof v.timestamp === "string" ? v.timestamp : null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
-      }
-      const normalizedEventType = v.payload?.type;
-      if (normalizedEventType === "context_compacted") {
-        out.push({
-          role: "system",
-          blocks: [{ kind: "text", data: { text: "context compacted" } }],
-          ts,
-          timestamp: tsIso,
-          timelineMarker: { kind: "context_compaction" }
-        });
-        continue;
-      }
-      if (normalizedEventType === "thread_goal_updated") {
-        const sessionIntent = sessionIntentFromPayload(v.payload);
-        if (!sessionIntent) continue;
-        out.push({
-          role: "custom",
-          blocks: [],
-          ts,
-          timestamp: tsIso,
-          sessionIntent
-        });
-        continue;
-      }
-      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
-        const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
-        if (!turnId) continue;
-        clearTurnPairings(commandPairing, turnId);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
-          ts,
-          timestamp: tsIso
-        });
-        continue;
-      }
-      if (v.type === "event_msg" && v.payload?.type === "item_completed") {
-        if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
-        pushOnce(pairFileChange(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id), v.payload.turn_id, commandPairing.fileChanges));
-        continue;
-      }
-      if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
-        pushOnce(subAgentRow(v.payload, v.payload.event_id, void 0, ts, tsIso));
-        continue;
-      }
-      if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
-        const result = v.payload.type === "web_search_end" ? webSearchEndResult(v.payload, ts, tsIso) : imageGenerationEndResult(v.payload, ts, tsIso);
-        if (result && !activityIds.has(result.uuid)) {
-          activityIds.add(result.uuid);
-          out.push(result);
-        }
-        continue;
-      }
-      if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
-        const p2 = v.payload;
-        const content = typeof p2.stdout === "string" ? p2.stdout : "";
-        const callId = typeof p2.call_id === "string" ? p2.call_id : "";
-        const diffs = codexFileDiffs(p2.changes);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content, tool_use_id: callId, ...diffs.length > 0 ? { file_diffs: diffs } : {} } }],
-          ts,
-          timestamp: tsIso
-        });
-        continue;
-      }
-      if (!v || v.type !== "response_item" || !v.payload) continue;
-      const p = v.payload;
-      if (p.type === "message") {
-        const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
-        if (!role) continue;
-        let text6 = "";
-        let images = [];
-        if (role === "user") {
-          ({ text: text6, images } = parseCodexUserContent(p.content));
-        } else if (Array.isArray(p.content)) {
-          for (let j = 0; j < p.content.length; j++) {
-            const c = p.content[j];
-            if (c && typeof c.text === "string") text6 += c.text;
-          }
-        } else if (typeof p.content === "string") {
-          text6 = p.content;
-        }
-        if (images.length > 0) {
-          const textBlocks = text6 ? [{ kind: "text", data: { text: text6 } }] : [];
-          out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
-          continue;
-        }
-        if (!text6) continue;
-        const systemSubtype = classifyCodexSystemText(text6);
-        if (systemSubtype) {
-          out.push({
-            role: "system",
-            blocks: [{ kind: "text", data: { text: text6, subtype: systemSubtype } }],
-            sourceType: v.type,
-            sourceSubtype: systemSubtype,
-            ts,
-            timestamp: tsIso
-          });
-          continue;
-        }
-        out.push({ role, blocks: [{ kind: "text", data: { text: text6 } }], ts, timestamp: tsIso });
-      } else if (p.type === "function_call") {
-        let input = {};
-        try {
-          input = JSON.parse(p.arguments || "{}");
-        } catch (_) {
-          input = { raw: p.arguments };
-        }
-        if (input && input.cmd && !input.command) input.command = input.cmd;
-        const name = typeof p.name === "string" ? p.name.trim() : "";
-        if (isInternalOrchestrationCall(name) || !hasUsefulFunctionCall(name, input, p.arguments)) continue;
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const canonical = canonicalToolFields(name, input);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input, ...canonical } }],
-          ts,
-          timestamp: tsIso
-        });
-      } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : void 0;
-        commandPairing.fileChanges.delete(callId);
-        if (pending) commandPairing.pending.delete(callId);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_result", data: {
-            content: codexToolOutputText(p.output),
-            tool_use_id: callId,
-            ...pending ? commandPairingResult(pending) : {}
-          } }],
-          ts,
-          timestamp: tsIso
-        });
-      } else if (p.type === "reasoning") {
-        pushOnce(reasoningResponseRow(p, ts, tsIso));
-      } else if (p.type === "agent_message") {
-        pushOnce(agentMessageRow(p, ts, tsIso));
-      } else if (p.type === "custom_tool_call") {
-        let name = typeof p.name === "string" ? p.name.trim() : "";
-        if (!name) continue;
-        if (isInternalOrchestrationCall(name)) continue;
-        let input = {};
-        if (name === "apply_patch" && typeof p.input === "string") {
-          input = { patch: p.input };
-        } else if (typeof p.input === "string") {
-          try {
-            input = JSON.parse(p.input);
-          } catch (_) {
-            input = { raw: p.input };
-          }
-        } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
-          input = p.input;
-        }
-        const nestedPatch = name === "exec" && typeof input.raw === "string" ? nestedApplyPatch(input.raw) : null;
-        if (nestedPatch) {
-          name = "apply_patch";
-          input = { patch: nestedPatch };
-        }
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const canonical = canonicalToolFields(name, input);
-        const message = {
-          role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
-          ts,
-          timestamp: tsIso
-        };
-        const commands = name === "exec" && callId && typeof input.raw === "string" ? execScriptCommands(input.raw) : [];
-        out.push(message);
-        const patchTurn = callTurnId(p);
-        const fingerprint = typeof input.patch === "string" ? editFingerprint(patchEdits(input.patch)) : "";
-        if (callId && patchTurn && fingerprint) {
-          commandPairing.fileChanges.set(callId, { turnId: patchTurn, fingerprint });
-          trimPendingCalls(commandPairing);
-        }
-        if (commands.length > 0) {
-          const turnId = callTurnId(p);
-          if (!turnId) continue;
-          commandPairing.pending.delete(callId);
-          commandPairing.pending.set(callId, {
-            commandCount: commands.length,
-            commands,
-            completedCommands: /* @__PURE__ */ new Set(),
-            commandResults: [],
-            turnId
-          });
-          trimPendingCalls(commandPairing);
-        }
-      }
-    }
-    if (commandPairing.sessionKey && commandPairing.pending.size === 0 && commandPairing.fileChanges.size === 0) {
-      commandPairingSessions.delete(commandPairing.sessionKey);
-    }
-    stampRows(lines.length - 1);
-    return { messages: out };
+  parseSessionDelta,
+  parseSessionRecords(records, meta) {
+    return { ...parseSessionDelta(records, meta.sourceKey ? { session_key: meta.sourceKey, from_offset: meta.fromOffset } : void 0), new_offset: meta.newOffset };
   },
   detectSessionId(cwd, exclude, maxAgeMs) {
     return detectSessionId(cwd, exclude, maxAgeMs);
@@ -5837,60 +6097,9 @@ var plugin = {
     return detectSessionReasoningEffort(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
-  parseSessionMessages(text6) {
-    const out = [];
-    const lines = String(text6 || "").split("\n");
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      let v;
-      try {
-        v = JSON.parse(line);
-      } catch (e) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!isValidCodexSessionMessage(v)) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!v || v.type !== "response_item") continue;
-      const payload = v.payload;
-      if (!payload || payload.type !== "message") continue;
-      const role = payload.role;
-      if (role !== "user" && role !== "assistant") continue;
-      const content = payload.content;
-      if (!Array.isArray(content)) continue;
-      const chunks = [];
-      for (let j = 0; j < content.length; j++) {
-        const b = content[j];
-        if (!b) continue;
-        if ((b.type === "input_text" || b.type === "output_text" || b.type === "text") && typeof b.text === "string") {
-          chunks.push(b.text);
-        }
-      }
-      const text22 = chunks.join(" ");
-      if (!text22.trim()) continue;
-      let ts = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
-      }
-      const systemSubtype = classifyCodexSystemText(text22);
-      if (systemSubtype) {
-        out.push({ role: "system", text: text22, ts, isMeta: true, sourceSubtype: systemSubtype });
-      } else {
-        out.push({ role, text: text22, ts, isMeta: false });
-      }
-    }
-    return out;
+  parseSessionMessages,
+  parseSessionMessageRecords(records) {
+    return parseSessionMessages(records);
   },
   classifyTabState(snapshot) {
     return classifyCodexTabState(snapshot, host.unixNowMs());
@@ -6091,5 +6300,274 @@ function isValidCodexSessionMessage(v) {
   if (v.payload.role !== "user" && v.payload.role !== "assistant") return false;
   if (!Array.isArray(v.payload.content)) return false;
   return true;
+}
+function parseSessionDelta(chunk, context) {
+  const out = [];
+  const commandPairing = commandPairingState(context);
+  const activityIds = /* @__PURE__ */ new Set();
+  const pushOnce = (row2) => {
+    if (!row2 || row2.uuid && activityIds.has(row2.uuid)) return;
+    if (row2.uuid) activityIds.add(row2.uuid);
+    out.push(row2);
+  };
+  let stamped = 0;
+  const stampRows = (row2) => {
+    for (; stamped < out.length; stamped++) out[stamped].recordIndex = row2;
+  };
+  let hadInvalid = false;
+  let previousRow = -1;
+  for (const { row: row2, value: v } of sessionRecords(chunk)) {
+    stampRows(previousRow);
+    previousRow = row2;
+    if (!validateEntry(v)) {
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    let ts = null;
+    const tsIso = typeof v.timestamp === "string" ? v.timestamp : null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1e3);
+    }
+    const normalizedEventType = v.payload?.type;
+    if (normalizedEventType === "context_compacted") {
+      out.push({
+        role: "system",
+        blocks: [{ kind: "text", data: { text: "context compacted" } }],
+        ts,
+        timestamp: tsIso,
+        timelineMarker: { kind: "context_compaction" }
+      });
+      continue;
+    }
+    if (normalizedEventType === "thread_goal_updated") {
+      const sessionIntent = sessionIntentFromPayload(v.payload);
+      if (!sessionIntent) continue;
+      out.push({
+        role: "custom",
+        blocks: [],
+        ts,
+        timestamp: tsIso,
+        sessionIntent
+      });
+      continue;
+    }
+    if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
+      const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
+      if (!turnId) continue;
+      clearTurnPairings(commandPairing, turnId);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
+        ts,
+        timestamp: tsIso
+      });
+      continue;
+    }
+    if (v.type === "event_msg" && v.payload?.type === "item_completed") {
+      if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
+      pushOnce(pairFileChange(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id), v.payload.turn_id, commandPairing.fileChanges));
+      continue;
+    }
+    if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
+      pushOnce(subAgentRow(v.payload, v.payload.event_id, void 0, ts, tsIso));
+      continue;
+    }
+    if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
+      const result = v.payload.type === "web_search_end" ? webSearchEndResult(v.payload, ts, tsIso) : imageGenerationEndResult(v.payload, ts, tsIso);
+      if (result && !activityIds.has(result.uuid)) {
+        activityIds.add(result.uuid);
+        out.push(result);
+      }
+      continue;
+    }
+    if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
+      const p2 = v.payload;
+      const content = typeof p2.stdout === "string" ? p2.stdout : "";
+      const callId = typeof p2.call_id === "string" ? p2.call_id : "";
+      const diffs = codexFileDiffs(p2.changes);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_result", data: { content, tool_use_id: callId, ...diffs.length > 0 ? { file_diffs: diffs } : {} } }],
+        ts,
+        timestamp: tsIso
+      });
+      continue;
+    }
+    if (!v || v.type !== "response_item" || !v.payload) continue;
+    const p = v.payload;
+    if (p.type === "message") {
+      const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
+      if (!role) continue;
+      let text6 = "";
+      let images = [];
+      if (role === "user") {
+        ({ text: text6, images } = parseCodexUserContent(p.content));
+      } else if (Array.isArray(p.content)) {
+        for (let j = 0; j < p.content.length; j++) {
+          const c = p.content[j];
+          if (c && typeof c.text === "string") text6 += c.text;
+        }
+      } else if (typeof p.content === "string") {
+        text6 = p.content;
+      }
+      if (images.length > 0) {
+        const textBlocks = text6 ? [{ kind: "text", data: { text: text6 } }] : [];
+        out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
+        continue;
+      }
+      if (!text6) continue;
+      const systemSubtype = classifyCodexSystemText(text6);
+      if (systemSubtype) {
+        out.push({
+          role: "system",
+          blocks: [{ kind: "text", data: { text: text6, subtype: systemSubtype } }],
+          sourceType: v.type,
+          sourceSubtype: systemSubtype,
+          ts,
+          timestamp: tsIso
+        });
+        continue;
+      }
+      out.push({ role, blocks: [{ kind: "text", data: { text: text6 } }], ts, timestamp: tsIso });
+    } else if (p.type === "function_call") {
+      let input = {};
+      try {
+        input = JSON.parse(p.arguments || "{}");
+      } catch (_) {
+        input = { raw: p.arguments };
+      }
+      if (input && input.cmd && !input.command) input.command = input.cmd;
+      const name = typeof p.name === "string" ? p.name.trim() : "";
+      if (isInternalOrchestrationCall(name) || !hasUsefulFunctionCall(name, input, p.arguments)) continue;
+      const callId = typeof p.call_id === "string" ? p.call_id : "";
+      const canonical = canonicalToolFields(name, input);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input, ...canonical } }],
+        ts,
+        timestamp: tsIso
+      });
+    } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
+      const callId = typeof p.call_id === "string" ? p.call_id : "";
+      const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : void 0;
+      commandPairing.fileChanges.delete(callId);
+      if (pending) commandPairing.pending.delete(callId);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_result", data: {
+          content: codexToolOutputText(p.output),
+          tool_use_id: callId,
+          ...pending ? commandPairingResult(pending) : {}
+        } }],
+        ts,
+        timestamp: tsIso
+      });
+    } else if (p.type === "reasoning") {
+      pushOnce(reasoningResponseRow(p, ts, tsIso));
+    } else if (p.type === "agent_message") {
+      pushOnce(agentMessageRow(p, ts, tsIso));
+    } else if (p.type === "custom_tool_call") {
+      let name = typeof p.name === "string" ? p.name.trim() : "";
+      if (!name) continue;
+      if (isInternalOrchestrationCall(name)) continue;
+      let input = {};
+      if (name === "apply_patch" && typeof p.input === "string") {
+        input = { patch: p.input };
+      } else if (typeof p.input === "string") {
+        try {
+          input = JSON.parse(p.input);
+        } catch (_) {
+          input = { raw: p.input };
+        }
+      } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
+        input = p.input;
+      }
+      const nestedPatch = name === "exec" && typeof input.raw === "string" ? nestedApplyPatch(input.raw) : null;
+      if (nestedPatch) {
+        name = "apply_patch";
+        input = { patch: nestedPatch };
+      }
+      const callId = typeof p.call_id === "string" ? p.call_id : "";
+      const canonical = canonicalToolFields(name, input);
+      const message = {
+        role: "assistant",
+        blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
+        ts,
+        timestamp: tsIso
+      };
+      const commands = name === "exec" && callId && typeof input.raw === "string" ? execScriptCommands(input.raw) : [];
+      out.push(message);
+      const patchTurn = callTurnId(p);
+      const fingerprint = typeof input.patch === "string" ? editFingerprint(patchEdits(input.patch)) : "";
+      if (callId && patchTurn && fingerprint) {
+        commandPairing.fileChanges.set(callId, { turnId: patchTurn, fingerprint });
+        trimPendingCalls(commandPairing);
+      }
+      if (commands.length > 0) {
+        const turnId = callTurnId(p);
+        if (!turnId) continue;
+        commandPairing.pending.delete(callId);
+        commandPairing.pending.set(callId, {
+          commandCount: commands.length,
+          commands,
+          completedCommands: /* @__PURE__ */ new Set(),
+          commandResults: [],
+          turnId
+        });
+        trimPendingCalls(commandPairing);
+      }
+    }
+  }
+  if (commandPairing.sessionKey && commandPairing.pending.size === 0 && commandPairing.fileChanges.size === 0) {
+    commandPairingSessions.delete(commandPairing.sessionKey);
+  }
+  stampRows(previousRow);
+  return { messages: out };
+}
+function parseSessionMessages(text6) {
+  const out = [];
+  let hadInvalid = false;
+  for (const { value: v } of sessionRecords(text6)) {
+    if (!isValidCodexSessionMessage(v)) {
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    if (!v || v.type !== "response_item") continue;
+    const payload = v.payload;
+    if (!payload || payload.type !== "message") continue;
+    const role = payload.role;
+    if (role !== "user" && role !== "assistant") continue;
+    const content = payload.content;
+    if (!Array.isArray(content)) continue;
+    const chunks = [];
+    for (let j = 0; j < content.length; j++) {
+      const b = content[j];
+      if (!b) continue;
+      if ((b.type === "input_text" || b.type === "output_text" || b.type === "text") && typeof b.text === "string") {
+        chunks.push(b.text);
+      }
+    }
+    const text22 = chunks.join(" ");
+    if (!text22.trim()) continue;
+    let ts = null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1e3);
+    }
+    const systemSubtype = classifyCodexSystemText(text22);
+    if (systemSubtype) {
+      out.push({ role: "system", text: text22, ts, isMeta: true, sourceSubtype: systemSubtype });
+    } else {
+      out.push({ role, text: text22, ts, isMeta: false });
+    }
+  }
+  return out;
 }
 var plugin_default = plugin;

@@ -15,9 +15,9 @@ impl Default for Fake {
 }
 #[async_trait]
 impl BillingProvider for Fake {
-    async fn entitlements(&self, _: &Session) -> Result<Entitlements> {
+    async fn entitlements(&self, _: &Session) -> Result<Reading> {
         *self.calls.lock() += 1;
-        self.value.lock().clone()
+        self.value.lock().clone().map(Reading::current)
     }
     async fn checkout_url(&self, _: &Session, _: &str) -> Result<url::Url> {
         url::Url::parse("https://billing.example/checkout").map_err(|e| e.to_string())

@@ -1,6 +1,7 @@
 use super::*;
 use crate::service::general_agent::session_contract::{LaunchOwnership, TabLaunch};
 use crate::service::spawn::{AgentSpawnSpec, ChatBackendLaunchMetadata};
+use crate::service::MuxEmitCause;
 
 pub(super) fn start_main(
     svc: &crate::ServiceState,
@@ -28,7 +29,10 @@ pub(super) fn start_main(
     };
     let same_provider = tab.agent_type.as_deref() == Some(provider);
     if same_provider && tab.auto_approve != permission_bypass {
-        crate::service::agent_runtime::engine::stop(&tab.id);
+        if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab.id) {
+            fail_general_agent_start(svc, mux, &tab.id, &reason);
+            return;
+        }
     }
     let force_fresh = state::take_fresh_session_requirement();
     if same_provider && !force_fresh && tab.auto_approve == permission_bypass {
@@ -46,7 +50,10 @@ pub(super) fn start_main(
         }
     }
     if !same_provider {
-        crate::service::agent_runtime::engine::stop(&tab.id);
+        if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab.id) {
+            fail_general_agent_start(svc, mux, &tab.id, &reason);
+            return;
+        }
     }
     if let Some(pty_id) = tab.pty_id.as_deref() {
         if let Err(reason) = terminate_pty_before_relaunch(&svc.pty, &svc.screen_state, pty_id) {
@@ -68,7 +75,11 @@ pub(super) fn start_main(
             &general_dir().to_string_lossy(),
         ),
         GeneralAgentSessionPlan::FirstRunFresh | GeneralAgentSessionPlan::ConfiguredFresh => {
-            crate::service::agent_runtime::engine::stop(&tab.id);
+            if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab.id)
+            {
+                fail_general_agent_start(svc, mux, &tab.id, &reason);
+                return;
+            }
             svc.rotate_session_binding_nonce(&tab.id);
             state::clear_session_id();
             None
@@ -229,7 +240,7 @@ fn launch(
         crate::service::supporter_tab_state::ObservationTrigger::SpawnReady,
         "general_agent_runtime_ready",
     );
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::GeneralAgent);
     Ok(())
 }
 

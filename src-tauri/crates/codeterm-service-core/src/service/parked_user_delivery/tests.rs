@@ -517,6 +517,8 @@ mod owner_jev;
 #[path = "tests/readiness.rs"]
 mod readiness;
 mod recording_contract;
+#[path = "tests/restart_liveness.rs"]
+mod restart_liveness;
 #[path = "tests/retained_uncertainty.rs"]
 mod retained_uncertainty;
 

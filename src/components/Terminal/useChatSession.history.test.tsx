@@ -22,16 +22,18 @@ test("empty consumed backfill page advances to an older visible page", async () 
   });
   clearTranscriptWindows();
   const requests: number[] = [];
+  let releasePage!: (value: unknown) => void;
+  const nextPage = new Promise(resolve => { releasePage = resolve; });
   const authority = { source_session_id: "session", session_binding_nonce: "nonce" };
   __setListenForTest(async () => () => {});
   __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
     if (command === "chat_start") return { ...authority, text: "", pending: false,
-      start_offset: 200, offset: 300, messages: rows(200, 201), subscription_id: args?.subscriptionId };
+      start_offset: 800_000, offset: 1_200_000, messages: rows(200, 201), subscription_id: args?.subscriptionId };
     if (command === "chat_backfill") {
       requests.push(Number(args?.beforeOffset));
-      return Number(args?.beforeOffset) === 200
-        ? { ...authority, start_offset: 100, end_offset: 200, messages: [] }
-        : { ...authority, start_offset: 0, end_offset: 100, messages: rows(0, 1) };
+      return Number(args?.beforeOffset) === 800_000
+        ? { ...authority, start_offset: 403_000, end_offset: 800_000, messages: [] }
+        : nextPage;
     }
     return [];
   }) as Parameters<typeof __setInvokeForTest>[0]);
@@ -44,11 +46,16 @@ test("empty consumed backfill page advances to an older visible page", async () 
   const root = createRoot(host);
   try {
     await act(async () => root.render(createElement(Harness)));
-    await act(async () => { await chat?.loadOlder(); });
-    assert.equal(chat?.canBackfillOlder, true);
+    let completion: Promise<void> | undefined;
+    await act(async () => { completion = chat?.loadOlder(); });
+    assert.deepEqual(requests, [800_000, 403_000]);
+    assert.equal(chat?.backfillLoading, true);
     assert.equal(host.textContent, "answer-200");
-    await act(async () => { await chat?.loadOlder(); });
-    assert.deepEqual(requests, [200, 100]);
+    await act(async () => {
+      releasePage({ ...authority, start_offset: 0, end_offset: 403_000, messages: rows(0, 1) });
+      await completion;
+    });
+    assert.equal(chat?.backfillLoading, false);
     assert.equal(host.textContent, "answer-0,answer-200");
     assert.equal(chat?.canBackfillOlder, false);
   } finally {

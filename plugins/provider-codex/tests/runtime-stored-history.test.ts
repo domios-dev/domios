@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { ChatMsg, JsonValue, RuntimeContext } from "@codeterm/plugin-sdk";
-import { runtimeStoredHistory } from "../src/runtimeStoredHistory";
-import { runtimeResponse } from "../src/runtime";
+import { runtimeStoredHistory, runtimeStoredRecords } from "../src/runtimeStoredHistory";
+import { loadRecordPlugin, plain, recordInput } from "../../provider-shared/tests/recordHookFixture";
+import { runtimePlan, runtimeResponse } from "../src/runtime";
 import { collectHistory } from "./runtimeHistoryHost";
 import { object } from "../src/runtimeProtocol";
 import { createTranscriptState, reduceTranscript, transcriptRows } from "../../../packages/chat-core/src/transcript";
@@ -15,15 +17,57 @@ const base = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime/tool-call.js
 const ctx: RuntimeContext = {...base.context, threadId:fixture.sessionId};
 const operation = {kind:"readHistory" as const, threadId:fixture.sessionId};
 const stored = runtimeStoredHistory(fixture.sessionId, fixture.records.map(record => JSON.stringify(record)).join("\n"));
-const first = runtimeResponse(ctx, operation, {stage:"snapshot", seq:0}, {
-  kind:"success", value:{thread:{id:fixture.sessionId, source:"cli", turns:fixture.runtimeTurns}} as JsonValue,
+const reopenedRecords = JSON.parse(fs.readFileSync(new URL("./fixtures/reopened-assistant-history.json", import.meta.url), "utf8")) as JsonValue[];
+const reopenedText = reopenedRecords.map(record => JSON.stringify(record)).join("\n");
+const reopenedInput = recordInput(reopenedText);
+const bundle = loadRecordPlugin(fileURLToPath(new URL("..", import.meta.url)));
+for (const rows of [
+  runtimeStoredHistory("fixture-identity-1", reopenedText),
+  runtimeStoredRecords("fixture-identity-1", reopenedInput.records),
+  bundle.runtimeStoredHistory!("fixture-identity-1", reopenedText),
+  bundle.runtimeStoredRecords!("fixture-identity-1", reopenedInput.records, reopenedInput.meta),
+]) {
+  assert.deepEqual(plain(rows.map(row => [row.id, row.type, row.content])), [
+    ["fixture-identity-3", "assistant", "ACK-CODEX"],
+    ["fixture-identity-6", "assistant", "CACK-3"],
+    ["fixture-identity-9", "assistant", "ACK-FAST-MODEL"],
+  ]);
+  assert.deepEqual(plain(rows.map(row => row.toolFlowId)), ["fixture-identity-2", "fixture-identity-5", "fixture-identity-8"]);
+}
+const projected = runtimeStoredHistory(fixture.sessionId, JSON.stringify({
+  type:"event_msg", payload:{type:"item_completed",thread_id:fixture.sessionId,turn_id:"large-turn",
+    item:{id:"large-item",type:"AgentMessage",status:"completed",historyTruncated:true}},
+}));
+assert.equal(projected.length, 1);
+assert.equal(projected[0].id, "large-item");
+assert.equal(projected[0].type, "system");
+assert.ok(projected[0].content.length > 0);
+const projectedSnapshot = reduceTranscript(createTranscriptState(), {
+  kind:"snapshot", authority:{sourceSessionId:fixture.sessionId,sessionBindingNonce:"own-launch"},
+  range:{start:0,end:20 * 1024 * 1024,unit:"bytes"}, rows:projected as NormalizedChatMessage[],
 });
-assert.equal(first.kind, "continue");
-if (first.kind !== "continue") throw new Error("History did not request goal state");
-const final = runtimeResponse(ctx, operation, first.plan.state, {kind:"success", value:{goal:null}});
-assert.equal(final.kind, "complete");
-if (final.kind !== "complete") throw new Error("History did not complete");
-const live = collectHistory([...(first.history ? [first.history] : []), final.result]).items;
+assert.deepEqual(transcriptRows(projectedSnapshot.state).map(row => row.id), ["large-item"]);
+const plan = runtimePlan(ctx,operation);
+let step = runtimeResponse(ctx,operation,plan.state,{
+  kind:"success",value:{data:fixture.runtimeTurns.map(turn => {
+    const {items:_items,...metadata} = object(turn);
+    return metadata;
+  }),nextCursor:null} as JsonValue,
+});
+const chunks = [];
+let calls = 0;
+while (step.kind === "continue") {
+  assert.ok(++calls <= fixture.runtimeTurns.length + 2);
+  if (step.history) chunks.push(step.history);
+  if (step.plan.action.kind !== "request") throw new Error("Expected bounded history request");
+  const call = step.plan.action.call;
+  const turn = fixture.runtimeTurns.map(object).find(turn => turn.id === object(call.params).turnId);
+  step = runtimeResponse(ctx,operation,step.plan.state,{kind:"success",
+    value:call.method === "thread/goal/get" ? {goal:null} : {data:turn!.items,nextCursor:null} as JsonValue});
+}
+assert.equal(step.kind,"complete");
+if (step.kind !== "complete") throw new Error("History did not complete");
+const live = collectHistory([...chunks,step.result]).items;
 const positioned = (rows: ChatMsg[]) => rows.map((row, seq) => ({...row, seq}));
 assert.deepEqual(stored.map(row => row.id), fixture.expectedIds);
 assert.deepEqual(stored, positioned(live));

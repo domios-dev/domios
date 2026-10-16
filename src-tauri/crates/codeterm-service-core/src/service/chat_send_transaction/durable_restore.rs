@@ -16,6 +16,7 @@ impl ChatSendLedger {
             sequence: reservation.ledger_sequence,
             retained_from: reservation.ledger_sequence,
             correlation_id: reservation.client_token.clone(),
+            matched_row: None,
             pending_reason: None,
             system_send: None,
         }
@@ -51,6 +52,7 @@ impl ChatSendLedger {
             sequence: record.ledger_sequence,
             retained_from: record.ledger_sequence,
             correlation_id: record.client_token.clone(),
+            matched_row: None,
             pending_reason: None,
             system_send: None,
         };
@@ -126,13 +128,19 @@ impl ChatSendLedger {
                 .owned
                 .get(&receipt.send_id)
                 .is_some_and(|(_, active)| *active);
-            if current.state == ChatSendState::Written && receipt.state == ReceiptState::Uncertain {
+            if matches!(
+                current.state,
+                ChatSendState::Written | ChatSendState::Pending
+            ) && receipt.state == ReceiptState::Uncertain
+            {
                 if let Some(status) = state.by_id.get_mut(&receipt.send_id) {
                     status.state = ChatSendState::Unknown;
                     status.error = None;
                     status.pending_reason = None;
                 }
                 state.written_deadlines.remove(&receipt.send_id);
+                state.owned.remove(&receipt.send_id);
+                state.held_before_readiness_by_id.remove(&receipt.send_id);
             } else if receipt_ends_held_status(&current.state, active, receipt.state) {
                 let Some(status) = state.by_id.get_mut(&receipt.send_id) else {
                     return;
@@ -166,6 +174,7 @@ impl ChatSendLedger {
             sequence: receipt.ledger_sequence,
             retained_from: receipt.ledger_sequence,
             correlation_id: receipt.client_token.clone(),
+            matched_row: None,
             pending_reason: None,
             system_send: None,
         };

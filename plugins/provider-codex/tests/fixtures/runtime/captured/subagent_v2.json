@@ -170,7 +170,8 @@
             "agent_state": "started",
             "agent_call_id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
             "agent_path": "/root/say_hello",
-            "agent_ordinal": 1
+            "agent_ordinal": 1,
+            "agent_parent_thread_id": "01a0d5ff-49e8-7741-9ca7-b12aa375019a"
           },
           "toolId": "call_opQacJbIfXWqOZb5gT9hd9Mv",
           "toolArgs": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
@@ -195,7 +196,8 @@
             "agent_state": "started",
             "agent_call_id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
             "agent_path": "/root/say_hello",
-            "agent_ordinal": 1
+            "agent_ordinal": 1,
+            "agent_parent_thread_id": "01a0d5ff-49e8-7741-9ca7-b12aa375019a"
           },
           "toolId": "call_opQacJbIfXWqOZb5gT9hd9Mv",
           "toolArgs": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
@@ -248,7 +250,8 @@
             "agent_state": "completed",
             "agent_call_id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
             "agent_path": "/root/say_hello",
-            "agent_ordinal": 1
+            "agent_ordinal": 1,
+            "agent_parent_thread_id": "01a0d5ff-49e8-7741-9ca7-b12aa375019a"
           },
           "toolId": "call_opQacJbIfXWqOZb5gT9hd9Mv",
           "toolArgs": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",
@@ -273,7 +276,8 @@
             "agent_state": "completed",
             "agent_call_id": "call_opQacJbIfXWqOZb5gT9hd9Mv",
             "agent_path": "/root/say_hello",
-            "agent_ordinal": 1
+            "agent_ordinal": 1,
+            "agent_parent_thread_id": "01a0d5ff-49e8-7741-9ca7-b12aa375019a"
           },
           "toolId": "call_opQacJbIfXWqOZb5gT9hd9Mv",
           "toolArgs": "01a0d5ff-5f36-77f1-afa9-cc3dd93018dc",

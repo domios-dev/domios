@@ -135,6 +135,7 @@ function SidebarTabItemRow({
 }
 
 export interface SidebarSingleTabRowProps extends SidebarTabItemRowProps {
+  sortable?: boolean;
   group: "tab" | "team" | "child";
   groupKey: string;
   pinnedIds: string[];
@@ -146,12 +147,14 @@ export function isTabDragDisabled(tab: Pick<Tab, "protected">): boolean {
 }
 
 export function SidebarSingleTabRow({
+  sortable = true,
   group,
   groupKey,
   pinnedIds,
   toWorkspaceOrder,
   ...rowProps
 }: SidebarSingleTabRowProps) {
+  if (!sortable) return <SidebarTabItemRow {...rowProps} />;
   return (
     <SortableRow
       id={`${TAB_PREFIX}${rowProps.tab.id}`}

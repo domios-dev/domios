@@ -34,7 +34,7 @@ async fn transport_domain_registration_contract_auth_methods_and_persisted_cwd()
     let body = to_bytes(response.into_body(), 65536).await.unwrap();
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&body).unwrap()["apiVersion"],
-        2
+        codeterm_service_core::frontend_bundle_api_version::API_VERSION
     );
     let routes = [
         ("POST", format!("/api/tabs/{tab}/cwd")),
