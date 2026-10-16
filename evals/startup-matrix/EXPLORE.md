@@ -329,3 +329,4 @@ This diagnostic remains local-only and is never a CI gate.
 | Concurrent same-tab clients repeated snapshot parsing | locked by tests in service::tab_chat::snapshot_flight::tests; source identity and binding nonce are part of the shared-flight key |
 | Missing backfill source appeared to be empty history | locked by test missing_backfill_source_is_an_error_instead_of_empty_history |
 | DEV recovery diagnostics used a stage rejected by the server | locked by FrontendDiagnosticStage type checking; the three invalid call sites fail tsc before the channel repair, and the live preflight requires cold_attach POST 204 |
+| A workspace click completed the snapshot before the bench armed its response observer | locked by test observation is armed before an action can synchronously complete its event in evals/_lib/observe-action.test.mjs; observeAction preserves the original UI action sequence |
