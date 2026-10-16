@@ -2340,7 +2340,7 @@ function usage(params) {
   };
 }
 function sendEvidence(ctx, item, turnId) {
-  if (item.type !== "userMessage" || !text(item.id) || !turnId) return void 0;
+  if (item.type !== "userMessage" || !turnId) return void 0;
   const sendId = text(item.clientId);
   const claim = ctx.claimedSends.find((c) => c.sendId === sendId && c.threadId === ctx.threadId);
   if (!claim) return void 0;
@@ -2355,7 +2355,7 @@ function sendEvidence(ctx, item, turnId) {
     if (expected.url) return image.type === "image" && image.url === expected.url;
     return !!expected.path && image.type === "localImage" && image.path === expected.path;
   })) return void 0;
-  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId, itemId: text(item.id) };
+  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId, ...text(item.id) ? { itemId: text(item.id) } : {} };
 }
 function stamp(state, row2, params) {
   const previous = state.items[row2.id];

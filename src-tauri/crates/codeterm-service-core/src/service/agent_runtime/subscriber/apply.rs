@@ -209,7 +209,7 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                 &thread_id,
                 &context.binding_nonce,
                 &send_id,
-                &item_id,
+                item_id.as_deref(),
             ) {
                 session
                     .context

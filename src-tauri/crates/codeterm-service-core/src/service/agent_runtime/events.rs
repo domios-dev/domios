@@ -52,7 +52,7 @@ pub enum RuntimeEvent {
         resolved: bool,
     },
     EvidenceUpdated {
-        item_id: String,
+        item_id: Option<String>,
         thread_id: String,
         send_id: String,
         turn_id: String,
@@ -91,7 +91,7 @@ pub struct RuntimeMaps {
     items: Vec<StoredItem>,
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
-    evidence: HashMap<String, (String, String, String)>,
+    evidence: HashMap<String, (String, String, Option<String>)>,
     usage: HashMap<String, TokenUsage>,
     rate_limits: HashMap<String, Vec<RuntimeRateLimit>>,
     auth: Option<RuntimeAuthState>,
@@ -115,7 +115,7 @@ impl RuntimeMaps {
         };
     }
 
-    pub fn take_evidence(&mut self, send_id: &str) -> Option<(String, String, String)> {
+    pub fn take_evidence(&mut self, send_id: &str) -> Option<(String, String, Option<String>)> {
         self.evidence.remove(send_id)
     }
 }

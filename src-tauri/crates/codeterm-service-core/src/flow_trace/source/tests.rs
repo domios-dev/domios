@@ -85,7 +85,7 @@ fn rpc_send_ingress_protocol_answer_reaches_sink_with_exact_client_turn_link() {
             "provider",
         );
         ledger
-            .confirm_rpc_send("tab", session, "nonce", client, "provider-item")
+            .confirm_rpc_send("tab", session, "nonce", client, Some("provider-item"))
             .unwrap();
         let mut normalizer = Normalizer::default();
         let frame = Frame::Notification {

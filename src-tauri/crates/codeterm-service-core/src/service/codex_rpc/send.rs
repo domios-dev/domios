@@ -622,7 +622,7 @@ fn observe(svc: &ServiceContext, tab: &str, sidecar: &Arc<Sidecar>) {
                     };
                     let Frame::Notification { method, params } = event else { continue };
                     let Some((thread, client_id)) = user_client_id(&method, &params) else { continue };
-                    let Some(item_id) = params.get("item").and_then(|item| item.get("id")).and_then(Value::as_str) else { continue };
+                    let item_id = params.get("item").and_then(|item| item.get("id")).and_then(Value::as_str);
                     let Some(sidecar) = weak.upgrade() else { break };
                     if !super::lifecycle::for_tab(&tab).is_some_and(|current| Arc::ptr_eq(&current, &sidecar))
                         || !sidecar.verified.load(Ordering::Acquire) || *sidecar.thread.lock() != thread { continue; }

@@ -733,7 +733,7 @@ pub fn validate_runtime_reduction(
                 turn_id,
             } => {
                 if !identifier(turn_id)
-                    || !identifier(item_id)
+                    || item_id.as_ref().is_some_and(|id| !identifier(id))
                     || !ctx
                         .claimed_sends
                         .iter()

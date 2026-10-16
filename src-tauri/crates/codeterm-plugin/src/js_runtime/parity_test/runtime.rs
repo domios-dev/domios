@@ -374,3 +374,54 @@ async fn runtime_goal_native_quickjs_parity() {
         assert_eq!(serde_json::to_value(actual).unwrap(), intent);
     }
 }
+
+#[tokio::test]
+async fn runtime_native_quickjs_optional_evidence_identity_parity() {
+    let dir = generic_paths();
+    let fixture: GenericFixture =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("shared.json")).unwrap()).unwrap();
+    let js = generic_provider(&dir);
+    let native = native::NativeRuntime(js.agent_runtime().unwrap());
+    let mut ctx = fixture.context;
+    ctx.thread_id = Some("own-thread".into());
+    ctx.claimed_sends = vec![ClaimedSend {
+        send_id: "send".into(),
+        thread_id: "own-thread".into(),
+        input: TurnInput {
+            text: "payload".into(),
+            attachments: Vec::new(),
+        },
+    }];
+    for item_id in [None, Some("user-item")] {
+        let mut evidence = json!({"kind":"sendEvidence", "threadId":"own-thread", "sendId":"send", "turnId":"turn"});
+        if let Some(id) = item_id {
+            evidence["itemId"] = json!(id);
+        }
+        let frames = vec![
+            RuntimeFrame::Notification {
+                method: "item".into(),
+                params: json!({"id":"other-item", "type":"assistant", "content":"unrelated"}),
+            },
+            RuntimeFrame::Notification {
+                method: "item".into(),
+                params: json!({"usageEvent":evidence}),
+            },
+        ];
+        let a = native
+            .runtime_reduce(&ctx, &Value::Null, &frames)
+            .await
+            .unwrap();
+        let b = js
+            .runtime_reduce(&ctx, &Value::Null, &frames)
+            .await
+            .unwrap();
+        assert_eq!(a, b);
+        assert_eq!(b.events.len(), 2);
+        assert!(
+            matches!(&b.events[0], AgentRuntimeEvent::ChatItem { item, .. } if item.id == "other-item")
+        );
+        assert!(
+            matches!(&b.events[1], AgentRuntimeEvent::SendEvidence { item_id: actual, .. } if actual.as_deref() == item_id)
+        );
+    }
+}
