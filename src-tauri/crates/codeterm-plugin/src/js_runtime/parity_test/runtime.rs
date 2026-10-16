@@ -77,8 +77,9 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
 #[test]
 fn runtime_stored_history_native_quickjs_parity_and_capability_gate() {
     let dir = generic_paths();
+    let content = "quotes: \"\nbackslash: \\\r\nUnicode: 🦀 escaped surrogates: \\ud800 \\udfff";
     let records = json!({"session":"own-session", "messages":[
-        {"id":"own-item", "type":"user", "content":"opaque", "seq":0}
+        {"id":"own-item", "type":"user", "content":content, "seq":0}
     ]})
     .to_string();
     for enabled in [false, true] {
@@ -89,9 +90,12 @@ fn runtime_stored_history_native_quickjs_parity_and_capability_gate() {
         assert_eq!(a.is_ok(), enabled);
         assert_eq!(b.is_ok(), enabled);
         if enabled {
+            let native = serde_json::to_value(a.unwrap()).unwrap();
+            let js = serde_json::to_value(b.unwrap()).unwrap();
+            assert_eq!(native, js);
             assert_eq!(
-                serde_json::to_value(a.unwrap()).unwrap(),
-                serde_json::to_value(b.unwrap()).unwrap()
+                js[0]["content"].as_str().unwrap().as_bytes(),
+                content.as_bytes()
             );
         }
         assert!(native
