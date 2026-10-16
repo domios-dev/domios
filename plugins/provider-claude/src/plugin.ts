@@ -1,4 +1,4 @@
-import { quoteNativeArgument } from "../../provider-shared/nativeArgument";
+import { buildClaudeLaunchCommand, buildClaudeLaunchSpec } from "./launchSpec";
 import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
 import { writeClaudeLaunchPrompt } from "./launchPrompt";
 import { isImageDisplayMetadata } from "./imageMetadata";
@@ -113,17 +113,6 @@ const NOISE_FRAGMENTS = [
   "hold Space",
 ];
 
-const FILE_TASK_PROMPT =
-  "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
-const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-
-function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string): string | undefined {
-  if (hostText) return hostText;
-  if (prompt === "no_starter") return undefined;
-  if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
-  if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
-  return FILE_TASK_PROMPT;
-}
 
 function taskNotificationStatus(content: string): string | null {
   const trimmed = content.trim();
@@ -349,52 +338,10 @@ const plugin: PluginModule = {
     return claudePermissionPromptResponse(toolName, prompt, screen);
   },
 
-  // Launch command parity for native behavior across OS-specific execution modes.
-  buildLaunchCommand(params: LaunchParams): string {
-    const p = params || {};
-    const win = host.platform() === "windows";
-    const unset = win
-      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
-        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
-        + "[System.Text.Encoding]::UTF8; "
-        + "$PSNativeCommandArgumentPassing = 'Standard';"
-      : "unset CLAUDECODE &&";
-    const parts = [unset];
+  buildLaunchCommand: buildClaudeLaunchCommand,
 
-    parts.push("claude");
-    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-
-    if (p.agentName) {
-      parts.push("--agent");
-      parts.push(host.shell.quoteFor(p.agentName, host.platform()));
-    }
-    if (p.sessionId) {
-      parts.push("--session-id");
-      parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
-    }
-    const launchArgs = statuslineLaunchArgs(p.args || []);
-    if (!launchArgs) {
-      host.log("error", "[claude-launch] cannot compose launch settings");
-      return "";
-    }
-    if (launchArgs.length > 0) {
-      // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
-      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
-    }
-    // Keep large worker prompts out of shell parsing and argv on every platform.
-    {
-      const visiblePath = writeClaudeLaunchPrompt(p.task || "");
-      if (!visiblePath) return "";
-      parts.push("--append-system-prompt-file");
-      parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      const prompt = p.task ? starterPrompt(p.starterPrompt, p.starterPromptText) : undefined;
-      if (prompt) {
-        parts.push("--");
-        const framed = p.starterPromptPrefix ? p.starterPromptPrefix + prompt + "</domios>" : prompt;
-        parts.push(quoteNativeArgument(framed, host.platform(), host.shell.quoteFor));
-      }
-    }
-    return parts.join(" ");
+  buildLaunchSpec(params: LaunchParams) {
+    return manifest()?.commands?.launchSpec ? buildClaudeLaunchSpec(params) : null;
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string | null {

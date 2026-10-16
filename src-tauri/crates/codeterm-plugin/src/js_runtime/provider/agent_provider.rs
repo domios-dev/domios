@@ -15,10 +15,8 @@ use crate::provider::{
 use codeterm_types::pty::PendingPrompt;
 
 use super::super::{call_json, manifest_settings_sections, IntegrationKind, SerdeModelInfo};
-use super::command_template::{launch_command_from_template, resume_command_from_template};
-use super::wire::{
-    launch_params_to_json, SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
-};
+use super::command_template::resume_command_from_template;
+use super::wire::{SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES};
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
 mod chat_read;
@@ -177,13 +175,11 @@ impl AgentProvider for JsProvider {
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
-        if !self.has_js("buildLaunchCommand") {
-            if let Some(command) = launch_command_from_template(&self.manifest, params) {
-                return command;
-            }
-        }
-        self.try_call::<String>("buildLaunchCommand", &[launch_params_to_json(params)])
-            .unwrap_or_default()
+        super::command_template::build_launch_command(self, params)
+    }
+
+    fn launch_spec(&self, params: &AgentLaunchParams) -> Option<codeterm_types::agent::LaunchSpec> {
+        super::command_template::launch_spec(self, params)
     }
 
     fn release_tab_launch_artifacts(

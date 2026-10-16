@@ -5,7 +5,10 @@ export interface Manifest {
   integration?: { settingsPath?: string };
   sessions?: { rootDir?: string; fileExtension?: string };
   models?: ModelInfo[];
-  commands?: { modelSwitchCommands?: { transcript?: unknown; effort?: { confirmation: string } } };
+  commands?: {
+    launchSpec?: { program: string; args?: string[]; envUnset?: string[] };
+    modelSwitchCommands?: { transcript?: unknown; effort?: { confirmation: string } };
+  };
   cliCompatibility?: ProviderCompatibilityManifest;
 }
 

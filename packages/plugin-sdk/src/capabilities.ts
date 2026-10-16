@@ -289,6 +289,12 @@ export interface AgentProvider {
   detectEvents?(text: string): string[];
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
+  buildLaunchSpec?(params: LaunchParams): {
+    program: string;
+    args: string[];
+    envSet?: Record<string, string>;
+    envUnset?: string[];
+  } | null;
   releaseTabLaunchArtifacts?(tabId: string, instanceId: string): boolean;
   /** Persist provider-owned folder trust after this tab's trust dialog closes. */
   folderTrustAnswered?(tabId: string, instanceId: string): boolean;
