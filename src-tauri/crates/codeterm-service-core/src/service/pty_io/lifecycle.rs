@@ -6,6 +6,7 @@ use super::{
 };
 use crate::multiplexer::commands::MuxState;
 use crate::service::boot_stage::BootStage;
+use crate::service::restore_admission::Admission;
 use crate::service::ServiceContext;
 
 mod empty_session;
@@ -517,15 +518,17 @@ impl ServiceContext {
         &self,
         pty_claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {
-        self.ensure_tab_pty_linked_with_claim(pty_claim)?;
+        self.ensure_tab_pty_linked_with_claim(pty_claim, None)?;
         self.materialize_restored_agent_with_claim(pty_claim)
     }
 
     pub(crate) fn ensure_tab_pty_linked_with_claim(
         &self,
         pty_claim: &crate::service::pty_ownership::TabPtyClaim,
+        admission: Option<Admission>,
     ) -> Result<(), String> {
         let tab_id = pty_claim.tab_id();
+        let admission = admission.unwrap_or_else(|| Admission::ungated(self, tab_id));
         if self.mux.read().get_tab(tab_id).is_some_and(|tab| {
             tab.close_restore
                 .as_ref()
@@ -535,7 +538,7 @@ impl ServiceContext {
         }
         if let Ok(pty_id) = self.resolve_pty_id(tab_id) {
             self.emit_pty_reattached(tab_id);
-            crate::startup::boot_timing::mark(tab_id, Some(&pty_id), "pty_admitted");
+            admission.mark(tab_id, Some(&pty_id), "pty_admitted");
             return Ok(());
         }
 
@@ -558,7 +561,9 @@ impl ServiceContext {
             ));
         }
 
+        crate::startup::boot_timing::mark(tab_id, None, "pty_env_enter");
         let env_vars = self.tab_env(tab_id);
+        crate::startup::boot_timing::mark(tab_id, None, "pty_env_ready");
         let cols = if agent_type.is_some() {
             SEND_AGENT_BACKEND_COLS
         } else {
@@ -587,15 +592,18 @@ impl ServiceContext {
             &pty_id[..pty_id.len().min(8)],
             t0.elapsed().as_millis()
         );
+        crate::startup::boot_timing::mark(tab_id, Some(&pty_id), "pty_link_enter");
         let selection = self.link_pty_with_claim(pty_claim, tab_id, pty_id, false);
+        crate::startup::boot_timing::mark(tab_id, Some(&selection.pty_id), "pty_linked");
         if !selection.linked {
             return Err(format!("Tab {} closed before PTY link", tab_id));
         }
+        crate::startup::boot_timing::mark(tab_id, Some(&selection.pty_id), "pty_reader_enter");
         if let Some(reader_pty_id) = selection.reader_pty_id() {
             self.start_backend_reader_for(reader_pty_id.to_string());
         }
 
-        crate::startup::boot_timing::mark(tab_id, Some(&selection.pty_id), "pty_admitted");
+        admission.mark(tab_id, Some(&selection.pty_id), "pty_admitted");
         Ok(())
     }
 
