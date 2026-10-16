@@ -50,6 +50,7 @@ import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
+import { workspacePrewarmInput } from "./hooks/terminal/workspacePrewarmModel";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
@@ -420,15 +421,7 @@ function AppInner() {
     });
   }, []);
   const prewarmTabIds = useTabPrewarm({
-    workspaceId: activeWs?.id ?? null,
-    activeTabId: activeTab?.id ?? null,
-    tabIds:
-      activeWs?.tabs
-        .filter((tabId) => {
-          const tab = state.tabs[tabId];
-          return tab && !(activeWs.protected === true && tab.protected === true);
-        })
-        ?? [],
+    ...workspacePrewarmInput(activeWs, activeTab?.id ?? null, state.tabs),
     liveTabIds: state.workspaces.flatMap((ws) => ws.tabs),
     prewarmTab: prewarmBackendTab,
   });
