@@ -103,6 +103,25 @@ cases also run on Linux/Windows; Raw Input cases compile only on Windows.
 `./build.sh test-one input-macos|input-windows <selector>` targets one crate;
 select Windows only on Windows. Workers defer Rust execution to canonical.
 
+## Frontend warning collection
+
+`pnpm build` runs TypeScript, then Vite, through `scripts/frontend-build.mjs`.
+It preserves compiler failures and writes `ci-rust-warnings/frontend.log`,
+`frontend-warnings.md` and `rust-warnings-<platform>-frontend.json` even when
+the type check fails. Failed stages mark collection incomplete. New Vite warnings
+fail the existing identity ratchet in `scripts/rust-warnings-baseline.json`;
+the Rust collector and baseline stay unchanged. Never raise the chunk warning
+threshold or seed frontend warnings to make a failing build pass.
+
+For a frontend build failure, inspect that log first. Repair TypeScript errors
+before rerunning the bundle; for oversized chunks, defer unused surfaces and
+check their runtime loading. Focused collector proof:
+`node --test scripts/tests/frontend-warnings.test.mjs scripts/tests/collect-rust-warnings.test.mjs`.
+
+Use `node scripts/frontend-bundle-metrics.mjs dist` before and after frontend
+splitting. Compare `initialBytes` (the static import closure) as well as
+`entryBytes`; a smaller entry alone does not prove less startup JavaScript.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.
