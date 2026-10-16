@@ -1588,10 +1588,21 @@ function recordedItem(raw) {
   });
   return item;
 }
+function storedRecordType(line) {
+  const tokens = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
+  const opening = tokens.exec(line);
+  if (opening?.[0] !== "{") return void 0;
+  for (let token = tokens.exec(line); token; token = tokens.exec(line)) {
+    if (token[1] !== void 0) return token[1];
+    if (token[0] === "{" || token[0] === "[") return void 0;
+  }
+  return void 0;
+}
 function runtimeStoredHistory(sessionId, records) {
   const rows = /* @__PURE__ */ new Map();
   for (const line of records.split("\n")) {
-    if (!line.trim()) continue;
+    const type = storedRecordType(line);
+    if (type !== "event_msg" && type !== "session_meta") continue;
     const record6 = object(JSON.parse(line));
     const payload = object(record6.payload);
     if (record6.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
