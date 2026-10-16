@@ -534,12 +534,24 @@ pub struct PendingModelSelection {
     pub effort: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SleepReason {
+    Idle,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
     #[serde(default, skip_deserializing)]
     pub frozen: bool,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub slept_at_ms: Option<u64>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub sleep_reason: Option<SleepReason>,
     #[serde(default)]
     pub last_active_at_ms: Option<u64>,
+    #[serde(default)]
+    pub last_opened_at_ms: Option<u64>,
     #[serde(default, skip_deserializing)]
     pub provider_signals: codeterm_types::agent::provider_signals::ProviderSignals,
     #[serde(default, skip_deserializing)]
