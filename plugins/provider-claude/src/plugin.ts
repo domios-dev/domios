@@ -2,6 +2,7 @@ import { buildClaudeLaunchCommand, buildClaudeLaunchSpec, starterPrompt } from "
 import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
 import { writeClaudeLaunchPrompt } from "./launchPrompt";
 import { isImageDisplayMetadata } from "./imageMetadata";
+import { shouldParseClaudeRecord } from "./recordPrefix";
 import { checkClaudeUpdate } from "./update";
 import { claudeTrustRecord } from "./preTrust";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
@@ -479,7 +480,7 @@ const plugin: PluginModule = {
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (!line) continue;
+      if (!line || !shouldParseClaudeRecord(line, false)) continue;
       let v: ClaudeEntry;
       try { v = JSON.parse(line); } catch (e) {
         if (!hadInvalid) {
@@ -541,7 +542,7 @@ const plugin: PluginModule = {
     for (let i = 0; i < lines.length; i++) {
       stampRows(i - 1);
       const line = lines[i];
-      if (!line) continue;
+      if (!line || !shouldParseClaudeRecord(line, true)) continue;
       let v: ClaudeEntry;
       try { v = JSON.parse(line); } catch (_) {
         if (!hadInvalid) {

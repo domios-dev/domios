@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.11",
+  "version": "1.14.12",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Claude Code",
