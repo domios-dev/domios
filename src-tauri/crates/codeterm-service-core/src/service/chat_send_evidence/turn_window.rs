@@ -25,14 +25,8 @@ fn bounded_append_window<T>(from: u64, total: u64, read: impl FnOnce(u64) -> T) 
 
 #[derive(Clone)]
 pub(super) struct StructuredUserTurn {
-    pub(super) id: Option<String>,
+    pub(super) source_row: Option<crate::service::chat_send_transaction::SourceRowRef>,
     pub(super) content: String,
-}
-
-impl StructuredUserTurn {
-    pub(super) fn without_identity(content: String) -> Self {
-        Self { id: None, content }
-    }
 }
 
 pub(super) fn structured_evidence_records(
@@ -59,7 +53,7 @@ pub(super) fn structured_evidence_records(
             chat.messages
                 .into_iter()
                 .map(|message| StructuredUserTurn {
-                    id: (!message.id.is_empty()).then_some(message.id),
+                    source_row: crate::service::chat_send_transaction::SourceRowRef::structured(&anchor.session_id, &message.id),
                     content: message.content,
                 })
                 .collect()
@@ -70,6 +64,16 @@ pub(crate) fn window_evidence_records(
     registry: &AgentRegistry,
     anchor: &SendEvidenceAnchor,
 ) -> Vec<String> {
+    window_evidence_turns(registry, anchor)
+        .into_iter()
+        .map(|turn| turn.content)
+        .collect()
+}
+
+pub(super) fn window_evidence_turns(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+) -> Vec<StructuredUserTurn> {
     match &anchor.window {
         EvidenceWindow::Jsonl { transcript_offset } => {
             let Some(path) = registry
@@ -94,17 +98,35 @@ pub(crate) fn window_evidence_records(
                     delta
                         .messages
                         .iter()
-                        .flat_map(rich_evidence_segments)
+                        .flat_map(|rich| jsonl_evidence_turns(&anchor.session_id, rich))
                         .collect()
                 })
                 .unwrap_or_default()
         }
-        EvidenceWindow::Structured { .. } => structured_evidence_records(registry, anchor)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|turn| turn.content)
-            .collect(),
+        EvidenceWindow::Structured { .. } => {
+            structured_evidence_records(registry, anchor).unwrap_or_default()
+        }
     }
+}
+
+pub(super) fn jsonl_evidence_turns(
+    session: &str,
+    rich: &crate::agent::chat_types::RichMessage,
+) -> Vec<StructuredUserTurn> {
+    let source_row = crate::service::chat_send_transaction::SourceRowRef::jsonl(
+        session,
+        crate::service::chat_send_transaction::TurnPosition {
+            record_start: rich.record_start,
+            record_row: rich.record_row,
+        },
+    );
+    rich_evidence_segments(rich)
+        .into_iter()
+        .map(|content| StructuredUserTurn {
+            content,
+            source_row: source_row.clone(),
+        })
+        .collect()
 }
 
 pub(crate) fn window_user_turns(
