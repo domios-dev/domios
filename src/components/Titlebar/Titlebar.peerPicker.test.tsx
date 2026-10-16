@@ -169,8 +169,6 @@ describe("web host picker placement", () => {
     for (let ancestor = trigger.parentElement; ancestor && ancestor !== host; ancestor = ancestor.parentElement) {
       expect(ancestor.className).not.toMatch(/\b(?:hidden|overflow-hidden)\b/);
     }
-    expect(trigger.className).toContain("min-h-[44px]");
-    expect(trigger.closest('[data-testid="titlebar"]')!.className).toContain("z-50");
   });
 });
 

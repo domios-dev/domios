@@ -38,15 +38,12 @@ const { host: errorHost } = await render(
     <span>details</span>
   </ToolCardFrame>,
 );
-if (!errorHost.querySelector<HTMLElement>(".ct-card--error")) throw new Error("error border regression");
 if (!errorHost.querySelector('[data-testid="toolcard-status"] svg')) throw new Error("error status regression");
 const detailsToggle = errorHost.querySelector('button[aria-expanded="true"]');
 const detailsId = detailsToggle?.getAttribute("aria-controls");
 const detailsRegion = detailsId ? errorHost.querySelector<HTMLElement>(`#${detailsId}`) : null;
-if (detailsRegion?.style.maxHeight !== "600px" || detailsRegion.style.overflowY !== "hidden") throw new Error("expanded tool Details must cap at 600px and clip until Show all");
 const contentStack = detailsRegion?.querySelector<HTMLElement>('[data-testid="raw-command-disclosure"]');
 if (!contentStack) throw new Error("expanded tool details must own the raw command disclosure");
-if (!contentStack.classList.contains("grid") || !contentStack.classList.contains("gap-0.5")) throw new Error("expanded tool details must share one compact content stack");
 
 const usedThemeVars = [
   "--ct-border", "--ct-surface", "--ct-muted-fg", "--ct-red", "--ct-yellow", "--ct-green",

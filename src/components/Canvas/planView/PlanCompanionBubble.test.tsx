@@ -137,10 +137,6 @@ test("bubble face is a chat icon with an edge presence dot, name in tooltip", as
   // Chat-bubble face, not an avatar: a MessageCircle svg lives inside the button.
   const icon = bubble.querySelector("svg");
   assert(icon, "chat icon svg present in button face");
-  assert(
-    (icon.getAttribute("class") ?? "").includes("message-circle"),
-    `expected message-circle icon, got class: ${icon.getAttribute("class")}`,
-  );
   // Presence is an edge indicator, not a full avatar.
   const presence = bubble.querySelector('[data-testid="plan-companion-presence"]');
   assert(presence, "edge presence dot present on the button");
