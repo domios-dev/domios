@@ -8,6 +8,53 @@ use crate::js_runtime::manifest::{
 };
 use crate::provider::AgentLaunchParams;
 
+pub(super) fn launch_spec_from_template(
+    manifest: &PluginManifest,
+    params: &AgentLaunchParams,
+) -> Option<codeterm_types::agent::LaunchSpec> {
+    let mut spec = manifest.commands.launch_spec.clone()?;
+    let render = |value: &str| -> Option<String> {
+        checked_template(
+            manifest,
+            "launchSpec",
+            Some(value),
+            LAUNCH_TEMPLATE_PLACEHOLDERS,
+        )?;
+        if value.contains("{args}") || value.contains("{skipPermissions}") {
+            return None;
+        }
+        Some(substitute_template(
+            value,
+            &[
+                ("task", params.task.as_deref().unwrap_or_default()),
+                (
+                    "sessionId",
+                    params.session_id.as_deref().unwrap_or_default(),
+                ),
+            ],
+        ))
+    };
+    spec.program = render(&spec.program)?;
+    let mut args = Vec::new();
+    for arg in &spec.args {
+        match arg.as_str() {
+            "{args}" => args.extend(params.args.clone().unwrap_or_default()),
+            "{skipPermissions}" if params.skip_permissions => {
+                args.extend(manifest.commands.auto_approve_flags.clone());
+            }
+            "{skipPermissions}" => {}
+            _ => args.push(render(arg)?),
+        }
+    }
+    spec.args = args;
+    spec.env_set = spec
+        .env_set
+        .iter()
+        .map(|(key, value)| Some((key.clone(), render(value)?)))
+        .collect::<Option<_>>()?;
+    (!spec.program.trim().is_empty()).then_some(spec)
+}
+
 /// `{skipPermissions}` expands to the manifest's declared auto-approve
 /// flags when requested, and to nothing otherwise.
 fn skip_permission_flags(manifest: &PluginManifest, skip_permissions: bool) -> String {
@@ -84,4 +131,41 @@ pub(super) fn resume_command_from_template(
             ("skipPermissions", skip.as_str()),
         ],
     ))
+}
+
+pub(super) fn build_launch_command(
+    provider: &super::JsProvider,
+    params: &AgentLaunchParams,
+) -> String {
+    if !provider.has_js("buildLaunchCommand") {
+        if let Some(command) = launch_command_from_template(&provider.manifest, params) {
+            return command;
+        }
+    }
+    provider
+        .try_call::<String>(
+            "buildLaunchCommand",
+            &[super::wire::launch_params_to_json(params)],
+        )
+        .unwrap_or_default()
+}
+
+pub(super) fn launch_spec(
+    provider: &super::JsProvider,
+    params: &crate::provider::LaunchSpecParams<'_>,
+) -> Option<codeterm_types::agent::LaunchSpec> {
+    if provider.has_js("buildLaunchSpec") {
+        let wire = match params {
+            crate::provider::LaunchSpecParams::Fresh(params) => super::wire::launch_params_to_json(params),
+            crate::provider::LaunchSpecParams::Resume(params) => serde_json::json!({"resume": params}),
+        };
+        return provider.try_call(
+            "buildLaunchSpec",
+            &[wire],
+        );
+    }
+    match params {
+        crate::provider::LaunchSpecParams::Fresh(params) => launch_spec_from_template(&provider.manifest, params),
+        crate::provider::LaunchSpecParams::Resume(_) => None,
+    }
 }

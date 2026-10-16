@@ -285,6 +285,51 @@ impl RestoredFreshLaunchInput {
             ),
         })
     }
+    pub(crate) fn prepared_command(
+        &self,
+        service: &crate::service::ServiceContext,
+        tab_id: &str,
+    ) -> Option<crate::service::orchestrator::PreparedAgentCommand> {
+        let provider_id = self.params.agent.as_deref()?;
+        let registry = &service.agent_registry;
+        let resumable = registry.with_provider(provider_id, |provider| {
+            match self.params.resume_session_id.as_deref() {
+                Some(session_id) => provider
+                    .build_resume_command(
+                        session_id,
+                        self.params.permission_bypass_requested(provider_id),
+                    )
+                    .is_some(),
+                None => true,
+            }
+        })?;
+        if !resumable {
+            return None;
+        }
+        Some(match self.params.resume_session_id {
+            Some(_) => crate::service::orchestrator::prepare_agent_command_for_service(
+                service,
+                tab_id,
+                provider_id,
+                &self.params,
+                self.launch_task.as_deref(),
+                None,
+                registry,
+                None,
+            ),
+            None => {
+                crate::service::launch_session_detection::marked_prepared_agent_command_for_service(
+                    service,
+                    tab_id,
+                    provider_id,
+                    &self.params,
+                    self.launch_task.as_deref(),
+                    None,
+                    registry,
+                )
+            }
+        })
+    }
 }
 
 #[cfg(test)]
