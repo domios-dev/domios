@@ -335,7 +335,21 @@ export function reduceTranscript(
     if (rotated.outcome !== "adopted") return { state, outcome: rotated.outcome };
     return { state: rotated.state, outcome: "rotated" };
   }
-  const based: TranscriptState = { ...state, authority: batch.authority };
+  if (batch.rows.some(row => row.inheritedFromSessionId != null)
+    && state.segments.some(segment => segment.range != null && segment.range.end > 0
+      && segment.rows.some(row => row.inheritedFromSessionId == null))) {
+    return { state, outcome: "ignored_stale" };
+  }
+  const ownMaterialized = batch.range != null && batch.range.end > batch.range.start
+    && (batch.kind === "snapshot" || (batch.kind === "delta" && batch.range.start === 0))
+    && batch.rows.length > 0
+    && batch.rows.every(row => row.inheritedFromSessionId == null);
+  const segments = ownMaterialized
+    ? state.segments.map(segment => ({
+      ...segment, rows: segment.rows.filter(row => row.inheritedFromSessionId == null),
+    }))
+    : state.segments;
+  const based: TranscriptState = { ...state, segments, authority: batch.authority };
   if (batch.range?.unit === "items" || (batch.range == null && based.segments.some((segment) => segment.range?.unit === "items"))) {
     return reduceItems(based, batch);
   }
