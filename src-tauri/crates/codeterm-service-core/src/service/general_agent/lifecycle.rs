@@ -335,7 +335,10 @@ pub fn start_general_agent(
                     }
                 }
             } else {
-                crate::service::agent_runtime::engine::stop(&pid);
+                if let Err(reason) = crate::service::agent_runtime::engine::stop(svc, &pid) {
+                    fail_general_agent_start(svc, mux, &pid, &reason);
+                    return;
+                }
                 log::info!(
                     "[general-agent] Provider mismatch: running={}, wanted={} — restarting",
                     current_agent,
@@ -582,7 +585,10 @@ fn restart_general_agent_inner(
     if let Some(tab_id) =
         runtime_tab.filter(|tab| crate::service::agent_runtime::requested_for_tab(svc, tab))
     {
-        crate::service::agent_runtime::engine::stop(&tab_id);
+        if let Err(reason) = crate::service::agent_runtime::engine::stop(svc, &tab_id) {
+            fail_general_agent_start(svc, mux, &tab_id, &reason);
+            return;
+        }
         start_general_agent(svc, mux, pty, screen_state, config);
         return;
     }

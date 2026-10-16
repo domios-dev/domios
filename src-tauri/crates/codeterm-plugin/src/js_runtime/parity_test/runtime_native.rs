@@ -151,7 +151,15 @@ impl AgentProvider for NativeRuntime {
                                 )
                             },
                         )?,
-                        next_cursor: None,
+                        next_cursor: serde_json::from_value(
+                            value.get("nextCursor").cloned().unwrap_or(Value::Null),
+                        )
+                        .map_err(|error| {
+                            RuntimeFailure::new(
+                                RuntimeFailureCode::InvalidSchema,
+                                error.to_string(),
+                            )
+                        })?,
                     },
                     RuntimeOperation::BackgroundProcesses {
                         thread_id,

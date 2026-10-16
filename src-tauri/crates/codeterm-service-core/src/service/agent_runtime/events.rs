@@ -260,6 +260,13 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
             maps.threads
                 .insert(thread_id.clone(), parent_thread_id.clone());
         }
+        RuntimeEvent::TurnUpdated {
+            thread_id,
+            state: RuntimeTurnState::Idle,
+            ..
+        } => {
+            maps.background_processes.remove(thread_id);
+        }
         RuntimeEvent::TurnUpdated { .. } => {}
         RuntimeEvent::ItemUpdated { thread_id, item } => {
             upsert_item(maps, thread_id, item.clone());

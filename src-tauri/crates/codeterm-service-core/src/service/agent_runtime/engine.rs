@@ -81,20 +81,48 @@ pub(super) mod backfill;
 #[path = "engine/test_support.rs"]
 pub(crate) mod test_support;
 
-pub fn stop(tab: &str) {
+pub fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    let Some(session) = for_tab(tab) else {
+        return Ok(());
+    };
+    let permit = session.gate.try_acquire().ok();
+    session.gate.close();
+    let process = session.process.lock().clone();
+    if let Some(process) = process {
+        if let Err(reason) = crate::async_runtime::block_on(super::background::cleanup(
+            svc,
+            &session,
+            &process,
+            super::background::Mode::Shutdown,
+            Vec::new(),
+            permit.is_some(),
+        )) {
+            let epoch = session.context.lock().epoch;
+            session.state.lock().degrade(epoch, &reason);
+            publish(svc, tab, &session);
+            return Err(reason.to_string());
+        }
+    }
+    {
+        let mut sessions = SESSIONS.lock();
+        if !sessions
+            .get(tab)
+            .is_some_and(|current| Arc::ptr_eq(current, &session))
+        {
+            return Err(RuntimeFailure::Superseded.to_string());
+        }
+        sessions.remove(tab);
+    }
     super::authority::revoke(tab);
     super::environment::revoke(tab);
     super::capture::revoke(tab);
-    if let Some(session) = SESSIONS.lock().remove(tab) {
-        super::login::forget(&session);
-        session.state.lock().phase = RuntimePhase::Unloaded {
-            reason: Some("Runtime stopped".into()),
-        };
-        session.control_changes.send_replace(());
-        if let Some(process) = session.process.close() {
-            process.stop();
-        }
-    }
+    super::login::forget(&session);
+    session.state.lock().phase = RuntimePhase::Unloaded {
+        reason: Some("Runtime stopped".into()),
+    };
+    session.control_changes.send_replace(());
+    session.process.close();
+    Ok(())
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
