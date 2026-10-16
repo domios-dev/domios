@@ -46,7 +46,8 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
         log::debug!(
             "[startup-pty] wave started tabs={} pty_concurrency={} chat_concurrency={}",
             queued.len(),
-            super::restored_backends::RESTORE_BUDGETS.pty,
+            super::restored_backends::RESTORE_BUDGETS.foreground
+                + super::restored_backends::RESTORE_BUDGETS.background,
             super::restored_backends::RESTORE_BUDGETS.chat,
         );
         let results = super::restored_backends::run_transport_waves(
@@ -60,12 +61,11 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
                 }
             },
             || {
-                let focused = service_state
-                    .mux
-                    .read()
-                    .get_focused_tab_id()
-                    .map(str::to_owned);
-                focused.and_then(|id| queued.iter().position(|tab_id| *tab_id == id))
+                let mux = service_state.mux.read();
+                queued
+                    .iter()
+                    .map(|tab_id| service::restore_admission::priority(&mux, tab_id))
+                    .collect()
             },
             |tab_id| {
                 codeterm_service_core::startup::boot_timing::mark(tab_id, None, "cwd_check_enter");
