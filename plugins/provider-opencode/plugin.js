@@ -730,14 +730,34 @@ function isNonChatModel(id) {
   for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
   return false;
 }
-function discoverOpencodeGroupUsage() {
+var GROUP_USAGE_SQL = "SELECT json_extract(data,'$.providerID') AS g, COUNT(*) AS messages, SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " AND json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g";
+var GROUP_USAGE_TTL_MS = 6e4;
+var groupUsageCache = null;
+function opencodeDbStamp(db) {
+  const slash = Math.max(db.lastIndexOf("/"), db.lastIndexOf("\\"));
+  if (slash < 0) return null;
+  const name = db.slice(slash + 1);
+  const entries = host.fs.readDir(db.slice(0, slash));
+  const stamps = [name, name + "-wal"].map((file) => {
+    const entry = entries.find((e) => e.name === file);
+    return entry ? entry.size + "@" + entry.modifiedMs : "-";
+  });
+  return stamps[0] === "-" ? null : db + "|" + stamps.join("|");
+}
+function withOpencodeGroupUsage(then) {
   const db = opencodeDbPath();
-  if (!db || !host.fs.fileExists(db)) return [];
-  const rows = host.fs.sqliteQuery(
-    db,
-    "SELECT json_extract(data,'$.providerID') AS g, COUNT(*) AS messages, SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " AND json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
-    []
-  );
+  if (!db || !host.fs.fileExists(db)) return then([]);
+  const stamp = opencodeDbStamp(db);
+  const cached = groupUsageCache;
+  if (stamp && cached && cached.stamp === stamp && host.unixNowMs() - cached.atMs < GROUP_USAGE_TTL_MS) {
+    return withGroupBalances(cached.rows, () => then(groupUsageFromRows(cached.rows)));
+  }
+  return host.fs.sqliteQueryAsync(db, GROUP_USAGE_SQL, [], (rows) => {
+    groupUsageCache = stamp ? { stamp, atMs: host.unixNowMs(), rows } : null;
+    return withGroupBalances(rows, () => then(groupUsageFromRows(rows)));
+  });
+}
+function groupUsageFromRows(rows) {
   const out = [];
   for (let i = 0; i < rows.length; i++) {
     const group = rows[i].g;
@@ -753,7 +773,7 @@ function discoverOpencodeGroupUsage() {
       cost_micros: costMicros
     };
     if (costMicros > 0) entry.spend_cents = Math.round(costMicros / 1e4);
-    const remaining = groupBalanceCents(group);
+    const remaining = cachedBalanceCents(group);
     if (remaining != null) entry.spend_remaining_cents = remaining;
     out.push(entry);
   }
@@ -766,33 +786,39 @@ var BALANCE_CREDENTIAL = "opencodeAuth";
 var BALANCE_TTL_MS = 6e4;
 var BALANCE_TIMEOUT_MS = 4e3;
 var balanceCache = null;
-function groupBalanceCents(group) {
-  if (!BALANCE_BY_GROUP[group]) return null;
-  const now = host.unixNowMs();
-  if (balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS) {
-    return balanceCache.cents;
-  }
-  const cents = fetchBalanceCents(group);
-  balanceCache = { group, atMs: now, cents };
-  return cents;
+function balanceFresh(group, now) {
+  return !!balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS;
 }
-function fetchBalanceCents(group) {
-  const spec = BALANCE_BY_GROUP[group];
-  if (!spec || typeof host.fetch !== "function") return null;
-  let response = null;
-  try {
-    response = safeJson(host.fetch(JSON.stringify({
-      url: spec.url,
-      method: "GET",
-      timeoutMs: BALANCE_TIMEOUT_MS,
-      credential: {
-        id: BALANCE_CREDENTIAL,
-        headers: { Authorization: "Bearer {" + spec.secret + "}" }
-      }
-    })));
-  } catch (_) {
-    return null;
+function cachedBalanceCents(group) {
+  return BALANCE_BY_GROUP[group] && balanceCache && balanceCache.group === group ? balanceCache.cents : null;
+}
+function withGroupBalances(rows, then) {
+  const now = host.unixNowMs();
+  let stale = null;
+  for (let i = 0; i < rows.length && !stale; i++) {
+    const group2 = rows[i].g;
+    if (typeof group2 === "string" && BALANCE_BY_GROUP[group2] && !balanceFresh(group2, now)) stale = group2;
   }
+  if (!stale || typeof host.fetch !== "function" || typeof host.fetch.async !== "function") return then();
+  const group = stale;
+  return host.fetch.async(balanceRequest(group), (response) => {
+    balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
+    return then();
+  });
+}
+function balanceRequest(group) {
+  const spec = BALANCE_BY_GROUP[group];
+  return {
+    url: spec.url,
+    method: "GET",
+    timeoutMs: BALANCE_TIMEOUT_MS,
+    credential: {
+      id: BALANCE_CREDENTIAL,
+      headers: { Authorization: "Bearer {" + spec.secret + "}" }
+    }
+  };
+}
+function balanceCentsFrom(response) {
   if (!response || response.status !== 200 || typeof response.body !== "string") return null;
   const body = safeJson(response.body);
   const infos = body && Array.isArray(body.balance_infos) ? body.balance_infos : [];
@@ -1679,7 +1705,7 @@ var plugin = {
   // Cumulative usage per upstream company comes from OpenCode's session store.
   // Model-id prefixes match picker groups, keeping vendor knowledge out of core.
   modelGroupUsage() {
-    return discoverOpencodeGroupUsage();
+    return withOpencodeGroupUsage((usage) => usage);
   },
   // because response bytes depend on horizontal vs vertical navigation.
   updatePromptSafeChoice,
@@ -1960,43 +1986,46 @@ var plugin = {
     const parsedCursor = parseStructuredCursor(cursor);
     if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
     const [sinceMs, seenAtSinceMs] = parsedCursor;
-    const rows = host.fs.sqliteQuery(
+    return host.fs.sqliteQueryAsync(
       db,
       "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role  , NULL AS message FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY ts_updated ASC, id ASC",
-      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
+      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES],
+      (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs)
     );
-    const messages = [];
-    const observations = [];
-    let lastTs = sinceMs;
-    let seenAtLastTs = seenAtSinceMs.slice();
-    for (let i = 0; i < rows.length; i++) {
-      const updated = rows[i].ts_updated || 0;
-      const created = rows[i].ts_created || updated;
-      const id = String(rows[i].id);
-      if (updated > lastTs) {
-        lastTs = updated;
-        seenAtLastTs = [];
-      }
-      if (seenAtLastTs.indexOf(id) !== -1) continue;
-      seenAtLastTs.push(id);
-      const message = safeJson(rows[i].message);
-      const observation = sessionObservations(message);
-      if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
-      const error = turnError(message);
-      if (error) {
-        messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
-        continue;
-      }
-      const part = safeJson(rows[i].part);
-      if (!part) continue;
-      const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role : "assistant";
-      const cm = partToChatMsg(part, role, id, created);
-      if (cm) messages.push(cm);
-    }
-    seenAtLastTs.sort();
-    return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   }
 };
+function structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs) {
+  const messages = [];
+  const observations = [];
+  let lastTs = sinceMs;
+  let seenAtLastTs = seenAtSinceMs.slice();
+  for (let i = 0; i < rows.length; i++) {
+    const updated = rows[i].ts_updated || 0;
+    const created = rows[i].ts_created || updated;
+    const id = String(rows[i].id);
+    if (updated > lastTs) {
+      lastTs = updated;
+      seenAtLastTs = [];
+    }
+    if (seenAtLastTs.indexOf(id) !== -1) continue;
+    seenAtLastTs.push(id);
+    const message = safeJson(rows[i].message);
+    const observation = sessionObservations(message);
+    if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
+    const error = turnError(message);
+    if (error) {
+      messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
+      continue;
+    }
+    const part = safeJson(rows[i].part);
+    if (!part) continue;
+    const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role : "assistant";
+    const cm = partToChatMsg(part, role, id, created);
+    if (cm) messages.push(cm);
+  }
+  seenAtLastTs.sort();
+  return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
+}
 function resumeLaunchArgs(args, sessionId) {
   const db = opencodeDbPath();
   const model = db && host.fs.fileExists(db) ? scanMessagesForQualifiedModel(db, sessionId) : null;

@@ -26,6 +26,7 @@ pub(crate) fn is_ready(svc: &ServiceContext, authority: &UserSendAuthority) -> b
             .as_deref()
             .is_none_or(|thread| context.thread_id.as_deref() == Some(thread))
         && context.thread_id.is_some()
+        // Ready lands right after resume; history backfill continues behind it and never gates a send.
         && matches!(session.state.lock().phase, RuntimePhase::Ready)
         && process.is_some_and(|process| {
             process.ended.borrow().is_none() && process.client.ended().borrow().is_none()

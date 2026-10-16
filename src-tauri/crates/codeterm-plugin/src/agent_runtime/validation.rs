@@ -364,16 +364,22 @@ fn validate_runtime_result(
         ) => target == thread_id,
         (
             RuntimeOperation::ReadHistory {
-                thread_id: target, ..
+                thread_id: target,
+                order: requested,
+                ..
             },
             RuntimeResult::HistoryPage {
                 thread_id,
                 items,
                 open_items,
                 questions,
+                order: echoed,
                 ..
             },
         ) => {
+            if echoed.is_some() && echoed != requested {
+                return Err(mismatch("history order echo differs from the request"));
+            }
             if let Some(questions) = questions {
                 if questions.len() > MAX_RUNTIME_BATCH {
                     return Err(invalid("too many history questions"));

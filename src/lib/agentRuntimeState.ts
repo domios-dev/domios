@@ -10,6 +10,18 @@ export interface AgentRuntimeState {
   reason?: string | null;
   active_turn_started_at_ms?: number | null;
   last_turn_duration_ms?: number | null;
+  history?: RuntimeHistoryState;
+  historyPages?: number;
+}
+
+export type RuntimeHistoryState = "loading" | "complete" | "failed";
+
+/** True when a history replay just finished, so the attached transcript must re-read its snapshot. */
+export function runtimeHistorySettled(
+  previous: RuntimeHistoryState | undefined,
+  next: RuntimeHistoryState | undefined,
+): boolean {
+  return previous === "loading" && (next === "complete" || next === "failed");
 }
 
 export interface AgentRuntimeStateEvent {

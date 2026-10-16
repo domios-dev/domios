@@ -53,11 +53,12 @@ export interface RuntimeContext {
   providerSettings:JsonValue;
   pendingRequest?: {requestId:RpcId; method:string; params:JsonValue};
 }
+export type HistoryOrder = "asc" | "desc";
 export type Operation =
   | {kind:"initialize"}
   | {kind:"openThread"; instructions:string; settings:RuntimeSettings}
   | {kind:"resumeThread"; threadId:string; instructions:string; settings:RuntimeSettings}
-  | {kind:"readHistory"; threadId:string; cursor?:string}
+  | {kind:"readHistory"; threadId:string; cursor?:string; order?:HistoryOrder}
   | {kind:"submitTurn"; threadId:string; activeTurnId?:string;
       sendId:string; input:TurnInput; settings:RuntimeSettings}
   | {kind:"interrupt"; threadId:string; activeTurnId?:string}
@@ -76,7 +77,9 @@ export type OperationResult =
   | {kind:"initialized"}
   | {kind:"threadLoaded"; threadId:string; settings:RuntimeSettings}
   | {kind:"historyPage"; threadId:string; items:readonly ChatMsg[];
-      nextCursor?:string; openItems:readonly OpenItem[]; questions?:readonly RuntimeHistoryQuestion[]}
+      nextCursor?:string; openItems:readonly OpenItem[]; questions?:readonly RuntimeHistoryQuestion[];
+      /** Echo of the requested order; absent means ascending. */
+      order?:HistoryOrder}
   | {kind:"turnAccepted"; threadId:string; sendId:string; turnId?:string}
   | {kind:"done"};
 export type RuntimeStep =

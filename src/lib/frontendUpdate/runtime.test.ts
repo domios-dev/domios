@@ -6,10 +6,13 @@ import { frontendUpdateDiagnostic } from "./bootstrapModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
 import type { StreamEnd, TransportClient } from "../transportClient";
 import type { CheckpointWrite, ClientCheckpoint } from "./checkpoint";
+import { frontendApiContract } from "../frontendApiContract";
+
+const API = frontendApiContract.maxApiVersion;
 
 const checkpoint: ClientCheckpoint = { activeWorkspaceId: "w", activeTabId: "t", drafts: { t: { text: "last edit", attachmentIds: ["a"], replyTo: null } }, scroll: { t: { chat: "anchor", terminal: "42" } } };
 const safety = { focused: false, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
-const release = { releaseId: "frontend-v1.0.0", version: "1.0.0", minApiVersion: 2, maxApiVersion: 2 };
+const release = { releaseId: "frontend-v1.0.0", version: "1.0.0", minApiVersion: API, maxApiVersion: API };
 
 function fixture(patch = {}, payload = checkpoint, pending: typeof release | null = null) {
   let receive!: (name: string, data: unknown) => void;
@@ -29,7 +32,7 @@ function fixture(patch = {}, payload = checkpoint, pending: typeof release | nul
       calls.push({ method, path, body });
       if (path.endsWith("checkpoint")) return (method === "GET" ? { revision: 9, payload } : body) as T;
       if (path.endsWith("activate")) return { ...release, generation: 7, claims: { clientA: "health-secret" } } as T;
-      return { apiVersion: 2, pending, quarantined: [] } as T;
+      return { apiVersion: API, pending, quarantined: [] } as T;
     },
     origin: () => "https://daemon.example", currentToken: () => "api-secret",
     subscribe: (path: string, listener: typeof receive, options: { onEnd: typeof end }) => { expect(path).toBe("/api/events/stream"); receive = listener; end = options.onEnd; subscriptions++; return () => { disposals++; }; },
@@ -38,8 +41,8 @@ function fixture(patch = {}, payload = checkpoint, pending: typeof release | nul
     navigate: (path: string) => { expect(stored.has("codeterm.frontend.boot")).toBe(true); navigated.push(path); },
     events: eventTarget,
     event: (detail: { releaseId: string; generation: number }) => new CustomEvent(ROOT_RENDERED_EVENT, { detail }),
-    boot: { apiOrigin: "https://daemon.example", token: "api-secret", clientId: "clientA", ticket: { releaseId: release.releaseId, generation: 4, token: "old-health" }, attempted: [], bundled: { index: "/bundled/index.html", minApiVersion: 2, maxApiVersion: 2 } },
-    bundled: { index: "/bundled/index.html", minApiVersion: 2, maxApiVersion: 2 }, onError: (error: unknown) => { throw error; },
+    boot: { apiOrigin: "https://daemon.example", token: "api-secret", clientId: "clientA", ticket: { releaseId: release.releaseId, generation: 4, token: "old-health" }, attempted: [], bundled: { index: "/bundled/index.html", minApiVersion: API, maxApiVersion: API } },
+    bundled: { index: "/bundled/index.html", minApiVersion: API, maxApiVersion: API }, onError: (error: unknown) => { throw error; },
   };
   return { client, options, signals, calls, events, navigated, stored, restored, end: (reason: StreamEnd["reason"]) => end({reason}), subscriptions: () => subscriptions, disposals: () => disposals, receive: (name: string, data: unknown) => receive(name, data) };
 }
@@ -97,7 +100,7 @@ describe("frontend runtime integration", () => {
     const f = fixture({ modalOpen: true });
     const runtime = await initializeFrontendUpdateRuntime(f.client, f.options);
     f.receive("frontend-update-ready", release);
-    f.receive("frontend-status", { apiVersion: 2, pending: null, quarantined: [release.releaseId] });
+    f.receive("frontend-status", { apiVersion: API, pending: null, quarantined: [release.releaseId] });
     f.signals.signal(safety);
     expect(runtime.snapshot().pending).toBeNull();
     expect(f.navigated).toEqual([]);
