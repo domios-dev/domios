@@ -1164,23 +1164,31 @@ require_release_source() {
 
 # Copy the freshly-built CLI into a target bin dir. Development commands install
 # only into their active dev data directory; production owns ~/.codeterm/bin.
-cli_release_dir() {
-  local target_root="${CARGO_TARGET_DIR:-cli/target}"
+cli_profile_dir() {
+  local profile="$1" target_root="${CARGO_TARGET_DIR:-cli/target}"
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
-    echo "$target_root/$CARGO_BUILD_TARGET/release"
+    echo "$target_root/$CARGO_BUILD_TARGET/$profile"
   else
-    echo "$target_root/release"
+    echo "$target_root/$profile"
   fi
 }
 
-cli_release_binary() {
+cli_release_dir() {
+  cli_profile_dir release
+}
+
+cli_profile_binary() {
   local release_dir
-  release_dir="$(cli_release_dir)"
+  release_dir="$(cli_profile_dir "$1")"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s/codeterm\n' "$release_dir"
   else
     printf '%s/codeterm.exe\n' "$release_dir"
   fi
+}
+
+cli_release_binary() {
+  cli_profile_binary release
 }
 
 cli_file_sha256() {
@@ -1859,7 +1867,7 @@ build_and_launch_dev() {
   export CODETERM_WEB_DIST="$(pwd -P)/dist"
   configure_dev_cargo
   conf="$(dev_conf_path)"
-  node scripts/bundle-cli.js
+  node scripts/bundle-cli.js "$built_cli_artifact"
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
@@ -3194,8 +3202,8 @@ LOCK_STORM_PY
     prepare_dev_frontend_dist
     ensure_deps
     echo "Building CLI..."
-    cargo build --release --manifest-path cli/Cargo.toml
-    built_cli_artifact="$(cli_release_binary)"
+    cargo build --manifest-path cli/Cargo.toml
+    built_cli_artifact="$(cli_profile_binary debug)"
     built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
     # Every dev instance gets its own CLI; production updates its bundled CLI.
     install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"

@@ -233,6 +233,13 @@ Cargo can replay old rustc stderr for fresh artifacts, so count link output
 only when the timing report also shows that target compiled in this run.
 Canonical DEV and check-queue retain incremental compilation.
 
+DEV builds its CLI with the existing dev profile and passes the exact artifact
+to the resource bundler. If DEV reports a missing release CLI after a profile
+change, update the artifact selection rather than rebuilding release as a
+workaround. Production/standalone CLI builds still select release. The CLI
+has no service-core/API dependency; daemon edits alone do not rebuild that
+release chain, while Git HEAD changes refresh the CLI build stamp.
+
 CLI builds rely on `cli/build.rs` watching Git HEAD and its branch reference;
 do not touch `cli/src/main.rs` to force a rebuild. Repeated builds at the same
 SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
