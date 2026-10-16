@@ -777,6 +777,7 @@ async fn run_inner(
                     history.append(result);
                     return Ok(history.finish(thread, cursor));
                 }
+                super::owned_context::record(svc, session, &context, &operation, &result)?;
                 return Ok(result);
             }
         }
