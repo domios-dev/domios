@@ -14,6 +14,7 @@ mod reply_relay;
 mod runtime_hooks;
 mod session_content;
 mod session_delta;
+mod session_records;
 mod session_resume;
 mod wire;
 

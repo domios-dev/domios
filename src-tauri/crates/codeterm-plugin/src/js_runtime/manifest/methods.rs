@@ -59,6 +59,9 @@ impl PluginManifest {
             .map_err(|e| e.to_string())?;
         manifest.capabilities.validate_tab_menu()?;
         manifest.capabilities.validate_surfaces()?;
+        for source in manifest.capabilities.record_sources.values() {
+            source.validate()?;
+        }
         manifest
             .capabilities
             .drop_invalid_surface_icons(&manifest.id);

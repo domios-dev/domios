@@ -1,6 +1,7 @@
 //! `PluginVm` — one QuickJS context per plugin.
 
 mod arguments;
+mod objects;
 #[cfg(test)]
 mod raw_arguments_test;
 mod runtime_hook;
@@ -193,6 +194,7 @@ const PLUGIN_PREAMBLE: &str = r#"
 
 const INVOKE_HELPERS: &str = r#"
 globalThis.__ct_call_args__ = function () {
+    if (Array.isArray(globalThis.__ct_object_args__)) return globalThis.__ct_object_args__;
     var args = JSON.parse(globalThis.__ct_args__);
     if (typeof globalThis.__ct_raw_arg__ === 'string') args.push(globalThis.__ct_raw_arg__);
     return args;
@@ -848,19 +850,33 @@ fn enter_call(
             .set("__ct_raw_arg__", args.raw)
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("setting raw argument failed: {e:?}")))?;
-        let invoke: Function = globals
-            .get(if strict {
-                "__ct_invoke_strict__"
-            } else {
-                "__ct_invoke__"
-            })
-            .catch(&ctx)
-            .map_err(|e| VmError::Script(format!("__ct_invoke__ missing: {e:?}")))?;
-        let result = invoke
-            .call::<_, String>(())
-            .catch(&ctx)
-            .map_err(|e| VmError::Script(format!("{method}: {e:?}")));
+        let result = (|| {
+            if let Some(values) = args.objects {
+                let objects = objects::arguments(&ctx, values).catch(&ctx).map_err(|e| {
+                    VmError::Script(format!("constructing record arguments failed: {e:?}"))
+                })?;
+                globals
+                    .set("__ct_object_args__", objects)
+                    .catch(&ctx)
+                    .map_err(|e| {
+                        VmError::Script(format!("setting record arguments failed: {e:?}"))
+                    })?;
+            }
+            let invoke: Function = globals
+                .get(if strict {
+                    "__ct_invoke_strict__"
+                } else {
+                    "__ct_invoke__"
+                })
+                .catch(&ctx)
+                .map_err(|e| VmError::Script(format!("__ct_invoke__ missing: {e:?}")))?;
+            invoke
+                .call::<_, String>(())
+                .catch(&ctx)
+                .map_err(|e| VmError::Script(format!("{method}: {e:?}")))
+        })();
         let _ = globals.remove("__ct_raw_arg__");
+        let _ = globals.remove("__ct_object_args__");
         result
     });
     if interrupt.is_some() {

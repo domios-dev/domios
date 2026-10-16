@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { storedRecordType, shouldParseClaudeRecord } from "../src/recordPrefix";
+import { recordInput, plain } from "../../provider-shared/tests/recordHookFixture";
 
 const cases: [string, string | undefined][] = [
   ['{"type":"progress","data":{}}', "progress"],
@@ -31,7 +32,7 @@ assert.equal(shouldParseClaudeRecord('{"type":"system"}', false), false);
 const root = path.resolve(import.meta.dirname, "..");
 let parses = 0;
 const context = {
-  module: { exports: {} as { default: Record<string, (text: string) => unknown> } },
+  module: { exports: {} as { default: Record<string, (...args: unknown[]) => unknown> } },
   host: { platform: () => "linux", manifestJson: () => "null", envGet: () => null,
     expandHome: (value: string) => value, fs: { fileExists: () => false } },
   JSON: { parse: (text: string) => { parses++; return JSON.parse(text); }, stringify: JSON.stringify },
@@ -46,6 +47,11 @@ for (const file of fixtureFiles) {
   for (const method of ["parseSessionDelta", "parseSessionMessages"]) {
     digest.update(JSON.stringify(plugin[method](text)));
   }
+  const input = recordInput(text);
+  const delta = plugin.parseSessionRecords(input.records, input.meta) as {messages:unknown[];new_offset:number};
+  assert.deepEqual(plain(delta.messages), plain((plugin.parseSessionDelta(text) as {messages:unknown[]}).messages), file);
+  assert.equal(delta.new_offset, input.meta.newOffset);
+  assert.deepEqual(plain(plugin.parseSessionMessageRecords(input.records,input.meta)), plain(plugin.parseSessionMessages(text)), file);
 }
 assert.equal(digest.digest("hex"), "cde9e30963037b46af4702a74447e4b217453401467013a65e6b02081029bfa6");
 for (const method of ["parseSessionDelta", "parseSessionMessages"]) {
