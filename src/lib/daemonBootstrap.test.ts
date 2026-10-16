@@ -2,6 +2,52 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readReloadCredentials, validateDaemonOrigin } from "./daemonBootstrap";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+
+it("installs the web diagnostic global and listeners only in dev and sends authenticated metadata", async () => {
+  vi.resetModules();
+  vi.stubGlobal("__CODETERM_DEV__", true);
+  const handlers = new Map<string, (event: unknown) => void>();
+  const sent: { body: string; headers: Headers }[] = [];
+  let received!: () => void;
+  let delivered = new Promise<void>(resolve => { received = resolve; });
+  const fetch = vi.fn(async (_input: unknown, init: RequestInit) => {
+    sent.push({ body: String(init.body), headers: new Headers(init.headers) });
+    received();
+    return Response.json({ ok: true });
+  });
+  vi.stubGlobal("fetch", fetch);
+  const shell = { location: { origin: "https://gateway.example" }, sessionStorage: { getItem: () => null },
+    localStorage: { getItem: () => "web-token" }, dispatchEvent: vi.fn(), addEventListener: (name: string, handler: (event: unknown) => void) => handlers.set(name, handler),
+    __CODETERM_SHELL_DIAGNOSTIC__: undefined as Window["__CODETERM_SHELL_DIAGNOSTIC__"] };
+  vi.stubGlobal("window", shell);
+  const { initializeDaemonTransport } = await import("./daemonBootstrap");
+  initializeDaemonTransport();
+  await delivered;
+  expect(sent[0].headers.get("Authorization")).toBe("Bearer web-token");
+  expect(sent[0].headers.get("X-CodeTerm-Client-Id")).toBeTruthy();
+  expect(handlers.has("error")).toBe(true);
+  expect(handlers.has("unhandledrejection")).toBe(true);
+  delivered = new Promise<void>(resolve => { received = resolve; });
+  handlers.get("error")!({ error: { name: "TypeError", message: "secret" }, filename: "/assets/app.js?secret", lineno: 3, colno: 4 });
+  await delivered;
+  expect(JSON.parse(sent[1].body)).toMatchObject({ stage: "script-error", native: false, source: "app.js", errorName: "TypeError", line: 3, column: 4 });
+  expect(JSON.parse(sent[1].body).reason).toBeUndefined();
+  expect(sent[1].body).not.toContain("secret");
+  delivered = new Promise<void>(resolve => { received = resolve; });
+  handlers.get("unhandledrejection")!({ reason: "private rejection" });
+  await delivered;
+  expect(JSON.parse(sent[2].body)).toMatchObject({ stage: "promise-error", reason: "rejected-string", native: false });
+  expect(sent[2].body).not.toContain("private rejection");
+});
+
+it("leaves the web diagnostic global absent in release", async () => {
+  vi.stubGlobal("__CODETERM_DEV__", false);
+  const shell = { location: { origin: "https://gateway.example" }, sessionStorage: { getItem: () => null }, localStorage: { getItem: () => null } };
+  vi.stubGlobal("window", shell);
+  const { initializeDaemonTransport } = await import("./daemonBootstrap");
+  initializeDaemonTransport();
+  expect(shell).not.toHaveProperty("__CODETERM_SHELL_DIAGNOSTIC__");
+});
 describe("explicit daemon bootstrap", () => {
   it("allows only the injected exact native development origin", async () => {
     const origin = "http://127.0.0.1:7690";
