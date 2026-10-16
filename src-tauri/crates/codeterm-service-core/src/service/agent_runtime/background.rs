@@ -6,6 +6,7 @@ use super::{
 };
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -122,6 +123,236 @@ pub(super) async fn cleanup(
         captured,
     };
     coordinate(&mut io, &context, mode, enabled).await
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackgroundProcessAuthority {
+    pub root_thread_id: String,
+    pub binding_nonce: String,
+    pub epoch: u64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StopBackgroundProcessRequest {
+    pub root_thread_id: String,
+    pub binding_nonce: String,
+    pub epoch: u64,
+    pub thread_id: String,
+    pub process_id: String,
+}
+
+impl StopBackgroundProcessRequest {
+    fn authority(&self) -> BackgroundProcessAuthority {
+        BackgroundProcessAuthority {
+            root_thread_id: self.root_thread_id.clone(),
+            binding_nonce: self.binding_nonce.clone(),
+            epoch: self.epoch,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundProcessEntry {
+    pub thread_id: String,
+    #[serde(flatten)]
+    pub process: RuntimeBackgroundProcess,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundProcessSnapshot {
+    pub root_thread_id: String,
+    pub binding_nonce: String,
+    pub epoch: u64,
+    pub processes: Vec<BackgroundProcessEntry>,
+}
+
+fn session_for_authority(
+    svc: &ServiceContext,
+    tab: &str,
+    authority: &BackgroundProcessAuthority,
+) -> Result<(Arc<Session>, RuntimeContext, Arc<Process>), RuntimeFailure> {
+    let session = engine::for_tab(tab).ok_or(RuntimeFailure::Superseded)?;
+    engine::validate_binding(svc, &session)?;
+    if !supported(&session) {
+        return Err(refused("Background process controls are unavailable"));
+    }
+    let context = session.context.lock().clone();
+    if context.epoch != authority.epoch
+        || context.binding_nonce != authority.binding_nonce
+        || context.thread_id.as_deref() != Some(authority.root_thread_id.as_str())
+    {
+        return Err(RuntimeFailure::Superseded);
+    }
+    let process = session
+        .process
+        .lock()
+        .clone()
+        .ok_or(RuntimeFailure::PipeEof)?;
+    Ok((session, context, process))
+}
+
+fn validate_current_session(
+    svc: &ServiceContext,
+    tab: &str,
+    authority: &BackgroundProcessAuthority,
+    session: &Arc<Session>,
+) -> Result<(), RuntimeFailure> {
+    if !engine::for_tab(tab).is_some_and(|current| Arc::ptr_eq(&current, session)) {
+        return Err(RuntimeFailure::Superseded);
+    }
+    engine::validate_binding(svc, session)?;
+    let context = session.context.lock().clone();
+    if context.epoch != authority.epoch
+        || context.binding_nonce != authority.binding_nonce
+        || context.thread_id.as_deref() != Some(authority.root_thread_id.as_str())
+    {
+        return Err(RuntimeFailure::Superseded);
+    }
+    Ok(())
+}
+
+async fn list_owned(
+    io: &mut impl CleanupIo,
+    context: &RuntimeContext,
+) -> Result<Vec<BackgroundProcessEntry>, RuntimeFailure> {
+    let root = context
+        .thread_id
+        .as_deref()
+        .ok_or(RuntimeFailure::Superseded)?;
+    let mut threads = vec![root.to_owned()];
+    threads.extend(
+        context
+            .thread_parents
+            .iter()
+            .filter(|parent| owns_runtime_thread(context, &parent.thread_id))
+            .map(|parent| parent.thread_id.clone()),
+    );
+    threads.sort();
+    threads.dedup();
+    let mut processes = Vec::new();
+    for thread_id in threads {
+        let roster = list(io, &thread_id).await?;
+        if processes.len() + roster.len() > MAX_BACKGROUND_PROCESSES {
+            return Err(refused(
+                "Owned background process roster exceeded its bound",
+            ));
+        }
+        processes.extend(roster.into_iter().map(|process| BackgroundProcessEntry {
+            thread_id: thread_id.clone(),
+            process,
+        }));
+    }
+    Ok(processes)
+}
+
+fn snapshot(
+    authority: &BackgroundProcessAuthority,
+    processes: Vec<BackgroundProcessEntry>,
+) -> BackgroundProcessSnapshot {
+    BackgroundProcessSnapshot {
+        root_thread_id: authority.root_thread_id.clone(),
+        binding_nonce: authority.binding_nonce.clone(),
+        epoch: authority.epoch,
+        processes,
+    }
+}
+
+pub async fn list_for_tab(
+    svc: &ServiceContext,
+    tab: &str,
+    authority: BackgroundProcessAuthority,
+) -> Result<BackgroundProcessSnapshot, String> {
+    list_for_tab_inner(svc, tab, authority)
+        .await
+        .map_err(|reason| reason.to_string())
+}
+
+async fn list_for_tab_inner(
+    svc: &ServiceContext,
+    tab: &str,
+    authority: BackgroundProcessAuthority,
+) -> Result<BackgroundProcessSnapshot, RuntimeFailure> {
+    let (session, context, process) = session_for_authority(svc, tab, &authority)?;
+    let mut io = RuntimeIo {
+        svc,
+        session: &session,
+        process: &process,
+        captured: Vec::new(),
+    };
+    let processes = list_owned(&mut io, &context).await?;
+    validate_current_session(svc, tab, &authority, &session)?;
+    Ok(snapshot(&authority, processes))
+}
+
+pub async fn stop_for_tab(
+    svc: &ServiceContext,
+    tab: &str,
+    request: StopBackgroundProcessRequest,
+) -> Result<BackgroundProcessSnapshot, String> {
+    stop_for_tab_inner(svc, tab, request)
+        .await
+        .map_err(|reason| reason.to_string())
+}
+
+async fn stop_for_tab_inner(
+    svc: &ServiceContext,
+    tab: &str,
+    request: StopBackgroundProcessRequest,
+) -> Result<BackgroundProcessSnapshot, RuntimeFailure> {
+    if request.process_id.is_empty()
+        || request.process_id.len() > 4096
+        || request.process_id.contains('\0')
+    {
+        return Err(refused("Invalid background process id"));
+    }
+    let authority = request.authority();
+    let (session, context, process) = session_for_authority(svc, tab, &authority)?;
+    if !owns_runtime_thread(&context, &request.thread_id) {
+        return Err(RuntimeFailure::Superseded);
+    }
+    let mut io = RuntimeIo {
+        svc,
+        session: &session,
+        process: &process,
+        captured: Vec::new(),
+    };
+    let before = list(&mut io, &request.thread_id).await?;
+    validate_current_session(svc, tab, &authority, &session)?;
+    if before
+        .iter()
+        .any(|entry| entry.process_id == request.process_id)
+    {
+        let result = io
+            .run(RuntimeOperation::BackgroundProcesses {
+                thread_id: request.thread_id.clone(),
+                action: RuntimeBackgroundProcessAction::Terminate {
+                    process_id: request.process_id.clone(),
+                },
+            })
+            .await?;
+        if !matches!(result, RuntimeResult::BackgroundProcessTermination { thread_id, process_id, .. }
+            if thread_id == request.thread_id && process_id == request.process_id)
+        {
+            return Err(refused(
+                "Background termination returned the wrong identity",
+            ));
+        }
+    }
+    let remaining = list(&mut io, &request.thread_id).await?;
+    validate_current_session(svc, tab, &authority, &session)?;
+    if remaining
+        .iter()
+        .any(|entry| entry.process_id == request.process_id)
+    {
+        return Err(refused("Background process remains after termination"));
+    }
+    let processes = list_owned(&mut io, &context).await?;
+    validate_current_session(svc, tab, &authority, &session)?;
+    Ok(snapshot(&authority, processes))
 }
 
 async fn coordinate(

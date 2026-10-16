@@ -1,7 +1,7 @@
 use crate::service::MuxEmitCause;
 mod abort_provenance;
 pub(crate) mod authority;
-mod background;
+pub mod background;
 pub(crate) mod blocking;
 mod bootstrap;
 pub(crate) mod capture;

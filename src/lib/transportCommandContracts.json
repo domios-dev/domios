@@ -46,7 +46,7 @@
       "kind": "blueprint"
     },
     "config": {},
-    "request": {"rootThreadId":"root","bindingNonce":"nonce","epoch":4},
+    "request": {"rootThreadId":"root","bindingNonce":"nonce","epoch":4,"threadId":"child","processId":"process"},
     "input": {},
     "patch": {},
     "url": "url",
@@ -1237,6 +1237,12 @@
     ],
     "agent_runtime_child_history": [
       ["GET", "/api/tabs/tab/agent/runtime/children/child/history?rootThreadId=root&bindingNonce=nonce&epoch=4"]
+    ],
+    "agent_runtime_background_processes": [
+      ["GET", "/api/tabs/tab/agent/runtime/background-processes?rootThreadId=root&bindingNonce=nonce&epoch=4"]
+    ],
+    "agent_runtime_stop_background_process": [
+      ["POST", "/api/tabs/tab/agent/runtime/background-processes"]
     ],
     "agent_runtime_answer_question": [
       [

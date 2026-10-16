@@ -20,6 +20,8 @@ import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 import { useMuxSelector } from "../../store/multiplexer";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { goalVisible } from "./goalModel";
+import { ComposerBackgroundWorkBadges } from "./ComposerBackgroundWorkBadges";
+import { useComposerBackgroundWork } from "./useComposerBackgroundWork";
 
 export type ContextKind = "blueprints" | "crons" | "delayed" | "goal";
 
@@ -136,6 +138,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     return tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null);
   });
   const descriptor = useAgentDescriptor(providerId);
+  const backgroundWork = useComposerBackgroundWork(tabId, descriptor?.agent_runtime?.backgroundProcesses === true);
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
   const goalTriggerRef = useRef<HTMLButtonElement>(null);
@@ -184,7 +187,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const open = requested && counts[requested] > 0 ? requested : null;
 
   const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
-  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0) return null;
+  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && backgroundWork.items.length === 0 && !backgroundWork.error) return null;
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
@@ -349,6 +352,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       <div className="ct-ctx__head ct-ctx__compact">
         {phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
         {!phone && linkedChips}
+        <ComposerBackgroundWorkBadges items={backgroundWork.items} error={backgroundWork.error} onStop={backgroundWork.stop} />
       </div>
       {phone && linkedChips}
       {open && (phone ? (
