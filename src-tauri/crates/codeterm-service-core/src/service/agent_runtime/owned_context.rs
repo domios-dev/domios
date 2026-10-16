@@ -3,11 +3,25 @@ use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{RuntimeContext, RuntimeOperation, RuntimeResult};
 use serde_json::{json, Value};
 
+fn application_entry(entry: &Value) -> bool {
+    let keep = entry["kind"].as_str() == Some("application");
+    if !keep {
+        log::debug!("[agent-runtime] dropping non-application context from retention");
+    }
+    keep
+}
+
 pub(super) fn restore_value(config: &Value, thread: &str) -> Value {
     let entries = if config["ownedContext"]["threadId"].as_str() == Some(thread) {
         config["ownedContext"]["entries"]
             .as_array()
-            .cloned()
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter(|entry| application_entry(entry))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default()
     } else {
         Vec::new()
@@ -27,8 +41,7 @@ fn retain(config: &mut Value, thread: &str, value: &Value) {
         .cloned()
         .unwrap_or_default();
     for entry in incoming {
-        if entry["kind"].as_str() != Some("application") {
-            log::debug!("[agent-runtime] dropping non-application context from retention");
+        if !application_entry(entry) {
             continue;
         }
         if let Some(existing) = entries.iter_mut().find(|item| item["key"] == entry["key"]) {
@@ -120,6 +133,18 @@ mod tests {
             json!([])
         );
         retain(&mut config, "foreign", &first);
+        assert_eq!(
+            restore_value(&config, "own")["additionalContext"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn stored_non_application_entries_never_enter_restoration() {
+        let config = json!({"ownedContext":{"threadId":"own","entries":[
+            {"key":"input","kind":"user","value":"opaque-input"},
+            {"key":"unknown","kind":"other","value":"opaque-other"}
+        ]}});
         assert_eq!(
             restore_value(&config, "own")["additionalContext"],
             json!([])
