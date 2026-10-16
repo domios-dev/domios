@@ -1,0 +1,58 @@
+import type { LaunchParams } from "@codeterm/plugin-sdk";
+import { quoteNativeArgument } from "../../provider-shared/nativeArgument";
+import { statuslineLaunchArgs } from "./context";
+import { writeClaudeLaunchPrompt } from "./launchPrompt";
+
+const FILE_TASK_PROMPT =
+  "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
+const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+
+function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string): string | undefined {
+  if (hostText) return hostText;
+  if (prompt === "no_starter") return undefined;
+  if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
+  return FILE_TASK_PROMPT;
+}
+
+export function buildClaudeLaunchSpec(params: LaunchParams) {
+  const args: string[] = [];
+  if (params.skipPermissions) args.push("--dangerously-skip-permissions");
+  if (params.agentName) args.push("--agent", params.agentName);
+  if (params.sessionId) args.push("--session-id", params.sessionId);
+  const extra = statuslineLaunchArgs(params.args || []);
+  if (!extra) return null;
+  args.push(...extra);
+  const path = writeClaudeLaunchPrompt(params.task || "");
+  if (!path) return null;
+  args.push("--append-system-prompt-file", path);
+  const prompt = params.task ? starterPrompt(params.starterPrompt, params.starterPromptText) : undefined;
+  if (prompt) {
+    const framed = params.starterPromptPrefix ? params.starterPromptPrefix + prompt + "</domios>" : prompt;
+    args.push("--", framed);
+  }
+  return { program: "claude", args, envSet: {}, envUnset: ["CLAUDECODE"] };
+}
+
+export function buildClaudeLaunchCommand(params: LaunchParams): string {
+  const spec = buildClaudeLaunchSpec(params);
+  if (!spec) return "";
+  const unset = host.platform() === "windows"
+    ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
+      + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
+      + "[System.Text.Encoding]::UTF8; "
+      + "$PSNativeCommandArgumentPassing = 'Standard';"
+    : "unset CLAUDECODE &&";
+  const parts = [unset, spec.program];
+  let previous = "";
+  for (const arg of spec.args) {
+    if (previous === "--") parts.push(quoteNativeArgument(arg, host.platform(), host.shell.quoteFor));
+    else if (["--agent", "--session-id", "--append-system-prompt-file"].includes(previous)) {
+      parts.push(host.shell.quoteFor(arg, host.platform()));
+    } else {
+      parts.push(/^[A-Za-z0-9_\-.,:=@/+%]+$/.test(arg) ? arg : host.shell.quoteFor(arg, host.platform()));
+    }
+    previous = arg;
+  }
+  return parts.join(" ");
+}

@@ -156,6 +156,13 @@ pub trait AgentProvider: Send + Sync {
     /// Build the shell command to launch this agent.
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String;
 
+    fn launch_spec(
+        &self,
+        _params: &AgentLaunchParams,
+    ) -> Option<codeterm_types::agent::LaunchSpec> {
+        None
+    }
+
     fn release_tab_launch_artifacts(
         &self,
         _tab_id: &str,
