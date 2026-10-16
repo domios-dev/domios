@@ -33,37 +33,47 @@ fn write_launch_prompt(task: &str) -> Option<String> {
     codeterm_util::task_files::write(&body, Some(&suffix))
 }
 
-pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    parts.push(ShellSyntax::UNSET_CLAUDECODE.to_string());
-    parts.push("claude".to_string());
+pub(super) fn launch_spec(params: &AgentLaunchParams) -> Option<codeterm_types::agent::LaunchSpec> {
+    launch_spec_with(params, super::context::launch_args, write_launch_prompt)
+}
+
+pub(super) fn provider_launch_spec(
+    params: &crate::provider::LaunchSpecParams<'_>,
+) -> Option<codeterm_types::agent::LaunchSpec> {
+    match params {
+        crate::provider::LaunchSpecParams::Fresh(params) => launch_spec(params),
+        crate::provider::LaunchSpecParams::Resume(params) => {
+            let mut args = vec!["--resume".into(), params.session_id.clone()];
+            args.extend(params.args.clone());
+            launch_spec(&AgentLaunchParams {
+                args: Some(args),
+                task: params.system_prompt.clone(),
+                skip_permissions: params.skip_permissions,
+                starter_prompt: crate::provider::StarterPrompt::NoStarter,
+                ..Default::default()
+            })
+        }
+    }
+}
+
+fn launch_spec_with(
+    params: &AgentLaunchParams,
+    launch_args: impl FnOnce(&[String]) -> Option<Vec<String>>,
+    write_prompt: impl FnOnce(&str) -> Option<String>,
+) -> Option<codeterm_types::agent::LaunchSpec> {
+    let mut args = Vec::new();
     if params.skip_permissions {
-        parts.push("--dangerously-skip-permissions".to_string());
+        args.push("--dangerously-skip-permissions".into());
     }
-
-    if let Some(ref name) = params.agent_name {
-        parts.push("--agent".to_string());
-        parts.push(ShellSyntax::quote(name));
+    if let Some(name) = &params.agent_name {
+        args.extend(["--agent".into(), name.clone()]);
     }
-
-    // Pre-generated session id (only honored for fresh sessions — `--session-id` is silently ignored by claude when also resuming).
-    if let Some(ref sid) = params.session_id {
-        parts.push("--session-id".to_string());
-        parts.push(ShellSyntax::quote(sid));
+    if let Some(sid) = &params.session_id {
+        args.extend(["--session-id".into(), sid.clone()]);
     }
-
-    let Some(extra) = super::context::launch_args(params.args.as_deref().unwrap_or_default())
-    else {
-        log::error!("[claude-launch] cannot compose launch settings");
-        return String::new();
-    };
-    parts.extend(extra.iter().map(|arg| ShellSyntax::quote_arg(arg)));
-
-    let Some(path) = write_launch_prompt(params.task.as_deref().unwrap_or_default()) else {
-        return String::new();
-    };
-    parts.push("--append-system-prompt-file".to_string());
-    parts.push(ShellSyntax::quote(&path));
+    args.extend(launch_args(params.args.as_deref().unwrap_or_default())?);
+    let path = write_prompt(params.task.as_deref().unwrap_or_default())?;
+    args.extend(["--append-system-prompt-file".into(), path]);
     if params.task.as_ref().is_some_and(|task| !task.is_empty()) {
         if let Some(prompt) = starter_prompt_text(params.starter_prompt) {
             let prompt = params
@@ -76,11 +86,32 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
                     )
                 })
                 .unwrap_or_else(|| prompt.to_string());
-            parts.push("--".to_string());
-            parts.push(ShellSyntax::quote_native_arg(&prompt));
+            args.extend(["--".into(), prompt]);
         }
     }
+    Some(codeterm_types::agent::LaunchSpec {
+        program: "claude".into(),
+        args,
+        env_unset: vec!["CLAUDECODE".into()],
+        ..Default::default()
+    })
+}
 
+pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
+    let Some(spec) = launch_spec(params) else {
+        return String::new();
+    };
+    let mut parts = vec![ShellSyntax::UNSET_CLAUDECODE.to_string(), spec.program];
+    let mut previous = "";
+    for arg in &spec.args {
+        let quoted = match previous {
+            "--" => ShellSyntax::quote_native_arg(arg),
+            "--agent" | "--session-id" | "--append-system-prompt-file" => ShellSyntax::quote(arg),
+            _ => ShellSyntax::quote_arg(arg),
+        };
+        parts.push(quoted);
+        previous = arg;
+    }
     parts.join(" ")
 }
 
@@ -127,6 +158,40 @@ mod tests {
     use crate::provider::AgentLaunchParams;
 
     #[test]
+    fn launch_spec_keeps_raw_arguments_and_materialization_failure_is_not_a_launch() {
+        let params = AgentLaunchParams {
+            agent_name: Some("two words; $value 😀".into()),
+            session_id: Some("fixture-session".into()),
+            args: Some(vec!["--resume".into(), "fixture-resume".into()]),
+            skip_permissions: true,
+            ..Default::default()
+        };
+        let spec = launch_spec_with(
+            &params,
+            |args| Some(args.to_vec()),
+            |_| Some("prompt path".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            spec.args,
+            [
+                "--dangerously-skip-permissions",
+                "--agent",
+                "two words; $value 😀",
+                "--session-id",
+                "fixture-session",
+                "--resume",
+                "fixture-resume",
+                "--append-system-prompt-file",
+                "prompt path"
+            ]
+        );
+        assert_eq!(spec.env_unset.len(), 1);
+        assert!(launch_spec_with(&params, |_| None, |_| panic!("failed args")).is_none());
+        assert!(launch_spec_with(&params, |args| Some(args.to_vec()), |_| None).is_none());
+    }
+
+    #[test]
     fn test_build_launch_no_task() {
         let params = AgentLaunchParams {
             context_files: None,
@@ -143,7 +208,7 @@ mod tests {
         };
         let cmd = build_launch_command(&params);
         if cfg!(target_os = "windows") {
-            assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
+            assert!(cmd.starts_with("Remove-Item Env:"));
             assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
             assert!(cmd.contains(" claude --dangerously-skip-permissions"));
         } else {

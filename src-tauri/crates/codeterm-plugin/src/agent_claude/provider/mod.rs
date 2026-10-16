@@ -187,6 +187,13 @@ impl AgentProvider for ClaudeProvider {
         launch::build_launch_command(params)
     }
 
+    fn launch_spec(
+        &self,
+        params: &crate::provider::LaunchSpecParams<'_>,
+    ) -> Option<codeterm_types::agent::LaunchSpec> {
+        launch::provider_launch_spec(params)
+    }
+
     fn starter_prompt_text(&self, prompt: StarterPrompt) -> Option<String> {
         launch::starter_prompt_text(prompt).map(str::to_string)
     }
