@@ -13,8 +13,8 @@ impl Local {
 }
 #[async_trait]
 impl BillingProvider for Local {
-    async fn entitlements(&self, _: &Session) -> Result<Entitlements> {
-        (self.read)()
+    async fn entitlements(&self, _: &Session) -> Result<Reading> {
+        (self.read)().map(Reading::current)
     }
     async fn checkout_url(&self, _: &Session, plan: &str) -> Result<url::Url> {
         let mut url = self.route("billing/checkout")?;
@@ -29,8 +29,8 @@ impl BillingProvider for Local {
 pub struct Unavailable;
 #[async_trait]
 impl BillingProvider for Unavailable {
-    async fn entitlements(&self, _: &Session) -> Result<Entitlements> {
-        Ok(Entitlements::default())
+    async fn entitlements(&self, _: &Session) -> Result<Reading> {
+        Ok(Reading::current(Entitlements::default()))
     }
     async fn checkout_url(&self, _: &Session, _: &str) -> Result<url::Url> {
         Err("Cloud billing is unavailable: no build-time endpoint configured".into())

@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "billing": {
+    "schema_version": 1,
+    "plan": "pro",
+    "capabilities": {
+      "max_mesh_machines": null,
+      "max_workspaces": null,
+      "sponsor": false,
+      "priority_support": false
+    },
+    "period_end": 1700604800
+  },
+  "billing_inventory": "verified",
+  "application_access": {
+    "schema_version": 1,
+    "authority": "billing",
+    "full_access": false,
+    "max_mesh_machines": null,
+    "max_workspaces": null,
+    "priority_support": false,
+    "sponsor": false
+  }
+}
