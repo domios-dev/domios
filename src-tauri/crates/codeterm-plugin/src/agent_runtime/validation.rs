@@ -114,7 +114,7 @@ pub fn validate_runtime_operation(
         }
         match action {
             RuntimeBackgroundProcessAction::Terminate { process_id } if !identifier(process_id) => {
-                return Err(invalid("invalid background process id"))
+                return Err(invalid("invalid background process id"));
             }
             RuntimeBackgroundProcessAction::List {
                 cursor: Some(cursor),
@@ -152,7 +152,7 @@ pub fn validate_runtime_operation(
             None
         }
         RuntimeOperation::OpenThread { .. } if ctx.thread_id.is_some() => {
-            return Err(mismatch("open replaces bound thread"))
+            return Err(mismatch("open replaces bound thread"));
         }
         _ => None,
     };
@@ -197,7 +197,7 @@ pub fn validate_runtime_operation(
         RuntimeOperation::Interrupt { active_turn_id, .. }
             if active_turn_id != &ctx.active_turn_id =>
         {
-            return Err(mismatch("interrupt retargets turn"))
+            return Err(mismatch("interrupt retargets turn"));
         }
         _ => {}
     }
@@ -402,6 +402,26 @@ fn validate_runtime_result(
             RuntimeOperation::Control {
                 thread_id: Some(target),
                 action,
+                value,
+            },
+            RuntimeResult::ThreadForked {
+                source_thread_id,
+                thread_id,
+                turn_id,
+            },
+        ) => {
+            action == "threadHistory"
+                && value["action"] == "fork"
+                && value["turnId"].as_str() == Some(turn_id)
+                && target == source_thread_id
+                && identifier(thread_id)
+                && identifier(turn_id)
+                && thread_id != target
+        }
+        (
+            RuntimeOperation::Control {
+                thread_id: Some(target),
+                action,
                 ..
             },
             RuntimeResult::Goal { thread_id, .. },
@@ -541,12 +561,12 @@ pub fn validate_runtime_frames(
                 return Err(RuntimeFailure::new(
                     RuntimeFailureCode::MethodNotAllowed,
                     "undeclared inbound notification",
-                ))
+                ));
             }
             RuntimeFrame::Request {
                 request_id, method, ..
             } if !rpc_id(request_id) || !identifier(method) => {
-                return Err(invalid("invalid server request"))
+                return Err(invalid("invalid server request"));
             }
             _ => {}
         }
@@ -725,7 +745,8 @@ pub fn validate_runtime_reduction(
             | AgentRuntimeEvent::PromptResolved { thread_id, .. }
             | AgentRuntimeEvent::ControlsConfirmed { thread_id, .. }
             | AgentRuntimeEvent::Question { thread_id, .. }
-            | AgentRuntimeEvent::ContextCompacted { thread_id, .. } => thread_id,
+            | AgentRuntimeEvent::ContextCompacted { thread_id, .. }
+            | AgentRuntimeEvent::ThreadReverted { thread_id } => thread_id,
             AgentRuntimeEvent::SendEvidence {
                 item_id,
                 thread_id,
@@ -760,7 +781,7 @@ pub fn validate_runtime_reduction(
             | AgentRuntimeEvent::PromptResolved { request_id, .. }
                 if !rpc_id(request_id) =>
             {
-                return Err(invalid("invalid prompt request id"))
+                return Err(invalid("invalid prompt request id"));
             }
             _ => {}
         }

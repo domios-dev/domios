@@ -301,6 +301,11 @@ pub enum RuntimeResult {
         thread_id: String,
         settings: RuntimeSettings,
     },
+    ThreadForked {
+        source_thread_id: String,
+        thread_id: String,
+        turn_id: String,
+    },
     HistoryPage {
         thread_id: String,
         items: Vec<ChatMsg>,
@@ -484,6 +489,9 @@ pub enum AgentRuntimeEvent {
     ContextCompacted {
         thread_id: String,
         item_id: String,
+    },
+    ThreadReverted {
+        thread_id: String,
     },
 }
 

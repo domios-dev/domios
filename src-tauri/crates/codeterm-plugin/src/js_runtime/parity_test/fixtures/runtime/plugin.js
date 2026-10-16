@@ -20,7 +20,7 @@ module.exports = {
       case 'resumeThread': return {kind:'complete',result:{kind:'threadLoaded',threadId:op.threadId,settings:op.settings}};
       case 'readHistory': if (reply.value.more) return {kind:'continue',plan:{action:{kind:"request",call:{method:op.kind,params:op}},state:null},history:{kind:'historyPage',threadId:op.threadId,items:reply.value.items,openItems:[]},beforeAcceptance:false}; return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:reply.value.items,openItems:[]}};
       case 'submitTurn': return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId}};
-      case 'control': if (op.action === 'goal') return {kind:'complete',result:{kind:'goal',threadId:op.threadId,intent:reply.value.intent}}; if (op.action === 'redeemResetCredit') return {kind:'complete',result:{kind:'resetCreditConsumed',outcome:reply.value.outcome}}; return {kind:'complete',result:{kind:'done'}};
+      case 'control': if (op.action === 'goal') return {kind:'complete',result:{kind:'goal',threadId:op.threadId,intent:reply.value.intent}}; if (op.action === 'threadHistory' && op.value.action === 'fork') return {kind:'complete',result:{kind:'threadForked',sourceThreadId:op.threadId,threadId:reply.value.thread.id,turnId:op.value.turnId}}; if (op.action === 'redeemResetCredit') return {kind:'complete',result:{kind:'resetCreditConsumed',outcome:reply.value.outcome}}; return {kind:'complete',result:{kind:'done'}};
       default: return {kind:'complete',result:{kind:'done'}};
     }
   },

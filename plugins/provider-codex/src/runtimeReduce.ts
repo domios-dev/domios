@@ -131,6 +131,10 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     if (frame.kind === "notification" && frame.method === "account/updated") {
       events.push(notificationAuth(params)); continue;
     }
+    if (frame.kind === "notification" && frame.method === "thread/reverted") {
+      if (ctx.threadId && params.threadId === ctx.threadId) events.push({kind:"threadReverted",threadId:ctx.threadId});
+      continue;
+    }
     state.parents ??= Object.fromEntries(ctx.threadParents.map(parent=>[parent.threadId,parent.parentThreadId]));
     if (frame.kind === "notification" && frame.method === "thread/started") {
       const thread=object(params.thread);const id=text(thread.id);
