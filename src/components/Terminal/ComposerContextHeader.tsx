@@ -1,10 +1,11 @@
+import { ComposerContextChip } from "./ComposerContextChip";
 import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { removedChatPluginId } from "./removedChatPluginError";
 import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { ChevronUp, CircleCheck, Clock3, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
+import { ChevronUp, CircleCheck, Clock3, Target, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -73,25 +74,23 @@ function ContextPopoverBubble({ label, tone, title, children, details }: {
   details: ReactNode;
 }) {
   const { open, triggerRef, popoverRef, toggle } = useRuntimeStatusPopover();
-  return <div className="relative inline-flex min-w-0 max-w-full [--ct-ctx-kind:var(--ct-accent)]">
-    <ContextBubble tone={tone} label={label} title={title} triggerRef={triggerRef} expanded={open} onOpen={toggle}>{children}</ContextBubble>
+  return <div className="inline-flex min-w-0 max-w-full">
+    <ComposerContextChip kind={tone} open={open} ref={triggerRef} aria-label={label} title={title} aria-expanded={open} aria-haspopup="dialog" onClick={toggle}>{children}</ComposerContextChip>
     {open && <div ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
-      className="ct-menu absolute bottom-full left-0 z-40 mb-2 w-64 max-w-[calc(100vw-2rem)] whitespace-pre-wrap break-words p-3 text-xs text-[var(--ct-fg)]">{details}</div>}
+      className="ct-menu absolute bottom-full right-0 z-40 mb-2 w-64 max-w-[calc(100vw-2rem)] whitespace-pre-wrap break-words p-3 text-xs text-[var(--ct-fg)]">{details}</div>}
   </div>;
 }
 
 function SessionGoalBubble({ intent }: { intent: ChatSessionIntent }) {
   const details = [intent.title, intent.goal].filter(Boolean).join("\n\n");
-  return <ContextPopoverBubble tone="scheduled" label="Session goal" title={details} details={details}>
-    <span className="ct-ctx-bubble__meta">Goal</span>
-    <span className="ct-ctx-bubble__title ct-ctx-bubble__title--text">{intent.goal || intent.title}</span>
+  return <ContextPopoverBubble tone="scheduled" label="Session goal" title={(intent.goal || intent.title || "").split("\n")[0]} details={details}>
+    <Target size={13} aria-hidden="true" />
   </ContextPopoverBubble>;
 }
 
 function RemovedPluginBubble({ error }: { error: string }) {
   return <ContextPopoverBubble tone="waiting" label="Plugin removed" details={<RemovedChatPlugin error={error} />}>
-    <span className="ct-ctx-bubble__dot" aria-hidden="true" />
-    <span className="ct-ctx-bubble__title">Plugin removed</span>
+    <TriangleAlert size={13} aria-hidden="true" />
   </ContextPopoverBubble>;
 }
 
@@ -171,6 +170,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
+    setUnfolded(true);
     setShown(kind);
   };
 
@@ -287,35 +287,6 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
 
   const body = (
     <>
-      <div className="ct-ctx__head">
-        {plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
-        {kinds.length > 0 && (
-          <div className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
-            {kinds.map((kind) => {
-              const Icon = KIND_ICON[kind];
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  className="ct-ctx-kind"
-                  data-kind={kind}
-                  data-open={open === kind || undefined}
-                  aria-pressed={open === kind}
-                  aria-label={`${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
-                  title={KIND_LABEL[kind]}
-                  onMouseDown={keepComposerFocus}
-                  onClick={() => toggle(kind)}
-                >
-                  <Icon size={13} aria-hidden="true" />
-                  {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
-                  {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
-                  {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
       <div className="ct-ctx__reveal" data-open={open !== null || undefined}>
         <div className="ct-ctx__reveal-inner">
           {shown && (
@@ -330,10 +301,33 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
 
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined} data-phone={phone || undefined}>
-      <div className="ct-ctx__compact" data-has-bubbles={hasGoal || hasPluginError || undefined}>
-        {hasGoal && sessionIntent && <SessionGoalBubble intent={sessionIntent} />}
-        {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
-        {pill}
+      <div className="ct-ctx__head ct-ctx__compact">
+        {phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
+        {(hasGoal || hasPluginError || kinds.length > 0) && (
+          <div className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
+            {hasGoal && sessionIntent && <SessionGoalBubble intent={sessionIntent} />}
+            {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
+            {kinds.map((kind) => {
+              const Icon = KIND_ICON[kind];
+              return (
+                <ComposerContextChip
+                  key={kind}
+                  kind={kind}
+                  open={open === kind}
+                  aria-pressed={open === kind}
+                  aria-label={`${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
+                  title={KIND_LABEL[kind]}
+                  onClick={() => toggle(kind)}
+                >
+                  <Icon size={13} aria-hidden="true" />
+                  {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
+                  {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
+                  {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
+                </ComposerContextChip>
+              );
+            })}
+          </div>
+        )}
       </div>
       {(plan || kinds.length > 0) && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>

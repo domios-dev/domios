@@ -83,8 +83,11 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 }
 
 .ct-ctx__kinds {
+  position: relative;
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
   gap: 6px;
   margin-left: auto;
 }
@@ -112,6 +115,8 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 }
 
 .ct-ctx-kind[data-kind="crons"] { --ct-ctx-kind: var(--ct-ctx-crons); }
+.ct-ctx-kind[data-kind="scheduled"] { --ct-ctx-kind: var(--ct-accent); }
+.ct-ctx-kind[data-kind="waiting"] { --ct-ctx-kind: var(--ct-warn); }
 .ct-ctx-kind[data-kind="delayed"] { --ct-ctx-kind: var(--ct-ctx-delayed); }
 
 .ct-ctx-kind:hover { transform: scale(1.05); }
@@ -688,7 +693,7 @@ input.ct-delayed-modal__field { color: var(--ct-fg); }
   gap: 8px;
 }
 
-.ct-ctx__compact[data-has-bubbles] .ct-ctx-pill {
+.ct-ctx__compact .ct-ctx-pill {
   position: static;
   max-width: 50%;
 }
