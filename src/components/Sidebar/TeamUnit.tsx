@@ -612,18 +612,16 @@ export function TeamUnit({
           )}
         </span>
       )}
-      {plan && (
-        <TeamStatusTally
-          key={`tally-${planMotion.revision}`}
-          data-testid="team-status-tally"
-          data-team-card-region="status-tally"
-          data-team-card-hit-target="team-card-activation"
-          className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
-          counts={statusCounts}
-          tone="muted"
-          itemTestIdPrefix="team-status"
-        />
-      )}
+      <TeamStatusTally
+        key={`tally-${planMotion.revision}`}
+        data-testid="team-status-tally"
+        data-team-card-region="status-tally"
+        data-team-card-hit-target="team-card-activation"
+        className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
+        counts={statusCounts}
+        tone="muted"
+        itemTestIdPrefix="team-status"
+      />
       {renameError && <div data-testid="team-rename-error"><InlineErrorNotice error={renameError} operation="updating this Team" blocking /></div>}
     </div>
   </>;
@@ -652,12 +650,12 @@ export function TeamUnit({
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-plan-entry-completion" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
         onClick={(event) => {
-          if (plan && !editing && event.target instanceof Element && event.target.closest(".sidebar-team-title-block")) {
-            onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id });
+          if (!editing && event.target instanceof Element && event.target.closest(".sidebar-team-title-block")) {
+            onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id });
           }
         }}
       >
-        {plan && !editing ? (
+        {!editing ? (
           <div
             data-testid="team-card-title-area"
             data-team-card-region="title"
@@ -668,7 +666,7 @@ export function TeamUnit({
               type="button"
               className="sidebar-team-status-trigger"
               aria-label={`Open task status for ${displayTitle}`}
-              onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id })}
+              onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id })}
             >
               <SegmentedDonut
                 data-testid="team-donut"
