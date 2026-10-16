@@ -79,12 +79,14 @@ export function availableUpdate(
   if (response?.status !== 200) return null;
   const metadata = record(response.body);
   let latestVersion: string | null = typeof metadata?.version === "string" ? metadata.version : null;
+  if (!compatibility && !latestVersion) return null;
   if (compatibility) {
     if (!metadata?.versions || typeof metadata.versions !== "object") return null;
     latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
   }
+  // An answered check with no newer target reports latest = current, so the host can tell it from no answer (null).
   return latestVersion && compare(latestVersion, currentVersion) === 1
-    ? { currentVersion, latestVersion } : null;
+    ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
 }
 
 function startedJob(raw: string): string | null {
