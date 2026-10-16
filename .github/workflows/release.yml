@@ -175,7 +175,7 @@ jobs:
             node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
           fi
 
-  # Builds on machines no fast check uses start at once; a fast-check failure cancels the run.
+  # Builds on machines no fast check uses start at once; the first failed fast check cancels the run.
   # RELEASE_OVERLAP_FAST_CHECKS=false makes every build wait for the fast checks instead.
   quick-checks:
     name: Fast checks
@@ -186,24 +186,12 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
       phase: fast
+      cancel_run: true
     permissions:
       contents: read
       actions: write
       pull-requests: write
     secrets: inherit
-
-  fast-checks-failed:
-    name: cancel the run on a fast-check failure
-    needs: quick-checks
-    if: ${{ always() && needs.quick-checks.result == 'failure' }}
-    runs-on: [self-hosted, light]
-    permissions:
-      actions: write
-    timeout-minutes: 5
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - run: gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
 
   fast-gate:
     name: Fast checks (gating)

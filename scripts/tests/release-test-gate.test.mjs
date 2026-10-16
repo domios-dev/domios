@@ -38,10 +38,7 @@ test("one fast-check caller runs per mode, and the overlapping one cancels the r
     const running = ["quick-checks", "fast-gate"].filter(id => condition(release.jobs[id].if, { needs: { prepare: app }, inputs: {}, vars }));
     assert.deepEqual(running, [overlap === "false" ? "fast-gate" : "quick-checks"], String(overlap));
   }
-  const abort = release.jobs["fast-checks-failed"];
-  assert.deepEqual(dependencies(abort), ["quick-checks"]);
-  for (const result of results) assert.equal(condition(abort.if, { needs: { "quick-checks": { result } } }), result === "failure", result);
-  assert.match(abort.steps.map(step => step.run).join("\n"), /gh run cancel \$\{\{ github\.run_id \}\}/);
+  assert.equal(release.jobs["quick-checks"].with.cancel_run, true);
   for (const id of [...builds, "tests", "quick-checks", "fast-gate"]) assert.notEqual(release.jobs[id]["continue-on-error"], true);
 });
 
@@ -100,14 +97,27 @@ test("file sizes gate every other fast check, and test phases partition every ch
   assert.match(tests.concurrency.group, /inputs.phase/);
 });
 
-test("only a fast-check failure cancels the run; publication needs every stage to succeed", () => {
+test("each fast check cancels the calling run on its own failure; nothing else cancels it", () => {
   const cancelsRun = /actions\/runs\/[^\s"]*\/cancel|gh run cancel/;
   for (const name of ["tests", "release", "rust-warnings-summary"]) {
     for (const [id, job] of Object.entries(workflow(name).jobs)) {
-      if (name === "release" && id === "fast-checks-failed") continue;
-      for (const step of job.steps || []) assert.doesNotMatch(step.run ?? "", cancelsRun, `${name}/${id}`);
+      const cancels = (job.steps || []).filter(step => cancelsRun.test(step.run ?? ""));
+      if (name !== "tests" || !fastJobs.includes(id)) {
+        assert.deepEqual(cancels, [], `${name}/${id}`);
+        continue;
+      }
+      assert.equal(cancels.length, 1, id);
+      assert.equal(cancels[0].if, "failure() && inputs.cancel_run", id);
+      assert.match(cancels[0].run, /^gh run cancel \$\{\{ github\.run_id \}\}/, id);
+      assert.equal(job.permissions.actions, "write", id);
+      const after = job.steps.slice(job.steps.indexOf(cancels[0]) + 1);
+      assert.ok(after.every(step => step.if === "always()"), `${id}: only cleanup follows the cancel`);
     }
   }
+  assert.equal(tests.on.workflow_call.inputs.cancel_run.default, false, "pull requests and pushes never cancel themselves");
+});
+
+test("publication needs every stage to succeed", () => {
   const vars = { RELEASE_PUBLISH_ENABLED: "true" };
   const ok = Object.fromEntries([...builds, "tests"].map(id => [id, { result: "success" }]));
   const manifest = release.jobs["release-manifest"];
@@ -166,7 +176,7 @@ test("reusable tests require the release SHA and force scope through both skip g
   assert.equal(tests.on.schedule, undefined, "no nightly trigger without a scheduled catalogue tier");
   assert.equal(tests.on.workflow_call.inputs.source_ref.required, true);
   assert.equal(tests.on.workflow_call.inputs.source_ref.type, "string");
-  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase"]);
+  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase", "cancel_run"]);
   const changed = tests.jobs.changed;
   assert.equal(changed.if, "${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}", "only a release branch's own pull request skips; release calls inherit the push event");
   assert.equal(changed.steps.find(step => step.id === "tree").env.CI_RELEASE_CALL, "${{ inputs.source_ref != '' }}");

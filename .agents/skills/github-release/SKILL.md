@@ -285,9 +285,12 @@ Workflow concurrency includes phase so the fast and long calls cannot supersede 
 No Rust test, platform, receipt or warning job cancels the run on failure: every
 test finishes, so one red run reports every failing test instead of hiding the rest
 behind the first (whole-run cancellation once cost ~10 serial 40-60 minute rounds).
-Only a failed fast check cancels the run (`fast-checks-failed`), since bundles on
-eight, air and ROG start alongside the fast checks; the Linux x64 bundle and the Rust
-tests wait for them. `RELEASE_OVERLAP_FAST_CHECKS=false` makes every build wait instead.
+Only a failed fast check cancels the run, since bundles on eight, air and ROG start
+alongside the fast checks. Release passes `cancel_run: true` to `tests.yml`, and every
+fast job ends with a `failure() && inputs.cancel_run` step that runs `gh run cancel`,
+so the first failure stops in-flight builds without waiting for sibling checks; pull
+requests and pushes keep the default `false`. The Linux x64 bundle and the Rust tests
+wait for the fast checks. `RELEASE_OVERLAP_FAST_CHECKS=false` makes every build wait instead.
 Bundle builds running alongside a failing Rust test stage finish, but cannot publish.
 `release-manifest` needs every build, `quick-checks` and `tests`; frontend publication
 needs both test stages. Failure, cancellation or a skipped required gate cannot publish.
