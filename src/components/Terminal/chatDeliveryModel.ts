@@ -1,5 +1,5 @@
 import type { ChatSend, SendEcho, NormalizedChatMessage } from "@codeterm/chat-core";
-import { normalizeChatText, timestampMs } from "@codeterm/chat-core";
+import { normalizeChatText, parseDomiosMessage, timestampMs } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
@@ -88,11 +88,15 @@ export function deliveryProjectionSends(
   sends: readonly DeliverySend[], resetCutoffMs: number | null = null,
 ): readonly (DeliverySend & { echoEligible: boolean })[] {
   return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) === "failed" || send.sentAtMs >= resetCutoffMs)
-    .map((send) => ({
-      ...send,
-      echoEligible: deliveryState(send) !== "failed",
-      flowAtMs: send.sentAtMs,
-    }));
+    .map((send) => {
+      const frame = send.status?.system_send ? parseDomiosMessage(send.content) : null;
+      return {
+        ...send,
+        segments: frame ? [{ type: "frame" as const, from: frame.attrs.from, attrs: frame.attrs, body: frame.body, tip: null }] : send.segments,
+        echoEligible: deliveryState(send) !== "failed",
+        flowAtMs: send.sentAtMs,
+      };
+    });
 }
 
 export function canDeleteChatSend(send: DeliverySend): boolean {
