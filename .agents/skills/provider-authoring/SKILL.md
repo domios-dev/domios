@@ -5,6 +5,12 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`sessionResume()` returns `{exact: boolean}`. Declare `true` only when relaunching
+the same session id restores its conversation and identity while preserving the
+tab's transcript source. Missing, malformed or false declarations disable idle
+sleep. This pure declaration adds no host API or sandbox access; native providers
+implement `supports_exact_session_resume()`, with native/JS parity coverage.
+
 JSONL cursor recovery calls the host's `parse_session_delta_bounded` capability.
 The JS host owns the byte budget and complete-record offsets; `parseSessionDelta`
 still receives the same line-aligned chunk and gains no filesystem access.

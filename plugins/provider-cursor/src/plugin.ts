@@ -19,6 +19,7 @@ const TUI_FRAGMENTS = [
 ];
 
 const plugin: PluginModule = {
+  sessionResume: () => ({ exact: false }),
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     if (prompt === "no_starter") return undefined;
     if (prompt === "idle_wakeup") return "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
