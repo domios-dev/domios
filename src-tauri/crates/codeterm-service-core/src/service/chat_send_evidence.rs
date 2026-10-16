@@ -239,9 +239,9 @@ pub(crate) fn scan_transcript_evidence(
             .find(|row| !ledger.source_row_claimed(row));
         let matching_turns =
             unconsumed_matching_turns(registry, ledger, tab_id, anchor, &candidate.payload);
-        let claimed = ledger.claimed_turn_anchors(tab_id, &anchor.session_id, &candidate.payload);
-        let assignable = source_row.is_some()
-            || matching_turns > claimed.len()
+        let claimed =
+            ledger.claimed_turn_anchors(tab_id, &anchor.session_id, &candidate.payload, source_row);
+        let assignable = matching_turns > claimed.len()
             || nested_windows_assign_every_send(
                 claimed
                     .iter()
