@@ -2194,6 +2194,19 @@ button,
   align-items: center;
 }
 
+.sidebar-team-card-visual {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+}
+
+.sidebar-team-status-donut {
+  animation: none;
+}
+
+.sidebar-team-status-donut > .ct-segmented-donut-hole {
+  background: var(--team-surface);
+}
+
 .sidebar-team-card-activation {
   position: absolute;
   inset: 3px 0 14px;
