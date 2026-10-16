@@ -26,6 +26,13 @@ fn evidence(tab: &crate::multiplexer::types::Tab) -> LivenessEvidence {
     }
 }
 
+fn classify_restore_liveness(
+    tab: &crate::multiplexer::types::Tab,
+    evidence: LivenessEvidence,
+) -> AgentLiveness {
+    classify_restore_facts(restore_facts_from(tab, evidence)).liveness()
+}
+
 #[test]
 fn report_before_readiness_waits_for_own_session_event() {
     let mut tab = restored_tab();
