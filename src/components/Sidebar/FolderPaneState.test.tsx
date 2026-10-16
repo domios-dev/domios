@@ -7,10 +7,9 @@ import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { TransportError } from "../../lib/transportClient";
 import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/multiplexer";
-import { TabBootOverlay } from "../Terminal/bootOverlay";
 import type { MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
-import { WorkspaceFolderError } from "./WorkspaceFolderError";
+import { FolderPaneState, WorkspacePaneState } from "../shared/FolderPaneState";
 import type { Workspace } from "../../lib/types";
 
 test("choosing a replacement folder clears the workspace error through the store snapshot", async () => {
@@ -50,8 +49,7 @@ test("choosing a replacement folder clears the workspace error through the store
     const state = useMuxState();
     notices = state.notifications.length + state.toasts.length;
     const workspace = state.workspaces.find((item) => item.id === "existing");
-    return workspace?.cwd_missing ? <TabBootOverlay workspace={workspace} cwd={cwd} shellReady={false} overlayVisible view={{ kind: "failed", reason: "Failed to spawn shell: CreateProcessW failed (os error 267)", canRetry: false, canStartFreshAgent: false, canStartNewSession: false, canKeepShell: false }} onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />
-      : <p role="status">{workspace?.cwd}</p>;
+    return workspace ? <WorkspacePaneState workspace={workspace}><textarea aria-label="Message" /><p role="status">{workspace.cwd}</p></WorkspacePaneState> : null;
   }
   const host = document.createElement("div");
   document.body.append(host);
@@ -61,9 +59,11 @@ test("choosing a replacement folder clears the workspace error through the store
     const choose = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Choose folder");
     assert(choose, "the workspace offers an accessible folder chooser");
     assert(host.querySelector('[role="alert"]'));
+    assert.equal(host.querySelector('textarea, [role="textbox"]'), null);
     await act(async () => choose.click());
     assert.deepEqual(changes, [{ workspaceId: "existing", cwd: "/replacement/project" }]);
     assert.equal(host.querySelector('[role="alert"]'), null);
+    assert(host.querySelector('textarea[aria-label="Message"]'), "workspace recovery restores its composer");
     assert.equal(host.querySelector('[role="status"]')?.textContent, "/replacement/project");
     await act(async () => {
       await assert.rejects(actions.spawnAgentTab("existing", "fixture"), (error) => error === refusal);
@@ -91,7 +91,7 @@ test("a tab folder chooser calls its relocation handler without relocating the w
   const root = createRoot(host);
   try {
     await act(async () => root.render(<MultiplexerActionsContext.Provider value={actions}>
-      <WorkspaceFolderError workspace={workspace} cwd="/deleted/tab" onRelocate={async path => { selected.push(path); }} />
+      <FolderPaneState workspace={workspace} cwd="/deleted/tab" onRelocate={async path => { selected.push(path); }} />
     </MultiplexerActionsContext.Provider>));
     const choose = host.querySelector<HTMLButtonElement>("button")!;
     assert(choose.getAttribute("aria-label") || choose.textContent);
