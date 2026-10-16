@@ -18,7 +18,8 @@ const targets = await (await fetch(`http://${endpoint.host}/json/list`, { signal
 const page = targets.find((entry) => {
   if (entry.type !== "page" || (values.target && entry.id !== values.target)) return false;
   const url = new URL(entry.url);
-  return ["127.0.0.1", "localhost"].includes(url.hostname) && url.port === String(vitePort);
+  return ["127.0.0.1", "localhost"].includes(url.hostname)
+    && [String(vitePort), api.port].includes(url.port);
 });
 assert(page, "Browser must contain a DEV frontend target; no fallback to unrelated pages");
 const socket = new WebSocket(page.webSocketDebuggerUrl);
@@ -115,10 +116,10 @@ function check(sample, width) {
     assert(Math.abs(box.width - expected) <= 2, `width ${box.width} differs from readable width ${expected}`);
     assert(Math.abs(box.center - sample.available.center) <= 2, `off-center by ${box.center - sample.available.center}px`);
   }
-  const messageLeft = sample.available.center - expected / 2;
+  const messageRight = sample.available.center + expected / 2;
   for (const box of sample.bubbles) {
     assert(box.width > 0 && box.width <= expected + 2, "user bubble exceeds its message frame");
-    assert(Math.abs(box.left - messageLeft) <= 2, "user bubble must start at the message frame edge");
+    assert(Math.abs(box.left + box.width - messageRight) <= 2, "user bubble must end at the message frame edge");
   }
   for (const box of sample.composers) assert(box.width <= max + 2, "composer exceeds shared readable width");
 }
