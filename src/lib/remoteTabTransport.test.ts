@@ -2,6 +2,11 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("reads a child through the owning peer without changing its tab binding",()=>{
+    expect(remoteTransportCall("agent_runtime_child_history",{tabId:"mesh:peer/owned",threadId:"child",request:{rootThreadId:"root",bindingNonce:"nonce",epoch:4}})).toMatchObject({
+      peerId:"peer",remoteTabId:"owned",method:"GET",suffix:"/agent/runtime/children/child/history?rootThreadId=root&bindingNonce=nonce&epoch=4",body:null,
+    });
+  });
   it("preserves the opaque prompt identity in peer approval replies", () => {
     const identity = { kind: "structured", options: [{ label: "display", value: "native" }], request_id: "opaque" };
     const args = { tabId: "mesh:peer/owned", value: "native", identity };
