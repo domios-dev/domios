@@ -12,7 +12,7 @@ configure_lane_workspace_wrapper() {
   local directory wrapper
   directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || return $?
   wrapper="$directory/lane-rustc-wrapper.sh"
-  case "${OSTYPE:-}" in msys*|cygwin*) wrapper="$(cygpath -m "$directory/lane-rustc-wrapper.cmd")" ;; esac
+  case "${OSTYPE:-}" in msys*|cygwin*) wrapper="$(node "$directory/lane-native-wrapper.mjs")" || return $? ;; esac
   # Cargo hashes the wrapper path for workspace units, while registry units stay shared.
   export RUSTC_WORKSPACE_WRAPPER="$wrapper"
 }
