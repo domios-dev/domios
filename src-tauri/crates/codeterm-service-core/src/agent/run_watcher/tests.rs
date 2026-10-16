@@ -59,27 +59,21 @@ fn codex_stop_foreign_nonce_is_rejected_and_completes_nothing() {
     let run_b = registry.insert_run_for_test("pty-b", &tab_b);
 
     // Another tab's nonce, an unknown nonce: neither claims anything.
-    assert!(
-        registry
-            .claim_stop_report_run(&mux, &tab_a, "nonce-b")
-            .is_none()
-    );
-    assert!(
-        registry
-            .claim_stop_report_run(&mux, &tab_a, "nonce-unknown")
-            .is_none()
-    );
+    assert!(registry
+        .claim_stop_report_run(&mux, &tab_a, "nonce-b")
+        .is_none());
+    assert!(registry
+        .claim_stop_report_run(&mux, &tab_a, "nonce-unknown")
+        .is_none());
     assert!(!run_a.completed.load(Ordering::Acquire));
     assert!(!run_b.completed.load(Ordering::Acquire));
 
     // A tab that never armed a nonce can't be completed via report at all.
     let (nonceless_mux, nonceless_tab) = mux_with_nonce(None);
     let run = registry.insert_run_for_test("pty-c", &nonceless_tab);
-    assert!(
-        registry
-            .claim_stop_report_run(&nonceless_mux, &nonceless_tab, "nonce-a")
-            .is_none()
-    );
+    assert!(registry
+        .claim_stop_report_run(&nonceless_mux, &nonceless_tab, "nonce-a")
+        .is_none());
     assert!(!run.completed.load(Ordering::Acquire));
 }
 
@@ -90,11 +84,9 @@ fn codex_stop_hook_channel_loss_leaves_classifier_fallback_completion_intact() {
     let registry = RunWatcherRegistry::new();
     let run = registry.insert_run_for_test("pty-a", &tab_id);
 
-    assert!(
-        registry
-            .claim_stop_report_run(&mux, &tab_id, "nonce-foreign")
-            .is_none()
-    );
+    assert!(registry
+        .claim_stop_report_run(&mux, &tab_id, "nonce-foreign")
+        .is_none());
     assert!(
         !run.completed.load(Ordering::Acquire),
         "a rejected report must leave the run claimable by the fallback"
@@ -107,11 +99,9 @@ fn codex_stop_hook_channel_loss_leaves_classifier_fallback_completion_intact() {
     // armed + saw_working + durable progress + classifier idle + bound.
     assert!(can_complete_on_semantic_idle(true, true, true, true, true));
     // Channel restored later: the same run is still completable by report.
-    assert!(
-        registry
-            .claim_stop_report_run(&mux, &tab_id, "nonce-a")
-            .is_some()
-    );
+    assert!(registry
+        .claim_stop_report_run(&mux, &tab_id, "nonce-a")
+        .is_some());
 }
 
 #[test]
@@ -196,14 +186,12 @@ fn scanner_strips_ansi() {
 #[test]
 fn scanner_ignores_non_completion_events() {
     let mut s = ResultEventScanner::new();
-    assert!(
-        s.feed(r#"{"type":"assistant","message":{"id":"x"}}"#)
-            .is_none()
-    );
-    assert!(
-        s.feed(r#"{"type":"stream_event","event":{"type":"content_block_delta"}}"#)
-            .is_none()
-    );
+    assert!(s
+        .feed(r#"{"type":"assistant","message":{"id":"x"}}"#)
+        .is_none());
+    assert!(s
+        .feed(r#"{"type":"stream_event","event":{"type":"content_block_delta"}}"#)
+        .is_none());
 }
 
 #[test]
@@ -487,14 +475,12 @@ fn cron_run_not_failed_before_own_launch_issued() {
         "provider process exited to a surviving shell".into(),
     ));
     assert!(!run.completed.load(Ordering::Acquire));
-    assert!(
-        fixture
-            .service
-            .run_watcher
-            .runs
-            .lock()
-            .contains_key(&pty_id)
-    );
+    assert!(fixture
+        .service
+        .run_watcher
+        .runs
+        .lock()
+        .contains_key(&pty_id));
     assert!(launch_readiness::retire_attempt(&attempt));
 }
 
@@ -561,12 +547,10 @@ fn dead_cron_run_is_reaped_on_process_exit() {
         crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("crons.json")),
     ));
     assert!(fixture.service.set_ext(cron.clone()).is_ok());
-    assert!(
-        fixture
-            .service
-            .set_ext::<crate::CronWake>(std::sync::Arc::new(std::sync::Condvar::new()))
-            .is_ok()
-    );
+    assert!(fixture
+        .service
+        .set_ext::<crate::CronWake>(std::sync::Arc::new(std::sync::Condvar::new()))
+        .is_ok());
     let run_id = "process-exit-run";
     let job_id = {
         let mut store = cron.lock();
@@ -655,30 +639,26 @@ fn dead_cron_run_is_reaped_on_process_exit() {
     fixture.ui.unlisten(listener);
 
     assert!(run.completed.load(Ordering::Acquire));
-    assert!(
-        !fixture
-            .service
-            .run_watcher
-            .runs
-            .lock()
-            .contains_key(&pty_id)
-    );
+    assert!(!fixture
+        .service
+        .run_watcher
+        .runs
+        .lock()
+        .contains_key(&pty_id));
     let store = cron.lock();
     let history = store.get_history(&job_id);
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].status, crate::cron::store::CronRunStatus::Failed);
-    assert!(
-        store
-            .read_log(&job_id, run_id)
-            .expect("process-exit log")
-            .contains("process-exit-token")
-    );
+    assert!(store
+        .read_log(&job_id, run_id)
+        .expect("process-exit log")
+        .contains("process-exit-token"));
 }
 
 #[test]
 fn dream_deadline_hook_finalizes_diary_on_hard_timeout() {
     use codeterm_mem::dream_status::deadline::{DEADLINE_REASON, DREAM_DIARY_TAG};
-    use codeterm_mem::dream_status::{DreamRunStatus, ExecutionEnd, diary_evidence};
+    use codeterm_mem::dream_status::{diary_evidence, DreamRunStatus, ExecutionEnd};
 
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "dream-deadline-pty".to_string();
@@ -758,7 +738,7 @@ fn dream_deadline_hook_finalizes_diary_on_hard_timeout() {
 fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
     use codeterm_mem::dream_status::deadline::{APPROVAL_PROMPT_REASON, DREAM_DIARY_TAG};
     use codeterm_mem::dream_status::{
-        DiaryFinalization, DreamRunStatus, ExecutionEnd, diary_evidence,
+        diary_evidence, DiaryFinalization, DreamRunStatus, ExecutionEnd,
     };
     use codeterm_types::pty::PromptKind;
 
@@ -916,7 +896,7 @@ fn run_watcher_mem_worker_directory_trust_prompt_ends_run() {
 #[test]
 fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
     use codeterm_mem::dream_status::{
-        DiaryFinalization, DreamRunStatus, ExecutionEnd, diary_evidence,
+        diary_evidence, DiaryFinalization, DreamRunStatus, ExecutionEnd,
     };
     use codeterm_types::pty::PromptKind;
 
