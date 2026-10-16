@@ -386,12 +386,13 @@ export function useChatSession({
     return () => { cancelled = true; unlisten?.(); };
   }, [tabId, observeChatSendStatus, reconcileSendStatuses]);
 
-  const loadOlderPage = useCallback(async (beforeOffset: number) => {
+  const loadOlderPage = useCallback(async (beforeOffset: number, maxBytes: number) => {
+    if (agentSessionIdRef.current !== agentSessionId || sessionBindingNonceRef.current !== sessionBindingNonce) return null;
     const generationAtRequest = attachmentRef.current.generation;
     const requestedAt = performance.now();
     try {
       const offsetKind = transcriptOffsetKind(readTranscriptWindow(windowKeyRef.current).transcript);
-      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset, offsetKind });
+      const res = await invoke<ChatBackfillResult>("chat_backfill", { tabId, beforeOffset, offsetKind, maxBytes });
       if (
         !attachmentRef.current.isCurrent(generationAtRequest)
         || !canAdoptTranscriptAuthority(
@@ -401,7 +402,10 @@ export function useChatSession({
           allowUnboundAuthorityRef.current,
         )
       ) {
-        return false;
+        return null;
+      }
+      if (res.start_offset < 0 || res.start_offset >= beforeOffset) {
+        return { cursor: res.start_offset, consumedBytes: 0, rows: 0 };
       }
       const page = res.messages ?? [];
       const receivedAt = performance.now();
@@ -416,12 +420,16 @@ export function useChatSession({
       );
       frontendBootDiagnostic("chat-scroll", { chat: { scope: tabId, edge: "backfill_merged", at: performance.now(),
         state: { beforeOffset, rows: page.length, requestMs: receivedAt - requestedAt, mergeMs: performance.now() - receivedAt, outcome } } });
-      return outcome === "adopted";
+      return outcome === "adopted" ? {
+        cursor: res.start_offset,
+        consumedBytes: offsetKind === "items" ? 0 : beforeOffset - res.start_offset,
+        rows: page.length,
+      } : null;
     } catch (e) {
       onErrorRef.current?.(e instanceof Error ? e.message : String(e));
-      return false;
+      return null;
     }
-  }, [commitBatch, tabId]);
+  }, [agentSessionId, commitBatch, sessionBindingNonce, tabId]);
 
   const view = useChatWindowView({
     tabId,
@@ -771,6 +779,7 @@ export function useChatSession({
     newerMessageCount: view.newerMessageCount,
     canBackfillOlder: view.canBackfillOlder || historyLoading,
     backfillLoading: view.backfillLoading || historyLoading,
+    backfillNotice: view.backfillNotice,
     loadOlder: view.loadOlder,
     showLatest: view.showLatest,
     prepareMessage: view.prepareMessage,

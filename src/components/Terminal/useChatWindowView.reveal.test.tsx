@@ -34,7 +34,7 @@ test("backfill rendered before request completion still reveals the merged older
         requests++;
         assert.equal(cursor, 220);
         flushSync(() => setTranscript(page(initial, 0, 220)));
-        return true;
+        return { cursor: 0, consumedBytes: 0, rows: 220 };
       },
     });
     return createElement("output", null, view.enrichedMessages[0]?.msg.id);
