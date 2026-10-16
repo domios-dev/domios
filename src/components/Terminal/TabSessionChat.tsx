@@ -81,6 +81,7 @@ import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
+import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
@@ -323,6 +324,10 @@ function TabSessionChatBody({
   }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
+  const heldAuthority = readTranscriptWindow(transcriptWindowKey(tabId, agentSessionId)).transcript.authority;
+  const hasHeldWindow = heldAuthority != null
+    && heldAuthority.sourceSessionId === agentSessionId
+    && heldAuthority.sessionBindingNonce === (tab?.session_binding_nonce ?? null);
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
   const runtimeDeadlinePending = runtimeResponseDeadlinePending(runtime.state);
@@ -335,6 +340,7 @@ function TabSessionChatBody({
   const chatLoading = chatChannelLoading || error != null;
   const setupView = runtimeUnavailable && snapshotReady && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
     hasTranscript,
+    hasHeldWindow,
     snapshotReady,
     chatLoading,
     unavailable: transcriptUnavailable,
@@ -1017,7 +1023,7 @@ function TabSessionChatBody({
           activeTool={allMessages.find((message) => message.type === "tool_call" && message.toolStatus === "running")}
           runtimeState={runtime.state}
           showActivity={setupView.kind === "none" && !chatLoading}
-          channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView, snapshotReady) === "model"
+          channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView, snapshotReady, hasHeldWindow) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
