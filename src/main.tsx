@@ -6,8 +6,8 @@ import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { FrontendCrashBoundary } from "./components/FrontendCrashBoundary";
 import { WebGate } from "./components/WebGate/WebGate";
-import { isMissionControlPrototypeRoute, MissionControlPrototype } from "./components/Canvas/missionControl";
-import { isSnakeRoute, SnakeGame } from "./components/Snake/SnakeGame";
+import { frontendPrototypeRoute } from "./lib/frontendPrototypeRoute";
+import { deferredComponent } from "./components/shared/deferredComponent";
 import { loadBundledPlugins } from "./lib/plugins/loader";
 import { installToolOutputCardHarness } from "./components/AgentRun/ToolOutputCard.browserHarness";
 import { installAgentStateIndicatorHarness } from "./components/Terminal/AgentStateIndicator.browserHarness";
@@ -26,15 +26,19 @@ import "./components/Canvas/missionControl/missionControlBoard.css";
 import "./components/Usage/styles.css";
 import "./components/Snake/SnakeGame.css";
 
+const MissionControlPrototype = deferredComponent(async () => ({ default: (await import("./components/Canvas/missionControl/MissionControlPrototype")).MissionControlPrototype }));
+const SnakeGame = deferredComponent(async () => ({ default: (await import("./components/Snake/SnakeGame")).SnakeGame }));
+
 installRequestDiagnostics();
 frontendBootDiagnostic("module-entry");
 ensureDaemonRuntime();
 
 const root = document.getElementById("root")!;
-const missionControlPrototype = isMissionControlPrototypeRoute();
+const prototype = frontendPrototypeRoute(window.location.search);
+const missionControlPrototype = prototype === "mission-control";
 
-const isGalleryRoute = new URLSearchParams(window.location.search).get("prototype") === "gallery";
-const snakePrototype = isSnakeRoute();
+const isGalleryRoute = prototype === "gallery";
+const snakePrototype = prototype === "snake";
 
 installToolOutputCardHarness();
 installAgentStateIndicatorHarness();

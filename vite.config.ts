@@ -58,18 +58,6 @@ export default defineConfig(({ command }) => {
       }),
     ],
     clearScreen: false,
-    build: {
-      rolldownOptions: {
-        output: {
-          codeSplitting: {
-            groups: [
-              { name: "vendor", test: /node_modules/, maxSize: 300_000, entriesAware: true },
-              { name: "app", test: /\/(src|packages)\//, maxSize: 300_000, entriesAware: true },
-            ],
-          },
-        },
-      },
-    },
     server: {
       host: "127.0.0.1",
       // Per-worktree dev isolation: build.sh derives a stable per-instance port.
