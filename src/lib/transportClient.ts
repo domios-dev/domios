@@ -1,6 +1,6 @@
 import { uid } from "./uid";
 
-const streamClientId = uid();
+export const streamClientId = uid();
 
 export type Unsubscribe = () => void;
 export type TokenSource = string | (() => string | null);

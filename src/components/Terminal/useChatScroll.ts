@@ -154,9 +154,9 @@ export function useChatScroll({
     const before = el.scrollTop;
     if (target != null) el.scrollTop = target;
     lastViewportRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
+    if (target != null) chatScrollDiagnostic(sessionKeyRef.current, "write", { before, after: el.scrollTop, owned: userScrollingRef.current });
     if (el.scrollTop !== before) {
       hookScrollTopRef.current = el.scrollTop;
-      chatScrollDiagnostic(sessionKeyRef.current, "write", { before, after: el.scrollTop, owned: userScrollingRef.current });
     }
     onViewportChange?.();
   }, [onViewportChange, userScrollingRef]);
