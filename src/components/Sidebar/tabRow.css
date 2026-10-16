@@ -1,9 +1,10 @@
 .sidebar-tab {
   overflow: clip;
+  border-radius: var(--ct-radius-lg);
 }
 
 .active-tab-pill {
-  border-radius: 999px;
+  border-radius: inherit;
 }
 
 /* The menu must contribute height even while hidden, so compact rows contain its hover target. */
