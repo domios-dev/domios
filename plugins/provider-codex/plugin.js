@@ -1869,17 +1869,18 @@ function restoreContextItems(raw) {
   const value = exactObject(raw, ["instructions", "additionalContext"]);
   if (value.instructions !== null && typeof value.instructions !== "string") invalid("Invalid restoreContext instructions");
   if (!Array.isArray(value.additionalContext)) invalid("Invalid restoreContext additionalContext");
-  const keys = /* @__PURE__ */ new Set();
+  const entries = /* @__PURE__ */ new Map();
   for (const rawEntry of value.additionalContext) {
     const entry = exactObject(rawEntry, ["key", "kind", "value"]);
     if (typeof entry.key !== "string" || typeof entry.value !== "string" || entry.kind !== "application" && entry.kind !== "user") invalid("Invalid restoreContext entry");
-    if (keys.has(entry.key)) invalid("Duplicate restoreContext key");
-    keys.add(entry.key);
+    const previous = entries.get(entry.key);
+    if (previous && (previous.kind !== entry.kind || previous.value !== entry.value)) invalid("Conflicting restoreContext key");
+    entries.set(entry.key, entry);
   }
   const context = value;
   const item = (role, text6) => ({ type: "message", role, content: [{ type: "input_text", text: text6 }] });
   const items = context.instructions ? [item("developer", context.instructions)] : [];
-  for (const entry of context.additionalContext) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
+  for (const entry of entries.values()) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
   if (!items.length) invalid("Empty restoreContext");
   return items;
 }
@@ -2636,6 +2637,14 @@ function continuation(plan, beforeAcceptance) {
 function runtimeResponse(ctx, op, raw, reply) {
   validateBinding(ctx, op);
   const state = object(raw);
+  if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns" && !op.cursor && reply.error.code === -32600 && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
+    return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "unmaterialized" }));
+  if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
+    const thread = object(object(reply.value).thread);
+    if (!userThread(reply.value, op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
+      return refused("Empty thread identity unverified");
+    return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: [], openItems: [], ...op.order ? { order: op.order } : {} } };
+  }
   if (op.kind === "readHistory" && state.pager === 1) {
     if (reply.kind === "error" && reply.error.code === -32601 && ["turns", "items"].includes(String(state.stage)))
       return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", seq: 0 }));
@@ -2666,14 +2675,9 @@ function runtimeResponse(ctx, op, raw, reply) {
       }
       return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits)] };
     case "openThread": {
-      if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: state.settings } };
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
-      return continuation(request(
-        "thread/inject_items",
-        { threadId, items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: "Domios thread binding marker." }] }] },
-        { stage: "materialize", threadId, settings: codexEffectiveSettings(op.settings, value) }
-      ));
+      return { kind: "complete", result: { kind: "threadLoaded", threadId, settings: codexEffectiveSettings(op.settings, value) } };
     }
     case "resumeThread": {
       if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
