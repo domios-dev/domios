@@ -1,0 +1,23 @@
+{
+  "phases": {
+    "rows": [{"id":"own","kind":"fixture","requestBeginAt":1000}],
+    "marks": [
+      {"tab":"own","pty":"-","phase":"request_received","atUs":1001000},
+      {"tab":"own","pty":"-","phase":"request_dispatched","atUs":1002000},
+      {"tab":"own","pty":"-","phase":"request_bound","atUs":1003000},
+      {"tab":"own","pty":"p1","phase":"PtyStarting","atUs":1005000},
+      {"tab":"own","pty":"p1","phase":"AgentReady","atUs":1010000}
+    ]
+  },
+  "state": {"tabs":{"own":{"utility_created_at":1004000}}},
+  "before": {
+    "tab":{"agent_session_id":"own-session","session_binding_nonce":"before-nonce","pty_id":"p1","boot_stage":"agent_ready"},
+    "process":{"pid":41,"created":"2026-10-16T00:00:00.001Z"},
+    "userIds":["turn-a","turn-b"]
+  },
+  "after": {
+    "tab":{"agent_session_id":"own-session","session_binding_nonce":"after-nonce","pty_id":"p2","boot_stage":"agent_ready"},
+    "process":{"pid":42,"created":"2026-10-16T00:00:00.010Z"},
+    "userIds":["turn-a","turn-b"]
+  }
+}
