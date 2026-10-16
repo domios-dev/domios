@@ -26,6 +26,10 @@ export interface ResumeHistoryCapability {
   restoresConversationHistoryOnResume?: boolean;
 }
 
+export interface SessionResumeCapability {
+  exact: boolean;
+}
+
 export interface TabContext {
   tabId?: string;
   cwd?: string | null;
@@ -267,6 +271,7 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
+  sessionResume?(): SessionResumeCapability;
   authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
   tracksBackgroundWork?(): boolean;
   parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"}[];

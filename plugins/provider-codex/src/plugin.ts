@@ -185,6 +185,7 @@ function hasPromptAndStatusFooter(screen: string): boolean {
 }
 
 const plugin: PluginModule = {
+  sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
   runtimePlan,

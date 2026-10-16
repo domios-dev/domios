@@ -5840,6 +5840,7 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
   runtimePlan,

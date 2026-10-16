@@ -76,7 +76,9 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
                 "command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",codeterm_service_core::test_support::fixture_manifest_dir().display())]},
                 "requestMethods":methods,"notificationMethods":[]}},
         "permissions":{"subprocess":{"allow":["node"]}},
-        "spawn":{"executionSandbox":{
+        "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
+            "taskDelivery":"pty_input","verifySubmit":{"kind":"none"},
+            "executionSandbox":{
             "platforms":[codeterm_service_core::agent::provider::current_platform_tag()],
             "readOnly":{"launchArgs":[],"runtimeMode":"read-only"}
         }}

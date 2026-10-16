@@ -121,6 +121,7 @@ impl MultiplexerState {
         workspace.active_tab_id = Some(tab_id.to_string());
         if let Some(tab) = self.tabs.get_mut(tab_id) {
             tab.record_activity();
+            tab.last_opened_at_ms = tab.last_active_at_ms;
         }
         Ok(())
     }

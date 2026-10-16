@@ -146,6 +146,61 @@ fn recreated_jsonl_row_can_confirm_a_new_send_after_restoring_the_old_claim() {
 }
 
 #[test]
+fn aggregate_claims_exclude_only_proven_other_jsonl_incarnations() {
+    let ledger = ChatSendLedger::default();
+    let anchor = SendEvidenceAnchor {
+        provider_id: "provider".into(),
+        cwd: "/proj".into(),
+        session_id: "own".into(),
+        window: EvidenceWindow::Jsonl {
+            transcript_offset: 17,
+        },
+        turn_normalization: Default::default(),
+    };
+    let first = ledger
+        .try_start("tab", "repeat", Some(anchor.clone()))
+        .unwrap();
+    let prior = row("own", 34);
+    ledger
+        .confirm_send_with_row(&first.send_id, Some(&prior))
+        .unwrap();
+    assert_eq!(
+        ledger.claimed_turn_anchors("tab", "own", "repeat", Some(&prior)),
+        [anchor.clone()]
+    );
+    assert_eq!(
+        ledger.claimed_turn_anchors("tab", "own", "repeat", None),
+        [anchor.clone()]
+    );
+    let current = SourceRowRef::jsonl(
+        "own",
+        "incarnation-2",
+        TurnPosition {
+            record_start: Some(34),
+            record_row: 2,
+        },
+    )
+    .unwrap();
+    assert!(ledger
+        .claimed_turn_anchors("tab", "own", "repeat", Some(&current))
+        .is_empty());
+    let unknown = ledger
+        .try_start("tab", "repeat", Some(anchor.clone()))
+        .unwrap();
+    ledger.confirm_send(&unknown.send_id).unwrap();
+    assert_eq!(
+        ledger.claimed_turn_anchors("tab", "own", "repeat", Some(&current)),
+        [anchor]
+    );
+    assert_eq!(
+        ledger
+            .claimed_turn_anchors("tab", "own", "repeat", Some(&prior))
+            .len(),
+        2
+    );
+}
+
+#[test]
 fn rebuilt_source_registry_keeps_restored_claims_exclusive() {
     use crate::service::tab_chat::registry::{JsonlSource, SourceObservation};
     let temp = tempfile::tempdir().unwrap();

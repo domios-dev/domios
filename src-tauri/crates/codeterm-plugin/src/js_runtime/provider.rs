@@ -15,6 +15,7 @@ mod runtime_hooks;
 mod session_content;
 mod session_delta;
 mod session_records;
+mod session_resume;
 mod wire;
 
 use wire::{result_from_js, SerdeSessionMessage, VmUsageParser};

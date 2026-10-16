@@ -959,6 +959,10 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.idle_restart_termination
     }
 
+    fn supports_exact_session_resume(&self) -> bool {
+        self.js_supports_exact_session_resume()
+    }
+
     fn stop_keystroke(&self) -> Option<&str> {
         self.manifest.commands.stop_key.as_deref()
     }

@@ -8,9 +8,15 @@ pub struct SleepPolicy {
 
 impl Default for SleepPolicy {
     fn default() -> Self {
+        Self::from(&codeterm_types::config::tab_sleep::TabSleepConfig::default())
+    }
+}
+
+impl From<&codeterm_types::config::tab_sleep::TabSleepConfig> for SleepPolicy {
+    fn from(config: &codeterm_types::config::tab_sleep::TabSleepConfig) -> Self {
         Self {
-            enabled: true,
-            idle_minutes: 60,
+            enabled: config.enabled,
+            idle_minutes: config.idle_minutes,
         }
     }
 }
@@ -55,7 +61,6 @@ pub struct SleepFacts {
     pub external_chat_subscriber: bool,
     pub mesh_relay: bool,
     pub last_activity_ms: Option<u64>,
-    pub last_output_ms: Option<u64>,
     pub last_open_ms: Option<u64>,
     pub exact_resume_capability: bool,
     pub persisted_session: Option<PersistedSession>,
@@ -87,7 +92,6 @@ pub enum StayReason {
     ExternalChatSubscriber,
     MeshRelay,
     ActivityNotOldEnough,
-    OutputNotOldEnough,
     OpenNotOldEnough,
     ExactResumeUnsupported,
     MissingSession,
@@ -146,18 +150,17 @@ pub fn evaluate(policy: &SleepPolicy, facts: &SleepFacts, now_ms: u64) -> SleepD
         return SleepDecision::Stay(ForeignTurnEvidence);
     }
     let threshold_ms = policy.idle_minutes.saturating_mul(60_000);
-    for (clock, reason) in [
-        (facts.last_activity_ms, ActivityNotOldEnough),
-        (facts.last_output_ms, OutputNotOldEnough),
-        (facts.last_open_ms, OpenNotOldEnough),
-    ] {
-        if !clock.is_some_and(|last| {
-            now_ms
-                .checked_sub(last)
-                .is_some_and(|idle| idle > threshold_ms)
-        }) {
-            return SleepDecision::Stay(reason);
-        }
+    let (last, reason) = match (facts.last_activity_ms, facts.last_open_ms) {
+        (Some(activity), Some(open)) if open > activity => (open, OpenNotOldEnough),
+        (Some(activity), _) => (activity, ActivityNotOldEnough),
+        (None, Some(open)) => (open, OpenNotOldEnough),
+        (None, None) => return SleepDecision::Stay(ActivityNotOldEnough),
+    };
+    if !now_ms
+        .checked_sub(last)
+        .is_some_and(|idle| idle > threshold_ms)
+    {
+        return SleepDecision::Stay(reason);
     }
     SleepDecision::Sleep
 }
