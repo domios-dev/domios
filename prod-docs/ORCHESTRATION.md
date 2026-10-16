@@ -56,17 +56,8 @@ Canonical write access never justifies self-assigning normal implementation.
 Team utilities inherit cleanup; use `--no-team` only to outlive it deliberately.
 Plan adoption binds the Team's unique live Planner.
 
-For an acknowledged task-bound Worker in another Team's approved plan,
-the current source parent Orchestrator may use
-`codeterm agent link --parent-tab <destination> --tab <worker>` to transfer it
-to that plan's live Orchestrator in the same local workspace. Preserve plan,
-task, attempt, lane, session and nonce. The destination cannot pull it.
-Mismatched plan owner, binding, session or isolated lane refuses without state
-changes; recover or replace stale/ambiguous work through the existing task route.
-`team adopt-agent` is only for unbound roleless tabs.
-Only hierarchy and report placement move. Shell parent/Team environment values
-remain launch provenance, never current membership proof; resolve reports from
-live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
+Transfer an acknowledged Worker between Teams only through its current parent;
+`codeterm docs LANES` covers preserved identity and transfer refusals.
 
 Lane safety: two hard stops, otherwise nudges; see `LANES`.
 
@@ -177,4 +168,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers receive persisted host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR, TEMP and TMP select the lane-local `.codeterm-tmp` directory. Task-bound Worker spawns require an explicit read_only or mutating intent. Restoring an older task tab without a saved confinement policy retains its existing behavior.
 
-<!-- revision: 120 -->
+<!-- revision: 121 -->
