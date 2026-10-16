@@ -26,6 +26,7 @@ import {
   chatWindowRange,
   rekeyedChatWindowAnchor,
   slideChatWindowOlder,
+  olderChatAction,
   timelineItemKey,
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
@@ -55,7 +56,7 @@ export function useChatWindowView({
   useChatSendDismissals(tabId);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const backfillInFlightRef = useRef(false);
-  const pendingRevealRef = useRef(false);
+  const [pendingReveal, setPendingReveal] = useState(false);
 
   const updateWindowAnchor = useCallback((next: string | null) => {
     setTranscriptAnchor(windowKey, next);
@@ -140,15 +141,16 @@ export function useChatWindowView({
 
   const loadOlder = useCallback(async () => {
     followTailRef.current = false;
-    if (windowAnchorIsLoaded && windowRange.start > 0) {
-      updateWindowAnchor(slideChatWindowOlder(allTimelineItems, loadedAnchorKey));
+    const action = olderChatAction(allTimelineItems, loadedAnchorKey, windowAnchorIsLoaded, backfillCursor, backfillInFlightRef.current);
+    if (action.kind === "reveal") {
+      updateWindowAnchor(action.anchorKey);
       return;
     }
-    if (backfillCursor == null || backfillCursor <= 0 || backfillInFlightRef.current) return;
+    if (action.kind !== "backfill") return;
     backfillInFlightRef.current = true;
     setBackfillLoading(true);
     try {
-      if (await loadOlderPage(backfillCursor)) pendingRevealRef.current = true;
+      if (await loadOlderPage(action.beforeOffset)) setPendingReveal(true);
     } finally {
       backfillInFlightRef.current = false;
       setBackfillLoading(false);
@@ -161,16 +163,15 @@ export function useChatWindowView({
     loadOlderPage,
     updateWindowAnchor,
     windowAnchorIsLoaded,
-    windowRange.start,
   ]);
 
   // Reveal a merged backfill page as soon as it lands in the timeline —
   // state-change driven, never timer driven.
   useLayoutEffect(() => {
-    if (!pendingRevealRef.current) return;
-    pendingRevealRef.current = false;
+    if (!pendingReveal) return;
+    setPendingReveal(false);
     updateWindowAnchor(slideChatWindowOlder(allTimelineItems, loadedAnchorKey));
-  }, [allTimelineItems, loadedAnchorKey, updateWindowAnchor]);
+  }, [allTimelineItems, loadedAnchorKey, pendingReveal, updateWindowAnchor]);
 
   const showLatest = useCallback(() => {
     followTailRef.current = true;
