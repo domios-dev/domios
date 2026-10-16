@@ -38,10 +38,23 @@ function recordedItem(raw: unknown): Record<string, unknown> {
   return item;
 }
 
+export function storedRecordType(line: string): string | undefined {
+  const tokens = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
+  const opening = tokens.exec(line);
+  if (opening?.[0] !== "{") return undefined;
+  for (let token = tokens.exec(line); token; token = tokens.exec(line)) {
+    if (token[1] !== undefined) return token[1];
+    if (token[0] === "{" || token[0] === "[") return undefined;
+  }
+  return undefined;
+}
+
 export function runtimeStoredHistory(sessionId: string, records: string): ChatMsg[] {
   const rows = new Map<string, ChatMsg>();
   for (const line of records.split("\n")) {
     if (!line.trim()) continue;
+    const type = storedRecordType(line);
+    if (type !== undefined && type !== "event_msg" && type !== "session_meta") continue;
     const record = object(JSON.parse(line));
     const payload = object(record.payload);
     if (record.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
