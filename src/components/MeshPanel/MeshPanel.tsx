@@ -3,7 +3,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import QRCode from "qrcode";
 import { Check, Copy, ExternalLink, Info, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
-import { invoke } from "../../lib/bridge";
+import { invoke, listen } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
 import logoUrl from "../../assets/logo.png";
 import type { ApiConfig, AppConfig } from "../../lib/types";
@@ -374,13 +374,20 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
     let unlistenPush: (() => void) | null = null;
-    import("../../lib/bridge").then(({ listen }) => {
-      listen("service-health-changed", triggerRefresh).then((unlisten) => { unlistenHealth = unlisten; });
-      listen<{ source_id: string; target: string }>("service-pushed", (event) => {
-        setRecentPushes((current) => [...current, { ...event.payload, at: Date.now() }].slice(-20));
-      }).then((unlisten) => { unlistenPush = unlisten; });
+    let active = true;
+    listen("service-health-changed", triggerRefresh).then((unlisten) => {
+      if (active) unlistenHealth = unlisten;
+      else unlisten();
+    });
+    listen<{ source_id: string; target: string }>("service-pushed", (event) => {
+      if (!active) return;
+      setRecentPushes((current) => [...current, { ...event.payload, at: Date.now() }].slice(-20));
+    }).then((unlisten) => {
+      if (active) unlistenPush = unlisten;
+      else unlisten();
     });
     return () => {
+      active = false;
       unlistenHealth?.();
       unlistenPush?.();
     };

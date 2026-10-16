@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it, vi } from "vitest";
 import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
+import { act, useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { MultiplexerProvider, useMuxState } from "../../store/multiplexer";
+import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
+import { NewSessionPicker } from "../Terminal/NewSessionPicker";
+import { SidebarDnd } from "./sortable";
 
 const fixture = vi.hoisted(() => ({ providers: [
   { id: "configured-provider", display_name: "Configured", available_models: [{ id: "default", display_name: "Default" }], default_model: "default" },
@@ -16,13 +23,6 @@ import type { AppConfig, AtomicSpawn, MultiplexerState, Tab } from "../../lib/ty
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 async function run() {
-  const { act, useEffect, useState } = await import("react");
-  const { createRoot } = await import("react-dom/client");
-  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  const { MultiplexerProvider, useMuxState } = await import("../../store/multiplexer");
-  const { GeneralWorkspaceTabs } = await import("./GeneralWorkspaceTabs");
-  const { NewSessionPicker } = await import("../Terminal/NewSessionPicker");
-  const { SidebarDnd } = await import("./sortable");
   const main: Tab = {
     id: "main-tab", title: "Main", protected: true, role: "Manager", role_profile: "general_agent",
     cwd: "/instance/general", pty_id: "main-pty", tab_type: "Terminal",

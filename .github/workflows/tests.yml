@@ -557,6 +557,14 @@ jobs:
       # frontend-build installs through the bundle's own ensure_deps, from the mapped path.
       - name: Build the release frontend from the stable build path
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
+      - name: Upload frontend warning collection
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          overwrite: true
+          name: rust-warnings-win32-frontend
+          path: ci-rust-warnings/rust-warnings-win32-frontend.json
+          if-no-files-found: error
 
   ts-types:
     name: ts generated types
