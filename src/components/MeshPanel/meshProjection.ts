@@ -40,11 +40,11 @@ export function pairedPeers(peers: PeerStatus[]): PeerStatus[] {
 
 export const WEB_NODE_ID = "__web__";
 
-export function webGatewayGraph(peers: PeerStatus[]) {
+export function webGatewayGraph(peers: PeerStatus[], localOnline = true) {
   return {
     nodes: [WEB_NODE_ID, SELF_PEER_KEY, ...peers.map((peer) => peer.instance_id)],
     edges: [
-      { machineId: SELF_PEER_KEY, online: true, label: "via this machine's gateway" },
+      { machineId: SELF_PEER_KEY, online: localOnline, label: "via this machine's gateway" },
       ...pairedPeers(peers).map((peer) => ({ machineId: peer.instance_id, online: peer.online, label: "via this machine's gateway" })),
     ],
   };

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Globe, Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { ConnectionLine } from "./ConnectionLine";
@@ -7,6 +7,7 @@ import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
+import { webGraphLayout, webGraphInitialView, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH, MACHINE_CARD_HEIGHT } from "./webGraphLayout";
 import { webGatewayGraph } from "./meshProjection";
 
 export interface RecentPush {
@@ -36,6 +37,7 @@ interface PushStats {
 }
 
 interface Props {
+  webCard?: (qrSize: number) => ReactNode;
   onWebClick?: () => void;
   webSelected?: boolean;
   webStatus?: string;
@@ -58,13 +60,12 @@ const PULSE_WINDOW_MS = 3000;
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 2.5;
 const ZOOM_STEP = 0.06;
-const FIT_PADDING = 80;
-const CARD_HALF_WIDTH = 180;
-const CARD_HALF_HEIGHT = 80;
-const CARD_GAP = 60;
-const CARD_FULL_WIDTH = CARD_HALF_WIDTH * 2;
+const FIT_PADDING = 0;
+const CARD_HALF_WIDTH = MACHINE_CARD_WIDTH / 2;
+const CARD_HALF_HEIGHT = MACHINE_CARD_HEIGHT / 2;
 
 export function MeshCanvas({
+  webCard,
   onWebClick,
   webSelected = false,
   webStatus = "Unavailable",
@@ -81,15 +82,21 @@ export function MeshCanvas({
   webUiBaseUrl = null,
   webUiToken = null,
 }: Props) {
+  const webCardRef = useRef<HTMLDivElement>(null);
+  const [webHeight, setWebHeight] = useState(800);
+  useEffect(() => {
+    const element = webCardRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => { if (element.offsetHeight > 0) setWebHeight(element.offsetHeight); });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const geometry = webGraphLayout(width, height, peers.length + 1, webHeight);
   const showGhost = peers.length === 0 && !!onAddPeerClick;
   const layout = useMemo<PeerLayout[]>(() => {
     const cx = width / 2;
     const cy = height / 2;
-    const cardSpacing = CARD_FULL_WIDTH + CARD_GAP;
-    // Clear the center "this machine" card horizontally: half-center + half-peer + gap.
-    const minRadius = CARD_FULL_WIDTH + CARD_GAP;
-    const dynamicRadius = peers.length > 0 ? cardSpacing / (2 * Math.sin(Math.PI / Math.max(peers.length, 3))) : minRadius;
-    const radius = Math.max(minRadius, dynamicRadius);
+    const radius = geometry.radius;
     const items: PeerLayout[] = [
       {
         id: "__self__",
@@ -140,7 +147,7 @@ export function MeshCanvas({
       });
     }
     return items;
-  }, [thisMachine, peers, width, height, showGhost, webUiBaseUrl, webUiToken]);
+  }, [thisMachine, peers, width, height, showGhost, webUiBaseUrl, webUiToken, geometry.radius]);
   const layoutFitKey = useMemo(
     () =>
       [
@@ -156,7 +163,7 @@ export function MeshCanvas({
   );
 
   const gateway = { x: width / 2, y: height / 2 };
-  const gatewayGraph = webGatewayGraph(peers);
+  const gatewayGraph = webGatewayGraph(peers, meshEnabled);
   const local = layout[0];
   const remoteLayout = useMemo(() => layout.slice(1), [layout]);
   const pushStatsByPeer = useMemo(() => {
@@ -198,19 +205,21 @@ export function MeshCanvas({
 
   const contentBounds = useMemo(() => {
     if (!layout.length) return null;
-    const minX = Math.min(gateway.x - 120, ...layout.map((p) => p.x - CARD_HALF_WIDTH));
-    const maxX = Math.max(gateway.x + 120, ...layout.map((p) => p.x + CARD_HALF_WIDTH));
-    const minY = Math.min(gateway.y - 60, ...layout.map((p) => p.y - CARD_HALF_HEIGHT));
-    const maxY = Math.max(gateway.y + 60, ...layout.map((p) => p.y + CARD_HALF_HEIGHT));
+    const minX = Math.min(gateway.x - geometry.web.width / 2, ...layout.map((p) => p.x - CARD_HALF_WIDTH));
+    const maxX = Math.max(gateway.x + geometry.web.width / 2, ...layout.map((p) => p.x + CARD_HALF_WIDTH));
+    const minY = Math.min(gateway.y - webHeight / 2, ...layout.map((p) => p.y - CARD_HALF_HEIGHT));
+    const maxY = Math.max(gateway.y + webHeight / 2, ...layout.map((p) => p.y + CARD_HALF_HEIGHT));
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-  }, [layout, gateway.x, gateway.y]);
+  }, [layout, gateway.x, gateway.y, geometry.web.width, webHeight, webCard, geometry.web, geometry.qrSize]);
 
   useEffect(() => {
     if (!contentBounds || width <= 0 || height <= 0) return;
-    if (lastAutoFitKeyRef.current === layoutFitKey) return;
-    lastAutoFitKeyRef.current = layoutFitKey;
-    fitToView(contentBounds);
-  }, [fitToView, contentBounds, layoutFitKey, width, height]);
+    const key = `${layoutFitKey}:${webHeight}`;
+    if (lastAutoFitKeyRef.current === key) return;
+    lastAutoFitKeyRef.current = key;
+    const initial = webGraphInitialView(width, height, contentBounds, geometry.web, geometry.qrSize);
+    fitToView(webCard ? initial.bounds : contentBounds);
+  }, [fitToView, contentBounds, layoutFitKey, width, height, gateway.x, gateway.y, geometry.web.width, webHeight, webCard, geometry.web, geometry.qrSize]);
 
   const reset = () => {
     if (contentBounds) fitToView(contentBounds);
@@ -264,7 +273,6 @@ export function MeshCanvas({
                 }}>
                 <title>{label}</title>
                 <line x1={gateway.x} y1={gateway.y} x2={machine.x} y2={machine.y} stroke="var(--ct-accent)" strokeWidth={2} strokeDasharray={edge.online ? undefined : "6 4"} />
-                <text x={(gateway.x + machine.x) / 2} y={(gateway.y + machine.y) / 2} fill="var(--ct-muted-fg)" fontSize={11} textAnchor="middle">{edge.online ? "online" : "offline"} · {edge.label}</text>
               </g>
             );
           })}
@@ -311,13 +319,12 @@ export function MeshCanvas({
               );
             })}
         </svg>
-        <button type="button" data-peer-card aria-label="Mesh" aria-pressed={webSelected} onClick={onWebClick}
-          className="absolute flex w-[240px] flex-col items-center gap-2 rounded-xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] px-5 py-4 text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
-          style={{ left: gateway.x, top: gateway.y, transform: "translate(-50%,-50%)" }}>
-          <Globe size={24} aria-hidden="true" />
-          <strong>Mesh</strong>
-          <span className="text-xs">{webStatus}</span>
-        </button>
+        <div ref={webCardRef} data-peer-card className="absolute" style={{ left: gateway.x, top: gateway.y, width: geometry.web.width, transform: "translate(-50%,-50%)" }}>
+          {webCard ? webCard(geometry.qrSize) : <button type="button" aria-label="Web" aria-pressed={webSelected} onClick={onWebClick}
+            className="w-full rounded-xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] p-4">
+            <Globe size={24} aria-hidden="true" /><strong>Web</strong><span>{webStatus}</span>
+          </button>}
+        </div>
         {layout.map((p, i) => (
           <div
             key={`${p.id}-${i}`}
@@ -346,6 +353,7 @@ export function MeshCanvas({
                 <ArrowRight size={15} className="shrink-0 text-[var(--ct-muted)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--ct-accent)]" />
               </button>
             ) : (
+              <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
               <PeerTerminal
                 name={p.name}
                 ip={p.ip}
@@ -357,6 +365,7 @@ export function MeshCanvas({
                 offline={p.isThisMachine && !meshEnabled}
                 onGoOnline={p.isThisMachine ? onGoOnline : undefined}
               />
+              </div>
             )}
           </div>
         ))}
