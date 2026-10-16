@@ -204,6 +204,8 @@ for (const narrow of [false, true]) {
       const composer = host.querySelector('[data-testid="composer-context-header"]');
       const goal = composer?.querySelector<HTMLButtonElement>('button[aria-label="Session goal"]');
       assert(goal, "composer exposes the session goal control");
+      assert(goal.textContent === "", "goal trigger is icon-only");
+      assert(goal.closest('[role="group"][aria-label="Linked to this tab"]'), "goal shares the linked controls row");
       assert(!host.querySelector('[role="group"][aria-label="Session intent"]'), "chat has no intent strip");
       assert(!host.querySelector('[role="log"] [aria-label="Session goal"]'), "goal is outside the transcript");
       await act(async () => { goal.click(); });
@@ -226,6 +228,7 @@ test("removed plugin details are reachable from the composer status bubble", asy
     const composer = host.querySelector('[data-testid="composer-context-header"]');
     const status = composer?.querySelector<HTMLButtonElement>('button[aria-label="Plugin removed"]');
     assert(status, "composer exposes the removed plugin status");
+    assert(status.textContent === "", "plugin status trigger is icon-only");
     assert(host.querySelectorAll('[aria-label="Plugin removed"]').length === 1, "no persistent removed plugin notice exists outside the bubble");
     await act(async () => { status.click(); });
     const details = composer?.querySelector('[role="dialog"][aria-label="Plugin removed"]');
