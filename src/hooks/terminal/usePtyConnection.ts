@@ -5,7 +5,7 @@ import { subscribeTabOutput, type TabOutputSink } from "../../lib/outputStream";
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
-import { writeTerminalOutput } from "./terminalOutputWrite";
+import { shouldAttachTerminalOutput, writeTerminalOutputAndWait } from "./terminalOutputWrite";
 import { writeTerminalInput } from "./terminalInputWrite";
 import {
   captureTerminalViewport,
@@ -96,7 +96,7 @@ export function usePtyConnection({
 
   useEffect(() => {
     const term = termRef.current;
-    if (!term || !termReady || !ioEnabled) return;
+    if (!term || !termReady || !shouldAttachTerminalOutput(ioEnabled, renderEnabled)) return;
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     onConnectionStateChange?.(false);
@@ -120,13 +120,15 @@ export function usePtyConnection({
         onReady() { if (!disposed) onConnectionStateChange?.(true); },
         onOutput: (text) => {
           if (disposed) return;
-          writeTerminalOutput(term, text);
+          const written = writeTerminalOutputAndWait(term, text);
           onOutputChunk(text);
+          return written;
         },
         onBytes: (bytes) => {
           if (disposed) return;
-          writeTerminalOutput(term, bytes);
+          const written = writeTerminalOutputAndWait(term, bytes);
           onOutputChunk(new TextDecoder().decode(bytes.slice(-200)));
+          return written;
         },
         onTruncated: (from) => {
           if (!disposed) term.writeln(`\r\n\x1b[90m[output truncated — resuming from byte ${from}]\x1b[0m`);
@@ -153,7 +155,7 @@ export function usePtyConnection({
       connectedPtyRef.current = null;
       onConnectionStateChange?.(false);
     };
-  }, [ptyId, tabId, termReady, ioEnabled, onPtySpawned, onConnectionStateChange, onHistoryReplayStateChange, onShellReady, onOutputChunk, connectedPtyRef, termRef]);
+  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, onPtySpawned, onConnectionStateChange, onHistoryReplayStateChange, onShellReady, onOutputChunk, connectedPtyRef, termRef]);
 
   return { writePty };
 }
