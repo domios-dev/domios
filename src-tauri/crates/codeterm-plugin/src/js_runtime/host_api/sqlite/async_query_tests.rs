@@ -23,6 +23,25 @@ pub(super) fn park_on_test_gate(sql: &str) {
     }
 }
 
+const START_REFUSED: &str = "/*test-start-refused*/";
+
+/// A query whose SQL opens with `/*test-start-refused*/` is refused at start, as the job limit does.
+pub(super) fn start_refused(sql: &str) -> Option<String> {
+    sql.starts_with(START_REFUSED)
+        .then(|| serde_json::json!({ "error": "test seam refused the start" }).to_string())
+}
+
+static STARTS: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashMap<String, usize>>> =
+    std::sync::LazyLock::new(Default::default);
+
+pub(super) fn record_start(plugin_id: &str) {
+    *STARTS.lock().entry(plugin_id.to_string()).or_default() += 1;
+}
+
+fn starts(plugin_id: &str) -> usize {
+    STARTS.lock().get(plugin_id).copied().unwrap_or(0)
+}
+
 const FIXTURE: &str = r#"
 module.exports.default = {
   sync: function (db, sql, params) { return host.fs.sqliteQuery(db, sql, params); },
@@ -221,4 +240,62 @@ fn async_query_cap_breach_throws_in_the_continuation() {
     )
     .unwrap();
     assert_eq!(small, "returned");
+}
+
+#[test]
+fn timed_out_query_keeps_running_and_the_next_call_takes_its_rows() {
+    let plugin = "sqlite-async-retained";
+    let release = "sqlite_async_retained.release";
+    call_gate::reset(release);
+    let (_dir, db) = fixture_db();
+    let vm = vm(plugin, None);
+    let sql = format!("{GATE_PREFIX}{release}*/ SELECT i FROM t ORDER BY i");
+    let call = |vm: &PluginVm| {
+        call_json::<serde_json::Value>(
+            vm,
+            "async",
+            &[
+                serde_json::json!(db),
+                serde_json::json!(sql),
+                serde_json::Value::Null,
+            ],
+        )
+    };
+
+    crate::js_runtime::host_exec::set_test_wait_bound(plugin, Duration::from_millis(50));
+    assert!(matches!(call(&vm), Err(VmError::AsyncJobTimedOut)));
+    assert_eq!(starts(plugin), 1);
+    assert_eq!(
+        crate::js_runtime::host_exec::plugin_job_count(plugin),
+        1,
+        "the timed-out query is still running"
+    );
+
+    crate::js_runtime::host_exec::set_test_wait_bound(plugin, WEDGED);
+    call_gate::open(release);
+    assert_eq!(
+        call(&vm).unwrap(),
+        serde_json::json!([{ "i": -5 }, { "i": 42 }])
+    );
+    assert_eq!(starts(plugin), 1, "the second call awaited the same job");
+    assert_eq!(
+        crate::js_runtime::host_exec::plugin_job_count(plugin),
+        0,
+        "the consuming poll removed the job"
+    );
+
+    assert_eq!(call(&vm).unwrap().as_array().map(Vec::len), Some(2));
+    assert_eq!(starts(plugin), 2, "a consumed key starts a fresh job");
+    call_gate::reset(release);
+}
+
+#[test]
+fn refused_start_falls_back_to_the_synchronous_rows() {
+    let (_dir, db) = fixture_db();
+    let vm = vm("sqlite-async-refused", None);
+    let sql = format!("{START_REFUSED} SELECT * FROM t ORDER BY i");
+    let sync = rows(&vm, "sync", &db, &sql, serde_json::Value::Null);
+    assert_eq!(sync.as_array().map(Vec::len), Some(2));
+    assert_eq!(rows(&vm, "async", &db, &sql, serde_json::Value::Null), sync);
+    assert_eq!(starts("sqlite-async-refused"), 0);
 }
