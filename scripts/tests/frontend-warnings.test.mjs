@@ -74,9 +74,9 @@ test('a successful bundle with a new warning fails the shared ratchet and saves 
     assert.equal(await buildFrontend({ root, platform: 'win32', run }), 1);
     assert.equal(calls, 2);
     const workflow = parseYaml(fs.readFileSync(new URL('../../.github/workflows/tests.yml', import.meta.url), 'utf8'));
-    const upload = workflow.jobs['frontend-windows'].steps.find(step => step.with?.name === 'rust-warnings-win32-frontend');
+    const upload = workflow.jobs['frontend-windows'].steps.find(step => /ci-artifact\.sh put \S*rust-warnings-win32-frontend\.json/.test(step.run ?? ''));
     assert.equal(upload.if, 'always()');
-    const document = JSON.parse(fs.readFileSync(path.join(root, upload.with.path)));
+    const document = JSON.parse(fs.readFileSync(path.join(root, upload.run.trim().split(/\s+/).at(-1))));
     assert.equal(document.complete, true);
     assert.equal(document.decision.added.length, 1);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }

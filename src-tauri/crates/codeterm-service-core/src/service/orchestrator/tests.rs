@@ -125,11 +125,9 @@ fn every_team_role_receives_the_shared_primer_exactly_once() {
 
 #[test]
 fn worker_without_task_identity_still_leads_with_a_generic_identity() {
-    assert!(
-        role_onboarding_task(Some("fix it"), Some("Worker"), None)
-            .unwrap()
-            .contains(crate::prompts::WORKER_SUFFIX.trim())
-    );
+    assert!(role_onboarding_task(Some("fix it"), Some("Worker"), None)
+        .unwrap()
+        .contains(crate::prompts::WORKER_SUFFIX.trim()));
     let prompt = role_onboarding_task(None, Some("Worker"), None).unwrap();
     assert!(prompt.starts_with(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY));
     assert!(prompt.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
@@ -182,10 +180,9 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
         1
     );
     assert!(!task.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
-    assert!(
-        task.trim_end()
-            .ends_with(crate::prompts::worker_suffix().trim_end())
-    );
+    assert!(task
+        .trim_end()
+        .ends_with(crate::prompts::worker_suffix().trim_end()));
 }
 
 #[test]
@@ -341,11 +338,8 @@ fn test_build_claude_no_task() {
         assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
         assert!(cmd.contains(" claude --dangerously-skip-permissions --settings "));
     } else {
-        assert!(
-            cmd.starts_with(
-                "unset CLAUDECODE && claude --dangerously-skip-permissions --settings "
-            )
-        );
+        assert!(cmd
+            .starts_with("unset CLAUDECODE && claude --dangerously-skip-permissions --settings "));
     }
 }
 

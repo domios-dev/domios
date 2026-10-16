@@ -461,8 +461,8 @@ fn launch_readiness_general_agent_start_keeps_its_provisional_contract() {
 
 #[test]
 fn launch_readiness_shared_owner_is_not_duplicated() {
-    use crate::service::AgentLaunchOrigin;
     use crate::service::orchestrator::launch_test_support::FakeRegisteredLaunch;
+    use crate::service::AgentLaunchOrigin;
     for origin in [
         AgentLaunchOrigin::GeneralAgent,
         AgentLaunchOrigin::VisibleSpawn,
@@ -561,15 +561,13 @@ fn pre_ready_exit_in_restore_auto_resumes_once() {
         || starts.set(starts.get() + 1),
         || panic!("restore must resume rather than notify"),
     );
-    assert!(
-        claim_exit(
-            &attempt.tab_id,
-            Some(&attempt.pty_id),
-            None,
-            &exit_proof(&attempt),
-        )
-        .is_none()
-    );
+    assert!(claim_exit(
+        &attempt.tab_id,
+        Some(&attempt.pty_id),
+        None,
+        &exit_proof(&attempt),
+    )
+    .is_none());
     assert_eq!(starts.get(), 1);
 }
 
@@ -702,15 +700,13 @@ fn second_pre_ready_exit_stops_without_a_bell_entry() {
         action,
         Some(crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery)
     ));
-    assert!(
-        claim_exit(
-            &attempt.tab_id,
-            Some(&attempt.pty_id),
-            None,
-            &exit_proof(&attempt),
-        )
-        .is_none()
-    );
+    assert!(claim_exit(
+        &attempt.tab_id,
+        Some(&attempt.pty_id),
+        None,
+        &exit_proof(&attempt),
+    )
+    .is_none());
 
     let failure = LaunchExitFailure {
         attempt: attempt.clone(),
