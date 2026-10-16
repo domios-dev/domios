@@ -5,7 +5,7 @@ description: Run Domios's verification gates without burning a session on them. 
 
 # Gates
 
-Workers never run Rust tests, nextest, test-one, check-queue, or anything that compiles beyond their touched library crate. One small crate in isolation is the most a lane ever compiles, and only through `./build.sh lane-check <crate> [--tests]`. Run changed TS/JS test files in the lane and hand exact Rust module selectors to the Orchestrator in canonical. Full or reverse-dependency regressions run only in the Orchestrator's single release run. `CODETERM_ALLOW_LANE_RUST_TESTS=1` is an explicit Orchestrator-only override; Workers never set it.
+Workers without an exact dispatch grant never run Rust tests, nextest, test-one or check-queue, including from canonical. Ordinary lane work never compiles beyond its touched library crate. One small crate in isolation is the most a lane ever compiles, and only through `./build.sh lane-check <crate> [--tests]`. Run changed TS/JS test files in the lane and hand exact Rust module selectors to the Orchestrator in canonical. Full or reverse-dependency regressions run only in the Orchestrator's single release run. Rust test/check-queue execution requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. The guard reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
 
 For file-backed QA summaries and agent-tab delivery, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
 
