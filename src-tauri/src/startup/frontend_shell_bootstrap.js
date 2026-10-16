@@ -12,9 +12,9 @@
       const httpStatus = Number.isInteger(failure?.httpStatus) && failure.httpStatus >= 100 && failure.httpStatus <= 599 ? failure.httpStatus : undefined;
       const source = String(failure?.filename ?? "").split("/").pop().split("?")[0].split("#")[0];
       void fetch(bootstrap.origin + "/api/frontend/diagnostic", {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + bootstrap.token },
+        method: "POST", headers: { "Content-Type": "application/json", "X-CodeTerm-Client-Id": failure?.clientId ?? "unknown", "Authorization": "Bearer " + bootstrap.token },
         body: JSON.stringify({ stage, errorName, reason, httpStatus, source: /^[a-zA-Z0-9_.-]{1,100}$/.test(source) ? source : undefined,
-          request: failure?.request, chat: failure?.chat, line: failure?.lineno, column: failure?.colno,
+          buildSha: failure?.buildSha, device: failure?.device, request: failure?.request, chat: failure?.chat, line: failure?.lineno, column: failure?.colno,
           native: "__TAURI_INTERNALS__" in window, injected: !!window.__CODETERM_DAEMON__, mounted: document.documentElement?.dataset.codetermMounted === "true" }),
       }).catch(() => {});
     };

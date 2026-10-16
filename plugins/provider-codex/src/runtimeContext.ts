@@ -14,17 +14,18 @@ export function restoreContextItems(raw: unknown): JsonValue[] {
   const value = exactObject(raw,["instructions","additionalContext"]);
   if (value.instructions !== null && typeof value.instructions !== "string") invalid("Invalid restoreContext instructions");
   if (!Array.isArray(value.additionalContext)) invalid("Invalid restoreContext additionalContext");
-  const keys = new Set<string>();
+  const entries = new Map<string, RuntimeRestoreContext["additionalContext"][number]>();
   for (const rawEntry of value.additionalContext) {
     const entry = exactObject(rawEntry,["key","kind","value"]);
     if (typeof entry.key !== "string" || typeof entry.value !== "string" || (entry.kind !== "application" && entry.kind !== "user")) invalid("Invalid restoreContext entry");
-    if (keys.has(entry.key)) invalid("Duplicate restoreContext key");
-    keys.add(entry.key);
+    const previous = entries.get(entry.key);
+    if (previous && (previous.kind !== entry.kind || previous.value !== entry.value)) invalid("Conflicting restoreContext key");
+    entries.set(entry.key,entry as RuntimeRestoreContext["additionalContext"][number]);
   }
   const context = value as unknown as RuntimeRestoreContext;
   const item = (role:string,text:string): JsonValue => ({type:"message",role,content:[{type:"input_text",text}]});
   const items:JsonValue[] = context.instructions ? [item("developer",context.instructions)] : [];
-  for (const entry of context.additionalContext) items.push(item(entry.kind === "application" ? "developer" : "user",entry.value));
+  for (const entry of entries.values()) items.push(item(entry.kind === "application" ? "developer" : "user",entry.value));
   if (!items.length) invalid("Empty restoreContext");
   return items;
 }
