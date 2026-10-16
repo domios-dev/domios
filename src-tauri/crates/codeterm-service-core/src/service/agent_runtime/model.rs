@@ -225,9 +225,14 @@ pub enum HistoryBackfill {
     Failed,
 }
 
+pub const REREADABLE_CACHE_ROWS: usize = 400;
+pub const REREADABLE_CACHE_BYTES: usize = 4 * 1024 * 1024;
+
 #[derive(Default)]
 pub struct ItemCache {
     items: VecDeque<ChatMsg>,
+    rereadable: bool,
+    cached_bytes: usize,
     positions: HashMap<String, i64>,
     head: i64,
     backfill_generation: u64,
@@ -237,6 +242,33 @@ pub struct ItemCache {
     history_origin: HashSet<String>,
 }
 impl ItemCache {
+    pub fn bound_rereadable(&mut self) {
+        self.rereadable = true;
+        self.cached_bytes = self.items.iter().map(Self::row_bytes).sum();
+        self.evict();
+    }
+    pub fn retained(&self) -> (usize, usize) {
+        (self.items.len(), self.cached_bytes)
+    }
+    fn row_bytes(row: &ChatMsg) -> usize {
+        serde_json::to_vec(row).map_or(usize::MAX, |bytes| bytes.len())
+    }
+    fn evict(&mut self) {
+        while self.rereadable
+            && (self.items.len() > REREADABLE_CACHE_ROWS
+                || self.cached_bytes > REREADABLE_CACHE_BYTES)
+        {
+            let Some(row) = self.items.pop_front() else {
+                break;
+            };
+            self.cached_bytes = self.cached_bytes.saturating_sub(Self::row_bytes(&row));
+            self.positions.remove(&row.id);
+            self.history_origin.remove(&row.id);
+            self.live_during_backfill.remove(&row.id);
+            self.head += 1;
+        }
+    }
+
     fn index(&self, id: &str) -> Option<usize> {
         self.positions
             .get(id)
@@ -259,6 +291,9 @@ impl ItemCache {
                 .enumerate()
                 .map(|(index, row)| (row.id.clone(), index as i64))
                 .collect();
+        }
+        if self.rereadable {
+            self.cached_bytes = self.items.iter().map(Self::row_bytes).sum();
         }
         self.backfill_generation
     }
@@ -300,8 +335,8 @@ impl ItemCache {
             if self.live_during_backfill.contains(&item.id) {
                 continue;
             }
-            self.history_origin.insert(item.id.clone());
             if self.positions.contains_key(&item.id) {
+                self.history_origin.insert(item.id.clone());
                 self.reconcile(item);
                 landed += 1;
                 continue;
@@ -318,8 +353,13 @@ impl ItemCache {
             item.seq = base + offset as i64;
             self.head -= 1;
             self.positions.insert(item.id.clone(), self.head);
+            self.history_origin.insert(item.id.clone());
+            if self.rereadable {
+                self.cached_bytes = self.cached_bytes.saturating_add(Self::row_bytes(&item));
+            }
             self.items.push_front(item);
         }
+        self.evict();
         landed
     }
     pub fn reconcile_live(&mut self, mut item: ChatMsg, at: u64) -> ChatMsg {
@@ -345,13 +385,23 @@ impl ItemCache {
         item.refresh_segments();
         if let Some(index) = self.index(&item.id) {
             item.seq = self.items[index].seq;
+            if self.rereadable {
+                self.cached_bytes = self
+                    .cached_bytes
+                    .saturating_sub(Self::row_bytes(&self.items[index]))
+                    .saturating_add(Self::row_bytes(&item));
+            }
             self.items[index] = item.clone();
         } else {
             item.seq = self.items.back().map_or(0, |row| row.seq + 1);
             self.positions
                 .insert(item.id.clone(), self.head + self.items.len() as i64);
+            if self.rereadable {
+                self.cached_bytes = self.cached_bytes.saturating_add(Self::row_bytes(&item));
+            }
             self.items.push_back(item.clone());
         }
+        self.evict();
         item
     }
     pub fn snapshot(&self) -> Vec<ChatMsg> {
