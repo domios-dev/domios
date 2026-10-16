@@ -517,7 +517,7 @@ pub(crate) fn output_bytes_frame(
 ) -> serde_json::Value {
     serde_json::json!({
         "tab_id": tab, "pty_id": pty, "boot": boot,
-        "output": String::from_utf8_lossy(data), "data": data, "offset": offset
+        "b64": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data), "offset": offset
     })
 }
 

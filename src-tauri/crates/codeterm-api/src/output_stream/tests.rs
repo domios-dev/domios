@@ -603,3 +603,34 @@ fn limited_reads_preserve_malformed_boundary_and_truncation_plans() {
         offset = actual.new_offset;
     }
 }
+
+#[test]
+fn output_bytes_frame_has_one_lossless_payload_and_five_fields() {
+    for bytes in [
+        vec![],
+        vec![0, 0xff, 0xe2],
+        vec![0x82, 0xac],
+        (0..=255).collect(),
+    ] {
+        let frame = output_bytes_frame("tab", "pty", "boot", &bytes, 42);
+        assert_eq!(frame.as_object().unwrap().len(), 5);
+        assert_eq!(frame["tab_id"], "tab");
+        assert_eq!(frame["pty_id"], "pty");
+        assert_eq!(frame["boot"], "boot");
+        assert_eq!(frame["offset"], 42);
+        let encoded = frame["b64"].as_str().unwrap();
+        assert!(!encoded.contains(['+', '/', '=']));
+        assert_eq!(
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(encoded)
+                .unwrap(),
+            bytes
+        );
+    }
+    let bytes = vec![0xff; PER_TAB_SWEEP_CAP];
+    let wire = format!(
+        "data: {}\n\n",
+        output_bytes_frame("tab", "pty", "boot", &bytes, bytes.len() as u64)
+    );
+    assert!(wire.len() * 10 < bytes.len() * 14);
+}
