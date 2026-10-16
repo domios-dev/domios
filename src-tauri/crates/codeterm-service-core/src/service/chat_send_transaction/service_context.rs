@@ -149,6 +149,16 @@ impl crate::service::ServiceContext {
         self.chat_send_ledger
             .restore_before_user_admission(tab_id, || self.restore_durable_user_statuses(tab_id))?;
         let authority = self.user_send_authority(tab_id)?;
+        self.bind_user_send_owner(tab_id);
+        // This short reservation is the service ordering point, before asynchronous preparation.
+        self.pending_delivery_payloads
+            .user_sends
+            .reserve_with_replay_only(authority, client_token, replay_only, || {
+                self.chat_send_ledger.reserve_identity()
+            })
+    }
+
+    pub(crate) fn bind_user_send_owner(&self, tab_id: &str) {
         if let Some(weak) = self.try_ext::<std::sync::Weak<super::super::ServiceContext>>() {
             let weak = weak.clone();
             *self.chat_send_ledger.owner.lock() = Some(weak.clone());
@@ -167,12 +177,6 @@ impl crate::service::ServiceContext {
                     }),
                 );
         }
-        // This short reservation is the service ordering point, before asynchronous preparation.
-        self.pending_delivery_payloads
-            .user_sends
-            .reserve_with_replay_only(authority, client_token, replay_only, || {
-                self.chat_send_ledger.reserve_identity()
-            })
     }
 
     pub fn prepare_and_admit_user_send(

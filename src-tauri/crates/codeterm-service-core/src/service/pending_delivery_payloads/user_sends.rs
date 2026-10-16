@@ -544,6 +544,10 @@ impl UserSendStore {
         Ok(Some(rebound))
     }
 
+    pub(crate) fn claim_is_active(&self, record: &UserSendRecord) -> bool {
+        record.state == UserSendState::Claimed && record.owner_epoch == self.epoch
+    }
+
     pub(crate) fn eligible(&self, record: &UserSendRecord) -> bool {
         let tab = self.tab(&record.authority.tab_id);
         record.owner_epoch == self.epoch
