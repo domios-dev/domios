@@ -305,7 +305,7 @@ async function runChatSessionHookTests(): Promise<void> {
     assert(session.latest().messages[0]?.content === "before", "idle wake preserves the visible projection");
     await act(async () => fireResync());
     await flush();
-    assert(starts === 2, "web event loss requests one fresh chat snapshot");
+    assert(Number(starts) === 2, "web event loss requests one fresh chat snapshot");
     assert(
       session.latest().messages.some((message) => message.content === "fresh from snapshot"),
       "web event loss refreshes the visible transcript",
