@@ -1,5 +1,25 @@
 use super::*;
 
+pub(super) struct ReadinessRegistration(Option<crate::service::launch_readiness::LaunchAttempt>);
+
+impl ReadinessRegistration {
+    pub(super) fn new(attempt: crate::service::launch_readiness::LaunchAttempt) -> Self {
+        Self(Some(attempt))
+    }
+
+    pub(super) fn handoff(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for ReadinessRegistration {
+    fn drop(&mut self) {
+        if let Some(attempt) = &self.0 {
+            crate::service::launch_readiness::retire_attempt(attempt);
+        }
+    }
+}
+
 pub(super) fn reserve_binding_nonce(
     svc: &ServiceContext,
     tab_id: &str,
@@ -101,6 +121,11 @@ impl LaunchGeneration {
             },
             public_send_key,
         );
+        crate::service::launch_readiness::arm_with_origin(
+            self.attempt().expect("registered launch binding nonce"),
+            origin,
+        );
+        crate::startup::boot_timing::mark(&self.tab_id, Some(&self.pty_id), "readiness_armed");
         Ok(())
     }
 
@@ -201,6 +226,7 @@ impl LaunchGeneration {
         );
         if let Some(attempt) = self.attempt() {
             svc.retire_public_send_launch_attempt(&attempt);
+            crate::service::launch_readiness::retire_attempt(&attempt);
         }
         self.finish_if_current(|| {
             if failure.proves_process_gone() {

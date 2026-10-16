@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.7",
+  "version": "1.14.8",
   "minCodeterm": "1.14.8",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -261,11 +261,19 @@
   "workerLaneSettings": [
     {
       "path": ".claude/settings.json",
-      "patch": { "enabledPlugins": { "rust-analyzer-lsp@claude-plugins-official": false } }
+      "patch": {
+        "enabledPlugins": {
+          "rust-analyzer-lsp@claude-plugins-official": false
+        }
+      }
     },
     {
       "path": ".claude/settings.local.json",
-      "patch": { "enabledPlugins": { "rust-analyzer-lsp@claude-plugins-official": false } }
+      "patch": {
+        "enabledPlugins": {
+          "rust-analyzer-lsp@claude-plugins-official": false
+        }
+      }
     }
   ]
 }
