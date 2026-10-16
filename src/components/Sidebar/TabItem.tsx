@@ -662,6 +662,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     backingSessionId(pp) === backingSessionId(np) &&
     pp.protected === np.protected &&
     pp.frozen === np.frozen &&
+    pp.slept_at_ms === np.slept_at_ms &&
     pp.boot_stage === np.boot_stage &&
     pp.boot_failure_reason === np.boot_failure_reason &&
     pp.role_profile === np.role_profile &&

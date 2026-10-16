@@ -3,6 +3,7 @@ import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { tabActivity } from "../../lib/tabActivity";
 import { isLiveAttention } from "../Notifications/attentionSurfaceModel";
 import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
+import { asleepLabel } from "../../lib/tabSleep";
 
 export type TabAttentionKind = "waiting" | "action_needed" | "failure";
 
@@ -17,6 +18,7 @@ export interface TabAttention {
   showMark: boolean;
   starting: "starting" | "connecting" | null;
   sleeping: boolean;
+  sleepingLabel?: string;
 }
 
 export function attentionNotifications(tabId: string, notifications: readonly Notification[]): Notification[] {
@@ -33,6 +35,7 @@ export function tabAttention(tab: Tab, status: TabStatus | null | undefined, not
   const kind = notification ? notification.level === "failure" ? "failure" : "action_needed" : waiting ? "waiting" : null;
   return {
     sleeping: tab.frozen === true,
+    sleepingLabel: tab.frozen ? asleepLabel(tab, Date.now()) : undefined,
     wantsAttention: kind !== null,
     kind,
     reason: notification?.title ?? (waiting ? activity.label : ""),
@@ -66,7 +69,7 @@ export type TabStatusMark = { kind: "attention"; label: string; level: TabAttent
 
 export function tabStatusMark(title: string, attention: TabAttention | null | undefined, active = false): TabStatusMark | null {
   if (!attention) return null;
-  if (attention.sleeping) return { kind: "sleeping", label: "Sleeping" };
+  if (attention.sleeping) return { kind: "sleeping", label: attention.sleepingLabel ?? "Asleep" };
   if (attention.showMark && !active) return { kind: "attention", label: tabAttentionLabel(title, attention), level: attention.kind };
   if (attention.starting) return { kind: "starting", label: `${title} ${attention.starting === "connecting" ? "waiting to connect" : "starting"}` };
   return null;

@@ -65,8 +65,8 @@ describe("tab attention model", () => {
   });
   it("uses the icon clock for frozen tabs and clears it on wake", () => {
     const sleeping = tabAttention({ ...tab, frozen: true }, null, []);
-    expect(tabStatusMark(tab.title, sleeping)).toEqual({ kind: "sleeping", label: "Sleeping" });
-    expect(tabStatusMark(tab.title, sleeping, true)).toEqual({ kind: "sleeping", label: "Sleeping" });
+    expect(tabStatusMark(tab.title, sleeping)).toEqual({ kind: "sleeping", label: "Asleep" });
+    expect(tabStatusMark(tab.title, sleeping, true)).toEqual({ kind: "sleeping", label: "Asleep" });
     expect(tabStatusMark(tab.title, tabAttention({ ...tab, frozen: false }, null, []))).toBe(null);
     const starting = { ...tab, frozen: false, agent_type: "fixture", boot_stage: "agent_launching" as const };
     expect(tabStatusMark(tab.title, tabAttention(starting, null, []))?.kind).toBe("starting");

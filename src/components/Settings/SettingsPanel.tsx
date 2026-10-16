@@ -20,6 +20,7 @@ import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { ShellProfilesCard } from "./ShellProfilesCard";
+import { TabSleepCard } from "./TabSleepCard";
 import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
@@ -350,6 +351,7 @@ export function SettingsPanel({
                 </SettingsCardAnchor>
 
                 <ShellProfilesCard config={localConfig} onUpdate={update} />
+                <TabSleepCard config={localConfig} onUpdate={update} />
 
                 <SettingsCard icon={<MousePointer size={16} />} title="Terminal">
                   <label className="ct-settings-toggle">
