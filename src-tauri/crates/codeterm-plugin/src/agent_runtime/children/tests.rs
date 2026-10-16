@@ -64,7 +64,7 @@ fn descendant_authority_is_read_only_and_requires_current_ancestry() {
 
 #[test]
 fn captured_spawn_metadata_requires_provider_parent_proof() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let root = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let mut directories: Vec<_> = std::fs::read_dir(root)
         .unwrap()
         .map(|entry| entry.unwrap().path())
