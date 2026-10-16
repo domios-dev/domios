@@ -2,6 +2,7 @@ import { matchedOptimisticEchoes } from "./dedupe";
 import { normalizeChatText } from "./normalize";
 import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
+import type { MessageSegment } from "./envelope";
 
 /** The committed source row a send reconciled to, identified by what re-parsing keeps stable. */
 export interface SendEcho {
@@ -18,6 +19,7 @@ export interface ChatSend {
   echo?: SendEcho;
   echoEligible?: boolean;
   flowAtMs?: number;
+  segments?: MessageSegment[];
 }
 
 function isUserAuthored(row: NormalizedChatMessage): boolean {
@@ -41,6 +43,7 @@ export function sendRow(send: ChatSend): NormalizedChatMessage {
     id: send.id,
     type: "user",
     content: send.content,
+    segments: send.segments,
     timestamp: String(send.sentAtMs),
     correlationId: send.correlationId,
   };
