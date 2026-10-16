@@ -43,7 +43,7 @@ export function ChatSetupState({
   }, [onEscape]);
 
   if (view.kind === "launch_failed") {
-    return <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-[var(--ct-bg)] p-6" data-testid="chat-launch-failed">
+    return <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 overflow-auto bg-[var(--ct-bg)] p-6" data-testid="chat-launch-failed">
       <TabLaunchFailure tabId={tab?.id} workspace={workspace} cwd={tab?.cwd} reason={view.reason} />
       {waitingMessages > 0 && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">{waitingMessages} {waitingMessages === 1 ? "message is" : "messages are"} waiting for this tab to start.</p>}
     </div>;

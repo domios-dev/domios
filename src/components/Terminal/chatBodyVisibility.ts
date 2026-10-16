@@ -69,3 +69,7 @@ export function railRowCount(placement: OutboundReportPlacement): number {
   for (const bucket of placement.afterIndex.values()) rows += bucket.length;
   return rows;
 }
+
+export function composerVisible(view: ChatBodyView): boolean {
+  return view.kind !== "launch_failed";
+}

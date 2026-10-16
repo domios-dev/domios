@@ -90,7 +90,7 @@ export function TabBootOverlay({
       }}
     >
       {view.kind === "failed" ? (
-        <div className="absolute bottom-6 left-1/2 w-[min(34rem,calc(100%-2rem))] -translate-x-1/2" data-testid="tab-boot-failed">
+        <div className="absolute inset-0 flex flex-col items-center justify-center overflow-auto p-6" data-testid="tab-boot-failed">
           <TabLaunchFailure tabId={tabId} workspace={workspace} cwd={cwd} reason={view.reason} actions={bootActions(view, {
               onRetry, onStartFreshAgent, onStartNewSession, onKeepShell, startingNewSession,
             })} />
