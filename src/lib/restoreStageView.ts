@@ -1,4 +1,5 @@
 import type { BootStage, Tab } from "./types";
+import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
 
 export interface WakeRequestView {
   requested: boolean;
@@ -10,6 +11,7 @@ export interface RestoreStageView {
   phase: "sleeping" | "restoring" | "failed" | "attention" | "ready";
   label: string;
   detail: string | null;
+  hint: string | null;
   steps: Array<{ id: string; label: string; state: "pending" | "current" | "complete" | "failed" }>;
   current: number;
 }
@@ -46,8 +48,9 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
   ] : [{ id: "backend", label: "Starting terminal" }, { id: "ready", label: "Ready" }];
   const stage = tab.boot_stage;
   const runtime = tab.agent_runtime_state;
+  const deadlinePending = runtimeResponseDeadlinePending(runtime, tab.boot_failure_reason);
   const activeStage = Boolean(stage && (backendStages.has(stage) || sessionStages.has(stage) || connectingStages.has(stage)));
-  const ready = !tab.frozen && stage !== "spawn_failed" && runtime?.state !== "degraded"
+  const ready = !tab.frozen && stage !== "spawn_failed" && runtime?.state !== "degraded" && !deadlinePending
     && (stage === "agent_ready" || (!agent && (stage === "shell_ready" || stage === "pty_reattached"))
       || (!activeStage && !tab.agent_booting && runtime?.state === "loaded"));
   let phase: RestoreStageView["phase"] = "restoring";
@@ -66,7 +69,7 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
   } else if (wake?.pending && stage === "spawn_failed") {
     current = -1;
     detail = "Wake requested";
-  } else if (stage === "spawn_failed" || (!activeStage && runtime?.state === "degraded")) {
+  } else if (!deadlinePending && (stage === "spawn_failed" || (!activeStage && runtime?.state === "degraded"))) {
     phase = "failed";
     detail = tab.boot_failure_reason || runtime?.reason || "The session could not be restored.";
   } else if (stage === "awaiting_owner_prompt") {
@@ -87,6 +90,7 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
     label: phase === "sleeping" ? "Sleeping" : phase === "failed" ? "Could not restore" : phase === "ready" ? "Ready"
       : phase === "attention" ? "Needs your input" : "Restoring…",
     detail,
+    hint: deadlinePending ? "Taking longer than usual; the current runtime response is still pending." : null,
     current,
     steps: definitions.map((step, index) => ({ ...step,
       state: phase === "ready" || index < current ? "complete"

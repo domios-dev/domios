@@ -89,6 +89,55 @@ it("keeps the composer draft and attachment through runtime status changes", asy
   }
 });
 
+it("keeps chat startup visible through a pending runtime response deadline", async () => {
+  const tab: Tab = {
+    id: "pending-deadline", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "thread" },
+    agent_type: "fixture", agent_session_id: "thread", session_binding_nonce: "binding",
+    boot_stage: "agent_launching", agent_booting: true,
+    agent_runtime_state: { state: "degraded", epoch: 2, reason: "Deadline: opaque" },
+  };
+  const state: ExtendedState = {
+    workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string) => {
+    if (command === "chat_start") return new Promise<T>(() => {});
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] }
+      : {};
+    return value as T;
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(
+      <MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+        <MultiplexerActionsContext.Provider value={actions}>
+          <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+            theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+        </MultiplexerActionsContext.Provider>
+      </MuxStateStoreContext.Provider>,
+    ));
+    expect(host.querySelector('[data-testid="chat-setup-state"]')).not.toBeNull();
+    expect(host.querySelector('[role="progressbar"][aria-valuetext]')).not.toBeNull();
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="chat-launch-failed"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    const recoveryButtons = [...host.querySelectorAll("button")].filter(button =>
+      /retry|wake again/i.test((button.getAttribute("aria-label") ?? "") + " " + (button.textContent ?? "")));
+    expect(recoveryButtons).toHaveLength(0);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
 
 it("requests one wake when a sleeping tab becomes visible without awaiting materialization", async () => {
   const tab: Tab = {
@@ -161,5 +210,7 @@ it("projects sleeping, restoring and failed snapshots into the state panel and w
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
   }
 });

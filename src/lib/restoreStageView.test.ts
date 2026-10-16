@@ -38,6 +38,19 @@ assert.equal(restoreStageView(runtime).current, 0);
 assert.equal(restoreStageView({ ...runtime, boot_stage: "agent_launching" }).current, 0);
 assert.equal(restoreStageView({ ...runtime, agent_runtime_state: { state: "loaded", epoch: 2 } }).phase, "ready");
 assert.equal(restoreStageView({ ...runtime, agent_runtime_state: { state: "degraded", reason: "native-error", epoch: 2 } }).detail, "native-error");
+const deadlineRuntime = { ...runtime, backing: { kind: "chat_backend" as const, plugin_id: "fixture", session_id: "saved" },
+  boot_stage: "agent_ready" as const, session_bound: true,
+  agent_runtime_state: { state: "degraded" as const, reason: "Deadline: opaque", epoch: 2 } };
+const deadlineView = restoreStageView(deadlineRuntime);
+assert.equal(deadlineView.phase, "restoring");
+assert.equal(deadlineView.current, 2);
+assert(deadlineView.hint);
+const recoveredView = restoreStageView({ ...deadlineRuntime, agent_runtime_state: { state: "loaded" as const, epoch: 3 } });
+assert.equal(recoveredView.phase, "ready");
+assert.equal(recoveredView.hint, null);
+const terminalRuntime = restoreStageView({ ...deadlineRuntime,
+  agent_runtime_state: { state: "degraded" as const, reason: "ProcessExited: runtime exited", epoch: 3 } });
+assert.equal(terminalRuntime.phase, "failed");
 assert.equal(restoreStageView({ boot_stage: "shell_ready" }).phase, "ready");
 assert.equal(restoreStageView({ boot_stage: "pty_spawned" }).phase, "restoring");
 assert.equal(restoreStageView({ boot_stage: "launch_deadline_elapsed", boot_failure_reason: "still connecting" }).phase, "restoring");

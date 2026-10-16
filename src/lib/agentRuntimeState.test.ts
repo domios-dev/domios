@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  beginRuntimeRetry, runtimeStatusPresentation, runtimeRetryFailed, runtimeStateFromEvent, runtimeStateFromSnapshot, runtimeViewFromEvent, runtimeHistorySettled,
+  beginRuntimeRetry, runtimeResponseDeadlinePending, runtimeStatusPresentation, runtimeRetryFailed, runtimeStateFromEvent, runtimeStateFromSnapshot, runtimeViewFromEvent, runtimeHistorySettled,
   type AgentRuntimeState,
 } from "./agentRuntimeState";
 
@@ -63,6 +63,23 @@ describe("agent runtime state", () => {
     expect(runtimeStatusPresentation(state)).toBeNull();
     expect(beginRuntimeRetry(state)).toBe(state);
     expect(runtimeRetryFailed(state, "late rejection")).toBe(state);
+  });
+
+  it("keeps a response deadline pending and lets a later success clear the slow state", () => {
+    const deadline = { state: "degraded" as const, epoch: 2, reason: "Deadline: opaque" };
+    expect(runtimeResponseDeadlinePending(deadline)).toBe(true);
+    expect(runtimeStatusPresentation(deadline)).toMatchObject({ severity: "transient", canRetry: false });
+    expect(runtimeStatusPresentation(deadline, true)).toBeNull();
+
+    const recovered = runtimeStateFromSnapshot(deadline, { state: "loaded", epoch: 2 });
+    expect(runtimeResponseDeadlinePending(recovered)).toBe(false);
+    expect(runtimeStatusPresentation(recovered)).toBeNull();
+  });
+
+  it("keeps terminal runtime failures actionable", () => {
+    const failed = { state: "degraded" as const, epoch: 2, reason: "ProcessExited: runtime exited" };
+    expect(runtimeResponseDeadlinePending(failed)).toBe(false);
+    expect(runtimeStatusPresentation(failed)).toMatchObject({ severity: "action_needed", canRetry: true });
   });
 
   it("keeps non-runtime tabs silent and reports missing fault reasons honestly", () => {

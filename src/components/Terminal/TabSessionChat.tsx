@@ -4,7 +4,7 @@ import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { heldMessagesForLaunch } from "./chatSetupModel";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
-import { runtimeStatusPresentation } from "../../lib/agentRuntimeState";
+import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
@@ -324,7 +324,8 @@ function TabSessionChatBody({
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
-  const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null;
+  const runtimeDeadlinePending = runtimeResponseDeadlinePending(runtime.state);
+  const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null && !runtimeDeadlinePending;
   const runtimeBadge = <AgentRuntimeBanner tabId={tabId} state={runtime.state} startupOwned={!snapshotReady || bootSetupView.kind === "starting"} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} />;
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
