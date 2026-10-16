@@ -227,4 +227,5 @@ pub(super) fn mark_direct_reader_ready(
 }
 
 #[cfg(test)]
+#[path = "backend_spawn/tests.rs"]
 mod tests;
