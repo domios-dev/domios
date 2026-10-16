@@ -5,6 +5,8 @@ import { invoke, listen } from "../../lib/bridge";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { resizeOwnerChangedEvent, type ResizeOwner } from "../../lib/resizeOwner";
 import { tabResizeChanged } from "./tabResize";
+import { completeResize, createResizeModel, requestResize, setResizeAuthority, type ResizeRequest } from "./resizeModel";
+import { DEV_BUILD } from "../../lib/devBuild";
 
 export interface UseTerminalResizeOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -31,27 +33,9 @@ export interface UseTerminalResizeReturn {
   refitAndCommitResize: () => void;
 }
 
-interface TerminalSize {
-  ptyId: string;
-  cols: number;
-  rows: number;
-}
-
 const nativeResizeCommit = Boolean(nativeBridge.resizeEvents)
   && typeof navigator !== "undefined"
   && navigator.platform.startsWith("Win");
-
-function sameSize(left: TerminalSize | null, right: TerminalSize): boolean {
-  return left?.ptyId === right.ptyId && left.cols === right.cols && left.rows === right.rows;
-}
-
-export function resizeCommitRequired(
-  committed: TerminalSize | null,
-  next: TerminalSize,
-  force: boolean,
-): boolean {
-  return force || !sameSize(committed, next);
-}
 
 export function useTerminalResize({
   containerRef,
@@ -67,10 +51,27 @@ export function useTerminalResize({
 }: UseTerminalResizeOptions): UseTerminalResizeReturn {
   const lastContainerSizeRef = useRef({ w: 0, h: 0 });
   const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
-  const committedSizeRef = useRef<TerminalSize | null>(null);
+  const resizeModelRef = useRef(createResizeModel());
   const nativeResizeActiveRef = useRef(false);
   const ownsResizeRef = useRef(false);
   const suppressCommitRef = useRef(false);
+
+  const sendResize = useCallback(function send(request: ResizeRequest) {
+    if (DEV_BUILD) console.debug("[resize-queue] sending", request);
+    void invoke("resize_pty", {
+      ptyId: request.ptyId,
+      cols: request.cols,
+      rows: request.rows,
+      clientId: request.clientId,
+    }).then(() => finish(true), () => finish(false));
+
+    function finish(succeeded: boolean) {
+      if (DEV_BUILD) console.debug("[resize-queue] completed", { ...request, succeeded });
+      resizeModelRef.current = completeResize(resizeModelRef.current, request, succeeded);
+      const next = resizeModelRef.current.inFlight;
+      if (next && next !== request) send(next);
+    }
+  }, []);
 
   const commitResize = useCallback((force = false) => {
     if (!ownsResizeRef.current || suppressCommitRef.current) return;
@@ -80,22 +81,18 @@ export function useTerminalResize({
     if (!term || !currentPtyId || !resizeClientId) return;
     const size = pendingSizeRef.current ?? { cols: term.cols, rows: term.rows };
     if (size.cols <= 0 || size.rows <= 0) return;
-    const next = { ptyId: currentPtyId, ...size };
-    if (!resizeCommitRequired(committedSizeRef.current, next, force)) return;
-    committedSizeRef.current = next;
-    void invoke("resize_pty", {
-      ptyId: currentPtyId,
-      cols: size.cols,
-      rows: size.rows,
-      clientId: resizeClientId,
-    }).catch(() => {
-      if (sameSize(committedSizeRef.current, next)) committedSizeRef.current = null;
-    });
-  }, [connectedPtyRef, ptyId, resizeClientId, termRef]);
+    const state = resizeModelRef.current;
+    if (state.owner?.ptyId !== currentPtyId || state.owner.clientId !== resizeClientId) return;
+    if (DEV_BUILD) console.debug("[resize-queue] requested", { ptyId: currentPtyId, ...size, generation: state.generation });
+    resizeModelRef.current = requestResize(state, size, force);
+    const request = resizeModelRef.current.inFlight;
+    if (request && request !== state.inFlight) sendResize(request);
+  }, [connectedPtyRef, ptyId, resizeClientId, sendResize, termRef]);
 
   const loseResizeOwnership = useCallback(() => {
     ownsResizeRef.current = false;
-    committedSizeRef.current = null;
+    pendingSizeRef.current = null;
+    resizeModelRef.current = setResizeAuthority(resizeModelRef.current, null);
   }, []);
 
   const hasResizeOwnership = useCallback(() => ownsResizeRef.current, []);
@@ -110,9 +107,11 @@ export function useTerminalResize({
       && (connectedPtyRef.current ?? ptyId ?? null) === ownerPtyId;
     ownsResizeRef.current = isOwner;
     pendingSizeRef.current = null;
-    committedSizeRef.current = isOwner && currentSize
-      ? { ptyId: ownerPtyId, ...currentSize }
-      : null;
+    resizeModelRef.current = setResizeAuthority(
+      resizeModelRef.current,
+      isOwner && resizeClientId ? { ptyId: ownerPtyId, clientId: resizeClientId } : null,
+      currentSize,
+    );
   }, [connectedPtyRef, ptyId, resizeClientId]);
 
   const fitMeasuredContainer = useCallback(() => {
@@ -152,9 +151,9 @@ export function useTerminalResize({
   }, [commitResize, containerRef, forceFitMeasuredContainer, termRef]);
 
   useEffect(() => {
-    ownsResizeRef.current = false;
-    committedSizeRef.current = null;
-  }, [ptyId, resizeClientId]);
+    loseResizeOwnership();
+    return loseResizeOwnership;
+  }, [loseResizeOwnership, ptyId, resizeClientId, resizeEnabled, tabId]);
 
   useEffect(() => {
     if (!resizeEnabled) return;

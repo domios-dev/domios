@@ -18,6 +18,54 @@ pub const MAX_RECORD_BYTES: u64 = 64 * 1024 * 1024;
 
 const SCAN_BUF_BYTES: usize = 64 * 1024;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecordPage {
+    pub start: u64,
+    pub end: u64,
+}
+
+pub fn page_before(path: &Path, until: u64, budget: u64) -> std::io::Result<RecordPage> {
+    let mut file = File::open(path)?;
+    let mut position = until.min(file.metadata()?.len());
+    let mut end = None;
+    let mut start = position;
+    let mut scanned = 0;
+    let mut buffer = vec![0; SCAN_BUF_BYTES];
+    while position > 0 && scanned < MAX_RECORD_BYTES {
+        let count = position.min(SCAN_BUF_BYTES as u64) as usize;
+        position -= count as u64;
+        file.seek(SeekFrom::Start(position))?;
+        file.read_exact(&mut buffer[..count])?;
+        scanned += count as u64;
+        for index in (0..count).rev() {
+            if buffer[index] != b'\n' {
+                continue;
+            }
+            let boundary = position + index as u64 + 1;
+            let Some(last) = end else {
+                end = Some(boundary);
+                start = boundary;
+                continue;
+            };
+            if last - boundary <= budget || start == last {
+                start = boundary;
+                if last - start > budget {
+                    return Ok(RecordPage { start, end: last });
+                }
+            } else {
+                return Ok(RecordPage { start, end: last });
+            }
+        }
+    }
+    let Some(end) = end else {
+        return Ok(RecordPage { start: 0, end: 0 });
+    };
+    if position == 0 && (end <= budget || start == end) {
+        start = 0;
+    }
+    Ok(RecordPage { start, end })
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct JsonlChunk {
     /// Whole records only — empty, or `\n`-terminated.
@@ -62,7 +110,12 @@ pub fn read_records_from(
         if need > 0 {
             (&mut file).take(need).read_to_end(&mut buf)?;
         }
-        if let Some(idx) = buf.iter().rposition(|&b| b == b'\n') {
+        let boundary = if target > chunk_cap.max(1) {
+            buf.iter().position(|&b| b == b'\n')
+        } else {
+            buf.iter().rposition(|&b| b == b'\n')
+        };
+        if let Some(idx) = boundary {
             buf.truncate(idx + 1);
             let new_offset = from_offset + buf.len() as u64;
             return Ok(JsonlChunk {

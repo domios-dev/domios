@@ -3546,7 +3546,7 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/record_identity.rs",
       "token": "claude",
-      "count": 5,
+      "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },

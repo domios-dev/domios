@@ -2,6 +2,7 @@ export interface HookCmd { type?: string; command?: string; timeout?: number; _s
 export interface HookEntry { matcher?: string; hooks?: HookCmd[] }
 
 export const CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+export const CODETERM_HOOK_TIMEOUT_SECONDS = 5;
 export const CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
 export const CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
 export const INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
@@ -83,4 +84,10 @@ export function entriesCarryMarker(entries: HookEntry[]): boolean {
       return typeof hook.command === "string" && commandCarriesMarker(hook.command);
     });
   });
+}
+
+export function entriesHaveBoundedTimeout(entries: HookEntry[]): boolean {
+  return entries.every((entry) => (entry.hooks || []).every((hook) => {
+    return !isCodetermHook({ hooks: [hook] }) || hook.timeout === CODETERM_HOOK_TIMEOUT_SECONDS;
+  }));
 }

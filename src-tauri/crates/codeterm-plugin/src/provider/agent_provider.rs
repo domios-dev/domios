@@ -453,6 +453,16 @@ pub trait AgentProvider: Send + Sync {
         }
     }
 
+    /// Host-bounded parsing; unsupported parsers must not silently read beyond the budget.
+    fn parse_session_delta_bounded(
+        &self,
+        _path: &std::path::Path,
+        _from_offset: u64,
+        _byte_budget: u64,
+    ) -> Option<codeterm_types::agent::chat_types::SessionDelta> {
+        None
+    }
+
     /// Parse provider-specific interactive prompts (AskUserQuestion, ...) out of a
     /// single parsed message. Default: none. Core never branches on provider id —
     /// it asks every provider via this capability.

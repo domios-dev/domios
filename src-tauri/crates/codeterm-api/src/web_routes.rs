@@ -1063,6 +1063,31 @@ pub struct ChatBackfillBody {
     offset_kind: Option<codeterm_service_core::service::tab_chat::results::ChatOffsetKind>,
 }
 
+#[derive(Deserialize)]
+pub struct ChatResumeBody {
+    cursor: String,
+}
+
+pub async fn chat_raw_resume(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+    Json(body): Json<ChatResumeBody>,
+) -> Result<
+    Json<codeterm_service_core::service::tab_chat::resume::ChatResumeResult>,
+    (StatusCode, String),
+> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
+    let svc = state.svc.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::tab_chat::resume::resume(&svc, &tab_id, &body.cursor)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::CONFLICT, error))?;
+    Ok(Json(result))
+}
+
 pub async fn chat_raw_backfill(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

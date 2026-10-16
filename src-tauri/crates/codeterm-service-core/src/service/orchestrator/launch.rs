@@ -646,6 +646,8 @@ pub fn launch_agent_in_background_with_env(
             }
             return;
         }
+        let mut readiness_registration =
+            generation::ReadinessRegistration::new(launch.attempt().expect("launch binding nonce"));
         drop(pty_claim);
         crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_done");
         let mut wrapped_launch_cmd = command_with_binding_nonce(
@@ -775,6 +777,9 @@ pub fn launch_agent_in_background_with_env(
                             }
                             return;
                         }
+                        readiness_registration = generation::ReadinessRegistration::new(
+                            launch.attempt().expect("replacement launch binding nonce"),
+                        );
                         drop(replacement_claim);
                         wrapped_launch_cmd = command_with_binding_nonce(
                             &launch_cmd,
@@ -875,14 +880,11 @@ pub fn launch_agent_in_background_with_env(
             return;
         }
 
-        // A written launch command is not readiness; observing this attempt to the
-        // bounded deadline turns an early provider exit into one launch failure.
         let readiness_attempt = crate::service::launch_readiness::LaunchAttempt {
             tab_id: tab_id.clone(),
             pty_id: pty_id.clone(),
             binding_nonce: launch.binding_nonce.clone().expect("launch binding nonce"),
         };
-        crate::service::launch_readiness::arm_with_origin(readiness_attempt.clone(), origin);
         if launch.await_provider_ack(std::time::Duration::ZERO) {
             crate::service::launch_readiness::note_acknowledged(
                 &readiness_attempt.tab_id,
@@ -899,6 +901,14 @@ pub fn launch_agent_in_background_with_env(
                 session_starts_on_first_turn,
             )
         });
+        if readiness_receiver.is_some() {
+            readiness_registration.handoff();
+            crate::startup::boot_timing::mark(
+                &tab_id,
+                Some(&pty_id),
+                "readiness_observer_scheduled",
+            );
+        }
 
         let (provider_readiness, composer_cursor_position) = svc
             .agent_registry

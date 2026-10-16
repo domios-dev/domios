@@ -20,8 +20,12 @@ pub mod registry;
 pub(crate) mod restore_notice;
 pub use restore_notice::snapshot as restore_notice_snapshot;
 pub mod results;
+pub mod resume;
+pub mod resume_cursor;
 pub mod runtime_stored;
 pub mod session_window;
+pub mod snapshot_flight;
+mod snapshot_rows;
 pub mod snapshot_source;
 pub mod store_watch;
 mod stored_snapshot;
@@ -657,6 +661,10 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
     out
 }
 
+pub(super) fn item_sidecar_owns(tab_id: &str) -> bool {
+    crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some()
+}
+
 /// Stateless normalized-chat read for a tab: parse the whole session
 /// (JSONL or sqlite) into a flat ChatMsg list, return messages[since..].
 /// No tailer spawned. Returns (messages, total_count).
@@ -696,7 +704,7 @@ fn tab_transcript_snapshot(
         let total = messages.len();
         return Ok((messages.into_iter().skip(since).collect(), total));
     }
-    if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
+    if item_sidecar_owns(tab_id) {
         let (messages, _, _) = crate::service::codex_rpc::transcript::snapshot(svc, tab_id)?;
         let total = messages.len();
         return Ok((messages.into_iter().skip(since).collect(), total));
