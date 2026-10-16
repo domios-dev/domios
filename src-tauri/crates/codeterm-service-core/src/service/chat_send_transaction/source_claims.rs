@@ -10,6 +10,7 @@ pub struct SourceRowRef {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SourceRecord {
     Jsonl {
+        #[serde(default)]
         incarnation: String,
         record_start: u64,
         record_row: u32,
