@@ -171,6 +171,8 @@ pub fn start(
         start_runtime(svc, tab_id, window.nonce.as_deref());
     }
     Ok(Some(ChatStartResult {
+        kind: Default::default(),
+        file_length: None,
         text: String::new(),
         offset_kind: ChatOffsetKind::Bytes,
         start_offset: window.start,

@@ -1,5 +1,5 @@
 use codeterm_service_core::service::tab_chat::results::{
-    ChatBackfillResult, ChatOffsetKind, ChatStartResult,
+    ChatBackfillResult, ChatOffsetKind, ChatStartKind, ChatStartResult, KnownChatWindow,
 };
 use codeterm_service_core::service::ServiceState;
 
@@ -54,10 +54,18 @@ pub fn chat_start_core(
     svc: &ServiceState,
     tab_id: String,
     subscription_id: String,
+    known_window: Option<KnownChatWindow>,
 ) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
-    let mut result = chat_start_inner(svc, tab_id.clone(), subscription_id)?;
-    if let Some(messages) = &result.messages {
+    let mut result = chat_start_inner(svc, tab_id.clone(), subscription_id, known_window)?;
+    if result.kind == ChatStartKind::Unchanged {
+        return Ok(result);
+    }
+    if let Some(messages) = result
+        .messages
+        .as_ref()
+        .filter(|_| result.kind == ChatStartKind::Snapshot)
+    {
         codeterm_service_core::service::tab_chat::structured_sink::seed_snapshot(
             &tab_id,
             result.source_session_id.as_deref(),
@@ -84,11 +92,13 @@ pub fn chat_start_core(
         evidence_at.elapsed().as_millis()
     );
     let notice_at = std::time::Instant::now();
-    codeterm_service_core::service::tab_chat::append_restore_notice(
-        &svc.lifecycle_journal,
-        &tab_id,
-        result.messages.get_or_insert_default(),
-    );
+    if result.kind == ChatStartKind::Snapshot {
+        codeterm_service_core::service::tab_chat::append_restore_notice(
+            &svc.lifecycle_journal,
+            &tab_id,
+            result.messages.get_or_insert_default(),
+        );
+    }
     log::debug!(
         "[chat-attach] tab={tab_id} phase=restore_notice elapsed_ms={} total_ms={}",
         notice_at.elapsed().as_millis(),
@@ -101,6 +111,7 @@ fn chat_start_inner(
     svc: &ServiceState,
     tab_id: String,
     subscription_id: String,
+    known_window: Option<KnownChatWindow>,
 ) -> Result<ChatStartResult, String> {
     let attached_at = std::time::Instant::now();
     let runtime_requested =
@@ -127,6 +138,8 @@ fn chat_start_inner(
             attached_at.elapsed().as_millis()
         );
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Items,
             start_offset: start as u64,
@@ -171,6 +184,8 @@ fn chat_start_inner(
             return Err("Transcript binding changed during attach".into());
         }
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
@@ -196,6 +211,8 @@ fn chat_start_inner(
             codeterm_service_core::service::tab_chat::tab_chat_snapshot(svc, &tab_id, 0)
                 .unwrap_or_default();
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
@@ -216,6 +233,8 @@ fn chat_start_inner(
         let Some(provider) = tab.agent_type.clone() else {
             if tab.agent_booting || tab.boot_stage.is_some() {
                 return Ok(ChatStartResult {
+                    kind: Default::default(),
+                    file_length: None,
                     text: String::new(),
                     offset_kind: ChatOffsetKind::Bytes,
                     start_offset: 0,
@@ -235,6 +254,8 @@ fn chat_start_inner(
         let Some(sid) = tab.agent_session_id.clone() else {
             if let Some(content) = tab.pending_greeting.clone() {
                 return Ok(ChatStartResult {
+                    kind: Default::default(),
+                    file_length: None,
                     text: String::new(),
                     offset_kind: ChatOffsetKind::Bytes,
                     start_offset: 0,
@@ -255,6 +276,8 @@ fn chat_start_inner(
                 });
             }
             return Ok(ChatStartResult {
+                kind: Default::default(),
+                file_length: None,
                 text: String::new(),
                 offset_kind: ChatOffsetKind::Bytes,
                 start_offset: 0,
@@ -352,6 +375,8 @@ fn chat_start_inner(
         let mut messages = archived_messages;
         messages.extend(delta.messages);
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
@@ -410,6 +435,8 @@ fn chat_start_inner(
             handle.register(&svc.chat_registry, subscription_id.clone());
         }
         return Ok(ChatStartResult {
+            kind: Default::default(),
+            file_length: None,
             text: String::new(),
             offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
@@ -438,30 +465,49 @@ fn chat_start_inner(
         None,
     );
     let read_started = std::time::Instant::now();
-    let snap = svc.chat_registry.snapshot_flights.run(
-        codeterm_service_core::service::tab_chat::snapshot_flight::SnapshotKey {
-            tab_id: tab_id.clone(),
-            provider_id: provider_id.clone(),
-            session_id: session_id.clone(),
-            binding_nonce: session_binding_nonce.clone(),
-            path: path.clone(),
-            incarnation: incarnation.as_ref().map(|current| current.id.to_string()),
-        },
-        || {
-            codeterm_service_core::service::tab_chat::session_window::snapshot(
-                &svc.agent_registry,
-                &provider_id,
-                &path,
-            )
-        },
-    )?;
+    let resumed = known_window.as_ref().and_then(|known| {
+        codeterm_service_core::service::tab_chat::session_window::resume_window(
+            &svc.agent_registry,
+            &provider_id,
+            &source,
+            &path,
+            &resume_epoch,
+            known,
+        )
+    });
+    let (kind, snap) = if let Some((kind, snapshot)) = resumed {
+        (kind, std::sync::Arc::new(snapshot))
+    } else {
+        (
+            ChatStartKind::Snapshot,
+            svc.chat_registry.snapshot_flights.run(
+                codeterm_service_core::service::tab_chat::snapshot_flight::SnapshotKey {
+                    tab_id: tab_id.clone(),
+                    provider_id: provider_id.clone(),
+                    session_id: session_id.clone(),
+                    binding_nonce: session_binding_nonce.clone(),
+                    path: path.clone(),
+                    incarnation: incarnation.as_ref().map(|current| current.id.to_string()),
+                },
+                || {
+                    codeterm_service_core::service::tab_chat::session_window::snapshot(
+                        &svc.agent_registry,
+                        &provider_id,
+                        &path,
+                    )
+                },
+            )?,
+        )
+    };
     // Scope carries the attach that asked, so a second bounded line in the log
     // is decidable: a new subscription is a re-attach, a repeat is a double read.
-    codeterm_service_core::service::tab_chat::session_window::log_bounded_snapshot(
-        &format!("tab:{tab_id}/{subscription_id}"),
-        &provider_id,
-        &snap,
-    );
+    if kind == ChatStartKind::Snapshot {
+        codeterm_service_core::service::tab_chat::session_window::log_bounded_snapshot(
+            &format!("tab:{tab_id}/{subscription_id}"),
+            &provider_id,
+            &snap,
+        );
+    }
     let cursor = incarnation.as_ref().and_then(|held| {
         codeterm_service_core::service::tab_chat::resume::capture_incarnation(
             &source,
@@ -480,7 +526,7 @@ fn chat_start_inner(
     });
     let read_ms = read_started.elapsed().as_millis();
     if let Some(nonce) = session_binding_nonce.as_deref() {
-        if snap.truncated() {
+        if kind == ChatStartKind::Snapshot && snap.truncated() {
             codeterm_service_core::service::incomplete_snapshot(svc, &tab_id, &session_id, nonce);
         }
         codeterm_service_core::service::provider_signals_apply(
@@ -498,20 +544,26 @@ fn chat_start_inner(
             &snap.runtime_observations,
         );
     }
-    codeterm_service_core::service::context_feed::apply_snapshot(
-        svc,
-        &tab_id,
-        &session_id,
-        session_binding_nonce.as_deref(),
-        snap.context_usage.as_ref(),
-    );
+    if kind != ChatStartKind::Unchanged {
+        codeterm_service_core::service::context_feed::apply_snapshot(
+            svc,
+            &tab_id,
+            &session_id,
+            session_binding_nonce.as_deref(),
+            snap.context_usage.as_ref(),
+        );
+    }
     // Resume at the parsed end, not the file size: a held-back partial record
     // must be consumed once by the tailer rather than skipped.
     let (total, tailer_start_offset, bytes_read) = (snap.total, snap.end_offset, snap.bytes_read);
     // Backfill cursor: >0 means the bounded snapshot truncated older history.
     let snapshot_start = snap.start_offset;
     let msg_count = snap.messages.len();
-    let mut messages = archived_messages;
+    let mut messages = if kind == ChatStartKind::Snapshot {
+        archived_messages
+    } else {
+        vec![]
+    };
     messages.extend(snap.messages.iter().cloned());
 
     // is already running so one client's stop() cannot kill another's stream.
@@ -570,6 +622,8 @@ fn chat_start_inner(
     }
 
     Ok(ChatStartResult {
+        kind,
+        file_length: Some(total),
         // `[start_offset, offset)` is the record-bounded snapshot range the
         // client reconciles from; it pages older below start_offset.
         offset_kind: ChatOffsetKind::Bytes,
@@ -578,7 +632,11 @@ fn chat_start_inner(
         offset: tailer_start_offset,
         pending: false,
         source_missing: false,
-        messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
+        messages: Some(if kind == ChatStartKind::Snapshot {
+            prepend_pending_greeting(svc, &tab_id, messages)
+        } else {
+            messages
+        }),
         cursor,
         source_session_id: Some(session_id),
         session_binding_nonce,

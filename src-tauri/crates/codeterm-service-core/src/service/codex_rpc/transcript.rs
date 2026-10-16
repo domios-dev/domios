@@ -210,6 +210,8 @@ pub fn start(
     let total = messages.len();
     let start = total.saturating_sub(200);
     Ok(crate::service::tab_chat::results::ChatStartResult {
+        kind: Default::default(),
+        file_length: None,
         text: String::new(),
         offset_kind: crate::service::tab_chat::results::ChatOffsetKind::Items,
         start_offset: start as u64,
