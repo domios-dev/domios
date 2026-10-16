@@ -98,6 +98,23 @@ fn wake_with(
     allow_failed: bool,
     materialize: impl FnOnce(&str, bool) -> Result<(), String>,
 ) -> Result<(), String> {
+    let retirement = {
+        let mut mux = svc.mux.write();
+        let resolved = mux
+            .resolve_tab_id(tab_id)
+            .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+        if let Some(tab) = mux.get_tab_mut(&resolved) {
+            tab.record_activity();
+        }
+        super::agent_restart::sleep_transition::request_wake(
+            svc.ext::<super::agent_restart::RestartTracker>(),
+            &resolved,
+        )
+    };
+    super::agent_restart::sleep_transition::wait_for_retirement(
+        retirement,
+        super::agent_restart::sleep_transition::wake_deadline(),
+    )?;
     let id = {
         let mux = svc.mux.read();
         let id = mux
