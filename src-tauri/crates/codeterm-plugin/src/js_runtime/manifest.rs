@@ -232,6 +232,7 @@ fn default_entry() -> String {
 /// shipped before capabilities existed).
 fn default_capabilities() -> Capabilities {
     Capabilities {
+        record_sources: Default::default(),
         structured_control: None,
         agent_provider: true,
         reply_relay: false,

@@ -1,4 +1,4 @@
-import type { ChatMsg } from "@codeterm/plugin-sdk";
+import type { ChatMsg, ParsedSessionRecord } from "@codeterm/plugin-sdk";
 import { boundHistoryRows, historyItem } from "./runtimeHistoryBounds";
 import { runtimeItems } from "./runtimeMessages";
 import { object, text } from "./runtimeProtocol";
@@ -50,12 +50,30 @@ export function storedRecordType(line: string): string | undefined {
 }
 
 export function runtimeStoredHistory(sessionId: string, records: string): ChatMsg[] {
-  const rows = new Map<string, ChatMsg>();
+  return projectStoredRecords(sessionId, textRecords(records));
+}
+
+function* textRecords(records: string): Generator<unknown> {
   for (const line of records.split("\n")) {
     if (!line.trim()) continue;
     const type = storedRecordType(line);
     if (type !== undefined && type !== "event_msg" && type !== "session_meta") continue;
-    const record = object(JSON.parse(line));
+    yield JSON.parse(line);
+  }
+}
+
+export function runtimeStoredRecords(sessionId: string, records: readonly ParsedSessionRecord[]): ChatMsg[] {
+  return projectStoredRecords(sessionId, records.map(record => {
+    if (!record.oversized) return record.value;
+    const value = object(record.value), payload = object(value.payload);
+    return {...value,payload:{...payload,item:{...object(payload.item),historyTruncated:true}}};
+  }));
+}
+
+function projectStoredRecords(sessionId: string, records: Iterable<unknown>): ChatMsg[] {
+  const rows = new Map<string, ChatMsg>();
+  for (const raw of records) {
+    const record = object(raw);
     const payload = object(record.payload);
     if (record.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
     if (record.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;

@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.29",
+  "version": "1.14.30",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -128,6 +128,82 @@
       "spawnable": true,
       "sessionConfig": true,
       "agentTasks": true
+    },
+    "recordSources": {
+      "sessionTranscript": {
+        "format": "jsonl",
+        "filter": {}
+      },
+      "storedHistory": {
+        "format": "jsonl",
+        "filter": {
+          "type": {
+            "path": [
+              "type"
+            ],
+            "in": [
+              "session_meta",
+              "event_msg"
+            ]
+          }
+        },
+        "oversized": {
+          "keep": [
+            [
+              "type"
+            ],
+            [
+              "payload",
+              "type"
+            ],
+            [
+              "payload",
+              "id"
+            ],
+            [
+              "payload",
+              "thread_id"
+            ],
+            [
+              "payload",
+              "turn_id"
+            ],
+            [
+              "payload",
+              "started_at_ms"
+            ],
+            [
+              "payload",
+              "completed_at_ms"
+            ],
+            [
+              "payload",
+              "item",
+              "id"
+            ],
+            [
+              "payload",
+              "item",
+              "type"
+            ],
+            [
+              "payload",
+              "item",
+              "status"
+            ],
+            [
+              "payload",
+              "item",
+              "startedAt"
+            ],
+            [
+              "payload",
+              "item",
+              "started_at"
+            ]
+          ]
+        }
+      }
     }
   },
   "iconColor": "var(--ct-fg)",

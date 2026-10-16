@@ -30,6 +30,26 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/sessionRecords.ts
+function* sessionRecords(input, accepts) {
+  if (typeof input !== "string") {
+    for (const record6 of input) yield { row: record6.row, value: record6.value };
+    return;
+  }
+  const lines = String(input || "").split("\n");
+  for (let row2 = 0; row2 < lines.length; row2++) {
+    const line = lines[row2];
+    if (!line || accepts && !accepts(line)) continue;
+    let value;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    yield { row: row2, value };
+  }
+}
+
 // plugins/provider-shared/readHome.ts
 function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
   if (!inheritedHome) return fallback;
@@ -1599,12 +1619,27 @@ function storedRecordType(line) {
   return void 0;
 }
 function runtimeStoredHistory(sessionId, records) {
-  const rows = /* @__PURE__ */ new Map();
+  return projectStoredRecords(sessionId, textRecords(records));
+}
+function* textRecords(records) {
   for (const line of records.split("\n")) {
     if (!line.trim()) continue;
     const type = storedRecordType(line);
     if (type !== void 0 && type !== "event_msg" && type !== "session_meta") continue;
-    const record6 = object(JSON.parse(line));
+    yield JSON.parse(line);
+  }
+}
+function runtimeStoredRecords(sessionId, records) {
+  return projectStoredRecords(sessionId, records.map((record6) => {
+    if (!record6.oversized) return record6.value;
+    const value = object(record6.value), payload = object(value.payload);
+    return { ...value, payload: { ...payload, item: { ...object(payload.item), historyTruncated: true } } };
+  }));
+}
+function projectStoredRecords(sessionId, records) {
+  const rows = /* @__PURE__ */ new Map();
+  for (const raw of records) {
+    const record6 = object(raw);
     const payload = object(record6.payload);
     if (record6.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
     if (record6.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
@@ -5807,6 +5842,7 @@ function hasPromptAndStatusFooter(screen) {
 var plugin = {
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
+  runtimeStoredRecords,
   runtimePlan,
   runtimeResponse,
   runtimeReduce,
@@ -5998,244 +6034,9 @@ var plugin = {
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
   parseSessionObservations,
-  parseSessionDelta(chunk, context) {
-    const out = [];
-    const commandPairing = commandPairingState(context);
-    const activityIds = /* @__PURE__ */ new Set();
-    const pushOnce = (row2) => {
-      if (!row2 || row2.uuid && activityIds.has(row2.uuid)) return;
-      if (row2.uuid) activityIds.add(row2.uuid);
-      out.push(row2);
-    };
-    const lines = String(chunk || "").split("\n");
-    let stamped = 0;
-    const stampRows = (lineIndex) => {
-      for (; stamped < out.length; stamped++) {
-        out[stamped].recordIndex = lineIndex;
-      }
-    };
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      stampRows(i - 1);
-      if (!lines[i]) continue;
-      let v;
-      try {
-        v = JSON.parse(lines[i]);
-      } catch (_) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!validateEntry(v)) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      let ts = null;
-      const tsIso = typeof v.timestamp === "string" ? v.timestamp : null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
-      }
-      const normalizedEventType = v.payload?.type;
-      if (normalizedEventType === "context_compacted") {
-        out.push({
-          role: "system",
-          blocks: [{ kind: "text", data: { text: "context compacted" } }],
-          ts,
-          timestamp: tsIso,
-          timelineMarker: { kind: "context_compaction" }
-        });
-        continue;
-      }
-      if (normalizedEventType === "thread_goal_updated") {
-        const sessionIntent = sessionIntentFromPayload(v.payload);
-        if (!sessionIntent) continue;
-        out.push({
-          role: "custom",
-          blocks: [],
-          ts,
-          timestamp: tsIso,
-          sessionIntent
-        });
-        continue;
-      }
-      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
-        const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
-        if (!turnId) continue;
-        clearTurnPairings(commandPairing, turnId);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
-          ts,
-          timestamp: tsIso
-        });
-        continue;
-      }
-      if (v.type === "event_msg" && v.payload?.type === "item_completed") {
-        if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
-        pushOnce(pairFileChange(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id), v.payload.turn_id, commandPairing.fileChanges));
-        continue;
-      }
-      if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
-        pushOnce(subAgentRow(v.payload, v.payload.event_id, void 0, ts, tsIso));
-        continue;
-      }
-      if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
-        const result = v.payload.type === "web_search_end" ? webSearchEndResult(v.payload, ts, tsIso) : imageGenerationEndResult(v.payload, ts, tsIso);
-        if (result && !activityIds.has(result.uuid)) {
-          activityIds.add(result.uuid);
-          out.push(result);
-        }
-        continue;
-      }
-      if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
-        const p2 = v.payload;
-        const content = typeof p2.stdout === "string" ? p2.stdout : "";
-        const callId = typeof p2.call_id === "string" ? p2.call_id : "";
-        const diffs = codexFileDiffs(p2.changes);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content, tool_use_id: callId, ...diffs.length > 0 ? { file_diffs: diffs } : {} } }],
-          ts,
-          timestamp: tsIso
-        });
-        continue;
-      }
-      if (!v || v.type !== "response_item" || !v.payload) continue;
-      const p = v.payload;
-      if (p.type === "message") {
-        const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
-        if (!role) continue;
-        let text6 = "";
-        let images = [];
-        if (role === "user") {
-          ({ text: text6, images } = parseCodexUserContent(p.content));
-        } else if (Array.isArray(p.content)) {
-          for (let j = 0; j < p.content.length; j++) {
-            const c = p.content[j];
-            if (c && typeof c.text === "string") text6 += c.text;
-          }
-        } else if (typeof p.content === "string") {
-          text6 = p.content;
-        }
-        if (images.length > 0) {
-          const textBlocks = text6 ? [{ kind: "text", data: { text: text6 } }] : [];
-          out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
-          continue;
-        }
-        if (!text6) continue;
-        const systemSubtype = classifyCodexSystemText(text6);
-        if (systemSubtype) {
-          out.push({
-            role: "system",
-            blocks: [{ kind: "text", data: { text: text6, subtype: systemSubtype } }],
-            sourceType: v.type,
-            sourceSubtype: systemSubtype,
-            ts,
-            timestamp: tsIso
-          });
-          continue;
-        }
-        out.push({ role, blocks: [{ kind: "text", data: { text: text6 } }], ts, timestamp: tsIso });
-      } else if (p.type === "function_call") {
-        let input = {};
-        try {
-          input = JSON.parse(p.arguments || "{}");
-        } catch (_) {
-          input = { raw: p.arguments };
-        }
-        if (input && input.cmd && !input.command) input.command = input.cmd;
-        const name = typeof p.name === "string" ? p.name.trim() : "";
-        if (isInternalOrchestrationCall(name) || !hasUsefulFunctionCall(name, input, p.arguments)) continue;
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const canonical = canonicalToolFields(name, input);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input, ...canonical } }],
-          ts,
-          timestamp: tsIso
-        });
-      } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : void 0;
-        commandPairing.fileChanges.delete(callId);
-        if (pending) commandPairing.pending.delete(callId);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_result", data: {
-            content: codexToolOutputText(p.output),
-            tool_use_id: callId,
-            ...pending ? commandPairingResult(pending) : {}
-          } }],
-          ts,
-          timestamp: tsIso
-        });
-      } else if (p.type === "reasoning") {
-        pushOnce(reasoningResponseRow(p, ts, tsIso));
-      } else if (p.type === "agent_message") {
-        pushOnce(agentMessageRow(p, ts, tsIso));
-      } else if (p.type === "custom_tool_call") {
-        let name = typeof p.name === "string" ? p.name.trim() : "";
-        if (!name) continue;
-        if (isInternalOrchestrationCall(name)) continue;
-        let input = {};
-        if (name === "apply_patch" && typeof p.input === "string") {
-          input = { patch: p.input };
-        } else if (typeof p.input === "string") {
-          try {
-            input = JSON.parse(p.input);
-          } catch (_) {
-            input = { raw: p.input };
-          }
-        } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
-          input = p.input;
-        }
-        const nestedPatch = name === "exec" && typeof input.raw === "string" ? nestedApplyPatch(input.raw) : null;
-        if (nestedPatch) {
-          name = "apply_patch";
-          input = { patch: nestedPatch };
-        }
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const canonical = canonicalToolFields(name, input);
-        const message = {
-          role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
-          ts,
-          timestamp: tsIso
-        };
-        const commands = name === "exec" && callId && typeof input.raw === "string" ? execScriptCommands(input.raw) : [];
-        out.push(message);
-        const patchTurn = callTurnId(p);
-        const fingerprint = typeof input.patch === "string" ? editFingerprint(patchEdits(input.patch)) : "";
-        if (callId && patchTurn && fingerprint) {
-          commandPairing.fileChanges.set(callId, { turnId: patchTurn, fingerprint });
-          trimPendingCalls(commandPairing);
-        }
-        if (commands.length > 0) {
-          const turnId = callTurnId(p);
-          if (!turnId) continue;
-          commandPairing.pending.delete(callId);
-          commandPairing.pending.set(callId, {
-            commandCount: commands.length,
-            commands,
-            completedCommands: /* @__PURE__ */ new Set(),
-            commandResults: [],
-            turnId
-          });
-          trimPendingCalls(commandPairing);
-        }
-      }
-    }
-    if (commandPairing.sessionKey && commandPairing.pending.size === 0 && commandPairing.fileChanges.size === 0) {
-      commandPairingSessions.delete(commandPairing.sessionKey);
-    }
-    stampRows(lines.length - 1);
-    return { messages: out };
+  parseSessionDelta,
+  parseSessionRecords(records, meta) {
+    return { ...parseSessionDelta(records, meta.sourceKey ? { session_key: meta.sourceKey, from_offset: meta.fromOffset } : void 0), new_offset: meta.newOffset };
   },
   detectSessionId(cwd, exclude, maxAgeMs) {
     return detectSessionId(cwd, exclude, maxAgeMs);
@@ -6283,60 +6084,9 @@ var plugin = {
     return detectSessionReasoningEffort(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
-  parseSessionMessages(text6) {
-    const out = [];
-    const lines = String(text6 || "").split("\n");
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      let v;
-      try {
-        v = JSON.parse(line);
-      } catch (e) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!isValidCodexSessionMessage(v)) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!v || v.type !== "response_item") continue;
-      const payload = v.payload;
-      if (!payload || payload.type !== "message") continue;
-      const role = payload.role;
-      if (role !== "user" && role !== "assistant") continue;
-      const content = payload.content;
-      if (!Array.isArray(content)) continue;
-      const chunks = [];
-      for (let j = 0; j < content.length; j++) {
-        const b = content[j];
-        if (!b) continue;
-        if ((b.type === "input_text" || b.type === "output_text" || b.type === "text") && typeof b.text === "string") {
-          chunks.push(b.text);
-        }
-      }
-      const text22 = chunks.join(" ");
-      if (!text22.trim()) continue;
-      let ts = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
-      }
-      const systemSubtype = classifyCodexSystemText(text22);
-      if (systemSubtype) {
-        out.push({ role: "system", text: text22, ts, isMeta: true, sourceSubtype: systemSubtype });
-      } else {
-        out.push({ role, text: text22, ts, isMeta: false });
-      }
-    }
-    return out;
+  parseSessionMessages,
+  parseSessionMessageRecords(records) {
+    return parseSessionMessages(records);
   },
   classifyTabState(snapshot) {
     return classifyCodexTabState(snapshot, host.unixNowMs());
@@ -6537,5 +6287,274 @@ function isValidCodexSessionMessage(v) {
   if (v.payload.role !== "user" && v.payload.role !== "assistant") return false;
   if (!Array.isArray(v.payload.content)) return false;
   return true;
+}
+function parseSessionDelta(chunk, context) {
+  const out = [];
+  const commandPairing = commandPairingState(context);
+  const activityIds = /* @__PURE__ */ new Set();
+  const pushOnce = (row2) => {
+    if (!row2 || row2.uuid && activityIds.has(row2.uuid)) return;
+    if (row2.uuid) activityIds.add(row2.uuid);
+    out.push(row2);
+  };
+  let stamped = 0;
+  const stampRows = (row2) => {
+    for (; stamped < out.length; stamped++) out[stamped].recordIndex = row2;
+  };
+  let hadInvalid = false;
+  let previousRow = -1;
+  for (const { row: row2, value: v } of sessionRecords(chunk)) {
+    stampRows(previousRow);
+    previousRow = row2;
+    if (!validateEntry(v)) {
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    let ts = null;
+    const tsIso = typeof v.timestamp === "string" ? v.timestamp : null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1e3);
+    }
+    const normalizedEventType = v.payload?.type;
+    if (normalizedEventType === "context_compacted") {
+      out.push({
+        role: "system",
+        blocks: [{ kind: "text", data: { text: "context compacted" } }],
+        ts,
+        timestamp: tsIso,
+        timelineMarker: { kind: "context_compaction" }
+      });
+      continue;
+    }
+    if (normalizedEventType === "thread_goal_updated") {
+      const sessionIntent = sessionIntentFromPayload(v.payload);
+      if (!sessionIntent) continue;
+      out.push({
+        role: "custom",
+        blocks: [],
+        ts,
+        timestamp: tsIso,
+        sessionIntent
+      });
+      continue;
+    }
+    if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
+      const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
+      if (!turnId) continue;
+      clearTurnPairings(commandPairing, turnId);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
+        ts,
+        timestamp: tsIso
+      });
+      continue;
+    }
+    if (v.type === "event_msg" && v.payload?.type === "item_completed") {
+      if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
+      pushOnce(pairFileChange(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id), v.payload.turn_id, commandPairing.fileChanges));
+      continue;
+    }
+    if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
+      pushOnce(subAgentRow(v.payload, v.payload.event_id, void 0, ts, tsIso));
+      continue;
+    }
+    if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
+      const result = v.payload.type === "web_search_end" ? webSearchEndResult(v.payload, ts, tsIso) : imageGenerationEndResult(v.payload, ts, tsIso);
+      if (result && !activityIds.has(result.uuid)) {
+        activityIds.add(result.uuid);
+        out.push(result);
+      }
+      continue;
+    }
+    if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
+      const p2 = v.payload;
+      const content = typeof p2.stdout === "string" ? p2.stdout : "";
+      const callId = typeof p2.call_id === "string" ? p2.call_id : "";
+      const diffs = codexFileDiffs(p2.changes);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_result", data: { content, tool_use_id: callId, ...diffs.length > 0 ? { file_diffs: diffs } : {} } }],
+        ts,
+        timestamp: tsIso
+      });
+      continue;
+    }
+    if (!v || v.type !== "response_item" || !v.payload) continue;
+    const p = v.payload;
+    if (p.type === "message") {
+      const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
+      if (!role) continue;
+      let text6 = "";
+      let images = [];
+      if (role === "user") {
+        ({ text: text6, images } = parseCodexUserContent(p.content));
+      } else if (Array.isArray(p.content)) {
+        for (let j = 0; j < p.content.length; j++) {
+          const c = p.content[j];
+          if (c && typeof c.text === "string") text6 += c.text;
+        }
+      } else if (typeof p.content === "string") {
+        text6 = p.content;
+      }
+      if (images.length > 0) {
+        const textBlocks = text6 ? [{ kind: "text", data: { text: text6 } }] : [];
+        out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
+        continue;
+      }
+      if (!text6) continue;
+      const systemSubtype = classifyCodexSystemText(text6);
+      if (systemSubtype) {
+        out.push({
+          role: "system",
+          blocks: [{ kind: "text", data: { text: text6, subtype: systemSubtype } }],
+          sourceType: v.type,
+          sourceSubtype: systemSubtype,
+          ts,
+          timestamp: tsIso
+        });
+        continue;
+      }
+      out.push({ role, blocks: [{ kind: "text", data: { text: text6 } }], ts, timestamp: tsIso });
+    } else if (p.type === "function_call") {
+      let input = {};
+      try {
+        input = JSON.parse(p.arguments || "{}");
+      } catch (_) {
+        input = { raw: p.arguments };
+      }
+      if (input && input.cmd && !input.command) input.command = input.cmd;
+      const name = typeof p.name === "string" ? p.name.trim() : "";
+      if (isInternalOrchestrationCall(name) || !hasUsefulFunctionCall(name, input, p.arguments)) continue;
+      const callId = typeof p.call_id === "string" ? p.call_id : "";
+      const canonical = canonicalToolFields(name, input);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input, ...canonical } }],
+        ts,
+        timestamp: tsIso
+      });
+    } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
+      const callId = typeof p.call_id === "string" ? p.call_id : "";
+      const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : void 0;
+      commandPairing.fileChanges.delete(callId);
+      if (pending) commandPairing.pending.delete(callId);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_result", data: {
+          content: codexToolOutputText(p.output),
+          tool_use_id: callId,
+          ...pending ? commandPairingResult(pending) : {}
+        } }],
+        ts,
+        timestamp: tsIso
+      });
+    } else if (p.type === "reasoning") {
+      pushOnce(reasoningResponseRow(p, ts, tsIso));
+    } else if (p.type === "agent_message") {
+      pushOnce(agentMessageRow(p, ts, tsIso));
+    } else if (p.type === "custom_tool_call") {
+      let name = typeof p.name === "string" ? p.name.trim() : "";
+      if (!name) continue;
+      if (isInternalOrchestrationCall(name)) continue;
+      let input = {};
+      if (name === "apply_patch" && typeof p.input === "string") {
+        input = { patch: p.input };
+      } else if (typeof p.input === "string") {
+        try {
+          input = JSON.parse(p.input);
+        } catch (_) {
+          input = { raw: p.input };
+        }
+      } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
+        input = p.input;
+      }
+      const nestedPatch = name === "exec" && typeof input.raw === "string" ? nestedApplyPatch(input.raw) : null;
+      if (nestedPatch) {
+        name = "apply_patch";
+        input = { patch: nestedPatch };
+      }
+      const callId = typeof p.call_id === "string" ? p.call_id : "";
+      const canonical = canonicalToolFields(name, input);
+      const message = {
+        role: "assistant",
+        blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
+        ts,
+        timestamp: tsIso
+      };
+      const commands = name === "exec" && callId && typeof input.raw === "string" ? execScriptCommands(input.raw) : [];
+      out.push(message);
+      const patchTurn = callTurnId(p);
+      const fingerprint = typeof input.patch === "string" ? editFingerprint(patchEdits(input.patch)) : "";
+      if (callId && patchTurn && fingerprint) {
+        commandPairing.fileChanges.set(callId, { turnId: patchTurn, fingerprint });
+        trimPendingCalls(commandPairing);
+      }
+      if (commands.length > 0) {
+        const turnId = callTurnId(p);
+        if (!turnId) continue;
+        commandPairing.pending.delete(callId);
+        commandPairing.pending.set(callId, {
+          commandCount: commands.length,
+          commands,
+          completedCommands: /* @__PURE__ */ new Set(),
+          commandResults: [],
+          turnId
+        });
+        trimPendingCalls(commandPairing);
+      }
+    }
+  }
+  if (commandPairing.sessionKey && commandPairing.pending.size === 0 && commandPairing.fileChanges.size === 0) {
+    commandPairingSessions.delete(commandPairing.sessionKey);
+  }
+  stampRows(previousRow);
+  return { messages: out };
+}
+function parseSessionMessages(text6) {
+  const out = [];
+  let hadInvalid = false;
+  for (const { value: v } of sessionRecords(text6)) {
+    if (!isValidCodexSessionMessage(v)) {
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    if (!v || v.type !== "response_item") continue;
+    const payload = v.payload;
+    if (!payload || payload.type !== "message") continue;
+    const role = payload.role;
+    if (role !== "user" && role !== "assistant") continue;
+    const content = payload.content;
+    if (!Array.isArray(content)) continue;
+    const chunks = [];
+    for (let j = 0; j < content.length; j++) {
+      const b = content[j];
+      if (!b) continue;
+      if ((b.type === "input_text" || b.type === "output_text" || b.type === "text") && typeof b.text === "string") {
+        chunks.push(b.text);
+      }
+    }
+    const text22 = chunks.join(" ");
+    if (!text22.trim()) continue;
+    let ts = null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1e3);
+    }
+    const systemSubtype = classifyCodexSystemText(text22);
+    if (systemSubtype) {
+      out.push({ role: "system", text: text22, ts, isMeta: true, sourceSubtype: systemSubtype });
+    } else {
+      out.push({ role, text: text22, ts, isMeta: false });
+    }
+  }
+  return out;
 }
 var plugin_default = plugin;

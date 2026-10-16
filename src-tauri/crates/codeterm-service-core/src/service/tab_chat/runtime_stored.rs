@@ -70,6 +70,11 @@ struct Window {
     frozen: bool,
 }
 
+enum StoredInput {
+    Text(String, u64, u64),
+    Records(codeterm_plugin::jsonl_window::records::RecordWindow),
+}
+
 fn read_window(path: &Path, before: Option<u64>) -> Result<(String, u64, u64), String> {
     let total = std::fs::metadata(path)
         .map_err(|error| error.to_string())?
@@ -127,10 +132,32 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
         return Ok(None);
     }
     let started = std::time::Instant::now();
-    let (records, start, end) = read_window(&path, before)?;
+    let input = if provider.record_source("storedHistory").is_some() {
+        StoredInput::Records(super::jsonl_kernel::stored_window(
+            provider.as_ref(),
+            session,
+            &path,
+            before,
+            WINDOW_BYTES,
+        )?)
+    } else {
+        let (records, start, end) = read_window(&path, before)?;
+        StoredInput::Text(records, start, end)
+    };
     let read_us = started.elapsed().as_micros();
     let projecting = std::time::Instant::now();
-    let messages = provider.runtime_stored_history(session, &records)?;
+    let (messages, start, end) = match input {
+        StoredInput::Text(records, start, end) => (
+            provider.runtime_stored_history(session, &records)?,
+            start,
+            end,
+        ),
+        StoredInput::Records(window) => (
+            provider.runtime_stored_records(session, &window)?,
+            window.meta.from_offset,
+            window.meta.new_offset,
+        ),
+    };
     let projection_us = projecting.elapsed().as_micros();
     let current = svc.mux.read().get_tab(tab_id).is_some_and(|current| {
         current.agent_type == tab.agent_type
@@ -143,7 +170,7 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
     log::debug!(
         "[chat-attach] tab={tab_id} phase=stored_snapshot elapsed_ms={} read_us={read_us} projection_us={projection_us} bytes={} rows={}",
         started.elapsed().as_millis(),
-        records.len(),
+        end.saturating_sub(start),
         messages.len()
     );
     Ok(Some(Window {
