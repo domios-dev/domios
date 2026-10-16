@@ -1,5 +1,7 @@
 use std::sync::Mutex;
 
+use codeterm_service_core::service::restore_admission::{changes, Priority};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum RestoreTransport {
     Pty,
@@ -17,11 +19,16 @@ impl RestoreTransport {
 
 #[derive(Clone, Copy)]
 pub(super) struct RestoreBudgets {
-    pub pty: usize,
+    pub foreground: usize,
+    pub background: usize,
     pub chat: usize,
 }
 
-pub(super) const RESTORE_BUDGETS: RestoreBudgets = RestoreBudgets { pty: 4, chat: 2 };
+pub(super) const RESTORE_BUDGETS: RestoreBudgets = RestoreBudgets {
+    foreground: 1,
+    background: 4,
+    chat: 2,
+};
 
 pub(super) fn ordered_ids(mut tabs: Vec<(String, bool, Option<u64>)>) -> Vec<String> {
     tabs.sort_by(|left, right| {
@@ -45,11 +52,23 @@ fn run_wave<T: Sync>(
     run_transport_waves(
         items,
         RestoreBudgets {
-            pty: limit,
+            foreground: 0,
+            background: limit,
             chat: 1,
         },
         |_| RestoreTransport::Pty,
-        preferred,
+        || {
+            let focused = preferred();
+            (0..items.len())
+                .map(|index| {
+                    if Some(index) == focused {
+                        Priority::Focused
+                    } else {
+                        Priority::Background
+                    }
+                })
+                .collect()
+        },
         validate,
         materialize,
     )
@@ -59,11 +78,11 @@ pub(super) fn run_transport_waves<T: Sync>(
     items: &[T],
     budgets: RestoreBudgets,
     transport: impl Fn(&T) -> RestoreTransport,
-    preferred: impl Fn() -> Option<usize> + Sync,
+    priorities: impl Fn() -> Vec<Priority> + Sync,
     mut validate: impl FnMut(&T) -> Result<(), String>,
     materialize: impl Fn(&T) -> Result<(), String> + Sync,
 ) -> Vec<Result<(), String>> {
-    assert!(budgets.pty > 0 && budgets.chat > 0);
+    assert!(budgets.background > 0 && budgets.chat > 0);
     let checked = items.iter().map(&mut validate).collect::<Vec<_>>();
     let mut ready = [Vec::new(), Vec::new()];
     for (index, result) in checked.iter().enumerate() {
@@ -79,24 +98,34 @@ pub(super) fn run_transport_waves<T: Sync>(
     );
     let pending = ready.map(Mutex::new);
     std::thread::scope(|scope| {
-        let preferred = &preferred;
+        let priorities = &priorities;
         let materialize = &materialize;
         let results = &results;
-        for (kind, limit) in [
-            (RestoreTransport::Pty, budgets.pty),
-            (RestoreTransport::Chat, budgets.chat),
+        for (kind, limit, foreground_only) in [
+            (RestoreTransport::Pty, budgets.foreground, true),
+            (RestoreTransport::Pty, budgets.background, false),
+            (RestoreTransport::Chat, budgets.chat, false),
         ] {
             let pending = &pending[kind.index()];
             let workers = limit.min(pending.lock().unwrap().len());
             for _ in 0..workers {
                 scope.spawn(move || loop {
-                    let preferred = preferred();
-                    let index = take_next(&mut pending.lock().unwrap(), preferred);
-                    let Some(index) = index else {
-                        break;
+                    let observed = changes().revision();
+                    let index = {
+                        let mut pending = pending.lock().unwrap();
+                        if pending.is_empty() {
+                            break;
+                        }
+                        take_prioritized(&mut pending, &priorities(), foreground_only)
                     };
+                    let Some(index) = index else {
+                        changes().wait(observed);
+                        continue;
+                    };
+                    changes().notify();
                     let result = materialize(&items[index]);
                     results.lock().unwrap()[index] = Some(result);
+                    changes().notify();
                 });
             }
         }
@@ -109,14 +138,33 @@ pub(super) fn run_transport_waves<T: Sync>(
         .collect()
 }
 
-fn take_next(pending: &mut Vec<usize>, preferred: Option<usize>) -> Option<usize> {
-    if pending.is_empty() {
-        return None;
-    }
-    let position = preferred
-        .and_then(|preferred| pending.iter().position(|index| *index == preferred))
-        .unwrap_or(0);
+fn take_prioritized(
+    pending: &mut Vec<usize>,
+    priorities: &[Priority],
+    foreground_only: bool,
+) -> Option<usize> {
+    let position = pending
+        .iter()
+        .enumerate()
+        .filter(|(_, index)| !foreground_only || priorities[**index] != Priority::Background)
+        .min_by_key(|(_, index)| priorities[**index])
+        .map(|(position, _)| position)?;
     Some(pending.remove(position))
+}
+
+#[cfg(test)]
+fn take_next(pending: &mut Vec<usize>, preferred: Option<usize>) -> Option<usize> {
+    let len = pending.iter().copied().max().map_or(0, |index| index + 1);
+    let priorities = (0..len)
+        .map(|index| {
+            if Some(index) == preferred {
+                Priority::Focused
+            } else {
+                Priority::Background
+            }
+        })
+        .collect::<Vec<_>>();
+    take_prioritized(pending, &priorities, false)
 }
 
 #[cfg(test)]
