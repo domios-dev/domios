@@ -33,7 +33,8 @@ fn is_worker_spawn(params: &SpawnAgentParams) -> bool {
 
 /// A Worker holds a task when the spawn names one, by either flag that can.
 fn worker_spawn_is_task_bound(params: &SpawnAgentParams) -> bool {
-    worker_spawn_plan_task_ref(params).is_some()
+    params.task_launch_authority.is_some()
+        || worker_spawn_plan_task_ref(params).is_some()
         || params
             .task_id
             .as_deref()
@@ -60,6 +61,14 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
         }
     }
     if is_worker_spawn(params) && worker_spawn_is_task_bound(params) {
+        if !matches!(
+            params.execution_intent,
+            Some(crate::plan::ExecutionIntent::ReadOnly | crate::plan::ExecutionIntent::Mutating)
+        ) {
+            return Err(
+                "A task-bound Worker requires --execution-intent read_only or mutating".into(),
+            );
+        }
         if let Some(title) = params.title.as_deref() {
             crate::service::plan::worker_identity::validate_executor_name(title)?;
         }

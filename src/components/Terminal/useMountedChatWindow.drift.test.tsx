@@ -142,4 +142,3 @@ describe("useMountedChatWindow spacer drift", () => {
     expect(api.foldDrift()).toBe(0);
   });
 });
-

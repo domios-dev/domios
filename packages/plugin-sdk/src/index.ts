@@ -55,5 +55,6 @@ export { recordedTextDiff, recordedPatchDiff, type RecordedFileDiff } from "./fi
 export type { ModelProviderConfig, ModelProviderDefinition, ModelPreset } from './modelProviders';
 
 export * from "./agentRuntime";
+export type { ExecutionSandboxCapability, ExecutionSandboxMode } from "./executionSandbox";
 export { activityLabel, activityCommand, type ActivityTool } from "./activityLabel";
 export type { ChatAttachment } from "./gen/ChatAttachment";
