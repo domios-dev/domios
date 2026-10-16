@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { act, createElement } from "react";
+import { act, createElement, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
+import { workspacePrewarmInput } from "./workspacePrewarmModel";
+import { WorkspacePaneState } from "../../components/shared/FolderPaneState";
+import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import type { Workspace } from "../../lib/types";
 import { setTerminalReadingHistory } from "./terminalHistoryReaders";
 import {
   MOUNTED_TAB_CAPACITY,
@@ -136,14 +139,7 @@ test("an unchanged mounted set keeps its identity", () => {
   assert.equal(retainMountedTabs(mounted, null, ["tab-a", "tab-b"], never), mounted);
 });
 
-test("App provider key invokes the hook prewarm callback exactly once", async () => {
-  const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
-  assert.match(appSource, /prewarmTab:\s*prewarmBackendTab/);
-  assert.match(
-    appSource,
-    /shouldMountTab\s*=\s*!ws\.cwd_missing\s*&&\s*\(isActiveTab\s*\|\|\s*isMainTab\s*\|\|\s*prewarmTabIds\.has\(tabId\)\)/,
-  );
-
+test("the prewarm hook invokes its backend callback exactly once", async () => {
   const frames = installDom();
 
   const calls: string[] = [];
@@ -218,4 +214,45 @@ test("switching through many tabs keeps the mounted set bounded and keeps a hist
 
   await act(async () => root.unmount());
   host.remove();
+});
+
+
+test("a missing-folder workspace mounts no tabs and requests no backend prewarm until recovery", async () => {
+  const frames = installDom();
+  const workspace: Workspace = { id: "workspace", name: "Project", cwd: "/missing", cwd_missing: true,
+    tabs: ["tab-a", "tab-b"], active_tab_id: "tab-a" };
+  const tabs = { "tab-a": {}, "tab-b": {} };
+  const calls: string[] = [];
+  const mounts: string[] = [];
+  const prewarmTab = async (id: string) => { calls.push(id); };
+  const actions = { setWorkspaceCwd: async () => {} } as unknown as MultiplexerActionsContextType;
+  function TabProbe({ id }: { id: string }) {
+    useEffect(() => { mounts.push(id); }, [id]);
+    return createElement("textarea", { "aria-label": id });
+  }
+  function Probe({ current }: { current: Workspace }) {
+    useTabPrewarm({ ...workspacePrewarmInput(current, "tab-a", tabs), liveTabIds: current.tabs, prewarmTab });
+    return createElement(MultiplexerActionsContext.Provider, { value: actions },
+      createElement(WorkspacePaneState, { workspace: current },
+        current.tabs.map(id => createElement(TabProbe, { key: id, id }))));
+  }
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => { root.render(createElement(Probe, { current: workspace })); });
+    assert.deepEqual(mounts, []);
+    assert.deepEqual(calls, []);
+    assert.equal(frames.length, 0);
+    assert.equal(host.querySelector("textarea"), null);
+    assert(host.querySelector('[role="alert"]'));
+    await act(async () => { root.render(createElement(Probe, { current: { ...workspace, cwd_missing: false } })); });
+    assert.deepEqual(mounts, ["tab-a", "tab-b"]);
+    assert.equal(frames.length, 1);
+    await act(async () => { frames.shift()!(0); await Promise.resolve(); });
+    assert.deepEqual(calls, ["tab-b"]);
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+  }
 });
