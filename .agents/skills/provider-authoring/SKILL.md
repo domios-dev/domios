@@ -5,6 +5,28 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`capabilities.recordSources` opts JSONL sources into parsed records. Declare
+`sessionTranscript` for `parseSessionRecords(records, meta)` (delta rows) and
+`parseSessionMessageRecords(records, meta)` (search rows), or `storedHistory`
+for `runtimeStoredRecords(sessionId, records, meta)`. Each hook independently
+falls back to its text sibling when absent. Records are host-built JS objects,
+never JSON text, shaped `{offset,row,value,oversized?,bytes?}`. Preserve `row`
+as returned delta rows' `recordIndex`, and return `new_offset: meta.newOffset`.
+Meta carries `fromOffset`, `toOffset`, `newOffset`, `truncatedTail` and counts
+`{total,matched,invalid,oversized}`. The host owns byte advancement.
+
+A source declares `{format:"jsonl",filter:{type:{path:["type"],in:["user"]},
+where:[{path:["payload","thread_id"],equals:{placeholder:"sessionId"}}]}}`.
+Type and where are optional; missing paths never satisfy equality. Only
+`sessionId` is a placeholder; other equality values are literal JSON. No new
+filesystem, environment, sqlite or subprocess host function is exposed.
+`maxRecordBytes` may lower the existing source threshold; omitted retains it.
+`oversized.keep` lists paths whose bounded metadata survives in oversized
+records; the plugin owns its truncation rows. Invalid JSON records are counted
+and dropped. Keep text/records sibling fixture parity, including offsets and
+oversized metadata. Measure the 1 MiB marshalling oracle in canonical before
+claiming a speedup; live VM timing remains a separate end-to-end gate.
+
 JSONL cursor recovery calls the host's `parse_session_delta_bounded` capability.
 The JS host owns the byte budget and complete-record offsets; `parseSessionDelta`
 still receives the same line-aligned chunk and gains no filesystem access.

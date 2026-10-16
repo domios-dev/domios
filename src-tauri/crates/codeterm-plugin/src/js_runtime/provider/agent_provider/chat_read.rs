@@ -29,8 +29,39 @@ impl JsProvider {
         {
             return Err("Provider has no native stored runtime history projection".into());
         }
+        if let Some(source) = self
+            .manifest
+            .capabilities
+            .record_sources
+            .get("storedHistory")
+            .filter(|_| self.has_js("runtimeStoredRecords"))
+        {
+            let window = crate::jsonl_window::records::parse_records_with_limit(
+                records.as_bytes(),
+                0,
+                source,
+                Some(session_id),
+                1024 * 1024,
+            );
+            return self.js_runtime_stored_records(session_id, &window);
+        }
         self.try_call("runtimeStoredHistory", &[json!(session_id), json!(records)])
             .ok_or_else(|| "Stored runtime history projection failed".into())
+    }
+
+    pub(super) fn js_runtime_stored_records(
+        &self,
+        session_id: &str,
+        window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
+        if let Some(error) = &window.projection_error {
+            return Err(error.clone());
+        }
+        self.try_call(
+            "runtimeStoredRecords",
+            &[json!(session_id), json!(window.records), json!(window.meta)],
+        )
+        .ok_or_else(|| "Stored runtime record projection failed".into())
     }
 
     pub(super) fn js_structured_tool_file_diffs(
