@@ -29,6 +29,12 @@ and dropped. Keep text/records sibling fixture parity, including offsets and
 oversized metadata. Measure the 1 MiB marshalling oracle in canonical before
 claiming a speedup; live VM timing remains a separate end-to-end gate.
 
+`sessionResume()` returns `{exact: boolean}`. Declare `true` only when relaunching
+the same session id restores its conversation and identity while preserving the
+tab's transcript source. Missing, malformed or false declarations disable idle
+sleep. This pure declaration adds no host API or sandbox access; native providers
+implement `supports_exact_session_resume()`, with native/JS parity coverage.
+
 JSONL cursor recovery calls the host's `parse_session_delta_bounded` capability.
 The JS host owns the byte budget and complete-record offsets; `parseSessionDelta`
 still receives the same line-aligned chunk and gains no filesystem access.

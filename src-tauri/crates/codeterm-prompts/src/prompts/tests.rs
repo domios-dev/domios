@@ -770,6 +770,7 @@ fn every_prompt_md_has_a_loader() {
         "utility_tab_guidance.md",
         "plugin_discovery_rule.md",
         "agent_pad_rule.md",
+        "read_only_worker_guidance.md",
         "worker_codeterm_context.md",
         "rich_rendering_guidance.md",
         "codeterm_cli.md",

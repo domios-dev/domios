@@ -325,15 +325,17 @@ pub trait AgentProvider: Send + Sync {
         self.session_file_path(cwd, session_id)?.try_exists().ok()
     }
 
-    /// Session creation time, for providers whose sessions have no per-session
-    /// file (sqlite-backed, e.g. opencode).
-    /// Default `None` — file-based providers rely on filesystem timestamps.
+    /// Creation evidence for sessions without a per-session file.
     fn session_created_at(&self, _cwd: &str, _session_id: &str) -> Option<std::time::SystemTime> {
         None
     }
 
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
+
+    fn supports_exact_session_resume(&self) -> bool {
+        false
+    }
 
     /// Resume command carrying the full launch context: trailing `args` plus
     /// `system_prompt` re-applied through this provider's own system-prompt

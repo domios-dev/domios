@@ -4197,7 +4197,7 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/provider/agent_provider.rs",
       "token": "opencode",
-      "count": 4,
+      "count": 3,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },

@@ -120,3 +120,19 @@ Mechanism ownership:
 | Board/card lane visibility | `task_03bf8da6` / `task_73ea1b9d` |
 | Auto cleanup | `task_540e7afa` |
 | Polling-smell nudges | `task_25dbe180` |
+
+## Transfer an acknowledged Worker between Teams
+
+For an acknowledged task-bound Worker in another Team's approved plan,
+the current source parent Orchestrator may use
+`codeterm agent link --parent-tab <destination> --tab <worker>` to transfer it
+to that plan's live Orchestrator in the same local workspace. Preserve plan,
+task, attempt, lane, session and nonce. The destination cannot pull it.
+Mismatched plan owner, binding, session or isolated lane refuses without state
+changes; recover or replace stale/ambiguous work through the existing task route.
+`team adopt-agent` is only for unbound roleless tabs.
+Only hierarchy and report placement move. Shell parent/Team environment values
+remain launch provenance, never current membership proof; resolve reports from
+live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
+
+<!-- revision: 1 -->
