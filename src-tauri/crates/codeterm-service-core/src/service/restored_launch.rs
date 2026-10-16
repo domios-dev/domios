@@ -3,6 +3,10 @@ use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::SpawnAgentParams;
 
+pub(crate) fn direct_restore_capable(provider: &dyn crate::agent::provider::AgentProvider) -> bool {
+    provider.declares_launch_spec()
+}
+
 pub fn restored_resume_session_id(
     resume_sessions_enabled: bool,
     session_id: Option<&str>,
