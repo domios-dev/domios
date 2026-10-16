@@ -214,6 +214,13 @@ function gitSha() {
   return sha;
 }
 
+function provenanceSha(options) {
+  if (!options.has("--launch-sha")) return gitSha();
+  const sha = option(options, "--launch-sha");
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("invalid launch SHA");
+  return sha;
+}
+
 function instanceFrom(options) {
   return {
     name: option(options, "--instance", true),
@@ -234,7 +241,7 @@ function artifactPaths(options) {
 
 function buildProvenance(options) {
   const expectedSha = option(options, "--build-sha");
-  const currentSha = gitSha();
+  const currentSha = provenanceSha(options);
   if (expectedSha !== currentSha) throw new Error(`build SHA mismatch: expected ${expectedSha}, got ${currentSha}`);
   const paths = artifactPaths(options);
   return {
@@ -290,7 +297,7 @@ function checkProvenance(options) {
   }
   assertKeys(data, ["schema", "buildSha", "inputsSha256", "instance", "artifacts"], "record");
   if (data.schema !== provenanceSchema) throw new Error(`unsupported record schema: ${data.schema}`);
-  if (data.buildSha !== gitSha()) throw new Error("recorded build commit does not match HEAD");
+  if (data.buildSha !== provenanceSha(options)) throw new Error("recorded build commit does not match HEAD or launch SHA");
   if (!/^[0-9a-f]{64}$/.test(data.inputsSha256) || data.inputsSha256 !== inputFingerprint()) {
     throw new Error("recorded build inputs are stale");
   }

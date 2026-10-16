@@ -40,7 +40,7 @@ function fixture() {
   return { directory, checkout, sha };
 }
 
-function provenance(checkout, cwd, target, sha, operation) {
+function provenance(checkout, cwd, target, sha, operation, launchSha = '') {
   return spawnSync(bash, ['-c', `set -euo pipefail
 ${functions}
 cd "$1"
@@ -48,9 +48,55 @@ CT_DATA_DIR="$2/data"
 CARGO_TARGET_DIR="$3/target"
 CARGO_BUILD_TARGET=
 CT_INSTANCE=fixture CT_PORT=7786 CT_VITE_PORT=1520 CT_CDP_PORT=9323 CT_IDENTIFIER=fixture.dev
+CODETERM_BUILD_SHA="$4"
+CT_DEV_PROVENANCE_SHA="$5"
 ${operation} "$4"
-`, '--', cwd, checkout, target, sha], { encoding: 'utf8' });
+`, '--', cwd, checkout, target, sha, launchSha], { encoding: 'utf8' });
 }
+
+test('commit during build preserves launch identity across prebuilt handoff', () => {
+  const { directory, checkout, sha } = fixture();
+  try {
+    const initialized = spawnSync(bash, ['-c', `set -euo pipefail
+${sourceFunction('initialize_build_identity')}
+CMD=dev
+initialize_build_identity
+original_short="$CODETERM_BUILD_HASH"
+git -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null commit --allow-empty -qm later
+CT_DEV_HANDOFF_SHA="$CODETERM_BUILD_SHA"
+CT_DEV_HANDOFF_HASH="$CODETERM_BUILD_HASH"
+export CT_DEV_HANDOFF_SHA CT_DEV_HANDOFF_HASH
+export -f initialize_build_identity
+bash -c '
+set -euo pipefail
+CMD=dev-prebuilt
+initialize_build_identity
+[ "$CODETERM_BUILD_SHA" = "$1" ]
+[ "$CODETERM_BUILD_HASH" = "$2" ]
+[ "$CODETERM_FRONTEND_BUILD_HASH" = "$2" ]
+[ "$CT_DEV_PROVENANCE_SHA" = "$1" ]
+[ -z "\${CT_DEV_HANDOFF_SHA+x}" ]
+[ -z "\${CT_DEV_HANDOFF_HASH+x}" ]
+' -- "$1" "$original_short"
+node -e 'const {resolveBuildIdentity}=require("./scripts/build-identity.cjs"); if(resolveBuildIdentity()!==process.env.CODETERM_BUILD_HASH) process.exit(1)'
+`, '--', sha], { cwd: checkout, encoding: 'utf8' });
+    assert.equal(initialized.status, 0, initialized.stderr);
+    assert.notEqual(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }), sha);
+    const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance');
+    assert.equal(written.status, 0, written.stderr);
+    const internal = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', sha);
+    assert.equal(internal.status, 0, internal.stderr);
+    const standalone = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
+    assert.equal(standalone.status, 1);
+    assert.match(standalone.stderr, /recorded build commit does not match/);
+    fs.appendFileSync(path.join(checkout, 'dist/index.html'), 'changed');
+    const tampered = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', sha);
+    assert.equal(tampered.status, 1);
+    assert.match(tampered.stderr, /frontend artifact content mismatch/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 for (const aliasKind of process.platform === 'win32' ? ['junction', 'subst'] : ['symlink']) {
   test(`gateway write then standalone prebuilt verifies after ${aliasKind} removal`, () => {

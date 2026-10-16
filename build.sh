@@ -246,7 +246,25 @@ setup_env() {
   fi
 }
 
-export CODETERM_FRONTEND_BUILD_HASH="$(git rev-parse --short HEAD 2>/dev/null || true)"
+initialize_build_identity() {
+  CT_DEV_PROVENANCE_SHA=
+  if [ "$CMD" = dev-prebuilt ] && [ -n "${CT_DEV_HANDOFF_SHA:-}" ]; then
+    CODETERM_BUILD_SHA="$CT_DEV_HANDOFF_SHA"
+    CODETERM_BUILD_HASH="${CT_DEV_HANDOFF_HASH:?internal dev handoff requires its short hash}"
+    CT_DEV_PROVENANCE_SHA="$CT_DEV_HANDOFF_SHA"
+  else
+    CODETERM_BUILD_SHA="$(git rev-parse HEAD)"
+    CODETERM_BUILD_HASH="$(git rev-parse --short "$CODETERM_BUILD_SHA")"
+  fi
+  unset CT_DEV_HANDOFF_SHA CT_DEV_HANDOFF_HASH
+  [[ "$CODETERM_BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "$CODETERM_BUILD_HASH" =~ ^[0-9a-f]{7,40}$ ]] || return 1
+  [[ "$CODETERM_BUILD_SHA" = "$CODETERM_BUILD_HASH"* ]] || return 1
+  export CODETERM_BUILD_SHA
+  export CODETERM_BUILD_HASH
+  export CODETERM_FRONTEND_BUILD_HASH="$CODETERM_BUILD_HASH"
+}
+initialize_build_identity
 
 # --- Kill THIS dev instance only (never prod, never another worktree) ---
 # Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.
@@ -1317,6 +1335,7 @@ dev_provenance_record() {
 write_dev_provenance() {
   local build_sha="$1"
   node scripts/dev-prep.mjs --write-provenance \
+    --launch-sha "$CODETERM_BUILD_SHA" \
     --record "$(dev_provenance_record)" \
     --build-sha "$build_sha" \
     --app "$(dev_app_path)" \
@@ -1330,7 +1349,12 @@ write_dev_provenance() {
 }
 
 validate_dev_provenance() {
+  local launch_args=()
+  if [ -n "${CT_DEV_PROVENANCE_SHA:-}" ]; then
+    launch_args=(--launch-sha "$CT_DEV_PROVENANCE_SHA")
+  fi
   node scripts/dev-prep.mjs --check-provenance \
+    "${launch_args[@]}" \
     --record "$(dev_provenance_record)" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
@@ -1832,7 +1856,7 @@ build_and_launch_dev() {
     build_args+=(--features "$CT_DEV_CARGO_FEATURES")
   fi
   TAURI_CONFIG="$(cat "$conf")" cargo build "${build_args[@]}"
-  build_sha="$(git rev-parse HEAD)"
+  build_sha="$CODETERM_BUILD_SHA"
   build_dev_frontend
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
@@ -1840,7 +1864,7 @@ build_and_launch_dev() {
   record_dev_target "$(tauri_debug_dir)"
   complete_build_gateway_before_handoff
   echo "Build gateway released; launching validated dev artifact."
-  exec bash ./build.sh dev-prebuilt "$@"
+  CT_DEV_HANDOFF_SHA="$CODETERM_BUILD_SHA" CT_DEV_HANDOFF_HASH="$CODETERM_BUILD_HASH" exec bash ./build.sh dev-prebuilt "$@"
 }
 
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
@@ -3031,7 +3055,7 @@ LOCK_STORM_PY
       node scripts/dev-prep.mjs --launch-prebuilt \
         --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT"
       HEALTH="$(dev_health_status)"
-      EXPECTED_BUILD_SHA="$(git rev-parse HEAD)"
+      EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
       SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH")"
       echo "Prebuilt dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
       if [ -n "$DEV_NOTIFY_TAB" ]; then
@@ -3045,7 +3069,7 @@ LOCK_STORM_PY
         INTERACTIVE_LOG="/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
         : > "$INTERACTIVE_LOG"
         DEV_NOTIFY_LOG="$INTERACTIVE_LOG"
-        EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+        EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
         DEV_NOTIFY_STAGE=launch
         DEV_NOTIFY_WAITER_PID=
         exec 3> >(report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev)
@@ -3093,7 +3117,7 @@ LOCK_STORM_PY
       if [ "$HEALTH_STATUS" = "ok" ] && [ "$HEALTH_API_PORT" = "$CT_PORT" ]; then
         SHA="$HEALTH_SHA"
         if [ -n "$DEV_NOTIFY_TAB" ]; then
-          EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+          EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
           if SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null)"; then
             echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
             dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
