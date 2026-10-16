@@ -89,7 +89,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   min-width: 0;
   flex-wrap: wrap;
   gap: 6px;
-  margin-left: 0;
+  margin-left: auto;
 }
 
 .ct-ctx__kinds[hidden] { display: none; }
