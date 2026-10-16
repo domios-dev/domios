@@ -10,6 +10,8 @@ for (const failure of [0, 42]) {
     const script = `set -euo pipefail
 ${fn.replace('exec bash ./build.sh', 'launch')}
 CODETERM_WEB_DIST= CT_DEV_CARGO_PROFILE= CT_DEV_CARGO_FEATURES=
+CODETERM_BUILD_SHA=opaque-sha
+CODETERM_BUILD_HASH=opaque-short
 owned=1
 gateway_cwd="$PWD"
 configure_dev_cargo() { CT_DEV_CARGO_PROFILE=dev; CT_DEV_CARGO_FEATURES=opaque; }
@@ -24,7 +26,7 @@ release_stable_build_path() { [ "$owned" = 1 ]; mapping=0; cd /; }
 tauri_debug_dir() { echo opaque-target; }
 record_dev_target() { [ "$mapping" = 0 ]; }
 complete_build_gateway_before_handoff() { [ "$mapping" = 0 ]; owned=0; echo released; }
-launch() { [ "$owned" = 0 ]; [ "$PWD" != "$gateway_cwd" ]; printf 'launch %s\\n' "$*"; }
+launch() { [ "$owned" = 0 ]; [ "$PWD" != "$gateway_cwd" ]; [ "$CT_DEV_HANDOFF_SHA" = "$CODETERM_BUILD_SHA" ]; [ "$CT_DEV_HANDOFF_HASH" = "$CODETERM_BUILD_HASH" ]; printf 'launch %s\\n' "$*"; }
 build_and_launch_dev --wait --notify-tab opaque-tab`;
     const result = spawnSync(bash, ['-c', script], { encoding: 'utf8' });
     assert.equal(result.status, failure, result.stderr);
