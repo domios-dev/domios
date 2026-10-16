@@ -124,7 +124,6 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
-opt-level = 3
 
 [profile.test]
 split-debuginfo = "unpacked"
