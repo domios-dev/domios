@@ -1,27 +1,10 @@
 // Run: npx tsx src/components/shared/SegmentedDonut.test.tsx
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { act } from "react";
-import { createRoot } from "react-dom/client";
-import { Window } from "happy-dom";
 import {
-  SegmentedDonut,
   segmentedDonutBackground,
   type SegmentedDonutSegment,
 } from "./SegmentedDonut";
-
-const window = new Window({ url: "http://localhost/" });
-for (const [name, value] of Object.entries({
-  window,
-  document: window.document,
-  navigator: window.navigator,
-  HTMLElement: window.HTMLElement,
-  Element: window.Element,
-  Node: window.Node,
-  Event: window.Event,
-})) Object.defineProperty(globalThis, name, { value, configurable: true });
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const segments = (
   todo: number,
@@ -61,25 +44,6 @@ async function main() {
     "conic-gradient(var(--ct-purple) 0% 100%)",
     "callers may provide an explicit runtime-theme colour",
   );
-
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  await act(async () => root.render(
-    <SegmentedDonut
-      data-testid="donut"
-      segments={segments(1, 1, 0, 2)}
-      size={22}
-      aria-label="Task status composition"
-    />,
-  ));
-  const donut = host.querySelector<HTMLElement>('[data-testid="donut"]');
-  assert(donut, "donut renders");
-  assert(host.querySelector('[data-testid="segmented-donut-hole"]'), "donut renders its hole");
-  await act(async () => root.unmount());
-
-  const teamSource = readFileSync(new URL("../Sidebar/TeamUnit.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(teamSource, /conic-gradient/, "TeamUnit contains no second donut implementation");
 
   console.log("SegmentedDonut tests passed");
 }

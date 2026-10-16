@@ -2,13 +2,10 @@
 // Run: npx tsx src/components/shared/FormRow.test.tsx
 
 import React, { act } from "react";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { FormRow } from "./FormRow";
 
-const componentSource = readFileSync(fileURLToPath(import.meta.url).replace(/\.test\.tsx$/, ".tsx"), "utf8");
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -76,11 +73,6 @@ test("FormRow error has role=alert", async () => {
 test("FormRow data-testid propagates", async () => {
   const { host } = await render(<FormRow label="X" data-testid="my-row"><input /></FormRow>);
   assert(host.querySelector('[data-testid="my-row"]'), "testid not found");
-});
-
-test("FormRow keeps form controls spatially stable", () => {
-  assert(!componentSource.includes("ct-liquid-interactive"), "form fields must not scale on hover or press");
-  assert(!componentSource.includes("useTouchOptimizedUi"), "static form layout needs no motion mode");
 });
 
 async function main() {

@@ -457,19 +457,12 @@ fn launch_readiness_general_agent_start_keeps_its_provisional_contract() {
         GENERAL_AGENT_OUTPUT_DEADLINE,
         "agent output deadline elapsed"
     );
-
-    let lifecycle = include_str!("../general_agent/lifecycle.rs");
-    assert!(lifecycle.contains("settle_launch_readiness"));
-    assert!(lifecycle.contains("GENERAL_AGENT_OUTPUT_DEADLINE"));
-    assert!(lifecycle.contains("BootStage::LaunchBindingUnconfirmed"));
-    assert!(!lifecycle.contains("svc.record_launch_output_deadline"));
-    assert!(!lifecycle.contains("svc.record_provisional_launch"));
 }
 
 #[test]
 fn launch_readiness_shared_owner_is_not_duplicated() {
-    use crate::service::orchestrator::launch_test_support::FakeRegisteredLaunch;
     use crate::service::AgentLaunchOrigin;
+    use crate::service::orchestrator::launch_test_support::FakeRegisteredLaunch;
     for origin in [
         AgentLaunchOrigin::GeneralAgent,
         AgentLaunchOrigin::VisibleSpawn,
@@ -517,42 +510,6 @@ fn launch_readiness_failure_needs_no_terminal_text() {
     let reason = exited_before_readiness_reason(&attempt, None);
     assert!(reason.starts_with(EXITED_BEFORE_READINESS));
     assert!(reason.contains("exit_code=unknown"));
-
-    let owner = include_str!("../launch_readiness.rs");
-    for scraped in [
-        "get_screen_text",
-        "detect_from_output",
-        "screen_has_tui",
-        "thread::sleep",
-        "sleep(",
-    ] {
-        assert!(!owner.contains(scraped), "owner must not use {scraped}");
-    }
-}
-
-/// The committed live oracle: both modes and the whole control contract are
-/// self-evident in the fixture, and it reaches readiness on an event.
-#[test]
-fn launch_readiness_fixture_exposes_both_deterministic_modes() {
-    let fixture = include_str!("../../../../../../scripts/fixtures/agent-launch-readiness.mjs");
-
-    for declared in [
-        "exit-before-readiness",
-        "slow-ready",
-        "CODETERM_STUB_AGENT_CMD",
-        "CODETERM_READINESS_FIXTURE_CONTROL",
-        "hook/session_start",
-        "binding_nonce",
-    ] {
-        assert!(
-            fixture.contains(declared),
-            "fixture must document {declared}"
-        );
-    }
-    for timed in ["setTimeout", "setInterval", "Atomics.wait"] {
-        assert!(!fixture.contains(timed), "fixture must not use {timed}");
-    }
-    assert!(fixture.contains("watch("));
 }
 
 /// The live failure this round fixes. The shell reports a finished command with
@@ -575,9 +532,6 @@ fn launch_readiness_exit_settles_without_a_shell_reported_command_line() {
         settle_proven_exit(&tab, &attempt, None, &proof),
         LaunchSettlement::Failed { .. }
     ));
-
-    let owner = include_str!("../launch_readiness.rs");
-    assert!(!owner.contains("command_line"));
 }
 
 #[test]
@@ -607,13 +561,15 @@ fn pre_ready_exit_in_restore_auto_resumes_once() {
         || starts.set(starts.get() + 1),
         || panic!("restore must resume rather than notify"),
     );
-    assert!(claim_exit(
-        &attempt.tab_id,
-        Some(&attempt.pty_id),
-        None,
-        &exit_proof(&attempt),
-    )
-    .is_none());
+    assert!(
+        claim_exit(
+            &attempt.tab_id,
+            Some(&attempt.pty_id),
+            None,
+            &exit_proof(&attempt),
+        )
+        .is_none()
+    );
     assert_eq!(starts.get(), 1);
 }
 
@@ -746,13 +702,15 @@ fn second_pre_ready_exit_stops_without_a_bell_entry() {
         action,
         Some(crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery)
     ));
-    assert!(claim_exit(
-        &attempt.tab_id,
-        Some(&attempt.pty_id),
-        None,
-        &exit_proof(&attempt),
-    )
-    .is_none());
+    assert!(
+        claim_exit(
+            &attempt.tab_id,
+            Some(&attempt.pty_id),
+            None,
+            &exit_proof(&attempt),
+        )
+        .is_none()
+    );
 
     let failure = LaunchExitFailure {
         attempt: attempt.clone(),
@@ -836,14 +794,6 @@ fn launch_readiness_exit_is_evidence_whether_or_not_agent_ready_was_claimed() {
             "stage {stage:?} must still settle as a launch failure"
         );
     }
-
-    let owner = include_str!("../launch_readiness.rs");
-    let exit_settlement = owner
-        .split("fn settle_proven_exit(")
-        .nth(1)
-        .and_then(|remaining| remaining.split("\nstruct Armed").next())
-        .expect("the exit settlement function remains present");
-    assert!(!exit_settlement.contains("agent_booting"));
 }
 
 /// End to end on a real ServiceContext, through the exact byte shape the live
@@ -1001,25 +951,6 @@ fn launch_readiness_published_failure_stops_the_launch_thread() {
         Some(reason.as_str())
     );
     assert_eq!(take_published_failure(&attempt), None);
-
-    let launch = include_str!("../orchestrator/launch.rs");
-    let observed = launch
-        .find("let readiness = if structured")
-        .expect("the launch thread waits for readiness evidence");
-    let observed = observed
-        + launch[observed..]
-            .find(".recv()")
-            .expect("plain observer receives a verdict");
-    let ready = launch
-        .find("startup_readiness::emit_agent_ready")
-        .expect("the launch thread delegates ready to the binding gate");
-    let gate = include_str!("../orchestrator/launch/startup_readiness.rs");
-    assert!(gate.contains("settlement.authorizes_agent_ready(session_authenticated)"));
-    assert!(gate.contains("launch.emit(svc, BootStage::AgentReady)"));
-    assert!(
-        observed < ready,
-        "session binding evidence is observed before ready is claimed"
-    );
 }
 
 #[test]

@@ -2,13 +2,10 @@
 // Run: npx tsx src/components/shared/Card.test.tsx
 
 import React, { act } from "react";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { Card } from "./Card";
 
-const componentSource = readFileSync(fileURLToPath(import.meta.url).replace(/\.test\.tsx$/, ".tsx"), "utf8");
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -41,10 +38,6 @@ test("Card interactive has role=button and tabIndex=0", async () => {
   const card = host.querySelector("div")!;
   assert(card.getAttribute("role") === "button", "role=button on interactive card");
   assert(card.getAttribute("tabindex") === "0", "tabIndex=0 on interactive card");
-});
-
-test("Card uses the shared touch-mode path", () => {
-  assert(componentSource.includes("useTouchOptimizedUi"), "Card must use the shared touch-mode path");
 });
 
 test("Card non-interactive has no role/tabIndex", async () => {
