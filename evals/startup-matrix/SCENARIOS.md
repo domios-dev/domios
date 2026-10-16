@@ -43,6 +43,12 @@ reads current tab/session/transcript and process ancestry. Ordinary request
 telemetry may be created. It sends no agent input and changes no lifecycle,
 page, configuration, manifest, counters or process. Output says `mode: dry-run`;
 the offline contract returns `validated`, never PASS or capture coverage.
+Browser receipts retain the selected `fixture.tabId` and its session/nonce/PTY/
+boot-stage authority snapshot independently of the CDP target. This does not
+claim the selected tab was displayed. A missing fixture identity is incomplete.
+On Windows PowerShell, invoke Git Bash explicitly (for example
+`& 'C:/Program Files/Git/bin/bash.exe' evals/startup-matrix/evidence.sh ...`);
+bare `bash` may resolve to WSL without a usable `/bin/bash`.
 
 Recovery fixture (all values must describe the current own DEV fixture):
 

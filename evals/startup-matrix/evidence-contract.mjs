@@ -7,6 +7,8 @@ const hash = value => /^[a-f0-9]{64}$/.test(value ?? '');
 const asset = value => value?.url && hash(value.sha256) && Number.isInteger(value.bytes) && value.bytes > 0 && value.origin;
 const buffer = value => value && typeof value.text === 'string' && typeof value.type === 'string' && Number.isInteger(value.length) &&
   Number.isInteger(value.baseY) && Number.isInteger(value.viewportY);
+const selectedFixture = value => typeof value?.tabId === 'string' && value.tabId.length > 0 && value.authority &&
+  ['agent_session_id', 'session_binding_nonce', 'pty_id', 'boot_stage'].every(key => Object.hasOwn(value.authority, key));
 export function evidenceVerdict(value) {
   if (value?.schema !== 1 || !value.scenario) return 'incomplete';
   if (value.scenario === 'phase-origins') {
@@ -16,14 +18,14 @@ export function evidenceVerdict(value) {
   }
   if (value.status !== 'completed' || !value.binarySha || !value.listener?.pid || !value.listener?.started_us) return 'incomplete';
   if (value.mode === 'dry-run') {
-    if (value.scenario === 'browser-evidence') return value.target?.id ? 'validated' : 'incomplete';
+    if (value.scenario === 'browser-evidence') return value.target?.id && value.target.url && selectedFixture(value.fixture) ? 'validated' : 'incomplete';
     if (value.scenario === 'exact-session-recovery') return value.before?.userIds?.length && value.before.process?.created ? 'validated' : 'incomplete';
     return 'incomplete';
   }
   if (value.finalListener?.pid !== value.listener.pid || value.finalListener?.started_us !== value.listener.started_us) return 'incomplete';
   if (value.scenario === 'exact-session-recovery') return recoveryVerdict(value.before, value.after).status;
   if (value.scenario !== 'browser-evidence') return 'incomplete';
-  if (value.failures?.length || !asset(value.index) || !value.assets?.length || !value.assets.every(record => asset(record.loaded) && asset(record.served)) ||
+  if (!selectedFixture(value.fixture) || value.failures?.length || !asset(value.index) || !value.assets?.length || !value.assets.every(record => asset(record.loaded) && asset(record.served)) ||
       !value.streams?.length || !value.streams.every(stream => stream.status === 200 && stream.artifact?.file && hash(stream.artifact.sha256) && stream.artifact.bytes > 0) ||
       !value.after?.terminals?.length || value.after.terminals.some(terminal => !terminal.tabId || !buffer(terminal.active) || !buffer(terminal.normal) || !buffer(terminal.alternate) || !terminal.ancestors?.length))
     return 'incomplete';
