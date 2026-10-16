@@ -289,6 +289,12 @@ export interface AgentProvider {
   detectEvents?(text: string): string[];
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
+  buildLaunchSpec?(params: LaunchParams | { resume: ResumeParams }): {
+    program: string;
+    args: string[];
+    envSet?: Record<string, string>;
+    envUnset?: string[];
+  } | null;
   releaseTabLaunchArtifacts?(tabId: string, instanceId: string): boolean;
   /** Persist provider-owned folder trust after this tab's trust dialog closes. */
   folderTrustAnswered?(tabId: string, instanceId: string): boolean;
@@ -361,7 +367,8 @@ export interface AgentProvider {
   } | null;
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
-  discoverModels?(): ModelInfo[] | null;
+  /** Host-observed CLI identity, computed before entering the plugin VM. */
+  discoverModels?(binaryFingerprint?: string | null): ModelInfo[] | null;
   /** Cumulative usage per model group (matching manifest `modelGroups` ids, or a
    *  bare model-id prefix). The picker shows it for the selected model's group. */
   modelGroupUsage?(): ModelGroupUsage[];
@@ -622,7 +629,7 @@ export interface DecisionModelCapability {
   decide(request: DecisionRequest, remainingMs?: number): DecisionAnswer | DecisionFailure;
   /** Named questions over shared state; omitted methods use sequential decide calls. */
   decideQuestions?(request: DecisionQuestionsRequest, remainingMs?: number): DecisionResponse | DecisionFailure;
-  models(): DecisionModelInfo[];
+  models(binaryFingerprint?: string | null): DecisionModelInfo[];
   primitives(): DecisionPrimitives;
 }
 

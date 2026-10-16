@@ -3,7 +3,6 @@ use super::bookkeeping::{self, Step};
 use super::*;
 use serde_json::{json, Value};
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 use tokio::io::BufReader;
 
 fn delta(seq: usize) -> RuntimeFrame {
@@ -141,7 +140,7 @@ async fn reducer_failure_warns_resyncs_and_keeps_hook_state() {
 }
 
 #[tokio::test]
-async fn a_successful_batch_resets_the_failure_run() {
+async fn a_successful_batch_preserves_epoch_warning_deduplication() {
     let mut scene = fixtures::scene();
     scene.probe.fail_next.store(1, Ordering::SeqCst);
     run(&mut scene, vec![delta(0)], false, true).await;
@@ -153,26 +152,51 @@ async fn a_successful_batch_resets_the_failure_run() {
     assert!(matches!(step, Step::Continue));
     assert_eq!(
         scene.session.bookkeeping_failures.load(Ordering::Relaxed),
-        0
+        1
     );
 }
 
 #[tokio::test]
-async fn eight_consecutive_failures_close_without_an_eighth_resync() {
+async fn repeated_reducer_failures_warn_once_and_keep_the_process() {
     let mut scene = fixtures::scene();
-    scene.probe.fail_next.store(8, Ordering::SeqCst);
-    for seq in 0..bookkeeping::CONSECUTIVE_CLOSE - 1 {
-        let (step, _) = run(&mut scene, vec![delta(seq as usize)], false, true).await;
+    scene.probe.fail_next.store(16, Ordering::SeqCst);
+    for seq in 0..16 {
+        let (step, _) = run(&mut scene, vec![delta(seq)], false, true).await;
         assert!(matches!(step, Step::Continue));
     }
-    let (step, _) = tokio::time::timeout(
-        Duration::from_secs(2),
-        run(&mut scene, vec![delta(7)], false, false),
-    )
-    .await
-    .expect("the closing failure must not wait on a resync");
-    assert!(matches!(step, Step::Close(RuntimeFailure::HookFailed(_))));
-    assert_eq!(scene.probe.reduce_failures.load(Ordering::SeqCst), 8);
+    assert_eq!(scene.probe.reduce_failures.load(Ordering::SeqCst), 16);
+    let rows = scene.session.cache.lock().snapshot();
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.system_subtype.as_deref() == Some("runtime_warning"))
+            .count(),
+        1
+    );
+    let process = scene.session.process.lock().clone().unwrap();
+    assert!(process.client.ended().borrow().is_none());
+}
+
+#[test]
+fn nonfatal_recovery_never_escalates_and_warning_count_saturates() {
+    let failures = std::sync::atomic::AtomicU32::new(0);
+    for index in 0..64 {
+        assert_eq!(bookkeeping::first_failure(&failures), index == 0);
+        assert!(matches!(
+            bookkeeping::recovery_step(Err(RuntimeFailure::HookFailed("opaque".into()))),
+            Step::Continue
+        ));
+    }
+    failures.store(u32::MAX, Ordering::Relaxed);
+    assert!(!bookkeeping::first_failure(&failures));
+    assert_eq!(failures.load(Ordering::Relaxed), u32::MAX);
+    assert!(matches!(
+        bookkeeping::recovery_step(Err(RuntimeFailure::PipeEof)),
+        Step::Close(RuntimeFailure::PipeEof)
+    ));
+    assert!(matches!(
+        bookkeeping::recovery_step(Err(RuntimeFailure::Superseded)),
+        Step::Break
+    ));
 }
 
 #[tokio::test]
@@ -192,4 +216,33 @@ async fn lag_is_bookkeeping_not_a_close() {
 #[test]
 fn warning_ids_are_unique_inside_one_epoch() {
     assert_ne!(bookkeeping::warning_id(3), bookkeeping::warning_id(3));
+}
+
+#[tokio::test]
+async fn bookkeeping_resync_requests_ascending_history_and_lands_it_in_order() {
+    let mut scene = fixtures::scene();
+    *scene.probe.history.lock() = ["a", "b", "c"].map(String::from).to_vec();
+    let process = scene.session.process.lock().clone().unwrap();
+    let svc = scene.fixture.service.clone();
+    let session = scene.session.clone();
+    let answer = async {
+        for _ in 0..4 {
+            let line = fixtures::read(&mut scene.peer).await;
+            fixtures::write(&mut scene.peer, json!({"id": line["id"], "result": {}})).await;
+        }
+    };
+    let (result, ()) = tokio::join!(bookkeeping::resync(&svc, &session, &process), answer);
+    result.unwrap();
+    let ids: Vec<_> = session
+        .cache
+        .lock()
+        .snapshot()
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
+    assert_eq!(ids, ["a", "b", "c"]);
+    assert_eq!(
+        *scene.probe.history_orders.lock(),
+        [Some(HistoryOrder::Asc); 3]
+    );
 }

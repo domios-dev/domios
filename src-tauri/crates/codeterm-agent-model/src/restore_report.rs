@@ -4,7 +4,7 @@
 //! is reported as NOT restored, and the all-N-restored summary is withheld.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use codeterm_types::pty::AgentLiveness;
 use serde::{Deserialize, Serialize};
@@ -60,6 +60,9 @@ pub struct RestoreReport {
     pub shell_only: u32,
     /// Records that came back with liveness not yet observable.
     pub unobserved: u32,
+    /// False while any pane is unobserved; such a report belongs to this boot
+    /// but is not its verdict yet.
+    pub finalized: bool,
     /// How the previous epoch ended, when the recovery record knows: a clean
     /// shutdown reason, a crash classification, or nothing. Restore attributing
     /// its own losses is what turns the next incident into evidence.
@@ -80,6 +83,7 @@ impl Default for RestoreReport {
             dropped: 0,
             shell_only: 0,
             unobserved: 0,
+            finalized: true,
             previous_epoch_end: None,
             backend_materialization: None,
             panes: Vec::new(),
@@ -175,6 +179,7 @@ pub fn build_restore_report(
         dropped: panes.len() as u32 - restored,
         shell_only,
         unobserved,
+        finalized: unobserved == 0,
         previous_epoch_end: None,
         backend_materialization: None,
         panes,
@@ -211,8 +216,8 @@ fn report_is_finalized(report: &RestoreReport) -> bool {
     report.unobserved == 0
 }
 
-fn report_path() -> PathBuf {
-    crate::paths::data_dir()
+fn report_path(data_dir: &Path) -> PathBuf {
+    data_dir
         .join("state")
         .join("recovery")
         .join("last_restore_report.json")
@@ -220,8 +225,8 @@ fn report_path() -> PathBuf {
 
 /// Persist durably so the report survives the process and an operator (or the
 /// CLI) can read what restore dropped after the fact.
-pub fn persist(report: &RestoreReport) {
-    let path = report_path();
+pub fn persist(report: &RestoreReport, data_dir: &Path) {
+    let path = report_path(data_dir);
     if let Some(parent) = path.parent() {
         if let Err(error) = std::fs::create_dir_all(parent) {
             log::error!("[restore] create {}: {}", parent.display(), error);
@@ -253,6 +258,7 @@ fn build_record(
 /// The restore wave is retained while any pane may still reconcile to live.
 /// Nothing here is time-driven: reports change only when lifecycle evidence does.
 struct PendingRestore {
+    data_dir: PathBuf,
     bound: Vec<RestorePane>,
     previous_epoch_end: Option<String>,
     backend_materialization: Option<String>,
@@ -329,10 +335,10 @@ fn publish_pending_report(report: &RestoreReport, revision: u64) -> bool {
     if pending.revision != revision {
         return false;
     }
+    persist(report, &pending.data_dir);
     if !report_is_finalized(report) {
         return true;
     }
-    persist(report);
     log_pending_report(report, pending);
     if report.dropped == 0 {
         *guard = None;
@@ -354,8 +360,10 @@ fn update_pending_observations(
     true
 }
 
-/// Arm the wave. The report is published once every pane has a final outcome.
+/// Arm the wave under `data_dir`. Every revision persists there, marked
+/// finalized only once every pane has a final outcome.
 pub fn arm_with_previous_epoch(
+    data_dir: PathBuf,
     bound: Vec<RestorePane>,
     restored_ids: &BTreeSet<String>,
     previous_epoch_end: Option<String>,
@@ -369,6 +377,7 @@ pub fn arm_with_previous_epoch(
         None,
     );
     *PENDING.lock() = Some(PendingRestore {
+        data_dir,
         bound,
         previous_epoch_end,
         backend_materialization: None,
@@ -517,6 +526,7 @@ mod tests {
         let restored_ids = ids(&["opencode"]);
         let absent = observed(&[("opencode", AgentLiveness::Absent)]);
         let mut pending = PendingRestore {
+            data_dir: PathBuf::new(),
             bound: bound.clone(),
             previous_epoch_end: None,
             backend_materialization: None,
@@ -788,6 +798,44 @@ mod tests {
             back.panes[1].pane.exited_session_id.as_deref(),
             Some("exited-session")
         );
+    }
+
+    fn read_persisted(data_dir: &Path) -> RestoreReport {
+        serde_json::from_str(&std::fs::read_to_string(report_path(data_dir)).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn armed_wave_persists_its_own_unfinalized_report_under_its_data_dir() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let stale = RestoreReport {
+            bound: 9,
+            ..RestoreReport::default()
+        };
+        persist(&stale, data_dir.path());
+        let bound = vec![
+            pane("live", Some("worker"), Some("provider")),
+            pane("waiting", Some("worker"), Some("provider")),
+        ];
+        let restored_ids = ids(&["live", "waiting"]);
+
+        arm_with_previous_epoch(data_dir.path().to_path_buf(), bound, &restored_ids, None);
+        assert!(settle(&restored_ids, live(&["live"])));
+        let pending = read_persisted(data_dir.path());
+        assert_eq!(pending.bound, 2, "the previous boot's report is replaced");
+        assert!(!pending.finalized);
+        let unobserved: Vec<&str> = pending
+            .panes
+            .iter()
+            .filter(|p| p.drop_reason == Some(DropReason::AgentLivenessUnobserved))
+            .map(|p| p.pane.tab_id.as_str())
+            .collect();
+        assert_eq!(unobserved, vec!["waiting"]);
+
+        assert!(settle(&restored_ids, live(&["live", "waiting"])));
+        let finalized = read_persisted(data_dir.path());
+        assert!(finalized.finalized);
+        assert_eq!(finalized.restored, 2);
+        assert!(pending_tab_ids().is_empty());
     }
 
     #[test]

@@ -302,8 +302,11 @@ impl ModelSwitchLaunch {
         &self,
         svc: &ServiceContext,
         snap: &TabRestartSnapshot,
-    ) -> Option<(String, Option<String>)> {
-        let command = crate::service::orchestrator::build_agent_command_for_service(
+    ) -> Option<(
+        crate::service::orchestrator::PreparedAgentCommand,
+        Option<String>,
+    )> {
+        let command = crate::service::orchestrator::prepare_agent_command_for_service(
             svc,
             &snap.tab_id,
             &self.provider,
@@ -311,6 +314,7 @@ impl ModelSwitchLaunch {
             self.task.as_deref(),
             None,
             &svc.agent_registry,
+            None,
         );
         (!command.trim().is_empty()).then(|| (command, self.task.clone()))
     }

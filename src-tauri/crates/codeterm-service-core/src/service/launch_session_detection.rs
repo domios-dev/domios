@@ -139,6 +139,32 @@ fn marked_agent_command_inner(
     command
 }
 
+pub(crate) fn marked_prepared_agent_command_for_service(
+    service: &ServiceContext,
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &super::SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &crate::agent::registry::AgentRegistry,
+) -> super::orchestrator::PreparedAgentCommand {
+    let marker = mint_launch_marker(tab_id);
+    let command = super::orchestrator::prepare_agent_command_for_service(
+        service,
+        tab_id,
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
+        Some(&marker),
+    );
+    if command.trim().is_empty() {
+        clear_launch_marker(tab_id);
+    }
+    command
+}
+
 /// Gives hand-built fresh launch params a marker minted and registered for this tab.
 pub(crate) fn mark_fresh_launch(
     tab_id: &str,

@@ -253,7 +253,10 @@ impl ServiceContext {
                 .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
-            let has_agent_markers = self.agent_registry.detect_from_output(&screen).is_some();
+            let has_agent_markers = self
+                .agent_registry
+                .detect_from_output_for(agent_type.as_deref(), &screen)
+                .is_some();
             if matches!(
                 decide_agent_output_lifecycle(&screen, has_agent_markers),
                 AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame

@@ -1,3 +1,5 @@
+import { ChatComposerSurface } from "./ChatComposerSurface";
+import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { heldMessagesForLaunch } from "./chatSetupModel";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
@@ -11,7 +13,6 @@ import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
@@ -19,7 +20,6 @@ import {
   chatDaySeparators,
   chatLocalDay,
   messageRowTime,
-  ChatSessionIntentLine,
   isSessionIntentOnlyMessage,
   MessageBubble,
   MessageTimeFrame,
@@ -296,6 +296,7 @@ function TabSessionChatBody({
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
+    history: runtime.state?.history,
   });
   const retryChatDelivery = async (id: string) => {
     const send = beginChatSendRetry(tabId, id);
@@ -797,6 +798,7 @@ function TabSessionChatBody({
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
       aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && (!snapshotReady || chatChannelLoading)}
       style={{
+        ...chatLayoutTokens().variables,
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
       }}
@@ -814,8 +816,6 @@ function TabSessionChatBody({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
-      {!runtimeUnavailable && <RemovedChatPlugin error={effectiveChatBackend ? error : null} />}
-      <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
         <div
@@ -877,6 +877,7 @@ function TabSessionChatBody({
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
         {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
         <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
+        <div ref={mountedWindow.rowsRef}>
         {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map(({ msg, item, origin }, mountedIndex) => {
           const messageIndex = mountedWindow.range.start + mountedIndex;
           const originProps = originPropsById.get(msg.id);
@@ -939,6 +940,7 @@ function TabSessionChatBody({
             </Fragment>
           );
         })}
+        </div>
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
         {runtime.questions.map((item) => <RuntimeQuestionCard key={JSON.stringify([tab?.session_binding_nonce, item.threadId, item.itemId])} tabId={tabId} item={item} onReceipt={observeChatSendStatus} />)}
         {promptPart && <ChatMessageRow
@@ -992,7 +994,7 @@ function TabSessionChatBody({
         </div>
       )}
       </div>
-      <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
+      <ChatComposerSurface view={setupView}>
       {isWatcherTab && watcherSpec ? (
         runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}
@@ -1047,6 +1049,8 @@ function TabSessionChatBody({
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
         inlineAttachmentSink={inlineSinkRef}
+        pluginError={!runtimeUnavailable && effectiveChatBackend ? error : null}
+        sessionIntent={sessionIntent}
         contextSlot={contextSlot}
         onWillSendMessage={willSendMessage}
         addOptimistic={addOptimistic}
@@ -1057,7 +1061,7 @@ function TabSessionChatBody({
       />}
       </>
       )}
-      </div>
+      </ChatComposerSurface>
     </div>
     </PluginNameProvider>
     </ChatBlockHostProvider>

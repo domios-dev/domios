@@ -35,6 +35,7 @@ impl JsProvider {
         state: &Value,
         reply: &RpcReply,
     ) -> Result<RuntimeStep, RuntimeFailure> {
+        let started = std::time::Instant::now();
         let vm = self.vm.clone();
         let cap = self.runtime_capability()?;
         let ctx = ctx.clone();
@@ -42,7 +43,9 @@ impl JsProvider {
         let state = state.clone();
         let mut reply = reply.clone();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
+        let queued = std::time::Instant::now();
         tokio::task::spawn_blocking(move || {
+            let executing = std::time::Instant::now();
             validate_runtime_operation(&ctx, &op)?;
             validate_runtime_state(&state)?;
             if matches!(op, RuntimeOperation::ReadHistory { .. }) {
@@ -51,6 +54,11 @@ impl JsProvider {
                 }
             }
             validate_runtime_reply(&reply)?;
+            log::debug!(
+                "[runtime-hook] tab={} operation={} hook=runtimeResponse caller_us={} queue_us={} preparation_us={}",
+                ctx.tab_id, op.kind(), queued.duration_since(started).as_micros(),
+                executing.duration_since(queued).as_micros(), executing.elapsed().as_micros()
+            );
             let step = super::super::vm::call_runtime_hook(
                 &vm,
                 "runtimeResponse",

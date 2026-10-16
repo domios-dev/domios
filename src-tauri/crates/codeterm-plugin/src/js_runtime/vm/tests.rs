@@ -16,6 +16,52 @@ fn fixture(src: &str) -> PluginVm {
 }
 
 #[test]
+fn method_snapshot_matches_live_probe_and_reloads() {
+    let vm = fixture("module.exports.default = { present() {}, data: 1 };");
+    for method in ["present", "data", "absent", "toString"] {
+        let live = vm.inner.lock()._ctx.with(|ctx| {
+            ctx.globals().set("__ct_method__", method).unwrap();
+            ctx.globals()
+                .get::<_, Function>("__ct_has__")
+                .unwrap()
+                .call::<_, String>(())
+                .unwrap()
+                == "1"
+        });
+        assert_eq!(has_method(&vm, method), live);
+    }
+    let guard = vm.inner.lock();
+    assert!(!has_method(&vm, "absent"));
+    assert!(matches!(
+        call_json::<()>(&vm, "absent", &[]),
+        Err(VmError::MissingFunction(_))
+    ));
+    assert!(has_method(&vm, "present"));
+    drop(guard);
+    vm.reload("module.exports.default = { replacement() {} };".into())
+        .unwrap();
+    assert!(!has_method(&vm, "present"));
+    assert!(has_method(&vm, "replacement"));
+    assert!(vm.reload("invalid syntax !!!".into()).is_err());
+    assert!(has_method(&vm, "replacement"));
+}
+
+#[test]
+fn vm_timing_line_separates_wait_and_hold() {
+    let line = timing_line(
+        "fixture",
+        "method",
+        Duration::from_millis(234),
+        Duration::from_millis(12),
+    );
+    let fields: Vec<_> = line.split_whitespace().collect();
+    assert_eq!(
+        fields,
+        ["[plugin-vm]", "fixture.method", "waited=234ms", "held=12ms"]
+    );
+}
+
+#[test]
 fn round_trip_string_arg_and_return() {
     let vm = fixture(
         r#"
@@ -707,4 +753,23 @@ fn vm_serialization_error_in_flight_surfaces_and_leaves_the_vm_usable() {
         .expect("thread panicked")
         .expect("await after an error failed");
     assert_eq!(out["tag"], "again");
+}
+
+#[test]
+fn launch_spec_declaration_does_not_take_the_vm_lock() {
+    let vm = Arc::new(
+        super::PluginVm::from_source(
+            "declaration-lock",
+            "module.exports.default = {buildLaunchSpec() { return null; }};".into(),
+        )
+        .unwrap(),
+    );
+    let held = vm.inner.lock();
+    let queried = vm.clone();
+    let (tx, rx) = mpsc::channel();
+    let query = thread::spawn(move || tx.send(queried.declares_launch_spec()).unwrap());
+    let observed = rx.recv_timeout(Duration::from_secs(1));
+    drop(held);
+    query.join().unwrap();
+    assert_eq!(observed, Ok(true));
 }

@@ -130,6 +130,7 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
     }
 
     fn model(&self, id: &str, requested: Option<String>) -> Result<Option<String>> {
+        let started = std::time::Instant::now();
         let adapter = self.adapter(id)?;
         let models = adapter.models();
         let chosen = requested
@@ -147,6 +148,10 @@ impl<F: FnMut(&SupporterConfig) -> Result<()>> Connections<'_, F> {
         if chosen.is_none() {
             return Err(ConnectionError::unavailable());
         }
+        log::debug!(
+            "[supporter-model] {id} resolved={}us",
+            started.elapsed().as_micros()
+        );
         Ok(chosen)
     }
 

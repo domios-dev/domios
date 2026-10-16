@@ -13,8 +13,8 @@ import { publishRelease } from './publish.mjs';
 import { prepare, isDryRun } from './release.mjs';
 const fixture = fileURLToPath(new URL('./fixtures/', import.meta.url));
 const releaseContract = JSON.parse(await readFile(new URL('../../frontend-release-contract.json', import.meta.url), 'utf8'));
-// Fixtures are signed for 1.0.0; the shipped contract version moves independently of them.
-const contract = { ...releaseContract, version: '1.0.0' };
+// Fixtures are signed for 1.0.0 and API 2; the shipped contract moves independently of them.
+const contract = { ...releaseContract, version: '1.0.0', minApiVersion: 2, maxApiVersion: 2 };
 const publicKey = await readFile(path.join(fixture, 'frontend-test.pub'), 'utf8');
 const privateKey = await readFile(path.join(fixture, 'frontend-test.pem'), 'utf8');
 const archive = await deterministicArchive(path.join(fixture, 'dist'));
@@ -28,7 +28,7 @@ test('frontend version is independent; malformed and mismatched tags fail', () =
 });
 test('canonical bytes sorted, compact, UTF-8 with exact six fields', () => {
   assert.deepEqual(canonicalManifest(Object.fromEntries(Object.entries(manifest).reverse())), bytes);
-  assert.equal(bytes.toString(), JSON.stringify({ maxApiVersion: 2, minApiVersion: 2, releaseId: manifest.releaseId, sha256: checksum(archive), url: manifest.url, version: '1.0.0' }));
+  assert.equal(bytes.toString(), JSON.stringify({ maxApiVersion: contract.maxApiVersion, minApiVersion: contract.minApiVersion, releaseId: manifest.releaseId, sha256: checksum(archive), url: manifest.url, version: '1.0.0' }));
   assert.throws(() => canonicalManifest({ ...manifest, signature }));
 });
 test('API ranges, digest, identity and URL are validated', () => {
@@ -67,7 +67,7 @@ test('prehashed minisign packet independently verifies using Ed25519 primitives'
   assert.ok(verifySignature(bytes,signature,publicKey));
 });
 test('signature binds every metadata field and archive digest', () => {
-  for (const value of [{version:'1.0.1',releaseId:'frontend-v1.0.1'},{ minApiVersion: 1 },{ maxApiVersion: 3 },{ sha256: '0'.repeat(64) },{ url: 'https://example.com/other' }]) assert.throws(() => verifySignature(canonicalManifest({...manifest,...value}),signature,publicKey));
+  for (const value of [{version:'1.0.1',releaseId:'frontend-v1.0.1'},{ minApiVersion: contract.minApiVersion - 1 },{ maxApiVersion: contract.maxApiVersion + 1 },{ sha256: '0'.repeat(64) },{ url: 'https://example.com/other' }]) assert.throws(() => verifySignature(canonicalManifest({...manifest,...value}),signature,publicKey));
   assert.throws(() => verifySignature(bytes, signature.replace('frontend fixture contract 1','changed'),publicKey));
 });
 test('malformed signature and foreign identity fail closed', () => {

@@ -29,9 +29,9 @@ describe("remote output generation replacement", () => {
     const requests: URL[] = [];
     vi.stubGlobal("fetch", vi.fn(async (...args: unknown[]) => {
       requests.push(new URL(String(args[0])));
-      const output = frame({ tab_id: "boot-test", output: "first", offset: 5 });
+      const output = frame({ tab_id: "boot-test", b64: "Zmlyc3Q", offset: 5 });
       if (requests.length === 1) return closedStream(frame({ boot: "separate-boot" }), output);
-      return openStream(output, frame({ tab_id: "boot-test", output: "next", offset: 9 }));
+      return openStream(output, frame({ tab_id: "boot-test", b64: "bmV4dA", offset: 9 }));
     }));
     let resolve!: () => void;
     const received = new Promise<void>((done) => { resolve = done; });
@@ -68,7 +68,7 @@ describe("remote output generation replacement", () => {
     configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: "fixture" });
     // gen1 delivers a frame (cursor set) then stays open; gen2 stays pending.
     const fetchMock = vi.fn()
-      .mockReturnValueOnce(Promise.resolve(openStream(frame({ output: "hi", boot: "boot-a", offset: 2 }))))
+      .mockReturnValueOnce(Promise.resolve(openStream(frame({ b64: "aGk", boot: "boot-a", offset: 2 }))))
       .mockReturnValue(new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
     const id = "mesh:peer/tab";
@@ -94,8 +94,8 @@ describe("remote output generation replacement", () => {
     vi.stubGlobal("fetch", vi.fn(async (...args: unknown[]) => {
       requests.push(String(args[0]));
       return openStream(
-        frame({ boot: "boot-a", tab_id: "g1", output: "history", offset: 7 }),
-        frame({ boot: "boot-a", tab_id: "g1", output: "live", offset: 11 }),
+        frame({ boot: "boot-a", tab_id: "g1", b64: "aGlzdG9yeQ", offset: 7 }),
+        frame({ boot: "boot-a", tab_id: "g1", b64: "bGl2ZQ", offset: 11 }),
       );
     }));
     const outputs: string[] = [];
@@ -115,8 +115,8 @@ describe("remote output generation replacement", () => {
   it("EOF reconnect resumes from cursor without duplicate", async () => {
     vi.stubGlobal("window", Object.assign(new EventTarget(), { location: { origin: "http://127.0.0.1:7685" } }));
     configureDaemonTransport({ origin: "http://127.0.0.1:7685", token: "fixture" });
-    const frameNew = frame({ boot: "boot-a", tab_id: "g2", output: "new", offset: 17 });
-    const frameMore = frame({ boot: "boot-a", tab_id: "g2", output: "more", offset: 21 });
+    const frameNew = frame({ boot: "boot-a", tab_id: "g2", b64: "bmV3", offset: 17 });
+    const frameMore = frame({ boot: "boot-a", tab_id: "g2", b64: "bW9yZQ", offset: 21 });
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (...args: unknown[]) => {
       requests.push(String(args[0]));

@@ -177,18 +177,19 @@ fn append_skill(bundle: &mut String, slug: &str, digest: &str, body: &str) -> Re
     Ok(())
 }
 
-pub(crate) fn build(
+pub(crate) fn build_prepared(
     provider: &dyn AgentProvider,
     params: &AgentLaunchParams,
     skills: Option<&str>,
-) -> String {
+    direct: bool,
+) -> crate::service::orchestrator::PreparedAgentCommand {
     let Some(params) = attach_skills(params, skills, |body| {
         codeterm_util::task_files::write(body, Some(".plan-skills.md"))
     }) else {
         log::error!("[launch] mandatory plan skill context could not be materialized");
-        return String::new();
+        return Default::default();
     };
-    crate::service::tool_less_instructions::build(provider, &params)
+    crate::service::tool_less_instructions::build_prepared(provider, &params, direct)
 }
 
 fn attach_skills(
@@ -213,6 +214,15 @@ pub(crate) fn build_resume(
     params: &crate::agent::provider::AgentResumeParams,
     skills: Option<&str>,
 ) -> Option<String> {
+    build_resume_prepared(provider, params, skills, false).map(|command| command.shell_command)
+}
+
+pub(crate) fn build_resume_prepared(
+    provider: &dyn AgentProvider,
+    params: &crate::agent::provider::AgentResumeParams,
+    skills: Option<&str>,
+    direct: bool,
+) -> Option<crate::service::orchestrator::PreparedAgentCommand> {
     let params = prepare_resume_context(
         params,
         skills,
@@ -221,7 +231,16 @@ pub(crate) fn build_resume(
         provider.context_attach(),
         codeterm_util::task_files::write,
     )?;
-    provider.build_resume_command_with_context(&params)
+    if direct {
+        if let Some(spec) =
+            provider.launch_spec(&crate::agent::provider::LaunchSpecParams::Resume(&params))
+        {
+            return Some(crate::service::orchestrator::PreparedAgentCommand::from_spec(spec));
+        }
+    }
+    provider
+        .build_resume_command_with_context(&params)
+        .map(Into::into)
 }
 
 fn prepare_resume_context(

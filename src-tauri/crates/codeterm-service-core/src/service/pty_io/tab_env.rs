@@ -142,6 +142,12 @@ pub(crate) fn tab_task_env(plan_store: &PlanStore, tab_id: &str) -> HashMap<Stri
 
 pub(crate) fn tab_identity_env(tab: &Tab) -> HashMap<String, String> {
     let mut env_vars = HashMap::new();
+    if tab.agent_type.is_some() {
+        env_vars.insert(
+            crate::pty::shell_integration::AGENT_SHELL_ENV.into(),
+            "1".into(),
+        );
+    }
     if let Some(ref team_id) = tab.team_id {
         env_vars.insert("CODETERM_TEAM_ID".into(), team_id.clone());
     }

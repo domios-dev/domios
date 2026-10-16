@@ -6,7 +6,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({ options: {
-  cdp: { type: "string" }, url: { type: "string" }, out: { type: "string" },
+  cdp: { type: "string" }, url: { type: "string" }, out: { type: "string" }, target: { type: "string" },
   strokes: { type: "string", default: "14" }, threshold: { type: "string", default: "2" },
 } });
 if (!values.cdp || !values.url) {
@@ -20,7 +20,7 @@ const FINGER_STEP = 20;
 const STEPS_PER_STROKE = 30;
 
 const targets = await (await fetch(`http://127.0.0.1:${new URL(values.cdp).port}/json/list`)).json();
-const page = targets.find((target) => target.type === "page");
+const page = targets.find((target) => values.target ? target.id === values.target : target.type === "page");
 if (!page) throw new Error("the browser has no page target");
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {
@@ -58,6 +58,16 @@ const screenshot = async (file) => {
 if (values.out) mkdirSync(values.out, { recursive: true });
 
 await send("Page.enable");
+await send("Page.addScriptToEvaluateOnNewDocument", { source: `
+  window.__scrollWrites = [];
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop");
+  Object.defineProperty(Element.prototype, "scrollTop", { ...descriptor, set(value) {
+    const before = descriptor.get.call(this);
+    descriptor.set.call(this, value);
+    const after = descriptor.get.call(this);
+    if (before !== after) window.__scrollWrites.push({ at: performance.now(), before, after, owned: window.chatScrollOwned?.() ?? false });
+  } });
+` });
 await send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 3, mobile: true });
 await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
 const loaded = once("Page.loadEventFired");
@@ -111,6 +121,7 @@ for (let stroke = 0; stroke < strokes; stroke++) {
 }
 await screenshot("end.png");
 const frames = await evaluate("new Promise((resolve) => requestAnimationFrame(() => { window.__sampling = false; resolve(window.__frames); }))");
+const writes = await evaluate("window.__scrollWrites");
 ws.close();
 
 // Visible motion is the user's scroll only when it mirrors the scrollTop change. A frame that also moved the spacer
@@ -124,7 +135,8 @@ for (let index = 1; index < frames.length; index++) {
   const current = frames[index];
   const spacerMoved = Math.abs(delta(index, "spacer")) >= 0.5;
   if (spacerMoved && Math.abs(delta(index, "scrollTop")) >= 0.5) spacerScrollFrames++;
-  else if (current.gesture === previous.gesture && delta(index, "scrollTop") > 0.5) scrollTopReversals++;
+  else if (current.gesture === previous.gesture && delta(index, "scrollTop") > 0.5
+    && !writes.some(write => !write.owned && write.at >= previous.t && write.at <= current.t)) scrollTopReversals++;
   const visible = Object.keys(current.rows).filter((id) => id in previous.rows && current.rows[id] >= 0 && current.rows[id] < VIEWPORT.height);
   if (!visible.length) continue;
   const motion = current.rows[visible[0]] - previous.rows[visible[0]];
@@ -141,10 +153,11 @@ const summary = {
   scrollTopMonotonicWithinGestures: scrollTopReversals === 0, scrollTopReversals, spacerScrollFrames,
   visualJumps: jumps.length, maxVisualJump: jumps.reduce((worst, jump) => Math.max(worst, Math.abs(jump.motion), Math.abs(jump.unexplained)), 0),
   firstJumps: jumps.slice(0, 5),
+  writesWhileOwned: writes.filter(write => write.owned).length,
 };
 if (values.out) {
   writeFileSync(path.join(values.out, "trace.json"), JSON.stringify({ summary,
-    frames: frames.map(({ t, scrollTop, spacer, gesture }) => ({ t, scrollTop, spacer, gesture })) }));
+    writes, frames: frames.map(({ t, scrollTop, spacer, gesture }) => ({ t, scrollTop, spacer, gesture })) }));
 }
 console.log(JSON.stringify(summary, null, 1));
-process.exit(jumps.length > 0 || scrollTopReversals > 0 ? 1 : 0);
+process.exit(jumps.length > 0 || scrollTopReversals > 0 || summary.writesWhileOwned > 0 ? 1 : 0);

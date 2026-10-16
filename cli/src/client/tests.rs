@@ -53,12 +53,12 @@ fn stale_socket_file_falls_through_to_live_probe() {
         entry_names.into_iter(),
         &|name| {
             liveness_checked.borrow_mut().push(name.to_string());
-            false
+            None::<()>
         },
         &|candidates| pick_preferred_socket_for(candidates, false, None),
         &|| {
             *probe_calls.borrow_mut() += 1;
-            Some("codeterm-4242.sock".to_string())
+            Some(((), "codeterm-4242.sock".to_string()))
         },
     );
 
@@ -67,7 +67,7 @@ fn stale_socket_file_falls_through_to_live_probe() {
         1,
         "a stale socket file must not stop discovery before the live probe"
     );
-    assert_eq!(resolved, Ok("codeterm-4242.sock".to_string()));
+    assert_eq!(resolved, Ok(((), "codeterm-4242.sock".to_string())));
     assert_eq!(
         *liveness_checked.borrow(),
         vec!["codeterm-777.sock".to_string()],
@@ -83,15 +83,15 @@ fn live_socket_file_wins_without_probing() {
     let probe_calls = RefCell::new(0usize);
     let resolved = resolve_scanned_socket(
         vec!["codeterm-777.sock".to_string()].into_iter(),
-        &|_| true,
+        &|_| Some(()),
         &|candidates| pick_preferred_socket_for(candidates, false, None),
         &|| {
             *probe_calls.borrow_mut() += 1;
-            Some("codeterm-4242.sock".to_string())
+            Some(((), "codeterm-4242.sock".to_string()))
         },
     );
 
-    assert_eq!(resolved, Ok("codeterm-777.sock".to_string()));
+    assert_eq!(resolved, Ok(((), "codeterm-777.sock".to_string())));
     assert_eq!(*probe_calls.borrow(), 0);
 }
 

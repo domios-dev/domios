@@ -23,7 +23,8 @@ export interface SseMessage {
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export interface StreamEnd {
-  reason: "eof" | "http" | "error" | "abort";
+  reason: "eof" | "http" | "error" | "abort" | "capacity";
+  bytes?: number;
   status?: number;
   error?: unknown;
 }
@@ -70,7 +71,74 @@ export function decodeTransportResponse<T>(status: number, path: string, text: s
   return value as T;
 }
 
+export const MAX_SSE_FRAME_BYTES = 2 * 1024 * 1024;
+const MAX_JSON_DEPTH = 32;
+const MAX_JSON_STRUCTURAL_TOKENS = 256 * 1024;
+
+class SseCapacityError extends Error {
+  constructor(public bytes: number) { super(`SSE capacity exceeded (${bytes} bytes)`); }
+}
+
+function guardJsonStructure(value: string, bytes: number): void {
+  let depth = 0, tokens = 0;
+  let quoted = false, escaped = false;
+  for (const character of value) {
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if ("{}[],:".includes(character)) {
+      tokens++;
+      if (character === "{" || character === "[") depth++;
+      else if (character === "}" || character === "]") depth--;
+      if (depth > MAX_JSON_DEPTH || tokens > MAX_JSON_STRUCTURAL_TOKENS) throw new SseCapacityError(bytes);
+    }
+  }
+}
+
+class SseAccumulator {
+  private buffer = new Uint8Array(4096);
+  private bytes = 0;
+  private tail = 0;
+
+  push(chunk: Uint8Array, deliver: (frame: string) => void): void {
+    for (const byte of chunk) {
+      if (this.bytes === this.buffer.length) {
+        const grown = new Uint8Array(Math.min(this.buffer.length * 2, MAX_SSE_FRAME_BYTES + 4));
+        grown.set(this.buffer);
+        this.buffer = grown;
+      }
+      this.buffer[this.bytes++] = byte;
+      this.tail = ((this.tail << 8) | byte) >>> 0;
+      const lastThree = this.tail & 0xffffff;
+      const separator = this.tail === 0x0d0a0d0a ? 4
+        : lastThree === 0x0a0d0a || lastThree === 0x0d0a0a ? 3
+        : (this.tail & 0xffff) === 0x0a0a ? 2 : 0;
+      if (separator) {
+        const frame = new TextDecoder().decode(this.buffer.subarray(0, this.bytes - separator));
+        this.bytes = 0;
+        this.tail = 0;
+        deliver(frame);
+      } else {
+        const suffix = lastThree === 0x0d0a0d ? 3
+          : (this.tail & 0xffff) === 0x0d0a || (this.tail & 0xffff) === 0x0a0d ? 2
+          : byte === 13 || byte === 10 ? 1 : 0;
+        if (this.bytes - suffix > MAX_SSE_FRAME_BYTES) throw new SseCapacityError(this.bytes - suffix);
+      }
+    }
+  }
+
+  finish(): void {
+    if (this.bytes > MAX_SSE_FRAME_BYTES) throw new SseCapacityError(this.bytes);
+  }
+}
+
 export function parseSseFrame(frame: string): SseMessage | null {
+  const bytes = new TextEncoder().encode(frame).length;
+  if (bytes > MAX_SSE_FRAME_BYTES) throw new SseCapacityError(bytes);
   const data: string[] = [];
   let event = "message";
   let id: string | undefined;
@@ -83,7 +151,10 @@ export function parseSseFrame(frame: string): SseMessage | null {
     if (field === "event") event = value;
     if (field === "id" && !value.includes("\0")) id = value;
   }
-  return data.length ? { event, data: data.join("\n"), ...(id === undefined ? {} : { id }) } : null;
+  if (!data.length) return null;
+  const payload = data.join("\n");
+  guardJsonStructure(payload, bytes);
+  return { event, data: payload, ...(id === undefined ? {} : { id }) };
 }
 
 export function createTransportClient(options: TransportOptions): TransportClient {
@@ -179,17 +250,13 @@ export function createTransportClient(options: TransportOptions): TransportClien
           if (!controller.signal.aborted) init.onReady?.();
           reader = response.body.getReader();
           if (controller.signal.aborted) await reader.cancel();
-          const decoder = new TextDecoder();
-          let buffer = "";
+          const accumulator = new SseAccumulator();
           while (!controller.signal.aborted) {
             const chunk = await reader.read();
             if (chunk.done || controller.signal.aborted) break;
             init.onActivity?.();
-            buffer += decoder.decode(chunk.value, { stream: true });
-            let separator: RegExpExecArray | null;
-            while ((separator = /\r?\n\r?\n/.exec(buffer))) {
-              const message = parseSseFrame(buffer.slice(0, separator.index));
-              buffer = buffer.slice(separator.index + separator[0].length);
+            accumulator.push(chunk.value, (frame) => {
+              const message = parseSseFrame(frame);
               if (message && !controller.signal.aborted) {
                 let data: unknown = message.data;
                 try { data = JSON.parse(message.data); } catch {}
@@ -197,15 +264,21 @@ export function createTransportClient(options: TransportOptions): TransportClien
                   handler(data.event_type, data.data);
                 } else handler(message.event, data);
               }
-            }
+            });
           }
+          accumulator.finish();
         } catch (error) {
           if (controller.signal.aborted) end = { reason: "abort", error: controller.signal.reason };
           else {
-            end = error instanceof TransportError
+            end = error instanceof SseCapacityError ? { reason: "capacity", bytes: error.bytes }
+              : error instanceof TransportError
               ? { reason: "http", status: error.status, error }
               : { reason: "error", error };
-            if (!init.onEnd) throw error;
+            if (error instanceof SseCapacityError && !init.onEnd) {
+              if (options.onStreamError) options.onStreamError(error);
+              else console.warn("Daemon SSE subscription exceeded capacity", error);
+            }
+            if (!init.onEnd && !(error instanceof SseCapacityError)) throw error;
           }
         } finally {
           await reader?.cancel().catch(() => {});

@@ -429,7 +429,11 @@ impl ServiceContext {
                 .and_then(|launch| launch.params.existing_tab_id.as_deref())
             {
                 Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
-                None => mux.create_tab(&ws_id)?,
+                None => {
+                    let tab_id = mux.create_tab(&ws_id)?;
+                    crate::startup::boot_timing::bind_request(&tab_id);
+                    tab_id
+                }
             };
             if let Some(attachment) = &team_attachment {
                 crate::service::team_membership::apply_team_attachment(

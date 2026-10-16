@@ -30,6 +30,377 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
+// plugins/provider-codex/src/sessions.ts
+var sessionStoreOverrides = {
+  root: "CODETERM_CODEX_SESSIONS_ROOT",
+  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
+  state: "CODETERM_CODEX_STATE_DB_PATH"
+};
+var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
+function foldSessionIndex(contents) {
+  const folded = /* @__PURE__ */ new Map();
+  const lines = String(contents || "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
+    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
+    const current = folded.get(entry.id);
+    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
+      folded.set(entry.id, {
+        id: entry.id,
+        thread_name: entry.thread_name,
+        updated_at: entry.updated_at
+      });
+    }
+  }
+  return Array.from(folded.values());
+}
+function sessionFilePath(_cwd, sessionId) {
+  const path = trimmedField(threadRow(sessionId), "rollout_path");
+  return path && host.fs.fileExists(path) ? path : null;
+}
+function sessionExists(_cwd, sessionId) {
+  if (!sessionId) return false;
+  if (threadRow(sessionId) !== null) return true;
+  const store = codexSessionStore();
+  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
+}
+function detectSessionId(cwd, exclude, maxAgeMs) {
+  if (!cwd || !host.fs.fileExists(cwd)) return null;
+  const store = codexSessionStore();
+  if (!store) return null;
+  const entries = readSessionIndex(store.indexPath);
+  if (entries.length === 0) return null;
+  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
+  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
+  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
+  const matching = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (excluded.has(entry.id)) continue;
+    const updatedMs = sessionTimestamp(entry.updated_at);
+    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
+    const project = readThreadCwd(entry.id);
+    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
+  }
+  return matching.length === 1 ? matching[0] : null;
+}
+function enumerateSessions() {
+  const store = codexSessionStore();
+  if (!store) return [];
+  const entries = readSessionIndex(store.indexPath);
+  return entries.map((entry) => ({
+    sessionId: entry.id,
+    provider: "codex",
+    projectPath: readThreadCwd(entry.id),
+    title: entry.thread_name || null,
+    summary: null,
+    filePath: store.indexPath,
+    createdTs: null,
+    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
+  }));
+}
+function findSession(sessionId) {
+  const row2 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+  if (!row2) return null;
+  const store = codexSessionStore();
+  return {
+    sessionId,
+    provider: "codex",
+    projectPath: resolveThreadCwd(sessionId, row2),
+    title: trimmedField(row2, "name") || trimmedField(row2, "title"),
+    summary: null,
+    filePath: store ? store.indexPath : codexStateDbPath() || "",
+    createdTs: unixSeconds(row2.created_at),
+    modifiedTs: unixSeconds(row2.updated_at)
+  };
+}
+function detectSessionModel(_cwd, sessionId) {
+  return trimmedField(threadRow(sessionId), "model");
+}
+function detectSessionReasoningEffort(_cwd, sessionId) {
+  const path = sessionFilePath(_cwd, sessionId);
+  if (!path) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (typeof contents !== "string") return null;
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[index]);
+    } catch (_) {
+      continue;
+    }
+    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
+    const effort = entry.payload.effort.trim();
+    if (effort) return effort;
+  }
+  return null;
+}
+function threadRow(sessionId) {
+  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
+}
+function queryThreadRow(sessionId, sql) {
+  if (!sessionId) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
+  try {
+    const rows = host.fs.sqliteQuery(db, sql, [sessionId]);
+    return rows.length > 0 ? rows[0] : null;
+  } catch (_) {
+    return null;
+  }
+}
+function unixSeconds(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+function trimmedField(row2, field) {
+  const value = row2 ? row2[field] : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function codexStateDbPath() {
+  const override = host.envGet(sessionStoreOverrides.state);
+  if (override) return override;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  let entries;
+  try {
+    entries = host.fs.readDir(root);
+  } catch (_) {
+    return null;
+  }
+  let best = null;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || !entry.isFile) continue;
+    const match = STATE_DB_NAME.exec(entry.name);
+    if (!match) continue;
+    const version = parseInt(match[1], 10);
+    if (!best || version > best.version) best = { name: entry.name, version };
+  }
+  return best ? root + sep + best.name : null;
+}
+function extractSessionUuid(stem) {
+  if (typeof stem !== "string") return null;
+  const prefix = "rollout-";
+  if (stem.indexOf(prefix) !== 0) return null;
+  const rest = stem.substring(prefix.length);
+  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
+  return rest.substring(20);
+}
+function codexSessionStore() {
+  const indexOverride = host.envGet(sessionStoreOverrides.index);
+  if (indexOverride) return { indexPath: indexOverride };
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  return {
+    indexPath: indexOverride || root + sep + "session_index.jsonl"
+  };
+}
+function trimTrailingSeparators(path) {
+  let end = path.length;
+  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
+  return path.substring(0, end);
+}
+function codexSessionsRoot(sep) {
+  const override = host.envGet(sessionStoreOverrides.root);
+  if (override) return trimTrailingSeparators(override);
+  const home = host.homeDir();
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
+}
+function readSessionIndex(path) {
+  if (!host.fs.fileExists(path)) return [];
+  const contents = host.fs.readFile(path);
+  return typeof contents === "string" ? foldSessionIndex(contents) : [];
+}
+function sessionIndexEntry(path, sessionId) {
+  const entries = readSessionIndex(path);
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].id === sessionId) return entries[i];
+  }
+  return null;
+}
+var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
+function readThreadCwd(sessionId) {
+  return resolveThreadCwd(sessionId, threadRow(sessionId));
+}
+function resolveThreadCwd(sessionId, row2) {
+  if (!row2) {
+    logUnresolvedCwd(sessionId, "no_row");
+    return null;
+  }
+  const cwd = trimmedField(row2, "cwd");
+  if (!cwd) {
+    logUnresolvedCwd(sessionId, "no_cwd");
+    return null;
+  }
+  if (!host.fs.fileExists(cwd)) {
+    logUnresolvedCwd(sessionId, "cwd_absent");
+    return null;
+  }
+  return cwd;
+}
+function logUnresolvedCwd(sessionId, cause) {
+  const key = sessionId + "\0" + cause;
+  if (unresolvedCwdDiagnostics.has(key)) return;
+  unresolvedCwdDiagnostics.add(key);
+  host.log("warn", JSON.stringify({
+    provider: "codex",
+    event: "session_cwd_unresolved",
+    sessionId,
+    cause
+  }));
+}
+function sessionTimestamp(value) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// plugins/provider-codex/src/launchSession.ts
+var MARKER_PREFIX = "codeterm-launch-marker:";
+var MIN_MARKER_LENGTH = 16;
+var ROLLOUT_HEAD_BYTES = 262144;
+var EARLY_RECORDS = 24;
+var CANDIDATE_THREADS = 64;
+function withLaunchMarker(instructions, marker) {
+  if (!marker) return instructions;
+  return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
+}
+function detectCodexLaunchSession(evidence) {
+  const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
+  if (marker.length < MIN_MARKER_LENGTH) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
+  const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
+  const rows = host.fs.sqliteQuery(
+    db,
+    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
+    [since]
+  );
+  const matches = [];
+  for (let i = 0; i < rows.length; i++) {
+    const id = typeof rows[i].id === "string" ? rows[i].id : "";
+    const path = typeof rows[i].rollout_path === "string" ? rows[i].rollout_path : "";
+    if (!id || !path || matches.indexOf(id) !== -1) continue;
+    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
+  }
+  return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
+}
+function rolloutCarriesMarker(path, id, marker) {
+  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
+  if (typeof head !== "string") return false;
+  const lines = head.split("\n");
+  let records = 0;
+  for (let i = 0; i < lines.length && records < EARLY_RECORDS; i++) {
+    if (!lines[i].trim()) continue;
+    records++;
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch (_) {
+      if (records === 1) return false;
+      continue;
+    }
+    const payload = entry && entry.payload;
+    if (records === 1) {
+      if (entry.type !== "session_meta" || !payload || payload.id !== id) return false;
+      continue;
+    }
+    if (entry.type !== "response_item" || !payload || payload.type !== "message") continue;
+    if (payload.role !== "developer" && payload.role !== "user") continue;
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    for (let j = 0; j < content.length; j++) {
+      const text6 = content[j] && content[j].text;
+      if (typeof text6 === "string" && text6.indexOf(marker) !== -1) return true;
+    }
+  }
+  return false;
+}
+
+// plugins/provider-codex/src/launchSpec.ts
+var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
+var POSIX_ARGV_BUDGET = 256 * 1024;
+function utf8Bytes(value) {
+  let bytes = 0;
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    bytes += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+  }
+  return bytes;
+}
+function supportsDirectResume() {
+  try {
+    const manifest = JSON.parse(host.manifestJson() || "null");
+    const minimum = manifest?.capabilities?.structuredControl?.minVersion;
+    const observed = JSON.parse(host.providerVersionJson());
+    if (observed?.status !== "detected" || typeof minimum !== "string") return false;
+    const parse = (value) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
+    const version = parse(String(observed.version));
+    const bound = parse(minimum);
+    if (!version || !bound) return false;
+    for (let index = 0; index < 3; index++) {
+      if (version[index] !== bound[index]) return version[index] > bound[index];
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+function buildCodexLaunchSpec(input, starter) {
+  const platform = host.platform();
+  if (platform === "windows") return null;
+  const args = [...CODEX_LAUNCH_CONFIG];
+  if ("resume" in input) {
+    const resume = input.resume;
+    if (!resume || typeof resume.sessionId !== "string" || !supportsDirectResume()) return null;
+    args.push("resume");
+    if (resume.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
+    args.push(extractSessionUuid(resume.sessionId) || resume.sessionId, "--no-daemon", ...resume.args || []);
+  } else {
+    if (input.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
+    args.push(...input.args || []);
+    if (input.task?.trim()) {
+      const instructions = withLaunchMarker(input.task, input.launchMarker).replace(/\n+$/, "");
+      args.push("-c", "developer_instructions=" + instructions);
+      const prompt = starter(input);
+      if (prompt) args.push("--", prompt);
+    }
+  }
+  const values = ["codex", ...args];
+  if (values.some((value) => value.includes("\0"))) return null;
+  if (values.reduce((bytes, value) => bytes + utf8Bytes(value) + 1, 0) > POSIX_ARGV_BUDGET) return null;
+  if (platform === "linux" && values.some((value) => utf8Bytes(value) + 1 > 128 * 1024)) return null;
+  let exclusions;
+  try {
+    exclusions = JSON.parse(host.manifestJson() || "null")?.capabilities?.agentRuntime?.inheritedEnvironmentExclusions;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(exclusions) || exclusions.some((value) => typeof value !== "string")) return null;
+  return { program: "codex", args, envSet: {}, envUnset: [...exclusions] };
+}
+function codexCommandFromSpec(spec) {
+  const quote = (value) => host.shell.quoteFor(value, host.platform());
+  const unset = spec.envUnset.length ? "unset " + spec.envUnset.map(quote).join(" ") + " && " : "";
+  return unset + [spec.program, ...spec.args].map((value) => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");
+}
+
 // plugins/provider-codex/src/runtimeProtocol.ts
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -65,7 +436,7 @@ var serverRequestMethods = [
 var HISTORY_CHUNK_BYTES = 512 * 1024;
 var ITEM_BYTES = 64 * 1024;
 var STRING_BYTES = 16 * 1024;
-function utf8Bytes(value) {
+function utf8Bytes2(value) {
   let bytes = 0;
   for (const char of value) {
     const point = char.codePointAt(0);
@@ -74,14 +445,14 @@ function utf8Bytes(value) {
   return bytes;
 }
 function serializedBytes(value) {
-  return utf8Bytes(JSON.stringify(value));
+  return utf8Bytes2(JSON.stringify(value));
 }
 function boundedString(value) {
   const scrubbed = value.replace(
     /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
-    (image) => `[image omitted: ${utf8Bytes(image)} bytes]`
+    (image) => `[image omitted: ${utf8Bytes2(image)} bytes]`
   );
-  const bytes = utf8Bytes(scrubbed);
+  const bytes = utf8Bytes2(scrubbed);
   if (bytes <= STRING_BYTES) return scrubbed;
   return `${scrubbed.slice(0, 2048)}
 [content truncated: ${bytes} bytes total]`;
@@ -93,10 +464,10 @@ function sanitizeHistory(value) {
       const item = entry;
       if (item.type === "image" && typeof item.data === "string" && !item.data.startsWith("[image omitted:")) {
         const { data, ...rest } = item;
-        return { ...rest, data: `[image omitted: ${utf8Bytes(data)} bytes]` };
+        return { ...rest, data: `[image omitted: ${utf8Bytes2(data)} bytes]` };
       }
       if (item.type === "imageGeneration" && typeof item.result === "string" && !item.result.startsWith("[image omitted:")) {
-        return { ...item, result: `[image omitted: ${utf8Bytes(item.result)} bytes]` };
+        return { ...item, result: `[image omitted: ${utf8Bytes2(item.result)} bytes]` };
       }
     }
     return entry;
@@ -1190,10 +1561,10 @@ function runtimeStoredHistory(sessionId, records) {
   const rows = /* @__PURE__ */ new Map();
   for (const line of records.split("\n")) {
     if (!line.trim()) continue;
-    const record5 = object(JSON.parse(line));
-    const payload = object(record5.payload);
-    if (record5.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
-    if (record5.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
+    const record6 = object(JSON.parse(line));
+    const payload = object(record6.payload);
+    if (record6.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
+    if (record6.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
     const turn = text(payload.turn_id);
     if (!turn || !text(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
     const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms);
@@ -1203,6 +1574,94 @@ function runtimeStoredHistory(sessionId, records) {
     }
   }
   return [...rows.values()];
+}
+
+// plugins/provider-codex/src/runtimeHistoryPager.ts
+var PREFIX = "history:";
+function failure(message) {
+  throw { code: "provider_refused", message };
+}
+function encode(position) {
+  return PREFIX + JSON.stringify(position);
+}
+function decode(op) {
+  if (!op.cursor) return { pager: 1, thread: op.threadId, stage: "turns", cursor: null };
+  if (!op.cursor.startsWith(PREFIX) || op.cursor.length > 128 * 1024) failure("Invalid history checkpoint");
+  const position = JSON.parse(op.cursor.slice(PREFIX.length));
+  if (position.pager !== 1 || position.thread !== op.threadId || !["turns", "items", "goal"].includes(position.stage) || position.cursor !== null && typeof position.cursor !== "string" || position.stage === "items" && !text(object(position.turn).id)) failure("History checkpoint differs from bound thread");
+  return position;
+}
+function pagedHistoryPlan(op) {
+  const state = decode(op);
+  const params = { threadId: op.threadId, sortDirection: "desc", cursor: state.cursor };
+  const call = state.stage === "items" ? { method: "thread/items/list", params: { ...params, turnId: state.turn.id, limit: 16 } } : state.stage === "goal" ? { method: "thread/goal/get", params: { threadId: op.threadId } } : { method: "thread/turns/list", params: { ...params, itemsView: "notLoaded", limit: 1 } };
+  return { action: { kind: "request", call: { ...call, params: call.params } }, state };
+}
+function nextCursor(value, previous) {
+  const next = text(value.nextCursor) ?? null;
+  if (next && (next.length > 4096 || next === previous)) failure("History RPC cursor did not advance");
+  return next;
+}
+function finish(op, items, openItems, questions, next) {
+  return { kind: "complete", result: {
+    kind: "historyPage",
+    threadId: op.threadId,
+    order: "desc",
+    items,
+    openItems,
+    ...questions.length ? { questions } : {},
+    ...next ? { nextCursor: encode(next) } : {}
+  } };
+}
+function pagedHistoryResponse(op, raw, reply) {
+  const state = raw;
+  if (state.thread !== op.threadId) failure("History checkpoint differs from bound thread");
+  if (reply.kind === "error") {
+    if (state.stage === "goal") return finish(op, [], [], []);
+    failure(`History ${state.stage} read failed (${reply.error.code}): ${reply.error.message}`);
+  }
+  const value = object(reply.value);
+  if (state.stage === "goal") {
+    const goal = text(object(value.goal).objective);
+    return finish(op, goal ? [{ id: "thread:goal", seq: 0, type: "custom", content: "", sessionIntent: { goal } }] : [], [], []);
+  }
+  if (!Array.isArray(value.data)) failure("History page has no data array");
+  const next = nextCursor(value, state.cursor);
+  if (state.stage === "turns") {
+    if (value.data.length > 1) failure("History turn page exceeds requested limit");
+    const turn = object(value.data[0]);
+    if (!value.data.length) return finish(op, [], [], [], next ? { ...state, cursor: next } : { ...state, stage: "goal", cursor: null });
+    if (!text(turn.id) || String(turn.id).length > 4096) failure("History turn identity missing or oversized");
+    const position2 = {
+      pager: 1,
+      thread: op.threadId,
+      stage: "items",
+      cursor: null,
+      nextTurn: next,
+      turn: { id: String(turn.id), status: turn.status === "inProgress" ? "inProgress" : "completed", startedAt: typeof turn.startedAt === "number" && Number.isFinite(turn.startedAt) ? turn.startedAt : null }
+    };
+    return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode(position2) }) };
+  }
+  if (value.data.length > 16) failure("History item page exceeds requested limit");
+  const items = [], openItems = [];
+  let questions = [], bytes = 0;
+  const offset = state.offset ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
+  for (let index = offset; index < value.data.length; index++) {
+    const record6 = object(value.data[index]), item = record6.item ?? record6;
+    const rows = projectHistoryItem(item, 0, state.turn.id, record6.startedAtMs ?? record6.completedAtMs);
+    const nextQuestions = reconcileHistoryQuestions(op.threadId, item, questions);
+    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
+    const opened = active ? rows.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
+    const used = serializedBytes({ rows, opened, questions: nextQuestions });
+    if (bytes + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
+    bytes += used;
+    items.unshift(...rows);
+    openItems.unshift(...opened);
+    questions = nextQuestions;
+  }
+  const position = next ? { ...state, cursor: next, offset: 0 } : { pager: 1, thread: op.threadId, stage: state.nextTurn ? "turns" : "goal", cursor: state.nextTurn ?? null };
+  return finish(op, items, openItems, questions, position);
 }
 
 // plugins/provider-codex/src/runtimeLogin.ts
@@ -1236,8 +1695,37 @@ function loginCompleted(value) {
   return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
 }
 
+// plugins/provider-codex/src/resetCredits.ts
+function expiry(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 864e10 ? value * 1e3 : null;
+}
+function resetCredits(raw) {
+  const summary = object(raw);
+  const count = summary.available_count;
+  if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return void 0;
+  const credits = Array.isArray(summary.credits) ? summary.credits.flatMap((rawCredit) => {
+    const credit = object(rawCredit);
+    const id = text(credit.id);
+    if (!id) return [];
+    const status = credit.status === "available" || credit.status === "redeeming" || credit.status === "redeemed" ? credit.status : "unknown";
+    return [{
+      id,
+      status,
+      expiresAt: expiry(credit.expires_at),
+      ...text(credit.title) ? { title: text(credit.title) } : {},
+      ...text(credit.description) ? { description: text(credit.description) } : {}
+    }];
+  }) : null;
+  const expiries = credits?.filter((credit) => credit.status === "available" && credit.expiresAt !== null).map((credit) => credit.expiresAt) ?? [];
+  return { availableCount: count, nextExpiry: expiries.length ? Math.min(...expiries) : null, credits };
+}
+function resetOutcome(raw) {
+  const outcome2 = object(raw).outcome;
+  return outcome2 === "reset" || outcome2 === "nothingToReset" || outcome2 === "noCredit" || outcome2 === "alreadyRedeemed" ? outcome2 : void 0;
+}
+
 // plugins/provider-codex/src/runtimeUsage.ts
-function rateLimitEvents(raw) {
+function rateLimitEvents(raw, rawResets) {
   const limits = object(raw);
   if (limits.limitId && limits.limitId !== "codex") return [];
   const windows = ["primary", "secondary"].flatMap((window) => {
@@ -1250,7 +1738,8 @@ function rateLimitEvents(raw) {
       ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
     }];
   });
-  return windows.length ? [{ kind: "rateLimits", rateLimits: windows }] : [];
+  const resets = resetCredits(rawResets);
+  return windows.length || resets ? [{ kind: "rateLimits", rateLimits: windows, ...resets ? { resets } : {} }] : [];
 }
 
 // plugins/provider-codex/src/runtimeAuth.ts
@@ -1657,7 +2146,7 @@ function compactState(state) {
   state.childCompleted = tail(state.childCompleted);
   fitTotal(state);
 }
-function utf8Bytes2(value) {
+function utf8Bytes3(value) {
   let bytes = 0;
   for (let index = 0; index < value.length; index++) {
     const unit = value.charCodeAt(index);
@@ -1672,15 +2161,15 @@ function utf8Bytes2(value) {
 }
 var MIN_RUNNING_CAP = 1024;
 function fitTotal(state) {
-  if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+  if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
   const retiredOrder = () => (state.retired ?? []).filter((id) => state.items[id]);
-  while (retiredOrder().length > 0 && utf8Bytes2(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
+  while (retiredOrder().length > 0 && utf8Bytes3(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
     const drop = retiredOrder().slice(0, Math.max(1, Math.ceil(retiredOrder().length / 4)));
     for (const id of drop) delete state.items[id];
     state.retired = retiredOrder();
   }
   for (let cap = STATE_TEXT_CAP / 2; cap >= MIN_RUNNING_CAP; cap = Math.floor(cap / 2)) {
-    if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+    if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
     for (const [id, row2] of Object.entries(state.items)) state.items[id] = capRow(row2, cap);
     for (const parts of Object.values(state.reasoning ?? {})) {
       parts.summary = parts.summary.map((part) => capText(part, cap));
@@ -1843,7 +2332,7 @@ function runtimeReduce(ctx, raw, frames) {
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
-      events.push(...rateLimitEvents(state.rateLimitSnapshot));
+      events.push(...rateLimitEvents(state.rateLimitSnapshot, params.rate_limit_reset_credits));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
@@ -1880,9 +2369,9 @@ function runtimeReduce(ctx, raw, frames) {
         events.push(...interruptPendingCalls(state, threadId, turnId));
         delete state.activeTurnId;
         delete state.compacting;
-        const failure = object(object(params.turn).error);
-        if (text(failure.message)) {
-          const error = runtimeError(failure);
+        const failure2 = object(object(params.turn).error);
+        if (text(failure2.message)) {
+          const error = runtimeError(failure2);
           events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
         }
         const outcome2 = turnOutcome(params.turn);
@@ -2086,9 +2575,10 @@ function runtimePlan(ctx, op) {
     case "resumeThread":
       return request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true });
     case "readHistory":
+      if (op.order === "desc") return pagedHistoryPlan(op);
       return request(
         "thread/turns/list",
-        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "asc", limit: 8, cursor: op.cursor },
+        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: op.order ?? "asc", limit: 8, cursor: op.cursor },
         { stage: "turns", turns: [], cursor: null, seq: 0 }
       );
     case "submitTurn": {
@@ -2109,6 +2599,12 @@ function runtimePlan(ctx, op) {
       return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(pending.method, pending.params, op.requestId, op.answer) } }, state: null };
     }
     case "control": {
+      if (op.action === "readResetCredits") return request("account/rateLimits/read", { exclude_reset_credit_details: object(op.value).details !== true });
+      if (op.action === "redeemResetCredit") {
+        const key = text(object(op.value).idempotencyKey);
+        if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail2("invalid_schema", "A confirmation UUID is required");
+        return request("account/rateLimitResetCredit/consume", { idempotency_key: key });
+      }
       if (op.action === "login") return loginPlan(op.value);
       if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
       const thread = op.threadId ?? ctx.threadId;
@@ -2132,7 +2628,13 @@ function continuation(plan, beforeAcceptance) {
 function runtimeResponse(ctx, op, raw, reply) {
   validateBinding(ctx, op);
   const state = object(raw);
+  if (op.kind === "readHistory" && state.pager === 1) {
+    if (reply.kind === "error" && reply.error.code === -32601 && ["turns", "items"].includes(String(state.stage)))
+      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", seq: 0 }));
+    return pagedHistoryResponse(op, state, reply);
+  }
   if (reply.kind === "error") {
+    if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" } };
     if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: { kind: "initialized" }, events: [state.auth] };
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
@@ -2151,10 +2653,10 @@ function runtimeResponse(ctx, op, raw, reply) {
       if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
       if (state.stage === "initializeAccount") {
         const auth = accountAuth(value);
-        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", {}, { stage: "initializeLimits", auth }));
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", { exclude_reset_credit_details: true }, { stage: "initializeLimits", auth }));
         return { kind: "complete", result: { kind: "initialized" }, events: [auth] };
       }
-      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits)] };
+      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits)] };
     case "openThread": {
       if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: state.settings } };
       const threadId = userThread(value);
@@ -2183,6 +2685,14 @@ function runtimeResponse(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "done" } };
     }
     case "control": {
+      if (op.action === "readResetCredits") return { kind: "complete", result: { kind: "done" }, events: rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits) };
+      if (op.action === "redeemResetCredit") {
+        if (state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" }, events: rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits) };
+        const outcome2 = resetOutcome(value);
+        if (!outcome2) return refused("Unknown reset credit outcome");
+        if (outcome2 === "reset") return continuation(request("account/rateLimits/read", { exclude_reset_credit_details: false }, { stage: "refreshResetCredits" }));
+        return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: outcome2 } };
+      }
       if (op.action === "login") return loginResponse(state, value);
       if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
       return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
@@ -2219,7 +2729,7 @@ function historyResponse(op, state, value) {
   if (state.stage === "turns") {
     const source = list(value.data).map(object);
     if (source.length > 8 || source.some((turn2) => typeof turn2.id !== "string" || !turn2.id || turn2.id.length > 4096)) return refused("Invalid history turn page");
-    const turns2 = source.map((turn2) => ({
+    const turns2 = (op.order === "desc" ? [...source].reverse() : source).map((turn2) => ({
       id: turn2.id,
       status: turn2.status === "inProgress" ? "inProgress" : "completed",
       startedAt: typeof turn2.startedAt === "number" && Number.isFinite(turn2.startedAt) ? turn2.startedAt : null
@@ -2251,12 +2761,12 @@ function collectHistoryItems(op, state, turn, entries) {
   let questions = list(state.questions);
   let bytes = serializedBytes({ items, openItems, questions });
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
-    const record5 = object(entries[index]);
-    const rawItem = historyItem(record5.item ?? record5);
+    const record6 = object(entries[index]);
+    const rawItem = historyItem(record6.item ?? record6);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const timestamp = record5.startedAtMs ?? record5.completedAtMs;
+    const timestamp = record6.startedAtMs ?? record6.completedAtMs;
     const rows = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp);
-    const active = turn.status === "inProgress" && turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
     if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
@@ -2284,7 +2794,8 @@ function historyComplete(op, state) {
     items: list(state.items),
     openItems: list(state.openItems),
     ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
-    ...list(state.questions).length ? { questions: list(state.questions) } : {}
+    ...list(state.questions).length ? { questions: list(state.questions) } : {},
+    ...op.order ? { order: op.order } : {}
   } };
 }
 function streamHistory(op, step, state) {
@@ -2338,7 +2849,7 @@ function statusCode2(value) {
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
   return null;
 }
-function classifyAccessError(error, record5) {
+function classifyAccessError(error, record6) {
   const detail = object2(error);
   const info = detail?.codexErrorInfo;
   const infoObject = object2(info);
@@ -2353,11 +2864,11 @@ function classifyAccessError(error, record5) {
     typeof info === "string" ? info : null,
     ...Object.keys(infoObject ?? {}),
     ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
-    record5.status,
-    record5.statusCode,
-    record5.status_code,
-    record5.apiErrorStatus,
-    record5.apiErrorCode
+    record6.status,
+    record6.statusCode,
+    record6.status_code,
+    record6.apiErrorStatus,
+    record6.apiErrorCode
   ];
   const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
   const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
@@ -2381,15 +2892,15 @@ function readRetry(value) {
   }
   return null;
 }
-function retryAfterSecs(error, record5) {
-  return readRetry(object2(error)) ?? readRetry(record5);
+function retryAfterSecs(error, record6) {
+  return readRetry(object2(error)) ?? readRetry(record6);
 }
-function observationTurnId(record5) {
+function observationTurnId(record6) {
   for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
-    const value = record5[key];
+    const value = record6[key];
     if (typeof value === "string" && value) return value;
   }
-  const payload = object2(record5.payload);
+  const payload = object2(record6.payload);
   if (!payload) return null;
   for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
     const value = payload[key];
@@ -2397,32 +2908,32 @@ function observationTurnId(record5) {
   }
   return null;
 }
-function observationRetrying(error, record5) {
-  return record5.willRetry === true || object2(error)?.willRetry === true;
+function observationRetrying(error, record6) {
+  return record6.willRetry === true || object2(error)?.willRetry === true;
 }
-function observationExtras(error, record5) {
+function observationExtras(error, record6) {
   const extras = {};
-  const retry = retryAfterSecs(error, record5);
+  const retry = retryAfterSecs(error, record6);
   if (retry != null) extras.retry_after_secs = retry;
-  const turn = observationTurnId(record5);
+  const turn = observationTurnId(record6);
   if (turn) extras.turn_id = turn;
-  if (observationRetrying(error, record5)) extras.retrying = true;
+  if (observationRetrying(error, record6)) extras.retrying = true;
   return extras;
 }
 
 // plugins/provider-codex/src/signals.ts
 function parseSessionObservations(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record5 = value;
-  if (record5.type !== "event_msg" || !record5.payload || typeof record5.payload !== "object" || Array.isArray(record5.payload)) return null;
-  const payload = record5.payload;
+  const record6 = value;
+  if (record6.type !== "event_msg" || !record6.payload || typeof record6.payload !== "object" || Array.isArray(record6.payload)) return null;
+  const payload = record6.payload;
   if (payload.type === "error") {
     const error = payload.error ?? payload;
     return {
       api_error: classifyAccessError(error, payload),
       permission_mode: null,
       clears_api_error: false,
-      ...observationExtras(error, record5)
+      ...observationExtras(error, record6)
     };
   }
   if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
@@ -2442,13 +2953,6 @@ function updatePromptSafeChoice(prompt) {
   if (!value || /\bupdate\b/i.test(label)) return null;
   if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
   return value;
-}
-
-// plugins/provider-shared/readHome.ts
-function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
-  if (!inheritedHome) return fallback;
-  if (!subpath) return inheritedHome;
-  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
 }
 
 // plugins/provider-codex/src/models.ts
@@ -2529,302 +3033,6 @@ function displayNameFromId(id) {
 }
 function capitalizeToken(token) {
   return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
-}
-
-// plugins/provider-codex/src/sessions.ts
-var sessionStoreOverrides = {
-  root: "CODETERM_CODEX_SESSIONS_ROOT",
-  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
-  state: "CODETERM_CODEX_STATE_DB_PATH"
-};
-var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
-function foldSessionIndex(contents) {
-  const folded = /* @__PURE__ */ new Map();
-  const lines = String(contents || "").split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch (_) {
-      continue;
-    }
-    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
-    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
-    const current = folded.get(entry.id);
-    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
-      folded.set(entry.id, {
-        id: entry.id,
-        thread_name: entry.thread_name,
-        updated_at: entry.updated_at
-      });
-    }
-  }
-  return Array.from(folded.values());
-}
-function sessionFilePath(_cwd, sessionId) {
-  const path = trimmedField(threadRow(sessionId), "rollout_path");
-  return path && host.fs.fileExists(path) ? path : null;
-}
-function sessionExists(_cwd, sessionId) {
-  if (!sessionId) return false;
-  if (threadRow(sessionId) !== null) return true;
-  const store = codexSessionStore();
-  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
-}
-function detectSessionId(cwd, exclude, maxAgeMs) {
-  if (!cwd || !host.fs.fileExists(cwd)) return null;
-  const store = codexSessionStore();
-  if (!store) return null;
-  const entries = readSessionIndex(store.indexPath);
-  if (entries.length === 0) return null;
-  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
-  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
-  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
-  const matching = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (excluded.has(entry.id)) continue;
-    const updatedMs = sessionTimestamp(entry.updated_at);
-    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
-    const project = readThreadCwd(entry.id);
-    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
-  }
-  return matching.length === 1 ? matching[0] : null;
-}
-function enumerateSessions() {
-  const store = codexSessionStore();
-  if (!store) return [];
-  const entries = readSessionIndex(store.indexPath);
-  return entries.map((entry) => ({
-    sessionId: entry.id,
-    provider: "codex",
-    projectPath: readThreadCwd(entry.id),
-    title: entry.thread_name || null,
-    summary: null,
-    filePath: store.indexPath,
-    createdTs: null,
-    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
-  }));
-}
-function findSession(sessionId) {
-  const row2 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
-  if (!row2) return null;
-  const store = codexSessionStore();
-  return {
-    sessionId,
-    provider: "codex",
-    projectPath: resolveThreadCwd(sessionId, row2),
-    title: trimmedField(row2, "name") || trimmedField(row2, "title"),
-    summary: null,
-    filePath: store ? store.indexPath : codexStateDbPath() || "",
-    createdTs: unixSeconds(row2.created_at),
-    modifiedTs: unixSeconds(row2.updated_at)
-  };
-}
-function detectSessionModel(_cwd, sessionId) {
-  return trimmedField(threadRow(sessionId), "model");
-}
-function detectSessionReasoningEffort(_cwd, sessionId) {
-  const path = sessionFilePath(_cwd, sessionId);
-  if (!path) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
-  if (typeof contents !== "string") return null;
-  const lines = contents.split("\n");
-  for (let index = lines.length - 1; index >= 0; index--) {
-    let entry;
-    try {
-      entry = JSON.parse(lines[index]);
-    } catch (_) {
-      continue;
-    }
-    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
-    const effort = entry.payload.effort.trim();
-    if (effort) return effort;
-  }
-  return null;
-}
-function threadRow(sessionId) {
-  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
-}
-function queryThreadRow(sessionId, sql) {
-  if (!sessionId) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
-  try {
-    const rows = host.fs.sqliteQuery(db, sql, [sessionId]);
-    return rows.length > 0 ? rows[0] : null;
-  } catch (_) {
-    return null;
-  }
-}
-function unixSeconds(value) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
-}
-function trimmedField(row2, field) {
-  const value = row2 ? row2[field] : null;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-function codexStateDbPath() {
-  const override = host.envGet(sessionStoreOverrides.state);
-  if (override) return override;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  let entries;
-  try {
-    entries = host.fs.readDir(root);
-  } catch (_) {
-    return null;
-  }
-  let best = null;
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!entry || !entry.isFile) continue;
-    const match = STATE_DB_NAME.exec(entry.name);
-    if (!match) continue;
-    const version = parseInt(match[1], 10);
-    if (!best || version > best.version) best = { name: entry.name, version };
-  }
-  return best ? root + sep + best.name : null;
-}
-function extractSessionUuid(stem) {
-  if (typeof stem !== "string") return null;
-  const prefix = "rollout-";
-  if (stem.indexOf(prefix) !== 0) return null;
-  const rest = stem.substring(prefix.length);
-  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
-  return rest.substring(20);
-}
-function codexSessionStore() {
-  const indexOverride = host.envGet(sessionStoreOverrides.index);
-  if (indexOverride) return { indexPath: indexOverride };
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  return {
-    indexPath: indexOverride || root + sep + "session_index.jsonl"
-  };
-}
-function trimTrailingSeparators(path) {
-  let end = path.length;
-  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
-  return path.substring(0, end);
-}
-function codexSessionsRoot(sep) {
-  const override = host.envGet(sessionStoreOverrides.root);
-  if (override) return trimTrailingSeparators(override);
-  const home = host.homeDir();
-  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
-}
-function readSessionIndex(path) {
-  if (!host.fs.fileExists(path)) return [];
-  const contents = host.fs.readFile(path);
-  return typeof contents === "string" ? foldSessionIndex(contents) : [];
-}
-function sessionIndexEntry(path, sessionId) {
-  const entries = readSessionIndex(path);
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].id === sessionId) return entries[i];
-  }
-  return null;
-}
-var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
-function readThreadCwd(sessionId) {
-  return resolveThreadCwd(sessionId, threadRow(sessionId));
-}
-function resolveThreadCwd(sessionId, row2) {
-  if (!row2) {
-    logUnresolvedCwd(sessionId, "no_row");
-    return null;
-  }
-  const cwd = trimmedField(row2, "cwd");
-  if (!cwd) {
-    logUnresolvedCwd(sessionId, "no_cwd");
-    return null;
-  }
-  if (!host.fs.fileExists(cwd)) {
-    logUnresolvedCwd(sessionId, "cwd_absent");
-    return null;
-  }
-  return cwd;
-}
-function logUnresolvedCwd(sessionId, cause) {
-  const key = sessionId + "\0" + cause;
-  if (unresolvedCwdDiagnostics.has(key)) return;
-  unresolvedCwdDiagnostics.add(key);
-  host.log("warn", JSON.stringify({
-    provider: "codex",
-    event: "session_cwd_unresolved",
-    sessionId,
-    cause
-  }));
-}
-function sessionTimestamp(value) {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-// plugins/provider-codex/src/launchSession.ts
-var MARKER_PREFIX = "codeterm-launch-marker:";
-var MIN_MARKER_LENGTH = 16;
-var ROLLOUT_HEAD_BYTES = 262144;
-var EARLY_RECORDS = 24;
-var CANDIDATE_THREADS = 64;
-function withLaunchMarker(instructions, marker) {
-  if (!marker) return instructions;
-  return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
-}
-function detectCodexLaunchSession(evidence) {
-  const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
-  if (marker.length < MIN_MARKER_LENGTH) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
-  const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
-  const rows = host.fs.sqliteQuery(
-    db,
-    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
-    [since]
-  );
-  const matches = [];
-  for (let i = 0; i < rows.length; i++) {
-    const id = typeof rows[i].id === "string" ? rows[i].id : "";
-    const path = typeof rows[i].rollout_path === "string" ? rows[i].rollout_path : "";
-    if (!id || !path || matches.indexOf(id) !== -1) continue;
-    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
-  }
-  return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
-}
-function rolloutCarriesMarker(path, id, marker) {
-  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
-  if (typeof head !== "string") return false;
-  const lines = head.split("\n");
-  let records = 0;
-  for (let i = 0; i < lines.length && records < EARLY_RECORDS; i++) {
-    if (!lines[i].trim()) continue;
-    records++;
-    let entry;
-    try {
-      entry = JSON.parse(lines[i]);
-    } catch (_) {
-      if (records === 1) return false;
-      continue;
-    }
-    const payload = entry && entry.payload;
-    if (records === 1) {
-      if (entry.type !== "session_meta" || !payload || payload.id !== id) return false;
-      continue;
-    }
-    if (entry.type !== "response_item" || !payload || payload.type !== "message") continue;
-    if (payload.role !== "developer" && payload.role !== "user") continue;
-    const content = Array.isArray(payload.content) ? payload.content : [];
-    for (let j = 0; j < content.length; j++) {
-      const text6 = content[j] && content[j].text;
-      if (typeof text6 === "string" && text6.indexOf(marker) !== -1) return true;
-    }
-  }
-  return false;
 }
 
 // plugins/provider-codex/src/prompt.ts
@@ -3280,6 +3488,95 @@ function codexParseWeeklyResets(raw, nowMs) {
   return cand.getTime();
 }
 
+// plugins/provider-shared/updateCheck.ts
+function record4(raw) {
+  if (raw !== null && typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function installedVersion(result) {
+  const installed = record4(result);
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  return version && versionParts(version) ? version : null;
+}
+function availableUpdate(currentVersion, result, compatibility) {
+  const response = record4(result);
+  if (response?.status !== 200) return null;
+  const metadata = record4(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (!compatibility && !latestVersion) return null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
+}
+function startedJob(raw) {
+  const job = record4(raw)?.jobId;
+  return typeof job === "string" && job !== "" ? job : null;
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (!probe) return null;
+  return host2.awaitJob(probe, (installed) => {
+    const currentVersion = parseInstalled(installed);
+    if (!currentVersion) return null;
+    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+      url: metadataUrl,
+      method: "GET",
+      timeoutMs: 6e3,
+      headers: { Accept: "application/vnd.npm.install-v1+json" }
+    })));
+    if (!metadata) return null;
+    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
+  });
+}
+
 // plugins/provider-codex/src/update.ts
 function parseVersion(value) {
   if (typeof value !== "string") return null;
@@ -3287,16 +3584,8 @@ function parseVersion(value) {
   if (!match) return null;
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
-function updateAvailable(current, latest) {
-  const installed = parseVersion(current);
-  const offered = parseVersion(latest);
-  if (!installed || !offered) return false;
-  for (let i = 0; i < 3; i += 1) {
-    if (offered[i] !== installed[i]) return offered[i] > installed[i];
-  }
-  return false;
-}
-function record4(value) {
+function record5(value) {
+  if (value !== null && typeof value === "object") return value;
   if (typeof value !== "string") return null;
   try {
     const parsed = JSON.parse(value);
@@ -3305,24 +3594,20 @@ function record4(value) {
     return null;
   }
 }
-function checkCodexUpdate(host2) {
-  const installed = record4(host2.exec(JSON.stringify({
-    bin: "codex",
-    args: ["--version"],
-    timeoutMs: 5e3
-  })));
+function installedCodexVersion(result) {
+  const installed = record5(result);
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
   const current = installed.stdout.match(/\d+\.\d+\.\d+/)?.[0];
-  if (!current) return null;
-  const response = record4(host2.fetch(JSON.stringify({
-    url: "https://registry.npmjs.org/@openai%2Fcodex/latest",
-    method: "GET",
-    timeoutMs: 6e3
-  })));
-  if (response?.status !== 200 || typeof response.body !== "string") return null;
-  const metadata = record4(response.body);
-  const latest = metadata?.version;
-  return updateAvailable(current, latest) && typeof latest === "string" ? { currentVersion: current, latestVersion: latest } : null;
+  return current && parseVersion(current) ? current : null;
+}
+function checkCodexUpdate(host2) {
+  return checkProviderUpdate(
+    host2,
+    "codex",
+    "https://registry.npmjs.org/@openai%2Fcodex/latest",
+    void 0,
+    installedCodexVersion
+  );
 }
 
 // plugins/provider-codex/src/patchEdits.ts
@@ -5333,7 +5618,6 @@ var OUTPUT_FINGERPRINTS = [
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
 function starterPrompt(params) {
   if (params.starterPromptText) return params.starterPromptText;
   if (params.starterPrompt === "no_starter") return void 0;
@@ -5467,7 +5751,12 @@ var plugin = {
       request2.goneInstanceIds
     );
   },
+  buildLaunchSpec(input) {
+    return buildCodexLaunchSpec(input, starterPrompt);
+  },
   buildLaunchCommand(params) {
+    const spec = buildCodexLaunchSpec(params || {}, starterPrompt);
+    if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG];
     if (p.skipPermissions) {
@@ -5505,6 +5794,8 @@ var plugin = {
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
+    const spec = buildCodexLaunchSpec({ resume: { sessionId, skipPermissions } }, starterPrompt);
+    if (spec) return codexCommandFromSpec(spec);
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
@@ -5515,6 +5806,8 @@ var plugin = {
     return requireDirectResume(parts.join(" "));
   },
   buildResumeCommandWithContext(params) {
+    const spec = buildCodexLaunchSpec({ resume: params }, starterPrompt);
+    if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const platform = host.platform();
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];

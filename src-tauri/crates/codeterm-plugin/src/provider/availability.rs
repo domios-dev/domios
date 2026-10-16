@@ -62,9 +62,168 @@ pub fn observe_launch_binary(binary: Option<&str>) -> LaunchBinaryObservation {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaunchInterpreter {
+    Direct,
+    Command,
+    PowerShell,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedLaunchSpec {
+    pub spec: codeterm_types::agent::LaunchSpec,
+    pub interpreter: LaunchInterpreter,
+}
+
+pub fn resolve_launch_spec(
+    spec: &codeterm_types::agent::LaunchSpec,
+) -> Result<ResolvedLaunchSpec, String> {
+    let target = match probe_bin(&spec.program).resolution {
+        BinResolution::Found(path) => path,
+        BinResolution::Missing => {
+            return Err(format!("launch program not found: {}", spec.program))
+        }
+        BinResolution::Unknown => {
+            return Err(format!(
+                "launch program resolution unavailable: {}",
+                spec.program
+            ));
+        }
+    };
+    let powershell = || {
+        ["pwsh", "powershell"]
+            .into_iter()
+            .find_map(|program| match probe_bin(program).resolution {
+                BinResolution::Found(path) => Some(path),
+                _ => None,
+            })
+    };
+    resolve_launch_target(spec, &target, cfg!(windows), powershell)
+}
+
+fn resolve_launch_target(
+    spec: &codeterm_types::agent::LaunchSpec,
+    target: &std::path::Path,
+    windows: bool,
+    powershell: impl FnOnce() -> Option<PathBuf>,
+) -> Result<ResolvedLaunchSpec, String> {
+    let mut resolved = spec.clone();
+    let target = target.to_string_lossy().into_owned();
+    let extension = std::path::Path::new(&target)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let (program, mut prefix, interpreter) = match (windows, extension.as_str()) {
+        (true, "cmd" | "bat") => (
+            "cmd.exe".to_string(),
+            vec!["/d".into(), "/c".into(), target],
+            LaunchInterpreter::Command,
+        ),
+        (true, "ps1") => (
+            powershell()
+                .ok_or("PowerShell interpreter unavailable for launch script")?
+                .to_string_lossy()
+                .into_owned(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-ExecutionPolicy".into(),
+                "Bypass".into(),
+                "-File".into(),
+                target,
+            ],
+            LaunchInterpreter::PowerShell,
+        ),
+        _ => (target, Vec::new(), LaunchInterpreter::Direct),
+    };
+    prefix.extend(spec.args.clone());
+    resolved.program = program;
+    resolved.args = prefix;
+    Ok(ResolvedLaunchSpec {
+        spec: resolved,
+        interpreter,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launch_spec_resolution_matrix_preserves_argument_and_environment_boundaries() {
+        use codeterm_types::agent::LaunchSpec;
+        let original = LaunchSpec {
+            program: "fixture".into(),
+            args: vec!["two words".into(), "юникод 😀 $x; `command`".into()],
+            env_set: [("KEY".into(), "raw value".into())].into(),
+            env_unset: vec!["INHERITED".into()],
+        };
+        for (windows, path, expected) in [
+            (
+                true,
+                "C:/program files/fixture.CMD",
+                LaunchInterpreter::Command,
+            ),
+            (true, "C:/tools/fixture.bat", LaunchInterpreter::Command),
+            (true, "C:/tools/fixture.ps1", LaunchInterpreter::PowerShell),
+            (true, "C:/tools/fixture.exe", LaunchInterpreter::Direct),
+            (true, "C:/tools/fixture", LaunchInterpreter::Direct),
+            (false, "/usr/bin/fixture", LaunchInterpreter::Direct),
+            (false, "/tmp/shebang-script", LaunchInterpreter::Direct),
+            (false, "/tmp/fixture.ps1", LaunchInterpreter::Direct),
+        ] {
+            let resolved =
+                resolve_launch_target(&original, std::path::Path::new(path), windows, || {
+                    Some(PathBuf::from("C:/tools/pwsh.exe"))
+                })
+                .unwrap();
+            assert_eq!(resolved.interpreter, expected);
+            assert!(resolved.spec.args.ends_with(&original.args));
+            assert_eq!(resolved.spec.env_set, original.env_set);
+            assert_eq!(resolved.spec.env_unset, original.env_unset);
+            match expected {
+                LaunchInterpreter::Command => {
+                    assert_eq!(resolved.spec.program, "cmd.exe");
+                    assert_eq!(&resolved.spec.args[..3], &["/d", "/c", path]);
+                }
+                LaunchInterpreter::PowerShell => {
+                    assert_eq!(resolved.spec.program, "C:/tools/pwsh.exe");
+                    assert_eq!(
+                        &resolved.spec.args[..6],
+                        &[
+                            "-NoProfile",
+                            "-NonInteractive",
+                            "-ExecutionPolicy",
+                            "Bypass",
+                            "-File",
+                            path
+                        ]
+                    );
+                }
+                LaunchInterpreter::Direct => {
+                    assert_eq!(resolved.spec.program, path);
+                    assert_eq!(resolved.spec.args, original.args);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn launch_spec_script_interpreter_failure_is_explicit() {
+        let spec = codeterm_types::agent::LaunchSpec::default();
+        assert!(
+            resolve_launch_target(&spec, std::path::Path::new("script.ps1"), true, || None)
+                .is_err()
+        );
+        assert!(resolve_launch_target(
+            &spec,
+            std::path::Path::new("program.exe"),
+            true,
+            || panic!("not a script")
+        )
+        .is_ok());
+    }
 
     #[test]
     fn availability_is_three_valued_over_the_resolver_verdict() {

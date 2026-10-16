@@ -163,6 +163,9 @@ impl JsProvider {
     /// and logging anything else. Swallowing missing-function lets plugin
     /// authors omit methods they don't implement.
     fn try_call<R: for<'de> Deserialize<'de>>(&self, method: &str, args: &[Value]) -> Option<R> {
+        if !self.has_js(method) {
+            return None;
+        }
         match call_json::<R>(&self.vm, method, args) {
             Ok(v) => Some(v),
             Err(VmError::MissingFunction(_)) => None,

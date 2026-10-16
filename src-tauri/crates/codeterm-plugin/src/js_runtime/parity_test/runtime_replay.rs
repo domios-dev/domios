@@ -247,7 +247,13 @@ async fn replay(
                         provider.runtime_plan(ctx, &case.operation).await.unwrap(),
                     );
                 }
-                assert_eq!(&plans[operation].action, action);
+                let mut expected = action.clone();
+                if let RuntimeAction::Request { call } = &mut expected {
+                    if call.method == "account/rateLimits/read" {
+                        call.params = json!({"exclude_reset_credit_details":true});
+                    }
+                }
+                assert_eq!(plans[operation].action, expected);
                 if matches!(action, RuntimeAction::QuestionAnswer { .. }) {
                     plans.remove(operation);
                 }
@@ -528,6 +534,7 @@ async fn runtime_large_history_streams_bounded_quickjs_state() {
     let op = RuntimeOperation::ReadHistory {
         thread_id: context.thread_id.clone().unwrap(),
         cursor: None,
+        order: None,
     };
     let plan = provider.runtime_plan(&context, &op).await.unwrap();
     let mut step = provider.runtime_response(&context, &op, &plan.state, &RpcReply::Success { value: json!({"data":[{"id":"long-turn","status":"completed","ignored":"x".repeat(MAX_RUNTIME_STATE_BYTES)}]}) }).await.unwrap();
@@ -594,6 +601,7 @@ async fn runtime_multi_mib_history_is_bounded_before_and_after_quickjs() {
     let op = RuntimeOperation::ReadHistory {
         thread_id: context.thread_id.clone().unwrap(),
         cursor: None,
+        order: None,
     };
     let plan = provider.runtime_plan(&context, &op).await.unwrap();
     let mut step = provider

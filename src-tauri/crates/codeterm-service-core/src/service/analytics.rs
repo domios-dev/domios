@@ -165,7 +165,10 @@ pub(crate) fn billing_observer(worker: Worker) -> codeterm_billing::ProductObser
 pub(crate) fn billing_plan(plan: codeterm_billing::Plan) -> codeterm_analytics::PlanKey {
     match plan {
         codeterm_billing::Plan::Free => codeterm_analytics::PlanKey::Free,
-        codeterm_billing::Plan::Pro => codeterm_analytics::PlanKey::Pro,
+        // The analytics catalog has no sponsor key yet; sponsor is reported as the paid tier.
+        codeterm_billing::Plan::Pro | codeterm_billing::Plan::Sponsor => {
+            codeterm_analytics::PlanKey::Pro
+        }
     }
 }
 pub(crate) fn subscription_event(

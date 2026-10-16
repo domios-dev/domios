@@ -116,8 +116,7 @@ pub fn launch_with_dispatch(
             .agent_registry
             .provider_arc(provider)
             .ok_or_else(|| "CLI update provider is unavailable".to_string())?;
-        let target = updater_provider
-            .check_for_update()
+        let target = super::provider_update::newer_target(updater_provider.check_for_update())
             .ok_or_else(|| "No supported CLI update target is available".to_string())?;
         command = super::provider_update::compatible_command_for_target(
             &command,

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { partToChatMsg } from "../src/helpers";
 import { opencodeFileDiffs } from "../src/fileDiffs";
 import { materializeToolEvent, sessionChanges, type FileDiff, type NormalizedChatMessage } from "@codeterm/chat-core";
+import { withAsyncSqlite } from "./hostFixture.testdata";
 
 const completed = partToChatMsg({ type: "tool", tool: "edit", callID: "call1", state: {
   status: "completed", input: { filePath: "/repo/a.ts", oldString: "old", newString: "new\nextra" }, output: "ok",
@@ -48,9 +49,9 @@ const storedParts = JSON.parse(readFileSync(new URL("../../../tests/fixtures/ope
 }>;
 const context = { module: { exports: {} }, host: {
   platform: () => "linux", envGet: () => null, expandHome: () => "/fixture",
-  fs: { fileExists: () => true, sqliteQuery: () => storedParts.map((fixture, index) => ({
+  fs: withAsyncSqlite({ fileExists: () => true, sqliteQuery: () => storedParts.map((fixture, index) => ({
     id: fixture.name, ts_created: index + 1, ts_updated: index + 1, role: "assistant", part: JSON.stringify(fixture.part),
-  })) },
+  })) }),
 } };
 new vm.Script(readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
 const bundled = (context.module.exports as { default: {

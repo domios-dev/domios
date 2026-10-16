@@ -1342,6 +1342,21 @@ validate_dev_provenance() {
     --identifier "$CT_IDENTIFIER"
 }
 
+run_prebuilt_preflight() {
+  local status=0 output
+  output="$("$@" 2>&1)" || status=$?
+  if [ -n "$output" ]; then
+    printf '%s\n' "$output" >> "$PREBUILT_LOG"
+    if [ "$status" = 0 ]; then printf '%s\n' "$output"; else printf '%s\n' "$output" >&2; fi
+  fi
+  return "$status"
+}
+
+refuse_prebuilt() {
+  printf '%s\n' "$@" | tee -a "$PREBUILT_LOG" >&2
+  exit 2
+}
+
 require_prebuilt_command() {
   local command_name="$1"
   if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -1818,6 +1833,7 @@ build_and_launch_dev() {
   fi
   TAURI_CONFIG="$(cat "$conf")" cargo build "${build_args[@]}"
   build_sha="$(git rev-parse HEAD)"
+  build_dev_frontend
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
   release_stable_build_path
@@ -1941,6 +1957,17 @@ windows_dev_leftover_cleanup() {
   "${cleanup_args[@]}" 2>/dev/null || true
 }
 
+# Provenance must hash the bytes the prebuilt watcher regenerates for this HEAD, not a prior session's dist/.
+build_dev_frontend() {
+  local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
+  echo "Building dev frontend bundle (log $log)..."
+  if ! CODETERM_FRONTEND_DEV=1 node node_modules/vite/bin/vite.js build </dev/null >> "$log" 2>&1; then
+    echo "ERROR: dev frontend bundle build failed; see $log" >&2
+    return 1
+  fi
+}
+
+# The static server serves dist/ during the watcher's first rebuild, so the watcher overwrites in place.
 start_web_watch() {
   kill_web_watch || true
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
@@ -1949,10 +1976,10 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2975,15 +3002,13 @@ LOCK_STORM_PY
       DEV_NOTIFY_LOG="$PREBUILT_LOG"
     fi
     DEV_NOTIFY_STAGE=preflight
-    if ! validate_dev_provenance; then
-      echo "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." >&2
-      echo "Run ./build.sh dev --wait to rebuild and record valid dev provenance." >&2
-      exit 2
+    if ! run_prebuilt_preflight validate_dev_provenance; then
+      refuse_prebuilt "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." \
+        "Run ./build.sh dev --wait to rebuild and record valid dev provenance."
     fi
-    if ! preflight_dev_prebuilt_runtime; then
-      echo "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." >&2
-      echo "Run ./build.sh dev --wait to restore prerequisites and record valid dev provenance." >&2
-      exit 2
+    if ! run_prebuilt_preflight preflight_dev_prebuilt_runtime; then
+      refuse_prebuilt "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." \
+        "Run ./build.sh dev --wait to restore prerequisites and record valid dev provenance."
     fi
     kill_dev
     if [ -n "$DEV_NOTIFY_TAB" ]; then

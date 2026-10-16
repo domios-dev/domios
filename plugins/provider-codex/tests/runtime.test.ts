@@ -74,7 +74,9 @@ function replay(fixture:Fixture) {
       }
       else assert.ok(ready.has(record.operation),"Next call follows a continuation");
       allowed(entry.operation,plan.action);
-      assert.deepEqual(plain(plan.action),record.action);
+      const expected = record.action.kind === "request" && record.action.call.method === "account/rateLimits/read"
+        ? {...record.action,call:{...record.action.call,params:{exclude_reset_credit_details:true}}} : record.action;
+      assert.deepEqual(plain(plan.action),expected);
       if (plan.action.kind === "questionAnswer") plans.delete(record.operation);
       else plans.set(record.operation,plan);
       ready.delete(record.operation); continue;
@@ -124,6 +126,29 @@ check("exact steer refusal only",()=> {
   for (const error of [{code:-32600,message:"temporary error"},{code:-32600,message:"no active turn to steer",data:{retry:true}},{code:-32000,message:"no active turn to steer"}])
     assert.equal(hooks.runtimeResponse(context,steer,plan.state,{kind:"error",error}).kind,"refused");
   assert.equal(hooks.runtimeResponse(context,steer,plan.state,{kind:"success",value:{}}).kind,"complete");
+});
+check("taskless read-only verification turn maps through completion",()=> {
+  const context:RuntimeContext = {...ctx,settings:{mode:"full-access"},providerSettings:{execution_intent:"read_only"},claimedSends:[],activeTurns:[],threadParents:[]};
+  const threadId=context.threadId!;
+  const frames:RuntimeFrame[] = [
+    {kind:"notification",method:"turn/started",params:{threadId,turn:{id:"verify-turn",startedAt:100}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"intro",type:"agentMessage",text:"opaque-intro"}}},
+    {kind:"notification",method:"item/started",params:{threadId,turnId:"verify-turn",item:{id:"exec",type:"dynamicToolCall",tool:"exec",arguments:{cmd:"git status --short"},status:"inProgress"}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"exec",type:"dynamicToolCall",tool:"exec",arguments:{cmd:"git status --short"},status:"completed",success:true,contentItems:[{type:"inputText",text:"opaque-result"}]}}},
+    {kind:"notification",method:"item/started",params:{threadId,turnId:"verify-turn",item:{id:"command",type:"commandExecution",command:"git status --short",status:"inProgress"}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"command",type:"commandExecution",command:"git status --short",status:"completed",exitCode:0,aggregatedOutput:"opaque-command-result"}}},
+    {kind:"notification",method:"item/completed",params:{threadId,turnId:"verify-turn",item:{id:"answer",type:"agentMessage",text:"opaque-answer"}}},
+    {kind:"notification",method:"turn/completed",params:{threadId,turn:{id:"verify-turn",status:"completed",completedAt:101}}},
+  ];
+  let state:JsonValue=null;
+  const events:AgentEvent[]=[];
+  for(const frame of frames) {
+    const reduced=hooks.runtimeReduce(context,state,[frame]);
+    state=reduced.state;events.push(...reduced.events);
+  }
+  assert.ok(events.some(event=>event.kind === "chatItem" && event.item.id === "answer" && event.item.content === "opaque-answer"));
+  assert.ok(events.some(event=>event.kind === "chatItem" && event.item.id === "command" && event.item.toolResult === "opaque-command-result"));
+  assert.ok(events.some(event=>event.kind === "turnState" && event.turnId === "verify-turn" && event.state === "idle"));
 });
 check("wrong thread and active turn refuse",()=> {
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"interrupt",threadId:"foreign",activeTurnId:"active"}));
@@ -452,6 +477,53 @@ check("initialize negotiates experimental history before planning item paginatio
   step=hooks.runtimeResponse(ctx,history,plan.state,{kind:"success",value:{data:[{id:"turn",status:"completed"}],nextCursor:null}});
   if(step.kind !== "continue" || step.plan.action.kind !== "request")throw new Error("Expected experimental item pagination");
   assert.equal(step.plan.action.call.method,"thread/items/list");
+});
+function readTurnPage(op:Extract<Operation,{kind:"readHistory"}>, turns:string[], nextCursor:string|null) {
+  const plan=plain(hooks.runtimePlan(ctx,op));
+  if(plan.action.kind !== "request")throw new Error("Expected turn page request");
+  assert.equal(plan.action.call.method,"thread/turns/list");
+  const params=plan.action.call.params as Record<string,JsonValue>;
+  let step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data:turns.map(id=>({id,status:"completed"})),nextCursor}});
+  const requested:JsonValue[]=[];
+  const chunks:OperationResult[]=[];
+  while(step.kind === "continue") {
+    if(step.history)chunks.push(step.history);
+    const action=plain(step.plan.action);
+    if(action.kind !== "request")throw new Error("Expected page request");
+    if(action.call.method === "thread/goal/get") {
+      step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"error",error:{code:-32601,message:"unsupported goal"}});
+      continue;
+    }
+    assert.equal(action.call.method,"thread/items/list");
+    const turn=(action.call.params as Record<string,JsonValue>).turnId;
+    requested.push(turn);
+    step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{data:[{type:"agentMessage",id:`${String(turn)}-reply`,text:String(turn)}],nextCursor:null}});
+  }
+  const complete=plain(step);
+  if(complete.kind !== "complete" || complete.result.kind !== "historyPage")throw new Error("Expected history page");
+  return {params,requested,result:complete.result,items:collectHistory([...chunks,complete.result]).items.map(item=>item.id)};
+}
+check("history reads bounded newest turn pages and echoes descending order",()=> {
+  const op:Extract<Operation,{kind:"readHistory"}>={kind:"readHistory",threadId:ctx.threadId!,order:"desc"};
+  const first=readTurnPage(op,["newer"],"page-2");
+  assert.equal(first.params.sortDirection,"desc");
+  assert.equal(first.params.limit,1);
+  assert.deepEqual(first.requested,["newer"]);
+  assert.deepEqual(first.items,["newer-reply"]);
+  assert.ok(first.result.nextCursor);
+  assert.equal(first.result.order,"desc");
+  const next=readTurnPage({...op,cursor:first.result.nextCursor!},["older"],null);
+  assert.equal(next.params.cursor,"page-2");
+  assert.equal(next.params.sortDirection,"desc");
+  assert.equal(next.result.order,"desc");
+});
+check("history without a requested order stays ascending and echoes no order",()=> {
+  const op:Extract<Operation,{kind:"readHistory"}>={kind:"readHistory",threadId:ctx.threadId!};
+  const page=readTurnPage(op,["older","newer"],null);
+  assert.equal(page.params.sortDirection,"asc");
+  assert.deepEqual(page.requested,["older","newer"]);
+  assert.deepEqual(page.items,["older-reply","newer-reply"]);
+  assert.equal(Object.prototype.hasOwnProperty.call(page.result,"order"),false);
 });
 check("unsupported item pagination uses bound snapshot history without delivery evidence",()=> {
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
@@ -881,7 +953,7 @@ check("subscription initialization reads the recorded current limits",()=> {
   const step = hooks.runtimeResponse(ctx,operation,{stage:"initializeAccount"},{kind:"success",value:{account:{type:"chatgpt"}}});
   assert.equal(step.kind,"continue");
   if(step.kind !== "continue") return;
-  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{}}});
+  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{exclude_reset_credit_details:true}}});
   const value = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime-rate-limits-read.json",import.meta.url),"utf8"));
   const done = hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value});
   assert.equal(done.kind,"complete");
@@ -935,3 +1007,44 @@ check("explicit turn completion interrupts unfinished calls without inventing ou
   assert.ok(last?.kind === "turnState");assert.equal(last.state,"idle");
 });
 console.log(`runtime lifecycle regressions: ${count} checks passed`);
+
+check("reset credit reads and consume outcomes stay inside declared runtime methods",()=> {
+  const operation:Operation={kind:"control",action:"readResetCredits",value:{details:true}};
+  const plan=hooks.runtimePlan(ctx,operation);
+  allowed(operation,plan.action);
+  assert.deepEqual(plain(plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{exclude_reset_credit_details:false}}});
+  const background=hooks.runtimePlan(ctx,{...operation,value:{details:false}});
+  assert.equal(background.action.kind,"request");
+  if(background.action.kind === "request") assert.equal((background.action.call.params as Record<string,JsonValue>).exclude_reset_credit_details,true);
+  const read=hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{rate_limit_reset_credits:{available_count:5,credits:null}}});
+  assert.equal(read.kind,"complete");
+  if(read.kind === "complete") assert.deepEqual(plain(read.events),[{kind:"rateLimits",rateLimits:[],resets:{availableCount:5,nextExpiry:null,credits:null}}]);
+  const consume:Operation={kind:"control",action:"redeemResetCredit",value:{idempotencyKey:"12345678-1234-4123-8123-123456789abc"}};
+  const consumePlan=hooks.runtimePlan(ctx,consume);
+  allowed(consume,consumePlan.action);
+  assert.deepEqual(plain(hooks.runtimePlan(ctx,consume)),plain(consumePlan));
+  assert.deepEqual(plain(consumePlan.action),{kind:"request",call:{method:"account/rateLimitResetCredit/consume",params:{idempotency_key:"12345678-1234-4123-8123-123456789abc"}}});
+  for(const outcome of ["nothingToReset","noCredit","alreadyRedeemed"]) {
+    const done=hooks.runtimeResponse(ctx,consume,consumePlan.state,{kind:"success",value:{outcome}});
+    assert.deepEqual(plain(done),{kind:"complete",result:{kind:"resetCreditConsumed",outcome}});
+  }
+  const reset=hooks.runtimeResponse(ctx,consume,consumePlan.state,{kind:"success",value:{outcome:"reset"}});
+  assert.equal(reset.kind,"continue");
+  if(reset.kind !== "continue") return;
+  allowed(consume,reset.plan.action);
+  const refreshed=hooks.runtimeResponse(ctx,consume,reset.plan.state,{kind:"success",value:{rate_limit_reset_credits:{available_count:0}}});
+  assert.equal(refreshed.kind,"complete");
+  if(refreshed.kind === "complete") assert.deepEqual(plain(refreshed.result),{kind:"resetCreditConsumed",outcome:"reset"});
+  const refreshFailed=hooks.runtimeResponse(ctx,consume,reset.plan.state,{kind:"error",error:{code:-1,message:"offline"}});
+  assert.deepEqual(plain(refreshFailed),{kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"}});
+  assert.throws(()=>hooks.runtimePlan(ctx,{kind:"control",action:"redeemResetCredit",value:{}}));
+});
+
+check("descending bounded history preserves correlated method-absence snapshot recovery",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!,order:"desc"};
+  const first=hooks.runtimePlan(ctx,op);
+  const fallback=plain(hooks.runtimeResponse(ctx,op,first.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
+  if(fallback.kind!=="continue" || fallback.plan.action.kind!=="request")throw new Error("Missing snapshot recovery");
+  assert.equal(fallback.plan.action.call.method,"thread/read");
+  assert.equal((fallback.plan.action.call.params as Record<string,JsonValue>).threadId,ctx.threadId);
+});

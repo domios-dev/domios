@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { invoke, listen, type UnlistenFn } from "./bridge";
 import { hostBridgeAvailable } from "./hostBridge";
+import { invalidateActivePluginBubbles } from "./pluginBubbleCache";
 
 export type PluginTabMenuAction = "receiverTarget";
 
@@ -60,6 +61,7 @@ function publish(next: PluginTabMenuState): void {
     receiverTargets: next?.receiverTargets && typeof next.receiverTargets === "object" ? next.receiverTargets : {},
   };
   for (const listener of listeners) listener();
+  invalidateActivePluginBubbles();
 }
 
 export function pluginTabMenuEntries(menu: PluginTabMenuState, tabId: string): PluginTabMenuEntry[] {

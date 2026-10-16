@@ -364,16 +364,22 @@ fn validate_runtime_result(
         ) => target == thread_id,
         (
             RuntimeOperation::ReadHistory {
-                thread_id: target, ..
+                thread_id: target,
+                order: requested,
+                ..
             },
             RuntimeResult::HistoryPage {
                 thread_id,
                 items,
                 open_items,
                 questions,
+                order: echoed,
                 ..
             },
         ) => {
+            if echoed.is_some() && echoed != requested {
+                return Err(mismatch("history order echo differs from the request"));
+            }
             if let Some(questions) = questions {
                 if questions.len() > MAX_RUNTIME_BATCH {
                     return Err(invalid("too many history questions"));
@@ -412,6 +418,9 @@ fn validate_runtime_result(
             | RuntimeOperation::Control { .. },
             RuntimeResult::Done,
         ) => true,
+        (RuntimeOperation::Control { action, .. }, RuntimeResult::ResetCreditConsumed { .. }) => {
+            action == "redeemResetCredit"
+        }
         _ => false,
     };
     if valid {
@@ -566,6 +575,7 @@ pub fn validate_runtime_reduction(
         if let AgentRuntimeEvent::RateLimits {
             thread_id,
             rate_limits,
+            resets,
         } = event
         {
             if thread_id
@@ -575,6 +585,13 @@ pub fn validate_runtime_reduction(
                 return Err(mismatch("rate limits retarget thread"));
             }
             validate_rate_limits(rate_limits)?;
+            if let Some(resets) = resets {
+                if resets.credits.as_ref().is_some_and(|credits| {
+                    credits.len() > 256 || credits.iter().any(|credit| !identifier(&credit.id))
+                }) {
+                    return Err(invalid("invalid reset credit details"));
+                }
+            }
             continue;
         }
         let thread = match event {

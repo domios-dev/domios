@@ -30,6 +30,8 @@ mod control_keys;
 mod decision_model;
 #[path = "parity_test/folder_trust_record.rs"]
 mod folder_trust_record;
+#[path = "parity_test/launch_spec.rs"]
+mod launch_spec;
 #[path = "parity_test/model_catalogue.rs"]
 mod model_catalogue;
 #[path = "parity_test/model_providers.rs"]
@@ -62,6 +64,8 @@ mod access_errors;
 mod agent_tasks;
 #[path = "parity_test/project_files.rs"]
 mod project_files;
+#[path = "parity_test/session_name.rs"]
+mod session_name;
 
 type PluginsDir = PathBuf;
 
@@ -126,6 +130,7 @@ fn claude_update_command_native_js_parity() {
     };
     let native = crate::agent_claude::provider::ClaudeProvider::new();
     let js = load_js("claude");
+    launch_spec::assert_native_js_parity(&native, &js);
     for platform in ["macos", "linux", "windows", "unknown"] {
         assert_eq!(js.update_command(platform), native.update_command(platform));
     }

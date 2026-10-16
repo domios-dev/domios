@@ -505,6 +505,8 @@ pub struct CommandsConfig {
     /// plugin exports no `buildLaunchCommand`. See LAUNCH_TEMPLATE_PLACEHOLDERS.
     #[serde(default)]
     pub launch_args_format: Option<String>,
+    #[serde(default)]
+    pub launch_spec: Option<codeterm_types::agent::LaunchSpec>,
     /// `resumeArgsFormat`: resume counterpart for a missing
     /// `buildResumeCommand`. See RESUME_TEMPLATE_PLACEHOLDERS.
     #[serde(default)]

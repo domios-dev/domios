@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.4",
-  "minCodeterm": "1.14.2",
+  "version": "1.14.7",
+  "minCodeterm": "1.14.9",
   "hostApi": 2,
   "capabilities": {
     "agentProvider": true,

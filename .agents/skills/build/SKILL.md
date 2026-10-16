@@ -103,6 +103,27 @@ cases also run on Linux/Windows; Raw Input cases compile only on Windows.
 `./build.sh test-one input-macos|input-windows <selector>` targets one crate;
 select Windows only on Windows. Workers defer Rust execution to canonical.
 
+## Frontend warning collection
+
+`pnpm build` runs TypeScript, then Vite, through `scripts/frontend-build.mjs`.
+It preserves compiler failures and writes `ci-rust-warnings/frontend.log`,
+`frontend-warnings.md` and `rust-warnings-<platform>-frontend.json` even when
+the type check fails. Failed stages mark collection incomplete. New Vite warnings
+fail the shared identity ratchet against `scripts/frontend-warnings-baseline.json`.
+Its initial entries record the Vite plugin-timing and chunk-size diagnostics
+observed at the recorded dispatch SHA; subsequent entries may only shrink. The summary
+checks both baselines independently, keeping Rust accounting separate. Never
+raise the chunk warning threshold to make a failing build pass.
+
+For a frontend build failure, inspect that log first. Repair TypeScript errors
+before rerunning the bundle; for oversized chunks, defer unused surfaces and
+check their runtime loading. Focused collector proof:
+`node --test scripts/tests/frontend-warnings.test.mjs scripts/tests/collect-rust-warnings.test.mjs`.
+
+Use `node scripts/frontend-bundle-metrics.mjs dist` before and after frontend
+splitting. Compare `initialBytes` (the static import closure) as well as
+`entryBytes`; a smaller entry alone does not prove less startup JavaScript.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.
@@ -546,6 +567,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | `registered_documents_have_one_title_and_fit_the_reading_boundary` rejects a CLI document | A contract addition exceeds the 240-line reading boundary | Integrate the clarification into its owning contract section and remove duplicate explanation, or move a separate concern to its linked reference. Run the focused CLI document test before the full preflight. |
 | The CLI docs test reports `API exceeds 24 KiB` | The API index repeats adoption details already owned by `API-ADOPT.md` | Keep `API.md` to the endpoint summary and move the full contract to `API-ADOPT.md`; bump the production doc revision and run `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. Never raise the 24 KiB limit. |
 | The CLI docs test reports `API-TABS exceeds 24 KiB` | The tab API's notification contract repeats channel policy wording | Preserve every contract statement while compacting redundant prose; move a passage to a registered linked doc only if it cannot fit. Bump the production doc revision and rerun the focused docs test; never raise the 24 KiB limit. |
+| Embedded docs differ across platforms or exceed 24 KiB only on Windows | CRLF checkout conversion enlarged the bytes embedded by `include_str!` | Keep `prod-docs/*.md text eol=lf` in `.gitattributes`, refresh clean doc files in existing checkouts, and compile the CLI again. The boundary test measures the actual embedded bytes without normalizing them; never raise the limit. |
 | Several registered docs exceed 240 lines or 24 KiB after parallel lanes merge | Each lane appended prose, often hard-wrapped, and restated contracts another doc owns | Reflow hard-wrapped paragraphs to one line each, remove statements owned by another doc, then split a coherent section into a new registered doc (`cli/src/cmd/docs.rs`) with a `codeterm docs <NAME>` pointer; bump each changed doc's revision. Never raise the limits. |
 | `essence_map_contract_committed_artifacts_are_fresh` reports a stale source digest | `essences/capabilities.md` or `essences/core.md` changed after `essences/map.jsonl` was generated | Run `codeterm essence-map generate --root .`, validate with `codeterm essence-map validate --root .`, and commit the generated map. Never edit generated nodes by hand. |
 | A release-time test fails in `#[cfg(test)]` code while `check` is green | `check` compiles non-test targets and does not compile the Rust test profile | Run `./build.ps1 check-tests` on Windows or `./build.sh check-tests` on Unix, fix the test-profile compile error, then rerun the same gate. |
@@ -949,7 +971,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 41 -->
+<!-- revision: 43 -->
 
 ### Lane and batch scopes
 
@@ -1008,7 +1030,7 @@ DEV and check-queue library Clippy retain default product features, including em
 
 ## Lane crate checks and shared intermediates
 
-Before committing, run `./build.sh lane-check <touched crate> [--tests]` on every platform. It loads the machine toolchain and stages frontend/sidecar resources without building them. Binary-only crates use their owning manifest and `--bins` in place of `--lib`. These type checks take no gateway slot and do not start or reconfigure sccache.
+Before committing, run `./build.sh lane-check <touched crate> [--tests]` on every platform. It loads the machine toolchain and stages frontend/sidecar resources without building them. `codeterm-cli` selects `cli/Cargo.toml` and `--bin codeterm`; library packages select the app manifest and `--lib`. These type checks take no gateway slot and do not start or reconfigure sccache.
 
 `lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. Cargo serializes lane checks with its build-directory lock; final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
 
@@ -1038,10 +1060,11 @@ Lane-check prompt additions affect both the 5000-byte worker suffix and the 1450
 
 ### CLI package absent from lane-check workspace
 
-`lane-check codeterm-cli --tests` exits 101 because the CLI has its own Cargo
-workspace, while this verb selects the app manifest. No CLI compilation ran.
-For a CLI contract change, `./build.sh cli` compiles the checkout CLI and
-regenerates its artifacts; committed check-queue includes CLI test targets.
+`lane-check codeterm-cli --tests` formerly exited 101 before compiling because
+it selected the app workspace and a library target for the binary-only CLI.
+The verb now selects the CLI manifest and binary. Run
+`node --test scripts/tests/lane-check.test.mjs` to verify routing, then rerun
+the lane check. Committed check-queue also includes CLI test targets.
 
 ### Focused tests for external path dependencies
 

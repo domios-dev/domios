@@ -85,6 +85,8 @@ pub async fn event_stats(
     let snapshot = {
         let mut snapshot = snapshot;
         snapshot["requests"] = super::request_census::snapshot();
+        snapshot["replay"] =
+            serde_json::to_value(state.events.replay_stats()).unwrap_or(serde_json::Value::Null);
         snapshot
     };
     Ok(Json(snapshot))

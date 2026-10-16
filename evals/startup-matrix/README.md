@@ -1,5 +1,8 @@
 # Curated startup matrix
 
+Versioned diagnostic captures and their exact commands, fixtures, far-end
+oracles, artifact contracts and gaps are indexed in [SCENARIOS.md](SCENARIOS.md).
+
 This live bench adopts the owner's real DEV window (default instance, API 7686,
 WebView2 CDP from health). It spends provider tokens: one unique response-token prompt per
 tab. The scripted matrix never closes tabs, replaces drafts, or changes product code.
