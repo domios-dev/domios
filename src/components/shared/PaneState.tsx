@@ -27,6 +27,12 @@ export function PaneState({ error, context = {}, actions = [], secondaryActions 
     try { await navigator.clipboard.writeText(path ?? ""); setCopyStatus("Path copied"); }
     catch { setCopyStatus("Could not copy the path"); }
   };
+  if (view.pending) return <div className="mx-auto my-2 w-full max-w-md px-3 py-2 text-[var(--ct-muted-fg)]">
+    <div role="status" aria-live="polite" aria-label={view.title} className="text-center">
+      <h2 className="text-sm font-semibold text-[var(--ct-fg)]">{view.title}</h2>
+      <p className="mt-1 text-sm">{view.sentence}</p>
+    </div>
+  </div>;
   return <div className="flex h-full min-h-0 w-full items-center justify-center overflow-auto bg-[var(--ct-bg)] p-6"><section role="alert" aria-labelledby={headingId} className="grid w-full min-w-0 max-w-md grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-center text-[var(--ct-fg)]">
     <span aria-hidden="true" className="relative col-span-2 justify-self-center text-[var(--ct-muted-fg)]">{view.icon === "folder-off" ? <><Folder size={28} /><Slash size={28} className="absolute inset-0" /></> : view.icon === "sign-in" ? <LogIn size={28} /> : <TriangleAlert size={28} />}</span>
     <h2 id={headingId} tabIndex={-1} className="col-span-2 text-sm font-semibold">{view.title}</h2>

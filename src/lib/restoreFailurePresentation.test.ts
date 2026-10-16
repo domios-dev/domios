@@ -58,3 +58,12 @@ const existing = restoreFailurePresentation(
   "restored_session_unavailable: opaque-existing-session", false,
 );
 assert(!existing.actions.startNewSession, "existing or unverified session cannot be replaced from the card");
+
+const pendingDeadline = restoreFailurePresentation(
+  { bootStage: "spawn_failed", agentType: "fixture-provider", protectedTab: true },
+  "Deadline: runtime response",
+  false,
+);
+assert(pendingDeadline.view === "pending", "a runtime response deadline remains pending");
+assert(!pendingDeadline.showFailureBadge, "pending runtime deadline does not claim terminal failure");
+assert(!pendingDeadline.actions.retry, "pending runtime deadline does not offer retry");

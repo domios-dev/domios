@@ -41,6 +41,11 @@ export function tabBootOverlayView(
       canKeepShell: failure.actions.keepShell,
     };
   }
+  if (failure.view === "pending") {
+    if (!tab) return { kind: "none" };
+    const pendingTab = { ...tab, boot_stage: "launch_binding_unconfirmed" as const };
+    return { kind: "starting", label: tabStartingLabel(pendingTab), activity: tabActivity(pendingTab) };
+  }
   const activity = tabActivity(tab);
   return activity.launching
     ? { kind: "starting", label: tab ? tabStartingLabel(tab) : activity.label, activity }
