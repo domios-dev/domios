@@ -118,7 +118,7 @@ test("only a dry run tolerates refused artifact uploads, and every Rust test job
   const tolerant = Object.entries(tests.jobs).flatMap(([id, job]) => (job.steps || [])
     .filter(step => step["continue-on-error"] === "${{ inputs.artifacts_optional }}").map(step => [id, step]));
   for (const [id, step] of tolerant) {
-    assert.ok(/actions\/(upload|download)-artifact@/.test(step.uses ?? "") || step.run === "node scripts/ci-rust-tests.mjs verify ci-rust-receipts", `${id}: only artifact transport and receipt verification may be optional`);
+    assert.ok(/bash scripts\/ci-artifact\.sh (put|get-prefix) /.test(step.run ?? "") || step.run === "node scripts/ci-rust-tests.mjs verify ci-rust-receipts", `${id}: only artifact transport and receipt verification may be optional`);
   }
   assert.deepEqual(tolerant.map(([id]) => id).sort(), ["frontend-windows", "rust-embeddings", "rust-platform", "rust-receipts", "rust-receipts", "rust-tests"]);
   const required = tests.jobs["rust-receipts"].steps.find(step => step.name === "Require every Rust test job");
