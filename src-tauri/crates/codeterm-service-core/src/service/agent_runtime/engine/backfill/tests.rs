@@ -1,7 +1,7 @@
 use super::*;
 use crate::service::agent_runtime::model::{ItemCache, RuntimeState};
 use parking_lot::Mutex;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 
 const THREAD: &str = "thread";
@@ -254,12 +254,10 @@ async fn a_failing_page_stops_backfill_without_replaying_and_leaves_the_tab_read
         Err(RuntimeFailure::HookFailed("page refused".into()))
     );
     assert_eq!(port.reads, [None, Some("older".into())]);
-    assert!(
-        session
-            .cache
-            .lock()
-            .finish_backfill(replay.generation, HistoryBackfill::Failed)
-    );
+    assert!(session
+        .cache
+        .lock()
+        .finish_backfill(replay.generation, HistoryBackfill::Failed));
     assert_eq!(session.cache.lock().backfill(), HistoryBackfill::Failed);
     assert_eq!(ids(&session), ["c"]);
     assert!(matches!(session.state.lock().phase, RuntimePhase::Ready));
@@ -281,12 +279,10 @@ async fn a_newer_generation_stops_backfill_between_pages() {
         Err(RuntimeFailure::Superseded)
     );
     assert_eq!(port.reads, [None]);
-    assert!(
-        !session
-            .cache
-            .lock()
-            .finish_backfill(replay.generation, HistoryBackfill::Complete)
-    );
+    assert!(!session
+        .cache
+        .lock()
+        .finish_backfill(replay.generation, HistoryBackfill::Complete));
 }
 
 #[tokio::test]
@@ -336,12 +332,10 @@ async fn a_new_replay_drops_previous_history_rows_and_lands_below_kept_live_rows
     let mut port = FakePort::with(vec![(None, page(&["a", "b"], None))]);
     replay.first(&session, &mut port).await.unwrap();
     assert!(replay.done);
-    assert!(
-        session
-            .cache
-            .lock()
-            .finish_backfill(replay.generation, HistoryBackfill::Complete)
-    );
+    assert!(session
+        .cache
+        .lock()
+        .finish_backfill(replay.generation, HistoryBackfill::Complete));
     session
         .cache
         .lock()
@@ -432,12 +426,10 @@ async fn failed_history_checkpoint_retries_same_page_without_clearing_landed_row
         replay.rest(&session, &mut port).await,
         Err(RuntimeFailure::Deadline)
     );
-    assert!(
-        session
-            .cache
-            .lock()
-            .finish_backfill(replay.generation, HistoryBackfill::Failed)
-    );
+    assert!(session
+        .cache
+        .lock()
+        .finish_backfill(replay.generation, HistoryBackfill::Failed));
     session
         .cache
         .lock()
