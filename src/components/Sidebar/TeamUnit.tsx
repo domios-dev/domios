@@ -12,7 +12,7 @@ import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
-import { PLAN_STATUS_COLORS } from "../shared/SegmentedDonut";
+import { PLAN_STATUS_COLORS, SegmentedDonut } from "../shared/SegmentedDonut";
 import {
   PlanStatusBreakdown,
   type PlanStatusCounts,
@@ -661,6 +661,13 @@ export function TeamUnit({
             data-team-card-hit-target="team-card-activation"
             className="sidebar-team-card-visual"
           >
+            <SegmentedDonut
+              data-testid="team-donut"
+              className="sidebar-team-status-donut"
+              segments={buckets}
+              size={27}
+              aria-hidden="true"
+            />
             {cardContents}
           </div>
         ) : (
