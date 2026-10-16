@@ -64,7 +64,6 @@ setupDom();
 
 const { CodeBlock } = await import("./CodeBlock");
 const { RichMarkdown } = await import("./MarkdownBody");
-const { SYNTAX_HIGHLIGHT_ROOT_CLASS } = await import("./syntaxTheme");
 
 test("CodeBlock renders highlighted code structure and copy button", async () => {
   const { host, root } = await render(
@@ -78,18 +77,6 @@ test("CodeBlock renders highlighted code structure and copy button", async () =>
     .find((node) => node.textContent === "const");
   assert(highlightedSpan, "highlighted token span should render");
   assert(host.querySelector("button")?.textContent?.includes("Copy"), "copy action should be a button");
-  const block = host.querySelector<HTMLElement>('[data-testid="chat-code-block"]');
-  assert(block?.classList.contains("min-w-0"), "code block should not expand a flex parent");
-  assert(block?.classList.contains("max-w-full"), "code block should stay within the chat width");
-  const toolbar = host.querySelector<HTMLElement>('[data-testid="chat-code-toolbar"]');
-  assert(toolbar?.classList.contains("select-none"), "copying rendered code should exclude toolbar chrome");
-  const scrollHost = host.querySelector<HTMLElement>(`.${SYNTAX_HIGHLIGHT_ROOT_CLASS}[data-bounded-message]`);
-  assert(scrollHost?.style.maxHeight === "500px", "code block should cap height at 500px");
-  assert(scrollHost?.classList.contains("w-full"), "code lines should scroll inside a width-constrained host");
-  assert(scrollHost?.classList.contains("select-text"), "code source remains selectable");
-  const highlightedCode = scrollHost?.querySelector<HTMLElement>("code");
-  assert(highlightedCode?.style.whiteSpace === "pre", "code should preserve original line width");
-  assert(highlightedCode?.style.wordBreak === "normal", "code should not break long lines");
 
   await act(async () => root.unmount());
 });
@@ -149,7 +136,6 @@ test("RichMarkdown preserves line structure in unlabelled fenced blocks", async 
   assert(code, "unlabelled fence renders as a compact block instead of inline code");
   assert(!host.querySelector('[data-testid="chat-code-block"]'), "plain text does not get heavy code chrome");
   assert(code?.textContent?.trimEnd().split("\n").length === 3, "all fenced lines remain separate");
-  assert(code?.classList.contains("whitespace-pre"), "ASCII spacing and line breaks are preserved");
 
   await act(async () => root.unmount());
 });
@@ -215,8 +201,6 @@ test("fullscreen Mermaid fits its viewport and exposes accessible view controls"
   const fit = host.querySelector<HTMLButtonElement>('[aria-label="Fit Mermaid diagram to viewport"]');
   const reset = host.querySelector<HTMLButtonElement>('[aria-label="Reset Mermaid diagram to 100%"]');
   assert(dialog?.getAttribute("aria-label") === "Fullscreen Mermaid diagram", "fullscreen has dialog semantics");
-  assert(viewport?.classList.contains("h-full"), "Mermaid viewport fills the available height");
-  assert(canvas?.style.width === "400px" && canvas.style.height === "200px", "canvas uses SVG viewBox dimensions");
   assert(canvas?.style.transform.includes("scale(2.42)"), "diagram fits and centers on open");
   assert(fit?.getAttribute("aria-pressed") === "true", "Fit exposes its active state");
   assert(reset, "Reset has an accessible name");

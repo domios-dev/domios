@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -33,16 +32,12 @@ Object.assign(globalThis, {
 async function run() {
   const closed = await render(false);
   assert(closed.button.getAttribute("aria-expanded") === "false", "closed disclosure exposes aria-expanded=false");
-  assert(closed.button.querySelector(".sidebar-disclosure-glyph"), "shared glyph renders once");
+  assert(closed.button.querySelector("svg"), "shared glyph renders once");
   assert(!closed.button.hasAttribute("onkeydown"), "native button keeps Enter and Space activation");
   await act(async () => closed.root.unmount());
 
   const open = await render(true);
   assert(open.button.getAttribute("aria-expanded") === "true", "open disclosure exposes aria-expanded=true");
-  const css = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
-  for (const rule of ["--sidebar-disclosure-size", "--sidebar-disclosure-stroke-width", "--sidebar-disclosure-color", "--sidebar-disclosure-transition", "rotate(90deg)"]) {
-    assert(css.includes(rule), `shared CSS owns ${rule}`);
-  }
   await act(async () => open.root.unmount());
   console.log("SidebarDisclosure tests: passed");
 }

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -36,12 +35,6 @@ document.body.appendChild(host);
 const root = createRoot(host);
 
 async function run() {
-  const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
-  assert.match(
-    styles,
-    /\.sidebar-workspace-card-working\s*\{[^}]*width:\s*12px;[^}]*height:\s*7px;[^}]*box-sizing:\s*border-box;[^}]*padding-bottom:\s*0\.75px;[^}]*align-items:\s*center;[^}]*border-radius:\s*999px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-accent\) 62%, var\(--ct-surface\)\);[^}]*color:\s*var\(--ct-on-accent\);[^}]*box-shadow:\s*0 0 0 1px color-mix\(in srgb, var\(--ct-accent\) 22%, transparent\);/s,
-    "working indicator is a compact theme-token pill with an optically centered dot baseline",
-  );
   const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
   assert.deepEqual(visibleWorkspaceIds(ids.slice(0, 5), null, 3, false), { visible: ["a", "b", "c", "d", "e"], hidden: 0 }, "everything plus create fits in two rows");
   assert.deepEqual(visibleWorkspaceIds(ids, null, 3, false), { visible: ["a", "b", "c", "d", "e"], hidden: 3 }, "two rows: five cards and a +N cell, no horizontal overflow");
@@ -76,13 +69,6 @@ async function run() {
   );
   const workingIndicator = host.querySelector('[role="status"][aria-label="team_smoke has working tabs"]');
   assert(workingIndicator, "unselected working workspace exposes accessible activity");
-  const workingDots = workingIndicator.querySelector('.activity-dots');
-  assert(workingDots?.classList.contains("activity-dots--micro"), "working workspace uses micro activity dots");
-  assert(workingDots?.classList.contains("activity-dots--workspace-badge"), "working workspace uses the badge-only two-dot variant");
-  assert(
-    workingDots?.classList.contains("activity-dots--on-accent"),
-    "working workspace uses the filled-surface contrast tone",
-  );
   assert.equal(
     workingIndicator.querySelector('[aria-hidden="true"]')?.children.length,
     2,

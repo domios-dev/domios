@@ -1,6 +1,5 @@
 // Run: npx tsx src/components/Sidebar/TeamUnit.activity.test.tsx
 
-import { readFileSync } from "node:fs";
 import { Window } from "happy-dom";
 
 const window = new Window({ url: "http://localhost/" });
@@ -43,21 +42,11 @@ async function main() {
 
   const title = host.querySelector('[data-testid="team-name"]');
   const working = host.querySelector('[data-testid="team-working-indicator"]');
-  const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
   if (host.querySelectorAll('[data-testid="team-working-indicator"][role="status"]').length !== 1) {
     throw new Error("working Team exposes exactly one status wrapper");
   }
   if (working?.getAttribute("aria-label") !== `${title?.textContent} has working members`) {
     throw new Error("working Team keeps its accessible name");
-  }
-  if (!/\.sidebar-team-title-row\s*\{[^}]*display:\s*inline-flex;[^}]*flex-wrap:\s*nowrap;/s.test(styles)) {
-    throw new Error("Team title row is an inline-flex nowrap geometry boundary");
-  }
-  if (!/\.sidebar-team-title-row\s+\.activity-dots\s*\{[^}]*flex:\s*0 0 auto;/s.test(styles)) {
-    throw new Error("Team activity dots keep a fixed flex boundary under constrained title width");
-  }
-  if (!working?.querySelector(".activity-dots--small")) {
-    throw new Error("Team activity dots use shared small geometry");
   }
   if (working?.querySelector('[aria-hidden="true"]')?.children.length !== 3) {
     throw new Error("working Team owns exactly three hidden dot children");

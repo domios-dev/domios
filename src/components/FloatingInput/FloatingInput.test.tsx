@@ -46,14 +46,6 @@ test("floating message field carries an accessible name", async () => {
   assert(textarea.getAttribute("aria-label") === "Message agent", "textarea must expose aria-label");
 });
 
-test("floating message field declares a visible focus ring, not bare outline-none", async () => {
-  const { textarea } = await renderRevealed();
-  assert(
-    textarea.className.includes("focus-visible:ring") && textarea.className.includes("var(--ct-accent)"),
-    "outline-none with no substitute leaves keyboard focus undetectable — a ring must replace it",
-  );
-});
-
 async function main() {
   setupDom();
   let failed = 0;

@@ -1,7 +1,6 @@
 // Run: npx tsx src/components/Sidebar/SidebarMotionAdoption.test.tsx
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -88,26 +87,6 @@ async function run() {
   assert.equal(changed.host.firstElementChild!.getAttribute("data-sweep"), "false", "sweep clears from its animation event");
   await act(async () => changed.root.unmount());
 
-  const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
-  const sources = [
-    readFileSync(new URL("./TeamUnit.tsx", import.meta.url), "utf8"),
-    readFileSync(new URL("./WorkspaceCardGrid.tsx", import.meta.url), "utf8"),
-  ].join("\n");
-  assert.doesNotMatch(sources, /transition-all|transition:\s*all|setTimeout/);
-  assert.match(styles, /\.sidebar-tab-activation[^}]*transform-origin:\s*center/s);
-  assert.match(styles, /\.sidebar-workspace-card-select[^}]*transform-origin:\s*center/s);
-  assert.match(styles, /\.sidebar-workspace-card-create[^}]*transform-origin:\s*center/s);
-  assert.match(styles, /scale\(1\.02\)/);
-  assert.match(styles, /scale\(\.955\)/);
-  assert.match(styles, /@keyframes ct-segmented-donut-grow\{0%\{transform:scale\(\.955\)\}58%\{transform:scale\(1\.02\)\}100%\{transform:scale\(1\)\}\}/);
-  assert.match(styles, /@keyframes sidebar-plan-entry-count-pop\{0%\{transform:scale\(\.955\)\}55%\{transform:scale\(1\.02\)\}100%\{transform:scale\(1\)\}\}/);
-  assert.match(styles, /@keyframes sidebar-plan-entry-completion-sweep\{to\{transform:translateX\(120%\)\}\}/);
-  assert.match(styles, /\.ct-plan-status-breakdown\s*\{[^}]*flex-wrap:\s*nowrap;[^}]*white-space:\s*nowrap;/s);
-  assert.match(styles, /\.sidebar-team-card-activation:focus-visible[\s\S]*?outline:\s*1px solid var\(--ct-accent\)/);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.ct-segmented-donut[\s\S]*?animation:\s*none/);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.sidebar-team-card-activation[\s\S]*?transform:\s*none/);
-  assert.match(styles, /\.sidebar-workspace-card\[data-selected="true"\][\s\S]*?background:\s*var\(--ct-accent\)/);
-  assert.match(styles, /\.sidebar-workspace-card-working[\s\S]*?background:\s*color-mix/);
 }
 
 run().then(

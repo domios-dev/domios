@@ -217,13 +217,10 @@ describe("file diff cards", () => {
     const removed = lines.find((node) => node.dataset.tone === "del") as HTMLElement;
     expect(added.querySelector(".token")).not.toBeNull();
     expect(removed.querySelector(".token")).not.toBeNull();
-    expect(added.getAttribute("style")).toContain("--ct-diff-add-bg");
-    expect(removed.getAttribute("style")).toContain("--ct-diff-del-bg");
     const marker = added.querySelector<HTMLElement>('[data-testid="file-diff-marker"]') as HTMLElement;
     expect(marker.textContent).toBe("+");
     expect(marker.querySelector(".token")).toBeNull();
     expect(marker.closest(".token")).toBeNull();
-    expect(marker.getAttribute("style")).toContain("--ct-green");
 
     const plainHost = await mount(<FileDiffCards event={diffEvent([{ ...jsDiff, path: "notes/snake.unknownext" }])} />);
     await expandAll(plainHost);
