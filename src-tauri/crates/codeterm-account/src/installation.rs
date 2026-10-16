@@ -1,6 +1,10 @@
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::PathBuf};
+use std::{
+    fs,
+    io::{self, Write},
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
@@ -58,8 +62,11 @@ impl FileInstallationStore {
     }
 }
 
-impl InstallationStore for FileInstallationStore {
-    fn load_or_create(&self) -> io::Result<InstallationId> {
+impl FileInstallationStore {
+    fn load_or_create_with(
+        &self,
+        link: impl FnOnce(&Path, &Path) -> io::Result<()>,
+    ) -> io::Result<InstallationId> {
         match fs::read(&self.path) {
             Ok(bytes) => return serde_json::from_slice(&bytes).map_err(io::Error::other),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -74,16 +81,34 @@ impl InstallationStore for FileInstallationStore {
         let temporary = self
             .path
             .with_extension(format!("{}.tmp", InstallationId::generate().as_str()));
-        fs::write(&temporary, bytes)?;
-        let published = fs::hard_link(&temporary, &self.path);
+        fs::write(&temporary, &bytes)?;
+        let published = link(&temporary, &self.path);
         fs::remove_file(&temporary)?;
         match published {
             Ok(()) => Ok(id),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 serde_json::from_slice(&fs::read(&self.path)?).map_err(io::Error::other)
             }
-            Err(error) => Err(error),
+            Err(_) => match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&self.path)
+            {
+                Ok(mut file) => {
+                    file.write_all(&bytes)?;
+                    Ok(id)
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    serde_json::from_slice(&fs::read(&self.path)?).map_err(io::Error::other)
+                }
+                Err(error) => Err(error),
+            },
         }
+    }
+}
+impl InstallationStore for FileInstallationStore {
+    fn load_or_create(&self) -> io::Result<InstallationId> {
+        self.load_or_create_with(|from, to| fs::hard_link(from, to))
     }
 }
 
@@ -126,6 +151,35 @@ mod tests {
         let reloaded = FileInstallationStore::new(dir.0.clone());
         assert_eq!(first, reloaded.load_or_create().unwrap());
         assert_eq!(bytes, fs::read(&store.path).unwrap());
+    }
+
+    #[test]
+    fn unsupported_hard_links_fall_back_to_exclusive_creation() {
+        let dir = TempDir::new();
+        let store = FileInstallationStore::new(dir.0.clone());
+        let first = store
+            .load_or_create_with(|_, _| Err(io::ErrorKind::Unsupported.into()))
+            .unwrap();
+        assert_eq!(store.load_or_create().unwrap(), first);
+        assert_eq!(
+            serde_json::from_slice::<InstallationId>(&fs::read(&store.path).unwrap()).unwrap(),
+            first
+        );
+    }
+
+    #[test]
+    fn fallback_never_overwrites_a_concurrent_creator() {
+        let dir = TempDir::new();
+        let store = FileInstallationStore::new(dir.0.clone());
+        let winner = InstallationId::parse("concurrent-winner".into()).unwrap();
+        let result = store
+            .load_or_create_with(|_, destination| {
+                fs::write(destination, serde_json::to_vec(&winner).unwrap())?;
+                Err(io::ErrorKind::Unsupported.into())
+            })
+            .unwrap();
+        assert_eq!(result, winner);
+        assert_eq!(store.load_or_create().unwrap(), winner);
     }
 
     #[test]
