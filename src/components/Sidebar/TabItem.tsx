@@ -1,4 +1,4 @@
-import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
+import { confirmedTabFastMode, tabMetaParts } from "../../lib/tabMetaLabel";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
@@ -173,30 +173,27 @@ function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?
   );
 }
 
-function TabSubline({ subtitle, generalAgent }: { subtitle: string | null; generalAgent: boolean }) {
-  if (!subtitle) return null;
+function TabSubline({ parts, role, generalAgent }: { parts: string[]; role: string | null; generalAgent: boolean }) {
+  if (!parts.length) return null;
   return (
-    <span
-      data-testid="tab-subline"
-      className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
-    >
-      {generalAgent && !subtitle.includes(" · @") ? (
-        <span data-testid="general-agent-subtitle" className="shrink-0">General Agent</span>
-      ) : (
-        <RoleBadge label={subtitle} className="shrink-0" />
-      )}
+    <span data-testid="tab-subline" className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
+      {parts.map((part, index) => (
+        <span key={index}>
+          {index > 0 && " · "}
+          {part === role ? (generalAgent ? <span data-testid="general-agent-subtitle">{part}</span> : <RoleBadge label={part} />) : part}
+        </span>
+      ))}
     </span>
   );
 }
 
-/** What the tab is currently busy with — subordinate to the name, above the role. */
 function TabDescriptionSubtitle({ description }: { description: string | null }) {
   const text = description?.trim() ?? "";
   if (!text) return null;
   return (
     <span
       data-testid="tab-description-subtitle"
-      className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]/80"
+      className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)] opacity-70"
     >
       {text}
     </span>
@@ -206,7 +203,7 @@ function TabDescriptionSubtitle({ description }: { description: string | null })
 function StartedByLine({ origin }: { origin: TabStartedBy }) {
   const open = origin.onOpen;
   return (
-    <span data-testid="tab-started-by" className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]/80">
+    <span data-testid="tab-started-by" className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)] opacity-[0.49]">
       started by{" "}
       {open ? (
         <span
@@ -287,9 +284,6 @@ function TabItemInner({
   attachmentToggle = null,
   startedBy = null,
 }: TabItemProps) {
-  const updates = useOptionalUpdatePanel();
-  const pluginId = surfaceBacking(tab)?.plugin_id ?? tab.agent_type ?? backingPluginId(tab);
-  const pluginUpdate = !!pluginId && (updates?.pluginHasUpdate(pluginId) ?? false);
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.
@@ -347,7 +341,12 @@ function TabItemInner({
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const meshLabel = meshBadgeLabel(tab);
-  const localSubtitle = tab.remote_peer_id ? null : roleShield;
+  const localMetaParts = tab.remote_peer_id ? [] : tabMetaParts(
+    restoreFailure.showIdentityBadges ? tabModel : null,
+    restoreFailure.showIdentityBadges ? confirmedTabFastMode(tab, descriptor) : undefined,
+    roleShield,
+    hasAgent ? tabState.status.toLowerCase() : null,
+  );
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -509,7 +508,6 @@ function TabItemInner({
             }}
           >
             {displayTitle}
-            {pluginUpdate && <span aria-label="Plugin update available" className="ml-1 text-[10px] text-[var(--ct-accent)]">Update</span>}
           </span>
           {hasAgent && (
             <TabWorkingActivity activity={tabState} />
@@ -553,10 +551,10 @@ function TabItemInner({
           </span>
         ) : attachment ? null : (
           <span className="sidebar-tab-body__sub">
+            <TabSubline parts={localMetaParts} role={roleShield} generalAgent={isGeneralAgent} />
+            <RemoteIdentityLine tab={tab} />
             <TabDescriptionSubtitle description={description} />
             {startedBy && <StartedByLine origin={startedBy} />}
-            <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
-            <RemoteIdentityLine tab={tab} />
             {!tab.remote_peer_id && managedByLabel(tab) && <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{managedByLabel(tab)}</span>}
           </span>
         )}
@@ -667,6 +665,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     backingSessionId(pp) === backingSessionId(np) &&
     pp.protected === np.protected &&
     pp.frozen === np.frozen &&
+    pp.slept_at_ms === np.slept_at_ms &&
     pp.boot_stage === np.boot_stage &&
     pp.boot_failure_reason === np.boot_failure_reason &&
     pp.role_profile === np.role_profile &&
@@ -682,6 +681,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.permission_auto_confirm === np.permission_auto_confirm &&
     pp.pending_prompt === np.pending_prompt &&
     pp.agent_session_model === np.agent_session_model &&
+    pp.agent_runtime_config?.confirmedFastMode === np.agent_runtime_config?.confirmedFastMode &&
+    pp.session_binding_nonce === np.session_binding_nonce &&
     pp.agent_provider_resolved_model === np.agent_provider_resolved_model &&
     pp.agent_requested_model === np.agent_requested_model &&
     pp.boot_stage === np.boot_stage &&

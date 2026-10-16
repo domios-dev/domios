@@ -14,6 +14,8 @@ mod reply_relay;
 mod runtime_hooks;
 mod session_content;
 mod session_delta;
+mod session_records;
+mod session_resume;
 mod wire;
 
 use wire::{result_from_js, SerdeSessionMessage, VmUsageParser};
@@ -163,12 +165,30 @@ impl JsProvider {
     /// and logging anything else. Swallowing missing-function lets plugin
     /// authors omit methods they don't implement.
     fn try_call<R: for<'de> Deserialize<'de>>(&self, method: &str, args: &[Value]) -> Option<R> {
+        if !self.has_js(method) {
+            return None;
+        }
         match call_json::<R>(&self.vm, method, args) {
             Ok(v) => Some(v),
             Err(VmError::MissingFunction(_)) => None,
             Err(VmError::Script(msg)) if msg.contains("not a function") => None,
             Err(e) => {
                 log::warn!("[plugin {}] {} failed: {e}", self.manifest.id, method);
+                None
+            }
+        }
+    }
+
+    fn try_call_records<R: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        args: &[Value],
+        window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Option<R> {
+        match super::vm::call_records(&self.vm, method, args, window) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                log::warn!("[plugin {}] {} failed: {error}", self.manifest.id, method);
                 None
             }
         }

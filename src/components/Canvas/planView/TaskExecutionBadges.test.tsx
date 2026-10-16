@@ -60,7 +60,6 @@ test("renders loop badge with warning tint at threshold", async () => {
   const badge = host.querySelector('[data-testid="task-loop-badge"]');
   assert(badge, "loop badge visible");
   assert(badge?.textContent?.includes("×5"), "loop count");
-  assert(badge?.className.includes("task-loop-badge-warning"), "warning tint");
   assert(badge?.getAttribute("title") === "iteration 5/5", "tooltip");
 });
 

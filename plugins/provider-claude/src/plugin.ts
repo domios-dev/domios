@@ -1,7 +1,9 @@
-import { quoteNativeArgument } from "../../provider-shared/nativeArgument";
+import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
+import { buildClaudeLaunchCommand, buildClaudeLaunchSpec, starterPrompt } from "./launchSpec";
 import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
 import { writeClaudeLaunchPrompt } from "./launchPrompt";
 import { isImageDisplayMetadata } from "./imageMetadata";
+import { shouldParseClaudeRecord } from "./recordPrefix";
 import { checkClaudeUpdate } from "./update";
 import { claudeTrustRecord } from "./preTrust";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
@@ -70,11 +72,13 @@ import { claudePermissionPromptResponse } from "./permissionPrompt";
 import { claudeFolderTrustPrompt, claudeFolderTrustResponse } from "./folderTrust";
 import {
   CODETERM_HOOK_MARKER,
+  CODETERM_HOOK_TIMEOUT_SECONDS,
   CODETERM_HOOK_MARKER_ARG,
   INTEGRATION_HOOK_KEYS,
   entryCarriesMarker,
   entryIsLegacyPaneCodetermHook,
   entriesCarryMarker,
+  entriesHaveBoundedTimeout,
   isCurrentHookCommand,
   isCodetermHook,
 } from "./hookOwnership";
@@ -111,17 +115,6 @@ const NOISE_FRAGMENTS = [
   "hold Space",
 ];
 
-const FILE_TASK_PROMPT =
-  "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
-const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-
-function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string): string | undefined {
-  if (hostText) return hostText;
-  if (prompt === "no_starter") return undefined;
-  if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
-  if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
-  return FILE_TASK_PROMPT;
-}
 
 function taskNotificationStatus(content: string): string | null {
   const trimmed = content.trim();
@@ -188,6 +181,7 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin: PluginModule = {
+  sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
   tracksBackgroundWork: () => true,
@@ -347,52 +341,10 @@ const plugin: PluginModule = {
     return claudePermissionPromptResponse(toolName, prompt, screen);
   },
 
-  // Launch command parity for native behavior across OS-specific execution modes.
-  buildLaunchCommand(params: LaunchParams): string {
-    const p = params || {};
-    const win = host.platform() === "windows";
-    const unset = win
-      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
-        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
-        + "[System.Text.Encoding]::UTF8; "
-        + "$PSNativeCommandArgumentPassing = 'Standard';"
-      : "unset CLAUDECODE &&";
-    const parts = [unset];
+  buildLaunchCommand: buildClaudeLaunchCommand,
 
-    parts.push("claude");
-    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-
-    if (p.agentName) {
-      parts.push("--agent");
-      parts.push(host.shell.quoteFor(p.agentName, host.platform()));
-    }
-    if (p.sessionId) {
-      parts.push("--session-id");
-      parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
-    }
-    const launchArgs = statuslineLaunchArgs(p.args || []);
-    if (!launchArgs) {
-      host.log("error", "[claude-launch] cannot compose launch settings");
-      return "";
-    }
-    if (launchArgs.length > 0) {
-      // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
-      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
-    }
-    // Keep large worker prompts out of shell parsing and argv on every platform.
-    {
-      const visiblePath = writeClaudeLaunchPrompt(p.task || "");
-      if (!visiblePath) return "";
-      parts.push("--append-system-prompt-file");
-      parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      const prompt = p.task ? starterPrompt(p.starterPrompt, p.starterPromptText) : undefined;
-      if (prompt) {
-        parts.push("--");
-        const framed = p.starterPromptPrefix ? p.starterPromptPrefix + prompt + "</domios>" : prompt;
-        parts.push(quoteNativeArgument(framed, host.platform(), host.shell.quoteFor));
-      }
-    }
-    return parts.join(" ");
+  buildLaunchSpec(params: LaunchParams | { resume: ResumeParams }) {
+    return manifest()?.commands?.launchSpec ? buildClaudeLaunchSpec(params) : null;
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string | null {
@@ -524,288 +476,13 @@ const plugin: PluginModule = {
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
   // Parse `user`/`assistant` lines and map content blocks to SessionMessage.
-  parseSessionMessages(text: string): unknown[] {
-    const out: unknown[] = [];
-    const lines = String(text || "").split("\n");
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      let v: ClaudeEntry;
-      try { v = JSON.parse(line); } catch (e) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!isValidClaudeSessionMessage(v)) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      const msgType = (v && v.type) || "";
-      if (msgType !== "user" && msgType !== "assistant") continue;
-      const isMeta = !!(v && v.isMeta);
-      const msg = v.message;
-      if (!msg) continue;
-      const content = msg.content;
-      let text2 = "";
-      if (typeof content === "string") {
-        text2 = content;
-      } else if (Array.isArray(content)) {
-        const chunks: string[] = [];
-        for (let j = 0; j < content.length; j++) {
-          const b = content[j];
-          if (b && b.type === "text" && typeof b.text === "string") {
-            chunks.push(b.text);
-          }
-        }
-        text2 = chunks.join(" ");
-      } else {
-        continue;
-      }
-      if (!text2 || !text2.trim()) continue;
-      let ts: number | null = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1000);
-      }
-      out.push({ role: msgType, text: text2, ts: ts, isMeta: isMeta });
-    }
-    return out;
-  },
+  parseSessionMessages,
+  parseSessionMessageRecords(records) { return parseSessionMessages(records); },
 
   // Rust provides complete lines; plugin parses JSON into RichMessage[]. Byte offsets stay in Rust.
-  parseSessionDelta(chunk: string): unknown {
-    const out: unknown[] = [];
-    const lines = String(chunk || "").split("\n");
-    let stamped = 0;
-    const stampRows = (lineIndex: number) => {
-      for (; stamped < out.length; stamped++) {
-        (out[stamped] as { recordIndex?: number }).recordIndex = lineIndex;
-      }
-    };
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      stampRows(i - 1);
-      const line = lines[i];
-      if (!line) continue;
-      let v: ClaudeEntry;
-      try { v = JSON.parse(line); } catch (_) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      const emitObservations = () => {
-        const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
-        if (!observations && !background.length) return false;
-        out.push({role:"system",blocks:[],ts:null,uuid:null,
-          provider_observations:observations, background_work:background,
-          provider_session_id:typeof v.sessionId === "string" ? v.sessionId : null});
-        return true;
-      };
-      if (!validateEntry(v)) {
-        if (emitObservations()) continue;
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (isImageDisplayMetadata(v)) continue;
-      const t = v && v.type;
-      let ts: number | null = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1000);
-      }
-      const timestamp = (typeof v.timestamp === "string") ? v.timestamp : null;
-
-      if (t === "ai-title") {
-        const title = aiTitleFromEntry(v);
-        if (!title) continue;
-        out.push({
-          role: "custom",
-          blocks: [],
-          ts,
-          uuid: (typeof v.uuid === "string") ? v.uuid : null,
-          sessionIntent: { title },
-          timestamp,
-        });
-        continue;
-      }
-
-      if (t === "edited_text_file" || (t === "attachment" && v.attachment?.type === "edited_text_file")) {
-        const path = editedTextFilePath(v);
-        if (!path) continue;
-        out.push({
-          role: "system",
-          blocks: [],
-          ts,
-          uuid: (typeof v.uuid === "string") ? v.uuid : null,
-          timelineMarker: { kind: "external_edit", path },
-          timestamp,
-        });
-        continue;
-      }
-
-      const blocks: Array<{ kind: string; data: Record<string, unknown> }> = [];
-      let role: string;
-      let sourceSubtype: string | null = (typeof v.subtype === "string") ? v.subtype : null;
-      let timelineMarker: Record<string, unknown> | undefined;
-      if (t === "system") {
-        // System rows carry top-level `content` + `subtype`; the host turns them into system/local_command cards.
-        role = "system";
-        const sysText = (typeof v.content === "string")
-          ? v.content
-          : (Array.isArray(v.content)
-              ? v.content.filter((c) => c && c.type === "text")
-                  .map((c) => c.text || "").join("\n")
-              : "");
-        const sdata: Record<string, unknown> = { text: sysText };
-        if (typeof v.subtype === "string") sdata.subtype = v.subtype;
-        if (typeof v.level === "string") sdata.level = v.level;
-        blocks.push({ kind: "text", data: sdata });
-      } else if (t === "user" || t === "assistant") {
-        role = t;
-        const msg = v.message;
-        if (!msg) continue;
-        const content = msg.content;
-        if (typeof content === "string") {
-          const agentNotice = t === "user" ? subAgentNotificationBlock(content, v) : null;
-          const taskStatus = t === "user" && !agentNotice ? taskNotificationStatus(content) : null;
-          if (agentNotice) {
-            blocks.push(agentNotice);
-          } else if (taskStatus) {
-            role = "status";
-            sourceSubtype = "task_notification";
-            blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
-          } else if (t === "user" && isCompactSummaryRow(v, content)) {
-            role = "system";
-            sourceSubtype = "compact_summary";
-            timelineMarker = { kind: "context_compaction" };
-            blocks.push({ kind: "text", data: { text: content, subtype: sourceSubtype } });
-          } else if (content) {
-            blocks.push({ kind: "text", data: { text: content } });
-          }
-        } else if (Array.isArray(content)) {
-          for (let j = 0; j < content.length; j++) {
-            const b = content[j];
-            if (!b || typeof b.type !== "string") continue;
-            const data: Record<string, unknown> = {};
-            for (const k in b) {
-              if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
-                data[k] = (b as Record<string, unknown>)[k];
-              }
-            }
-            if (b.type === "tool_use" && isSubAgentCall(data.name, data.input)) {
-              const agent = subAgentCallBlock(data.id, data.input);
-              if (agent) {
-                blocks.push(agent);
-                continue;
-              }
-            }
-            if (b.type === "tool_use") {
-              const canonical = canonicalToolFields(
-                typeof data.name === "string" ? data.name : "",
-                data.input,
-              );
-              data.tool_kind = canonical.kind;
-              data.tool_summary = canonical.summary;
-              data.tool_detail = canonical.detail;
-              data.tool_edits = canonical.edits;
-              const description = toolDescription(data.input);
-              if (description) data.tool_description = description;
-              // Parallel calls from one API response share this id; it is the only proven link.
-              if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
-              const sourceId = exactSourceIdentity(v.uuid);
-              if (sourceId) data.tool_call_source_id = sourceId;
-            } else if (b.type === "thinking") {
-              // The signature is opaque verification material, never display text.
-              delete data.signature;
-            }
-            if (b.type === "tool_result") {
-              const agent = subAgentLaunchBlock(data.tool_use_id, v.toolUseResult);
-              if (agent) {
-                blocks.push(agent);
-                continue;
-              }
-              const outcome = commandOutcome(v.toolUseResult);
-              if (outcome) Object.assign(data, outcome);
-              const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
-              data.tool_pairing = sourceId ? "exact" : "unavailable";
-              if (sourceId) data.tool_call_source_id = sourceId;
-            }
-            blocks.push({ kind: b.type, data: data });
-          }
-          const results = blocks.filter((block) => block.kind === "tool_result");
-          // toolUseResult describes the row's single result; several results leave the link unproven.
-          if (t === "user" && results.length === 1) {
-            const diffs = claudeFileDiffs(v.toolUseResult);
-            if (diffs.length > 0) results[0].data.file_diffs = diffs;
-          }
-        } else {
-          continue;
-        }
-        // Sub-agent progress is not user input, whichever record carried it.
-        if (blocks.length > 0 && blocks.every(isAgentActivityBlock)) role = "assistant";
-      } else if (t === "attachment") {
-        // Input sent while the agent was busy is queued as a queued_command attachment; surface it as the user message it is.
-        const att = v.attachment;
-        if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
-          emitObservations();
-          continue;
-        }
-        const agentNotice = subAgentNotificationBlock(att.prompt, v);
-        const taskStatus = agentNotice ? null : att.commandMode === "task-notification"
-          ? taskNotificationStatus(att.prompt) ?? "Task notification"
-          : taskNotificationStatus(att.prompt);
-        if (agentNotice) {
-          role = "assistant";
-          blocks.push(agentNotice);
-        } else if (taskStatus) {
-          role = "status";
-          sourceSubtype = "task_notification";
-          blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
-        } else {
-          role = "user";
-          timelineMarker = { kind: "queued" };
-          blocks.push({ kind: "text", data: { text: att.prompt } });
-        }
-      } else {
-        emitObservations(); continue;
-      }
-      if (!blocks.length) {emitObservations(); continue;}
-      if (t === "system" && sourceSubtype === "compact_boundary") {
-        timelineMarker = { kind: "context_compaction" };
-      }
-      const context = parseContextUsage(v);
-      out.push({
-        ...(context ? { context_usage: context } : {}),
-        provider_observations: parseSessionObservations(v),
-        provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
-        background_work: parseBackgroundWork(v),
-        role: role,
-        blocks: blocks,
-        ts: ts,
-        uuid: (typeof v.uuid === "string") ? v.uuid : null,
-        isMeta: v.isMeta === true ? true : null,
-        sourceType: (typeof v.type === "string") ? v.type : null,
-        sourceSubtype,
-        level: (typeof v.level === "string") ? v.level : null,
-        isCompactSummary: v.isCompactSummary === true ? true : null,
-        isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
-        timelineMarker,
-        timestamp,
-      });
-    }
-    stampRows(lines.length - 1);
-    return { messages: out };
+  parseSessionDelta,
+  parseSessionRecords(records, meta) {
+    return {...parseSessionDelta(records), new_offset:meta.newOffset};
   },
 
   // Keep JSONL path encoding aligned with `claudeSessionFilePath`.
@@ -940,7 +617,7 @@ const plugin: PluginModule = {
     let marked = true;
     for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
       const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
-      if (Array.isArray(arr) && !entriesCarryMarker(arr)) { marked = false; break; }
+      if (Array.isArray(arr) && (!entriesCarryMarker(arr) || !entriesHaveBoundedTimeout(arr))) { marked = false; break; }
     }
     return {
       settings_exists: true,
@@ -1024,10 +701,10 @@ const plugin: PluginModule = {
     // PermissionRequest and Notification share the permission route and differ
     // only in matcher: per-tool vs the vendor's late permission_prompt.
     const newHooks: Record<string, HookEntry> = {
-      PermissionRequest: newEntry("*", notifyCmd, 5000),
-      Notification:      newEntry("permission_prompt", notifyCmd, 5000),
-      Stop:              newEntry("", stopCmd, 5000),
-      SessionStart:      newEntry("", sessionStartCmd, 5000),
+      PermissionRequest: newEntry("*", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Notification:      newEntry("permission_prompt", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Stop:              newEntry("", stopCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      SessionStart:      newEntry("", sessionStartCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
     };
 
     // Remove existing codeterm hooks before appending to avoid stale leftovers.
@@ -1185,5 +862,266 @@ function resumeBase(sessionId: string, skipPermissions?: boolean): string {
     return parts.join(" ");
 }
 
+
+function parseSessionDelta(chunk: SessionRecordInput): {messages: unknown[]} {
+  const out: unknown[] = [];
+  let stamped = 0;
+  const stampRows = (row: number) => {
+    for (; stamped < out.length; stamped++) (out[stamped] as {recordIndex?: number}).recordIndex = row;
+  };
+  let hadInvalid = false;
+  let previousRow = -1;
+  for (const {row, value: v} of sessionRecords<ClaudeEntry>(chunk, line => shouldParseClaudeRecord(line, true))) {
+    stampRows(previousRow);
+    previousRow = row;
+    const emitObservations = () => {
+      const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
+      if (!observations && !background.length) return false;
+      out.push({role:"system",blocks:[],ts:null,uuid:null,
+        provider_observations:observations, background_work:background,
+        provider_session_id:typeof v.sessionId === "string" ? v.sessionId : null});
+      return true;
+    };
+    if (!validateEntry(v)) {
+      if (emitObservations()) continue;
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    if (isImageDisplayMetadata(v)) continue;
+    const t = v && v.type;
+    let ts: number | null = null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1000);
+    }
+    const timestamp = (typeof v.timestamp === "string") ? v.timestamp : null;
+
+    if (t === "ai-title") {
+      const title = aiTitleFromEntry(v);
+      if (!title) continue;
+      out.push({
+        role: "custom",
+        blocks: [],
+        ts,
+        uuid: (typeof v.uuid === "string") ? v.uuid : null,
+        sessionIntent: { title },
+        timestamp,
+      });
+      continue;
+    }
+
+    if (t === "edited_text_file" || (t === "attachment" && v.attachment?.type === "edited_text_file")) {
+      const path = editedTextFilePath(v);
+      if (!path) continue;
+      out.push({
+        role: "system",
+        blocks: [],
+        ts,
+        uuid: (typeof v.uuid === "string") ? v.uuid : null,
+        timelineMarker: { kind: "external_edit", path },
+        timestamp,
+      });
+      continue;
+    }
+
+    const blocks: Array<{ kind: string; data: Record<string, unknown> }> = [];
+    let role: string;
+    let sourceSubtype: string | null = (typeof v.subtype === "string") ? v.subtype : null;
+    let timelineMarker: Record<string, unknown> | undefined;
+    if (t === "system") {
+      // System rows carry top-level `content` + `subtype`; the host turns them into system/local_command cards.
+      role = "system";
+      const sysText = (typeof v.content === "string")
+        ? v.content
+        : (Array.isArray(v.content)
+            ? v.content.filter((c) => c && c.type === "text")
+                .map((c) => c.text || "").join("\n")
+            : "");
+      const sdata: Record<string, unknown> = { text: sysText };
+      if (typeof v.subtype === "string") sdata.subtype = v.subtype;
+      if (typeof v.level === "string") sdata.level = v.level;
+      blocks.push({ kind: "text", data: sdata });
+    } else if (t === "user" || t === "assistant") {
+      role = t;
+      const msg = v.message;
+      if (!msg) continue;
+      const content = msg.content;
+      if (typeof content === "string") {
+        const agentNotice = t === "user" ? subAgentNotificationBlock(content, v) : null;
+        const taskStatus = t === "user" && !agentNotice ? taskNotificationStatus(content) : null;
+        if (agentNotice) {
+          blocks.push(agentNotice);
+        } else if (taskStatus) {
+          role = "status";
+          sourceSubtype = "task_notification";
+          blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
+        } else if (t === "user" && isCompactSummaryRow(v, content)) {
+          role = "system";
+          sourceSubtype = "compact_summary";
+          timelineMarker = { kind: "context_compaction" };
+          blocks.push({ kind: "text", data: { text: content, subtype: sourceSubtype } });
+        } else if (content) {
+          blocks.push({ kind: "text", data: { text: content } });
+        }
+      } else if (Array.isArray(content)) {
+        for (let j = 0; j < content.length; j++) {
+          const b = content[j];
+          if (!b || typeof b.type !== "string") continue;
+          const data: Record<string, unknown> = {};
+          for (const k in b) {
+            if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
+              data[k] = (b as Record<string, unknown>)[k];
+            }
+          }
+          if (b.type === "tool_use" && isSubAgentCall(data.name, data.input)) {
+            const agent = subAgentCallBlock(data.id, data.input);
+            if (agent) {
+              blocks.push(agent);
+              continue;
+            }
+          }
+          if (b.type === "tool_use") {
+            const canonical = canonicalToolFields(
+              typeof data.name === "string" ? data.name : "",
+              data.input,
+            );
+            data.tool_kind = canonical.kind;
+            data.tool_summary = canonical.summary;
+            data.tool_detail = canonical.detail;
+            data.tool_edits = canonical.edits;
+            const description = toolDescription(data.input);
+            if (description) data.tool_description = description;
+            // Parallel calls from one API response share this id; it is the only proven link.
+            if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
+            const sourceId = exactSourceIdentity(v.uuid);
+            if (sourceId) data.tool_call_source_id = sourceId;
+          } else if (b.type === "thinking") {
+            // The signature is opaque verification material, never display text.
+            delete data.signature;
+          }
+          if (b.type === "tool_result") {
+            const agent = subAgentLaunchBlock(data.tool_use_id, v.toolUseResult);
+            if (agent) {
+              blocks.push(agent);
+              continue;
+            }
+            const outcome = commandOutcome(v.toolUseResult);
+            if (outcome) Object.assign(data, outcome);
+            const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
+            data.tool_pairing = sourceId ? "exact" : "unavailable";
+            if (sourceId) data.tool_call_source_id = sourceId;
+          }
+          blocks.push({ kind: b.type, data: data });
+        }
+        const results = blocks.filter((block) => block.kind === "tool_result");
+        // toolUseResult describes the row's single result; several results leave the link unproven.
+        if (t === "user" && results.length === 1) {
+          const diffs = claudeFileDiffs(v.toolUseResult);
+          if (diffs.length > 0) results[0].data.file_diffs = diffs;
+        }
+      } else {
+        continue;
+      }
+      // Sub-agent progress is not user input, whichever record carried it.
+      if (blocks.length > 0 && blocks.every(isAgentActivityBlock)) role = "assistant";
+    } else if (t === "attachment") {
+      // Input sent while the agent was busy is queued as a queued_command attachment; surface it as the user message it is.
+      const att = v.attachment;
+      if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+        emitObservations();
+        continue;
+      }
+      const agentNotice = subAgentNotificationBlock(att.prompt, v);
+      const taskStatus = agentNotice ? null : att.commandMode === "task-notification"
+        ? taskNotificationStatus(att.prompt) ?? "Task notification"
+        : taskNotificationStatus(att.prompt);
+      if (agentNotice) {
+        role = "assistant";
+        blocks.push(agentNotice);
+      } else if (taskStatus) {
+        role = "status";
+        sourceSubtype = "task_notification";
+        blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
+      } else {
+        role = "user";
+        timelineMarker = { kind: "queued" };
+        blocks.push({ kind: "text", data: { text: att.prompt } });
+      }
+    } else {
+      emitObservations(); continue;
+    }
+    if (!blocks.length) {emitObservations(); continue;}
+    if (t === "system" && sourceSubtype === "compact_boundary") {
+      timelineMarker = { kind: "context_compaction" };
+    }
+    const context = parseContextUsage(v);
+    out.push({
+      ...(context ? { context_usage: context } : {}),
+      provider_observations: parseSessionObservations(v),
+      provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
+      background_work: parseBackgroundWork(v),
+      role: role,
+      blocks: blocks,
+      ts: ts,
+      uuid: (typeof v.uuid === "string") ? v.uuid : null,
+      isMeta: v.isMeta === true ? true : null,
+      sourceType: (typeof v.type === "string") ? v.type : null,
+      sourceSubtype,
+      level: (typeof v.level === "string") ? v.level : null,
+      isCompactSummary: v.isCompactSummary === true ? true : null,
+      isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
+      timelineMarker,
+      timestamp,
+    });
+  }
+  stampRows(previousRow);
+  return { messages: out };
+}
+
+function parseSessionMessages(text: SessionRecordInput): unknown[] {
+  const out: unknown[] = [];
+  let hadInvalid = false;
+  for (const {value: v} of sessionRecords<ClaudeEntry>(text, line => shouldParseClaudeRecord(line, false))) {
+    if (!isValidClaudeSessionMessage(v)) {
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    const msgType = (v && v.type) || "";
+    if (msgType !== "user" && msgType !== "assistant") continue;
+    const isMeta = !!(v && v.isMeta);
+    const msg = v.message;
+    if (!msg) continue;
+    const content = msg.content;
+    let text2 = "";
+    if (typeof content === "string") {
+      text2 = content;
+    } else if (Array.isArray(content)) {
+      const chunks: string[] = [];
+      for (let j = 0; j < content.length; j++) {
+        const b = content[j];
+        if (b && b.type === "text" && typeof b.text === "string") {
+          chunks.push(b.text);
+        }
+      }
+      text2 = chunks.join(" ");
+    } else {
+      continue;
+    }
+    if (!text2 || !text2.trim()) continue;
+    let ts: number | null = null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1000);
+    }
+    out.push({ role: msgType, text: text2, ts: ts, isMeta: isMeta });
+  }
+  return out;
+}
 
 export default plugin;

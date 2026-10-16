@@ -7,12 +7,13 @@
 #   ./build.sh dev-prebuilt --wait — restart a provenance-validated dev build without Cargo
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh frontend  — production frontend typecheck + bundle
-#   ./build.sh release-inputs — build target-aware frontend/CLI/embed bundle inputs
+#   ./build.sh release-inputs — build target-aware frontend/CLI bundle inputs
+#   ./build.sh release-bundle — release-inputs plus tauri build in one gateway session
 #   ./build.sh release-preflight — run local PR checks and verify release inputs
 #   ./build.sh worktree-check — explicit isolated, nonincremental checkout check
 #   ./build.sh build     — production build
 #   ./build.sh install-local — incremental production build + self-install, then resume the calling tab
-#   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
+#   ./build.sh bootstrap — create/build bundled CLI for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to the active dev data directory
 #   ./build.sh clean     — clean build cache
@@ -28,13 +29,15 @@ source scripts/dev-notify.sh
 dev_notify_capture_parent
 
 CMD="${1:-dev}"
+source scripts/lane-rust-guard.sh
+require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
 CT_DEV_WAIT=0
 DEV_NOTIFY_TAB=""
 
 # Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
 # (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
 case "$CMD" in
-  qa-lock-storm|feature-cycle|lane-check|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -245,7 +248,35 @@ setup_env() {
   fi
 }
 
-export CODETERM_FRONTEND_BUILD_HASH="$(git rev-parse --short HEAD 2>/dev/null || true)"
+initialize_build_identity() {
+  local full_hash short_hash
+  CT_DEV_PROVENANCE_SHA=
+  if [ "$CMD" = dev-prebuilt ] && [ -n "${CT_DEV_HANDOFF_SHA:-}" ]; then
+    full_hash="$CT_DEV_HANDOFF_SHA"
+    short_hash="${CT_DEV_HANDOFF_HASH:-}"
+    CT_DEV_PROVENANCE_SHA="$CT_DEV_HANDOFF_SHA"
+  else
+    full_hash="$(git rev-parse HEAD 2>/dev/null || true)"
+    short_hash="$(git rev-parse --short "$full_hash" 2>/dev/null || true)"
+  fi
+  unset CT_DEV_HANDOFF_SHA CT_DEV_HANDOFF_HASH
+  unset CODETERM_BUILD_SHA CODETERM_BUILD_HASH CODETERM_FRONTEND_BUILD_HASH
+  if [[ ! "$full_hash" =~ ^[0-9a-f]{40}$ ]] ||
+      [[ ! "$short_hash" =~ ^[0-9a-f]{7,40}$ ]] || [[ "$full_hash" != "$short_hash"* ]]; then
+    CT_DEV_PROVENANCE_SHA=
+    case "$CMD" in
+      dev|dev-prebuilt|build|install-local)
+        echo "ERROR: $CMD requires a valid build identity from Git or its internal launch handoff" >&2
+        return 1
+        ;;
+    esac
+    return 0
+  fi
+  export CODETERM_BUILD_SHA="$full_hash"
+  export CODETERM_BUILD_HASH="$short_hash"
+  export CODETERM_FRONTEND_BUILD_HASH="$short_hash"
+}
+initialize_build_identity
 
 # --- Kill THIS dev instance only (never prod, never another worktree) ---
 # Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.
@@ -368,8 +399,8 @@ run_nextest_scope() {
       targets=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
     shell) package="codeterm"; targets+=(--lib --test main) ;;
-    mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets+=(--lib) ;;
-    paths|codeterm-paths) package="codeterm-paths"; targets+=(--lib) ;;
+    mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets=(--lib) ;;
+    paths|codeterm-paths) package="codeterm-paths"; targets=(--lib) ;;
     input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
@@ -630,12 +661,6 @@ if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
   exit 0
 fi
 
-# A cold prebuilt refusal must be read-only; every other command keeps the
-# existing hook setup behavior.
-if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ] && [ "$CMD" != "cache-verify" ] && [ "$CMD" != "cache-stats" ] && [ "$CMD" != build-history ]; then
-  git config core.hooksPath .githooks 2>/dev/null || true
-fi
-
 source scripts/cache-policy.sh
 source scripts/build-gateway.sh
 source scripts/nextest-archive.sh
@@ -809,9 +834,6 @@ release_stable_build_path() {
 
 enter_build_gateway() {
   ct_gateway_acquire "$*"
-  if [ "$CMD" != gc ]; then
-    ct_cache_retention auto || echo "[cache-policy] retention refused; build continues" >&2
-  fi
   local gateway_log
   CT_BUILD_ARTIFACT_DIR="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.artifacts"
   mkdir -p "$CT_BUILD_ARTIFACT_DIR"
@@ -819,6 +841,10 @@ enter_build_gateway() {
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
   [ "$CMD" = check-queue ] || [ "$CMD" = check-workspace ] || enter_stable_build_path
+  # Runs after the stable mapping so retention sees X: and refreshes the recorded gateway build directory.
+  if [ "$CMD" != gc ]; then
+    ct_cache_retention auto || echo "[cache-policy] retention refused; build continues" >&2
+  fi
   if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ] && [ "${CODETERM_BUILD_FINGERPRINTS:-0}" != 1 ]; then
     echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
     return
@@ -1316,11 +1342,11 @@ dev_provenance_record() {
 write_dev_provenance() {
   local build_sha="$1"
   node scripts/dev-prep.mjs --write-provenance \
+    --launch-sha "$CODETERM_BUILD_SHA" \
     --record "$(dev_provenance_record)" \
     --build-sha "$build_sha" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --embed "$CT_DEV_EMBED_BUNDLE" \
     --frontend "$(pwd -P)/dist" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
@@ -1330,7 +1356,12 @@ write_dev_provenance() {
 }
 
 validate_dev_provenance() {
+  local launch_args=()
+  if [ -n "${CT_DEV_PROVENANCE_SHA:-}" ]; then
+    launch_args=(--launch-sha "$CT_DEV_PROVENANCE_SHA")
+  fi
   node scripts/dev-prep.mjs --check-provenance \
+    "${launch_args[@]}" \
     --record "$(dev_provenance_record)" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
@@ -1340,6 +1371,21 @@ validate_dev_provenance() {
     --vite-port "$CT_VITE_PORT" \
     --cdp-port "$CT_CDP_PORT" \
     --identifier "$CT_IDENTIFIER"
+}
+
+run_prebuilt_preflight() {
+  local status=0 output
+  output="$("$@" 2>&1)" || status=$?
+  if [ -n "$output" ]; then
+    printf '%s\n' "$output" >> "$PREBUILT_LOG"
+    if [ "$status" = 0 ]; then printf '%s\n' "$output"; else printf '%s\n' "$output" >&2; fi
+  fi
+  return "$status"
+}
+
+refuse_prebuilt() {
+  printf '%s\n' "$@" | tee -a "$PREBUILT_LOG" >&2
+  exit 2
 }
 
 require_prebuilt_command() {
@@ -1462,7 +1508,6 @@ fi
 
 prepare_bundle_stubs() {
   node scripts/prepare-cli-stub.js
-  node scripts/prepare-embed-stub.js
 }
 
 prepare_dev_frontend_dist() {
@@ -1616,8 +1661,35 @@ check_workspace_run() {
   return "$status"
 }
 
+# User scope only: --no-modify-path leaves the machine PATH alone; remove with `rustup self uninstall` and deleting cargo-nextest.
+peer_toolchain_install() {
+  local want bin="${CARGO_HOME:-$HOME/.cargo}/bin" tmp nextest dl=(curl --proto '=https' --tlsv1.2 -fsSL --speed-limit 1000 --speed-time 60)
+  want="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+  tmp="$(mktemp -d)"
+  if ! command -v rustup >/dev/null 2>&1; then
+    case "$OSTYPE" in
+      darwin*|linux*) "${dl[@]}" https://sh.rustup.rs -o "$tmp/rustup-init.sh" \
+        && sh "$tmp/rustup-init.sh" -y --no-modify-path --profile minimal --default-toolchain "$want" ;;
+      *) "${dl[@]}" https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe -o "$tmp/rustup-init.exe" \
+        && "$tmp/rustup-init.exe" -y --no-modify-path --profile minimal --default-toolchain "$want" ;;
+    esac || { rm -rf "$tmp"; echo "peer-toolchain: rustup install failed" >&2; return 1; }
+  fi
+  rm -rf "$tmp"
+  export PATH="$bin:$PATH"
+  rustup toolchain install "$want" --profile minimal --component clippy,rustfmt || return 1
+  if ! command -v cargo-nextest >/dev/null 2>&1; then
+    case "$OSTYPE" in
+      darwin*) nextest=mac ;;
+      linux*) [ "$(uname -m)" = aarch64 ] && nextest=linux-arm || nextest=linux ;;
+      *) nextest=windows-tar ;;
+    esac
+    "${dl[@]}" "https://get.nexte.st/latest/$nextest" | tar zxf - -C "$bin" || { echo "peer-toolchain: cargo-nextest install failed" >&2; return 1; }
+  fi
+}
+
 peer_toolchain() {
   local want rustc_v rustup_v native ok=1 tool
+  if [ "${1:-}" = --install ]; then peer_toolchain_install || return 1; fi
   want="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
   rustup_v="$(rustup --version 2>/dev/null | awk 'NR==1{print $2}')"
   rustc_v="$(rustc --version 2>/dev/null | awk '{print $2}')"
@@ -1791,32 +1863,15 @@ build_and_launch_dev() {
     build_args+=(--features "$CT_DEV_CARGO_FEATURES")
   fi
   TAURI_CONFIG="$(cat "$conf")" cargo build "${build_args[@]}"
-  build_sha="$(git rev-parse HEAD)"
+  build_sha="$CODETERM_BUILD_SHA"
+  build_dev_frontend
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
   release_stable_build_path
   record_dev_target "$(tauri_debug_dir)"
   complete_build_gateway_before_handoff
   echo "Build gateway released; launching validated dev artifact."
-  exec bash ./build.sh dev-prebuilt "$@"
-}
-
-ensure_real_embed_bundle() {
-  local host exe_ext embed_size
-  host=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
-  exe_ext=""
-  case "$OSTYPE" in msys*|cygwin*|win32) exe_ext=".exe" ;; esac
-  CT_DEV_EMBED_BUNDLE="src-tauri/bundled-embed/codeterm-embed-${host}${exe_ext}"
-  prepare_bundle_stubs
-  embed_size=0
-  if [ -f "$CT_DEV_EMBED_BUNDLE" ]; then
-    embed_size=$(stat -c %s "$CT_DEV_EMBED_BUNDLE" 2>/dev/null || stat -f %z "$CT_DEV_EMBED_BUNDLE" 2>/dev/null || echo 0)
-  fi
-  if [ "${REBUILD_EMBED:-0}" = "1" ] || [ "$embed_size" -lt 1048576 ]; then
-    echo "Building codeterm-embed before dev (size=${embed_size}, REBUILD_EMBED=${REBUILD_EMBED:-0})..."
-    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-    CODETERM_DEV=1 node scripts/bundle-embed.js
-  fi
+  CT_DEV_HANDOFF_SHA="$CODETERM_BUILD_SHA" CT_DEV_HANDOFF_HASH="$CODETERM_BUILD_HASH" exec bash ./build.sh dev-prebuilt "$@"
 }
 
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
@@ -1933,6 +1988,17 @@ windows_dev_leftover_cleanup() {
   "${cleanup_args[@]}" 2>/dev/null || true
 }
 
+# Provenance must hash the bytes the prebuilt watcher regenerates for this HEAD, not a prior session's dist/.
+build_dev_frontend() {
+  local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
+  echo "Building dev frontend bundle (log $log)..."
+  if ! CODETERM_FRONTEND_DEV=1 node node_modules/vite/bin/vite.js build </dev/null >> "$log" 2>&1; then
+    echo "ERROR: dev frontend bundle build failed; see $log" >&2
+    return 1
+  fi
+}
+
+# The static server serves dist/ during the watcher's first rebuild, so the watcher overwrites in place.
 start_web_watch() {
   kill_web_watch || true
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
@@ -1941,10 +2007,10 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2117,12 +2183,10 @@ prepare_release_bundle_inputs() {
   pnpm build
   cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
-  node scripts/prepare-embed-stub.js
   cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
     "${cargo_target_args[@]}" \
     --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
-    --bin codeterm --bin codeterm-embed
-  node scripts/bundle-embed.js
+    --bin codeterm
 }
 
 enter_cargo_gateway() {
@@ -2131,13 +2195,16 @@ enter_cargo_gateway() {
 }
 
 case "$CMD" in
-  check-queue|nextest)
+  check-queue|nextest|test-one)
     for arg in "${@:2}"; do
       [ "$arg" != --peer ] || peer_dispatch dispatch "$CMD" "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
     done
     ;;
   check-linux)
     peer_dispatch dispatch check-linux "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
+    ;;
+  check-series)
+    peer_dispatch dispatch check-series "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
     ;;
   peer-setup)
     peer_dispatch setup "${@:2}" --state-dir "$(ct_gateway_dir)/peer-jobs"
@@ -2148,7 +2215,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|embed|cli|clean|test:all)
+  feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2166,22 +2233,26 @@ CodeTerm build commands
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
+  embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package> [--tests]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
   check-queue <sha> --peer <name|auto> [--lane] [--os OS]  Same check in a mesh peer's gateway; result returns as one message
   nextest <scope> [filterset] --peer <name|auto> [--sha SHA]  Same nextest run in a mesh peer's gateway
+  test-one <scope> <name> --peer <name|auto> [--sha SHA]  Same focused test in a peer gateway; any peer verb takes --prereq DIFF (local, never-pushed commit)
   check-linux [sha] [--force]  Once per batch: cargo check --workspace --all-targets on a Linux peer
   check-workspace [sha]       Whole-workspace cargo check of a SHA in this machine's check worktree
-  peer-setup <peer>           Clone/refresh the peer's fetch-only checkout, check its toolchain, open its status tab
+  peer-setup <peer> [--sha R] [--install-toolchain]  Clone/refresh the peer fetch-only checkout, check (or user-install) its toolchain, open its status tab
+  check-series --spec F --peer P  Serial scratch-commit check-queue timings (seed, floor, edit per area) on a peer
   peer-route [--os OS]        Show which peer --peer auto would pick
   peer-status                 One PEER_STATUS line: this machine's gateway load (read by --peer auto)
-  peer-toolchain              Check rustup/rustc pin, native toolchain, node, nextest and sccache
+  peer-toolchain [--install]   Check rustup/rustc pin, native toolchain, node, nextest, sccache; --install adds user-scope rustup + nextest
   runner-pause MACHINE        Park MACHINE-* GitHub runners (labels -> paused; unique labels lent to a same-OS runner)
   runner-resume MACHINE       Restore MACHINE-* runner labels and return lent labels
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
-  release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
+  release-inputs              Build target-aware frontend and CLI bundle inputs
+  release-bundle              release-inputs, then the target-aware tauri build from the same path
   ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
@@ -2228,8 +2299,7 @@ EOF
     ct_cache_retention gc "${2:-}"
     ;;
   fmt-check)
-    cargo fmt --manifest-path src-tauri/Cargo.toml --check
-    cargo fmt --manifest-path cli/Cargo.toml --check
+    bash scripts/check-rustfmt.sh
     ;;
   cache-status)
     ct_sccache_status
@@ -2354,10 +2424,10 @@ EOF
     check_workspace_run "${@:2}"
     ;;
   peer-status)
-    node scripts/build-peer.mjs status --gateway-dir "$(ct_gateway_dir)"
+    ct_gateway_peer_status
     ;;
   peer-toolchain)
-    peer_toolchain
+    peer_toolchain "${@:2}"
     ;;
   runner-pause)
     node scripts/runner-toggle.mjs pause "${2:?runner-pause requires a machine, e.g. BLACKSTAR}"
@@ -2379,6 +2449,15 @@ EOF
     ;;
   lane-check)
     lane_check "${@:2}"
+    ;;
+  embedding-parity)
+    CARGO_BUILD_JOBS=4 cargo build --release --manifest-path src-tauri/Cargo.toml \
+      -p codeterm-mem --example embedding_oracle
+    oracle_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
+    if [ -n "${CARGO_BUILD_TARGET:-}" ]; then oracle_dir="$oracle_dir/$CARGO_BUILD_TARGET"; fi
+    oracle_ext=""
+    case "$OSTYPE" in msys*|cygwin*|win32) oracle_ext=".exe" ;; esac
+    python scripts/embedding-parity.py --new-binary "$oracle_dir/release/examples/embedding_oracle$oracle_ext" "${@:2}"
     ;;
   feature-cycle)
     source scripts/feature-cycle.sh
@@ -2411,12 +2490,20 @@ EOF
     ensure_deps
     prepare_release_bundle_inputs
     ;;
+  # One session keeps both compiles on the gateway's stable path: a second path is a second
+  # set of Cargo fingerprints and sccache keys, so tauri build would recompile the app.
+  release-bundle)
+    ensure_deps
+    prepare_release_bundle_inputs
+    bundle_target_args=()
+    [ -z "${CARGO_BUILD_TARGET:-}" ] || bundle_target_args=(--target "$CARGO_BUILD_TARGET")
+    pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
+    ;;
   release-preflight)
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ensure_deps
-    cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
-    cargo fmt --manifest-path cli/Cargo.toml --all --check
+    bash scripts/check-rustfmt.sh
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-tauri-reach.sh
@@ -2478,8 +2565,8 @@ EOF
         prepare_exceptional_worktree_target
         scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib --test main "$test_filter"
         ;;
-      mem-store) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
-      paths) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
+      mem-store|codeterm-mem-store) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
+      paths|codeterm-paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
       input-macos|input-windows)
         scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
@@ -2544,6 +2631,8 @@ EOF
     esac
     ;;
   nextest)
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
     run_nextest_scope "${@:2}"
     ;;
   nextest-archive)
@@ -2608,8 +2697,7 @@ EOF
         ;;
     esac
     enter_cargo_gateway "$CMD ${*:2}"
-    cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
-    cargo fmt --manifest-path cli/Cargo.toml --all --check
+    bash scripts/check-rustfmt.sh
     bash scripts/check-file-sizes.sh --fail
     require_release_source
     node scripts/check-release-locks.mjs
@@ -2914,18 +3002,7 @@ LOCK_STORM_PY
     prepare_bundle_stubs
     cargo build --release --manifest-path cli/Cargo.toml
     CODETERM_DEV=1 node scripts/bundle-cli.js
-    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-    CODETERM_DEV=1 node scripts/bundle-embed.js
-    echo "Bootstrap complete: bundled CLI and codeterm-embed are present."
-    ;;
-  embed)
-    # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
-    # by default — use this when you change embed sources or pull new
-    # ONNX/embeddings deps.
-    prepare_bundle_stubs
-    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-    CODETERM_DEV=1 node scripts/bundle-embed.js
-    echo "codeterm-embed rebuilt"
+    echo "Bootstrap complete: bundled CLI is present."
     ;;
   cli)
     cargo build --release --manifest-path cli/Cargo.toml
@@ -2953,15 +3030,13 @@ LOCK_STORM_PY
       DEV_NOTIFY_LOG="$PREBUILT_LOG"
     fi
     DEV_NOTIFY_STAGE=preflight
-    if ! validate_dev_provenance; then
-      echo "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." >&2
-      echo "Run ./build.sh dev --wait to rebuild and record valid dev provenance." >&2
-      exit 2
+    if ! run_prebuilt_preflight validate_dev_provenance; then
+      refuse_prebuilt "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." \
+        "Run ./build.sh dev --wait to rebuild and record valid dev provenance."
     fi
-    if ! preflight_dev_prebuilt_runtime; then
-      echo "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." >&2
-      echo "Run ./build.sh dev --wait to restore prerequisites and record valid dev provenance." >&2
-      exit 2
+    if ! run_prebuilt_preflight preflight_dev_prebuilt_runtime; then
+      refuse_prebuilt "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." \
+        "Run ./build.sh dev --wait to restore prerequisites and record valid dev provenance."
     fi
     kill_dev
     if [ -n "$DEV_NOTIFY_TAB" ]; then
@@ -2984,7 +3059,7 @@ LOCK_STORM_PY
       node scripts/dev-prep.mjs --launch-prebuilt \
         --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT"
       HEALTH="$(dev_health_status)"
-      EXPECTED_BUILD_SHA="$(git rev-parse HEAD)"
+      EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
       SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH")"
       echo "Prebuilt dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
       if [ -n "$DEV_NOTIFY_TAB" ]; then
@@ -2998,7 +3073,7 @@ LOCK_STORM_PY
         INTERACTIVE_LOG="/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
         : > "$INTERACTIVE_LOG"
         DEV_NOTIFY_LOG="$INTERACTIVE_LOG"
-        EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+        EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
         DEV_NOTIFY_STAGE=launch
         DEV_NOTIFY_WAITER_PID=
         exec 3> >(report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev)
@@ -3046,7 +3121,7 @@ LOCK_STORM_PY
       if [ "$HEALTH_STATUS" = "ok" ] && [ "$HEALTH_API_PORT" = "$CT_PORT" ]; then
         SHA="$HEALTH_SHA"
         if [ -n "$DEV_NOTIFY_TAB" ]; then
-          EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+          EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
           if SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null)"; then
             echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
             dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
@@ -3084,7 +3159,6 @@ LOCK_STORM_PY
     else
       export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm.exe"
     fi
-    ensure_real_embed_bundle
     build_and_launch_dev "${@:2}"
 
     ;;

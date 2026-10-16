@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.7",
-  "minCodeterm": "1.14.8",
+  "version": "1.14.13",
+  "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -63,6 +63,9 @@
         "Agent",
         "Task"
       ]
+    },
+    "executionSandbox": {
+      "unsupportedReason": "Permission modes and tool rules do not enforce read-only filesystem access for shell commands; use an enforcing provider or an explicit owner-run canonical gate."
     }
   },
   "sessions": {
@@ -232,7 +235,17 @@
     "reasoningEffortLaunchArgsFormat": [
       "--effort",
       "{effort}"
-    ]
+    ],
+    "launchSpec": {
+      "program": "claude",
+      "args": [
+        "{skipPermissions}",
+        "{args}"
+      ],
+      "envUnset": [
+        "CLAUDECODE"
+      ]
+    }
   },
   "permissions": {
     "subprocess": {
@@ -261,11 +274,28 @@
   "workerLaneSettings": [
     {
       "path": ".claude/settings.json",
-      "patch": { "enabledPlugins": { "rust-analyzer-lsp@claude-plugins-official": false } }
+      "patch": {
+        "enabledPlugins": {
+          "rust-analyzer-lsp@claude-plugins-official": false
+        }
+      }
     },
     {
       "path": ".claude/settings.local.json",
-      "patch": { "enabledPlugins": { "rust-analyzer-lsp@claude-plugins-official": false } }
+      "patch": {
+        "enabledPlugins": {
+          "rust-analyzer-lsp@claude-plugins-official": false
+        }
+      }
     }
-  ]
+  ],
+  "capabilities": {
+    "agentProvider": true,
+    "recordSources": {
+      "sessionTranscript": {
+        "format": "jsonl",
+        "filter": {}
+      }
+    }
+  }
 }

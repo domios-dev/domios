@@ -3,7 +3,8 @@ import fs from 'node:fs';
 
 const args = process.argv.slice(2);
 const stdin = args.includes('--stdin') ? fs.readFileSync(0, 'utf8') : null;
-fs.appendFileSync(process.env.FAKE_CODETERM_LOG, `${JSON.stringify({ args, stdin })}\n`);
+const lockHeld = fs.existsSync('.git/codeterm-peer-job.lock');
+fs.appendFileSync(process.env.FAKE_CODETERM_LOG, `${JSON.stringify({ args, stdin, lockHeld })}\n`);
 const statuses = JSON.parse(process.env.FAKE_PEER_STATUS ?? '{}');
 const mesh = args.includes('--mesh') ? args[args.indexOf('--mesh') + 1] : null;
 const out = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -20,6 +21,9 @@ if (args[0] === 'mesh' && args[1] === 'status') {
 } else if (args[0] === 'tab' && args[1] === 'exec') {
   const status = statuses[mesh];
   if (status === 'exec_timeout') out({ data: { completion: 'timeout', output: '' }, ok: false });
+  else if (status?.late) out({ completion: 'timeout', exit_code: null, output: `$ ./build.sh peer-status
+PEER_STATUS ${JSON.stringify(status.late)}
+$ ` });
   else out({ completion: 'command_finished', exit_code: 0, output: `MSVC env loaded\nPEER_STATUS ${JSON.stringify(status)}\n` });
 } else if (args[0] === 'tab' && args[1] === 'new') {
   out({ tab_id: 'remote01', budget_notice: null });

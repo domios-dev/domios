@@ -132,13 +132,20 @@ describe("tab menu model", () => {
       "rename",
       "make-orchestrator",
       "make-planner",
-      "model",
-      "provider",
       "reconnect",
       "restart",
       "plugins",
       "close",
     ]);
+  });
+
+  it("offers model and provider switching only on the General agent", () => {
+    for (const surface of SURFACES) {
+      const general = buildTabMenu(input(surface, { tab: tab({ role: "Manager", role_profile: "general_agent" } as never) }));
+      const ids = general.map((entry) => entry.id);
+      expect(ids).toContain("model");
+      expect(ids).toContain("provider");
+    }
   });
 
   it("puts plugin contributions and Telegram only inside the Plugins submenu", () => {
@@ -205,7 +212,7 @@ describe("tab menu model", () => {
   });
 
   it("marks the current model and provider and leaves the current provider without an action", () => {
-    const entries = buildTabMenu(input("sidebar"));
+    const entries = buildTabMenu(input("sidebar", { tab: tab({ role: "Manager", role_profile: "general_agent" } as never) }));
     const model = child(submenu(entries, "model"), "model-model-a");
     expect(model?.kind === "item" ? model.selected : null).toBe(true);
     const current = child(submenu(entries, "provider"), `provider-${CURRENT.id}`);

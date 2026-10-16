@@ -8,17 +8,22 @@ export interface ExactSendText {
 }
 
 export function splitExactSendTexts(content: string, payloads: readonly ExactSendText[]): MessageSegment[] {
+  const exact = payloads.find((payload) => payload.content === content);
+  if (exact) return [{ type: "text", text: content, correlationId: exact.correlationId }];
   const segments: MessageSegment[] = [];
   let offset = 0;
+  let matched = 0;
   for (const payload of payloads) {
     if (!payload.content) continue;
-    const start = content.indexOf(payload.content, offset);
-    if (start < 0) continue;
+    const whitespace = /^\s*/.exec(content.slice(offset))?.[0].length ?? 0;
+    const start = offset + whitespace;
+    if (!content.startsWith(payload.content, start)) continue;
     if (start > offset) segments.push({ type: "text", text: content.slice(offset, start) });
     segments.push({ type: "text", text: payload.content, correlationId: payload.correlationId });
+    matched += 1;
     offset = start + payload.content.length;
   }
-  if (offset === 0) return [{ type: "text", text: content }];
+  if (matched < 2 || content.slice(offset).trim()) return [{ type: "text", text: content }];
   if (offset < content.length) segments.push({ type: "text", text: content.slice(offset) });
   return segments;
 }

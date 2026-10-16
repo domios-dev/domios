@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronRight, FileText, Folder } from "lucide-react";
 import { useState } from "react";
 import { FileTreeRow } from "../shared/FileTreeRow";
-import type { EssenceMapNode, EssenceMapProject } from "./essenceMapModel";
+import { visibleEssenceProjects, type EssenceMapNode, type EssenceMapProject } from "./essenceMapModel";
 import { projectName } from "./EssenceMapProjectView";
 
 export interface EssenceDocumentEntry { path: string; node: EssenceMapNode; }
@@ -50,5 +50,5 @@ function FolderRow({ value, path, onSelect }: { value: TreeFolder; path: string;
 }
 
 export function EssenceDocumentTree({ projects, onSelect }: { projects: EssenceMapProject[]; onSelect: (project: EssenceMapProject, entry: EssenceDocumentEntry) => void }) {
-  return <div className="absolute inset-0 min-w-0 overflow-auto p-3 sm:p-5" data-testid="essence-document-tree" role="tree" aria-label="Essence documents">{projects.map((project) => { const entries = essenceDocumentEntries(project); const root = buildTree(entries); return <section key={project.file.project_path} className="ct-card mb-4 p-2" aria-labelledby={`essence-tree-project-${project.file.project_path}`}><h2 id={`essence-tree-project-${project.file.project_path}`} className="truncate px-2 py-1 text-xs font-semibold uppercase tracking-[.14em] text-[var(--ct-muted-fg)]" title={project.file.project_path}>{projectName(project.file.project_path)}</h2>{entries.length === 0 ? <p className="px-2 py-3 text-xs text-[var(--ct-muted-fg)]" data-testid="essence-document-tree-empty">No essence documents found.</p> : <ul>{[...root.folders.values()].sort((a, b) => a.name.localeCompare(b.name)).map((child) => <FolderRow key={child.name} value={child} path={child.name} onSelect={(entry) => onSelect(project, entry)} />)}</ul>}</section>; })}</div>;
+  return <div className="relative min-h-0 min-w-0 flex-1 overflow-auto p-3 sm:p-5" data-testid="essence-document-tree" role="tree" aria-label="Essence documents">{visibleEssenceProjects(projects).map((project) => { const entries = essenceDocumentEntries(project); const root = buildTree(entries); return <section key={project.file.project_path} className="ct-card mb-4 p-2" aria-labelledby={`essence-tree-project-${project.file.project_path}`}><h2 id={`essence-tree-project-${project.file.project_path}`} className="truncate px-2 py-1 text-xs font-semibold uppercase tracking-[.14em] text-[var(--ct-muted-fg)]" title={project.file.project_path}>{projectName(project.file.project_path)}</h2>{entries.length === 0 ? <p className="px-2 py-3 text-xs text-[var(--ct-muted-fg)]" data-testid="essence-document-tree-empty">No essence documents found.</p> : <ul>{[...root.folders.values()].sort((a, b) => a.name.localeCompare(b.name)).map((child) => <FolderRow key={child.name} value={child} path={child.name} onSelect={(entry) => onSelect(project, entry)} />)}</ul>}</section>; })}</div>;
 }

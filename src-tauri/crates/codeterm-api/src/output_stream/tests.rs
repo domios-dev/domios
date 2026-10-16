@@ -4,6 +4,51 @@ use codeterm_service_core::pty::manager::OutputBuffer;
 use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
+#[test]
+fn replay_completion_waits_for_the_last_chunk_and_identifies_an_empty_pty_once() {
+    let mut completed = false;
+    assert!(output_replay_complete_frame("tab", "pty", "boot", 0, true, &mut completed).is_none());
+    let held = plan_emit(0, &[0xe2], 1, PER_TAB_SWEEP_CAP);
+    assert!(output_replay_complete_frame(
+        "tab",
+        "pty",
+        "boot",
+        held.new_offset,
+        held.has_more || held.new_offset < 1,
+        &mut completed
+    )
+    .is_none());
+    assert!(!completed);
+    assert_eq!(
+        output_replay_complete_frame("tab", "pty", "boot", 0, false, &mut completed),
+        Some(serde_json::json!({
+            "tab_id": "tab", "pty_id": "pty", "boot": "boot",
+            "offset": 0, "replay_complete": true
+        }))
+    );
+    assert!(output_replay_complete_frame("tab", "pty", "boot", 1, false, &mut completed).is_none());
+}
+
+#[test]
+fn silent_pty_sweep_emits_replay_completion_without_output_once() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-quiet".into());
+    let fixture = ServiceFixture::new(mux);
+    let service = Arc::new(fixture.service.clone());
+    let mut tracked = HashMap::new();
+    let dirty = HashSet::from(["pty-quiet".to_string()]);
+    let (frames, _, _) = sweep(&service, &mut tracked, None, &dirty, false);
+    assert_eq!(
+        frames,
+        vec![serde_json::json!({
+            "tab_id": tab_id, "pty_id": "pty-quiet", "boot": service.events.boot_id(),
+            "offset": 0, "replay_complete": true
+        })]
+    );
+    let (frames, _, _) = sweep(&service, &mut tracked, None, &dirty, false);
+    assert!(frames.is_empty());
+}
+
 // ── cursor wire form ──
 
 #[test]
@@ -208,7 +253,9 @@ async fn per_tab_output_stream_offsets_and_resume_are_exact() {
     );
     assert!(futures_util::poll!(stream.next()).is_pending());
 
-    let burst = vec![b'x'; (2 << 20) + 17];
+    let burst: Vec<u8> = (0..(2 << 20) + 17)
+        .map(|index| b'!' + ((index * 31 + index / 97) % 94) as u8)
+        .collect();
     output.lock().append("pty-x", &burst);
     for _ in 0..4097 {
         activity
@@ -219,10 +266,47 @@ async fn per_tab_output_stream_offsets_and_resume_are_exact() {
     let total = initial_total + burst.len() as u64;
     let retained_start = total - (2 << 20);
     let dropped_burst_bytes = (retained_start - initial_total) as usize;
-    let rotated = stream.next().await.unwrap();
-    assert_eq!(rotated.output.as_bytes(), &burst[dropped_burst_bytes..]);
-    assert_eq!(rotated.offset, total);
+    let retained = &burst[dropped_burst_bytes..];
+    let mut covered = 0;
+    let mut frame_count = 0;
+    let mut resume_offset = retained_start;
+    while covered < retained.len() {
+        let rotated = stream.next().await.unwrap();
+        let expected_len = PER_TAB_SWEEP_CAP.min(retained.len() - covered);
+        assert_eq!(
+            rotated.output.as_bytes(),
+            &retained[covered..covered + expected_len]
+        );
+        covered += expected_len;
+        assert_eq!(rotated.offset, retained_start + covered as u64);
+        frame_count += 1;
+        if frame_count == 1 {
+            resume_offset = rotated.offset;
+        }
+    }
+    assert_eq!(frame_count, 16);
     assert!(futures_util::poll!(stream.next()).is_pending());
+
+    let resumed = tab_output_frames(
+        activity.subscribe(),
+        output.clone(),
+        Some("pty-x".into()),
+        resume_offset,
+    );
+    futures_util::pin_mut!(resumed);
+    let mut resumed_offset = resume_offset;
+    while resumed_offset < total {
+        let frame = resumed.next().await.unwrap();
+        let from = (resumed_offset - retained_start) as usize;
+        let expected_len = PER_TAB_SWEEP_CAP.min(retained.len() - from);
+        assert_eq!(
+            frame.output.as_bytes(),
+            &retained[from..from + expected_len]
+        );
+        resumed_offset += expected_len as u64;
+        assert_eq!(frame.offset, resumed_offset);
+    }
+    assert!(futures_util::poll!(resumed.next()).is_pending());
 
     output.lock().append("pty-x", b"tail");
     activity
@@ -362,6 +446,7 @@ fn replacement_pty_output_before_mux_event_starts_at_zero() {
             pty_id: "pty-old".into(),
             offset: 7,
             ended: false,
+            replay_complete: false,
         },
     )]);
     let dirty = HashSet::from(["pty-new".to_string()]);
@@ -515,4 +600,83 @@ fn every_split_of_a_box_drawing_line_decodes_without_replacement() {
             "split at {split}"
         );
     }
+}
+
+#[test]
+fn limited_reads_preserve_emit_plans_at_every_utf8_boundary() {
+    let mut buffer = OutputBuffer::new(16);
+    let data = "a€😀z".repeat(PER_TAB_SWEEP_CAP / 3);
+    buffer.append("p", data.as_bytes());
+    let total = buffer.total_written("p");
+    let mut offset = 0;
+    while offset < total {
+        let (whole, end) = buffer.read_since("p", offset);
+        let expected = plan_emit(offset, &whole, end, PER_TAB_SWEEP_CAP);
+        let chunk = buffer.read_since_limited("p", offset, PER_TAB_SWEEP_CAP);
+        let actual = plan_emit_limited(offset, &chunk);
+        assert_eq!(actual, expected);
+        assert!(actual.new_offset > offset);
+        offset = actual.new_offset;
+    }
+    buffer.append("p", &[0xf0, 0x9f]);
+    let chunk = buffer.read_since_limited("p", offset, PER_TAB_SWEEP_CAP);
+    let waiting = plan_emit_limited(offset, &chunk);
+    assert!(waiting.output.is_empty());
+    assert_eq!(waiting.new_offset, offset);
+    buffer.append("p", &[0x98, 0x80]);
+    let chunk = buffer.read_since_limited("p", offset, PER_TAB_SWEEP_CAP);
+    assert_eq!(plan_emit_limited(offset, &chunk).output, "😀".as_bytes());
+}
+
+#[test]
+fn limited_reads_preserve_malformed_boundary_and_truncation_plans() {
+    let mut buffer = OutputBuffer::new(16);
+    let mut bytes = vec![b'x'; 2 * 1024 * 1024 + 13];
+    for boundary in [PER_TAB_SWEEP_CAP, 2 * PER_TAB_SWEEP_CAP] {
+        bytes[13 + boundary] = 0x80;
+        bytes[13 + boundary - 1] = b'a';
+    }
+    buffer.append("p", &bytes);
+    let mut offset = 0;
+    while offset < buffer.total_written("p") {
+        let (whole, total) = buffer.read_since("p", offset);
+        let expected = plan_emit(offset, &whole, total, PER_TAB_SWEEP_CAP);
+        let chunk = buffer.read_since_limited("p", offset, PER_TAB_SWEEP_CAP);
+        assert!(chunk.bytes.len() <= PER_TAB_SWEEP_CAP);
+        let actual = plan_emit_limited(offset, &chunk);
+        assert_eq!(actual, expected);
+        assert!(actual.new_offset > offset);
+        offset = actual.new_offset;
+    }
+}
+
+#[test]
+fn output_bytes_frame_has_one_lossless_payload_and_five_fields() {
+    for bytes in [
+        vec![],
+        vec![0, 0xff, 0xe2],
+        vec![0x82, 0xac],
+        (0..=255).collect(),
+    ] {
+        let frame = output_bytes_frame("tab", "pty", "boot", &bytes, 42);
+        assert_eq!(frame.as_object().unwrap().len(), 5);
+        assert_eq!(frame["tab_id"], "tab");
+        assert_eq!(frame["pty_id"], "pty");
+        assert_eq!(frame["boot"], "boot");
+        assert_eq!(frame["offset"], 42);
+        let encoded = frame["b64"].as_str().unwrap();
+        assert!(!encoded.contains(['+', '/', '=']));
+        assert_eq!(
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(encoded)
+                .unwrap(),
+            bytes
+        );
+    }
+    let bytes = vec![0xff; PER_TAB_SWEEP_CAP];
+    let wire = format!(
+        "data: {}\n\n",
+        output_bytes_frame("tab", "pty", "boot", &bytes, bytes.len() as u64)
+    );
+    assert!(wire.len() * 10 < bytes.len() * 14);
 }

@@ -4,6 +4,39 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::launch_diagnostics::AgentLaunchOrigin;
 
 #[test]
+fn cancelled_readiness_registration_retires_only_its_own_attempt() {
+    use crate::service::launch_readiness::{
+        arm_with_origin, attempt_is_armed, retire_attempt, LaunchAttempt,
+    };
+    let first = LaunchAttempt {
+        tab_id: "cancel-readiness-registration".into(),
+        pty_id: "owned-pty".into(),
+        binding_nonce: "first-nonce".into(),
+    };
+    arm_with_origin(first.clone(), AgentLaunchOrigin::Resume);
+    let registration = super::super::generation::ReadinessRegistration::new(first.clone());
+    let second = LaunchAttempt {
+        binding_nonce: "second-nonce".into(),
+        ..first.clone()
+    };
+    arm_with_origin(second.clone(), AgentLaunchOrigin::Resume);
+    drop(registration);
+    assert!(attempt_is_armed(&second));
+    retire_attempt(&second);
+    arm_with_origin(first.clone(), AgentLaunchOrigin::Resume);
+    drop(super::super::generation::ReadinessRegistration::new(
+        first.clone(),
+    ));
+    assert!(!attempt_is_armed(&first));
+    arm_with_origin(first.clone(), AgentLaunchOrigin::Resume);
+    let mut handed_off = super::super::generation::ReadinessRegistration::new(first.clone());
+    handed_off.handoff();
+    drop(handed_off);
+    assert!(attempt_is_armed(&first));
+    retire_attempt(&first);
+}
+
+#[test]
 fn early_send_nonce_survives_initial_launch_registration() {
     for session in [None, Some("saved-session")] {
         let (mut mux, tab_id) = MultiplexerState::new();
@@ -51,6 +84,50 @@ fn early_send_nonce_survives_initial_launch_registration() {
             )
             .unwrap();
         assert_eq!(launch.binding_nonce.as_deref(), Some(nonce.as_str()));
+        let attempt = launch.attempt().unwrap();
+        assert!(crate::service::launch_readiness::attempt_is_armed(&attempt));
+        let witnesses = crate::service::process_tree::ProviderTreeWitnesses::default();
+        let key = crate::service::process_tree::ProviderTreeKey {
+            tab_id: tab_id.clone(),
+            pty_id: attempt.pty_id.clone(),
+            binding_nonce: Some(nonce.clone()),
+            executable_name: "opaque-provider".into(),
+        };
+        witnesses.record_for_test(
+            &key,
+            crate::service::process_tree::ProviderProcessTreeSnapshot::Absent,
+        );
+        let absent = witnesses.record_for_test(
+            &key,
+            crate::service::process_tree::ProviderProcessTreeSnapshot::Absent,
+        );
+        let proof = crate::service::launch_readiness::LaunchExitProof::from_finished_marker(
+            &attempt,
+            &absent,
+            Some(0),
+            false,
+            Some(false),
+        )
+        .unwrap();
+        for _ in 0..2 {
+            assert!(crate::service::launch_readiness::suspect_exit(
+                &tab_id,
+                Some(&attempt.pty_id),
+                Some(0),
+                &proof,
+            ));
+        }
+        assert!(crate::service::launch_readiness::note_acknowledged(
+            &tab_id,
+            "registered-pty",
+            &nonce,
+        ));
+        assert!(!crate::service::launch_readiness::suspect_exit(
+            &tab_id,
+            Some(&attempt.pty_id),
+            Some(0),
+            &proof,
+        ));
         assert!(fixture
             .service
             .agent_delivery_binding_matches(&tab_id, &payload));
@@ -66,6 +143,7 @@ fn early_send_nonce_survives_initial_launch_registration() {
             assert!(tab.agent_session_id.is_none());
         }
         assert!(LAUNCH_REGISTRY.lock().finish(&launch));
+        crate::service::launch_readiness::retire_attempt(&attempt);
     }
 }
 

@@ -3,13 +3,13 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 const bootstrap = { origin: "http://127.0.0.1:7697", token: "shell-'token\n$" };
-const script = readFileSync("src-tauri/crates/codeterm-service-core/src/startup/frontend_shell_bootstrap.js", "utf8")
+const script = readFileSync("src-tauri/src/startup/frontend_shell_bootstrap.js", "utf8")
   .replace("__CODETERM_SHELL_BOOTSTRAP__", JSON.stringify(bootstrap)).replace("__CODETERM_SHELL_DEBUG__", "false");
 
 function inject(origin: string, frame = false, frontendOrigin?: string, href = origin + "/index.html") {
   const window: { location: { origin: string; href: string }; top?: unknown; __CODETERM_DAEMON__?: unknown } = { location: { origin, href } };
   window.top = frame ? {} : window;
-  const scopedScript = frontendOrigin ? readFileSync("src-tauri/crates/codeterm-service-core/src/startup/frontend_shell_bootstrap.js", "utf8")
+  const scopedScript = frontendOrigin ? readFileSync("src-tauri/src/startup/frontend_shell_bootstrap.js", "utf8")
     .replace("__CODETERM_SHELL_BOOTSTRAP__", JSON.stringify({ ...bootstrap, frontendOrigin })).replace("__CODETERM_SHELL_DEBUG__", "false") : script;
   runInNewContext(scopedScript, { window });
   return window;
@@ -56,7 +56,7 @@ it("records document-start failures without placing credentials or exception con
     __TAURI_INTERNALS__: {}, addEventListener: (name: string, handler: (event: unknown) => void) => { handlers[name] = handler; },
   };
   window.top = window;
-  const debugScript = readFileSync("src-tauri/crates/codeterm-service-core/src/startup/frontend_shell_bootstrap.js", "utf8")
+  const debugScript = readFileSync("src-tauri/src/startup/frontend_shell_bootstrap.js", "utf8")
     .replace("__CODETERM_SHELL_BOOTSTRAP__", JSON.stringify(bootstrap)).replace("__CODETERM_SHELL_DEBUG__", "true");
   runInNewContext(debugScript, { window, document: { documentElement: { dataset: {} } },
     fetch: (_url: string, init: RequestInit) => { calls.push(init); return Promise.resolve(); } });
@@ -76,7 +76,7 @@ it("records only closed update failure reasons and HTTP status codes", () => {
   const calls: RequestInit[] = [];
   const window: Record<string, unknown> = { location: { origin: bootstrap.origin, href: bootstrap.origin + "/bundled/index.html" }, addEventListener: () => {} };
   window.top = window;
-  const debugScript = readFileSync("src-tauri/crates/codeterm-service-core/src/startup/frontend_shell_bootstrap.js", "utf8")
+  const debugScript = readFileSync("src-tauri/src/startup/frontend_shell_bootstrap.js", "utf8")
     .replace("__CODETERM_SHELL_BOOTSTRAP__", JSON.stringify(bootstrap)).replace("__CODETERM_SHELL_DEBUG__", "true");
   runInNewContext(debugScript, { window, document: { documentElement: { dataset: {} } },
     fetch: (_url: string, init: RequestInit) => { calls.push(init); return Promise.resolve(); } });

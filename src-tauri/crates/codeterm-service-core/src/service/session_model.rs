@@ -2,6 +2,7 @@
 //! the current-session guard every runtime write passes through.
 
 use super::ServiceContext;
+use crate::service::MuxEmitCause;
 
 mod runtime_update;
 
@@ -255,7 +256,7 @@ impl ServiceContext {
                             new_sid,
                             agent_id,
                         );
-                        self.emit_state_changed();
+                        self.emit_state_changed(MuxEmitCause::Model);
                         if let Err(error) = super::session_persist::persist_session_after_mutation(
                             self,
                             super::session_persist::SessionPersistUrgency::Prompt,
@@ -565,7 +566,7 @@ impl ServiceContext {
             }
         }
         if update.state_changed {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Model);
         }
         self.persist_attempt_session_model(tab_id, agent_id, sid, &model);
     }
@@ -927,6 +928,17 @@ fn apply_runtime_controls(
         tab.reasoning_effort_identity.actual = Some(effort.clone());
         tab.reasoning_effort_identity.resolved = Some(effort.clone());
         tab.reasoning_effort_identity.actual_source = Some("session-owned".into());
+    }
+    if let Some(fast_mode) = settings.fast_mode {
+        let config = tab
+            .agent_runtime_config
+            .get_or_insert_with(|| serde_json::json!({}));
+        config["fastMode"] = fast_mode.into();
+        config["confirmedFastMode"] = serde_json::json!({
+            "enabled": fast_mode,
+            "sessionId": thread,
+            "bindingNonce": tab.session_binding_nonce,
+        });
     }
     if let Some(mode) = settings.mode.as_ref() {
         tab.structured_runtime_mode = Some(mode.clone());

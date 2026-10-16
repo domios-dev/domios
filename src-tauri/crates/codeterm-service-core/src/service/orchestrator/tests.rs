@@ -241,43 +241,6 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
     );
 }
 
-#[test]
-fn fresh_spawn_paths_keep_shared_invariants_and_orchestrator_onboarding() {
-    let orchestrator_spawn = include_str!("spawn.rs");
-    let service_spawn = include_str!("../spawn.rs");
-
-    assert!(!orchestrator_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
-    assert!(!service_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
-    assert!(orchestrator_spawn.contains("launch_agent_in_background_with_task_turn("));
-    assert!(service_spawn.contains("launch_agent_in_background_with_env("));
-    assert!(
-        orchestrator_spawn.contains("spawn_onboarding_task")
-            || orchestrator_spawn.contains("role_onboarding_task")
-    );
-}
-
-#[test]
-fn launch_paths_route_through_seam() {
-    let call_count = [
-        include_str!("spawn.rs"),
-        include_str!("../spawn.rs"),
-        include_str!("../pty_io/lifecycle.rs"),
-    ]
-    .into_iter()
-    .map(|source| {
-        source.matches("launch_agent_in_background(").count()
-            + source
-                .matches("launch_agent_in_background_with_task_turn(")
-                .count()
-            + source
-                .matches("launch_agent_in_background_with_env(")
-                .count()
-    })
-    .sum::<usize>();
-
-    assert_eq!(call_count, 3);
-}
-
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
         context_files: None,

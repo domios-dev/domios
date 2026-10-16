@@ -1,6 +1,7 @@
 """Structural contract for the single-run release workflow graph."""
 
 import re
+import json
 import unittest
 from pathlib import Path
 
@@ -128,12 +129,12 @@ class SingleRunGraphTest(unittest.TestCase):
         ):
             self.assertIn(f"  {job}:\n    name:", caller)
             block = caller[caller.index(f"  {job}:") :].split("\n\n", 1)[0]
-            self.assertRegex(block, r"\n    needs: \[prepare, (quick-checks, )?fast-gate\]")
+            self.assertRegex(block, r"\n    needs: (prepare|\[prepare, quick-checks\])\n")
             self.assertIn(f"uses: ./.github/workflows/{workflow}", caller)
 
         final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
         self.assertIn(
-            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, fast-gate, tests]", final
+            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]", final
         )
         self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", final)
         self.assertNotIn("if: always()", final)
@@ -151,7 +152,7 @@ class SingleRunGraphTest(unittest.TestCase):
             ("release-macos-build.yml", "Build signed and notarized macOS bundle"),
             ("release-linux-arm64.yml", "Build and smoke Linux arm64 in native container"),
             ("release-linux.yml", "Build release bundle inputs"),
-            ("release-windows.yml", "Build release bundle inputs"),
+            ("release-windows.yml", "Build and sign release assets"),
         ):
             with self.subTest(workflow=name):
                 text = read(name)
@@ -237,11 +238,20 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertNotIn(RELEASE_NOTES_SYNC, read("release-macos-build.yml"))
         self.assertIn(RELEASE_NOTES_SYNC, read("release-manifest-validate.yml"))
 
-    def test_release_input_prebuilds_app_and_embed_bins_together(self):
+    def test_release_input_prebuilds_the_app_bin(self):
         build = (ROOT / "build.sh").read_text(encoding="utf-8")
         self.assertIn('cargo_target_args=(--target "$CARGO_BUILD_TARGET")', build)
         self.assertIn('--features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol"', build)
-        self.assertIn("--bin codeterm --bin codeterm-embed", build)
+        self.assertIn("--bin codeterm", build)
+
+    def test_embedding_runtime_has_no_sidecar_or_onnx_dependencies(self):
+        config = json.loads((ROOT / "src-tauri/tauri.conf.json").read_text())
+        self.assertEqual(config["bundle"].get("externalBin", []), [])
+        self.assertFalse((ROOT / "src-tauri/src/bin/codeterm_embed.rs").exists())
+        for relative in ["src-tauri/Cargo.toml", "src-tauri/crates/codeterm-service-core/Cargo.toml", "src-tauri/crates/codeterm-mem/Cargo.toml"]:
+            manifest = (ROOT / relative).read_text()
+            self.assertNotRegex(manifest, r"(?m)^\s*(?:fastembed|ort)\s*=")
+            self.assertNotIn("codeterm-embed", manifest)
 
     def test_linux_and_windows_keep_the_release_build_contract(self):
         for name in ("release-linux.yml", "release-windows.yml"):
@@ -250,16 +260,19 @@ class SingleRunGraphTest(unittest.TestCase):
                 self.assertIn("CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target", text)
                 self.assertIn("CARGO_INCREMENTAL: '0'", text)
                 self.assertIn("CODETERM_RELEASE_FEATURES: embeddings", text)
+                if name == "release-windows.yml":
+                    build = next(
+                        step for step in steps(text)
+                        if "build.ps1 release-bundle" in step.get("run", "")
+                    )
+                    self.assertEqual(build.get("shell"), "pwsh")
+                    self.assertIn("CARGO_BUILD_TARGET: ${{ matrix.target }}", text)
+                    continue
                 build = next(
                     step for step in steps(text)
                     if "pnpm tauri build" in step.get("run", "")
                 )
-                if name == "release-windows.yml":
-                    self.assertEqual(build.get("shell"), "pwsh")
-                    arguments = "--target $env:TARGET --features $env:CODETERM_RELEASE_FEATURES"
-                else:
-                    arguments = '--target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"'
-                self.assertIn(arguments, build["run"])
+                self.assertIn('--target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"', build["run"])
 
     def test_platform_specific_packaging_and_macos_notarization_stay_with_the_owner(self):
         linux = read("release-linux.yml")
@@ -286,7 +299,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertEqual(platform_jobs, sorted(platform_jobs))
         self.assertGreater(manifest_job, max(platform_jobs))
         self.assertIn(
-            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, fast-gate, tests]",
+            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]",
             caller[manifest_job:],
         )
 

@@ -1,5 +1,6 @@
 import type { ChatMsg } from "./gen/ChatMsg";
 import type { ChatAttachment } from "./gen/ChatAttachment";
+import type { ParsedSessionRecord, SessionRecordsMeta } from "./jsonlRecords";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type RpcId = string | number;
@@ -9,7 +10,7 @@ export type RuntimeFrame =
   | {kind:"notification"; method:string; params:JsonValue}
   | {kind:"request"; requestId:RpcId; method:string; params:JsonValue};
 
-export interface RuntimeSettings { model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
+export interface RuntimeSettings { fastMode?:boolean; model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
 export interface TurnInput { text:string; attachments:readonly ChatAttachment[] }
 export type PromptAnswer =
   | {kind:"choice"; values:readonly string[]}
@@ -53,11 +54,15 @@ export interface RuntimeContext {
   providerSettings:JsonValue;
   pendingRequest?: {requestId:RpcId; method:string; params:JsonValue};
 }
+export type HistoryOrder = "asc" | "desc";
+export interface RuntimeBackgroundProcess {processId:string; itemId:string; command:string; cwd:string; osPid:number|null}
+export type RuntimeBackgroundProcessAction = {kind:"list"; cursor:string|null} | {kind:"terminate"; processId:string} | {kind:"clean"};
 export type Operation =
+  | {kind:"backgroundProcesses"; threadId:string; action:RuntimeBackgroundProcessAction}
   | {kind:"initialize"}
   | {kind:"openThread"; instructions:string; settings:RuntimeSettings}
   | {kind:"resumeThread"; threadId:string; instructions:string; settings:RuntimeSettings}
-  | {kind:"readHistory"; threadId:string; cursor?:string}
+  | {kind:"readHistory"; threadId:string; cursor?:string; order?:HistoryOrder}
   | {kind:"submitTurn"; threadId:string; activeTurnId?:string;
       sendId:string; input:TurnInput; settings:RuntimeSettings}
   | {kind:"interrupt"; threadId:string; activeTurnId?:string}
@@ -72,21 +77,29 @@ export type RuntimeAction =
   | {kind:"reply"; requestId:RpcId; result:RpcReply}
   | {kind:"questionAnswer"; input:TurnInput};
 export interface RuntimePlan { action:RuntimeAction; state:JsonValue }
+export type RuntimeGoalAction = "read" | "cancel" | "pause" | "resume" | "complete";
 export type OperationResult =
+  | {kind:"goal"; threadId:string; intent:import("./gen/ChatSessionIntent").ChatSessionIntent|null}
+  | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]; nextCursor:string|null}
+  | {kind:"backgroundProcessTermination"; threadId:string; processId:string; acknowledged:boolean}
   | {kind:"initialized"}
   | {kind:"threadLoaded"; threadId:string; settings:RuntimeSettings}
   | {kind:"historyPage"; threadId:string; items:readonly ChatMsg[];
-      nextCursor?:string; openItems:readonly OpenItem[]; questions?:readonly RuntimeHistoryQuestion[]}
+      nextCursor?:string; openItems:readonly OpenItem[]; questions?:readonly RuntimeHistoryQuestion[];
+      /** Echo of the requested order; absent means ascending. */
+      order?:HistoryOrder}
   | {kind:"turnAccepted"; threadId:string; sendId:string; turnId?:string}
+  | {kind:"resetCreditConsumed"; outcome:ResetCreditOutcome}
   | {kind:"done"};
 export type RuntimeStep =
   | {kind:"continue"; plan:RuntimePlan; beforeAcceptance?:boolean; history?:Extract<OperationResult,{kind:"historyPage"}>}
   | {kind:"complete"; result:OperationResult; notification?:RpcCall; events?:readonly AgentEvent[]}
   | {kind:"refused"; reason:RuntimeFailure; beforeAcceptance:boolean};
 export type AgentEvent =
+  | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]}
   | {kind:"chatItem"; threadId:string; item:ChatMsg}
   | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; detail?:RuntimeTurnDetail; statusLine?:string; startedAt?:number; completedAt?:number; parentThreadId?:string}
-  | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string}
+  | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string; itemId?:string}
   | {kind:"usage"; threadId:string; usage:TokenUsage}
   | {kind:"prompt"; threadId:string; requestId:RpcId; prompt:PendingPrompt}
   | {kind:"promptResolved"; threadId:string; requestId:RpcId}
@@ -95,10 +108,17 @@ export type AgentEvent =
   | {kind:"question"; threadId:string; itemId:string; questions:readonly RuntimeQuestion[]; response:"message"}
   | {kind:"authLogin"; login:RuntimeLoginState}
   | {kind:"auth"; state:"signedIn"|"signedOut"|"unknown"; billingMode?:"subscription"|"api"|"unknown"; detail?:string}
-  | {kind:"rateLimits"; threadId?:string; rateLimits:readonly RuntimeRateLimit[]};
+  | {kind:"rateLimits"; threadId?:string; rateLimits:readonly RuntimeRateLimit[]; resets?:ResetCredits};
+export interface ResetCredit {id:string; status:"available"|"redeeming"|"redeemed"|"unknown"; expiresAt:number|null; title?:string; description?:string}
+export interface ResetCredits {availableCount:number; nextExpiry:number|null; credits:readonly ResetCredit[]|null}
+export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRedeemed";
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
+  fastMode?:boolean;
+  backgroundProcesses?:boolean;
+  goals?:{actions:readonly RuntimeGoalAction[]};
+  resetCreditsMinVersion?:string;
   storedHistory?:boolean;
   usage?:boolean;
   runtime:AgentRuntimeTransport;
@@ -110,6 +130,7 @@ export interface StdioAgentRuntimeCapability {
 }
 export interface AgentRuntime {
   runtimeStoredHistory?(sessionId:string, records:string): readonly ChatMsg[];
+  runtimeStoredRecords?(sessionId:string, records:readonly ParsedSessionRecord[], meta:SessionRecordsMeta): readonly ChatMsg[];
   runtimePlan(ctx:RuntimeContext, op:Operation): RuntimePlan;
   runtimeResponse(ctx:RuntimeContext, op:Operation, state:JsonValue, reply:RpcReply): RuntimeStep;
   runtimeReduce(ctx:RuntimeContext, state:JsonValue, frames:readonly RuntimeFrame[]): RuntimeReduction;

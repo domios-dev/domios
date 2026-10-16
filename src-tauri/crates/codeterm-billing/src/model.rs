@@ -5,12 +5,14 @@ use serde::{Deserialize, Serialize};
 pub enum Plan {
     Free,
     Pro,
+    Sponsor,
 }
 impl Plan {
     pub fn parse(value: &str) -> Result<Self, String> {
         match value {
             "free" => Ok(Self::Free),
             "pro" => Ok(Self::Pro),
+            "sponsor" => Ok(Self::Sponsor),
             _ => Err("Unknown billing plan".into()),
         }
     }
@@ -18,6 +20,7 @@ impl Plan {
         match self {
             Self::Free => "free",
             Self::Pro => "pro",
+            Self::Sponsor => "sponsor",
         }
     }
 }
@@ -56,8 +59,8 @@ pub enum Capability {
     PaidFeatures,
 }
 pub const CAPABILITY_PLANS: &[(Capability, &[&str])] = &[
-    (Capability::Terminal, &["free", "pro"]),
-    (Capability::PaidFeatures, &["pro"]),
+    (Capability::Terminal, &["free", "pro", "sponsor"]),
+    (Capability::PaidFeatures, &["pro", "sponsor"]),
 ];
 pub fn entitlement_allows(entitlements: &Entitlements, capability: Capability) -> bool {
     let paid = matches!(entitlements.status, Status::Active | Status::Trialing);

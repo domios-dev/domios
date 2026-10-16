@@ -12,7 +12,8 @@ test('three signed DEV bundles bind compatible, incompatible and broken identiti
   try {
     await prepare(new URL('../../scripts/frontend-release/fixtures/dist/', import.meta.url).pathname, output, 'http://127.0.0.1:8769');
     const publicKey = await readFile(path.join(output, 'frontend-test.pub'), 'utf8');
-    for (const [name, minimum] of [['good', 2], ['incompatible', 3], ['broken', 2], ['older', 2]]) {
+    const api = JSON.parse(await readFile(new URL('../../frontend-release-contract.json', import.meta.url), 'utf8')).maxApiVersion;
+    for (const [name, minimum] of [['good', api], ['incompatible', api + 1], ['broken', api], ['older', api]]) {
       const bytes = await readFile(path.join(output, name, 'frontend-manifest.json'));
       const signature = await readFile(path.join(output, name, 'frontend-manifest.json.minisig'), 'utf8');
       const manifest = JSON.parse(bytes);

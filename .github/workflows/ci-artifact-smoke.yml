@@ -1,0 +1,51 @@
+name: ci-artifact smoke
+
+# Proves CI artifacts round-trip through the shared MinIO bucket on every runner OS.
+on:
+  push:
+    branches: [lane/ci-minio-artifacts]
+    paths:
+      - 'scripts/ci-artifact.sh'
+      - '.github/workflows/ci-artifact-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  roundtrip:
+    name: roundtrip (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: Linux
+            label: light
+          - os: macOS
+            label: light
+          - os: Windows
+            label: windows-light
+    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
+    timeout-minutes: 5
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Put, get and remove one object
+        env:
+          KEY: smoke/${{ github.run_id }}/${{ matrix.os }}.bin
+        run: |
+          set -euo pipefail
+          head -c 1048576 /dev/urandom > "$RUNNER_TEMP/up.bin"
+          bash scripts/ci-artifact.sh put "$KEY" "$RUNNER_TEMP/up.bin"
+          bash scripts/ci-artifact.sh get "$KEY" "$RUNNER_TEMP/down.bin"
+          cmp "$RUNNER_TEMP/up.bin" "$RUNNER_TEMP/down.bin"
+          bash scripts/ci-artifact.sh rm "$KEY"
+          if bash scripts/ci-artifact.sh get "$KEY" "$RUNNER_TEMP/gone.bin" 2>/dev/null; then
+            echo "removed object is still readable" >&2
+            exit 1
+          fi

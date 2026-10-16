@@ -22,6 +22,7 @@ pub(super) fn start_backend_reader(
             Ok(runtime) => runtime,
             Err(error) => {
                 let _ = ready_tx.send(Err(LaunchFailure::ReaderRuntime(error.to_string())));
+                backend_spawn::reader_finished(&svc_arc, &reader_pty_id);
                 return;
             }
         };
@@ -36,6 +37,7 @@ pub(super) fn start_backend_reader(
             let _ = reader.await;
             let _ = closed_tx.send(());
         });
+        backend_spawn::reader_finished(&svc_arc, &reader_pty_id);
     });
     Ok(ReaderReadiness::Pending {
         startup: ready_rx,

@@ -2,6 +2,9 @@
 
 Immediate `codeterm send` exits 1 with its reason on stderr whenever the result is `ok:false` or `bytes_written:false`, including retained pre-ready input. With `--json`, the error envelope preserves the daemon receipt in `data`. A retained `send_id` or queued delivery requires status or exact own-session transcript inspection; never replay held, written or uncertain input.
 
+Cron JSON exposes `protected: true` for system jobs. System jobs refuse deletion and schedule/task edits; use `codeterm cron enable <id>` or `codeterm cron disable <id>` to control them.
+
+
 CLI identity rules, environment variables, agent integration, and desktop behavior.
 
 ## CLI
@@ -176,4 +179,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->

@@ -1,11 +1,16 @@
 //! Single owner of provisional-tab rollback: removal + authorized-reduction persist together.
 
 use crate::multiplexer::types::TabCloseReason;
+use crate::service::MuxEmitCause;
 
 impl super::ServiceContext {
     /// Roll back a provisional spawn tab (no closed-history record) and persist:
     /// a concurrent/debounced save may already have captured it in last.json.
     pub(crate) fn rollback_provisional_tab(&self, ws_id: &str, tab_id: &str) {
+        if let Err(error) = super::agent_runtime::engine::stop_blocking(self, tab_id) {
+            log::error!("[spawn] runtime cleanup retained provisional tab={tab_id}: {error}");
+            return;
+        }
         let provider_id = self.tab_launch_artifact_provider(tab_id);
         self.mux.write().rollback_spawn_tab(ws_id, tab_id);
         if self.mux.read().get_tab(tab_id).is_none() {
@@ -19,6 +24,10 @@ impl super::ServiceContext {
     /// Same guarantee for rollbacks that retire the provisional tab through
     /// the ordinary mux close (records closed history).
     pub(crate) fn rollback_provisional_tab_via_close(&self, tab_id: &str) {
+        if let Err(error) = super::agent_runtime::engine::stop_blocking(self, tab_id) {
+            log::error!("[spawn] runtime cleanup retained provisional tab={tab_id}: {error}");
+            return;
+        }
         let provider_id = self.tab_launch_artifact_provider(tab_id);
         let result = self
             .mux
@@ -59,7 +68,7 @@ impl super::ServiceContext {
         };
         if !tab_exists {
             super::session_persist::persist_session_after_close(self);
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabLifecycle);
             return format!(
                 "{failure}; close reported an error after removing Tab {tab_id}: {close_error}"
             );
@@ -75,9 +84,12 @@ impl super::ServiceContext {
             );
         };
 
+        if let Err(error) = super::agent_runtime::engine::stop_blocking(self, tab_id) {
+            return format!("{failure}; runtime cleanup retained Tab {tab_id}: {error}");
+        }
         let cleanup_error = self.finish_tab_close(tab_id).err();
         self.rollback_provisional_tab(&workspace_id, tab_id);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
         if self.mux.read().get_tab(tab_id).is_some() {
             return format!(
                 "{failure}; cleanup failed because Tab {tab_id} remains; close error: {close_error}"

@@ -44,7 +44,7 @@ fn new_group_id() -> String {
 /// A closed tab enriched for the sidebar: per-workspace reopen `index`, `orphaned` flag, and owning group.
 #[derive(Debug, Clone, Serialize)]
 pub struct ClosedTabView {
-    #[serde(flatten)]
+    #[serde(flatten, serialize_with = "super::wire_snapshot::closed_tab")]
     pub tab: ClosedTab,
     pub index: usize,
     pub orphaned: bool,

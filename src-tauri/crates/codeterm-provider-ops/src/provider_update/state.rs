@@ -4,7 +4,11 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Coordinator {
     pub runs: BTreeMap<String, UpdateRun>,
+    #[serde(default)]
+    pub checked: BTreeMap<String, u64>,
 }
+
+pub(super) const CHECK_INTERVAL_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct UpdateRun {
@@ -81,6 +85,26 @@ impl Coordinator {
             if let RunOutcome::Failed(error) = &run.outcome {
                 run.outcome = RunOutcome::UnstoppedFailure(error.clone());
             }
+        }
+    }
+
+    /// Claims the provider's availability check unless one already ran within the interval on this machine.
+    pub fn claim_check(&mut self, provider: &str, now_ms: u64) -> bool {
+        if self
+            .checked
+            .get(provider)
+            .is_some_and(|last| now_ms.saturating_sub(*last) < CHECK_INTERVAL_MS)
+        {
+            return false;
+        }
+        self.checked.insert(provider.into(), now_ms);
+        true
+    }
+
+    /// Returns an unanswered check's claim; a newer claim from another instance stays.
+    pub fn release_check(&mut self, provider: &str, claimed_at: u64) {
+        if self.checked.get(provider) == Some(&claimed_at) {
+            self.checked.remove(provider);
         }
     }
 

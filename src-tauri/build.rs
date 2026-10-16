@@ -34,6 +34,17 @@ fn main() {
 
 /// Only the root package tracks HEAD, so a new commit relinks the app instead of rebuilding every crate.
 fn embed_build_commit() {
+    println!("cargo:rerun-if-env-changed=CODETERM_BUILD_SHA");
+    println!("cargo:rerun-if-env-changed=CODETERM_BUILD_HASH");
+    if let Ok(full_hash) = std::env::var("CODETERM_BUILD_SHA") {
+        let short_hash = std::env::var("CODETERM_BUILD_HASH")
+            .expect("CODETERM_BUILD_SHA requires CODETERM_BUILD_HASH");
+        assert!(full_hash.len() == 40 && full_hash.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert!(!short_hash.is_empty() && full_hash.starts_with(&short_hash));
+        println!("cargo:rustc-env=BUILD_SHA={full_hash}");
+        println!("cargo:rustc-env=BUILD_HASH={short_hash}");
+        return;
+    }
     let git = |args: &[&str]| {
         std::process::Command::new("git")
             .args(args)

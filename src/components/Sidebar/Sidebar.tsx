@@ -29,11 +29,13 @@ import type { MeshPresence } from "./meshPresenceHeader";
 import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
+import { renamePlan } from "../Canvas/plansApi";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { GeneralInventory } from "./GeneralInventory";
 import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
@@ -168,8 +170,12 @@ export function Sidebar({
   const [sessionPicker, setSessionPicker] = useState<OpenNewSessionDetail | null>(null);
   const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
-  const { index: planIndex } = usePlanIndexOptional();
+  const { index: planIndex, refetch: refetchPlanIndex } = usePlanIndexOptional();
   const fullPlans = useSidebarPlansOptional();
+  const handleRenamePlan = config?.api ? async (planId: string, title: string) => {
+    await renamePlan(config.api, planId, title);
+    await Promise.all([refetchPlanIndex(), fullPlans.refetch()]);
+  } : undefined;
   const activeWork = useMemo(
     () => selectActiveWork(fullPlans.plans, state.tabs),
     [fullPlans.plans, state.tabs],
@@ -788,6 +794,7 @@ export function Sidebar({
                       onOpenRemoteTab={() => setRemotePickerWorkspaceId(generalWorkspace.id)}
                       newSessionDisabled={firstRunActive}
                       onRenameTeam={teamActions?.onRenameTeam}
+                      onRenamePlan={handleRenamePlan}
                       onAddTeamMember={teamActions?.onAddTeamMember}
                       closingTeamIds={closingTeamIds}
                       onCloseTeam={teamActions?.onCloseTeam
@@ -795,6 +802,11 @@ export function Sidebar({
                         : undefined}
                       onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(generalWorkspace.id, target) : undefined}
                     />}
+                    {generalExpanded && <GeneralInventory workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} touchMode={touchMode}
+                      rowState={{ tabStatuses: state.tabStatuses, tabAttentionByTab: attention, planIndex, activeWork,
+                        closingTabIds: new Set(closingTabs.keys()), appearingTabIds: appearingTabs, orchestrators: generalOrchestrators, uiFontScale }}
+                      onCloseTab={animatedCloseTab} onRenameTab={setTabTitle}
+                      onNavigate={(workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); }} />}
                   </section>
                 );
               })()}
@@ -896,6 +908,7 @@ export function Sidebar({
                             onOpenRemoteTab={() => setRemotePickerWorkspaceId(ws.id)}
                             newSessionDisabled={firstRunActive}
                             onRenameTeam={teamActions?.onRenameTeam}
+                            onRenamePlan={handleRenamePlan}
                             onAddTeamMember={teamActions?.onAddTeamMember}
                             closingTeamIds={closingTeamIds}
                             onCloseTeam={teamActions?.onCloseTeam

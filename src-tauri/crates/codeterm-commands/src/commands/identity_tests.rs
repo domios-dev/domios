@@ -1,6 +1,7 @@
 //! One uuid-less session record keeps one normalized id in every read path:
 //! CLI snapshot, record-aligned window, live tailer delta and backfill page.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -20,7 +21,7 @@ const CWD: &str = "/identity/proj";
 const SID: &str = "identity-session";
 const DELIVERY_DEADLINE: Duration = Duration::from_secs(30);
 /// Enough filler that one backfill page cannot start at byte 0.
-const FILLER_RECORDS: usize = 2100;
+const FILLER_RECORDS: usize = 18;
 
 const PLAIN: &str = r#"{"type":"user","message":{"role":"user","content":"plain question"}}"#;
 const SPLIT: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"first part"},{"type":"text","text":"second part"}]}}"#;
@@ -89,7 +90,8 @@ fn filler_record(index: usize) -> String {
         serde_json::json!({
             "type": "user",
             "uuid": format!("fill-{index:06}"),
-            "message": {"role": "user", "content": "f".repeat(4093)}
+            "message": {"role": "user", "content": "f"},
+            "padding": "f".repeat(64 * 1024)
         })
     )
 }
@@ -117,11 +119,12 @@ fn ids(messages: &[ChatMsg]) -> Vec<String> {
 #[test]
 fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_backfill() {
     let root = TempDir::new().unwrap();
-    let registry = js_registry("provider-claude", "claude", root.path());
+    let provider_id = "claude";
+    let registry = js_registry("provider-claude", provider_id, root.path());
     let path = registry
-        .with_provider("claude", |p| p.session_jsonl_path(CWD, SID))
+        .with_provider(provider_id, |p| p.session_jsonl_path(CWD, SID))
         .flatten()
-        .expect("claude session path");
+        .expect("session path");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let filler: String = (0..FILLER_RECORDS).map(filler_record).collect();
     std::fs::write(&path, &filler).unwrap();
@@ -133,7 +136,7 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
     let tailer = spawn_tailer(
         TailConfig {
             tab_id: "identity".into(),
-            provider_id: "claude".into(),
+            provider_id: provider_id.into(),
             cwd: CWD.into(),
             session_id: SID.into(),
             start_offset: plain_start - record_len,
@@ -156,8 +159,11 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
     tailer.shutdown();
     let total = std::fs::metadata(&path).unwrap().len();
 
-    let snapshot = session_window::snapshot(&registry, "claude", &path);
-    assert_eq!(snapshot.start_offset, 0, "CLI snapshot reads from byte 0");
+    let snapshot = session_window::snapshot(&registry, provider_id, &path);
+    assert!(snapshot.start_offset > 0 && snapshot.start_offset < plain_start);
+    assert_eq!(snapshot.start_offset % record_len, 0);
+    assert_eq!(snapshot.end_offset, total);
+    assert!(snapshot.bytes_read <= session_window::SNAPSHOT_CAP_BYTES);
 
     let window_start = codeterm_plugin::jsonl_window::tail_window_start(
         &path,
@@ -170,11 +176,15 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
         "window is record-aligned"
     );
     let (window_rows, _) =
-        session_window::parse_window(&registry, "claude", &path, window_start, total);
+        session_window::parse_window(&registry, provider_id, &path, window_start, total);
     let window = rich_rows_to_chat_msgs(&window_rows, window_start);
+    let (resume_rows, resume_end) =
+        session_window::parse_window(&registry, provider_id, &path, plain_start, total);
+    assert_eq!(resume_end, total);
+    let resumed = rich_rows_to_chat_msgs(&resume_rows, plain_start);
 
-    let page =
-        crate::commands::backfill_page(&registry, "claude", &path, total).expect("backfill page");
+    let page = crate::commands::backfill_page(&registry, provider_id, &path, total)
+        .expect("backfill page");
     assert!(
         page.start_offset > 0 && page.start_offset < window_start,
         "backfill page starts at its own aligned record, got {}",
@@ -196,22 +206,44 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
         ("window", &window),
         ("live", &live),
         ("backfill", &page.messages),
+        ("resume", &resumed),
     ] {
         assert_eq!(target_ids(messages), expected, "{origin} ids");
+        let ordinals: Vec<_> = messages
+            .iter()
+            .filter(|message| TARGETS.contains(&message.content.as_str()))
+            .map(|message| message.seq)
+            .collect();
+        let first = ordinals[0];
+        assert_eq!(
+            ordinals,
+            vec![first, first + 1, first + 1, first + 2, first + 2],
+            "{origin} local record ordinals"
+        );
     }
 
-    let snapshot_seq: Vec<i64> = snapshot
-        .messages
-        .iter()
-        .filter(|m| TARGETS.contains(&m.content.as_str()))
-        .map(|m| m.seq)
+    let mut all_ids: HashSet<_> = ids(&snapshot.messages).into_iter().collect();
+    assert_eq!(all_ids.len(), snapshot.messages.len());
+    let mut before = snapshot.start_offset;
+    while before > 0 {
+        let older = crate::commands::backfill_page(&registry, provider_id, &path, before)
+            .expect("older backfill page");
+        assert!(older.start_offset < before);
+        assert_eq!(older.end_offset, before);
+        for message in &older.messages {
+            assert!(
+                all_ids.insert(message.id.clone()),
+                "duplicate across history pages"
+            );
+        }
+        before = older.start_offset;
+    }
+    assert_eq!(before, 0);
+    let expected_ids: HashSet<_> = (0..FILLER_RECORDS)
+        .map(|index| format!("fill-{index:06}-0"))
+        .chain(expected.into_iter().map(|(_, id)| id))
         .collect();
-    let first = FILLER_RECORDS as i64;
-    assert_eq!(
-        snapshot_seq,
-        vec![first, first + 1, first + 1, first + 2, first + 2],
-        "seq stays the batch ordinal"
-    );
+    assert_eq!(all_ids, expected_ids);
 }
 
 #[test]

@@ -1,5 +1,22 @@
 [
   {
+    "name": "system header with trailing Windows path",
+    "raw": "<domios from=\"system\" context=\"sentinel:sentinel_394d9ce12d30\"></domios>C:\\Users\\dev\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\utilities\\update.txt",
+    "segments": [
+      {
+        "type": "frame",
+        "from": "system",
+        "attrs": { "from": "system", "context": "sentinel:sentinel_394d9ce12d30" },
+        "body": "",
+        "tip": null
+      },
+      {
+        "type": "text",
+        "text": "C:\\Users\\dev\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\utilities\\update.txt"
+      }
+    ]
+  },
+  {
     "name": "owner merged screenshot",
     "raw": "какой щас план?\npasted by Domios<domios from=\"tab\" label=\"Probe\" tab=\"41f7661c\" model=\"gpt-6.1-sol\">Harness preflight caught ... Product code untouched.\n\npasted by Domios <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab 41f7661c]</tip></domios>",
     "segments": [

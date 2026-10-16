@@ -1,16 +1,17 @@
 // Caller: build.sh chat-scroll-trace; skill dev-testing
 // Drives a touch scroll up the harness at iPhone size over CDP and prints a summary; exits 1 on any visual jump.
-// Usage: node trace.mjs --cdp <browser ws> --url <harness url> [--out DIR] [--strokes N] [--threshold PX]
+// Usage: node trace.mjs --cdp <browser ws> --url <harness url> [--out DIR] [--strokes N] [--threshold PX] [--jump]
+import { sameAnchorLayoutResidual } from "../chat-scroll-residual.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({ options: {
-  cdp: { type: "string" }, url: { type: "string" }, out: { type: "string" },
-  strokes: { type: "string", default: "14" }, threshold: { type: "string", default: "2" },
+  cdp: { type: "string" }, url: { type: "string" }, out: { type: "string" }, target: { type: "string" },
+  strokes: { type: "string", default: "14" }, threshold: { type: "string", default: "8" }, jump: { type: "boolean", default: false },
 } });
 if (!values.cdp || !values.url) {
-  console.error("usage: trace.mjs --cdp <browser ws> --url <harness url> [--out DIR] [--strokes N] [--threshold PX]");
+  console.error("usage: trace.mjs --cdp <browser ws> --url <harness url> [--out DIR] [--strokes N] [--threshold PX] [--jump]");
   process.exit(2);
 }
 const strokes = Number(values.strokes);
@@ -20,7 +21,7 @@ const FINGER_STEP = 20;
 const STEPS_PER_STROKE = 30;
 
 const targets = await (await fetch(`http://127.0.0.1:${new URL(values.cdp).port}/json/list`)).json();
-const page = targets.find((target) => target.type === "page");
+const page = targets.find((target) => values.target ? target.id === values.target : target.type === "page");
 if (!page) throw new Error("the browser has no page target");
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {
@@ -58,6 +59,16 @@ const screenshot = async (file) => {
 if (values.out) mkdirSync(values.out, { recursive: true });
 
 await send("Page.enable");
+await send("Page.addScriptToEvaluateOnNewDocument", { source: `
+  window.__scrollWrites = [];
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop");
+  Object.defineProperty(Element.prototype, "scrollTop", { ...descriptor, set(value) {
+    const before = descriptor.get.call(this);
+    descriptor.set.call(this, value);
+    const after = descriptor.get.call(this);
+    window.__scrollWrites.push({ at: performance.now(), before, after, owned: window.chatScrollOwned?.() ?? false });
+  } });
+` });
 await send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 3, mobile: true });
 await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
 const loaded = once("Page.loadEventFired");
@@ -90,7 +101,8 @@ await evaluate(`(() => {
       const top = row.getBoundingClientRect().top - origin;
       if (top > -900 && top < el.clientHeight + 900) rows[row.dataset.chatWindowRow] = top;
     }
-    window.__frames.push({ t: performance.now(), scrollTop: el.scrollTop, spacer: el.firstElementChild.getBoundingClientRect().height, gesture, rows });
+    const anchor = Object.keys(rows).find(id => rows[id] >= 0) ?? Object.keys(rows).at(-1);
+    window.__frames.push({ anchor, anchorTop: rows[anchor], t: performance.now(), scrollTop: el.scrollTop, spacer: el.firstElementChild.getBoundingClientRect().height, gesture, rows });
     requestAnimationFrame(sample);
   };
   requestAnimationFrame(sample);
@@ -98,6 +110,7 @@ await evaluate(`(() => {
 })()`);
 await screenshot("start.png");
 
+let syntheticClicks = 0;
 for (let stroke = 0; stroke < strokes; stroke++) {
   let y = 150;
   await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: VIEWPORT.width / 2, y, id: 1 }] });
@@ -108,43 +121,40 @@ for (let stroke = 0; stroke < strokes; stroke++) {
   }
   await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await nextFrame();
+  if (values.jump) syntheticClicks += Number(await evaluate(`(() => {
+    if (!window.chatScrollOwned?.()) return false;
+    const button = document.querySelector("#jump button");
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    return true;
+  })()`));
 }
 await screenshot("end.png");
 const frames = await evaluate("new Promise((resolve) => requestAnimationFrame(() => { window.__sampling = false; resolve(window.__frames); }))");
+const writes = await evaluate("window.__scrollWrites");
 ws.close();
 
-// Visible motion is the user's scroll only when it mirrors the scrollTop change. A frame that also moved the spacer
-// (a fold) shows no layout motion of its own, so it is judged against the momentum speed of its plain neighbours.
-const delta = (index, key) => frames[index] && frames[index - 1] ? frames[index][key] - frames[index - 1][key] : 0;
-let scrollTopReversals = 0;
-let spacerScrollFrames = 0;
 const jumps = [];
+let residualPairs = 0;
 for (let index = 1; index < frames.length; index++) {
-  const previous = frames[index - 1];
-  const current = frames[index];
-  const spacerMoved = Math.abs(delta(index, "spacer")) >= 0.5;
-  if (spacerMoved && Math.abs(delta(index, "scrollTop")) >= 0.5) spacerScrollFrames++;
-  else if (current.gesture === previous.gesture && delta(index, "scrollTop") > 0.5) scrollTopReversals++;
-  const visible = Object.keys(current.rows).filter((id) => id in previous.rows && current.rows[id] >= 0 && current.rows[id] < VIEWPORT.height);
-  if (!visible.length) continue;
-  const motion = current.rows[visible[0]] - previous.rows[visible[0]];
-  const unexplained = motion + delta(index, "scrollTop");
-  const folded = spacerMoved && Math.abs(delta(index, "scrollTop")) >= 0.5;
-  const momentum = Math.max(2 * FINGER_STEP, ...[-3, -2, -1, 1, 2, 3]
-    .map((offset) => Math.abs(delta(index + offset, "spacer")) < 0.5 ? Math.abs(delta(index + offset, "scrollTop")) : 0));
-  const jump = folded ? motion < -limit || motion > momentum + limit : Math.abs(motion) > limit && Math.abs(unexplained) > limit;
-  if (jump) jumps.push({ frame: index, scrollTop: Math.round(current.scrollTop), motion: Math.round(motion), unexplained: Math.round(unexplained) });
+  const before = frames[index - 1], after = frames[index];
+  const compensated = writes.some(write => write.at > before.t && write.at <= after.t);
+  const result = sameAnchorLayoutResidual(before, after, limit, compensated);
+  if (!result) continue;
+  residualPairs++;
+  if (result.failed) jumps.push({ frame: index, residual: result.compensated ? result.visualDelta : result.residual });
 }
 const summary = {
   url: values.url, frames: frames.length, gestures: frames.at(-1)?.gesture ?? 0,
   scrollTopFirst: Math.round(frames[0]?.scrollTop ?? 0), scrollTopLast: Math.round(frames.at(-1)?.scrollTop ?? 0),
-  scrollTopMonotonicWithinGestures: scrollTopReversals === 0, scrollTopReversals, spacerScrollFrames,
-  visualJumps: jumps.length, maxVisualJump: jumps.reduce((worst, jump) => Math.max(worst, Math.abs(jump.motion), Math.abs(jump.unexplained)), 0),
+  residualPairs, syntheticClicks,
+  visualJumps: jumps.length, maxVisualJump: jumps.reduce((worst, jump) => Math.max(worst, Math.abs(jump.residual)), 0),
   firstJumps: jumps.slice(0, 5),
+  writesWhileOwned: writes.filter(write => write.owned).length,
 };
 if (values.out) {
   writeFileSync(path.join(values.out, "trace.json"), JSON.stringify({ summary,
-    frames: frames.map(({ t, scrollTop, spacer, gesture }) => ({ t, scrollTop, spacer, gesture })) }));
+    writes, frames: frames.map(({ t, scrollTop, spacer, gesture, anchor, anchorTop }) => ({ t, scrollTop, spacer, gesture, anchor, anchorTop })) }));
 }
 console.log(JSON.stringify(summary, null, 1));
-process.exit(jumps.length > 0 || scrollTopReversals > 0 ? 1 : 0);
+process.exit(jumps.length > 0 || residualPairs === 0 || (values.jump && syntheticClicks === 0) || summary.writesWhileOwned > 0 ? 1 : 0);

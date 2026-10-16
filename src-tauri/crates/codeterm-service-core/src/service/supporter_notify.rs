@@ -250,6 +250,7 @@ pub(crate) fn owner(service: &ServiceContext, tab_id: &str, label: &str, body: &
 }
 
 pub(crate) fn restore_complete(service: &ServiceContext) {
+    super::provider_update::restore_completed();
     let groups = RESTORE.lock().complete();
     for notices in groups.into_values() {
         emit_batch(service, notices);

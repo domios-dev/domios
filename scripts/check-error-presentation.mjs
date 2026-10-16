@@ -39,7 +39,7 @@ function errorContext(node) {
 
 export function rawErrorRenders(source, filename, exemptions = fieldValidation) {
   const file = filename.replaceAll("\\", "/");
-  if (file === "src/components/shared/ErrorNotice.tsx") return [];
+  if (["src/components/shared/ErrorNotice.tsx", "src/components/shared/PaneState.tsx"].includes(file)) return [];
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const jsxBindings = new Set();
   function hasJsx(node) {

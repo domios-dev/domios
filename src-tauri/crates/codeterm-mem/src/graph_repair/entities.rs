@@ -199,11 +199,11 @@ pub fn augment_entity(
     }
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
-    let (entity_type, existing): (String, String) = tx
+    let existing: String = tx
         .query_row(
-            "SELECT entity_type, properties_json FROM entities WHERE id = ?1",
+            "SELECT properties_json FROM entities WHERE id = ?1",
             params![entity_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .map_err(|e| format!("entity {} not found: {}", entity_id, e))?;
 
@@ -222,11 +222,6 @@ pub fn augment_entity(
         params![merged, &now, entity_id],
     )
     .map_err(|e| e.to_string())?;
-
-    let text = crate::embeddings::embeddable_text_for_entity(entity_id, &entity_type, &merged);
-    if let Err(err) = crate::embeddings::index(&tx, entity_id, &text) {
-        log::warn!("[augment_entity] re-embed {} failed: {}", entity_id, err);
-    }
 
     let details = serde_json::json!({
         "op": "augment_entity",

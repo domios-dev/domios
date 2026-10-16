@@ -1,6 +1,7 @@
 //! Session identity on a tab: the provider session id and the per-launch
 //! binding nonce that proves a session-start report belongs to this tab.
 
+use crate::service::MuxEmitCause;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::session_model::clear_runtime_model_evidence;
@@ -60,7 +61,7 @@ impl ServiceContext {
             self.emit_session_binding_state(tab_id);
             // The binding commit shuts this tab's tailer down, and chat reads
             // its authority from the tab record: no broadcast, no re-attach.
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::SessionBinding);
             crate::service::provider_signals::refresh_auth(self, tab_id);
             let _ = crate::service::session_persist::persist_session_after_mutation(
                 self,

@@ -2,6 +2,7 @@ use super::super::{
     engine,
     model::{RuntimeFailure, RuntimePhase},
 };
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{RuntimeContext, RuntimeOperation, RuntimeResult};
 use std::{collections::HashSet, sync::Arc, time::Duration};
@@ -106,32 +107,81 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
             .clone()
             .ok_or(RuntimeFailure::PipeEof)?;
         let mut ended = process.ended.clone();
-        let result = engine::run(
-            svc,
-            &session.provider,
-            &session,
-            &process,
-            RuntimeOperation::Interrupt {
-                thread_id: target.thread.clone(),
-                active_turn_id: context.active_turn_id,
-            },
-        )
-        .await?;
-        if !matches!(result, RuntimeResult::Done) {
-            return Err(RuntimeFailure::Refused(
-                "Runtime interrupt was not accepted".into(),
-            ));
+        let background = super::super::background::supported(&session);
+        let captured = if background {
+            match process.observe().await {
+                Ok(captured) => captured,
+                Err(reason) => {
+                    log::debug!(
+                        "[agent-runtime] initial interrupt process observation failed: {reason}"
+                    );
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        let interrupted = async {
+            if target.turns.is_empty() && background {
+                return Ok(());
+            }
+            let result = engine::run(
+                svc,
+                &session.provider,
+                &session,
+                &process,
+                RuntimeOperation::Interrupt {
+                    thread_id: target.thread.clone(),
+                    active_turn_id: context.active_turn_id,
+                },
+            )
+            .await?;
+            if !matches!(result, RuntimeResult::Done) {
+                return Err(RuntimeFailure::Refused(
+                    "Runtime interrupt was not accepted".into(),
+                ));
+            }
+            wait(
+                svc,
+                &session,
+                &target,
+                &mut changes,
+                &mut ended,
+                Duration::from_secs(30),
+            )
+            .await
+        }
+        .await;
+        if background {
+            if let Err(reason) = super::super::background::cleanup(
+                svc,
+                &session,
+                &process,
+                super::super::background::Mode::Interrupt,
+                captured,
+                true,
+            )
+            .await
+            {
+                if engine::validate_binding(svc, &session).is_ok()
+                    && session.context.lock().epoch == target.epoch
+                {
+                    session.state.lock().degrade(target.epoch, &reason);
+                    engine::publish(svc, tab, &session);
+                    svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
+                }
+                return Err(reason);
+            }
         }
         drop(permit);
-        wait(
-            svc,
-            &session,
-            &target,
-            &mut changes,
-            &mut ended,
-            Duration::from_secs(30),
-        )
-        .await
+        if background
+            && process.terminated()
+            && engine::validate_binding(svc, &session).is_ok()
+            && session.context.lock().epoch == target.epoch
+        {
+            return Ok(());
+        }
+        interrupted
     })
     .map_err(|reason: RuntimeFailure| reason.to_string())
 }
@@ -185,7 +235,7 @@ async fn wait(
                 session.state.lock().degrade(target.epoch, &reason);
                 let tab = session.context.lock().tab_id.clone();
                 engine::publish(svc, &tab, session);
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
             }
             Err(reason)
         }

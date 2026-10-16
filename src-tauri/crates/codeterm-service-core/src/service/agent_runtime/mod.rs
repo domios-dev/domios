@@ -1,25 +1,33 @@
+use crate::service::MuxEmitCause;
 mod abort_provenance;
 pub(crate) mod authority;
+pub mod background;
 pub(crate) mod blocking;
 mod bootstrap;
 pub(crate) mod capture;
+pub mod children;
 mod completions;
 pub(crate) mod controls;
 pub mod engine;
 mod envelope_delivery;
 mod environment;
 mod events;
+pub mod goals;
 mod initialize;
 mod launch_options;
 #[cfg(unix)]
 pub(crate) mod lease;
 pub mod login;
 pub mod model;
+mod owned_context;
 #[cfg(any(unix, test))]
 mod ownership;
 pub(crate) mod plan_warning;
 pub(crate) mod process;
+mod process_boundary;
+mod process_slot;
 pub(crate) mod projections;
+pub mod reset_credits;
 pub use projections::latest as projections_latest;
 pub(crate) mod prompt_answers;
 mod question_delivery;
@@ -55,8 +63,9 @@ pub async fn retry(
         .or_else(|| engine::for_tab(tab))
         .ok_or_else(|| "Runtime binding unavailable".to_string())?;
     engine::validate_binding(svc, &session).map_err(|reason| reason.to_string())?;
-    let snapshot = session.state.lock().snapshot();
-    svc.emit_state_changed();
+    engine::backfill::retry(svc, tab, &session).map_err(|reason| reason.to_string())?;
+    let snapshot = engine::snapshot(&session);
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     Ok(snapshot)
 }
 

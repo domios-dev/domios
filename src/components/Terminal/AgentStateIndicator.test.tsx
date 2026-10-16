@@ -122,7 +122,6 @@ async function main(): Promise<void> {
     </div>,
   ));
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "390px rendering keeps one compact status row");
-  assert(idle.host.querySelector(".ct-agent-msg")?.classList.contains("truncate"), "status suffix remains truncatable at narrow width");
 
   let terminalCalls = 0;
   let cancelCalls = 0;

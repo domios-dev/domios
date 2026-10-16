@@ -1,6 +1,25 @@
 use super::*;
 use crate::service::role_preset::{FragmentSource, PresetFragment};
 
+#[test]
+fn read_only_runtime_brief_selects_the_stdin_reporting_fragment_once() {
+    let mut params = SpawnAgentParams {
+        role: Some("Worker".into()),
+        execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+        task: Some("opaque-assignment".into()),
+        ..Default::default()
+    };
+    let prompt = compose_runtime_system_prompt(&mut params).unwrap();
+    assert_eq!(
+        prompt
+            .matches(crate::prompts::READ_ONLY_WORKER_GUIDANCE.trim())
+            .count(),
+        1
+    );
+    assert!(!prompt.contains(crate::prompts::AGENT_PAD_RULE.trim()));
+    assert_eq!(prompt.matches("opaque-assignment").count(), 1);
+}
+
 fn opaque_fragments() -> RuntimeFragments<'static> {
     RuntimeFragments {
         primer: "opaque-primer",

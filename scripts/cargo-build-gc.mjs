@@ -88,20 +88,37 @@ export function trimBuildDirectories(mappings, { dryRun = false, runner = spawnS
   return trimmed;
 }
 
-export function collectCargoBuilds(checkout, { dryRun = false, runner = spawnSync } = {}) {
+// The X: alias exists only inside a gateway job, so its build directory is recorded whenever it is seen and protected from that record otherwise.
+export function resolveStableBuilds(stableMapped, mappings, stable, record) {
+  if (stableMapped) {
+    const builds = mappings.filter((mapping) => key(mapping.checkout) === key(stable)).map((mapping) => mapping.build);
+    if (!builds.length) throw new Error('gateway build-directory mapping is missing');
+    if (record) fs.writeFileSync(record, JSON.stringify({ builds }));
+    return builds;
+  }
+  let builds = [];
+  try { builds = JSON.parse(fs.readFileSync(record, 'utf8')).builds; } catch { builds = []; }
+  if (!Array.isArray(builds) || !builds.length || !builds.every((build) => typeof build === 'string' && path.isAbsolute(build))) {
+    throw new Error(`stable gateway path ${stable} is unmapped and no gateway build directory is recorded`);
+  }
+  log(`stable gateway path unmapped; protecting recorded ${builds.join(', ')}`);
+  return builds;
+}
+
+export function collectCargoBuilds(checkout, { dryRun = false, runner = spawnSync, record } = {}) {
   const common = command('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], checkout, runner).trim();
   const canonical = path.dirname(common);
   const plugins = process.env.CODETERM_PLUGINS_CHECKOUT || path.join(path.dirname(canonical), 'codeterm-plugins');
   if (!fs.existsSync(plugins)) throw new Error(`plugins checkout missing: ${plugins}; set CODETERM_PLUGINS_CHECKOUT`);
   const stable = process.platform === 'win32' ? `${process.env.CODETERM_STABLE_BUILD_DRIVE || 'X'}:/` : checkout;
-  if (!fs.existsSync(stable)) throw new Error(`stable gateway path unavailable: ${stable}`);
-  const checkouts = [...worktrees(canonical, runner), ...worktrees(plugins, runner), stable];
-  const checkoutSnapshot = JSON.stringify(checkouts);
-  const mappings = mapCheckouts(checkouts, { runner });
+  const stableMapped = fs.existsSync(stable);
+  const inventory = () => [...worktrees(canonical, runner), ...worktrees(plugins, runner), ...(stableMapped ? [stable] : [])];
+  let checkouts = inventory();
+  let mappings = mapCheckouts(checkouts, { runner });
   for (const mapping of mappings) log(`live ${mapping.workspace} -> ${mapping.build}`);
-  const stableMappings = mappings.filter((mapping) => key(mapping.checkout) === key(stable));
-  if (!stableMappings.length) throw new Error('gateway build-directory mapping is missing');
-  const roots = new Set(mappings.map((mapping) => {
+  const stableBuilds = resolveStableBuilds(stableMapped, mappings, stable, record);
+  const protectedBuilds = () => [...mappings, ...stableBuilds.map((build) => ({ build }))];
+  const roots = new Set(protectedBuilds().map((mapping) => {
     if (!/^[a-f0-9]{14}$/.test(path.basename(mapping.build)) || !/^[a-f0-9]{2}$/.test(path.basename(path.dirname(mapping.build)))) {
       return null;
     }
@@ -113,9 +130,13 @@ export function collectCargoBuilds(checkout, { dryRun = false, runner = spawnSyn
   if (!python) throw new Error('Python is required for Cargo-compatible build-directory locks');
   for (const root of roots) {
     if (!fs.existsSync(root)) continue;
-    for (const dir of orphanCandidates(root, mappings)) {
-      if (JSON.stringify([...worktrees(canonical, runner), ...worktrees(plugins, runner), stable]) !== checkoutSnapshot) {
-        throw new Error('worktree inventory changed during GC; preview the new inventory before retrying');
+    for (const dir of orphanCandidates(root, protectedBuilds())) {
+      const current = inventory();
+      if (JSON.stringify(current) !== JSON.stringify(checkouts)) {
+        log('worktree inventory changed; remapping before the next removal');
+        checkouts = current;
+        mappings = mapCheckouts(checkouts, { runner });
+        if (protectedBuilds().some((mapping) => key(mapping.build) === key(dir))) continue;
       }
       const result = JSON.parse(command(python, [helper, root, dir, ...(dryRun ? ['--dry-run'] : [])], checkout, runner));
       log(`${result.status} ${dir}: ${(result.bytes / 1024 ** 3).toFixed(3)} GiB${result.reason ? ` (${result.reason})` : ''}`);

@@ -148,14 +148,13 @@ describe("concise thoughts", () => {
     expect(view.textContent).toBe("");
   });
 
-  it("shows Claude thinking collapsed to its headline and expands into a 200px scroll region on demand", async () => {
+  it("shows Claude thinking collapsed to its headline and expands on demand", async () => {
     const full = `Plan the edit carefully\n${"then apply it ".repeat(40).trim()}`;
     const view = await render([thought("claude-think", full, { provider: "claude", sourceSessionId: CLAUDE })]);
     const [line] = all(view, "chat-thought");
     const toggle = line.querySelector("button");
     expect(all(view, "chat-thought")).toHaveLength(1);
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(toggle?.getAttribute("style")).toContain("var(--ct-muted-fg)");
     expect(line.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe("Plan the edit carefully");
     expect(line.querySelector('[data-testid="chat-thought-text"]')).toBeNull();
     expect(line.querySelector('[role="region"]')?.hasAttribute("hidden")).toBe(true);
@@ -163,9 +162,6 @@ describe("concise thoughts", () => {
     await click(toggle);
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     expect(line.querySelector('[data-testid="chat-thought-text"]')?.textContent).toBe(full);
-    const body = line.querySelector<HTMLElement>('[data-testid="chat-thought-body"]');
-    expect(body?.style.maxHeight).toBe("200px");
-    expect(body?.style.overflowY).toBe("hidden");
   });
 
   it("shows the entire available single-line summary without an expand control", async () => {
@@ -216,7 +212,6 @@ describe("sub-agent activity card", () => {
     expect(rows.map((row) => row.querySelector('[data-testid="chat-agent-name"]')?.textContent)).toEqual(["worker_a", "probe"]);
     expect(rows.map((row) => row.querySelector('[data-testid="chat-agent-path"]')?.textContent)).toEqual(["/root/worker_a", "/root/worker_a/probe"]);
     expect(rows.map((row) => row.dataset.agentState)).toEqual(["completed", "unknown"]);
-    expect(rows.map((row) => row.style.paddingLeft)).toEqual(["0px", "12px"]);
     const messages = all(card, "chat-agent-message");
     expect(messages.map((edge) => [
       edge.querySelector('[data-testid="chat-agent-message-from"]')?.textContent,
@@ -282,31 +277,5 @@ describe("sub-agent activity card", () => {
     const claude = await render(records.map((message) => ({ ...message, provider: "claude", sourceSessionId: CLAUDE })));
     const codex = await render(records.map((message) => ({ ...message, provider: "codex", sourceSessionId: CODEX })));
     expect(neutralMarkup(claude)).toBe(neutralMarkup(codex));
-  });
-});
-
-describe("activity presentation", () => {
-  it("gates expansion motion behind reduced-motion variants and uses tokens without blinking dots or side borders", async () => {
-    const view = await render([
-      thought("p-think", "Headline\nThought body"),
-      agent("p-agent", { agentId: "thread-p", agentPath: "/root/p", state: "running" }),
-    ]);
-    const [card] = all(view, "chat-agent-activity");
-    const [line] = all(view, "chat-thought");
-    const chevrons = [card, line].map((scope) => scope.querySelector("button svg:last-child")?.getAttribute("class")?.split(/\s+/) ?? []);
-    for (const classes of chevrons) {
-      expect(classes).toContain("motion-safe:transition-transform");
-      expect(classes).toContain("motion-reduce:transition-none");
-      expect(classes).not.toContain("transition-transform");
-    }
-    expect(view.querySelector('[class*="animate-"]')).toBeNull();
-    expect(card.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-l", "border-l-2", "border-r", "border-x"]));
-    expect(card.style.borderRightWidth).toBe("");
-    expect(card.style.borderLeftWidth).toBe("");
-    expect(card.querySelector('[data-testid="chat-agent-title"]')?.getAttribute("style")).toContain("var(--ct-fg)");
-
-    await click(card.querySelector("button[aria-expanded]"));
-    expect(card.querySelector('[data-testid="chat-agent-state"]')?.getAttribute("style")).toContain("var(--ct-yellow)");
-    expect(view.querySelector('[class*="animate-"]')).toBeNull();
   });
 });

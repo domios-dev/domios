@@ -1,5 +1,40 @@
 # Owner-style exploratory startup pass
 
+## Large-history reconnect census (local, on request)
+
+- [ ] Match DEV health to the diagnostic commit before the before-run. Open one
+  large-history tab on desktop and in the owned Browser through the approved
+  DEV ingress. Keep each client's network trace and client ID separate.
+- [ ] Source evals/_lib/lib.sh and capture `dev_get /api/debug/events/stats`
+  before and after each action. Its DEV-only `requests.entries` groups counts,
+  request bytes and response body data bytes by matched route, client ID and
+  epoch minute. These are consumed HTTP body bytes, excluding headers/TCP/TLS;
+  streaming bytes belong to the minute consumed. Keep the raw snapshots.
+- [ ] Record cold attach, real hidden/visible events, offline/online, an actual
+  event-fetch abort, tab switch away/back, and explicit reconnect separately.
+  Freeze/activate without an observed visibility event is not a background test.
+  Retain starts/stops, parsed and transferred bytes, cursor/session authority,
+  active streams, first useful history and viewed screenshots per action.
+- [ ] Valid cursor reconnect must issue zero session restarts/history rereads;
+  idle wake must transfer zero transcript payload. A collection script exit 0
+  does not imply product acceptance. Distinguish deliberate triggers from a
+  spontaneous loop and reconcile overlapping responses individually.
+- [ ] For JSONL event loss or a byte-range gap, retain the applied chat cursor
+  and subscription ID. Verify `/chat-raw/resume` reads forward, preserves the
+  prior visible rows and appends each writer token once with zero start/stop
+  calls. Record each page's range, cursor and caught_up flag; a page is at most
+  1 MiB except one oversized complete record. An idle caught-up response carries
+  no transcript. Structured/runtime recovery remains a separate source-kind case.
+- [ ] Compare the same actions after repair on a matched build. Record DEV-only
+  TIME_WAIT through the assigned socket observer; never sample or mutate prod
+  as part of this bench. Remove only owned synthetic lookup junctions at cleanup.
+
+Client census attribution is locked by
+`transportClient > uses one page client identity for JSON, local JSON, uploads and streams`.
+Server counting/stream forwarding is locked by `request_census::tests::`; keep
+the live round for attribution and visible behavior, not for re-testing counters.
+Focused proof: `./build.sh nextest codeterm-api 'test(/^request_census::/) | test(/^stream_census::/)'`.
+
 For a launch serialization diagnosis, compare the bare-shell wait's own elapsed
 log with source-clock phase timestamps. A zero prompt wait means the missing
 time precedes that wait. Capture `[launch-gate]` wait/hold microseconds per tab,
@@ -39,9 +74,9 @@ an API response, or an unviewed file.
   ID, provider/backing, frozen flag, last activity, and expected startup policy.
   Include General, recent tabs, untouched sleeping tabs, and every Endure fresh
   and used provider fixture. Reconcile visited IDs against this inventory at end.
-- [ ] Preserve owner drafts, active tasks, and pending deliveries. In particular,
-  carry aiderF's held send evidence without resending it or sending another probe
-  over it. Record that unresolved delivery as a finding. Do not type PONG prose
+- [ ] Send new uniquely identified probes to DEV tabs even when an older probe
+  remains unresolved; include Aider and OpenCode in every sweep. Reconcile each
+  token independently and never count an older reply for a new probe. Do not type PONG prose
   into shells or answer provider permission/login prompts automatically.
 
 Each step gets a sequence number, action and time, tab/workspace ID, screenshot
@@ -162,7 +197,7 @@ must not have its default-DEV refusal bypassed.
   conclusions from one provider: Claude, Grok, Aider, OpenCode, Codex Chat and
   plain shells, with at least one fresh and one used fixture of each. Inventory
   missing fixtures/providers explicitly; never substitute a Codex result for PTY
-  proof. Preserve existing unresolved inputs and do not resend a prior probe.
+  proof. Retain every unresolved receipt while sending a new unique probe.
   Add a per-provider table to the report with both fixture IDs, restored/fresh
   session provenance, boot-to-ready, immediate input acceptance, own-session
   reply evidence and cold/warm history results. Shells use unique-token echoes
@@ -185,6 +220,13 @@ must not have its default-DEV refusal bypassed.
   Also compare `finish_tree_done` → `finish_restore_done`; derived restore
   observations must not serialize unrelated launch transitions. After deferring
   that work, verify the report still settles from real lifecycle changes.
+- [ ] Compare transport admission under a mixed restore load: PTY and chat/RPC
+  use separate bounded budgets. Hold one transport busy and verify the other
+  progresses; open or address a queued tab and verify its own wake starts
+  independently of the boot wave. Preserve the per-tab materialization claim.
+  Save the configured activity window and join queued IDs to General membership
+  and pre-action activity; outside General, unknown or older-than-48-hour tabs
+  must remain asleep until explicitly opened or addressed.
 
 - [ ] Before measuring, require a successful focused repair gate when applicable,
   the exact committed build in health, and startup beyond service state
@@ -206,13 +248,16 @@ must not have its default-DEV refusal bypassed.
 - [ ] After the individual walkthrough, run one bounded simultaneous-send wave
   across eligible idle agents without waiting for each reply before sending
   the next. Give every message a fresh run/tab/sequence token. Preserve drafts,
-  active tasks and unresolved sends; list exclusions rather than overwriting them.
+  prior probe receipts; use preserved IDs only as an explicit opt-in. Pin sidebar and
+  composer controls to exact tab IDs, since titles can repeat across retained
+  panes. Keep each new probe's token and receipt in its own evidence window.
 - [ ] Exercise immediate input before first readiness, addressing an untouched
   sleeping fixture, input while switching, and a short ordered burst in an
   isolated fixture. Record every attempted token and its held/written/delivered
   or failed state. Require one own-session user turn per token, ordered new
-  replies, no duplicate bubbles and no replay after bind/restart. A written or
-  uncertain payload is never resent. Capture unresolved and failed states.
+  replies, no duplicate bubbles and no product replay after bind/restart.
+  Testers may submit another unique probe; Domios must never automatically replay
+  a written payload. Capture each unresolved and failed state independently.
 - [ ] For each shell without active work, submit one harmless unique-token echo
   in its actual shell syntax and capture/view its output. Never send agent prose
   to a shell. Inspect non-agent surfaces through their intended visible controls.
@@ -245,3 +290,70 @@ uncovered case. Never inject a fake event as live proof.
   turn and subsequent assistant content. Report an answered probe with extra
   text as a format failure, separately from non-delivery or a missing answer;
   retain the strict oracle result and never resend to correct formatting.
+
+## Defects locked by fast tests
+
+When these tests pass, skip repeating the long diagnostic drill for the same
+defect. Keep the short integrated provider sweep: a unit test cannot measure an
+external CLI's startup or prove native UI wiring.
+
+| Fixed defect | Regression coverage |
+|---|---|
+| An oversized first JSONL record consumed following records beyond the page budget | locked by test oversized_first_record_does_not_consume_the_following_page and bounded_session_delta_matches_host_record_boundaries_and_identity |
+| Resync bursts started overlapping initial snapshots | locked by test same attachment requests share one in-flight operation, authority changes serialize and only the latest pending attachment starts, and useChatSession initial-attachment single-flight wiring assertion |
+| JSONL event loss restarted the chat lease and reread history | locked by test caught_up_resume_never_invokes_the_transcript_parser, forward_resume_uses_one_budgeted_read_and_reports_the_true_end, changed_incarnation_and_epoch_reset_without_parsing, and useChatSession JSONL loss-recovery wiring assertion |
+| Retained journal repeatedly compacted without new growth | locked by test opening_retained_history_allows_growth_before_automatic_compaction and automatic_compaction_rechecks_growth_and_preserves_uncovered_records |
+| Derived restore observations blocked lifecycle progress | locked by test requests_coalesce_without_waiting_and_keep_changes_during_an_observation |
+| Chat restores consumed the PTY admission budget | locked by test bounded_transports_progress_independently_without_starving_queued_tabs |
+| Opening a pending restored chat did not bypass boot admission | locked by test explicit_chat_wake_bypasses_pending_boot_restore |
+| A live delta overlapping a snapshot caused repeated chat restarts | locked by test record-aligned overlap merges new rows and incoming revisions without restarting, overlap beginning below the loaded window keeps incoming revision precedence, repeated overlapping tails remain bounded and keep the latest shared revisions, and evicting the oldest overlap advances paging to the retained segment |
+| Valid event replay and idle wake restarted an attached chat | locked by test valid reconnect and idle wake preserve the transcript projection and useChatSession existing-lease replay/wake wiring assertion; event loss and daemon epoch changes still require transcript recovery remains paired |
+| Reconnect discarded the memory replay cursor when storage was unavailable | locked by test same-target reconnect retains an in-memory cursor when storage is unavailable and peer switches use only the destination cursor and cold pages use saved replay |
+| Reconnect failed to retry an initial attachment error | locked by test an observed reconnect can retry a failed initial attachment and useChatSession failed-first-attachment recovery wiring assertion |
+
+Run the existing tests in each changed area alongside its regression test.
+A new defect adds its fast oracle here and in the run report; retain any executed
+red-before/green-after evidence instead of claiming it from source inspection.
+Global launch lock visibility is locked by test
+launch_registry_uses_shared_hold_instrumentation plus
+named_mutex_reports_through_guard_hold_seam_without_waiting and the
+qa-lock-storm histogram fixture. When green, skip a deliberate long lock storm
+solely to check logging. Keep sampling real startup logs for new contention.
+On owner request, compare installed provider startup in an independent native
+system PowerShell using README.md's Independent Windows terminal baseline.
+Record actual first-frame/setup/turn signals separately from input readiness
+and model response time; keep blocked authentication/configuration cases.
+This diagnostic remains local-only and is never a CI gate.
+| Long cursor replay performed unbounded sequential reads | locked by test a long replay gap falls back to attachment after eight pages and a large replay page falls back after the byte budget |
+| Cold JSONL attach and backfill parsed excessive history | locked by test oversized_session_reads_only_a_bounded_tail, an_interior_window_passes_its_exact_remaining_budget_to_the_host_reader, backfill_reads_one_megabyte_of_complete_records_without_a_second_raw_copy, and oversized_record_rows_are_whole_and_exact_limit_records_both_survive |
+| Concurrent same-tab clients repeated snapshot parsing | locked by tests in service::tab_chat::snapshot_flight::tests; source identity and binding nonce are part of the shared-flight key |
+| Missing backfill source appeared to be empty history | locked by test missing_backfill_source_is_an_error_instead_of_empty_history |
+| CLI identity coverage assumed an unbounded snapshot and file-global sequence numbers | locked by test tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_backfill: bounded aligned tail, local ordinals, exact IDs across snapshot/window/live/resume/backfill and an exact-once history walk to byte 0 |
+| DEV recovery diagnostics used a stage rejected by the server | locked by FrontendDiagnosticStage type checking; the three invalid call sites fail tsc before the channel repair, and the live preflight requires cold_attach POST 204 |
+| A workspace click completed the snapshot before the bench armed its response observer | locked by test observation is armed before an action can synchronously complete its event in evals/_lib/observe-action.test.mjs; observeAction preserves the original UI action sequence |
+| A phase collector waited past its deadline without saving incomplete evidence | locked by tests a deadline persists incomplete evidence even when an operation ignores cancellation and a late operation cannot overwrite evidence after deadline termination in scripts/tests/startup-phase-collector.test.mjs |
+| Process-tree verification rejected multiple listening addresses belonging to the same DEV process | locked by test DEV process safety accepts multiple addresses of one owner and refuses absent or competing owners in scripts/tests/startup-process-owner.test.mjs; the Windows helper uses Resolve-DevListenerOwner |
+
+## Fresh launch phase capture
+
+Run locally on request, in the owning Team QA shell, after checking the expected
+DEV build. The existing workspace is required; preserve its load and cache state.
+
+```bash
+source evals/_lib/lib.sh
+dev_run node evals/startup-matrix/fresh-phases.mjs BUILD_SHA OUT Endure shell,claude,codex
+```
+
+`phases.json` records each checkpoint, CLI request/response times, exact boot
+marks and final binding. `dev-boot-phases.log` retains the bounded raw window.
+The 120-second deadline covers the entire capture, including initial API calls,
+CLI completion and final state. A deadline persists `incomplete` and cancels owned
+CLI process trees; never retry a timed-out send or count it as delivered.
+Quoted phase names and PTY-only first-output records are joined by exact PTY id.
+For a plain shell, first output proves only its first frame; verify the actual
+prompt, user profile and OSC 633 separately. CLI request time includes wrapper
+overhead and must not be reported as the daemon's exact tab-creation timestamp.
+Actually visit each created tab, capture/view its screenshot, and reconcile the
+unique probe token against its own bound session before claiming a launch pass.
+
+Manifest reload acknowledgement observation is locked by tests in evals/_lib/log-ack.test.mjs: capture the tail position and subscribe before editing, scan each complete new chunk before retention, preserve split markers, reject old acknowledgements and close on cancellation. Directory notifications trigger bounded reads; elapsed time never acknowledges a reload.

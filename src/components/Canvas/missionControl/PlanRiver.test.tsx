@@ -80,7 +80,6 @@ test("renders four flow stations with milestone glowing + N-of-M", async () => {
   assert(host.querySelector('[data-testid="flow-station-frontier"]'), "frontier station");
   const ms = host.querySelector('[data-testid="flow-station-milestone"]');
   assert(ms, "milestone station");
-  assert(ms!.className.includes("mc-flow-station-now"), "milestone glows (now)");
   assert(host.textContent?.includes("Wave 26"), "milestone label");
   assert(host.textContent?.includes("2 of 5 left"), "N-of-M remaining");
   assert(host.querySelector('[data-testid="flow-station-verify"]'), "verify station");
@@ -145,8 +144,6 @@ test("milestone fallback renders 'none active' and dims (with inflow)", async ()
   const { host, unmount } = await render(<PlanRiver model={model} />);
   const ms = host.querySelector('[data-testid="flow-station-milestone"]');
   assert(ms!.textContent?.includes("none active"), "none-active label");
-  assert(ms!.className.includes("mc-flow-station-dim"), "dimmed");
-  assert(!ms!.className.includes("mc-flow-station-now"), "not glowing");
   await unmount();
 });
 

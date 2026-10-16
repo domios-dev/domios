@@ -183,6 +183,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  agent_runtime_config?: { confirmedFastMode?: { enabled: boolean; sessionId: string; bindingNonce: string | null }; fastMode?: boolean; [key: string]: unknown } | null;
   agent_runtime_questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
   agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
   pending_model_selection?: { model: string; effort: string | null } | null;
@@ -257,6 +258,7 @@ export interface Tab {
   worker_id?: string | null;
   agent_booting?: boolean;
   frozen?: boolean;
+  slept_at_ms?: number | null;
   last_active_at_ms?: number | null;
   /** True only when this visible session explicitly bypasses provider permissions/sandbox. */
   auto_approve?: boolean;
@@ -473,6 +475,7 @@ export interface CronRunInfo {
 }
 
 export interface CronJob {
+  protected?: boolean;
   id: string;
   name: string;
   description: string | null;
@@ -823,6 +826,7 @@ export interface UiConfig {
 }
 
 export interface AppConfig {
+  tab_sleep?: { enabled: boolean; idle_minutes: number };
   restore?: { active_window_hours: number };
   updater?: {
     channel?: string;
@@ -1064,7 +1068,7 @@ export interface ModelCatalogueCapability {
 export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
-  agent_runtime?: { usage?: boolean };
+  agent_runtime?: { fastMode?: boolean; usage?: boolean; backgroundProcesses?: boolean; goals?: { actions: readonly string[] } };
   supports_session_fork?: boolean;
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;

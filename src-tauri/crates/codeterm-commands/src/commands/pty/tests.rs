@@ -49,30 +49,56 @@ async fn protected_frontend_attach_reuses_the_backend_launch_claim() {
 
 #[test]
 fn frontend_restore_launch_arms_shared_readiness_with_snapshot_origin() {
-    let source = include_str!("../pty.rs");
-    let spawn = source
-        .split("pub async fn spawn_pty_core(")
-        .nth(1)
-        .and_then(|remaining| remaining.split("pub async fn read_pty(").next())
-        .expect("the frontend spawn command remains present");
-    let call_sites = spawn.matches("dispatch_restored_snapshot_launch(").count()
-        - spawn
-            .matches("fn dispatch_restored_snapshot_launch(")
-            .count();
-    assert_eq!(call_sites, 2);
-    assert!(!spawn.contains("poll_bare_shell_prompt"));
-    assert!(!spawn.contains("await_agent_tui_frame_on_screen"));
+    use codeterm_service_core::service::launch_readiness::test_support;
+    use codeterm_service_core::service::launch_test_support::FakeRegisteredLaunch;
+    use codeterm_service_core::service::{AgentLaunchOrigin, RestoredFreshLaunchInput};
 
-    let dispatcher = source
-        .split("fn dispatch_restored_snapshot_launch(")
-        .nth(1)
-        .expect("restored frontend launches use one dispatcher");
-    assert!(dispatcher.contains("launch_agent_in_background_with_env("));
-    assert!(dispatcher.contains("AgentLaunchOrigin::RestoredSnapshot"));
-
-    let shared_launcher =
-        include_str!("../../../../codeterm-service-core/src/service/orchestrator/launch.rs");
-    assert!(shared_launcher.contains("arm_with_origin(readiness_attempt.clone(), origin)"));
+    let (mut mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pty_id = Some("frontend-restore-fake-pty".into());
+    tab.agent_type = Some("fixture-provider".into());
+    tab.restored_from_snapshot = true;
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let input = RestoredFreshLaunchInput {
+        params: Default::default(),
+        launch_parameters: Default::default(),
+        launch_task: None,
+    };
+    assert!(test_support::snapshot(&tab_id).is_none());
+    let launch = super::dispatch_restored_snapshot_launch_with(
+        &fixture.service,
+        &tab_id,
+        "fixture-provider",
+        &input,
+        |origin| {
+            FakeRegisteredLaunch::register(
+                &fixture.service,
+                &tab_id,
+                "frontend-restore-fake-pty",
+                origin,
+            )
+            .unwrap()
+        },
+    );
+    let armed = test_support::snapshot(&tab_id).unwrap();
+    assert_eq!(armed.attempt, launch.attempt());
+    assert_eq!(armed.origin, Some(AgentLaunchOrigin::RestoredSnapshot));
+    assert_eq!(armed.registrations, 1);
+    assert!(!armed.acknowledged);
+    assert!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .restorable_launch
+            .captured
+    );
+    assert!(test_support::acknowledge(&launch.attempt()));
+    assert!(test_support::consume_acknowledgement(&launch.attempt()));
+    assert!(!test_support::consume_acknowledgement(&launch.attempt()));
+    assert!(test_support::snapshot(&tab_id).is_none());
 }
 
 mod restored_fresh_launch_tests {
@@ -141,9 +167,8 @@ mod restored_fresh_launch_tests {
 
     #[test]
     fn restored_fresh_launch_command_carries_the_supplied_instruction() {
-        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
-            codeterm_service_core::multiplexer::state::MultiplexerState::new().0,
-        );
+        let (mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
         let registry = &*fixture.service.agent_registry;
         registry.register_provider(Box::new(
             codeterm_service_core::plugin::agent_claude::ClaudeProvider::new(),
@@ -163,7 +188,7 @@ mod restored_fresh_launch_tests {
                 },
             );
             let command = input
-                .command(&fixture.service, "tab-restored-identity")
+                .command(&fixture.service, &tab_id)
                 .expect("restored launch command");
 
             assert_eq!(command.matches("--append-system-prompt-file").count(), 1);
@@ -188,9 +213,11 @@ mod restored_fresh_launch_tests {
     fn restored_fresh_launch_passes_a_minted_marker_and_resume_passes_none() {
         use codeterm_service_core::service::registered_launch_marker;
 
-        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
-            codeterm_service_core::multiplexer::state::MultiplexerState::new().0,
-        );
+        let (mut mux, fresh_tab_id) =
+            codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let resume_tab_id = mux.create_tab(&workspace_id).unwrap();
+        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
         let registry = &*fixture.service.agent_registry;
         registry.register_provider(Box::new(
             codeterm_service_core::agent::test_provider::MockProvider::new("restored-marked"),
@@ -201,9 +228,9 @@ mod restored_fresh_launch_tests {
             worker_params("restored-marked", None),
             codeterm_service_core::multiplexer::types::RestorableLaunchParameters::default(),
         )
-        .command(&fixture.service, "tab-restored-fresh")
+        .command(&fixture.service, &fresh_tab_id)
         .expect("restored fresh launch command");
-        let marker = registered_launch_marker("tab-restored-fresh")
+        let marker = registered_launch_marker(&fresh_tab_id)
             .expect("restored fresh launch registers its launch marker");
         assert!(!marker.is_empty());
         assert!(fresh.ends_with(&format!(" --launch-marker {marker}")));
@@ -215,11 +242,11 @@ mod restored_fresh_launch_tests {
             resume_params,
             codeterm_service_core::multiplexer::types::RestorableLaunchParameters::default(),
         )
-        .command(&fixture.service, "tab-restored-resume")
+        .command(&fixture.service, &resume_tab_id)
         .expect("restored resume command");
         assert!(!resumed.contains("--launch-marker"));
         assert_eq!(
-            registered_launch_marker("tab-restored-resume").as_deref(),
+            registered_launch_marker(&resume_tab_id).as_deref(),
             Some("session-restored")
         );
     }
@@ -279,6 +306,7 @@ mod spawn_pty_restore_tests {
         tab.agent_session_id = Some(SESSION.into());
         tab.restored_from_snapshot = true;
         tab.restorable_launch = RestorableLaunchParameters {
+            execution_sandbox: None,
             failed_provider: None,
             structured_runtime_mode: None,
             context_files: None,
@@ -637,7 +665,7 @@ mod restored_scrollback_tests {
         .expect("frontend spawn should materialize the restored PTY");
 
         let buffer = service.output_buf.lock();
-        assert!(buffer.get_full(&pty_id).unwrap().starts_with(tail));
+        assert!(buffer.copy_full(&pty_id).unwrap().starts_with(tail));
         assert_eq!(
             buffer.read_since(&pty_id, 0).0.get(..tail.len()),
             Some(tail.as_slice())

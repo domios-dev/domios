@@ -18,13 +18,15 @@ description: >-
 | `release/X.Y.Z` | cut from `develop`; release fixes go straight onto it | every push by `rollacode` is the release run |
 | `master` | only released code: the release PR, merged by the release run after publication | `master accepts only release branches` is red for any other source |
 
-1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). Release CI through `workflow_call` and manual dispatch run the full matrix.
+1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `guards` (file sizes, fmt, plugin and release contracts), the TS jobs, `plugin bundles + tests`, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). Release CI through `workflow_call` and manual dispatch run the full matrix.
 2. **Cut the release.** Create `release/X.Y.Z` from `develop`, run `npm run sync:versions` for X.Y.Z plus the offline lockfile refresh (step 1 below), push, and open the release PR `release/X.Y.Z` → `master`. Its description is the release notes.
 3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. Parallel fast checks (`tests.yml`, `phase: fast`) gate the Rust tests and every bundle build, which then run in parallel from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
 4. **Red** publishes nothing: fix on the release branch and push again. **Green**: `release-manifest` stamps `vX.Y.Z`, publishes both releases and the signed `latest.json`; `promote` then merges the release PR into `master`, merges `master` back into `develop`, and deletes the branch.
 5. **One branch, one version.** After publication a further change needs `release/X.Y.(Z+1)`.
 
 **Which release.** Any Rust (`src-tauri/`, `cli/`) since the last release means an app release, which bundles the frontend; frontend-only changes can ship as a frontend release (below); plugins release separately. Start frontend lanes from `develop`.
+
+**An incompatible frontend wire change moves the API version.** Raise `API_VERSION`, `BUNDLED_MIN/MAX_API_VERSION` (`codeterm-service-core/src/frontend_bundle_api_version.rs`) and the `frontend-release-contract.json` range together; `frontend_wire_digest_is_pinned_to_api_version` fails until they move.
 
 **Versions are one shared sequence.** Every app or frontend release takes the next number, so an app never accepts an older bundled frontend. A patch release takes the next patch. A minor or major release is chosen only by the branch name, for example `release/1.15.0`; the app, CLI, frontend contract and lockfiles follow it.
 
@@ -248,9 +250,12 @@ intentionally, cut the correction as a new patch version through the normal flow
 
 ### Artifact graph and granular reruns
 
-`prepare` starts `quick-checks` (`tests.yml`, `phase: fast`): tree freshness, fmt, clippy,
-TS unit/Vitest/static/generated-type checks, release/plugin contracts and plugin bundles/tests.
-Every check depends only on tree/scope discovery; clippy does not wait for fmt.
+`prepare` starts `quick-checks` (`tests.yml`, `phase: fast`): tree freshness, clippy,
+TS unit/Vitest/static/generated-type checks and plugin bundles/tests, all after `guards`.
+`guards` is one light job holding the cheapest checks in order: file sizes, plugin release
+contracts, fmt, archive-portable test paths, then the Node/Python release contracts. Each
+guard after file sizes runs under `!cancelled()`, so one red guard still reports the rest,
+and the single light runner never runs a heavy check ahead of them.
 No Rust test or receipt job belongs to this gate.
 
 `tests` (`tests.yml`, `phase: long`) needs `prepare` and `quick-checks`, so it queues
@@ -274,7 +279,7 @@ Test code resolves fixture and binary paths at runtime through its crate's
 `test_support::fixture_manifest_dir()` or `cli/tests/support/codeterm_bin.rs`
 (`NEXTEST_BIN_EXE_codeterm`), so a nextest archive (`./build.sh nextest-archive`) still
 runs from another checkout; `scripts/check-archive-portable-test-paths.mjs` enforces
-this in the fast `release contract tests` job.
+this in the fast `guards` job.
 Every platform build needs only `prepare` and `quick-checks` and takes any matching idle
 runner. GitHub queue order is best effort, not strict priority; the live overlap map
 lives in the build-machine README.
@@ -283,9 +288,12 @@ Workflow concurrency includes phase so the fast and long calls cannot supersede 
 No Rust test, platform, receipt or warning job cancels the run on failure: every
 test finishes, so one red run reports every failing test instead of hiding the rest
 behind the first (whole-run cancellation once cost ~10 serial 40-60 minute rounds).
-Only a failed fast check cancels the run (`fast-checks-failed`), since bundles on
-eight, air and ROG start alongside the fast checks; the Linux x64 bundle and the Rust
-tests wait for them. `RELEASE_OVERLAP_FAST_CHECKS=false` makes every build wait instead.
+Only a failed fast check cancels the run, since bundles on eight, air and ROG start
+alongside the fast checks. Release passes `cancel_run: true` to `tests.yml`, and every
+fast job ends with a `failure() && inputs.cancel_run` step that runs `gh run cancel`,
+so the first failure stops in-flight builds without waiting for sibling checks; pull
+requests and pushes keep the default `false`. The Linux x64 bundle and the Rust tests
+wait for the fast checks.
 Bundle builds running alongside a failing Rust test stage finish, but cannot publish.
 `release-manifest` needs every build, `quick-checks` and `tests`; frontend publication
 needs both test stages. Failure, cancellation or a skipped required gate cannot publish.
@@ -976,8 +984,6 @@ powershell.exe -NoProfile -Command "Get-Process codeterm -ErrorAction SilentlyCo
 # 2. Copy fresh binaries into the installed location
 cp C:/Developer/codeterm/src-tauri/target/release/codeterm.exe \
    "$USERPROFILE/AppData/Local/CodeTerm/codeterm.exe"
-cp C:/Developer/codeterm/src-tauri/target/release/codeterm-embed.exe \
-   "$USERPROFILE/AppData/Local/CodeTerm/codeterm-embed.exe"   # only if you touched the sidecar
 
 # 3. Restart
 powershell.exe -NoProfile -Command "Start-Process -FilePath 'C:\Users\dev\AppData\Local\CodeTerm\codeterm.exe'"
@@ -1004,7 +1010,7 @@ codeterm update install \
 ```
 
 `--continue-tab` defaults to `$CODETERM_TAB_ID`. Before detaching, the CLI saves the desk through `/api/session/save` with the continuation; the relaunched daemon delivers it once, after that tab's own resumed session is agent-ready (`codeterm docs TAB-LIFECYCLE`, "Resume after restart"). Every other agent that was mid-turn gets one default continue the same way. The helper:
-1. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
+1. `taskkill /F /IM codeterm.exe`.
 2. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
 3. Launches the freshly installed `codeterm.exe`. It never writes to a tab.
 4. Logs to `%LocalAppData%\codeterm\self-install.log`.
@@ -1043,8 +1049,8 @@ As of 2026-05-12 this skill is the canonical release procedure. No `.claude/agen
 ## Build timing and no-waste contract
 
 Release inputs and the Tauri build use the same `CARGO_TARGET_DIR`, target triple,
-`CARGO_INCREMENTAL=0`, and `embeddings` feature set. `release-inputs` prepares both the
-`codeterm` application and `codeterm-embed` bins in one Cargo invocation, so Tauri can reuse
+`CARGO_INCREMENTAL=0`, and `embeddings` feature set. `release-inputs` prepares the
+`codeterm` application bin so Tauri can reuse
 the dependency graph. The reusable platform jobs do not use Rust target caches; clean
 checkouts therefore remain explicit and reproducible.
 
@@ -1061,8 +1067,8 @@ and `35009190153` (Linux):
 
 The Windows logs show the same `CARGO_BUILD_TARGET` and `CARGO_INCREMENTAL=0` in both steps,
 but no Cargo fingerprint or feature diagnostics. The verified source-level cause is that
-`release-inputs` selected `--bin codeterm-embed` and Tauri selected the `codeterm` application
-target in a second Cargo invocation; the new input command selects both bins together.
+the input preparation and Tauri selected different Cargo targets. The input command now
+selects the application target with the same product features as Tauri.
 
 After the next real release, record the corresponding step durations and tag-to-publish time
 in this table. Read-only timing capture (run IDs are the three workflow runs) is:
@@ -1272,6 +1278,13 @@ same count still fails. A test-only run preserves baseline targets it did not bu
 an incomplete run's inventory over the baseline or hand-increase an allowance.
 
 Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
+
+If Rust test CI shows only `could not compile` without the preceding diagnostics,
+nextest's Cargo JSON stdout was captured without rendering its compiler errors.
+The compile failure path prints `compiler-message` errors through the warning
+collector's `renderedCompilerErrors`; warning artifacts remain warning-only.
+Verify the collector fixture and runner wiring with
+`node --test scripts/tests/collect-rust-warnings.test.mjs scripts/tests/ci-rust-tests.test.mjs`.
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
 

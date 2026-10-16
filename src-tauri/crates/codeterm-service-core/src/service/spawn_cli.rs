@@ -188,5 +188,7 @@ pub fn create_cleared_agent_tab(
     workspace_id: &str,
     _clearance: &LaunchClearance,
 ) -> Result<String, String> {
-    mux.create_tab(workspace_id)
+    let tab_id = mux.create_tab(workspace_id)?;
+    crate::startup::boot_timing::bind_request(&tab_id);
+    Ok(tab_id)
 }

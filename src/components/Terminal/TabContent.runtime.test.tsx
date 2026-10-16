@@ -89,10 +89,61 @@ it("keeps the composer draft and attachment through runtime status changes", asy
   }
 });
 
+it("keeps chat startup visible through a pending runtime response deadline", async () => {
+  const tab: Tab = {
+    id: "pending-deadline", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "thread" },
+    agent_type: "fixture", agent_session_id: "thread", session_binding_nonce: "binding",
+    boot_stage: "agent_launching", agent_booting: true,
+    agent_runtime_state: { state: "degraded", epoch: 2, reason: "Deadline: opaque" },
+  };
+  const state: ExtendedState = {
+    workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string) => {
+    if (command === "chat_start") return new Promise<T>(() => {});
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] }
+      : {};
+    return value as T;
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(
+      <MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+        <MultiplexerActionsContext.Provider value={actions}>
+          <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+            theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+        </MultiplexerActionsContext.Provider>
+      </MuxStateStoreContext.Provider>,
+    ));
+    expect(host.querySelector('[data-testid="chat-setup-state"]')).not.toBeNull();
+    expect(host.querySelector('[role="progressbar"][aria-valuetext]')).not.toBeNull();
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="chat-launch-failed"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    const recoveryButtons = [...host.querySelectorAll("button")].filter(button =>
+      /retry|wake again/i.test((button.getAttribute("aria-label") ?? "") + " " + (button.textContent ?? "")));
+    expect(recoveryButtons).toHaveLength(0);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
 
 it("requests one wake when a sleeping tab becomes visible without awaiting materialization", async () => {
   const tab: Tab = {
     id: "wake-visible-fixture", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, frozen: true, agent_type: "fixture",
+    slept_at_ms: 1000, agent_session_id: "saved", session_binding_nonce: "sleep-binding",
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "saved" },
   };
   const state: ExtendedState = {
     workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
@@ -104,7 +155,12 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
       calls.push(String(args?.tabId));
       return new Promise<T>(() => {});
     }
-    return Promise.resolve({} as T);
+    if (command === "chat_start") return Promise.resolve({
+      text: "", pending: false, start_offset: 0, offset: 1,
+      source_session_id: "saved", session_binding_nonce: "sleep-binding", subscription_id: args?.subscriptionId,
+      messages: [{ id: "saved-row", type: "assistant", content: "persisted-fixture-content" }],
+    } as T);
+    return Promise.resolve((command === "delayed_send_list" ? [] : {}) as T);
   });
   __setListenForTest(async () => () => {});
   const host = document.createElement("div");
@@ -126,11 +182,20 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
     expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).toBeNull();
     await render(true);
     expect(calls).toEqual([tab.id]);
-    expect(host.querySelector('[role="img"][aria-label="Session provider icon"]')).not.toBeNull();
-    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
+    expect(host.textContent).toContain("persisted-fixture-content");
+    expect([...host.querySelectorAll('[role="status"]')].some(status => status.textContent === "Waking…")).toBe(true);
+    expect(host.querySelector('[role="progressbar"][aria-label="Restore progress"]')).toBeNull();
+    const composer = host.querySelector("textarea");
+    expect(composer).not.toBeNull();
     await render(false);
     await render(true);
     expect(calls).toEqual([tab.id]);
+    tab.frozen = false;
+    tab.slept_at_ms = null;
+    tab.boot_stage = "agent_ready";
+    await render(true);
+    expect(host.querySelector("textarea")).toBe(composer);
+    expect(host.textContent).toContain("persisted-fixture-content");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -139,13 +204,12 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
   }
 });
 
-it("projects sleeping, restoring and failed snapshots into the state panel and wires one retry", async () => {
+it("projects sleeping, restoring and failed snapshots without a wake control", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  const retry = vi.fn();
   const render = (tab: Partial<Tab>) => act(async () => root.render(
-    <RestoreStatePanel providerId="fixture" view={restoreStageView(tab)} onRetry={retry} />,
+    <RestoreStatePanel providerId="fixture" view={restoreStageView(tab)} />,
   ));
   try {
     await render({ frozen: true });
@@ -155,11 +219,11 @@ it("projects sleeping, restoring and failed snapshots into the state panel and w
     expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
     await render({ frozen: false, boot_stage: "spawn_failed", boot_failure_reason: "fixture-error" });
     expect(host.querySelector('[role="status"]')?.textContent).toContain("fixture-error");
-    const button = [...host.querySelectorAll("button")].find(button => button.textContent === "Wake again")!;
-    await act(async () => button.click());
-    expect(retry).toHaveBeenCalledTimes(1);
+    expect([...host.querySelectorAll("button")].filter(button => /wake/i.test(button.textContent ?? ""))).toHaveLength(0);
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
   }
 });

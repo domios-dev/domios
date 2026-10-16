@@ -1,5 +1,5 @@
 import { modelMetadata, modelUnavailable, rejectedModelIds } from "./turnErrors";
-import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
+import type { FetchOpts, Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 import { parseModelVariants } from "./modelVariants";
 import { bindingModelSwitchSource } from "./bindingModelSwitch";
 import { opencodeFileDiffs } from "./fileDiffs";
@@ -279,22 +279,56 @@ export function isQuestionMenuFooter(line: string): boolean {
 // Model discovery (requires host.exec, host.fs, etc. passed as parameter or from global host)
 declare const host: Host;
 
-export function discoverOpencodeModels(): ModelInfo[] | null {
-  const raw = host.exec(JSON.stringify({
+const MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1000;
+let modelCatalogue: { stamp: string; since: number; models: ModelInfo[] | null } | null = null;
+let modelDiscoveryInFlight = false;
+
+export function cachedOpencodeModels(): ModelInfo[] | null {
+  return modelCatalogue?.models ?? null;
+}
+
+export function discoverOpencodeModels(binaryFingerprint?: string | null): ModelInfo[] | null {
+  return withOpencodeModels(binaryFingerprint, (models) => models);
+}
+
+export function withOpencodeModels<T>(binaryFingerprint: string | null | undefined, then: (models: ModelInfo[] | null) => T): T {
+  const now = host.unixNowMs();
+  if (modelDiscoveryInFlight && modelCatalogue && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) return then(cachedOpencodeModels());
+  const stamp = binaryFingerprint ?? "unresolved";
+  if (modelCatalogue && modelCatalogue.stamp === stamp && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
+    return then(modelCatalogue.models);
+  }
+  const previous = cachedOpencodeModels();
+  modelCatalogue = { stamp, since: now, models: previous };
+  const started = safeJson(host.execStart(JSON.stringify({
     bin: "opencode",
     args: ["models", "--verbose"],
     timeoutMs: 3000,
-  }));
-  const result = safeJson(raw) as { code?: number; stdout?: string } | null;
+  }))) as { jobId?: string } | null;
+  if (!started?.jobId) return then(previous);
+  modelDiscoveryInFlight = true;
+  return host.awaitJob(started.jobId, (result) => {
+    try {
+      const models = discoveredOpencodeModels(result);
+      modelCatalogue = { stamp, since: host.unixNowMs(), models: models ?? previous };
+      return then(models);
+    } finally {
+      modelDiscoveryInFlight = false;
+    }
+  });
+}
+
+function discoveredOpencodeModels(result: { code?: number; stdout?: string } | null): ModelInfo[] | null {
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
   const models = parseOpencodeModels(result.stdout);
   const db = opencodeDbPath();
   if (!models || !db || !host.fs.fileExists(db)) return models;
   const rows = host.fs.sqliteQuery<{ data: string }>(db,
-    "SELECT data FROM message WHERE octet_length(data) <= ?1 AND json_valid(data) " +
+    "SELECT data FROM (SELECT data, time_updated FROM message ORDER BY time_updated DESC LIMIT 200) " +
+    "WHERE octet_length(data) <= ?1 AND json_valid(data) " +
     "AND json_extract(data, '$.role') = 'assistant' " +
     "AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) " +
-    "ORDER BY time_updated DESC LIMIT 1000",
+    "ORDER BY time_updated DESC LIMIT 200",
     [ASSISTANT_MESSAGE_MAX_BYTES]);
   const rejected = rejectedModelIds(rows.map((row) => {
     const message = safeJson(row.data);
@@ -343,23 +377,48 @@ export function isNonChatModel(id: string): boolean {
 }
 
 // Group usage and balance
-export function discoverOpencodeGroupUsage(): ModelGroupUsage[] {
+const GROUP_USAGE_SQL =
+  "SELECT json_extract(data,'$.providerID') AS g, " +
+  "COUNT(*) AS messages, " +
+  "SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, " +
+  "SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, " +
+  "SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, " +
+  "SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, " +
+  "SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost " +
+  "FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " " +
+  "AND json_extract(data,'$.role')='assistant' " +
+  "AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g";
+export const GROUP_USAGE_TTL_MS = 60_000;
+let groupUsageCache: { stamp: string; atMs: number; rows: ModelUsageRow[] } | null = null;
+
+// The WAL takes every write until a checkpoint, so the stamp covers both files.
+export function opencodeDbStamp(db: string): string | null {
+  const slash = Math.max(db.lastIndexOf("/"), db.lastIndexOf("\\"));
+  if (slash < 0) return null;
+  const name = db.slice(slash + 1);
+  const entries = host.fs.readDir(db.slice(0, slash));
+  const stamps = [name, name + "-wal"].map((file) => {
+    const entry = entries.find((e) => e.name === file);
+    return entry ? entry.size + "@" + entry.modifiedMs : "-";
+  });
+  return stamps[0] === "-" ? null : db + "|" + stamps.join("|");
+}
+
+export function withOpencodeGroupUsage<T>(then: (usage: ModelGroupUsage[]) => T): T {
   const db = opencodeDbPath();
-  if (!db || !host.fs.fileExists(db)) return [];
-  const rows = host.fs.sqliteQuery<ModelUsageRow>(
-    db,
-    "SELECT json_extract(data,'$.providerID') AS g, " +
-      "COUNT(*) AS messages, " +
-      "SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, " +
-      "SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, " +
-      "SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, " +
-      "SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, " +
-      "SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost " +
-      "FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " " +
-      "AND json_extract(data,'$.role')='assistant' " +
-      "AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
-    []
-  );
+  if (!db || !host.fs.fileExists(db)) return then([]);
+  const stamp = opencodeDbStamp(db);
+  const cached = groupUsageCache;
+  if (stamp && cached && cached.stamp === stamp && host.unixNowMs() - cached.atMs < GROUP_USAGE_TTL_MS) {
+    return withGroupBalances(cached.rows, () => then(groupUsageFromRows(cached.rows)));
+  }
+  return host.fs.sqliteQueryAsync<ModelUsageRow, T>(db, GROUP_USAGE_SQL, [], (rows) => {
+    groupUsageCache = stamp ? { stamp, atMs: host.unixNowMs(), rows } : null;
+    return withGroupBalances(rows, () => then(groupUsageFromRows(rows)));
+  });
+}
+
+function groupUsageFromRows(rows: ModelUsageRow[]): ModelGroupUsage[] {
   const out: ModelGroupUsage[] = [];
   for (let i = 0; i < rows.length; i++) {
     const group = rows[i].g;
@@ -375,7 +434,7 @@ export function discoverOpencodeGroupUsage(): ModelGroupUsage[] {
       cost_micros: costMicros,
     };
     if (costMicros > 0) entry.spend_cents = Math.round(costMicros / 10_000);
-    const remaining = groupBalanceCents(group);
+    const remaining = cachedBalanceCents(group);
     if (remaining != null) entry.spend_remaining_cents = remaining;
     out.push(entry);
   }
@@ -390,34 +449,44 @@ const BALANCE_TTL_MS = 60_000;
 const BALANCE_TIMEOUT_MS = 4000;
 let balanceCache: { group: string; atMs: number; cents: number | null } | null = null;
 
-export function groupBalanceCents(group: string): number | null {
-  if (!BALANCE_BY_GROUP[group]) return null;
-  const now = host.unixNowMs();
-  if (balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS) {
-    return balanceCache.cents;
-  }
-  const cents = fetchBalanceCents(group);
-  balanceCache = { group: group, atMs: now, cents: cents };
-  return cents;
+function balanceFresh(group: string, now: number): boolean {
+  return !!balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS;
 }
 
-export function fetchBalanceCents(group: string): number | null {
-  const spec = BALANCE_BY_GROUP[group];
-  if (!spec || typeof host.fetch !== "function") return null;
-  let response: { status?: number; body?: string } | null = null;
-  try {
-    response = safeJson(host.fetch(JSON.stringify({
-      url: spec.url,
-      method: "GET",
-      timeoutMs: BALANCE_TIMEOUT_MS,
-      credential: {
-        id: BALANCE_CREDENTIAL,
-        headers: { Authorization: "Bearer {" + spec.secret + "}" },
-      },
-    }))) as { status?: number; body?: string } | null;
-  } catch (_) {
-    return null;
+function cachedBalanceCents(group: string): number | null {
+  return BALANCE_BY_GROUP[group] && balanceCache && balanceCache.group === group ? balanceCache.cents : null;
+}
+
+// A stale balance is refreshed through a yielded fetch before the usage is built.
+function withGroupBalances<T>(rows: ModelUsageRow[], then: () => T): T {
+  const now = host.unixNowMs();
+  let stale: string | null = null;
+  for (let i = 0; i < rows.length && !stale; i++) {
+    const group = rows[i].g;
+    if (typeof group === "string" && BALANCE_BY_GROUP[group] && !balanceFresh(group, now)) stale = group;
   }
+  if (!stale || typeof host.fetch !== "function" || typeof host.fetch.async !== "function") return then();
+  const group = stale;
+  return host.fetch.async(balanceRequest(group), (response) => {
+    balanceCache = { group: group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
+    return then();
+  });
+}
+
+function balanceRequest(group: string): FetchOpts {
+  const spec = BALANCE_BY_GROUP[group];
+  return {
+    url: spec.url,
+    method: "GET",
+    timeoutMs: BALANCE_TIMEOUT_MS,
+    credential: {
+      id: BALANCE_CREDENTIAL,
+      headers: { Authorization: "Bearer {" + spec.secret + "}" },
+    },
+  };
+}
+
+function balanceCentsFrom(response: { status?: number; body?: string } | null): number | null {
   if (!response || response.status !== 200 || typeof response.body !== "string") return null;
   const body = safeJson(response.body) as
     | { balance_infos?: Array<{ currency?: string; total_balance?: string }> }

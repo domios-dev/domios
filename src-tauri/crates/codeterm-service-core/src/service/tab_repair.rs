@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use serde::Serialize;
 
 use crate::agent::provider_identity::{provider_for_claimed_session, ProviderIdentityEvidence};
@@ -348,7 +349,7 @@ impl ServiceContext {
             outcome,
             None,
         )?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
         Ok(response)
     }
 
@@ -411,7 +412,7 @@ impl ServiceContext {
             outcome,
             Some(plan.report),
         )?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
         Ok(response)
     }
 

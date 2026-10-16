@@ -7,14 +7,10 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-host_triple=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
-case "$host_triple" in *-windows-*) embed_ext=.exe ;; *) embed_ext= ;; esac
-
 make_fixture_repo() {
     local repo=$1
     mkdir -p "$repo/scripts"
-    cp "$ROOT/scripts/test-capped.sh" "$ROOT/scripts/build-gateway-output.mjs" "$ROOT/scripts/prepare-embed-stub.js" \
-        "$ROOT/scripts/bundle-embed.js" "$repo/scripts/"
+    cp "$ROOT/scripts/test-capped.sh" "$ROOT/scripts/build-gateway-output.mjs" "$repo/scripts/"
 }
 
 run_fixture_wrapper() {
@@ -27,7 +23,6 @@ run_fixture_wrapper() {
     ) >"$output" 2>&1
 }
 
-sidecar_rel="src-tauri/bundled-embed/codeterm-embed-${host_triple}${embed_ext}"
 
 base_repo="$TMPDIR/base-wrapper"
 make_fixture_repo "$base_repo"
@@ -155,51 +150,6 @@ if [ "$#" -gt 0 ]; then
     exit 0
 fi
 
-absent_repo="$TMPDIR/absent-sidecar"
-make_fixture_repo "$absent_repo"
-run_fixture_wrapper "$absent_repo" "$TMPDIR/absent.out" 'test -f "$1"' bash "$sidecar_rel"
-[ -f "$absent_repo/$sidecar_rel" ] || {
-    printf 'absent-sidecar: wrapper did not create the embed stub\n' >&2
-    exit 1
-}
-[ "$(grep -c '^\[test-capped\] missing bundled embed sidecar; creating test-only stub\.$' "$TMPDIR/absent.out")" -eq 1 ] || {
-    printf 'absent-sidecar: expected exactly one attributable heal log line\n' >&2
-    exit 1
-}
-
-run_fixture_wrapper "$absent_repo" "$TMPDIR/second-run.out" 'test -f "$1"' bash "$sidecar_rel"
-! grep -q '^\[test-capped\] missing bundled embed sidecar' "$TMPDIR/second-run.out" || {
-    printf 'second-run: existing stub should not be healed again\n' >&2
-    exit 1
-}
-
-canonical_repo="$TMPDIR/canonical-sidecar"
-make_fixture_repo "$canonical_repo"
-mkdir -p "$(dirname "$canonical_repo/$sidecar_rel")"
-printf 'real-sidecar' >"$canonical_repo/$sidecar_rel"
-run_fixture_wrapper "$canonical_repo" "$TMPDIR/canonical.out" 'test "$(cat "$1")" = real-sidecar' bash "$sidecar_rel"
-! grep -q '^\[test-capped\] missing bundled embed sidecar' "$TMPDIR/canonical.out" || {
-    printf 'canonical-sidecar: real sidecar should be a no-op\n' >&2
-    exit 1
-}
-
-bundle_repo="$TMPDIR/bundle-stub"
-make_fixture_repo "$bundle_repo"
-mkdir -p "$bundle_repo/src-tauri/target/release"
-: >"$bundle_repo/src-tauri/target/release/codeterm-embed${embed_ext}"
-if (
-    cd "$bundle_repo"
-    env -u CARGO_TARGET_DIR node -e \
-        'require("./scripts/bundle-embed.js").bundleEmbed(process.env, process.cwd())'
-) >"$TMPDIR/bundle.out" 2>&1; then
-    printf 'bundle-stub: empty embed stub was accepted\n' >&2
-    exit 1
-fi
-grep -q 'empty stub, refusing to bundle' "$TMPDIR/bundle.out" || {
-    printf 'bundle-stub: expected fail-fast empty-stub error\n' >&2
-    exit 1
-}
-
 run_prompt_case() {
     local name=$1
     local expected_exit=$2
@@ -312,10 +262,6 @@ grep -qF 'marker=1' "$TMPDIR/conpty-isolation-marker.out" || {
     printf 'conpty-isolation-marker: wrapper did not export CODETERM_CONPTY_TEST_ISOLATION\n' >&2
     exit 1
 }
-
-windows_sidecar="$base_repo/src-tauri/bundled-embed/codeterm-embed-x86_64-pc-windows-msvc.exe"
-mkdir -p "$(dirname "$windows_sidecar")"
-printf 'real-sidecar' >"$windows_sidecar"
 
 windows_target_output="$TMPDIR/windows-target.out"
 CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc CODETERM_TEST_DEV_HEALTH=healthy \

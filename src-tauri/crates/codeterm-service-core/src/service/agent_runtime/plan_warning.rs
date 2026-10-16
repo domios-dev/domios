@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use crate::{multiplexer::types::TaskBinding, service::ServiceContext};
 use serde::Serialize;
 
@@ -150,7 +151,7 @@ impl ServiceContext {
             );
             text
         });
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::PlanTask);
         notice
     }
 }

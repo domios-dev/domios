@@ -30,7 +30,7 @@ export function chatScrollWriteTarget(viewport: ChatViewportGeometry, requested:
   return Math.abs(target - viewport.scrollTop) < CHAT_TAIL_TOLERANCE_PX ? null : target;
 }
 
-// A pinned tail has one JS writer; a detached reader lets the browser hold content through shifts above it, even mid-gesture.
+// Native anchoring resumes for a detached reader only after gesture ownership ends.
 export function chatOverflowAnchor(mode: ChatViewportMode): "none" | "auto" {
   return mode === "pinned" ? "none" : "auto";
 }

@@ -39,3 +39,18 @@ it("opens the accessible runtime badge and wires Retry once, with outside and Es
     host.remove();
   }
 });
+
+
+it("offers history Retry while the conversation runtime is loaded", async () => {
+  const retry=vi.fn(), host=document.createElement("div");document.body.append(host);
+  const root=createRoot(host);
+  try {
+    await act(async()=>root.render(<AgentRuntimeBanner state={{state:"loaded",epoch:2,history:"failed",historyPages:8,historyError:"fixture-page-nine"}} onRetry={retry} />));
+    const badge=host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!;
+    expect(badge.getAttribute("aria-label")).toBeTruthy();
+    await act(async()=>badge.click());
+    const control=host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
+    expect(control.disabled).toBe(false);
+    await act(async()=>control.click());expect(retry).toHaveBeenCalledTimes(1);
+  } finally { await act(async()=>root.unmount());host.remove(); }
+});

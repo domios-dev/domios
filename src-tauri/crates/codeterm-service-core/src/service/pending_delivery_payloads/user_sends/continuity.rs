@@ -24,6 +24,9 @@ pub(crate) fn can_carry_held_send(record: &UserSendRecord, current: &UserSendAut
         && record.handoff_session.is_none()
         && record.authority.tab_id == current.tab_id
         && record.authority.provider_id == current.provider_id
+        && (record.authority.pty_session_generation.is_none()
+            || current.pty_session_generation.is_some()
+            || current.prelaunch)
         && record
             .authority
             .observed_session_id

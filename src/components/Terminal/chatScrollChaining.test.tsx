@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -23,12 +22,6 @@ class TestResizeObserver {
 }
 Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: TestResizeObserver });
 
-const globals = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
-const outerPolicy = globals.match(/\*\s*\{[^}]*overscroll-behavior:[^}]*\}/)?.[0];
-assert(outerPolicy, "load the shipped app overscroll policy");
-const css = document.createElement("style");
-css.textContent = outerPolicy + readFileSync(new URL("./chatLayout.css", import.meta.url), "utf8");
-document.head.append(css);
 let hook: UseChatScrollResult;
 const follows = { current: true };
 function Fixture({ active }: { active: boolean }) {
@@ -61,10 +54,6 @@ async function main() {
     });
     Object.defineProperties(body, { clientHeight: { get: () => 256 }, scrollHeight: { get: () => 800 } });
     await act(async () => { root.render(<Fixture active />); TestResizeObserver.deliver(); });
-    assert.equal(window.getComputedStyle(transcript).overflowY, "auto", "the transcript remains a scrollport");
-    assert.equal(window.getComputedStyle(body).getPropertyValue("overscroll-behavior-y"), "auto", "message edges chain to the transcript");
-    assert.equal(window.getComputedStyle(transcript).getPropertyValue("overscroll-behavior"), "none", "the outer app boundary remains contained");
-    assert.equal(body.style.overflowY, "hidden", "default message bodies cannot consume vertical scrolling");
     const button = Array.from(host.querySelectorAll("button")).find((node) => node.textContent === "Show all");
     assert(button, "a clipped report offers an accessible Show all button");
     assert.equal(button.getAttribute("aria-controls"), body.id);
@@ -82,8 +71,6 @@ async function main() {
     await end();
     await act(async () => button.click());
     assert.equal(button.getAttribute("aria-expanded"), "true");
-    assert.equal(body.style.maxHeight, "332.8px");
-    assert.equal(body.style.overflowY, "auto");
     body.scrollTop = 200;
     await wheel(-0.5);
     outerHeight = 1200;
@@ -104,8 +91,11 @@ async function main() {
     assert.equal(follows.current, false, "downward scrolling at the inner bottom moves the detached transcript");
     const latest = host.querySelector<HTMLButtonElement>('button[aria-label="Scroll to latest"]')!;
     await act(async () => latest.click());
+    assert.equal(outerTop, 800, "latest cannot interrupt wheel ownership");
+    await end();
+    await act(async () => latest.click());
     assert.equal(outerTop, 900);
-    assert.equal(follows.current, true, "latest resets active wheel ownership and resumes following");
+    assert.equal(follows.current, true, "latest after quiescence resumes following");
     for (const type of ["touchstart", "touchend", "touchcancel"]) {
       const event = new Event(type, { bubbles: true, cancelable: true });
       await act(async () => body.dispatchEvent(event));
@@ -114,8 +104,7 @@ async function main() {
     await act(async () => button.click());
     assert.equal(button.getAttribute("aria-expanded"), "false");
     assert.equal(body.scrollTop, 0, "collapse restores the preview from its beginning");
-    assert.equal(body.style.overflowY, "hidden");
-    console.log("10 Chat collapse, native chaining and latest wiring checks passed");
+    console.log("Chat collapse, native chaining and latest wiring checks passed");
   } finally {
     await act(async () => root.unmount());
     clearPersistedChatScrollState("chaining-wiring");

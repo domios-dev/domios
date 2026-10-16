@@ -24,6 +24,7 @@ pub mod agent_runtime;
 pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub mod lazy_restore;
+pub mod tab_sleep_policy;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
 mod analytics_host;
@@ -64,6 +65,8 @@ pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_in
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
+#[cfg(any(test, feature = "test-support"))]
+pub use orchestrator::launch_test_support;
 pub mod launch_session_detection;
 pub mod local_preview;
 pub(crate) mod mesh_artifacts;
@@ -90,6 +93,9 @@ pub mod prompt_resolution;
 pub use prompt_resolution::tests as prompt_resolution_tests;
 pub(crate) mod protocol_recorder;
 pub use protocol_recorder::ProtocolRecorder;
+mod mux_emit_stats;
+mod mux_emitter;
+pub use mux_emit_stats::{MuxEmitCause, MuxEmitCauseStats};
 pub mod provider_cli;
 mod published_mux_state;
 pub use provider_cli::provider_cli_status as provider_cli_provider_cli_status;
@@ -113,6 +119,7 @@ pub(crate) use orchestrator::role_onboarding_task;
 pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
+pub(crate) mod execution_sandbox;
 mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod output;
@@ -151,6 +158,7 @@ pub use receiver_target::ReceiverTargetError;
 pub mod remote_tabs;
 pub mod remote_workers;
 pub mod reply_relay;
+pub mod restore_admission;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
 pub mod role_identity;
@@ -451,6 +459,7 @@ pub struct BridgeOutboundRx(
 /// shows requests climbing, fires flat, pending stuck true with a growing age.
 #[derive(Default)]
 pub struct MuxEmitStats {
+    pub causes: MuxEmitCauseStats,
     pub requests: AtomicU64,
     pub fires: AtomicU64,
     pub suppressed: AtomicU64,
@@ -678,12 +687,13 @@ impl ServiceContext {
         );
     }
 
-    pub fn emit_state_changed(&self) {
+    pub fn emit_state_changed(&self, cause: MuxEmitCause) {
         publish_mux_state_changed(&self.events);
-        self.emit_state_changed_after_bus_publish();
+        self.emit_state_changed_after_bus_publish(cause);
     }
 
-    pub fn emit_state_changed_after_bus_publish(&self) {
+    pub fn emit_state_changed_after_bus_publish(&self, cause: MuxEmitCause) {
+        self.ext::<Arc<MuxEmitStats>>().causes.request(cause);
         self.publish_authoritative_tab_statuses();
         self.output_stream_mux_changed();
         self.ext::<Arc<crate::service::MuxEmitStats>>()
@@ -701,97 +711,22 @@ impl ServiceContext {
                 .fetch_add(1, Ordering::Relaxed);
             return;
         }
-        // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
-        if self
-            .ext::<crate::service::MuxEmitPending>()
-            .0
-            .swap(true, Ordering::AcqRel)
-        {
-            self.ext::<Arc<crate::service::MuxEmitStats>>()
+        if self.ext::<MuxEmitPending>().0.swap(true, Ordering::AcqRel) {
+            self.ext::<Arc<MuxEmitStats>>()
                 .suppressed
                 .fetch_add(1, Ordering::Relaxed);
-            return;
+        } else {
+            self.ext::<Arc<MuxEmitStats>>()
+                .pending_since_ms
+                .store(wall_now_ms(), Ordering::Relaxed);
         }
-        self.ext::<Arc<crate::service::MuxEmitStats>>()
-            .pending_since_ms
-            .store(wall_now_ms(), Ordering::Relaxed);
-        let ui = self.ui.clone();
-        let service = self.clone();
-        let pending = self.ext::<crate::service::MuxEmitPending>().0.clone();
-        let mux = self.mux.clone();
-        let agent_tracker = self.agent_tracker.clone();
-        let agent_registry = self.agent_registry.clone();
-        let stats = self.ext::<Arc<crate::service::MuxEmitStats>>().clone();
-        let published = self.ext::<Arc<PublishedMuxState>>().clone();
-        let events = self.events.clone();
-        let spawned = std::thread::Builder::new()
-            .name("mux-emit".into())
-            .spawn(move || {
-                let snapshot = Self::coalesce_snapshot(
-                    &mux,
-                    &agent_tracker,
-                    &agent_registry,
-                    &pending,
-                    std::time::Duration::from_millis(50),
-                );
-                match published.publish(snapshot.generation, &snapshot) {
-                    Ok(true) => {
-                        events.publish_generic("mux-state-changed", serde_json::json!({}));
-                    }
-                    Ok(false) => {}
-                    Err(error) => log::error!("[mux-snapshot] publication failed: {error}"),
-                }
-                if let Err(error) =
-                    crate::service::session_persist::submit_session_snapshot_with_intent(
-                        &service,
-                        &mux,
-                        crate::session::store::SaveIntent::PreserveDesk,
-                    )
-                {
-                    log::warn!("[session-persist] coalesced desk submission failed: {error}");
-                }
-                stats.pending_since_ms.store(0, Ordering::Relaxed);
-                if !stats.frozen.load(Ordering::Acquire) {
-                    stats.fires.fetch_add(1, Ordering::Relaxed);
-                    ui.emit_native(
-                        "mux-state-changed",
-                        serde_json::to_value(&snapshot).unwrap_or_default(),
-                    );
-                }
-            });
-        // Evidence build: surface a spawn failure instead of silently latching.
-        // The latch (pending stuck true) is intentionally left in place to observe.
-        if let Err(e) = spawned {
-            log::error!("[events] mux coalesce thread spawn FAILED: {e} — emit latch STUCK");
-        }
+        self.ext::<mux_emitter::MuxEmitter>()
+            .request(self, None, Some(cause));
     }
 
     /// Socket mutations use the same published view and coalescing as local mutations.
     pub fn emit_mux_state_changed_empty(&self) {
-        self.emit_state_changed();
-    }
-
-    /// Sleep out the coalesce window, then read a fresh snapshot. The pending
-    /// flag is cleared BEFORE the read so any mutation landing after this point
-    /// opens a new window (its own emit) rather than being swallowed; mutations
-    /// that landed during the window are captured by reading last.
-    ///
-    /// Uses `snapshot_with_status` (not the plain `snapshot`) — this is the
-    /// ONLY path that keeps a browser tab's `tabStatuses` fresh between page
-    /// loads. Without it, `tab_statuses` here is always empty and the
-    /// reducer's merge (`incoming ?? keep-stale`) leaves a synthetic `Waiting`
-    /// (set by `/prompt/clear`'s pending_prompt-derived override) stuck
-    /// forever once the underlying PTY stops transitioning Idle/Working.
-    fn coalesce_snapshot(
-        mux: &MuxState,
-        agent_tracker: &AgentTrackerState,
-        agent_registry: &AgentRegistry,
-        pending: &AtomicBool,
-        delay: std::time::Duration,
-    ) -> crate::multiplexer::state::MultiplexerSnapshot {
-        std::thread::sleep(delay);
-        pending.store(false, Ordering::Release);
-        status_reconciliation::snapshot_with_reconciled_status(mux, agent_tracker, agent_registry)
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
     }
 
     pub(crate) fn emit_tab_title_pinned(&self, tab_id: &str, title: &str) {
@@ -807,22 +742,14 @@ impl ServiceContext {
         });
     }
 
-    /// Emit a focus-change event to the frontend. Delayed 75 ms so it always
-    /// arrives AFTER the coalesced 50 ms `mux-state-changed` window — this way
-    /// the frontend's structural state is up to date before it tries to apply
-    /// focus to (potentially newly created) tabs. Frontend listener also has a
-    /// short retry as defense-in-depth.
     pub(crate) fn emit_tab_focus_changed(&self, tab_id: &str) {
+        restore_admission::notify_changed();
         self.events
             .publish(codeterm_events::SystemEvent::TabFocused {
                 tab_id: tab_id.to_string(),
             });
-        let ui = self.ui.clone();
-        let payload = serde_json::json!({"tab_id": tab_id});
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(75));
-            ui.emit_native("tab-focused", payload);
-        });
+        self.ext::<mux_emitter::MuxEmitter>()
+            .request(self, Some(tab_id.to_string()), None);
     }
 
     pub fn kill_ptys(&self, pty_ids: &[String]) {

@@ -1,4 +1,4 @@
-import { describeError } from "./describeError";
+import { describeError, isPendingRuntimeDeadline } from "./describeError";
 export interface AgentRuntimeState {
   auth?: "signedIn"|"signedOut"|"unknown";
   loginMethods?: ("browser"|"device"|"apiKey")[];
@@ -10,6 +10,29 @@ export interface AgentRuntimeState {
   reason?: string | null;
   active_turn_started_at_ms?: number | null;
   last_turn_duration_ms?: number | null;
+  history?: RuntimeHistoryState;
+  historyPages?: number;
+  historyError?: string;
+}
+
+export type RuntimeHistoryState = "loading" | "complete" | "failed";
+
+export function runtimeResponseDeadlinePending(
+  state: AgentRuntimeState | null | undefined,
+  bootFailureReason?: string | null,
+): boolean {
+  if (state?.state === "loaded" && state.history !== "failed") return false;
+  return isPendingRuntimeDeadline(bootFailureReason)
+    || ((state?.state === "degraded" || state?.state === "loading") && isPendingRuntimeDeadline(state.reason))
+    || (state?.state === "loaded" && state.history === "failed" && isPendingRuntimeDeadline(state.historyError));
+}
+
+/** True when a history replay just finished, so the attached transcript must re-read its snapshot. */
+export function runtimeHistorySettled(
+  previous: RuntimeHistoryState | undefined,
+  next: RuntimeHistoryState | undefined,
+): boolean {
+  return previous === "loading" && (next === "complete" || next === "failed");
 }
 
 export interface AgentRuntimeStateEvent {
@@ -49,16 +72,29 @@ export function runtimeStateFromEvent(
 }
 
 export function beginRuntimeRetry(current: AgentRuntimeState | null): AgentRuntimeState | null {
+  if (current?.state === "loaded" && current.history === "failed") return { ...current, history:"loading", historyError:undefined };
   if (!current || current.state === "loading" || current.state === "loaded") return current;
   return { ...current, state: "loading" };
 }
 
 export function runtimeRetryFailed(current: AgentRuntimeState | null, reason: string): AgentRuntimeState | null {
+  if (current?.state === "loaded" && current.history === "loading") return { ...current, history:"failed", historyError:reason };
   if (!current || current.state !== "loading") return current;
   return { ...current, state: "degraded", reason: reason.trim() || current.reason || "Agent runtime unavailable" };
 }
 
 export function runtimeStatusPresentation(state: AgentRuntimeState | null, startupOwned = false) {
+  if (runtimeResponseDeadlinePending(state)) {
+    if (startupOwned) return null;
+    return { severity: "transient" as const, label: "Agent runtime is taking longer than usual",
+      reason: "The current runtime response is still pending.",
+      details: state?.reason?.trim() || state?.historyError?.trim() || null, canRetry: false };
+  }
+  if (state?.state === "loaded" && state.history === "failed") {
+    const details = state.historyError?.trim() || `History page ${(state.historyPages ?? 0)+1} could not be loaded`;
+    return { severity:"action_needed" as const, label:"Chat history incomplete",
+      reason:describeError(details,{operation:"loading older messages"}).title, details, canRetry:true };
+  }
   if (!state || state.state === "loaded") return null;
   if (startupOwned && state.state === "loading") return null;
   const loading = state.state === "loading";

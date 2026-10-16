@@ -2,6 +2,13 @@ import type { HttpMethod, TransportClient } from "../transportClient";
 import { describe, expect, it } from "vitest";
 import { createTabsTransport, type TabsTransportClient } from "./tabs";
 
+it("carries the client's known window to chat attach", async () => {
+  const { transport, calls } = fixture();
+  const knownWindow = { source_session_id: "own", session_binding_nonce: "nonce", end_offset: 123, file_length: 125, cursor: "opaque" };
+  await transport.chat_start({ tabId: "tab", subscriptionId: "sub", knownWindow });
+  expect(calls[0].body).toEqual({ subscriptionId: "sub", knownWindow });
+});
+
 function fixture(responses: unknown[] = [{}]) {
   const calls: Array<{ method: string; path: string; body: unknown; opts: unknown }> = [];
   const client: TabsTransportClient = {
@@ -16,9 +23,29 @@ function fixture(responses: unknown[] = [{}]) {
   return { calls, transport: createTabsTransport(client) };
 }
 
+it("reads child history with root authority and no send payload",async()=>{
+  const {transport,calls}=fixture();
+  await transport.agent_runtime_child_history({tabId:"owned",threadId:"child/a",request:{rootThreadId:"root",bindingNonce:"nonce",epoch:4}});
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({method:"GET",path:"/api/tabs/owned/agent/runtime/children/child%2Fa/history?rootThreadId=root&bindingNonce=nonce&epoch=4",body:undefined});
+});
+
+it("lists owned background processes and stops one through the same bound thread", async () => {
+  const request = {rootThreadId:"root",bindingNonce:"nonce",epoch:4};
+  const {transport,calls}=fixture();
+  await transport.agent_runtime_background_processes({tabId:"owned",request});
+  await transport.agent_runtime_stop_background_process({tabId:"owned",request:{...request,threadId:"child",processId:"process"}});
+  expect(calls).toMatchObject([
+    {method:"GET",path:"/api/tabs/owned/agent/runtime/background-processes?rootThreadId=root&bindingNonce=nonce&epoch=4",body:undefined},
+    {method:"POST",path:"/api/tabs/owned/agent/runtime/background-processes",body:{...request,threadId:"child",processId:"process"}},
+  ]);
+});
+
 const simple = [
   ["wake_tab", "POST", "/api/tabs/tab/wake"],
   ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],
+  ["agent_runtime_goal", "POST", "/api/tabs/tab/agent/runtime/goal"],
+  ["agent_runtime_reset_credits", "POST", "/api/tabs/tab/agent/runtime/reset-credits"],
   ["agent_runtime_login", "POST", "/api/tabs/tab/agent/runtime/login"],
   ["agent_runtime_retry", "POST", "/api/tabs/tab/agent/runtime/retry"],
   ["chat_send_admissions", "POST", "/api/tabs/tab/chat-send/admissions"],
@@ -80,6 +107,13 @@ describe("tab command HTTP contract", () => {
     await transport[name](args);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ method, path, opts: { callerTabId: "caller" } });
+  });
+
+  it("preserves reset confirmation and retry UUID", async () => {
+    const {transport,calls}=fixture();
+    const request={action:"redeem",confirmed:true,idempotencyKey:"confirmation-key"};
+    await transport.agent_runtime_reset_credits({tabId:"owned",request});
+    expect(calls[0]).toMatchObject({method:"POST",path:"/api/tabs/owned/agent/runtime/reset-credits",body:request});
   });
 
   it("preserves captured prompt identity and native value on the existing response route", async () => {
@@ -208,4 +242,14 @@ describe("provider restart transport", () => {
     expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/main/agent/restart",
       body: { fresh: false, provider: "opaque-provider" } });
   });
+});
+
+
+it("carries explicit Fast mode on and off through the model Apply request", async () => {
+  for (const fastMode of [true, false]) {
+    const { transport, calls } = fixture();
+    await transport.switch_agent_model({ tabId: "owned", model: "selected", reasoningEffort: "high", fastMode });
+    expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/owned/agent/model",
+      body: { model: "selected", reasoning_effort: "high", fast_mode: fastMode } });
+  }
 });

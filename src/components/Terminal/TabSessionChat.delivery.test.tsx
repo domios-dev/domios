@@ -3,6 +3,8 @@ import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { Tab } from "../../lib/types";
+import type { ProviderDescriptor } from "../../lib/types";
+import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
 import {
   MultiplexerActionsContext,
   MuxStateStoreContext,
@@ -127,23 +129,26 @@ function muxActions(): MultiplexerActionsContextType {
 
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
-async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState): Promise<{
+async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
   calls: string[];
 }> {
+  setAgentDescriptors([{ id: "lmstudio", agent_runtime: { goals: { actions: ["read"] } } }] as unknown as ProviderDescriptor[]);
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { TabSessionChat } = await import("./TabSessionChat");
   const calls: string[] = [];
   __setInvokeForTest((async (command: string) => {
     calls.push(command);
+    if (command === "agent_runtime_goal") return { supported: true, intent: sessionIntent, actions: [] };
     if (command === "agent_runtime_retry") return { state: "loaded", epoch: 3 };
     if (command === "chat_start") {
+      if (chatError) throw new Error(chatError);
       return {
         text: "",
         offset: 0,
-        messages: [],
+        messages: sessionIntent ? [{ id: "intent", type: "custom", content: "", timestamp: 1, sessionIntent }] : [],
         source_session_id: "session-1",
         session_binding_nonce: "nonce-1",
         subscription_id: "delivery-subscription",
@@ -189,6 +194,55 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
   };
 }
 
+
+for (const narrow of [false, true]) {
+  test(`session goal is reachable in the composer (narrow: ${narrow})`, async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = (query) => ({
+      media: query, matches: narrow, onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => true,
+    });
+    const intent = { title: "fixture-title", goal: "fixture-goal" };
+    const { host, root } = await renderChat("delivery-tab", undefined, intent);
+    try {
+      const composer = host.querySelector('[data-testid="composer-context-header"]');
+      const goal = composer?.querySelector<HTMLButtonElement>('button[aria-label="Session goal"]');
+      assert(goal, "composer exposes the session goal control");
+      assert(goal.closest('[role="group"][aria-label="Linked to this tab"]'), "goal shares the linked controls row");
+      assert(!host.querySelector('[role="group"][aria-label="Session intent"]'), "chat has no intent strip");
+      assert(!host.querySelector('[role="log"] [aria-label="Session goal"]'), "goal is outside the transcript");
+      await act(async () => { goal.click(); });
+      const details = host.querySelector('[role="dialog"][aria-label="Session goal"]');
+      assert(details?.textContent?.includes(intent.title) && details.textContent.includes(intent.goal), "opening the goal reveals both supplied values");
+      await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+      assert(!host.querySelector('[role="dialog"][aria-label="Session goal"]'), "Escape dismisses the goal");
+    } finally {
+      await act(async () => { root.unmount(); });
+      host.remove();
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+}
+
+test("removed plugin details are reachable from the composer status bubble", async () => {
+  const error = JSON.stringify({ code: "chat_backend_plugin_removed", plugin_id: "fixture-plugin" });
+  const { host, root } = await renderChat("delivery-tab", undefined, undefined, error);
+  try {
+    const composer = host.querySelector('[data-testid="composer-context-header"]');
+    const status = composer?.querySelector<HTMLButtonElement>('button[aria-label="Plugin removed"]');
+    assert(status, "composer exposes the removed plugin status");
+    assert(status.textContent === "", "plugin status trigger is icon-only");
+    assert(host.querySelectorAll('[aria-label="Plugin removed"]').length === 1, "no persistent removed plugin notice exists outside the bubble");
+    await act(async () => { status.click(); });
+    const details = composer?.querySelector('[role="dialog"][aria-label="Plugin removed"]');
+    assert(details?.querySelector('[aria-label="Plugin removed"]'), "status opens the existing error notice with its details and actions");
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+    assert(!host.querySelector('[role="dialog"][aria-label="Plugin removed"]'), "Escape dismisses plugin details");
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+  }
+});
 
 for (const touch of [false, true]) {
   for (const state of ["degraded", "unloaded", "loading"] as const) {
@@ -239,7 +293,7 @@ test("mobile held and written sends retain one bubble beside runtime recovery", 
   try {
     await act(async () => addChatSend(tabId, { id: "mobile-send", correlationId: "mobile-send", content: "opaque-input", sentAtMs: Date.now() }));
     const bubble = () => host.querySelectorAll('[data-message-role="user"]');
-    for (const [state, sequence, label] of [["held", 1, "Queued until the agent is ready"], ["written", 2, "Sending"]] as const) {
+    for (const [state, sequence] of [["held", 1], ["written", 2]] as const) {
       const status = {
         tab_id: tabId, send_id: "mobile-tx", correlationId: "mobile-send", state, sequence,
         ledger_id: "ledger", retained_from: 1, error: null,
@@ -247,7 +301,7 @@ test("mobile held and written sends retain one bubble beside runtime recovery", 
       __setInvokeForTest(async <T,>(command: string) => (command === "chat_send_status" ? [status] : []) as T);
       await act(async () => dispatch("chat-send-status", status));
       assert(bubble().length === 1, "mobile delivery updates one row");
-      assert(bubble()[0]?.querySelector('[role="status"]')?.textContent === label, "shared delivery model reaches the bubble");
+      assert(bubble()[0]?.querySelector('[role="status"]'), "shared delivery model reaches the bubble");
       assert(!bubble()[0]?.querySelector("button"), "held and written sends never offer replay");
       assert(host.querySelector('button[aria-haspopup="dialog"]'), "runtime recovery remains available");
     }

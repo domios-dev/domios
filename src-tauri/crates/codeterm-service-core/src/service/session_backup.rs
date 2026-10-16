@@ -1,4 +1,5 @@
 use crate::multiplexer::state::SnapshotMergeReport;
+use crate::service::MuxEmitCause;
 use crate::session::store::SessionBackupInfo;
 use crate::session::SessionState;
 
@@ -42,7 +43,7 @@ impl super::ServiceContext {
             report.tabs_added,
             report.tabs_already_present
         );
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::SessionRestore);
         super::session_persist::persist_session_after_mutation(
             self,
             super::session_persist::SessionPersistUrgency::Prompt,

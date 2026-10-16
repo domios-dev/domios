@@ -1,3 +1,4 @@
+import { goalPlan, goalResponse, goalIntent } from "./runtimeGoal";
 import type {
   RuntimeContext, Operation, RuntimePlan, RuntimeStep, RpcReply, RuntimeSettings,
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
@@ -5,15 +6,19 @@ import type {
 import { object, text, list, userThread, steerRefused, archivedResume } from "./runtimeProtocol";
 import { HISTORY_CHUNK_BYTES, serializedBytes, sanitizeHistory, historyItem } from "./runtimeHistoryBounds";
 import { json } from "./runtimeMessages";
+import { pagedHistoryPlan, pagedHistoryResponse } from "./runtimeHistoryPager";
 import { projectHistoryItem } from "./runtimeStoredHistory";
 import { loginPlan, loginResponse } from "./runtimeLogin";
 import { rateLimitEvents } from "./runtimeUsage";
+import {resetOutcome} from "./resetCredits";
 import { accountAuth } from "./runtimeAuth";
+import {backgroundOwns, backgroundPlan, backgroundResponse} from "./runtimeBackground";
 import { interruptTargets } from "./runtimeInterrupt";
+import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings } from "./runtimeSettings";
+import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexReportedSettings } from "./runtimeSettings";
 export { runtimeReduce } from "./runtimeReduce";
 
 function fail(code: RuntimeFailure["code"], message: string): never {
@@ -26,7 +31,7 @@ function request(method: string, params: unknown, state: unknown = {stage:method
 function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instructions?: string): Record<string,unknown> {
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
-  return {cwd:ctx.cwd,model:settings.model,threadSource:"user",config:codexThreadConfig(settings),
+  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:codexThreadConfig(settings),
     approvalPolicy:policies.approvalPolicy,approvalsReviewer:policies.approvalsReviewer,
     sandbox:({readOnly:"read-only",workspaceWrite:"workspace-write",dangerFullAccess:"danger-full-access"} as Record<string,string>)[String(sandbox)],
     ...(instructions !== undefined ? {developerInstructions:instructions} : {})};
@@ -40,22 +45,39 @@ function turnParams(ctx: RuntimeContext, op: Extract<Operation,{kind:"submitTurn
     else fail("invalid_schema","Attachment has no image source");
   }
   return {threadId:op.threadId,clientUserMessageId:op.sendId,input,cwd:ctx.cwd,
-    ...codexRuntimePolicy(op.settings),model:op.settings.model,effort:op.settings.effort};
+    ...codexRuntimePolicy(op.settings),...codexServiceTier(op.settings),model:op.settings.model,effort:op.settings.effort};
 }
 function validateBinding(ctx: RuntimeContext, op: Operation): void {
-  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId) fail("binding_mismatch","Thread differs from the bound thread");
+  if (op.kind === "backgroundProcesses") {
+    if (!backgroundOwns(ctx,op.threadId)) fail("binding_mismatch","Background thread is not owned");
+    return;
+  }
+  if (op.kind === "readHistory" && !ctx.threadId) fail("binding_mismatch","History requires a bound root thread");
+  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId
+    && !(op.kind === "readHistory" && descendantThread(ctx,op.threadId))) fail("binding_mismatch","Thread differs from the bound thread");
   if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail("binding_mismatch","Active turn differs from the bound turn");
 }
 
+function historyTarget(ctx: RuntimeContext, op: Operation, plan: RuntimePlan): RuntimePlan {
+  if (op.kind !== "readHistory" || op.threadId === ctx.threadId || plan.action.kind !== "request") return plan;
+  return {...plan,action:{...plan.action,call:{...plan.action.call,target:{threadId:op.threadId}}}};
+}
+
 export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
+  return historyTarget(ctx,op,planOperation(ctx,op));
+}
+
+function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
   validateBinding(ctx,op);
   switch (op.kind) {
+    case "backgroundProcesses": return backgroundPlan(ctx,op);
     case "initialize":
       return request("initialize",{clientInfo:{name:"domios",version:ctx.hostVersion},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}});
     case "openThread": return request("thread/start",settingsParams(ctx,op.settings,op.instructions));
     case "resumeThread": return request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true});
     case "readHistory":
-      return request("thread/turns/list",{threadId:op.threadId,itemsView:"notLoaded",sortDirection:"asc",limit:8,cursor:op.cursor},
+      if (op.order === "desc") return pagedHistoryPlan(op);
+      return request("thread/turns/list",{threadId:op.threadId,itemsView:"notLoaded",sortDirection:op.order ?? "asc",limit:8,cursor:op.cursor},
         {stage:"turns",turns:[],cursor:null,seq:0});
     case "submitTurn": {
       const params = turnParams(ctx,op);
@@ -74,17 +96,25 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
       return {action:{kind:"reply",requestId:op.requestId,result:{kind:"success",value:runtimeAnswer(pending.method,pending.params,op.requestId,op.answer)}},state:null};
     }
     case "control": {
+      if (op.action === "readResetCredits") return request("account/rateLimits/read",{exclude_reset_credit_details:object(op.value).details !== true});
+      if (op.action === "redeemResetCredit") {
+        const key = text(object(op.value).idempotencyKey);
+        if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail("invalid_schema","A confirmation UUID is required");
+        return request("account/rateLimitResetCredit/consume",{idempotency_key:key});
+      }
       if (op.action === "login") return loginPlan(op.value);
       if (op.action === "auth") return request("account/read",{refreshToken:false},{stage:"auth"});
       const thread = op.threadId ?? ctx.threadId;
       if (!thread) fail("binding_mismatch","Control requires the bound thread");
+      if (op.action === "goal") return goalPlan(thread,op.value);
       if (op.action === "compact") return request("thread/compact/start",{threadId:thread});
       if (op.action === "restoreContext") return request("thread/inject_items",{threadId:thread,items:restoreContextItems(op.value)});
       if (!["model","effort","mode","settings"].includes(op.action)) fail("unsupported",`Unsupported control: ${op.action}`);
       const settings = op.action === "settings" ? {...ctx.settings,...object(op.value)} : {...ctx.settings,[op.action]:op.value};
       for (const key of ["model","effort","mode"] as const) if (settings[key] !== undefined && typeof settings[key] !== "string") fail("invalid_schema",`Invalid ${key}`);
+      if (settings.fastMode !== undefined && typeof settings.fastMode !== "boolean") fail("invalid_schema","Invalid fastMode");
       const parsed = settings as RuntimeSettings;
-      return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
+      return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),...codexServiceTier(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
     }
   }
 }
@@ -96,14 +126,41 @@ function continuation(plan: RuntimePlan, beforeAcceptance?: boolean): RuntimeSte
   return {kind:"continue",plan,...(beforeAcceptance ? {beforeAcceptance} : {})};
 }
 export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
+  const step = respondOperation(ctx,op,raw,reply);
+  return step.kind === "continue" ? {...step,plan:historyTarget(ctx,op,step.plan)} : step;
+}
+
+function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
   validateBinding(ctx,op);
+  if (op.kind === "backgroundProcesses") return backgroundResponse(op,reply);
   const state = object(raw);
+  if (op.kind === "control" && op.action === "goal") return goalResponse(op.threadId ?? ctx.threadId!,state,reply);
+  if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns"
+    && !op.cursor && reply.error.code === -32600
+    && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
+    return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"unmaterialized"}));
+  if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
+    const thread = object(object(reply.value).thread);
+    if (!historyThread(ctx,reply.value,op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
+      return refused("Empty thread identity unverified");
+    return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:[],openItems:[],...(op.order ? {order:op.order} : {})}};
+  }
+  if (op.kind === "readHistory" && state.pager === 1) {
+    if (reply.kind === "error" && reply.error.code === -32601 && ["turns","items"].includes(String(state.stage)))
+      return historyComplete(op,{items:[],openItems:[]});
+    return pagedHistoryResponse(op,state,reply);
+  }
   if (reply.kind === "error") {
+    const smaller = object(reply.error.data).historyPageLimit;
+    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097
+      && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
+      return historyItems(op,{...state,historyItemLimit:smaller},text(state.cursor));
+    if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"}};
     if (op.kind === "initialize" && state.stage === "initializeLimits") return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent]};
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
     if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
-      return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",seq:0}));
+      return historyComplete(op,{items:[],openItems:[]});
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error,op.activeTurnId))
       return continuation(request("turn/start",turnParams(ctx,op)),true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived
@@ -118,16 +175,14 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
       if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{stage:"initializeAccount"}));
       if (state.stage === "initializeAccount") {
         const auth = accountAuth(value);
-        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read",{}, {stage:"initializeLimits",auth}));
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read",{exclude_reset_credit_details:true}, {stage:"initializeLimits",auth}));
         return {kind:"complete",result:{kind:"initialized"},events:[auth]};
       }
-      return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent,...rateLimitEvents(value.rateLimits)]};
+      return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent,...rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)]};
     case "openThread": {
-      if (state.stage === "materialize") return {kind:"complete",result:{kind:"threadLoaded",threadId:String(state.threadId),settings:state.settings as RuntimeSettings}};
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
-      return continuation(request("thread/inject_items",{threadId,items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]},
-        {stage:"materialize",threadId,settings:codexEffectiveSettings(op.settings,value)}));
+      return {kind:"complete",result:{kind:"threadLoaded",threadId,settings:codexEffectiveSettings(op.settings,value)}};
     }
     case "resumeThread": {
       if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true}));
@@ -146,39 +201,35 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
       return {kind:"complete",result:{kind:"done"}};
     }
     case "control": {
+      if (op.action === "readResetCredits") return {kind:"complete",result:{kind:"done"},events:rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)};
+      if (op.action === "redeemResetCredit") {
+        if (state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"},events:rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)};
+        const outcome = resetOutcome(value);
+        if (!outcome) return refused("Unknown reset credit outcome");
+        if (outcome === "reset") return continuation(request("account/rateLimits/read",{exclude_reset_credit_details:false},{stage:"refreshResetCredits"}));
+        return {kind:"complete",result:{kind:"resetCreditConsumed",outcome}};
+      }
       if (op.action === "login") return loginResponse(state,value);
       if (state.stage === "auth") return {kind:"complete",result:{kind:"done"},events:[accountAuth(value)]};
-      return {kind:"complete",result:{kind:"done"},...(state.stage === "thread/settings/update" ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
+      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).fastMode !== undefined
+        && codexReportedSettings(value).fastMode === undefined;
+      return {kind:"complete",result:{kind:"done"},...(state.stage === "thread/settings/update" && !awaitingTier ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
     }
     case "answer": case "answerQuestion": return {kind:"complete",result:{kind:"done"}};
   }
 }
 
 function historyResponse(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>, value: Record<string,unknown>): RuntimeStep {
-  if (state.stage === "snapshot") {
-    if (!userThread(value,op.threadId)) return refused("History snapshot thread identity unverified");
-    const turns = object(value.thread).turns;
-    if (!Array.isArray(turns)) return refused("Missing history snapshot turns");
-    let collected: Record<string,unknown> = {...state,items:[],openItems:[],questions:[]};
-    for (const raw of turns.slice(Number(state.snapshotTurn ?? 0))) {
-      const turn = object(raw);
-      if (!text(turn.id) || !Array.isArray(turn.items)) return refused("Missing history snapshot turn items");
-      collected = collectHistoryItems(op,collected,turn,turn.items);
-      if (collected.offset != null) return streamHistory(op,continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},
-        {...collected,stage:"snapshot",snapshotTurn:turns.indexOf(raw)})),collected);
-    }
-    return historyGoal(op,collected);
-  }
   if (state.stage === "goal") {
     const objective = text(object(sanitizeHistory(object(value.goal))).objective);
-    if (objective) state.items = [...list(state.items),{id:"thread:goal",seq:Number(state.seq)+1,type:"custom",content:"",sessionIntent:{goal:objective}}];
+    if (objective) state.items = [...list(state.items),{id:"thread:goal",seq:Number(state.seq)+1,type:"custom",content:"",sessionIntent:goalIntent(value.goal) ?? {goal:objective}}];
     return historyComplete(op,state);
   }
   if (!Array.isArray(value.data)) return refused("Missing history page data");
   if (state.stage === "turns") {
     const source = list(value.data).map(object);
     if (source.length > 8 || source.some(turn=>typeof turn.id !== "string" || !turn.id || turn.id.length > 4096)) return refused("Invalid history turn page");
-    const turns = source.map(turn=>({id:turn.id,status:turn.status === "inProgress" ? "inProgress" : "completed",
+    const turns = (op.order === "desc" ? [...source].reverse() : source).map(turn=>({id:turn.id,status:turn.status === "inProgress" ? "inProgress" : "completed",
       startedAt:typeof turn.startedAt === "number" && Number.isFinite(turn.startedAt) ? turn.startedAt : null}));
     const next = text(value.nextCursor);
     if (next && (next.length > 4096 || next === op.cursor)) return refused("Repeated history cursor");
@@ -227,7 +278,7 @@ function collectHistoryItems(op: Extract<Operation,{kind:"readHistory"}>, state:
 function historyItems(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>, cursor?: string): RuntimeStep {
   const turn = object(list(state.turns)[Number(state.index)]);
   if (!text(turn.id)) return refused("Missing history turn id");
-  return continuation(request("thread/items/list",{threadId:op.threadId,turnId:turn.id,sortDirection:"asc",limit:100,cursor},{...state,cursor:cursor ?? null}));
+  return continuation(request("thread/items/list",{threadId:op.threadId,turnId:turn.id,sortDirection:"asc",limit:Number(state.historyItemLimit ?? 100),cursor},{...state,historyItemLimit:Number(state.historyItemLimit ?? 100),cursor:cursor ?? null}));
 }
 function historyGoal(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>): RuntimeStep {
   if (text(state.nextCursor)) return historyComplete(op,state);
@@ -236,7 +287,8 @@ function historyGoal(op: Extract<Operation,{kind:"readHistory"}>, state: Record<
 function historyComplete(op: Extract<Operation,{kind:"readHistory"}>, state: Record<string,unknown>): RuntimeStep {
   return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:list(state.items) as ChatMsg[],openItems:list(state.openItems) as OpenItem[],
     ...(text(state.nextCursor) ? {nextCursor:String(state.nextCursor)} : {}),
-    ...(list(state.questions).length ? {questions:list(state.questions) as RuntimeHistoryQuestion[]} : {})}};
+    ...(list(state.questions).length ? {questions:list(state.questions) as RuntimeHistoryQuestion[]} : {}),
+    ...(op.order ? {order:op.order} : {})}};
 }
 
 function streamHistory(op: Extract<Operation,{kind:"readHistory"}>, step: RuntimeStep, state: Record<string,unknown>): RuntimeStep {

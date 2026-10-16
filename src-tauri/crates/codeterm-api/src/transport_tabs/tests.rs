@@ -41,7 +41,10 @@ fn transport_tabs_contract_attach_replay_and_truncation() {
     output.append("pty", b"first");
     output.append("pty", &[0x1b, 0xff, 0x82, 0xac]);
     let (bytes, offset) = output.read_since("pty", 0);
-    assert_eq!(output.get("pty"), Some(&[0x1b, 0xff, 0x82, 0xac][..]));
+    assert_eq!(
+        output.copy("pty").as_deref(),
+        Some(&[0x1b, 0xff, 0x82, 0xac][..])
+    );
     assert_eq!(bytes, b"first\x1b\xff\x82\xac");
     assert_eq!(offset, 9);
     for _client in ["desktop", "browser"] {
@@ -55,7 +58,8 @@ fn transport_tabs_contract_attach_replay_and_truncation() {
         frame,
         json!({
             "tab_id": "tab", "pty_id": "pty", "boot": "boot",
-            "output": String::from_utf8_lossy(&bytes), "data": bytes, "offset": 9
+            "b64": base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &bytes),
+            "offset": 9
         })
     );
 

@@ -359,6 +359,9 @@ pub struct WebhookReceiverCap {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub record_sources:
+        std::collections::BTreeMap<String, crate::jsonl_window::records::RecordSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
     #[serde(default)]

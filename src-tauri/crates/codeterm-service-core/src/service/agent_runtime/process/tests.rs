@@ -2,8 +2,12 @@ use super::*;
 use codeterm_plugin::agent_runtime::{AgentRuntimeCommand, AgentRuntimeProtocol, RpcCall};
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
+        fast_mode: false,
+        background_processes: false,
+        goals: None,
         stored_history: false,
         usage: false,
+        reset_credits_min_version: None,
         runtime: AgentRuntimeProtocol::StdioJsonrpc,
         command: AgentRuntimeCommand {
             binary: "node".into(),

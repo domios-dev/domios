@@ -1,15 +1,16 @@
 mod input;
 use super::*;
 use codeterm_types::agent::chat_types::ChatMsg;
-pub use input::sanitize_history_input;
+pub use input::{prepare_history_reply, sanitize_history_input, HISTORY_PAGE_TOO_LARGE};
 use serde::Deserialize;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct RuntimeHistory {
     items: Vec<ChatMsg>,
     open_items: Vec<OpenItem>,
     questions: Vec<RuntimeHistoryQuestion>,
     requests: std::collections::HashSet<(String, String)>,
+    order: Option<HistoryOrder>,
 }
 
 impl RuntimeHistory {
@@ -24,11 +25,13 @@ impl RuntimeHistory {
             items,
             open_items,
             questions,
+            order,
             ..
         } = page
         else {
             return;
         };
+        self.order = order.or(self.order);
         if !items.is_empty() || !open_items.is_empty() {
             self.requests.clear();
         }
@@ -83,6 +86,7 @@ impl RuntimeHistory {
             open_items: self.open_items,
             next_cursor,
             questions: (!self.questions.is_empty()).then_some(self.questions),
+            order: self.order,
         }
     }
 }

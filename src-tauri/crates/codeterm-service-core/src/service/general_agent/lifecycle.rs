@@ -1,5 +1,6 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
+use crate::service::MuxEmitCause;
 mod launch;
 mod readiness;
 mod runtime_launch;
@@ -335,7 +336,11 @@ pub fn start_general_agent(
                     }
                 }
             } else {
-                crate::service::agent_runtime::engine::stop(&pid);
+                if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &pid)
+                {
+                    fail_general_agent_start(svc, mux, &pid, &reason);
+                    return;
+                }
                 log::info!(
                     "[general-agent] Provider mismatch: running={}, wanted={} — restarting",
                     current_agent,
@@ -582,7 +587,10 @@ fn restart_general_agent_inner(
     if let Some(tab_id) =
         runtime_tab.filter(|tab| crate::service::agent_runtime::requested_for_tab(svc, tab))
     {
-        crate::service::agent_runtime::engine::stop(&tab_id);
+        if let Err(reason) = crate::service::agent_runtime::engine::stop_blocking(svc, &tab_id) {
+            fail_general_agent_start(svc, mux, &tab_id, &reason);
+            return;
+        }
         start_general_agent(svc, mux, pty, screen_state, config);
         return;
     }
@@ -614,7 +622,7 @@ fn restart_general_agent_inner(
                 if let Some(tab) = mux.write().get_tab_mut(&tab_id) {
                     tab.agent_booting = false;
                 }
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::GeneralAgent);
             }
             return;
         }
@@ -796,7 +804,7 @@ fn fail_general_agent_start(
         tab.agent_booting = false;
     }
     svc.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::GeneralAgent);
 }
 
 const BINDING_UNREPORTED: &str = "authoritative provider session binding was not reported";
@@ -885,7 +893,7 @@ fn defer_general_agent_start(
             stage.as_str()
         ),
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::GeneralAgent);
 }
 
 #[cfg(test)]

@@ -467,9 +467,12 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   eq(replayed.outcome, "ignored_stale", "a delta inside the committed span is idempotent");
   eq(contents(replayed.state), ["a"], "stale delta changes nothing");
 
-  const straddling = reduceTranscript(base, batch("delta", 400, 700, windowRows(["a", "b"])));
-  eq(straddling.outcome, "recover_overlap", "an unprovable partial overlap fails closed");
-  eq(contents(straddling.state), ["a"], "unprovable overlap never duplicates rows");
+  const straddling = reduceTranscript(base, batch("delta", 400, 700, [
+    { id: "0:0", type: "assistant", content: "a" },
+    { id: "source-b", type: "assistant", content: "b" },
+  ]));
+  eq(straddling.outcome, "adopted", "record-aligned overlap adopts the new suffix");
+  eq(contents(straddling.state), ["a", "b"], "overlap merges incoming rows by identity");
 
   const gapped = reduceTranscript(base, batch("delta", 900, 1000, [
     { id: "900-0", type: "assistant", content: "newest", seq: 0 },

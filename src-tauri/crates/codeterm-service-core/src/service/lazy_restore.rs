@@ -1,4 +1,5 @@
 use crate::multiplexer::types::{Tab, TabBacking};
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_pty::multiplexer::restore_policy::{restore_on_boot, RestoreDecision};
 use codeterm_types::pty::BootStage;
@@ -6,6 +7,8 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 static WAKING: LazyLock<parking_lot::Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+mod user_send;
 
 struct WakeRequest(String);
 
@@ -20,6 +23,8 @@ fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
         || explicit
             && !tab.protected
             && (tab.boot_stage == Some(BootStage::SpawnFailed)
+                || tab.restored_from_snapshot
+                    && matches!(tab.backing, TabBacking::ChatBackend { .. })
                 || matches!(tab.backing, TabBacking::Pty)
                     && tab.pty_id.is_none()
                     && !tab
@@ -95,6 +100,23 @@ fn wake_with(
     allow_failed: bool,
     materialize: impl FnOnce(&str, bool) -> Result<(), String>,
 ) -> Result<(), String> {
+    let retirement = {
+        let mut mux = svc.mux.write();
+        let resolved = mux
+            .resolve_tab_id(tab_id)
+            .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+        if let Some(tab) = mux.get_tab_mut(&resolved) {
+            tab.record_activity();
+        }
+        super::agent_restart::sleep_transition::request_wake(
+            svc.ext::<super::agent_restart::RestartTracker>(),
+            &resolved,
+        )
+    };
+    super::agent_restart::sleep_transition::wait_for_retirement(
+        retirement,
+        super::agent_restart::sleep_transition::wake_deadline(),
+    )?;
     let id = {
         let mux = svc.mux.read();
         let id = mux
@@ -135,7 +157,7 @@ fn wake_with(
         super::boot_stage::apply_boot_stage(tab, stage, None);
         retry_started_agent
     };
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     let result = materialize(&id, retry_started_agent);
     if let Err(reason) = &result {
         if let Some(tab) = svc.mux.write().get_tab_mut(&id) {
@@ -143,7 +165,7 @@ fn wake_with(
             super::boot_stage::apply_boot_stage(tab, BootStage::SpawnFailed, Some(reason));
         }
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     result
 }
 
@@ -152,6 +174,26 @@ mod tests {
     use super::*;
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
+
+    #[test]
+    fn explicit_chat_wake_bypasses_pending_boot_restore() {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.protected = false;
+        tab.frozen = false;
+        tab.restored_from_snapshot = true;
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "fixture".into(),
+            session_id: "own-session".into(),
+        };
+        assert!(!wake_eligible(tab, false));
+        assert!(wake_eligible(tab, true));
+        tab.protected = true;
+        assert!(!wake_eligible(tab, true));
+        tab.protected = false;
+        tab.restored_from_snapshot = false;
+        assert!(!wake_eligible(tab, true));
+    }
 
     #[test]
     fn startup_keeps_general_awake_and_freezes_unknown_project_activity() {
@@ -242,6 +284,25 @@ mod tests {
             .unwrap();
         }
         assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn waking_keeps_runtime_sleep_marker_and_exact_session() {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.frozen = true;
+        tab.slept_at_ms = Some(42);
+        tab.agent_session_id = Some("own-session".into());
+        let fixture = ServiceFixture::new(mux);
+        wake_with(&fixture.service, &id, false, |resolved, _| {
+            let mux = fixture.service.mux.read();
+            let tab = mux.get_tab(resolved).unwrap();
+            assert!(!tab.frozen);
+            assert_eq!(tab.slept_at_ms, Some(42));
+            assert_eq!(tab.agent_session_id.as_deref(), Some("own-session"));
+            Ok(())
+        })
+        .unwrap();
     }
 
     #[test]

@@ -20,8 +20,9 @@ use super::{
     usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
-const FRONTEND_REQUEST_HEADERS: [&str; 9] = [
+const FRONTEND_REQUEST_HEADERS: [&str; 10] = [
     "authorization",
+    "if-none-match",
     "content-type",
     "accept",
     "x-codeterm-tab-id",
@@ -64,7 +65,10 @@ fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> Cor
             axum::http::Method::OPTIONS,
         ])
         .allow_headers(FRONTEND_REQUEST_HEADERS.map(axum::http::HeaderName::from_static))
-        .expose_headers([axum::http::header::CONTENT_SECURITY_POLICY])
+        .expose_headers([
+            axum::http::header::CONTENT_SECURITY_POLICY,
+            axum::http::header::ETAG,
+        ])
 }
 
 #[derive(Clone)]
@@ -137,14 +141,6 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/health", get(health_routes::health))
         .route("/api/identify", get(health_routes::identify))
-        .route(
-            "/api/automation/graph",
-            get(super::automation_graph_routes::snapshot),
-        )
-        .route(
-            "/api/automation/graph/workspace",
-            get(super::automation_graph_routes::workspace_snapshot),
-        )
         .route(
             "/api/automation/blueprints/export",
             post(super::blueprint_portable_routes::export),
@@ -265,20 +261,14 @@ pub(super) fn create_router_with_preview_admission(
             "/api/workspaces/{id}/tabs/{tab_id}/move",
             post(workspace_routes::move_tab),
         )
-        .route(
-            "/api/tabs",
-            get(tab_routes::list_tabs).post(tab_routes::create_shell_tab),
-        )
+        .route("/api/tabs", post(tab_routes::create_shell_tab))
         .route("/api/shells", get(tab_routes::list_shell_profiles))
         .route("/api/tabs/inspect", get(tab_routes::inspect_tabs))
         .route(
             "/api/tabs/{id}/turn-controls",
             get(tab_routes::turn_controls),
         )
-        .route(
-            "/api/plans",
-            get(plan_routes::list).post(plan_routes::create),
-        )
+        .route("/api/plans", post(plan_routes::create))
         .route(
             "/api/plans/{id}/project",
             post(plan_routes::project::set_project),
@@ -565,7 +555,6 @@ pub(super) fn create_router_with_preview_admission(
     );
     let router = router
         // Web mirror: IPC equivalents + the SSE event stream.
-        .route("/api/mux/state", get(web_routes::mux_state))
         .route(
             "/api/workspaces/{id}/tabs/{tab_id}/focus",
             post(web_routes::tab_focus),
@@ -599,12 +588,29 @@ pub(super) fn create_router_with_preview_admission(
             get(web_routes::peer_cron_history),
         )
         .route(
+            "/api/tabs/{id}/agent/runtime/goal",
+            post(super::runtime_login::goal),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/reset-credits",
+            post(super::runtime_login::reset_credits),
+        )
+        .route(
             "/api/tabs/{id}/agent/runtime/login",
             post(super::runtime_login::login),
         )
         .route(
             "/api/tabs/{id}/agent/runtime/retry",
             post(web_routes::agent_runtime_retry),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/children/{thread}/history",
+            get(super::runtime_login::child_history),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/background-processes",
+            get(super::runtime_login::background_processes)
+                .post(super::runtime_login::stop_background_process),
         )
         .route(
             "/api/tabs/{id}/agent/runtime/questions/{item}/answer",
@@ -624,6 +630,10 @@ pub(super) fn create_router_with_preview_admission(
         .route(
             "/api/tabs/{id}/chat-raw/backfill",
             post(web_routes::chat_raw_backfill),
+        )
+        .route(
+            "/api/tabs/{id}/chat-raw/resume",
+            post(web_routes::chat_raw_resume),
         )
         .route(
             "/api/sessions/transcript",
@@ -655,7 +665,6 @@ pub(super) fn create_router_with_preview_admission(
             post(super::session_exchange::import)
                 .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
-        .route("/api/providers", get(agent_routes::list_agent_providers))
         .route(
             "/api/sessions/search",
             get(session_routes::search_sessions_api),
@@ -871,7 +880,6 @@ pub(super) fn create_router_with_preview_admission(
     let router = domain_transport_routes(router);
     let router = super::memory_router::memory_routes(router);
     let router = router
-        .route("/api/plugins/snapshot", get(web_routes::plugin_snapshot))
         .route("/api/plugins/action", post(web_routes::plugin_action))
         .route("/api/plugins/glance", post(web_routes::plugin_glance))
         .route("/api/plugins/bubble", post(web_routes::plugin_bubble))
@@ -1006,9 +1014,21 @@ pub(super) fn create_router_with_preview_admission(
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
         );
 
-    // own sub-router so compression only runs for this large response.
     let router = router.merge(
         Router::new()
+            .route("/api/mux/state", get(web_routes::mux_state))
+            .route("/api/tabs", get(web_routes::tabs))
+            .route("/api/plans", get(plan_routes::list))
+            .route("/api/plugins/snapshot", get(web_routes::plugin_snapshot))
+            .route("/api/providers", get(agent_routes::list_agent_providers))
+            .route(
+                "/api/automation/graph",
+                get(super::automation_graph_routes::snapshot),
+            )
+            .route(
+                "/api/automation/graph/workspace",
+                get(super::automation_graph_routes::workspace_snapshot),
+            )
             .route(
                 "/api/mem/graph/snapshot",
                 get(mem_routes::mem_graph_snapshot),
@@ -1070,6 +1090,8 @@ pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Rou
     let router = router.layer(cors_layer(&frontend_origins, &configured_origins));
     #[cfg(debug_assertions)]
     let router = router.layer(middleware::from_fn(super::cors_diagnostics::record));
+    #[cfg(debug_assertions)]
+    let router = router.layer(middleware::from_fn(super::request_census::record));
     router
         .layer(CatchPanicLayer::new())
         .layer(middleware::from_fn(

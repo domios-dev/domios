@@ -1,5 +1,6 @@
 use super::lifecycle::for_tab;
 use crate::service::agent_runtime::model::{ModelSwitchOptions, RuntimeMode};
+use crate::service::MuxEmitCause;
 use serde_json::{json, Value};
 
 impl RuntimeMode {
@@ -143,7 +144,7 @@ pub fn observe(svc: &crate::service::ServiceContext, tab: &str, thread: &str, pa
         }
         if let Some((pending, _)) = pending {
             if svc.clear_pending_model_switch(tab, &pending, &nonce) {
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::Model);
             }
         }
     }
@@ -228,7 +229,19 @@ impl crate::service::ServiceContext {
     > {
         if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab) {
             return crate::service::agent_runtime::controls::switch(
-                self, &tab, model, effort, mode,
+                self,
+                &tab,
+                model,
+                effort,
+                mode,
+                options.fast_mode,
+            );
+        }
+        if options.fast_mode.is_some() {
+            return Err(
+                crate::service::agent_restart::ModelSwitchError::NotSwitchable(
+                    "Fast mode requires a capable runtime".into(),
+                ),
             );
         }
         if !options.restart_resume {
@@ -264,7 +277,7 @@ impl crate::service::ServiceContext {
         use crate::service::agent_restart::ModelSwitchError;
         if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab) {
             return crate::service::agent_runtime::controls::switch(
-                self, &tab, model, effort, mode,
+                self, &tab, model, effort, mode, None,
             );
         }
         if mode.is_some() && for_tab(tab).is_none() {
@@ -286,7 +299,7 @@ impl crate::service::ServiceContext {
                 crate::service::session_persist::SessionPersistUrgency::Prompt,
             )
             .map_err(ModelSwitchError::LiveSwitchFailed)?;
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Model);
         }
         Ok(outcome)
     }

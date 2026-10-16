@@ -1,4 +1,4 @@
-import type { ChatMsg } from "@codeterm/plugin-sdk";
+import type { ChatMsg, ParsedSessionRecord } from "@codeterm/plugin-sdk";
 import { boundHistoryRows, historyItem } from "./runtimeHistoryBounds";
 import { runtimeItems } from "./runtimeMessages";
 import { object, text } from "./runtimeProtocol";
@@ -6,7 +6,10 @@ import { durationMilliseconds } from "./activity";
 import { commandText } from "./execWrapper";
 
 export function projectHistoryItem(raw: unknown, seq: number, turn: string, timestamp: unknown): ChatMsg[] {
-  const rows = boundHistoryRows(runtimeItems(historyItem(raw), seq));
+  const source = object(raw);
+  const rows:ChatMsg[] = source.historyTruncated === true
+    ? [{id:String(source.id),seq,type:"system",content:"[content truncated: history item exceeds display budget]"}]
+    : boundHistoryRows(runtimeItems(historyItem(raw), seq));
   for (const row of rows) {
     row.toolFlowId = turn;
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) row.timestamp = new Date(timestamp).toISOString();
@@ -32,14 +35,48 @@ function recordedItem(raw: unknown): Record<string, unknown> {
     const value = object(part);
     return {...value, ...(typeof value.type === "string" ? {type:value.type.replace(/^./, letter => letter.toLowerCase())} : {})};
   });
+  if (item.type === "agentMessage" && typeof item.text !== "string" && Array.isArray(item.content)) {
+    item.text = item.content.map(object).filter(part => part.type === "text" && typeof part.text === "string").map(part => part.text).join("\n");
+  }
   return item;
 }
 
+export function storedRecordType(line: string): string | undefined {
+  const tokens = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
+  const opening = tokens.exec(line);
+  if (opening?.[0] !== "{") return undefined;
+  for (let token = tokens.exec(line); token; token = tokens.exec(line)) {
+    if (token[1] !== undefined) return token[1];
+    if (token[0] === "{" || token[0] === "[") return undefined;
+  }
+  return undefined;
+}
+
 export function runtimeStoredHistory(sessionId: string, records: string): ChatMsg[] {
-  const rows = new Map<string, ChatMsg>();
+  return projectStoredRecords(sessionId, textRecords(records));
+}
+
+function* textRecords(records: string): Generator<unknown> {
   for (const line of records.split("\n")) {
     if (!line.trim()) continue;
-    const record = object(JSON.parse(line));
+    const type = storedRecordType(line);
+    if (type !== undefined && type !== "event_msg" && type !== "session_meta") continue;
+    yield JSON.parse(line);
+  }
+}
+
+export function runtimeStoredRecords(sessionId: string, records: readonly ParsedSessionRecord[]): ChatMsg[] {
+  return projectStoredRecords(sessionId, records.map(record => {
+    if (!record.oversized) return record.value;
+    const value = object(record.value), payload = object(value.payload);
+    return {...value,payload:{...payload,item:{...object(payload.item),historyTruncated:true}}};
+  }));
+}
+
+function projectStoredRecords(sessionId: string, records: Iterable<unknown>): ChatMsg[] {
+  const rows = new Map<string, ChatMsg>();
+  for (const raw of records) {
+    const record = object(raw);
     const payload = object(record.payload);
     if (record.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
     if (record.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;

@@ -1,6 +1,7 @@
 import { kind, textContent } from '../restart-endurance/oracle.mjs';
 
 export const WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
+export const probeMarker = (runId, tabId) => `PONG_${runId}_${tabId}`;
 export const remainingDeadline = (now, startedAt, limit) => Math.max(1, Math.ceil(limit - (now - startedAt)));
 export function replyWindow(messages, prompt) {
   const index = messages.findLastIndex(m => kind(m) === 'user' && textContent(m.content).includes(prompt));

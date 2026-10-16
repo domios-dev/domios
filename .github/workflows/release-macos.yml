@@ -115,23 +115,6 @@ jobs:
       - name: Install npm dependencies
         run: pnpm install --frozen-lockfile
 
-      # macOS x86_64 needs the onnxruntime dynamic library bundled next to
-      # the app binary because pyke does not ship an ort prebuilt for this
-      # target. arm64 keeps static linking via fastembed's default path.
-      - name: Stage onnxruntime dylib (macOS x86_64 only)
-        if: matrix.target == 'x86_64-apple-darwin'
-        shell: bash
-        run: |
-          ONNX_VER="1.23.2"
-          ONNX_DIR="/tmp/onnxruntime-osx-x86_64-${ONNX_VER}"
-          ONNX_TGZ="${ONNX_DIR}.tgz"
-          curl -sL -o "$ONNX_TGZ" \
-            "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VER}/onnxruntime-osx-x86_64-${ONNX_VER}.tgz"
-          tar -xzf "$ONNX_TGZ" -C /tmp/
-          mkdir -p src-tauri/bundled-embed-libs
-          cp "${ONNX_DIR}/lib/libonnxruntime.${ONNX_VER}.dylib" \
-            src-tauri/bundled-embed-libs/libonnxruntime.dylib
-
       - name: Import Apple signing certificate
         uses: apple-actions/import-codesign-certs@v3
         with:

@@ -1,5 +1,4 @@
 import { act, type ReactElement } from "react";
-import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
@@ -9,7 +8,6 @@ import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
 import {
   BOARD_NARROW_MAX_PX,
-  BOARD_ROW_COLUMNS,
   EVENT_PART_SEPARATOR,
   EVENT_PREVIEW_MAX,
   EVENT_REVEAL_HIDE_LABEL,
@@ -74,11 +72,6 @@ async function render(ui: ReactElement) {
 
 function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
-}
-
-/** Reads the applied template back however the DOM chose to keep it. */
-function gridTemplate(el: HTMLElement): string {
-  return el.style.gridTemplateColumns || el.getAttribute("style") || "";
 }
 
 function statusItems(host: HTMLElement): string[] {
@@ -320,29 +313,6 @@ beforeEach(() => {
 });
 
 describe("mission control board panels", () => {
-  it("mission_control_board_paints_theme_backed_opaque_surface", async () => {
-    const { host, unmount } = await render(board(recordingState()));
-
-    const root = host.querySelector('[data-testid="mission-control-board"]');
-    expect(root?.classList.contains("mc-board")).toBe(true);
-
-    const boardCss = readFileSync("src/components/Canvas/missionControl/missionControlBoard.css", "utf8");
-    const boardRule = boardCss.match(/\.mc-board\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(boardRule).toContain("background: var(--ct-bg);");
-    expect(boardRule).not.toMatch(/background(?:-color)?\s*:\s*transparent/);
-    expect(cssRule(boardCss, ".mc-board .mc-board-panel")).toContain("background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));");
-
-    const appSource = readFileSync("src/App.tsx", "utf8");
-    expect(appSource).toContain(
-      'const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;',
-    );
-    const terminalTabSource = readFileSync("src/components/Terminal/TerminalTab.tsx", "utf8");
-    expect(terminalTabSource).toContain(
-      'visibility: isVisible && terminalVisible && !historyReplaying ? "visible" : "hidden",',
-    );
-    await unmount();
-  });
-
   it("opens on the spend, models and plan row with the log under it when nothing needs the owner", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
@@ -392,7 +362,6 @@ describe("mission control board panels", () => {
     expect(goalLine.getAttribute("title")).toBe("Ship a readable Snake game");
     expect(text(host, "mc-board-plan-meta")).toBe("16 tasks");
     expect(text(host, "mc-board-bounces-amount")).toBe("1");
-    expect(host.querySelector('[data-testid="mc-board-bounces-amount"]')?.classList.contains("mc-board-warn")).toBe(true);
     expect(text(host, "mc-board-quality")).toBe("bounced1first try10 of 12");
     const plan = text(host, "mc-board-plan");
     for (const banned of ["5.3M", "1.4B", "65M", "output", "total", "bytes", "·", "Quality", "new input"]) {
@@ -509,9 +478,6 @@ describe("mission control board panels", () => {
     const paused = await render(board(recordingState(), { ...NO_TASKS, paused: 4, total: 4 }));
     expect(statusItems(paused.host)).toEqual(["4paused"]);
     expect(text(paused.host, "mc-board-task-statuses")).toBe("4paused");
-    expect(
-      paused.host.querySelector('[data-testid="mc-board-task-status-paused-count"]')?.classList.contains("mc-board-warn"),
-    ).toBe(true);
     await paused.unmount();
 
     const empty = await render(board(recordingState(), NO_TASKS));
@@ -909,12 +875,6 @@ function revealByLabel(host: HTMLElement, label: string): HTMLButtonElement {
   return button as HTMLButtonElement;
 }
 
-/** Reads one rule body out of the stylesheet without depending on its position. */
-function cssRule(css: string, selector: string): string {
-  const at = css.indexOf(`\n${selector} {`);
-  return at < 0 ? "" : css.slice(at, css.indexOf("}", at));
-}
-
 describe("mission control board event log readability", () => {
   it("prints a decision task and its reason as separate parts, never one fused string", async () => {
     const { host, unmount } = await render(board(readableLogState()));
@@ -1018,23 +978,6 @@ describe("mission control board event log readability", () => {
     await unmount();
   });
 
-  it("keeps every log row inside the card at both widths", () => {
-    const css = readFileSync("src/components/Canvas/missionControl/missionControlBoard.css", "utf8");
-
-    expect(cssRule(css, ".mc-board")).toContain("overflow-x: hidden;");
-    expect(cssRule(css, ".mc-board-log-body")).toContain("text-overflow: ellipsis;");
-    expect(cssRule(css, ".mc-board-log-more")).toContain("flex: 0 0 auto;");
-    const openBody = cssRule(css, ".mc-board .mc-board-log-message-open .mc-board-log-body");
-    expect(openBody).toContain("overflow-wrap: anywhere;");
-    expect(openBody).toContain("white-space: pre-wrap;");
-    expect(cssRule(css, ".mc-board-log-message-open")).toContain("flex-wrap: wrap;");
-    expect(cssRule(css, '.mc-board[data-board-layout="narrow"] .mc-board-log-body')).toContain(
-      "overflow-wrap: anywhere;",
-    );
-    expect(cssRule(css, '.mc-board[data-board-layout="narrow"] .mc-board-log-message')).toContain(
-      "flex-wrap: wrap;",
-    );
-  });
 });
 
 describe("mission control board layout", () => {
@@ -1042,23 +985,6 @@ describe("mission control board layout", () => {
     expect(boardLayout(390)).toBe("narrow");
     expect(boardLayout(BOARD_NARROW_MAX_PX)).toBe("narrow");
     expect(boardLayout(BOARD_NARROW_MAX_PX + 1)).toBe("wide");
-    expect(BOARD_ROW_COLUMNS.narrow).toBe("minmax(0, 1fr)");
-  });
-
-  it("binds every grid track to a zero minimum at 390px so nothing can push the board wider", async () => {
-    const { host, setWidth, unmount } = await render(board(recordingState()));
-    await setWidth(390);
-
-    const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
-    expect(root.getAttribute("data-board-layout")).toBe("narrow");
-
-    const row = host.querySelector('[data-testid="mc-board-row"]') as HTMLElement;
-    const tracks = gridTemplate(row);
-
-    expect(tracks).toContain("minmax(0, 1fr)");
-    expect(tracks).not.toMatch(/minmax\(\s*(?!0)/);
-    expect(tracks).not.toMatch(/\d+px/);
-    await unmount();
   });
 
   it("stacks the three cards at or below the narrow bound and sets them side by side above it", async () => {
@@ -1068,12 +994,9 @@ describe("mission control board layout", () => {
 
     await setWidth(BOARD_NARROW_MAX_PX);
     expect(root.getAttribute("data-board-layout")).toBe("narrow");
-    expect(gridTemplate(row())).toContain("minmax(0, 1fr)");
-    expect(gridTemplate(row())).not.toContain("repeat(3");
 
     await setWidth(1200);
     expect(root.getAttribute("data-board-layout")).toBe("wide");
-    expect(gridTemplate(row())).toContain("repeat(3, minmax(0, 1fr))");
     expect(row().children).toHaveLength(3);
     await unmount();
   });

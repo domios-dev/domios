@@ -5,6 +5,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { classifyInventory } from './ci-rust-classification.mjs';
 import { archiveTargets, loadReleaseRust } from './ci-rust-archives.mjs';
+import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
 const { runners: RELEASE_RUST } = loadReleaseRust(path.resolve(import.meta.dirname, '..'));
@@ -41,14 +42,15 @@ export function generatedDirectories(messages) {
   return directories;
 }
 
-function compile(lane) {
+export function compile(lane, { execute = execFileSync, writeError = text => process.stderr.write(text) } = {}) {
   let messages = '';
   try {
-    messages = execFileSync('cargo-nextest', ['nextest', 'run', '--no-run', '--manifest-path', lane.manifest, ...lane.targets, '--locked', '--cargo-message-format', 'json'],
+    messages = execute('cargo-nextest', ['nextest', 'run', '--no-run', '--manifest-path', lane.manifest, ...lane.targets, '--locked', '--cargo-message-format', 'json'],
       { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
     return messages;
   } catch (error) {
     messages = error.stdout?.toString() || '';
+    writeError(renderedCompilerErrors(messages));
     throw error;
   } finally {
     if (process.env.RUST_WARNING_LOG) {
@@ -184,7 +186,6 @@ async function run(mode) {
     for (const lane of lanes) {
       const targetDir = laneTargetDir(lane.manifest, process.env.CI_TARGET_ROOT);
       if (targetDir) process.env.CARGO_TARGET_DIR = env.CARGO_TARGET_DIR = targetDir;
-      if (lane.lane === 'workspace') execFileSync('cargo', ['build', '--locked', '--no-default-features', '--manifest-path', lane.manifest, '--bin', 'codeterm-embed'], { stdio: 'inherit' });
       const messages = compile(lane);
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));
@@ -226,6 +227,19 @@ async function run(mode) {
         const audit = await captureCommand(process.execPath, timingAuditArgs(guard, aloneLog, plan.policy), log.replace(/\.log$/, '.audit.log'));
         if (audit.error || audit.status !== 0) throw new Error(`Slow unit ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }
+    }
+    if (mode === 'embeddings') {
+      const lane = lanes[0];
+      const config = path.join(directory, 'embedding-parity.toml');
+      fs.writeFileSync(config, tomlConfig('package(=codeterm-mem) & test(=embedding_model::tests::candle_embedding_matches_fastembed_golden)', false));
+      const log = path.join(directory, 'embedding-parity.log');
+      const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest',
+        ...runArgs(lane, config), '--run-ignored', 'only'], log, env);
+      const report = fs.readFileSync(log, 'utf8');
+      requireTestSuccess(result, report, 'Embedding golden parity');
+      const count = executedCount(report);
+      if (count !== 1) throw new Error(`Expected one embedding parity oracle, got ${count}`);
+      receipt.executed += count;
     }
     if (!receipt.executed) throw new Error('No Rust tests executed');
     receipt.exit = 0;

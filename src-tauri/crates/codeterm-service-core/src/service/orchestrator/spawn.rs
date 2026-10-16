@@ -19,7 +19,7 @@ use crate::multiplexer::types::TabCloseReason;
 use crate::service::general_agent::{
     refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
 };
-use crate::service::{spawn_title, ServiceContext};
+use crate::service::{spawn_title, MuxEmitCause, ServiceContext};
 
 /// Build effort provenance for a launch where the requested effort has already
 /// passed capability validation. No silent downgrade ⇒ `resolved == requested`.
@@ -111,16 +111,17 @@ fn build_or_refuse_orchestrated_launch_command(
     params: &SpawnAgentParams,
     bg_task: Option<&str>,
     launch_session_id: Option<&str>,
-) -> Result<String, String> {
-    let launch_cmd = crate::service::launch_session_detection::marked_agent_command_for_service(
-        service,
-        tab_id,
-        agent_cmd,
-        params,
-        bg_task,
-        launch_session_id,
-        &service.agent_registry,
-    );
+) -> Result<super::PreparedAgentCommand, String> {
+    let launch_cmd =
+        crate::service::launch_session_detection::marked_prepared_agent_command_for_service(
+            service,
+            tab_id,
+            agent_cmd,
+            params,
+            bg_task,
+            launch_session_id,
+            &service.agent_registry,
+        );
     if launch_cmd.trim().is_empty() {
         return Err(service.rollback_empty_agent_launch_if_created(
             tab_id,
@@ -331,6 +332,12 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
+        crate::service::execution_sandbox::preflight(
+            &self.agent_registry,
+            &agent_cmd,
+            &params,
+            crate::service::agent_runtime::engine::requested(self, &agent_cmd),
+        )?;
         self.move_chatbackend_task_to_system_prompt(&agent_cmd, &mut params)?;
         {
             let svc = self.clone();
@@ -556,7 +563,7 @@ impl ServiceContext {
             params.creator_tab_id.as_deref(),
         );
         if emit_state_change {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Team);
         }
 
         // (its hierarchy lives on the origin) — skip_local_worker_role avoids a 500.
@@ -847,14 +854,26 @@ impl ServiceContext {
                 permission_bypass_requested: params.permission_bypass_requested(&agent_cmd),
             },
         );
-        let launch_cmd = build_or_refuse_orchestrated_launch_command(
-            self,
-            &tab_id,
-            &agent_cmd,
-            &params,
-            bg_task.as_deref(),
-            launch_session_id.as_deref(),
-        )?;
+        let launch_cmd = {
+            let service = self.clone();
+            let tab_id = tab_id.clone();
+            let provider = agent_cmd.clone();
+            let params = params.clone();
+            let task = bg_task.clone();
+            let session = launch_session_id.clone();
+            tokio::task::spawn_blocking(move || {
+                build_or_refuse_orchestrated_launch_command(
+                    &service,
+                    &tab_id,
+                    &provider,
+                    &params,
+                    task.as_deref(),
+                    session.as_deref(),
+                )
+            })
+            .await
+            .map_err(|error| format!("Launch composition failed: {error}"))??
+        };
         self.bind_worker_plan_task_or_rollback_tab_async(&params, &tab_id)
             .await?;
         let fallback_spec = spawn_input.fallback_spec(

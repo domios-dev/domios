@@ -44,14 +44,14 @@ test("restart reconciliation wires durable states onto each persisted held bubbl
   }
 });
 
-test("an absent receipt clears stale held state to uncertainty without inventing Retry", async () => {
+test("an absent receipt preserves held input as queued without inventing Retry", async () => {
   const tabId = "missing-restart-receipt";
   addChatSend(tabId, { id: "bubble", correlationId: "message-1", content: "payload", sentAtMs: 1 });
   observeDeliveryStatus({ ...heldStatus(), tab_id: tabId });
   forgetChatSendsInMemory();
   __setInvokeForTest(async <T>() => [] as T);
   await reconcileTrackedChatMessages(tabId);
-  assert.equal(deliveryState(readChatSends(tabId)[0]), "uncertain");
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "queued");
   assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
 });
 

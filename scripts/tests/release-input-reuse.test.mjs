@@ -3,12 +3,13 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const source = readFileSync(new URL("../../build.sh", import.meta.url), "utf8");
+const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
+const source = readFileSync(new URL("../../build.sh", import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const preparation = source.match(/^prepare_release_bundle_inputs\(\) \{\n[\s\S]*?^\}/m)?.[0];
 
 function commands(env = {}, captureEnvironment = false) {
   assert.ok(preparation);
-  return execFileSync("bash", ["-c", `
+  return execFileSync(bash, ["-c", `
 set -e
 pnpm() { printf 'pnpm'; printf ' <%s>' "$@"; printf '\\n'; }
 node() { if [ \"$1\" = -p ]; then command node \"$@\"; return; fi; printf 'node'; printf ' <%s>' "$@"; printf '\\n'; }
@@ -20,15 +21,13 @@ ${captureEnvironment ? `bash -c 'printf "deployment-target=<%s>\\n" "$MACOSX_DEP
     .trim().split("\n");
 }
 
-test("release preparation builds the packaging feature graph before staging the real embed", () => {
+test("release preparation builds the packaging feature graph without an embedding sidecar", () => {
   const calls = commands();
   assert.deepEqual(calls, [
     "pnpm <build>",
     "cargo <build> <--release> <--timings> <--manifest-path> <cli/Cargo.toml>",
     "node <scripts/bundle-cli.js>",
-    "node <scripts/prepare-embed-stub.js>",
-    "cargo <build> <--release> <--timings> <--manifest-path> <src-tauri/Cargo.toml> <--features> <embeddings,tauri/custom-protocol> <--bin> <codeterm> <--bin> <codeterm-embed>",
-    "node <scripts/bundle-embed.js>",
+    "cargo <build> <--release> <--timings> <--manifest-path> <src-tauri/Cargo.toml> <--features> <embeddings,tauri/custom-protocol> <--bin> <codeterm>",
   ]);
 });
 
@@ -54,15 +53,25 @@ test("release preparation exports the packaging deployment target to child proce
   assert.equal(calls.at(-1), `deployment-target=<${config.bundle.macOS.minimumSystemVersion}>`);
 });
 
-test('release entrypoint configures the wrapper before spawning compiler children', () => {
-  const entrypoint = source.match(/^  release-inputs\)\n([\s\S]*?)^    ;;/m)?.[1];
-  assert.ok(entrypoint);
-  const result = execFileSync('bash', ['-c', `
+test('release entrypoints configure the wrapper before spawning compiler children', () => {
+  const gateway = source.match(/^enter_cargo_gateway\(\) \{\n[\s\S]*?^\}/m)?.[0];
+  const gatedVerbs = source.match(/^case "\$CMD" in\n  ([^\n]*)\)\n    enter_cargo_gateway /m)?.[1].split('|');
+  assert.ok(gateway);
+  for (const verb of ['release-inputs', 'release-bundle']) {
+    assert.ok(gatedVerbs?.includes(verb), verb);
+    const entrypoint = source.match(new RegExp(`^  ${verb}\\)\\n([\\s\\S]*?)^    ;;`, 'm'))?.[1];
+    assert.ok(entrypoint, verb);
+    const result = execFileSync(bash, ['-c', `
 set -e
+enter_build_gateway() { :; }
 ct_configure_sccache() { export RUSTC_WRAPPER=fixture-wrapper; }
 ensure_deps() { :; }
 prepare_release_bundle_inputs() { bash -c 'printf "%s" "$RUSTC_WRAPPER"'; }
+pnpm() { :; }
+${gateway}
+enter_cargo_gateway ${verb}
 ${entrypoint}
 `], { encoding: 'utf8', env: { ...process.env, RUSTC_WRAPPER: '' } });
-  assert.equal(result, 'fixture-wrapper');
+    assert.equal(result, 'fixture-wrapper', verb);
+  }
 });

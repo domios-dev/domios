@@ -331,7 +331,8 @@
         "kind": "sendEvidence",
         "threadId": "thread-fixture",
         "sendId": "send-a",
-        "turnId": "turn-a"
+        "turnId": "turn-a",
+        "itemId": "user-a"
       },
       {
         "kind": "chatItem",
@@ -371,7 +372,8 @@
         "kind": "sendEvidence",
         "threadId": "thread-fixture",
         "sendId": "send-b",
-        "turnId": "turn-b"
+        "turnId": "turn-b",
+        "itemId": "user-b"
       },
       {
         "kind": "chatItem",

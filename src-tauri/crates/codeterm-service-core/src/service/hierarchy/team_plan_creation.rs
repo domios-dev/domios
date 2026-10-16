@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
 use crate::multiplexer::commands::MuxState;
@@ -71,7 +72,7 @@ impl ServiceContext {
             from_spec,
             now_ms,
         )?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::PlanTask);
         let _ = crate::service::session_persist::persist_session_after_mutation(
             self,
             crate::service::session_persist::SessionPersistUrgency::Prompt,
@@ -114,7 +115,7 @@ impl ServiceContext {
                 )
             })?;
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::PlanTask);
         let _ = crate::service::session_persist::persist_session_after_mutation(
             self,
             crate::service::session_persist::SessionPersistUrgency::Prompt,

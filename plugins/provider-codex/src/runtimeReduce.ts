@@ -1,3 +1,4 @@
+import { goalIntent } from "./runtimeGoal";
 import type { RuntimeContext, JsonValue, RuntimeFrame, RuntimeReduction, AgentEvent, ChatMsg, TokenUsage } from "@codeterm/plugin-sdk";
 import { rateLimitEvents } from "./runtimeUsage";
 import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
@@ -79,7 +80,7 @@ function sendEvidence(ctx: RuntimeContext, item: Record<string,unknown>, turnId:
     if (expected.url) return image.type === "image" && image.url === expected.url;
     return !!expected.path && image.type === "localImage" && image.path === expected.path;
   })) return undefined;
-  return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId};
+  return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId,...(text(item.id) ? {itemId:text(item.id)!} : {})};
 }
 function stamp(state: ReduceState, row: RuntimeItem, params: Record<string,unknown>): RuntimeItem {
   const previous = state.items[row.id];
@@ -138,6 +139,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       continue;
     }
     if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents,params.threadId) && frame.method !== "serverRequest/resolved") {
+      if ((frame.method === "item/started" || frame.method === "item/completed") && ctx.threadId) {
+        state.agents ??= {rows:Object.create(null),ordinal:0};
+        const agents = reduceRuntimeAgents(state.agents,state.items,state.parents,params.threadId,params.item,state.seq+1);
+        if (agents) for (const activity of agents) events.push({kind:"chatItem",threadId:ctx.threadId,item:stamp(state,activity,params)});
+      }
       const threadId=params.threadId;const turnId=text(object(params.turn).id) ?? text(params.turnId);
       if (!turnId) continue;
       state.childActive ??= {};state.childCompleted ??= [];
@@ -156,7 +162,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = {...state.rateLimitSnapshot,...limits};
-      events.push(...rateLimitEvents(state.rateLimitSnapshot));
+      events.push(...rateLimitEvents(state.rateLimitSnapshot,params.rate_limit_reset_credits));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some(parent => parent.threadId === params.threadId);
@@ -245,7 +251,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       }
       case "thread/goal/updated": {
         const goal = text(object(params.goal).objective);
-        if (goal) events.push({kind:"chatItem",threadId,item:stamp(state,{id:"thread:goal",seq:state.seq+1,type:"custom",content:"",sessionIntent:{goal}},params)});
+        if (goal) events.push({kind:"chatItem",threadId,item:stamp(state,{id:"thread:goal",seq:state.seq+1,type:"custom",content:"",sessionIntent:goalIntent(params.goal) ?? {goal}},params)});
         break;
       }
       case "turn/plan/updated": {

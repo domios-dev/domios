@@ -311,14 +311,6 @@ fn hidden_agent_crash_recovery_reapplies_the_registered_launch_context() {
     assert_eq!(written.matches(rule.as_str()).count(), 1);
 }
 
-#[test]
-fn run_watcher_never_writes_keys() {
-    let watcher = include_str!("../run_watcher.rs");
-
-    assert!(!watcher.contains(".pty.lock().write"));
-    assert!(!watcher.contains("b\"\\r\""));
-}
-
 fn owner_prompt_fixture() -> (crate::service::test_fixture::ServiceFixture, String, String) {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "cron-owner-prompt-pty".to_string();

@@ -1,0 +1,85 @@
+{
+  "source_commit": "97f420cfcd0cb20a64f7b139fcc6c3abea09f9a7",
+  "checks": [
+    {
+      "id": "valid-paid",
+      "signature_verified": true,
+      "canonical": true,
+      "context_matches": true,
+      "time_state": "lease",
+      "payload_bytes": 666
+    },
+    {
+      "id": "valid-admin",
+      "signature_verified": true,
+      "canonical": true,
+      "context_matches": true,
+      "time_state": "lease",
+      "payload_bytes": 658
+    },
+    {
+      "id": "signed-free-downgrade",
+      "signature_verified": true,
+      "canonical": true,
+      "context_matches": true,
+      "time_state": "lease",
+      "payload_bytes": 652
+    },
+    {
+      "id": "expired-lease",
+      "signature_verified": true,
+      "canonical": true,
+      "context_matches": true,
+      "time_state": "grace",
+      "payload_bytes": 666
+    },
+    {
+      "id": "past-grace",
+      "signature_verified": true,
+      "canonical": true,
+      "context_matches": true,
+      "time_state": "past-grace",
+      "payload_bytes": 666
+    },
+    {
+      "id": "wrong-installation",
+      "signature_verified": true,
+      "canonical": true,
+      "context_matches": false,
+      "time_state": "lease",
+      "payload_bytes": 666
+    },
+    {
+      "id": "older-policy-epoch",
+      "signature_verified": true,
+      "canonical": true,
+      "context_matches": false,
+      "time_state": "lease",
+      "payload_bytes": 666
+    },
+    {
+      "id": "tampered-payload",
+      "signature_verified": false,
+      "canonical": true,
+      "context_matches": true,
+      "time_state": "lease",
+      "payload_bytes": 666
+    },
+    {
+      "id": "unknown-key-id",
+      "signature_verified": true,
+      "canonical": true,
+      "context_matches": true,
+      "time_state": "lease",
+      "payload_bytes": 666
+    }
+  ],
+  "rfc8032_empty_signature": true,
+  "pinned_admin_jcs_and_signature": true,
+  "pinned_admin_bytes": 658,
+  "jcs_vectors": 3,
+  "producer_rejects_expired_at_issuance": true,
+  "foreign_uid_and_invalid_installation_refused": true,
+  "unsigned_schema2_without_grant": true,
+  "no_private_seed_in_artifacts": true
+}

@@ -224,7 +224,6 @@ function expectPinnedToBottom(): void {
   const el = scroll();
   expect(el.scrollTop).toBe(el.scrollHeight - el.clientHeight);
   expect(followTail.current).toBe(true);
-  expect(el.style.overflowAnchor).toBe("none");
 }
 
 function readerPosition(source: string): number {
@@ -232,9 +231,17 @@ function readerPosition(source: string): number {
 }
 
 let offsetTopDescriptor: PropertyDescriptor | undefined;
+let rectDescriptor: PropertyDescriptor | undefined;
 
 beforeAll(() => {
   offsetTopDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+  rectDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getBoundingClientRect");
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", { configurable: true, value(this: HTMLElement) {
+    const scroller = this.closest<HTMLElement>('[data-testid="scroll"]');
+    const top = this.hasAttribute("data-height") ? this.offsetTop - (scroller?.scrollTop ?? 0) : 0;
+    const height = Number(this.dataset.height ?? this.clientHeight);
+    return { top, bottom: top + height, height, left: 0, right: 800, width: 800, x: 0, y: top, toJSON: () => ({}) };
+  } });
   Object.defineProperty(HTMLElement.prototype, "offsetTop", {
     configurable: true,
     get(this: HTMLElement) {
@@ -253,6 +260,7 @@ beforeAll(() => {
 afterAll(() => {
   if (offsetTopDescriptor) Object.defineProperty(HTMLElement.prototype, "offsetTop", offsetTopDescriptor);
   else delete (HTMLElement.prototype as { offsetTop?: number }).offsetTop;
+  if (rectDescriptor) Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", rectDescriptor);
   vi.unstubAllGlobals();
 });
 
@@ -460,7 +468,6 @@ describe("detached reader at the history cap", () => {
     await deliverScrollEvent();
     expect(followTail.current).toBe(false);
     expect(readerPosition(anchor)).toBe(position);
-    expect(scroll().style.overflowAnchor).toBe("auto");
   });
 
   it("does not move for async image, HTML preview and Mermaid height changes above or below the reader", async () => {

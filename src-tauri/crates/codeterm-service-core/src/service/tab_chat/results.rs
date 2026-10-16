@@ -5,8 +5,29 @@ pub enum ChatOffsetKind {
     Items,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatStartKind {
+    #[default]
+    Snapshot,
+    Unchanged,
+    Delta,
+}
+
+#[derive(Clone, serde::Deserialize)]
+pub struct KnownChatWindow {
+    pub source_session_id: String,
+    pub session_binding_nonce: Option<String>,
+    pub end_offset: u64,
+    pub file_length: u64,
+    pub cursor: String,
+}
+
 #[derive(serde::Serialize)]
 pub struct ChatStartResult {
+    pub kind: ChatStartKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_length: Option<u64>,
     /// Vestigial raw-text channel; chat_start returns parsed `messages` today.
     pub text: String,
     pub offset_kind: ChatOffsetKind,

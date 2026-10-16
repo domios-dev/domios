@@ -38,14 +38,32 @@ fn missing_completion_expires_at_injected_deadline_and_keeps_late_exact_evidence
     assert_eq!(expired.error, None);
     assert_eq!(receiver.try_recv(), Err(mpsc::TryRecvError::Disconnected));
     assert!(ledger
-        .confirm_rpc_send("tab", "foreign", "launch", &send.send_id)
+        .confirm_rpc_send(
+            "tab",
+            "foreign",
+            "launch",
+            &send.send_id,
+            Some("provider-item")
+        )
         .is_none());
     assert!(ledger
-        .confirm_rpc_send("tab", "session", "new-launch", &send.send_id)
+        .confirm_rpc_send(
+            "tab",
+            "session",
+            "new-launch",
+            &send.send_id,
+            Some("provider-item")
+        )
         .is_none());
     assert_eq!(
         ledger
-            .confirm_rpc_send("tab", "session", "launch", &send.send_id)
+            .confirm_rpc_send(
+                "tab",
+                "session",
+                "launch",
+                &send.send_id,
+                Some("provider-item")
+            )
             .unwrap()
             .state,
         ChatSendState::Sent
@@ -69,7 +87,13 @@ fn exact_evidence_cancels_deadline_without_downgrading_delivery() {
     let now = Instant::now();
     let receiver = arm_at(&mut ledger.state.lock(), &send.send_id, now);
     ledger
-        .confirm_rpc_send("tab", "session", "launch", &send.send_id)
+        .confirm_rpc_send(
+            "tab",
+            "session",
+            "launch",
+            &send.send_id,
+            Some("provider-item"),
+        )
         .unwrap();
     assert_eq!(receiver.try_recv(), Err(mpsc::TryRecvError::Disconnected));
     assert!(expire_at(
@@ -107,7 +131,13 @@ fn expired_receipt_round_trip_never_restores_sending_or_retry_and_repairs_live_w
         assert_eq!(status.send_id, send.send_id);
     }
     ledger
-        .confirm_rpc_send("tab", "session", "launch", &send.send_id)
+        .confirm_rpc_send(
+            "tab",
+            "session",
+            "launch",
+            &send.send_id,
+            Some("provider-item"),
+        )
         .unwrap();
     ledger.restore_user_receipt(&restored);
     assert_eq!(

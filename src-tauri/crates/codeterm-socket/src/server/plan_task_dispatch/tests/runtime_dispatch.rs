@@ -33,7 +33,11 @@ impl Drop for RuntimeDispatchFixture {
     fn drop(&mut self) {
         let tabs = self.fixture.service.mux.read().snapshot().tabs;
         for id in tabs.keys() {
-            codeterm_service_core::service::agent_runtime::engine::stop(id);
+            codeterm_service_core::service::agent_runtime::engine::stop_blocking(
+                &self.fixture.service,
+                id,
+            )
+            .unwrap();
         }
         codeterm_service_core::service::session_persist::stop_worker(&self.fixture.service)
             .unwrap();
@@ -71,7 +75,13 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
             "agentRuntime":{"runtime":"stdio-jsonrpc",
                 "command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",codeterm_service_core::test_support::fixture_manifest_dir().display())]},
                 "requestMethods":methods,"notificationMethods":[]}},
-        "permissions":{"subprocess":{"allow":["node"]}}
+        "permissions":{"subprocess":{"allow":["node"]}},
+        "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
+            "taskDelivery":"pty_input","verifySubmit":{"kind":"none"},
+            "executionSandbox":{
+            "platforms":[codeterm_service_core::agent::provider::current_platform_tag()],
+            "readOnly":{"launchArgs":[],"runtimeMode":"read-only"}
+        }}
     }).to_string()).unwrap();
     fixture
         .service

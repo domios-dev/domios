@@ -29,6 +29,9 @@
   },
   "bundle": {
     "active": true,
+    "license": "AGPL-3.0-only",
+    "licenseFile": "../LICENSE",
+    "copyright": "Copyright (c) 2025 Andrey Kovalev",
     "createUpdaterArtifacts": true,
     "targets": [
       "nsis",
@@ -46,14 +49,13 @@
     ],
     "resources": {
       "../dist": "dist",
+      "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE",
       "../skills": "skills",
       "bundled-cli/*": "cli/",
       "conpty/x64/*": "conpty/x64/",
       "conpty/arm64/*": "conpty/arm64/"
     },
-    "externalBin": [
-      "bundled-embed/codeterm-embed"
-    ],
     "macOS": {
       "infoPlist": "Info.plist",
       "entitlements": "Entitlements.plist",

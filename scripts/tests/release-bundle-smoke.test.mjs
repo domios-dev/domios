@@ -9,7 +9,7 @@ function executable(format, arch) {
   return bytes;
 }
 for (const format of ['PE','ELF','Mach-O']) {
-  test(`${format} rejects mixed app/CLI/embed architectures`, () => {
+  test(`${format} rejects mixed app/CLI architectures`, () => {
     for (const arch of ['x64','arm64']) {
       const bytes = executable(format,arch);
       assert.deepEqual(machine(bytes),{format,arch});

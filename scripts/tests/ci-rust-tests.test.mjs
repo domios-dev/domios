@@ -5,12 +5,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-  MODES, candidateFilter, captureCommand, executedCount, executionGroups, generatedDirectories, platformFilter,
+  MODES, candidateFilter, captureCommand, compile, executedCount, executionGroups, generatedDirectories, platformFilter,
   requireTestSuccess, runArgs, timingAuditArgs, timingPlan, verifyReceipts,
 } from '../ci-rust-tests.mjs';
 
 const receipt = (overrides = {}) => ({ mode: 'full', runner: 'eight', os: 'Windows', arch: 'X64', sha: 'abc', executed: 6709, exit: 0, seconds: 128, ...overrides });
 const complete = () => [receipt(), receipt({ mode: 'embeddings' }), ...['macOS', 'Linux', 'Windows'].map((os) => receipt({ mode: 'platform', os, runner: os, executed: 40 }))];
+
+test('failed compilation prints rendered errors and preserves the original failure', () => {
+  const stdout = readFileSync(new URL('../../tests/fixtures/rust-warnings/compile-errors.jsonl', import.meta.url), 'utf8');
+  const failure = Object.assign(new Error('compile failed'), { stdout: Buffer.from(stdout), status: 101 });
+  let printed = '';
+  assert.throws(() => compile(MODES.full[0], {
+    execute: () => { throw failure; },
+    writeError: text => { printed += text; },
+  }), error => error === failure);
+  assert.match(printed, /error\[E0425\]: cannot find function `first`\n --> src\/lib.rs:3:5/);
+  assert.match(printed, /error\[E0425\]: cannot find function `second`/);
+  assert.ok(!printed.includes('fixture warning'));
+  assert.ok(!printed.includes('compiler-message'));
+  printed = '';
+  assert.equal(compile(MODES.full[0], { execute: () => stdout, writeError: text => { printed += text; } }), stdout);
+  assert.equal(printed, '');
+});
 
 test('one full suite and one platform subset per OS, each passing with executed tests', () => {
   assert.match(verifyReceipts(complete()), /\| full \| eight \| Windows \| X64 \| 6709 \| 128\.0 s \|/);

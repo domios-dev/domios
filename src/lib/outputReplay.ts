@@ -26,6 +26,9 @@ export function planOutputReplay(cursor: OutputCursor | undefined, frame: Output
 }
 export class TerminalOutputReplay {
     private cursors = new WeakMap<object, Map<string, OutputCursor>>();
+    cursor(terminal: object, tabId: string): OutputCursor | undefined {
+        return this.cursors.get(terminal)?.get(tabId);
+    }
     resync(terminal: object, tabId: string, boot: string, ptyId: string, from: number, reportGap: () => void): void {
         let tabs = this.cursors.get(terminal);
         if (!tabs) {

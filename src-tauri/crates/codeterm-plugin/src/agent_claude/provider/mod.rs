@@ -187,6 +187,17 @@ impl AgentProvider for ClaudeProvider {
         launch::build_launch_command(params)
     }
 
+    fn declares_launch_spec(&self) -> bool {
+        true
+    }
+
+    fn launch_spec(
+        &self,
+        params: &crate::provider::LaunchSpecParams<'_>,
+    ) -> Option<codeterm_types::agent::LaunchSpec> {
+        launch::provider_launch_spec(params)
+    }
+
     fn starter_prompt_text(&self, prompt: StarterPrompt) -> Option<String> {
         launch::starter_prompt_text(prompt).map(str::to_string)
     }
@@ -366,6 +377,10 @@ impl AgentProvider for ClaudeProvider {
         launch::build_resume_command(session_id, skip_permissions)
     }
 
+    fn supports_exact_session_resume(&self) -> bool {
+        true
+    }
+
     fn build_resume_command_with_context(
         &self,
         params: &crate::provider::AgentResumeParams,
@@ -515,6 +530,13 @@ impl AgentProvider for ClaudeProvider {
 
     fn launch_permission_capability(&self) -> Option<crate::provider::LaunchPermissionCapability> {
         schemas::launch_permissions()
+    }
+
+    fn execution_sandbox_capability(&self) -> Option<crate::provider::ExecutionSandboxCapability> {
+        Some(crate::provider::ExecutionSandboxCapability {
+            unsupported_reason: Some("Permission modes and tool rules do not enforce read-only filesystem access for shell commands; use an enforcing provider or an explicit owner-run canonical gate.".into()),
+            ..Default::default()
+        })
     }
 
     fn compact_command(&self) -> Option<&str> {

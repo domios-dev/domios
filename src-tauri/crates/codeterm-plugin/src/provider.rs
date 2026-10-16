@@ -1,4 +1,8 @@
 mod model_switch_transcript;
+pub enum LaunchSpecParams<'a> {
+    Fresh(&'a AgentLaunchParams),
+    Resume(&'a AgentResumeParams),
+}
 pub mod reply_relay;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -205,6 +209,7 @@ mod agent_provider;
 mod availability;
 mod capabilities;
 mod descriptor;
+mod execution_sandbox;
 mod launch_permissions;
 mod launch_session;
 mod model_group;
@@ -217,6 +222,7 @@ mod worker_lane_setting;
 pub use agent_provider::*;
 pub use availability::*;
 pub use capabilities::*;
+pub use execution_sandbox::*;
 pub use launch_permissions::*;
 pub use launch_session::*;
 pub use model_group::*;

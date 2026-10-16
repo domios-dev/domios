@@ -489,8 +489,8 @@ mod cron_task {
             update(job);
             Ok(())
         }
-        fn set_job_protected(&mut self, _id: &str, _protected: bool) -> Result<(), String> {
-            Ok(())
+        fn set_job_protected(&mut self, id: &str, protected: bool) -> Result<(), String> {
+            self.update_job(id, &mut |job| job.protected = protected)
         }
         fn create_job(&mut self, params: MemCronCreateParams) -> Result<(), String> {
             self.jobs.push(MemCronJob {
@@ -533,6 +533,20 @@ mod cron_task {
             "claude",
             &FakeCompat,
         )
+    }
+
+    #[test]
+    fn ensure_marks_existing_system_job_without_enabling_it() {
+        let mut store = MockScheduler::default();
+        ensure(&mut store).unwrap();
+        assert!(store.jobs[0].protected);
+        store.jobs[0].protected = false;
+        store.jobs[0].enabled = false;
+        assert!(!ensure(&mut store).unwrap());
+        assert!(store.jobs[0].protected);
+        assert!(!store.jobs[0].enabled);
+        assert_eq!(store.jobs.len(), 1);
+        assert!(!ensure(&mut store).unwrap());
     }
 
     #[test]

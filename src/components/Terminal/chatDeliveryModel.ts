@@ -1,6 +1,7 @@
 import type { ChatSend, SendEcho, NormalizedChatMessage } from "@codeterm/chat-core";
-import { normalizeChatText, timestampMs } from "@codeterm/chat-core";
+import { normalizeChatText, parseDomiosMessage, timestampMs } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
+import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
 import type { ComposerReply } from "./composerReply";
 
@@ -22,20 +23,12 @@ export function deliveryState(send: DeliverySend): DeliveryState {
   return send.status?.state === "held" ? "queued" : "sending";
 }
 
-export function deliveryPresentation(
-  send: DeliverySend, rows: readonly NormalizedChatMessage[],
-): DeliveryState | "settled" {
+export function deliveryPresentation(send: DeliverySend, activity: TabActivity["kind"]): DeliveryState {
   const state = deliveryState(send);
   if (send.status?.state !== "written" && send.status?.state !== "submit_unconfirmed") return state;
-  const position = rows.findIndex((row) => row.id === send.id
-    || (send.correlationId != null && row.correlationId === send.correlationId));
-  if (position < 0) return state;
-  const laterOutput = rows.slice(position + 1).some((row) => {
-    if (!["assistant", "thinking", "tool_call", "tool_result", "tool_flow"].includes(row.type)) return false;
-    const at = timestampMs(row.timestamp);
-    return at != null && at > send.sentAtMs;
-  });
-  return laterOutput ? "settled" : state;
+  if (state === "delivered") return state;
+  if (activity === "working") return "queued";
+  return activity === "idle" ? "uncertain" : "sending";
 }
 
 export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus): DeliverySend {
@@ -64,7 +57,7 @@ export function reconcileAdmissionEvidence(send: DeliverySend, evidence: Admissi
 export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {
   if (!send.status || deliveryState(send) === "delivered"
     || statuses.some((status) => status.send_id === send.status?.send_id)) return send;
-  if (send.status.state === "held" || send.status.state === "written") {
+  if (send.status.state === "written") {
     return { ...send, status: { ...send.status, state: "submit_unconfirmed", pending_reason: undefined } };
   }
   return send.status.state === "failed" ? { ...send, status: undefined } : send;
@@ -95,11 +88,15 @@ export function deliveryProjectionSends(
   sends: readonly DeliverySend[], resetCutoffMs: number | null = null,
 ): readonly (DeliverySend & { echoEligible: boolean })[] {
   return sends.filter((send) => send.dismissed || resetCutoffMs == null || deliveryState(send) === "failed" || send.sentAtMs >= resetCutoffMs)
-    .map((send) => ({
-      ...send,
-      echoEligible: deliveryState(send) !== "failed",
-      flowAtMs: send.sentAtMs,
-    }));
+    .map((send) => {
+      const frame = send.status?.system_send ? parseDomiosMessage(send.content) : null;
+      return {
+        ...send,
+        segments: frame ? [{ type: "frame" as const, from: frame.attrs.from, attrs: frame.attrs, body: frame.body, tip: null }] : send.segments,
+        echoEligible: deliveryState(send) !== "failed",
+        flowAtMs: send.sentAtMs,
+      };
+    });
 }
 
 export function canDeleteChatSend(send: DeliverySend): boolean {

@@ -7,6 +7,9 @@ mod live_evidence;
 mod rpc_evidence;
 mod service_context;
 mod settlement;
+mod source_claims;
+pub(crate) use source_claims::SendRowClaim;
+pub use source_claims::{MatchedRow, SourceRecord, SourceRowRef};
 mod system_send;
 pub use system_send::SystemSend;
 mod turn_matching;
@@ -56,6 +59,8 @@ pub struct ChatSendStatus {
     /// on NormalizedChatMessage. Absent when the send carried none — never synthesized.
     #[serde(rename = "correlationId", skip_serializing_if = "Option::is_none")]
     pub correlation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_row: Option<MatchedRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -230,6 +235,7 @@ impl ChatSendLedger {
             sequence,
             retained_from: sequence,
             correlation_id: None,
+            matched_row: None,
             pending_reason: None,
             system_send: None,
         };
@@ -594,6 +600,7 @@ impl ChatSendLedger {
             sequence,
             retained_from: sequence,
             correlation_id: None,
+            matched_row: None,
             pending_reason: None,
             system_send: None,
         };
@@ -834,7 +841,16 @@ impl ChatSendLedger {
 
     /// Confirm one send by id after exact append-window evidence was found in
     /// its own recorded session transcript. No-op if already sent.
+    #[cfg(test)]
     pub(crate) fn confirm_send(&self, send_id: &str) -> Option<ChatSendStatus> {
+        self.confirm_send_with_row(send_id, None)
+    }
+
+    pub(crate) fn confirm_send_with_row(
+        &self,
+        send_id: &str,
+        source_row: Option<&SourceRowRef>,
+    ) -> Option<ChatSendStatus> {
         let owned = {
             let state = self.state.lock();
             state
@@ -860,9 +876,20 @@ impl ChatSendLedger {
             }
         }
         let mut state = self.state.lock();
+        if state.terminal_failures.contains(send_id)
+            || state
+                .by_id
+                .get(send_id)
+                .is_none_or(|status| status.state == ChatSendState::Sent)
+            || source_row
+                .is_some_and(|row| !Self::claim_rows_locked(&mut state, &[send_id.to_owned()], row))
+        {
+            return None;
+        }
         let status = Self::mark_sent(&mut state, send_id)?;
         let status = Self::with_retention_window(&state, status);
         drop(state);
+        self.persist_source_claims(std::slice::from_ref(&status));
         self.wake_owner(&status.tab_id);
         Some(status)
     }
@@ -998,6 +1025,7 @@ impl ChatSendLedger {
         tab_id: &str,
         session_id: &str,
         payload: &str,
+        source_row: Option<&SourceRowRef>,
     ) -> Vec<SendEvidenceAnchor> {
         let state = self.state.lock();
         state
@@ -1006,6 +1034,25 @@ impl ChatSendLedger {
             .filter(|status| status.tab_id == tab_id && status.state == ChatSendState::Sent)
             .filter(|status| {
                 state.payload_by_id.get(&status.send_id).map(String::as_str) == Some(payload)
+            })
+            .filter(|status| match (status.matched_row.as_ref(), source_row) {
+                (Some(claimed), Some(current))
+                    if claimed.source.source_session_id == current.source_session_id =>
+                {
+                    match (&claimed.source.record, &current.record) {
+                        (
+                            SourceRecord::Jsonl {
+                                incarnation: prior, ..
+                            },
+                            SourceRecord::Jsonl {
+                                incarnation: current,
+                                ..
+                            },
+                        ) if !prior.is_empty() && !current.is_empty() => prior == current,
+                        _ => true,
+                    }
+                }
+                _ => true,
             })
             .filter_map(|status| state.anchor_by_id.get(&status.send_id))
             .filter(|anchor| anchor.session_id == session_id)
@@ -1121,59 +1168,7 @@ pub(crate) fn run_chat_send(
         .expect("a started Chat send remains in the bounded ledger until completion")
 }
 
-/// Feed freshly appended session user turns into the ledger. Called from the
-/// live delta sinks only — never from history snapshots, so stale transcript
-/// rows can never confirm a send.
-pub(crate) fn delivered_turn_confirmations(
-    ledger: &ChatSendLedger,
-    tab_id: &str,
-    source_session_id: &str,
-    source_binding_nonce: Option<&str>,
-    messages: &[crate::agent::chat_types::ChatMsg],
-    provenance: Option<&LiveProvenance>,
-) -> Vec<ChatSendStatus> {
-    if let Some(provenance) = provenance {
-        ledger.advance_live_evidence(tab_id, source_session_id, source_binding_nonce, provenance);
-    }
-    let mut confirmed = Vec::new();
-    for (index, msg) in messages.iter().enumerate() {
-        if msg.kind != "user" {
-            continue;
-        }
-        let positioned = provenance.and_then(|provenance| {
-            provenance.positions.get(index).copied().map(|position| {
-                ledger.confirm_owned_live_turns(
-                    tab_id,
-                    source_session_id,
-                    source_binding_nonce,
-                    msg,
-                    position,
-                    provenance,
-                )
-            })
-        });
-        let statuses = positioned
-            .filter(|statuses| !statuses.is_empty())
-            .unwrap_or_else(|| {
-                ledger.confirm_delivered_user_turns_scoped(
-                    tab_id,
-                    source_session_id,
-                    source_binding_nonce,
-                    &msg.content,
-                )
-            });
-        for status in statuses {
-            log::info!(
-                "[chat-send] send_id={} tab={} session={} confirmed by exact turn evidence",
-                status.send_id,
-                status.tab_id,
-                source_session_id
-            );
-            confirmed.push(status);
-        }
-    }
-    confirmed
-}
+pub(crate) use source_claims::delivered_turn_confirmations;
 
 #[cfg(test)]
 mod tests;

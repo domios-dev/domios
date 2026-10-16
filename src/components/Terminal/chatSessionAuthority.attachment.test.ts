@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { attachmentActivity, attachmentStateForSnapshot, canAdoptTranscriptAuthority, needsTranscriptAttachment, transcriptAuthorityMatches, type ChatStartResult } from "./chatSessionAuthority";
+import { attachmentActivity, attachmentStateForSnapshot, canAdoptTranscriptAuthority, chatStartBatchKind, knownWindowForAuthority, needsTranscriptAttachment, transcriptAuthorityMatches, type ChatStartResult } from "./chatSessionAuthority";
 import { createTranscriptState, reduceTranscript, projectTranscript } from "@codeterm/chat-core";
 import { deliveryProjectionSends, type DeliverySend } from "./chatDeliveryModel";
+
+it("adopts unchanged without replacing rows and growth as a live batch", () => {
+  expect(chatStartBatchKind("unchanged")).toBeNull();
+  expect(chatStartBatchKind("delta")).toBe("delta");
+  expect(chatStartBatchKind("snapshot")).toBe("snapshot");
+  expect(chatStartBatchKind(undefined)).toBe("snapshot");
+});
+
+it("offers a cached byte window only for the tab's current authority", () => {
+  const known = { source_session_id: "own", session_binding_nonce: "nonce", end_offset: 100, file_length: 100, cursor: "opaque" };
+  expect(knownWindowForAuthority(known, "own", "nonce")).toBe(known);
+  expect(knownWindowForAuthority(known, "foreign", "nonce")).toBeUndefined();
+  expect(knownWindowForAuthority(known, "own", "rotated")).toBeUndefined();
+  expect(knownWindowForAuthority(known, null, "nonce")).toBeUndefined();
+  expect(knownWindowForAuthority(undefined, "own", "nonce")).toBeUndefined();
+});
 
 describe("bound file-tail attachment", () => {
   it.each([

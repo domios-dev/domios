@@ -216,3 +216,16 @@ fn runtime_control_refusal_is_typed_and_never_offers_restart_fallback() {
     assert_eq!(body["ok"], false);
     assert!(body.get("restart_fallback_available").is_none());
 }
+
+#[test]
+fn model_apply_preserves_explicit_fast_mode_false_and_rejects_non_boolean() {
+    for value in [true, false] {
+        let body: AgentModelBody =
+            serde_json::from_value(serde_json::json!({"model":"selected","fast_mode":value}))
+                .unwrap();
+        assert_eq!(body.fast_mode, Some(value));
+    }
+    assert!(
+        serde_json::from_value::<AgentModelBody>(serde_json::json!({"fast_mode":"on"})).is_err()
+    );
+}

@@ -5,6 +5,7 @@
     "instanceId": "peer",
     "action": "trigger",
     "tabId": "tab",
+    "threadId": "child",
     "workspaceId": "workspace",
     "teamId": "team",
     "planId": "plan",
@@ -45,7 +46,7 @@
       "kind": "blueprint"
     },
     "config": {},
-    "request": {},
+    "request": {"rootThreadId":"root","bindingNonce":"nonce","epoch":4,"threadId":"child","processId":"process"},
     "input": {},
     "patch": {},
     "url": "url",
@@ -245,6 +246,7 @@
         "/api/tabs/tab/chat-raw/stop"
       ]
     ],
+    "chat_resume": [["POST", "/api/tabs/tab/chat-raw/resume"]],
     "chat_backfill": [
       [
         "POST",
@@ -1233,16 +1235,37 @@
         "/api/tabs/tab/agent/runtime/retry"
       ]
     ],
+    "agent_runtime_child_history": [
+      ["GET", "/api/tabs/tab/agent/runtime/children/child/history?rootThreadId=root&bindingNonce=nonce&epoch=4"]
+    ],
+    "agent_runtime_background_processes": [
+      ["GET", "/api/tabs/tab/agent/runtime/background-processes?rootThreadId=root&bindingNonce=nonce&epoch=4"]
+    ],
+    "agent_runtime_stop_background_process": [
+      ["POST", "/api/tabs/tab/agent/runtime/background-processes"]
+    ],
     "agent_runtime_answer_question": [
       [
         "POST",
         "/api/tabs/tab/agent/runtime/questions/question/answer"
       ]
     ],
+    "agent_runtime_goal": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/goal"
+      ]
+    ],
     "agent_runtime_login": [
       [
         "POST",
         "/api/tabs/tab/agent/runtime/login"
+      ]
+    ],
+    "agent_runtime_reset_credits": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/reset-credits"
       ]
     ]
   }

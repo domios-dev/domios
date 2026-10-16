@@ -88,7 +88,6 @@ export function MissionControlBoard({
           {loading ? "Reading the plan record…" : "No stored Mission Control reading for this plan."}
         </p>
       )}
-      {api && plan.team_id && <ActivityFeed api={api} teamId={plan.team_id} />}
       {boardState && mc && (
         <>
           <div
@@ -109,14 +108,17 @@ export function MissionControlBoard({
             />
           </div>
           <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
-          <BoardEventLog
-            log={mc.event_log}
-            milestoneKinds={plan.milestone_kinds ?? []}
-            refs={refs}
-            pager={eventPager}
-            now={now}
-          />
         </>
+      )}
+      {api && plan.team_id && <ActivityFeed api={api} teamId={plan.team_id} />}
+      {boardState && mc && (
+        <BoardEventLog
+          log={mc.event_log}
+          milestoneKinds={plan.milestone_kinds ?? []}
+          refs={refs}
+          pager={eventPager}
+          now={now}
+        />
       )}
     </div>
   );

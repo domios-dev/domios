@@ -12,7 +12,11 @@ suite.test("an error notice is an alert and Dismiss fires once", async () => {
   const { host, unmount } = await render(<SurfaceNoticeBar notice={{ text: "boom", tone: "error" }} onDismiss={() => { dismissed += 1; }} />);
   const alert = getByRole(host, "alert");
   assert.ok(alert.textContent?.includes("boom"), "the supplied notice text is shown");
-  await act(async () => getByRole(host, "button", "Dismiss notice").click());
+  const details = alert.querySelector("details");
+  assert.ok(details, "raw diagnostics are expandable");
+  assert.equal(details.open, false);
+  assert.equal(details.querySelector("pre")?.textContent, "boom");
+  await act(async () => getByRole(alert, "button", "Dismiss notice").click());
   assert.equal(dismissed, 1);
   await unmount();
 });

@@ -1,0 +1,13 @@
+{
+  "threadId": "fixture-thread",
+  "goal": {
+    "threadId": "fixture-thread",
+    "objective": "Fixture objective",
+    "status": "active",
+    "tokenBudget": null,
+    "tokensUsed": 12,
+    "timeUsedSeconds": 3,
+    "createdAt": 1,
+    "updatedAt": 2
+  }
+}

@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_service_core::service::MuxEmitCause;
 use serde::Deserialize;
 
 use super::routes::AppState;
@@ -252,7 +253,7 @@ async fn repair_tab_from_session(
         None,
     )
     .map_err(ApiRepairError::from)?;
-    state.svc.emit_state_changed();
+    state.svc.emit_state_changed(MuxEmitCause::AgentIdentity);
     Ok(response)
 }
 

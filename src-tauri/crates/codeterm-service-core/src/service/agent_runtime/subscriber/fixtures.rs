@@ -11,9 +11,42 @@ pub(super) struct Probe {
     pub reduces: Mutex<Vec<Vec<RuntimeFrame>>>,
     pub fail_next: std::sync::atomic::AtomicU32,
     pub reduce_failures: std::sync::atomic::AtomicU32,
+    pub history: Mutex<Vec<String>>,
+    pub history_orders: Mutex<Vec<Option<HistoryOrder>>>,
 }
 
 struct Adapter(Arc<Probe>);
+
+impl Adapter {
+    fn history_page(
+        &self,
+        thread_id: &str,
+        cursor: Option<&str>,
+        order: Option<HistoryOrder>,
+    ) -> RuntimeResult {
+        self.0.history_orders.lock().push(order);
+        let mut ids = self.0.history.lock().clone();
+        if order == Some(HistoryOrder::Desc) {
+            ids.reverse();
+        }
+        let index = cursor.and_then(|cursor| cursor.parse().ok()).unwrap_or(0);
+        RuntimeResult::HistoryPage {
+            thread_id: thread_id.into(),
+            items: ids
+                .get(index)
+                .map(|id| codeterm_types::agent::chat_types::ChatMsg {
+                    id: id.clone(),
+                    ..Default::default()
+                })
+                .into_iter()
+                .collect(),
+            next_cursor: (index + 1 < ids.len()).then(|| (index + 1).to_string()),
+            open_items: Vec::new(),
+            questions: None,
+            order,
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl AgentProvider for Adapter {
@@ -54,8 +87,12 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            fast_mode: false,
+            background_processes: false,
+            goals: None,
             stored_history: false,
             usage: false,
+            reset_credits_min_version: None,
             runtime: AgentRuntimeProtocol::StdioJsonrpc,
             command: AgentRuntimeCommand {
                 binary: "unused".into(),
@@ -114,13 +151,11 @@ impl AgentProvider for Adapter {
                         thread_id: thread_id.clone(),
                         settings: settings.clone(),
                     },
-                    RuntimeOperation::ReadHistory { thread_id, .. } => RuntimeResult::HistoryPage {
-                        thread_id: thread_id.clone(),
-                        items: Vec::new(),
-                        next_cursor: None,
-                        open_items: Vec::new(),
-                        questions: None,
-                    },
+                    RuntimeOperation::ReadHistory {
+                        thread_id,
+                        cursor,
+                        order,
+                    } => self.history_page(thread_id, cursor.as_deref(), *order),
                     _ => RuntimeResult::Done,
                 },
                 events: None,
@@ -228,11 +263,12 @@ pub(super) fn scene() -> Scene {
         maps: Mutex::new(super::super::events::RuntimeMaps::default()),
         bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
         prompts: Mutex::new(HashMap::new()),
-        process: Mutex::new(Some(process)),
+        process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),
         compaction: Mutex::new(Default::default()),
         abort_note: Mutex::new(None),
+        history_retry: Mutex::new(None),
         controls_confirmation: Mutex::new(None),
         control_changes: tokio::sync::watch::channel(()).0,
     });

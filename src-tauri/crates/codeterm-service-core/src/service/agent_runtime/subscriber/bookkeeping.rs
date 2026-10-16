@@ -6,11 +6,9 @@ use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use codeterm_types::agent::chat_types::ChatMsg;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicU32, AtomicU64, Ordering},
     Arc,
 };
-
-pub const CONSECUTIVE_CLOSE: u32 = 8;
 
 static WARNING_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -25,8 +23,10 @@ pub enum Step {
     Close(RuntimeFailure),
 }
 
-pub fn reset(session: &Session) {
-    session.bookkeeping_failures.store(0, Ordering::Relaxed);
+pub(super) fn first_failure(failures: &AtomicU32) -> bool {
+    failures.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+        Some(count.saturating_add(1))
+    }) == Ok(0)
 }
 
 pub async fn account(
@@ -36,14 +36,14 @@ pub async fn account(
     epoch: u64,
     reason: &str,
 ) -> Step {
-    let next = session.bookkeeping_failures.fetch_add(1, Ordering::Relaxed) + 1;
-    emit_warning(svc, session, epoch, reason);
-    if next >= CONSECUTIVE_CLOSE {
-        return Step::Close(RuntimeFailure::HookFailed(
-            "eight consecutive runtime bookkeeping failures".into(),
-        ));
+    if first_failure(&session.bookkeeping_failures) {
+        emit_warning(svc, session, epoch, reason);
     }
-    match resync(svc, session, process).await {
+    recovery_step(resync(svc, session, process).await)
+}
+
+pub(super) fn recovery_step(result: Result<(), RuntimeFailure>) -> Step {
+    match result {
         Ok(()) => Step::Continue,
         Err(reason) if protocol(&reason) => Step::Close(reason),
         Err(RuntimeFailure::Superseded) => Step::Break,
@@ -90,7 +90,7 @@ fn emit_warning(svc: &ServiceContext, session: &Session, epoch: u64, reason: &st
     );
 }
 
-async fn resync(
+pub(super) async fn resync(
     svc: &ServiceContext,
     session: &Arc<Session>,
     process: &Arc<Process>,
@@ -143,6 +143,7 @@ async fn resync(
             RuntimeOperation::ReadHistory {
                 thread_id: thread_id.clone(),
                 cursor,
+                order: Some(HistoryOrder::Asc),
             },
         )
         .await?;

@@ -1,4 +1,4 @@
-import { planOutputReplay, type OutputBytesFrame } from "./outputReplay";
+import { planOutputReplay, type OutputBytesFrame, type OutputCursor } from "./outputReplay";
 
 interface Retained extends Omit<OutputBytesFrame, "bytes"> { chunks: Uint8Array[]; size: number }
 export class OutputRetention {
@@ -25,12 +25,22 @@ export class OutputRetention {
     }
     this.tabs.set(tabId, retained);
   }
-  snapshot(tabId: string): OutputBytesFrame | undefined {
+  snapshot(tabId: string, cursor?: OutputCursor): OutputBytesFrame | undefined {
     const retained = this.tabs.get(tabId);
     if (!retained) return;
-    const bytes = new Uint8Array(retained.size);
+    const sameRing = cursor?.boot === retained.boot && cursor.ptyId === retained.ptyId;
+    let skip = sameRing ? Math.min(retained.size, Math.max(0, cursor.offset - (retained.offset - retained.size))) : 0;
+    const bytes = new Uint8Array(retained.size - skip);
     let index = 0;
-    for (const chunk of retained.chunks) { bytes.set(chunk, index); index += chunk.length; }
+    if (bytes.length) {
+      for (const chunk of retained.chunks) {
+        if (skip >= chunk.length) { skip -= chunk.length; continue; }
+        const tail = chunk.subarray(skip);
+        bytes.set(tail, index);
+        index += tail.length;
+        skip = 0;
+      }
+    }
     return { boot: retained.boot, ptyId: retained.ptyId, offset: retained.offset, bytes };
   }
 }

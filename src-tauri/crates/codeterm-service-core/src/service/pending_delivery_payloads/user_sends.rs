@@ -11,12 +11,14 @@ use std::sync::Arc;
 mod admission_evidence;
 mod admission_tokens;
 pub(crate) mod dismissal;
+mod source_claims;
 pub use dismissal::UserSendDismissal;
 mod runtime_capture;
 mod runtime_observers;
 pub use admission_evidence::UserAdmissionEvidence;
 use runtime_observers::RuntimeAdmission;
 pub(crate) mod continuity;
+pub(crate) mod ended_launch;
 mod handoff;
 mod ready_launch;
 mod reservations;
@@ -83,6 +85,8 @@ fn held_before_readiness_by_default() -> bool {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct UserIndex {
+    #[serde(default)]
+    source_claims: Vec<crate::service::chat_send_transaction::SendRowClaim>,
     version: u8,
     next_sequence: u64,
     records: Vec<UserSendRecord>,
@@ -99,6 +103,7 @@ struct UserIndex {
 impl Default for UserIndex {
     fn default() -> Self {
         Self {
+            source_claims: Vec::new(),
             version: 1,
             next_sequence: 1,
             records: Vec::new(),
@@ -539,18 +544,26 @@ impl UserSendStore {
         Ok(Some(rebound))
     }
 
+    pub(crate) fn claim_is_active(&self, record: &UserSendRecord) -> bool {
+        record.state == UserSendState::Claimed && record.owner_epoch == self.epoch
+    }
+
     pub(crate) fn eligible(&self, record: &UserSendRecord) -> bool {
         let tab = self.tab(&record.authority.tab_id);
         record.owner_epoch == self.epoch
             && record.state == UserSendState::Queued
             && !tab.revoked.load(Ordering::Acquire)
             && !tab.failed.load(Ordering::Acquire)
-            && !tab
-                .admissions
-                .lock()
-                .pending
-                .iter()
-                .any(|ordinal| *ordinal <= record.reservation)
+            && !self.waiting_for_preparation(record)
+    }
+
+    pub(crate) fn waiting_for_preparation(&self, record: &UserSendRecord) -> bool {
+        self.tab(&record.authority.tab_id)
+            .admissions
+            .lock()
+            .pending
+            .iter()
+            .any(|ordinal| *ordinal <= record.reservation)
     }
 
     pub fn claim<'a>(
@@ -741,7 +754,7 @@ impl UserSendStore {
             }
             owner_directory(&tab.dir)?;
             let path = tab.dir.join("index.json");
-            let index: UserIndex = match fs::symlink_metadata(&path) {
+            let mut index: UserIndex = match fs::symlink_metadata(&path) {
                 Ok(_) => serde_json::from_slice(&read_bounded(&path, MAX_INDEX_BYTES)?)
                     .map_err(|_| "user index is invalid")?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -756,6 +769,9 @@ impl UserSendStore {
             if index.version != 1 {
                 return Err("user index version is unknown".into());
             }
+            index
+                .source_claims
+                .retain(|claim| claim.matched_row.source.valid());
             validate_index(&index, &tab.tab_id)?;
             let sequence_base = index.next_sequence;
             tab.unsettled
@@ -859,6 +875,7 @@ impl UserTab {
 
 fn validate_index(index: &UserIndex, tab_id: &str) -> Result<(), String> {
     continuity::validate_receipts(index, tab_id)?;
+    source_claims::validate_claims(&index.source_claims, tab_id)?;
     index.runtime_observers.validate()?;
     if index.next_sequence == 0 {
         return Err("user index sequence is invalid".into());
