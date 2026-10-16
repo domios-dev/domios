@@ -546,6 +546,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | `registered_documents_have_one_title_and_fit_the_reading_boundary` rejects a CLI document | A contract addition exceeds the 240-line reading boundary | Integrate the clarification into its owning contract section and remove duplicate explanation, or move a separate concern to its linked reference. Run the focused CLI document test before the full preflight. |
 | The CLI docs test reports `API exceeds 24 KiB` | The API index repeats adoption details already owned by `API-ADOPT.md` | Keep `API.md` to the endpoint summary and move the full contract to `API-ADOPT.md`; bump the production doc revision and run `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. Never raise the 24 KiB limit. |
 | The CLI docs test reports `API-TABS exceeds 24 KiB` | The tab API's notification contract repeats channel policy wording | Preserve every contract statement while compacting redundant prose; move a passage to a registered linked doc only if it cannot fit. Bump the production doc revision and rerun the focused docs test; never raise the 24 KiB limit. |
+| Embedded docs differ across platforms or exceed 24 KiB only on Windows | CRLF checkout conversion enlarged the bytes embedded by `include_str!` | Keep `prod-docs/*.md text eol=lf` in `.gitattributes`, refresh clean doc files in existing checkouts, and compile the CLI again. The boundary test measures the actual embedded bytes without normalizing them; never raise the limit. |
 | Several registered docs exceed 240 lines or 24 KiB after parallel lanes merge | Each lane appended prose, often hard-wrapped, and restated contracts another doc owns | Reflow hard-wrapped paragraphs to one line each, remove statements owned by another doc, then split a coherent section into a new registered doc (`cli/src/cmd/docs.rs`) with a `codeterm docs <NAME>` pointer; bump each changed doc's revision. Never raise the limits. |
 | `essence_map_contract_committed_artifacts_are_fresh` reports a stale source digest | `essences/capabilities.md` or `essences/core.md` changed after `essences/map.jsonl` was generated | Run `codeterm essence-map generate --root .`, validate with `codeterm essence-map validate --root .`, and commit the generated map. Never edit generated nodes by hand. |
 | A release-time test fails in `#[cfg(test)]` code while `check` is green | `check` compiles non-test targets and does not compile the Rust test profile | Run `./build.ps1 check-tests` on Windows or `./build.sh check-tests` on Unix, fix the test-profile compile error, then rerun the same gate. |
@@ -948,7 +949,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 42 -->
+<!-- revision: 43 -->
 
 ### Lane and batch scopes
 
