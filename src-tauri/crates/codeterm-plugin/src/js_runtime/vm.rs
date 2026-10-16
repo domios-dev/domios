@@ -307,6 +307,7 @@ pub struct PluginVm {
     /// identity, so awaiting one must not read it through the lock it releases.
     sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
     plugin_id: String,
+    declares_launch_spec: std::sync::atomic::AtomicBool,
 }
 
 struct Inner {
@@ -435,7 +436,9 @@ impl PluginVm {
             Ok(())
         })?;
 
+        let declares_launch_spec = launch_spec_exported(&ctx);
         Ok(Self {
+            declares_launch_spec: std::sync::atomic::AtomicBool::new(declares_launch_spec),
             runtime_inner: Mutex::new(None),
             inner: Mutex::new(Inner {
                 _ctx: ctx,
@@ -458,6 +461,11 @@ impl PluginVm {
 
     pub(crate) fn can_read_environment(&self, name: &str) -> bool {
         self.sandbox.can_env(name)
+    }
+
+    pub fn declares_launch_spec(&self) -> bool {
+        self.declares_launch_spec
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     pub fn plugin_id(&self) -> &str {
@@ -545,6 +553,10 @@ impl PluginVm {
                 .map_err(|e| VmError::Script(format!("invoke-helpers: {e:?}")))?;
             Ok(())
         })?;
+        self.declares_launch_spec.store(
+            launch_spec_exported(&ctx),
+            std::sync::atomic::Ordering::Release,
+        );
         inner._ctx = ctx;
         inner._rt = rt;
         inner.bundle_source = new_source;
@@ -833,6 +845,13 @@ fn resume_call(
         inner._rt.set_interrupt_handler(None);
     }
     result
+}
+
+fn launch_spec_exported(context: &Context) -> bool {
+    context.with(|ctx| {
+        eval_source::<bool, _>(&ctx, "typeof __plugin__.buildLaunchSpec === 'function'")
+            .unwrap_or(false)
+    })
 }
 
 /// Whether the plugin exports `method` as a function. Lets the host tell

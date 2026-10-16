@@ -1,6 +1,8 @@
 //! Agent spawn & batch command orchestration.
 
 mod launch;
+#[cfg(any(test, feature = "test-support"))]
+pub use launch::test_support as launch_test_support;
 mod launch_env;
 mod prompt_compose;
 mod spawn;
@@ -11,11 +13,13 @@ mod types;
 pub use launch::arm_provider_session_for_test;
 #[cfg(any(test, feature = "test-support"))]
 pub use launch::launch_waits_for_first_turn_binding;
+pub(crate) use launch::prepare_agent_command_for_service;
 #[cfg(test)]
 pub(crate) use launch::skip_local_worker_role;
 #[cfg(test)]
 pub(crate) use launch::AgentRegistry;
 pub use launch::LaunchGeneration;
+pub use launch::PreparedAgentCommand;
 pub use launch::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service, launch_agent_in_background,

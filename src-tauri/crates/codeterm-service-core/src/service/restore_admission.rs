@@ -364,17 +364,29 @@ pub fn admit_restored_pty(
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_enter");
         let claim = service.pty_ownership.acquire(&resolved);
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_acquired");
-        service.ensure_tab_pty_linked_with_claim(&claim, Some(admission))?;
-        service.resolve_pty_id(&resolved)?
+        if service.direct_restored_pty_pending(&resolved) {
+            None
+        } else {
+            service.ensure_tab_pty_linked_with_claim(&claim, Some(admission))?;
+            Some(service.resolve_pty_id(&resolved)?)
+        }
     };
     schedule_preparation(service, resolved, pty_id);
     Ok(())
 }
 
+fn preparation_matches(
+    restored: bool,
+    current_pty: Option<&str>,
+    admitted_pty: Option<&str>,
+) -> bool {
+    restored && current_pty == admitted_pty
+}
+
 fn schedule_preparation(
     service: &ServiceContext,
     resolved: String,
-    pty_id: String,
+    pty_id: Option<String>,
 ) -> Option<std::thread::JoinHandle<()>> {
     static PREPARATION: OnceLock<PreparationGate> = OnceLock::new();
     let Some(mut ticket) = PREPARATION
@@ -383,19 +395,26 @@ fn schedule_preparation(
     else {
         return None;
     };
-    crate::startup::boot_timing::mark(&resolved, Some(&pty_id), "prepare_queued");
+    crate::startup::boot_timing::mark(&resolved, pty_id.as_deref(), "prepare_queued");
     let service = service.clone();
     Some(codeterm_util::named_thread::spawn(
         "restore-prepare",
         move || {
             let admission = ticket.acquire();
-            admission.mark(&resolved, Some(&pty_id), "prepare_admitted");
+            admission.mark(&resolved, pty_id.as_deref(), "prepare_admitted");
             let claim = service.pty_ownership.acquire(&resolved);
-            if service.resolve_pty_id(&resolved).as_deref() != Ok(pty_id.as_str()) {
-                crate::startup::boot_timing::mark(&resolved, Some(&pty_id), "prepare_cancelled");
+            let matches = service.mux.read().get_tab(&resolved).is_some_and(|tab| {
+                preparation_matches(
+                    tab.restored_from_snapshot && !tab.agent_booting,
+                    tab.pty_id.as_deref(),
+                    pty_id.as_deref(),
+                )
+            });
+            if !matches {
+                admission.mark(&resolved, pty_id.as_deref(), "prepare_cancelled");
                 return;
             }
-            let result = service.materialize_restored_agent_with_claim(&claim);
+            let result = service.materialize_restored_agent_with_admission(&claim, Some(admission));
             if let Err(reason) = &result {
                 if let Some(tab) = service.mux.write().get_tab_mut(&resolved) {
                     tab.agent_booting = false;
@@ -408,8 +427,8 @@ fn schedule_preparation(
                 service.emit_state_changed();
                 log::error!("[startup-pty] tab={resolved} materialization failed: {reason}");
             }
-            crate::startup::boot_timing::mark(&resolved, Some(&pty_id), "prepare_completed");
-            crate::startup::boot_timing::mark(&resolved, Some(&pty_id), "materialized");
+            crate::startup::boot_timing::mark(&resolved, pty_id.as_deref(), "prepare_completed");
+            crate::startup::boot_timing::mark(&resolved, pty_id.as_deref(), "materialized");
         },
     ))
 }
@@ -426,6 +445,17 @@ mod tests {
                 domain: None,
             })
             .collect()
+    }
+
+    #[test]
+    fn preparation_guard_requires_the_observed_host_or_an_unhosted_restore() {
+        assert!(preparation_matches(true, None, None));
+        assert!(!preparation_matches(false, None, None));
+        assert!(!preparation_matches(true, Some("new"), None));
+        assert!(preparation_matches(true, Some("shell"), Some("shell")));
+        assert!(!preparation_matches(false, Some("shell"), Some("shell")));
+        assert!(!preparation_matches(true, Some("new"), Some("shell")));
+        assert!(!preparation_matches(true, None, Some("shell")));
     }
 
     #[test]
@@ -486,6 +516,9 @@ mod tests {
     struct RestoreProvider {
         inner: crate::agent::test_provider::MockProvider,
         calls: Arc<Mutex<Vec<&'static str>>>,
+        direct: bool,
+        spec: bool,
+        resumable: bool,
     }
 
     impl crate::agent::provider::AgentProvider for RestoreProvider {
@@ -500,6 +533,19 @@ mod tests {
             params: &crate::agent::provider::AgentLaunchParams,
         ) -> String {
             self.inner.build_launch_command(params)
+        }
+        fn declares_launch_spec(&self) -> bool {
+            self.direct
+        }
+        fn launch_spec(
+            &self,
+            _: &crate::agent::provider::LaunchSpecParams<'_>,
+        ) -> Option<codeterm_types::agent::LaunchSpec> {
+            self.calls.lock().push("launch_spec");
+            self.spec.then(|| codeterm_types::agent::LaunchSpec {
+                program: "restore-spy".into(),
+                ..Default::default()
+            })
         }
         fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
             self.inner.readiness_strategy()
@@ -530,7 +576,8 @@ mod tests {
         }
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             self.calls.lock().push("build_resume_command");
-            None
+            self.resumable
+                .then(|| "restore-spy --resume own-session".into())
         }
     }
 
@@ -564,6 +611,9 @@ mod tests {
                 .register_provider(Box::new(RestoreProvider {
                     inner: MockProvider::with_session("restore-spy", "own-session"),
                     calls: calls.clone(),
+                    direct: false,
+                    spec: false,
+                    resumable: false,
                 }));
             if deferred {
                 let claim = fixture.service.pty_ownership.acquire(&tab_id);
@@ -574,7 +624,7 @@ mod tests {
                 assert!(calls.lock().is_empty());
                 let pty_id = fixture.service.resolve_pty_id(&tab_id).unwrap();
                 drop(claim);
-                schedule_preparation(&fixture.service, tab_id.clone(), pty_id)
+                schedule_preparation(&fixture.service, tab_id.clone(), Some(pty_id))
                     .unwrap()
                     .join()
                     .unwrap();
@@ -598,6 +648,97 @@ mod tests {
         }
         assert_eq!(observed[0], ["session_exists", "build_resume_command"]);
         assert_eq!(observed[1], observed[0]);
+    }
+
+    #[test]
+    fn direct_admission_defers_provider_calls_and_missing_spec_builds_a_shell_in_preparation() {
+        use crate::agent::test_provider::MockProvider;
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::service::test_fixture::ServiceFixture;
+        for spec in [false, true] {
+            let (mut mux, tab_id) = MultiplexerState::new();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.protected = false;
+            tab.agent_type = Some("restore-spy".into());
+            tab.agent_session_id = Some("own-session".into());
+            tab.restored_from_snapshot = true;
+            let fixture = ServiceFixture::new(mux);
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            fixture
+                .service
+                .agent_registry
+                .register_provider(Box::new(RestoreProvider {
+                    inner: MockProvider::with_session("restore-spy", "own-session"),
+                    calls: calls.clone(),
+                    direct: true,
+                    spec,
+                    resumable: true,
+                }));
+            let claim = fixture.service.pty_ownership.acquire(&tab_id);
+            assert!(fixture.service.direct_restored_pty_pending(&tab_id));
+            assert!(calls.lock().is_empty());
+            assert!(fixture.service.resolve_pty_id(&tab_id).is_err());
+            let service = fixture.service.clone();
+            let id = tab_id.clone();
+            let prepared = std::thread::spawn(move || {
+                let input = crate::service::restored_launch::restored_fresh_launch_input(
+                    &service.agent_registry,
+                    crate::service::SpawnAgentParams {
+                        agent: Some("restore-spy".into()),
+                        resume_session_id: Some("own-session".into()),
+                        ..Default::default()
+                    },
+                    crate::multiplexer::types::RestorableLaunchParameters {
+                        captured: true,
+                        ..Default::default()
+                    },
+                );
+                let command = input.prepared_command(&service, &id).unwrap();
+                service
+                    .ensure_restored_launch_host_with_claim(&claim, &command, None)
+                    .unwrap();
+                command
+            })
+            .join()
+            .unwrap();
+            assert_eq!(prepared.direct.is_some(), spec);
+            let pty = fixture.service.resolve_pty_id(&tab_id).ok();
+            assert_eq!(pty.is_none(), spec);
+            assert!(calls.lock().contains(&"launch_spec"));
+            if spec {
+                let prior_calls = calls.lock().clone();
+                {
+                    let mut mux = fixture.service.mux.write();
+                    let tab = mux.get_tab_mut(&tab_id).unwrap();
+                    tab.restored_from_snapshot = false;
+                    tab.agent_booting = true;
+                }
+                fixture.service.ensure_tab_pty_for_send(&tab_id).unwrap();
+                assert!(fixture.service.resolve_pty_id(&tab_id).is_err());
+                assert_eq!(*calls.lock(), prior_calls);
+            }
+            if let Some(pty) = pty {
+                fixture.service.pty.lock().kill(&pty).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn preparation_cancels_when_a_host_appears_after_direct_admission() {
+        let (mut state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.restored_from_snapshot = true;
+        tab.pty_id = Some("new-owner".into());
+        let fixture = crate::service::test_fixture::ServiceFixture::new(state);
+        schedule_preparation(&fixture.service, tab_id.clone(), None)
+            .unwrap()
+            .join()
+            .unwrap();
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert!(tab.restored_from_snapshot);
+        assert!(!tab.agent_booting);
+        assert_eq!(tab.pty_id.as_deref(), Some("new-owner"));
     }
 
     #[test]

@@ -15,10 +15,7 @@ use crate::provider::{
 use codeterm_types::pty::PendingPrompt;
 
 use super::super::{call_json, manifest_settings_sections, IntegrationKind, SerdeModelInfo};
-use super::command_template::{launch_command_from_template, resume_command_from_template};
-use super::wire::{
-    launch_params_to_json, SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
-};
+use super::wire::{SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES};
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
 mod chat_read;
@@ -177,13 +174,18 @@ impl AgentProvider for JsProvider {
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
-        if !self.has_js("buildLaunchCommand") {
-            if let Some(command) = launch_command_from_template(&self.manifest, params) {
-                return command;
-            }
-        }
-        self.try_call::<String>("buildLaunchCommand", &[launch_params_to_json(params)])
-            .unwrap_or_default()
+        super::command_template::build_launch_command(self, params)
+    }
+
+    fn declares_launch_spec(&self) -> bool {
+        self.manifest.commands.launch_spec.is_some() || self.vm.declares_launch_spec()
+    }
+
+    fn launch_spec(
+        &self,
+        params: &crate::provider::LaunchSpecParams<'_>,
+    ) -> Option<codeterm_types::agent::LaunchSpec> {
+        super::command_template::launch_spec(self, params)
     }
 
     fn release_tab_launch_artifacts(
@@ -812,18 +814,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
-        if !self.has_js("buildResumeCommand") {
-            if let Some(command) =
-                resume_command_from_template(&self.manifest, session_id, skip_permissions)
-            {
-                return Some(command);
-            }
-        }
-        self.try_call::<Option<String>>(
-            "buildResumeCommand",
-            &[json!(session_id), json!(skip_permissions)],
-        )
-        .flatten()
+        super::command_template::build_resume_command(self, session_id, skip_permissions)
     }
 
     fn build_resume_command_with_context(

@@ -1118,8 +1118,8 @@ fn visible_agent_launch_command_for_service(
     task: Option<&str>,
     injected_session_id: Option<&str>,
     registry: &AgentRegistry,
-) -> String {
-    super::launch_session_detection::marked_agent_command_for_service(
+) -> super::orchestrator::PreparedAgentCommand {
+    super::launch_session_detection::marked_prepared_agent_command_for_service(
         service,
         tab_id,
         agent_cmd,

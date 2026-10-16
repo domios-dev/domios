@@ -10,7 +10,9 @@ pub(crate) fn skip_local_worker_role(
         && report_target_mesh_peer.map_or(false, |p| !p.is_empty())
 }
 
+pub use super::launch_env::PreparedAgentCommand;
 pub(crate) use crate::agent::registry::AgentRegistry;
+pub(crate) use command::prepare_agent_command_for_service;
 mod generation_registry;
 use generation_registry::LaunchRegistry;
 #[path = "launch/backend_reader.rs"]
@@ -19,6 +21,9 @@ mod backend_reader;
 mod bootstrap;
 mod command;
 use backend_reader::start_backend_reader;
+#[path = "launch/backend_spawn.rs"]
+mod backend_spawn;
+use backend_spawn::spawn_backend_pty;
 #[path = "launch/cwd_guard.rs"]
 mod cwd_guard;
 #[path = "launch/exit_recovery_shell.rs"]
@@ -39,6 +44,9 @@ mod public_send;
 mod reader_readiness;
 mod resume_binding;
 mod startup_readiness;
+#[cfg(any(test, feature = "test-support"))]
+#[path = "launch/test_support.rs"]
+pub mod test_support;
 mod user_input;
 pub use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
@@ -137,38 +145,6 @@ fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
         .get_session(&pty_id)
         .is_some()
         .then_some(pty_id)
-}
-
-fn spawn_backend_pty(
-    svc: &ServiceContext,
-    tab_id: &str,
-    launch_env: &std::collections::HashMap<String, String>,
-    provider_id: &str,
-) -> Result<BackendPty, LaunchFailure> {
-    let cwd = svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .and_then(|tab| tab.cwd.clone());
-    let mut env_vars = svc.tab_env(tab_id);
-    env_vars.extend(launch_env.clone());
-    env_vars.extend(
-        svc.model_provider_launch_env(provider_id)
-            .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?,
-    );
-    crate::service::agent_restart::timing::stage(tab_id, "pending", "relaunch-pty-request");
-    let (pty_id, _) = {
-        let gate = svc.pty.lock().spawn_gate();
-        crate::pty::manager::build_session(gate, None, cwd, 120, 40, env_vars)
-            .map(|built| svc.pty.lock().register_session(None, built))
-    }
-    .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?;
-    crate::service::agent_restart::timing::stage(tab_id, &pty_id, "relaunch-pty-created");
-    crate::service::pty_resize::resize(&svc.pty, &svc.screen_state, &pty_id, None)
-        .map_err(LaunchFailure::PtySpawn)?;
-    let reader = start_backend_reader(svc, &pty_id)?;
-
-    Ok(BackendPty { id: pty_id, reader })
 }
 
 fn command_with_binding_nonce_for_shell(
@@ -274,7 +250,7 @@ pub fn launch_agent_in_background(
 pub(crate) fn launch_agent_in_background_with_task_turn(
     svc: ServiceContext,
     tab_id: String,
-    launch_cmd: String,
+    launch_cmd: PreparedAgentCommand,
     agent_cmd: String,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     has_startup_task_turn: bool,
@@ -305,7 +281,7 @@ pub(crate) fn launch_agent_in_background_with_task_turn(
 pub fn launch_agent_in_background_with_env(
     svc: ServiceContext,
     tab_id: String,
-    launch_cmd: String,
+    launch_cmd: impl Into<PreparedAgentCommand>,
     agent_cmd: String,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     has_startup_task_turn: bool,
@@ -317,6 +293,9 @@ pub fn launch_agent_in_background_with_env(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     resume_session_id: Option<String>,
 ) {
+    let prepared_command = launch_cmd.into();
+    let launch_cmd = prepared_command.shell_command;
+    let direct_spec = prepared_command.direct;
     if let Some(reason) = cwd_guard::refuse_launch_without_cwd(&svc, &tab_id) {
         if let Some(tx) = ready_tx {
             let _ = tx.send(Err(reason));
@@ -387,7 +366,9 @@ pub fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
         }
-        let preparation = preparation::start(&svc, &tab_id, &agent_cmd, launch_cmd);
+        let preparation = direct_spec
+            .is_none()
+            .then(|| preparation::start(&svc, &tab_id, &agent_cmd, launch_cmd.clone()));
         let set_booting = |launch: &LaunchGeneration, value: bool| {
             if !value
                 && crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some_and(|sidecar| {
@@ -404,7 +385,40 @@ pub fn launch_agent_in_background_with_env(
             crate::service::boot_wait::notify_boot_changed();
         };
         let existing_pty = existing_live_pty(&svc, &tab_id);
-        let fresh_pty = svc.model_provider_requires_fresh_pty(&agent_cmd)
+        let direct = direct_spec.is_some();
+        let mut reserved_nonce = reserved_nonce;
+        let mut readiness_registration = None;
+        let direct_pty_id = if direct {
+            match backend_spawn::arm_direct_launch(
+                &svc,
+                &mut launch,
+                &pty_claim,
+                existing_pty.as_deref(),
+                task_identity.as_ref(),
+                public_send_key,
+                origin,
+                resume_session_id.as_deref(),
+                reserved_nonce.take(),
+            ) {
+                Ok((pty_id, registration)) => {
+                    readiness_registration = Some(registration);
+                    Some(pty_id)
+                }
+                Err(failure) => {
+                    let error = failure.reason();
+                    launch.fail(&svc, failure);
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(error));
+                    }
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let fresh_pty = direct
+            || svc.model_provider_requires_fresh_pty(&agent_cmd)
             || crate::service::codex_rpc::launch::requested(&svc, &agent_cmd);
         let reusable_pty = existing_pty.clone().filter(|_| !fresh_pty);
         let (backend_pty, reused_live_pty) = match reusable_pty {
@@ -420,7 +434,13 @@ pub fn launch_agent_in_background_with_env(
                     return;
                 }
             },
-            None => match spawn_backend_pty(&svc, &tab_id, &launch_env, &agent_cmd) {
+            None => match spawn_backend_pty(
+                &svc,
+                &tab_id,
+                &launch_env,
+                &agent_cmd,
+                direct_pty_id.as_deref().zip(direct_spec.as_ref()),
+            ) {
                 Ok(backend_pty) => (backend_pty, false),
                 Err(failure) => {
                     let error = failure.reason();
@@ -443,13 +463,21 @@ pub fn launch_agent_in_background_with_env(
             id: candidate_pty_id,
             reader: reader_readiness,
         } = backend_pty;
-        let selection = svc.link_provider_launch_pty(
-            &pty_claim,
-            &tab_id,
-            candidate_pty_id,
-            existing_pty.as_deref(),
-            fresh_pty,
-        );
+        let selection = if direct {
+            crate::service::pty_ownership::PtySelection {
+                pty_id: candidate_pty_id,
+                linked: true,
+                retained_candidate: true,
+            }
+        } else {
+            svc.link_provider_launch_pty(
+                &pty_claim,
+                &tab_id,
+                candidate_pty_id,
+                existing_pty.as_deref(),
+                fresh_pty,
+            )
+        };
         if !selection.linked {
             let error = LaunchFailure::TabClosed.reason();
             launch.fail(&svc, LaunchFailure::TabClosed);
@@ -461,7 +489,7 @@ pub fn launch_agent_in_background_with_env(
             return;
         }
         let mut pty_id = selection.pty_id;
-        if !launch.replace(pty_id.clone()) {
+        if !direct && !launch.replace(pty_id.clone()) {
             return;
         }
         if !launch.emit(&svc, BootStage::PtySpawned) {
@@ -487,19 +515,25 @@ pub fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::ReaderReady) {
             return;
         }
-
-        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "preparation_wait_enter");
-        let launch_cmd = match preparation.finish() {
-            Ok(command) => command,
-            Err(reason) => {
-                launch.fail(&svc, LaunchFailure::LaunchWrite(reason.clone()));
-                set_booting(&launch, false);
-                if let Some(tx) = ready_tx {
-                    let _ = tx.send(Err(reason));
-                }
+        if direct {
+            if !backend_spawn::mark_direct_reader_ready(&mut launch, &svc, &mut delivery_gate) {
                 return;
             }
-        };
+        }
+
+        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "preparation_wait_enter");
+        let launch_cmd =
+            match preparation.map_or(Ok(launch_cmd), |preparation| preparation.finish()) {
+                Ok(command) => command,
+                Err(reason) => {
+                    launch.fail(&svc, LaunchFailure::LaunchWrite(reason.clone()));
+                    set_booting(&launch, false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(reason));
+                    }
+                    return;
+                }
+            };
         crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "preparation_done");
         let structured = crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some();
         let binding_turn = if structured {
@@ -630,24 +664,27 @@ pub fn launch_agent_in_background_with_env(
         }
         crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_enter");
         crate::service::task_files::retire_settings_for_launch(&svc, &tab_id, &launch_cmd);
-        if let Err(error) = launch.capture_binding_nonce(
-            &svc,
-            task_identity.as_ref(),
-            public_send_key,
-            origin,
-            resume_session_id.as_deref(),
-            reserved_nonce,
-        ) {
-            let failure = LaunchFailure::StartupSupervision(error.clone());
-            launch.fail(&svc, failure);
-            set_booting(&launch, false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(error));
+        if !direct {
+            if let Err(error) = launch.capture_binding_nonce(
+                &svc,
+                task_identity.as_ref(),
+                public_send_key,
+                origin,
+                resume_session_id.as_deref(),
+                reserved_nonce,
+            ) {
+                let failure = LaunchFailure::StartupSupervision(error.clone());
+                launch.fail(&svc, failure);
+                set_booting(&launch, false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
             }
-            return;
+            readiness_registration = Some(generation::ReadinessRegistration::new(
+                launch.attempt().expect("launch binding nonce"),
+            ));
         }
-        let mut readiness_registration =
-            generation::ReadinessRegistration::new(launch.attempt().expect("launch binding nonce"));
         drop(pty_claim);
         crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_done");
         let mut wrapped_launch_cmd = command_with_binding_nonce(
@@ -672,7 +709,8 @@ pub fn launch_agent_in_background_with_env(
                 pty_id
             );
         }
-        if !shell_ready_from_exit
+        if !direct
+            && !shell_ready_from_exit
             && !crate::service::pty_io::await_bare_shell_prompt(
                 &svc.screen_state,
                 &pty_id,
@@ -687,7 +725,7 @@ pub fn launch_agent_in_background_with_env(
             }
             return;
         }
-        if !launch.emit(&svc, BootStage::ShellReady) {
+        if !direct && !launch.emit(&svc, BootStage::ShellReady) {
             return;
         }
         delivery_gate.mark_shell_ready();
@@ -699,7 +737,7 @@ pub fn launch_agent_in_background_with_env(
                 )
             })
             .unwrap_or(crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback);
-        if !launch.emit(&svc, BootStage::AgentLaunching) {
+        if !direct && !launch.emit(&svc, BootStage::AgentLaunching) {
             return;
         }
         if reader_monitor.closed() {
@@ -713,7 +751,11 @@ pub fn launch_agent_in_background_with_env(
         }
         // (#93 — keeps shell-level launch off the bracketed-paste path).
         let first_launch = match launch.write_if_current(|| {
-            svc.send_launch_command_to_pty_after_ready(&pty_id, &wrapped_launch_cmd)
+            if direct {
+                Ok(())
+            } else {
+                svc.send_launch_command_to_pty_after_ready(&pty_id, &wrapped_launch_cmd)
+            }
         }) {
             Some(result) => result,
             None => return,
@@ -777,9 +819,9 @@ pub fn launch_agent_in_background_with_env(
                             }
                             return;
                         }
-                        readiness_registration = generation::ReadinessRegistration::new(
+                        readiness_registration = Some(generation::ReadinessRegistration::new(
                             launch.attempt().expect("replacement launch binding nonce"),
-                        );
+                        ));
                         drop(replacement_claim);
                         wrapped_launch_cmd = command_with_binding_nonce(
                             &launch_cmd,
@@ -838,7 +880,7 @@ pub fn launch_agent_in_background_with_env(
             }
             return;
         }
-        if !launch.emit(&svc, BootStage::LaunchWritten) {
+        if !direct && !launch.emit(&svc, BootStage::LaunchWritten) {
             log::warn!(
                 "[provider-readiness-stage] tab={} pty={} ownership_lost_after_launch_write",
                 tab_id,
@@ -902,7 +944,10 @@ pub fn launch_agent_in_background_with_env(
             )
         });
         if readiness_receiver.is_some() {
-            readiness_registration.handoff();
+            readiness_registration
+                .as_mut()
+                .expect("launch readiness registered")
+                .handoff();
             crate::startup::boot_timing::mark(
                 &tab_id,
                 Some(&pty_id),

@@ -127,7 +127,7 @@ fn link_seeding_uses_the_same_absolute_offset_as_native_history_reads() {
     ));
     output_buf.lock().append(pty_id, b"fresh banner\r\n");
     let buf = output_buf.lock();
-    let native_history = buf.get_full(pty_id).unwrap();
+    let native_history = buf.copy_full(pty_id).unwrap();
     let web_history = buf.read_since(pty_id, 0);
     assert_eq!(native_history, web_history.0.as_slice());
     assert_eq!(buf.total_written(pty_id), web_history.1);
