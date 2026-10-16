@@ -39,7 +39,7 @@ it("opens the Web panel from its graph node with the live Serve status and targe
   const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
   try {
     await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />));
-    const web = host.querySelector<HTMLButtonElement>('button[aria-label="Web"]');
+    const web = host.querySelector<HTMLButtonElement>('button[aria-label="Mesh"]');
     expect(web).not.toBeNull();
     await act(async () => web!.click());
     expect(host.querySelector('[role="dialog"][aria-labelledby="web-access-heading"]')).not.toBeNull();
