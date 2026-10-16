@@ -23,6 +23,8 @@ fn materialized_arguments(mut spec: LaunchSpec) -> LaunchSpec {
 }
 
 pub(super) fn assert_native_js_parity(native: &dyn AgentProvider, js: &dyn AgentProvider) {
+    assert!(native.declares_launch_spec());
+    assert_eq!(native.declares_launch_spec(), js.declares_launch_spec());
     for skip_permissions in [false, true] {
         let resume = crate::provider::AgentResumeParams {
             session_id: "own-resume-session".into(),
@@ -158,4 +160,25 @@ fn launch_spec_export_wins_and_absence_stays_on_shell_host() {
         .launch_spec(&LaunchSpecParams::Fresh(&Default::default()))
         .is_none());
     }
+}
+
+#[test]
+fn launch_spec_declaration_tracks_manifest_and_export_reload() {
+    let template = fixture(
+        serde_json::json!({"program": "fixture", "args": []}),
+        "module.exports.default = {};",
+    );
+    assert!(template.declares_launch_spec());
+    let js = load_inline_js("declaration", "module.exports.default = {};");
+    assert!(!js.declares_launch_spec());
+    js.vm()
+        .reload(
+            "module.exports.default = {buildLaunchSpec() { throw Error('not queried'); }};".into(),
+        )
+        .unwrap();
+    assert!(js.declares_launch_spec());
+    js.vm()
+        .reload("module.exports.default = {};".into())
+        .unwrap();
+    assert!(!js.declares_launch_spec());
 }

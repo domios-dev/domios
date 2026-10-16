@@ -708,3 +708,22 @@ fn vm_serialization_error_in_flight_surfaces_and_leaves_the_vm_usable() {
         .expect("await after an error failed");
     assert_eq!(out["tag"], "again");
 }
+
+#[test]
+fn launch_spec_declaration_does_not_take_the_vm_lock() {
+    let vm = Arc::new(
+        super::PluginVm::from_source(
+            "declaration-lock",
+            "module.exports.default = {buildLaunchSpec() { return null; }};".into(),
+        )
+        .unwrap(),
+    );
+    let held = vm.inner.lock();
+    let queried = vm.clone();
+    let (tx, rx) = mpsc::channel();
+    let query = thread::spawn(move || tx.send(queried.declares_launch_spec()).unwrap());
+    let observed = rx.recv_timeout(Duration::from_secs(1));
+    drop(held);
+    query.join().unwrap();
+    assert_eq!(observed, Ok(true));
+}
