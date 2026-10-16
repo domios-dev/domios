@@ -193,3 +193,32 @@ async fn lag_is_bookkeeping_not_a_close() {
 fn warning_ids_are_unique_inside_one_epoch() {
     assert_ne!(bookkeeping::warning_id(3), bookkeeping::warning_id(3));
 }
+
+#[tokio::test]
+async fn bookkeeping_resync_requests_ascending_history_and_lands_it_in_order() {
+    let mut scene = fixtures::scene();
+    *scene.probe.history.lock() = ["a", "b", "c"].map(String::from).to_vec();
+    let process = scene.session.process.lock().clone().unwrap();
+    let svc = scene.fixture.service.clone();
+    let session = scene.session.clone();
+    let answer = async {
+        for _ in 0..4 {
+            let line = fixtures::read(&mut scene.peer).await;
+            fixtures::write(&mut scene.peer, json!({"id": line["id"], "result": {}})).await;
+        }
+    };
+    let (result, ()) = tokio::join!(bookkeeping::resync(&svc, &session, &process), answer);
+    result.unwrap();
+    let ids: Vec<_> = session
+        .cache
+        .lock()
+        .snapshot()
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
+    assert_eq!(ids, ["a", "b", "c"]);
+    assert_eq!(
+        *scene.probe.history_orders.lock(),
+        [Some(HistoryOrder::Asc); 3]
+    );
+}

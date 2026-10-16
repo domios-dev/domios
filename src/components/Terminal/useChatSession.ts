@@ -17,6 +17,7 @@ import type {
 import { onResync } from "../../lib/resync";
 import { frontendBootDiagnostic } from "../../lib/frontendBootDiagnostic";
 import { resyncRequiresTranscriptRecovery } from "../../lib/resyncModel";
+import { runtimeHistorySettled, type RuntimeHistoryState } from "../../lib/agentRuntimeState";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import {
   canAdoptTranscriptAuthority,
@@ -97,6 +98,7 @@ export function useChatSession({
   diagnosticSink,
   allowUnboundAuthority = false,
   followTailRef: suppliedFollowTailRef,
+  history,
 }: {
   tabId: string;
   agentSessionId: string | null;
@@ -108,6 +110,8 @@ export function useChatSession({
   /** Plugin chatBackend tabs have tab-owned backing without a PTY session id. */
   allowUnboundAuthority?: boolean;
   followTailRef?: MutableRefObject<boolean>;
+  /** Runtime history replay state; its completion re-reads the transcript snapshot. */
+  history?: RuntimeHistoryState;
 }) {
   const windowKey = transcriptWindowKey(tabId, agentSessionId);
   const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey);
@@ -680,6 +684,14 @@ export function useChatSession({
 
   const retry = useCallback(() => requestRecoveryAttach(), [requestRecoveryAttach]);
 
+  const historyRef = useRef(history);
+  useEffect(() => {
+    const previous = historyRef.current;
+    historyRef.current = history;
+    if (active && runtimeHistorySettled(previous, history)) requestRecoveryAttach(true, "history_settled");
+  }, [active, history, requestRecoveryAttach]);
+  const historyLoading = history === "loading";
+
   useEffect(() => {
     if (!active) return;
     return onResync(reason => {
@@ -728,8 +740,8 @@ export function useChatSession({
     enrichedMessages: view.enrichedMessages,
     hiddenMessageCount: view.hiddenMessageCount,
     newerMessageCount: view.newerMessageCount,
-    canBackfillOlder: view.canBackfillOlder,
-    backfillLoading: view.backfillLoading,
+    canBackfillOlder: view.canBackfillOlder || historyLoading,
+    backfillLoading: view.backfillLoading || historyLoading,
     loadOlder: view.loadOlder,
     showLatest: view.showLatest,
     prepareMessage: view.prepareMessage,

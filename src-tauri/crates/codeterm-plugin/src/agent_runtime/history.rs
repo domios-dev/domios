@@ -10,6 +10,7 @@ pub struct RuntimeHistory {
     open_items: Vec<OpenItem>,
     questions: Vec<RuntimeHistoryQuestion>,
     requests: std::collections::HashSet<(String, String)>,
+    order: Option<HistoryOrder>,
 }
 
 impl RuntimeHistory {
@@ -24,11 +25,13 @@ impl RuntimeHistory {
             items,
             open_items,
             questions,
+            order,
             ..
         } = page
         else {
             return;
         };
+        self.order = order.or(self.order);
         if !items.is_empty() || !open_items.is_empty() {
             self.requests.clear();
         }
@@ -83,6 +86,7 @@ impl RuntimeHistory {
             open_items: self.open_items,
             next_cursor,
             questions: (!self.questions.is_empty()).then_some(self.questions),
+            order: self.order,
         }
     }
 }
