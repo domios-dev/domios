@@ -1,4 +1,5 @@
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { heldMessagesForLaunch } from "./chatSetupModel";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
@@ -797,6 +798,7 @@ function TabSessionChatBody({
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
       aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && (!snapshotReady || chatChannelLoading)}
       style={{
+        ...chatLayoutTokens().variables,
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
       }}
