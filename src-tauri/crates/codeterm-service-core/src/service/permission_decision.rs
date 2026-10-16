@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -250,7 +251,7 @@ pub fn sync_display(svc: &ServiceContext, tab_id: &str) {
         "prompt-state-changed",
         serde_json::to_value(json!({"tab_id":tab_id,"prompt":prompt})).unwrap_or_default(),
     );
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::Prompt);
 }
 
 pub(crate) fn respond_with_identity(

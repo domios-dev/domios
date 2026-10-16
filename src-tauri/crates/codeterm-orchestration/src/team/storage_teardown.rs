@@ -1,4 +1,5 @@
 use codeterm_service_core::multiplexer::types::TabCloseReason;
+use codeterm_service_core::service::MuxEmitCause;
 use codeterm_service_core::service::ServiceContext;
 
 use super::close::PreparedTeamClose;
@@ -126,5 +127,5 @@ pub(super) async fn finish_storage_team_teardown(
     teardown.wake.notify_all();
     teardown.sentinel.wake.notify();
     svc.emit_cron_changed();
-    svc.emit_state_changed_after_bus_publish();
+    svc.emit_state_changed_after_bus_publish(MuxEmitCause::Team);
 }

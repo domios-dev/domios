@@ -5,7 +5,9 @@ fn burst_emits_once_with_last_generation_and_identical_published_bytes() {
     let (emitter, receiver) = Emitter::channel();
     let pending = emitter.pending.clone();
     for generation in 1..=100 {
-        assert!(emitter.request(generation, None).is_none());
+        assert!(emitter
+            .request(generation, None, Some(MuxEmitCause::TabStatus))
+            .is_none());
     }
     drop(emitter);
     let published = PublishedMuxState::new(0, &serde_json::json!({"generation": 0})).unwrap();
@@ -13,7 +15,7 @@ fn burst_emits_once_with_last_generation_and_identical_published_bytes() {
     run(
         receiver,
         pending,
-        |generation, snapshot_requested, focuses| {
+        |generation, snapshot_requested, focuses, _| {
             assert!(snapshot_requested);
             assert!(focuses.is_empty());
             let snapshot = serde_json::json!({"generation": generation});
@@ -32,14 +34,18 @@ fn burst_emits_once_with_last_generation_and_identical_published_bytes() {
 fn mutation_during_emission_produces_one_trailing_emission() {
     let (emitter, receiver) = Emitter::channel();
     let pending = emitter.pending.clone();
-    assert!(emitter.request(1, None).is_none());
+    assert!(emitter
+        .request(1, None, Some(MuxEmitCause::TabStatus))
+        .is_none());
     let mut emitter = Some(emitter);
     let mut emissions = Vec::new();
-    run(receiver, pending, |generation, _, _| {
+    run(receiver, pending, |generation, _, _, _| {
         emissions.push(generation);
         if let Some(emitter) = emitter.take() {
             for generation in 2..=100 {
-                assert!(emitter.request(generation, None).is_none());
+                assert!(emitter
+                    .request(generation, None, Some(MuxEmitCause::TabStatus))
+                    .is_none());
             }
         }
     });
@@ -58,7 +64,9 @@ fn focus_is_emitted_after_snapshot_of_committed_focus() {
     let service = &fixture.service;
     let (emitter, receiver) = Emitter::channel();
     let pending = emitter.pending.clone();
-    assert!(emitter.request(service.clone(), None).is_none());
+    assert!(emitter
+        .request(service.clone(), None, Some(MuxEmitCause::TabStatus))
+        .is_none());
     crate::service::tab::focus_tab_hot_path(
         &service.mux,
         &target,
@@ -66,7 +74,7 @@ fn focus_is_emitted_after_snapshot_of_committed_focus() {
             assert_ne!(focused, tab_id);
             assert_eq!(service.mux.read().get_focused_tab_id(), Some(focused));
             assert!(emitter
-                .request(service.clone(), Some(focused.to_owned()))
+                .request(service.clone(), Some(focused.to_owned()), None)
                 .is_none());
         },
         || {},
@@ -97,8 +105,8 @@ fn disconnected_emitter_returns_unpublished_state_for_recovery() {
     let (emitter, receiver) = Emitter::channel();
     drop(receiver);
     assert_eq!(
-        emitter.request(7, Some("tab".into())),
-        Some((7, false, vec!["tab".into()]))
+        emitter.request(7, Some("tab".into()), None),
+        Some((7, false, vec!["tab".into()], 0))
     );
     assert!(emitter.pending.lock().latest.is_none());
 }
@@ -113,12 +121,14 @@ fn idle_emitter_wakes_on_request_and_exits_when_owner_drops() {
     let (emitted_tx, emitted_rx) = mpsc::channel();
     let worker = std::thread::spawn(move || {
         ready_tx.send(()).unwrap();
-        run(receiver, pending, |generation, _, _| {
+        run(receiver, pending, |generation, _, _, _| {
             emitted_tx.send(generation).unwrap();
         });
     });
     ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-    assert!(emitter.request(42, None).is_none());
+    assert!(emitter
+        .request(42, None, Some(MuxEmitCause::TabStatus))
+        .is_none());
     assert_eq!(emitted_rx.recv_timeout(Duration::from_secs(2)).unwrap(), 42);
     drop(emitter);
     worker.join().unwrap();
@@ -128,17 +138,67 @@ fn idle_emitter_wakes_on_request_and_exits_when_owner_drops() {
 fn focus_only_burst_preserves_every_focus_without_requesting_snapshot() {
     let (emitter, receiver) = Emitter::channel();
     let pending = emitter.pending.clone();
-    assert!(emitter.request(1, Some("first".into())).is_none());
-    assert!(emitter.request(2, Some("second".into())).is_none());
+    assert!(emitter.request(1, Some("first".into()), None).is_none());
+    assert!(emitter.request(2, Some("second".into()), None).is_none());
     drop(emitter);
     let mut emissions = Vec::new();
     run(
         receiver,
         pending,
-        |generation, snapshot_requested, focuses| {
+        |generation, snapshot_requested, focuses, _| {
             assert!(!snapshot_requested);
             emissions.push((generation, focuses));
         },
     );
     assert_eq!(emissions, [(2, vec!["first".into(), "second".into()])]);
+}
+
+#[test]
+fn mixed_cause_burst_counts_requests_and_attributes_one_fire_to_both() {
+    let stats = MuxEmitStats::default();
+    let (emitter, receiver) = Emitter::channel();
+    let pending = emitter.pending.clone();
+    for cause in [
+        MuxEmitCause::Title,
+        MuxEmitCause::TabStatus,
+        MuxEmitCause::Title,
+    ] {
+        stats.causes.request(cause);
+        stats.requests.fetch_add(1, Ordering::Relaxed);
+        assert!(emitter.request(1, None, Some(cause)).is_none());
+    }
+    drop(emitter);
+    run(receiver, pending, |_, snapshot_requested, _, causes| {
+        assert!(snapshot_requested);
+        stats.fires.fetch_add(1, Ordering::Relaxed);
+        stats.causes.fire(causes);
+    });
+    let counts = stats.causes.snapshot();
+    assert_eq!(stats.requests.load(Ordering::Relaxed), 3);
+    assert_eq!(stats.fires.load(Ordering::Relaxed), 1);
+    assert_eq!(counts[&MuxEmitCause::Title].requests, 2);
+    assert_eq!(counts[&MuxEmitCause::TabStatus].requests, 1);
+    assert_eq!(counts[&MuxEmitCause::Title].fires, 1);
+    assert_eq!(counts[&MuxEmitCause::TabStatus].fires, 1);
+    assert_eq!(counts[&MuxEmitCause::Cwd].requests, 0);
+    assert_eq!(counts[&MuxEmitCause::Cwd].fires, 0);
+}
+
+#[test]
+fn trailing_batch_does_not_inherit_previous_causes() {
+    let (emitter, receiver) = Emitter::channel();
+    let pending = emitter.pending.clone();
+    emitter.request(1, None, Some(MuxEmitCause::Title));
+    let mut emitter = Some(emitter);
+    let mut batches = Vec::new();
+    run(receiver, pending, |_, _, _, causes| {
+        batches.push(causes);
+        if let Some(emitter) = emitter.take() {
+            emitter.request(2, None, Some(MuxEmitCause::Cwd));
+        }
+    });
+    assert_eq!(
+        batches,
+        [MuxEmitCause::Title.bit(), MuxEmitCause::Cwd.bit()]
+    );
 }

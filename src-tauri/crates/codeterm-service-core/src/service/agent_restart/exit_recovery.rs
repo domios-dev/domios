@@ -1,6 +1,7 @@
 //! In-place recovery of a provider that exited to its tab's surviving shell:
 //! the owning provider resumes the tab's own verified session on the same PTY.
 
+use crate::service::MuxEmitCause;
 mod general_fresh;
 
 use std::time::Duration;
@@ -463,7 +464,7 @@ impl ServiceContext {
             crate::service::boot_stage::apply_boot_stage(tab, BootStage::PtyStarting, None);
         }
         crate::service::boot_wait::notify_boot_changed();
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentRestart);
         Ok(())
     }
 }

@@ -1,6 +1,7 @@
 //! Single owner of provisional-tab rollback: removal + authorized-reduction persist together.
 
 use crate::multiplexer::types::TabCloseReason;
+use crate::service::MuxEmitCause;
 
 impl super::ServiceContext {
     /// Roll back a provisional spawn tab (no closed-history record) and persist:
@@ -59,7 +60,7 @@ impl super::ServiceContext {
         };
         if !tab_exists {
             super::session_persist::persist_session_after_close(self);
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabLifecycle);
             return format!(
                 "{failure}; close reported an error after removing Tab {tab_id}: {close_error}"
             );
@@ -77,7 +78,7 @@ impl super::ServiceContext {
 
         let cleanup_error = self.finish_tab_close(tab_id).err();
         self.rollback_provisional_tab(&workspace_id, tab_id);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
         if self.mux.read().get_tab(tab_id).is_some() {
             return format!(
                 "{failure}; cleanup failed because Tab {tab_id} remains; close error: {close_error}"

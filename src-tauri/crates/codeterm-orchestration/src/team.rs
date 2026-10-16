@@ -1,3 +1,4 @@
+use codeterm_service_core::service::MuxEmitCause;
 use codeterm_types::agent::role_kind::{self, builtins::ORCHESTRATOR, builtins::PLANNER};
 use codeterm_types::team::Team;
 
@@ -47,7 +48,7 @@ impl TeamExt for ServiceContext {
         let mut mux = self.mux.write();
         let team = rename_team_with_state_change(&mut mux, &self.events, team_id, name, &caller)?;
         drop(mux);
-        self.emit_state_changed_after_bus_publish();
+        self.emit_state_changed_after_bus_publish(MuxEmitCause::Team);
         let _ = codeterm_service_core::service::session_persist::persist_session_after_mutation(
             self,
             codeterm_service_core::service::session_persist::SessionPersistUrgency::Prompt,
@@ -172,7 +173,7 @@ pub async fn add_team_member(
     if detached_failed_anchor {
         codeterm_service_core::service::publish_mux_state_changed(&svc.events);
         codeterm_service_core::service::session_persist::persist_session_after_close(svc);
-        svc.emit_state_changed_after_bus_publish();
+        svc.emit_state_changed_after_bus_publish(MuxEmitCause::Team);
     }
     let mut spawn_params = prepared.spawn_params;
     attach_manager_bootstrap(svc, team_id, caller_tab_id, &mut spawn_params)?;
@@ -234,7 +235,7 @@ pub async fn add_team_member(
     {
         svc.emit_plan_changed(&takeover.plan_id);
     }
-    svc.emit_state_changed_after_bus_publish();
+    svc.emit_state_changed_after_bus_publish(MuxEmitCause::Team);
     Ok(result)
 }
 
@@ -323,7 +324,7 @@ pub fn adopt_agent_for_team(
         codeterm_service_core::service::publish_mux_state_changed(&svc.events);
         team
     };
-    svc.emit_state_changed_after_bus_publish();
+    svc.emit_state_changed_after_bus_publish(MuxEmitCause::Team);
     Ok(team)
 }
 
@@ -559,7 +560,7 @@ async fn finish_team_teardown(svc: &ServiceContext, team_id: &str) -> Result<(),
         {
             log::error!("Failed to delete Team delayed series {team_id}: {error}");
         }
-        service.emit_state_changed_after_bus_publish();
+        service.emit_state_changed_after_bus_publish(MuxEmitCause::Team);
         Ok(())
     })
     .await
@@ -579,7 +580,7 @@ pub fn adopt_plan_for_team(
     drop(mux);
     svc.ui
         .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::Team);
     Ok(plan)
 }
 
@@ -626,7 +627,7 @@ pub fn transfer_team_plan(
         now_ms,
     )?;
     drop(mux);
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::Team);
     svc.emit_plan_changed(plan_id);
     Ok(plan)
 }

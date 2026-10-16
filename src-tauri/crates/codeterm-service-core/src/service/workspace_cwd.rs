@@ -1,4 +1,5 @@
 use super::{session_persist, spawn_cwd::validate_spawn_cwd, ServiceContext};
+use crate::service::MuxEmitCause;
 use serde::Serialize;
 
 pub struct WorkspaceRelocationLock(pub std::sync::Arc<parking_lot::Mutex<()>>);
@@ -139,7 +140,7 @@ impl ServiceContext {
             changed
         };
         if changed {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Cwd);
         }
         Ok(missing)
     }
@@ -224,7 +225,7 @@ impl ServiceContext {
         for plan_id in &result.updated_plans {
             self.emit_plan_changed(plan_id);
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Cwd);
         Ok(result)
     }
 }

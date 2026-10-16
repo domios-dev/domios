@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -207,7 +208,7 @@ fn reattach(svc: &ServiceContext, tab: &str, nonce: &str, id: &str) -> bool {
     }
     let attached = super::lifecycle::wait_attached(tab, nonce, std::time::Duration::from_secs(30));
     if attached {
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     }
     attached
 }

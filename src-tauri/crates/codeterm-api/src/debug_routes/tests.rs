@@ -1,6 +1,6 @@
 use super::event_stats_snapshot;
 use crate::stream_census::{StreamCensus, StreamKind, StreamScope};
-use codeterm_service_core::service::MuxEmitStats;
+use codeterm_service_core::service::{MuxEmitCause, MuxEmitStats};
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -15,6 +15,14 @@ fn event_stats_adds_streams_and_preserves_mux_emit_observations() {
     let guard = census.open(StreamKind::Events, StreamScope::Local);
     let value = event_stats_snapshot(&stats, true, 140, &census);
     assert_eq!(value["emit_requests"], 9);
+    assert_eq!(
+        value["emit_causes"].as_object().unwrap().len(),
+        MuxEmitCause::ALL.len()
+    );
+    assert_eq!(
+        value["emit_causes"]["tab_status"],
+        serde_json::json!({"requests": 0, "fires": 0})
+    );
     assert_eq!(value["emit_fires"], 7);
     assert_eq!(value["emit_suppressed"], 2);
     assert_eq!(value["pending"], true);

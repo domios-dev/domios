@@ -20,6 +20,8 @@ Concurrent publication can omit an event without an `overflow` frame (`rollacode
 
 Authenticated `GET /api/debug/events/stats` includes `streams` alongside the mux emit counters. The census is always enabled, independently of `diagnostics.terminal_transport`.
 
+`emit_causes` reports `requests` and `fires` for each closed cause label (including zero counts). A coalesced fire is attributed once to every cause in its batch, so per-cause fires can sum above `emit_fires`. These counters describe the native mux snapshot emitter, like the existing totals; they do not count SSE publications separately.
+
 ```json
 {"streams":{"live":1,"opened":3,"closed":2,"entries":[{"kind":"events","scope":"local","live":1,"opened":3,"closed":2}]}}
 ```
@@ -28,4 +30,4 @@ Authenticated `GET /api/debug/events/stats` includes `streams` alongside the mux
 
 `live` counts open response streams, including bodies that have not yet been polled. Completion, client disconnect, cancellation and panic unwind release the count. `opened` and `closed` are monotonic within the daemon process and reset on restart. A snapshot reads atomic counters independently; concurrent opens/closes can briefly make `opened - closed` differ from `live`. After stream owners finish, `live` returns to the baseline and opened/closed deltas balance. Finite JSON and asset responses are outside the SSE census.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

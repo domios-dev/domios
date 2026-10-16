@@ -1,6 +1,7 @@
 //! Spawn path for non-PTY `chatBackend` tabs (`pty_id: None`, no backend
 //! reader); inbound transcript arrives via the plugin `poll` → `StructuredSink`.
 
+use crate::service::MuxEmitCause;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -490,13 +491,13 @@ impl ServiceContext {
             if let Err(e) = role_result {
                 self.rollback_provisional_tab_via_close(&tab_id);
                 if emit_state_change {
-                    self.emit_state_changed();
+                    self.emit_state_changed(MuxEmitCause::TabLifecycle);
                 }
                 return Err(e);
             }
         }
         if role.is_none() && emit_state_change {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabLifecycle);
         }
 
         self.ensure_agent_pad(&tab_id).inspect_err(|_| {
@@ -519,7 +520,7 @@ impl ServiceContext {
                 let _ = self.revoke_agent_pad(&tab_id);
             }
             if emit_state_change {
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::TabLifecycle);
             }
             return Err(error);
         }
@@ -726,7 +727,7 @@ impl ServiceContext {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
             return Err(error);
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
 
         log::info!(
             "[spawn.chatbackend] Tab {} backed by plugin '{}' session '{}'",
@@ -922,7 +923,7 @@ impl ServiceContext {
         if cleared {
             log::warn!("[watcher] stale inflight tick cleared for Tab {}", tab_id);
             self.emit_watcher_note(tab_id, "Watcher tick timed out; scheduling will resume.");
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Watcher);
         }
         cleared
     }
@@ -952,7 +953,7 @@ impl ServiceContext {
                 spec.tick_inflight_since_ms = Some(now_ms);
             }
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Watcher);
     }
 
     fn backoff_watcher_tick(&self, tab_id: &str, now_ms: u64) {
@@ -964,7 +965,7 @@ impl ServiceContext {
                 spec.tick_inflight_since_ms = None;
             }
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Watcher);
     }
 
     fn build_watcher_observation(
@@ -1057,7 +1058,7 @@ impl ServiceContext {
         };
         if applied {
             self.execute_watcher_actions(tab_id, &actions, now_ms, cooldowns);
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Watcher);
         } else {
             log::warn!(
                 "[watcher] dropping late verdict {} for Tab {} with no inflight tick",
